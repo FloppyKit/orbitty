@@ -42,14 +42,14 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
 }
 
 /// GO-ORBITTY-SLIM-PANES: pane specs mirror the pre-slim tauri.conf.json
-/// entries (transparent, Overlay, hiddenTitle, no drag-drop; companion keeps
-/// its 280×360 minimum). Panes are created on first open and kept warm on
-/// hide — launch spawns the rail only, and hide never destroys.
+/// entries (transparent, Overlay, hiddenTitle, no drag-drop).
+/// GO-ORBITTY-COMPANION-MIN: idle companion floor is Matt’s 2026-09-02
+/// live window (619×647). Hug still drops to 280×120.
 /// Returns (title, width, height, min (w, h)).
 pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(f64, f64)>)> {
     match label {
         "kanban" => Some(("", 780.0, 520.0, None)),
-        "companion" => Some(("", 520.0, 780.0, Some((280.0, 360.0)))),
+        "companion" => Some(("", 619.0, 647.0, Some((619.0, 647.0)))),
         // GO-ORBITTY-PANE-404: no "stars" spec — Board+STARS share the one
         // `kanban` overlay, so nothing may ever spawn/pin a `stars` pane.
         "settings" | "sky" => Some(("", 420.0, 560.0, None)),
@@ -91,6 +91,11 @@ pub(crate) fn ensure_window(
     label: &str,
 ) -> Result<tauri::WebviewWindow, String> {
     if let Some(w) = app.get_webview_window(label) {
+        // COMPANION-MIN: already-created panes keep the old 280×360 until
+        // hug/unhug; re-assert the idle floor on every ensure.
+        if label == "companion" && !companion_hugged() {
+            companion_min_size(&w, false);
+        }
         return Ok(w);
     }
     let Some((title, width, height, min)) = pane_spec(label) else {
@@ -331,16 +336,15 @@ pub(crate) fn companion_hugged() -> bool {
     hug_stash().lock().map(|s| s.is_some()).unwrap_or(false)
 }
 
-/// The 360 companion min-height blocks the bar (a ~160–220 bar cannot
-/// exist at that floor), so it drops to 120 while hugged and returns to
-/// the pane-spec min on unhug.
+/// The idle companion min (619×647) blocks the hug bar, so it drops to
+/// 120 while hugged and returns to the pane-spec min on unhug.
 fn companion_min_size(w: &tauri::WebviewWindow, hugged: bool) {
     let (mw, mh) = if hugged {
         (280.0, 120.0)
     } else {
         pane_spec("companion")
             .and_then(|(_, _, _, m)| m)
-            .unwrap_or((280.0, 360.0))
+            .unwrap_or((619.0, 647.0))
     };
     let _ = w.set_min_size(Some(tauri::LogicalSize::new(mw, mh)));
 }
