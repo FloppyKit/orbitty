@@ -2618,6 +2618,15 @@
     display: block;
   }
 
+  /* CAPTION-CHUNK bounce: sprite-off hug has no air above the CC — the
+     overlay opened off the top of the window. Open down over the dock
+     instead. Do not grow the idle frame. */
+  .ghost.spriteoff .cc-hover {
+    bottom: auto;
+    top: calc(100% + 4px);
+    max-height: 45vh;
+  }
+
   .ccrow.them.slotfull .cc.bot {
     overflow-y: auto;
     max-height: 40vh;
