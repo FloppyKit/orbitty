@@ -1,0 +1,77 @@
+{
+  "directoryUrl": "https://kenney.nl/assets",
+  "note": "Kenney CC0. Direct zip URLs — user-clicked Install only. Confirm license = CC0 on the page.",
+  "packs": [
+    {
+      "id": "mini-characters",
+      "title": "Mini Characters",
+      "author": "Kenney",
+      "url": "https://kenney.nl/assets/mini-characters",
+      "zip": "https://kenney.nl/media/pages/assets/mini-characters/bfc7e272b4-1774770718/kenney_mini-characters.zip",
+      "cover": "https://kenney.nl/media/pages/assets/mini-characters/357d1a9452-1721210569/preview.png",
+      "role": "walker",
+      "installable": true
+    },
+    {
+      "id": "roguelike-characters",
+      "title": "Roguelike Characters",
+      "author": "Kenney",
+      "url": "https://kenney.nl/assets/roguelike-characters",
+      "zip": "https://kenney.nl/media/pages/assets/roguelike-characters/53ffff4133-1729196490/kenney_roguelike-characters.zip",
+      "cover": "https://kenney.nl/media/pages/assets/roguelike-characters/86559e078a-1677694929/preview.png",
+      "role": "walker",
+      "installable": true
+    },
+    {
+      "id": "toon-characters",
+      "title": "Toon Characters",
+      "author": "Kenney",
+      "url": "https://kenney.nl/assets/toon-characters",
+      "zip": "https://kenney.nl/media/pages/assets/toon-characters/4e8a6e4e53-1774770819/kenney_toon-characters.zip",
+      "cover": "https://kenney.nl/media/pages/assets/toon-characters/90a61601f7-1677693113/preview.png",
+      "role": "walker",
+      "installable": true
+    },
+    {
+      "id": "new-platformer-pack",
+      "title": "New Platformer Pack",
+      "author": "Kenney",
+      "url": "https://kenney.nl/assets/new-platformer-pack",
+      "zip": "https://kenney.nl/media/pages/assets/new-platformer-pack/1896103897-1764756702/kenney_new-platformer-pack-1.1.zip",
+      "cover": "https://kenney.nl/assets/new-platformer-pack",
+      "role": "walker",
+      "installable": true
+    },
+    {
+      "id": "1-bit-platformer-pack",
+      "title": "1-Bit Platformer Pack",
+      "author": "Kenney",
+      "url": "https://kenney.nl/assets/1-bit-platformer-pack",
+      "zip": "https://kenney.nl/media/pages/assets/1-bit-platformer-pack/7c1e5f05a4-1677693072/kenney_1-bit-platformer-pack.zip",
+      "cover": "https://kenney.nl/media/pages/assets/1-bit-platformer-pack/56f3b432d2-1677693067/preview.png",
+      "role": "walker",
+      "installable": true
+    },
+    {
+      "id": "tiny-town",
+      "title": "Tiny Town",
+      "author": "Kenney",
+      "url": "https://kenney.nl/assets/tiny-town",
+      "zip": "https://kenney.nl/media/pages/assets/tiny-town/a415fbeb49-1735736916/kenney_tiny-town.zip",
+      "cover": "https://kenney.nl/media/pages/assets/tiny-town/fc6adf02eb-1674742335/preview.png",
+      "role": "habitat",
+      "installable": true,
+      "note": "Buildings/tiles — not a walker. Install for later habitat art; hide from Sprite picker."
+    },
+    {
+      "id": "rpg-urban-pack",
+      "title": "RPG Urban Pack",
+      "author": "Kenney",
+      "url": "https://kenney.nl/assets/rpg-urban-pack",
+      "zip": "https://kenney.nl/media/pages/assets/rpg-urban-pack/0a097d1dc7-1677578575/kenney_rpg-urban-pack.zip",
+      "cover": "https://kenney.nl/media/pages/assets/rpg-urban-pack/2a8a959de1-1677578569/preview.png",
+      "role": "habitat",
+      "installable": true
+    }
+  ]
+}

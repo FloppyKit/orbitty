@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Orbitty uses the microphone only while Talk is Listening, so speech can land in the companion field. It is never always-on.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Orbitty turns what you say while Talk is Listening into text in the companion field. Click Talk again to stop. Send is still your tap.</string>
+</dict>
+</plist>

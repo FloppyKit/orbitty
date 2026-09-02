@@ -1,0 +1,107 @@
+{
+  "dropped": [
+    "Grass",
+    "Ground",
+    "JacobMedieval-Belt",
+    "JacobMedieval-Claymore",
+    "JacobMedieval-Cloak",
+    "JacobMedieval-Pauldron",
+    "JacobMedieval-ShirtBonds",
+    "Rocks"
+  ],
+  "texture_sizes": {
+    "color": [
+      1024,
+      1024
+    ],
+    "props": [
+      16,
+      16
+    ]
+  },
+  "edit_stats": {
+    "deleted": 380,
+    "shrunk": 200,
+    "muzzle": 321,
+    "jaw": 562,
+    "nose": 33,
+    "neck": 34,
+    "head_scaled": 775,
+    "plate_flat": 208
+  },
+  "outline_mapped": 1241,
+  "collar": {
+    "z_top": 1.6004,
+    "z_bot": 1.5154,
+    "r1": 0.1473,
+    "r2": 0.2169
+  },
+  "bounds": {
+    "min": [
+      -0.942,
+      -0.218,
+      -0.007
+    ],
+    "max": [
+      0.942,
+      0.275,
+      1.904
+    ],
+    "height": 1.911
+  },
+  "body_paint": {
+    "size": [
+      1024,
+      1024
+    ],
+    "hue_keys": {
+      "fur": 978328,
+      "red": 48868,
+      "navy": 0
+    },
+    "face_tris": 1630
+  },
+  "eye_cards": [
+    {
+      "side": ".L",
+      "center": [
+        0.0568,
+        -0.119,
+        1.7576
+      ],
+      "rim": 25
+    },
+    {
+      "side": ".R",
+      "center": [
+        -0.0568,
+        -0.119,
+        1.7576
+      ],
+      "rim": 25
+    }
+  ],
+  "swatch_pants": 21,
+  "swatch_shirt": 57,
+  "swatch_boots": 0,
+  "projection": {
+    "texels_seen": 17938,
+    "texels_painted": 2427
+  },
+  "shots": {
+    "front": [
+      "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/cos_src/front.png",
+      true
+    ],
+    "three_quarter": [
+      "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/cos_src/three_quarter.png",
+      true
+    ],
+    "bust": [
+      "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/cos_src/bust.png",
+      true
+    ]
+  },
+  "fbx": "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/cos_src/CoS.fbx",
+  "fbx_bytes": 8121644
+}

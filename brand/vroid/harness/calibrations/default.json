@@ -1,0 +1,46 @@
+{
+  "profile": "default",
+  "app": "VRoid Studio",
+  "updated": "2026-08-26T15:03:13.258178+00:00",
+  "meta": {
+    "bounds": {
+      "x": 704.0,
+      "y": 50.0,
+      "width": 1077.0,
+      "height": 956.0
+    },
+    "scale_x": 1.1884865366759516,
+    "scale_y": 1.1882845188284519,
+    "width": 1280,
+    "height": 1136
+  },
+  "points": {
+    "tab_face": {
+      "x": 175,
+      "y": 48,
+      "note": "top nav Face"
+    },
+    "tab_hairstyle": {
+      "x": 300,
+      "y": 48,
+      "note": "top nav Hairstyle"
+    },
+    "tab_body": {
+      "x": 400,
+      "y": 48,
+      "note": "top nav Body - cliclick works"
+    },
+    "tab_outfit": {
+      "x": 510,
+      "y": 48,
+      "note": "top nav Outfit"
+    },
+    "body_preset_tl": {
+      "x": 130,
+      "y": 220,
+      "note": "whole body top-left preset"
+    }
+  },
+  "input_backend": "cliclick",
+  "notes": "Unity ignores macos-harness PID clicks. Always activate+cliclick."
+}

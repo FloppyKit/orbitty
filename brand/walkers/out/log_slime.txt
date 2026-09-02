@@ -1,0 +1,18 @@
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bpy/sheet_walker_v0.py:258: DeprecationWarning: 'World.use_nodes' is expected to be removed in Blender 6.0
+  world.use_nodes = True
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bpy/sheet_walker_v0.py:59: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  m.use_nodes = True
+00:00.776  render           | Saved: 'out/slime_guide/frames/walk_00.png'
+00:01.327  render           | Saved: 'out/slime_guide/frames/walk_01.png'
+00:01.791  render           | Saved: 'out/slime_guide/frames/walk_02.png'
+00:02.231  render           | Saved: 'out/slime_guide/frames/walk_03.png'
+WROTE out/slime_guide/frames/walk_00.png
+WROTE out/slime_guide/frames/walk_01.png
+WROTE out/slime_guide/frames/walk_02.png
+WROTE out/slime_guide/frames/walk_03.png
+Info: Saved as "slime_guide_v0.blend"
+BLEND out/slime_guide/slime_guide_v0.blend
+SHEET out/slime_guide/slime_guide_walk_sheet.png
+Blender 5.2.1 LTS (hash 9e2066aef7ef built 2026-08-25 01:35:57)
+
+Blender quit

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Orbitty",
+  "version": "0.1.0",
+  "identifier": "space.orbitty.mac",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "",
+        "width": 360,
+        "height": 420,
+        "minWidth": 160,
+        "maxWidth": 360,
+        "resizable": true,
+        "fullscreen": false,
+        "transparent": true,
+        "titleBarStyle": "Overlay",
+        "dragDropEnabled": false,
+        "maximizable": false,
+        "minimizable": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "macOS": {
+      "infoPlist": "Info.plist"
+    },
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../brand/imagine-walkers/packs": "imagine-walkers/packs",
+      "../brand/bitty-crew/packs": "bitty-crew/packs",
+      "../brand/companion/spirit/ghost.png": "companion/spirit/ghost.png",
+      "../brand/companion/spirit/idle_0.png": "companion/spirit/idle_0.png",
+      "../brand/companion/spirit/idle_1.png": "companion/spirit/idle_1.png",
+      "../brand/companion/spirit/idle_2.png": "companion/spirit/idle_2.png",
+      "../brand/companion/spirit/idle_3.png": "companion/spirit/idle_3.png",
+      "../brand/companion/spirit/idle_4.png": "companion/spirit/idle_4.png",
+      "../brand/companion/spirit/idle_5.png": "companion/spirit/idle_5.png",
+      "../brand/companion/spirit/idle_6.png": "companion/spirit/idle_6.png",
+      "../brand/companion/spirit/idle_7.png": "companion/spirit/idle_7.png",
+      "../brand/companion/spirit/bust_0.png": "companion/spirit/bust_0.png",
+      "../brand/companion/spirit/bust_1.png": "companion/spirit/bust_1.png",
+      "../brand/companion/spirit/bust_2.png": "companion/spirit/bust_2.png",
+      "../brand/companion/spirit/bust_3.png": "companion/spirit/bust_3.png",
+      "../brand/companion/spirit/bust_4.png": "companion/spirit/bust_4.png",
+      "../brand/companion/spirit/bust_5.png": "companion/spirit/bust_5.png",
+      "../brand/companion/spirit/bust_6.png": "companion/spirit/bust_6.png",
+      "../brand/companion/spirit/bust_7.png": "companion/spirit/bust_7.png",
+      "../brand/companion/spirit/thinking/think_0.png": "companion/spirit/thinking/think_0.png",
+      "../brand/companion/spirit/thinking/think_1.png": "companion/spirit/thinking/think_1.png",
+      "../brand/companion/spirit/thinking/think_2.png": "companion/spirit/thinking/think_2.png",
+      "../brand/companion/spirit/thinking/think_3.png": "companion/spirit/thinking/think_3.png",
+      "../brand/companion/spirit/thinking/think_4.png": "companion/spirit/thinking/think_4.png",
+      "../brand/companion/spirit/thinking/think_5.png": "companion/spirit/thinking/think_5.png",
+      "../brand/companion/spirit/thinking/think_6.png": "companion/spirit/thinking/think_6.png",
+      "../brand/companion/spirit/thinking/think_7.png": "companion/spirit/thinking/think_7.png",
+      "../brand/companion/spirit/thinking/bust_0.png": "companion/spirit/thinking/bust_0.png",
+      "../brand/companion/spirit/thinking/bust_1.png": "companion/spirit/thinking/bust_1.png",
+      "../brand/companion/spirit/thinking/bust_2.png": "companion/spirit/thinking/bust_2.png",
+      "../brand/companion/spirit/thinking/bust_3.png": "companion/spirit/thinking/bust_3.png",
+      "../brand/companion/spirit/thinking/bust_4.png": "companion/spirit/thinking/bust_4.png",
+      "../brand/companion/spirit/thinking/bust_5.png": "companion/spirit/thinking/bust_5.png",
+      "../brand/companion/spirit/thinking/bust_6.png": "companion/spirit/thinking/bust_6.png",
+      "../brand/companion/spirit/thinking/bust_7.png": "companion/spirit/thinking/bust_7.png"
+    }
+  }
+}

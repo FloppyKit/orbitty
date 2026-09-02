@@ -1,0 +1,302 @@
+[
+  {
+    "file": "femcaninedx.blend",
+    "objects": 4,
+    "meshes": [
+      {
+        "name": "FemmeBody",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.454,
+          "xmax": 0.454,
+          "ymin": -0.193,
+          "ymax": 0.113,
+          "zmin": -0.004,
+          "zmax": 1.807,
+          "height": 1.811,
+          "verts": 1624,
+          "faces": 1670
+        }
+      },
+      {
+        "name": "furryhead",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.107,
+          "xmax": 0.107,
+          "ymin": -0.209,
+          "ymax": 0.055,
+          "zmin": 1.742,
+          "zmax": 2.024,
+          "height": 0.281,
+          "verts": 1363,
+          "faces": 1350
+        }
+      },
+      {
+        "name": "head.002",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.084,
+          "xmax": 0.084,
+          "ymin": -0.146,
+          "ymax": -0.115,
+          "zmin": 1.833,
+          "zmax": 1.867,
+          "height": 0.034,
+          "verts": 124,
+          "faces": 82
+        }
+      },
+      {
+        "name": "head.005",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.067,
+          "xmax": 0.067,
+          "ymin": -0.146,
+          "ymax": -0.113,
+          "zmin": 1.856,
+          "zmax": 1.871,
+          "height": 0.014,
+          "verts": 28,
+          "faces": 12
+        }
+      }
+    ],
+    "armatures": [],
+    "materials": [
+      "Dots Stroke",
+      "Material"
+    ]
+  },
+  {
+    "file": "femhumandx.blend",
+    "objects": 4,
+    "meshes": [
+      {
+        "name": "FemmeBody",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.454,
+          "xmax": 0.454,
+          "ymin": -0.193,
+          "ymax": 0.113,
+          "zmin": -0.004,
+          "zmax": 1.807,
+          "height": 1.811,
+          "verts": 1624,
+          "faces": 1670
+        }
+      },
+      {
+        "name": "head.001",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.103,
+          "xmax": 0.103,
+          "ymin": -0.157,
+          "ymax": 0.073,
+          "zmin": 1.735,
+          "zmax": 2.011,
+          "height": 0.276,
+          "verts": 890,
+          "faces": 914
+        }
+      },
+      {
+        "name": "head.002",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.078,
+          "xmax": 0.078,
+          "ymin": -0.131,
+          "ymax": -0.114,
+          "zmin": 1.835,
+          "zmax": 1.864,
+          "height": 0.029,
+          "verts": 124,
+          "faces": 82
+        }
+      },
+      {
+        "name": "head.005",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.072,
+          "xmax": 0.072,
+          "ymin": -0.136,
+          "ymax": -0.103,
+          "zmin": 1.858,
+          "zmax": 1.871,
+          "height": 0.013,
+          "verts": 28,
+          "faces": 12
+        }
+      }
+    ],
+    "armatures": [],
+    "materials": [
+      "Dots Stroke",
+      "Material"
+    ]
+  },
+  {
+    "file": "masccaninedx.blend",
+    "objects": 4,
+    "meshes": [
+      {
+        "name": "furryhead",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.113,
+          "xmax": 0.113,
+          "ymin": -0.221,
+          "ymax": 0.059,
+          "zmin": 1.748,
+          "zmax": 2.046,
+          "height": 0.298,
+          "verts": 1151,
+          "faces": 1140
+        }
+      },
+      {
+        "name": "head.002",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.067,
+          "xmax": 0.067,
+          "ymin": -0.151,
+          "ymax": -0.126,
+          "zmin": 1.848,
+          "zmax": 1.869,
+          "height": 0.021,
+          "verts": 101,
+          "faces": 66
+        }
+      },
+      {
+        "name": "head.005",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.071,
+          "xmax": 0.071,
+          "ymin": -0.154,
+          "ymax": -0.119,
+          "zmin": 1.866,
+          "zmax": 1.886,
+          "height": 0.02,
+          "verts": 28,
+          "faces": 12
+        }
+      },
+      {
+        "name": "mascbody",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.454,
+          "xmax": 0.454,
+          "ymin": -0.237,
+          "ymax": 0.111,
+          "zmin": 0.001,
+          "zmax": 1.818,
+          "height": 1.817,
+          "verts": 1750,
+          "faces": 1804
+        }
+      }
+    ],
+    "armatures": [],
+    "materials": [
+      "Dots Stroke",
+      "Material"
+    ]
+  },
+  {
+    "file": "maschumandx.blend",
+    "objects": 4,
+    "meshes": [
+      {
+        "name": "head.001",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.096,
+          "xmax": 0.096,
+          "ymin": -0.152,
+          "ymax": 0.073,
+          "zmin": 1.738,
+          "zmax": 2.011,
+          "height": 0.273,
+          "verts": 900,
+          "faces": 926
+        }
+      },
+      {
+        "name": "head.002",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.069,
+          "xmax": 0.069,
+          "ymin": -0.134,
+          "ymax": -0.113,
+          "zmin": 1.84,
+          "zmax": 1.86,
+          "height": 0.02,
+          "verts": 98,
+          "faces": 64
+        }
+      },
+      {
+        "name": "head.005",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.074,
+          "xmax": 0.074,
+          "ymin": -0.139,
+          "ymax": -0.106,
+          "zmin": 1.857,
+          "zmax": 1.876,
+          "height": 0.019,
+          "verts": 28,
+          "faces": 12
+        }
+      },
+      {
+        "name": "MascBody",
+        "type": "MESH",
+        "parent": null,
+        "mesh": {
+          "xmin": -0.454,
+          "xmax": 0.454,
+          "ymin": -0.237,
+          "ymax": 0.111,
+          "zmin": 0.001,
+          "zmax": 1.818,
+          "height": 1.817,
+          "verts": 1750,
+          "faces": 1804
+        }
+      }
+    ],
+    "armatures": [],
+    "materials": [
+      "Dots Stroke",
+      "Material"
+    ]
+  }
+]

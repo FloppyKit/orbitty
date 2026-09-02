@@ -1,0 +1,204 @@
+{
+  "armatures": [
+    "Armature"
+  ],
+  "meshes": [
+    {
+      "name": "Grass",
+      "hide_render": true,
+      "verts": 48
+    },
+    {
+      "name": "Ground",
+      "hide_render": true,
+      "verts": 33
+    },
+    {
+      "name": "Jacob",
+      "hide_render": false,
+      "verts": 1967
+    },
+    {
+      "name": "JacobMedieval-Belt",
+      "hide_render": false,
+      "verts": 220
+    },
+    {
+      "name": "JacobMedieval-Boots",
+      "hide_render": false,
+      "verts": 268
+    },
+    {
+      "name": "JacobMedieval-Claymore",
+      "hide_render": false,
+      "verts": 1000
+    },
+    {
+      "name": "JacobMedieval-Cloak",
+      "hide_render": false,
+      "verts": 354
+    },
+    {
+      "name": "JacobMedieval-Pants",
+      "hide_render": false,
+      "verts": 458
+    },
+    {
+      "name": "JacobMedieval-Pauldron",
+      "hide_render": false,
+      "verts": 224
+    },
+    {
+      "name": "JacobMedieval-Shirt",
+      "hide_render": false,
+      "verts": 734
+    },
+    {
+      "name": "JacobMedieval-ShirtBonds",
+      "hide_render": false,
+      "verts": 160
+    },
+    {
+      "name": "JacobOutline",
+      "hide_render": true,
+      "verts": 1917
+    },
+    {
+      "name": "Rocks",
+      "hide_render": true,
+      "verts": 258
+    }
+  ],
+  "actions": [
+    {
+      "name": "Armature|Idle",
+      "frame_start": 0.0,
+      "frame_end": 208.0,
+      "fcurves": 1629
+    },
+    {
+      "name": "Armature|ReadySword",
+      "frame_start": 0.0,
+      "frame_end": 124.0,
+      "fcurves": 1629
+    },
+    {
+      "name": "Grass|Idle",
+      "frame_start": 0.0,
+      "frame_end": 208.0,
+      "fcurves": 9
+    },
+    {
+      "name": "Grass|ReadySword",
+      "frame_start": 0.0,
+      "frame_end": 124.0,
+      "fcurves": 9
+    },
+    {
+      "name": "Ground|Idle",
+      "frame_start": 0.0,
+      "frame_end": 208.0,
+      "fcurves": 9
+    },
+    {
+      "name": "Ground|ReadySword",
+      "frame_start": 0.0,
+      "frame_end": 124.0,
+      "fcurves": 9
+    },
+    {
+      "name": "Rocks|Idle",
+      "frame_start": 0.0,
+      "frame_end": 208.0,
+      "fcurves": 9
+    },
+    {
+      "name": "Rocks|ReadySword",
+      "frame_start": 0.0,
+      "frame_end": 124.0,
+      "fcurves": 9
+    }
+  ],
+  "materials": [
+    "Jacob_Body",
+    "Jacob_PropsAtlas",
+    "Outline",
+    "SceneAtlas"
+  ],
+  "blender": "5.2.1 LTS",
+  "opened_blend": false,
+  "source": "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_src/Jacob.fbx",
+  "res": [
+    512,
+    768,
+    12
+  ],
+  "hidden": [
+    "Grass",
+    "Ground",
+    "JacobOutline",
+    "Rocks"
+  ],
+  "inked": [],
+  "ink": "post_png",
+  "picked_idle": "Armature|Idle",
+  "idle_assign": {
+    "legacy": true,
+    "slot": "Slot",
+    "nla": true
+  },
+  "idle_range": [
+    0.0,
+    208.0
+  ],
+  "camera": {
+    "bounds_min": [
+      -0.3567940592765808,
+      -0.38306885957717896,
+      -0.007104924414306879
+    ],
+    "bounds_max": [
+      0.3324417173862457,
+      0.4882831573486328,
+      1.8302092552185059
+    ],
+    "height": 1.8373141288757324,
+    "width": 0.8713520169258118,
+    "mesh_names": [
+      "Jacob",
+      "JacobMedieval-Belt",
+      "JacobMedieval-Boots",
+      "JacobMedieval-Cloak",
+      "JacobMedieval-Pants",
+      "JacobMedieval-Pauldron",
+      "JacobMedieval-Shirt",
+      "JacobMedieval-ShirtBonds"
+    ],
+    "cam": [
+      1.299666166305542,
+      -4.7262468338012695,
+      0.9850447177886963
+    ],
+    "look": [
+      -0.012176170945167542,
+      0.05260714888572693,
+      0.8748058676719666
+    ],
+    "dist": 4.6851510286331175
+  },
+  "baked": [
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_0.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_1.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_2.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_3.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_4.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_5.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_6.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_7.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_8.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_9.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_10.png",
+    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/frames_hi/idle_11.png"
+  ],
+  "strip": "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/jacob_idle_bake/preview_strip_hi.png"
+}

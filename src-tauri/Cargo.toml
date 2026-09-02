@@ -1,0 +1,55 @@
+[package]
+name = "livesprite"
+version = "0.1.0"
+description = "Orbitty — runtime consolidator (Tauri)"
+authors = ["Orbitty"]
+edition = "2021"
+license = "MIT"
+default-run = "livesprite"
+
+[lib]
+name = "livesprite_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "livesprite"
+path = "src/main.rs"
+
+# GO-ORBITTY-CONTROL-PLANE-0: the control-socket client. Pure std +
+# serde_json — never links Tauri, never opens a WebView.
+[[bin]]
+name = "orbittyctl"
+path = "src/bin/orbittyctl.rs"
+
+# GO-ORBITTY-MCP-0: thin stdio MCP adapter over the same socket.
+# Pure std + serde_json — never links Tauri, never opens a WebView.
+[[bin]]
+name = "orbitty-mcp"
+path = "src/bin/orbitty_mcp.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+cc = "1"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Pack zip import (GO-LS-TAURI-USER-PACKS): extraction only, deflate covers
+# the classic sprite-pack zip; no crypto/other codecs. GO-ORBITTY-CHARS:
+# no HTTP client — sprite art is generated (chars.rs) or imported locally.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+objc = "0.2"
+window-vibrancy = "0.6"
+
+[profile.release]
+# Unwind, not abort: habitat wraps its AppKit work in catch_unwind so a
+# native failure can never take down the rail.
+panic = "unwind"
+codegen-units = 1
+lto = true

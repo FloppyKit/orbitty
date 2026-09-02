@@ -1,0 +1,40 @@
+00:02.766  blend            | Read blend: "/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/exports/femhumandx_waist_cinch.blend"
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2.py:44: DeprecationWarning: 'World.use_nodes' is expected to be removed in Blender 6.0
+  s.world.use_nodes = True
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2.py:80: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  mat.use_nodes = True
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2.py:220: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  skin.use_nodes = True
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2.py:228: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  face.use_nodes = True
+00:04.458  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/turns/uv_portrait_front.png'
+00:05.124  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/turns/uv_portrait_34.png'
+00:05.653  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/turns/uv_portrait_profile.png'
+00:06.108  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/turns/uv_full_front.png'
+00:06.580  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/turns/uv_full_34.png'
+00:06.582  blend            | Read blend: "/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/exports/femhumandx_waist_cinch.blend"
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2.py:274: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  mat.use_nodes = True
+00:07.620  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/face_card/card_portrait_front.png'
+00:08.179  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/face_card/card_portrait_34.png'
+00:08.698  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/face_card/card_portrait_profile.png'
+00:09.136  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/face_card/card_full_front.png'
+00:09.564  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass2/face_card/card_full_34.png'
+HEAD head.001 BODY FemmeBody
+front_faces=482 back_faces=432
+Info: Saved as "femhuman_pass2_uv_island.blend"
+R uv_portrait_front.png
+R uv_portrait_34.png
+R uv_portrait_profile.png
+R uv_full_front.png
+R uv_full_34.png
+Info: Saved as "femhuman_pass2_face_card.blend"
+R card_portrait_front.png
+R card_portrait_34.png
+R card_portrait_profile.png
+R card_full_front.png
+R card_full_34.png
+PASS2_OK front_faces 482
+Blender 5.2.1 LTS (hash 9e2066aef7ef built 2026-08-25 01:35:57)
+
+Blender quit

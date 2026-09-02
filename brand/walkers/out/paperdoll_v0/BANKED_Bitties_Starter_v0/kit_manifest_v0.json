@@ -1,0 +1,109 @@
+{
+  "schema": "orbitty.bitty.starter_kit/v0",
+  "id": "orbitty.bitties.starter",
+  "name": "Orbitty Bitties Starter Kit",
+  "version": "0.1.0",
+  "created": "2026-08-27",
+  "roles": {
+    "female": "heads/head_a_human_androgynous_v0.jpg",
+    "male": "heads/head_a_male_v0.png (+ chin/chin_wider_on_head_a.png)",
+    "robot": "heads/head_a_robot_v0.png (alts in robot/)",
+    "dog": "heads/head_b_dogmouth_v0.png",
+    "cat": "heads/head_b_fuzzy_catmouth_v1_from_cat.png"
+  },
+  "counts": {
+    "heads": 10,
+    "robot": 5,
+    "chin": 1,
+    "eyes": 8,
+    "hair": 12,
+    "hats": 13,
+    "accessories": 4,
+    "mouths": 5
+  },
+  "slots": {
+    "heads": [
+      "head_a_human_androgynous_v0.jpg",
+      "head_a_male_v0.png",
+      "head_a_robot_v0.png",
+      "head_b_dogmouth_v0.png",
+      "head_b_dogmouth_v1.png",
+      "head_b_dogmouth_v1_from_fuzzy.png",
+      "head_b_dogmouth_v1b.png",
+      "head_b_fuzzy_catmouth_v1_from_cat.png",
+      "head_b_fuzzy_catmouth_v1_from_fuzzy.png",
+      "head_b_fuzzy_v0.png"
+    ],
+    "robot": [
+      "head_a_robot_full_v1.png",
+      "head_a_robot_light_v1.png",
+      "head_a_robot_v0.png",
+      "head_a_robot_visor_v1.png",
+      "head_male_robot_v1.png"
+    ],
+    "chin": [
+      "chin_wider_on_head_a.png"
+    ],
+    "eyes": [
+      "eyes_android_cyan_on_head_a.png",
+      "eyes_android_cyan_on_head_b.png",
+      "eyes_crazy_spark_on_head_a.png",
+      "eyes_crazy_spark_on_head_b.png",
+      "eyes_crazy_spiral_on_head_a.png",
+      "eyes_dot_simple_on_head_a.png",
+      "eyes_normal_blue_on_head_a.png",
+      "eyes_shadow_slit_on_head_a.png"
+    ],
+    "hair": [
+      "hair_bob_dark_on_head_a.png",
+      "hair_cap_hair_tuck_on_head_a.png",
+      "hair_curly_short_on_head_a.png",
+      "hair_long_wavy_side_on_head_a.png",
+      "hair_messy_brown_on_head_a.png",
+      "hair_mohawk_soft_on_head_a.png",
+      "hair_ponytail_high_on_head_a.png",
+      "hair_silver_electric_on_head_a.png",
+      "hair_silver_electric_on_robot.png",
+      "hair_silver_long_electric_on_head_a.png",
+      "hair_twin_bun_on_head_a.png",
+      "hair_undercut_fade_on_head_a.png"
+    ],
+    "hats": [
+      "hat_antenna_bot_on_head_a.png",
+      "hat_bandana_mustard_on_head_a.png",
+      "hat_bandana_on_dog.png",
+      "hat_beanie_on_head_a.png",
+      "hat_bow_on_cat.png",
+      "hat_crown_tiny_on_head_a.png",
+      "hat_flower_clip_on_head_a.png",
+      "hat_goggles_forehead_on_head_a.png",
+      "hat_headphones_on_head_a.png",
+      "hat_hood_down_on_head_a.png",
+      "hat_scarf_wrap_on_head_a.png",
+      "hat_top_hat_mini_on_head_a.png",
+      "hat_traveler_brim_on_head_a.png"
+    ],
+    "accessories": [
+      "acc_collar_choker_on_head_a.png",
+      "acc_earring_simple_on_head_a.png",
+      "acc_face_paint_stripe_on_head_a.png",
+      "acc_glasses_round_on_head_a.png"
+    ],
+    "mouths": [
+      "mouth_cat_on_fuzzy_ref.png",
+      "mouth_dog_from_fuzzy.png",
+      "mouth_dog_v0.png",
+      "mouth_dog_v1.png",
+      "mouth_dog_v1b.png"
+    ]
+  },
+  "stack": [
+    "body",
+    "head",
+    "chin?",
+    "eyes",
+    "hair|hat",
+    "accessories",
+    "outline?"
+  ]
+}

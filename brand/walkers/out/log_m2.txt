@@ -1,0 +1,18 @@
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bpy/sheet_walker_v0.py:258: DeprecationWarning: 'World.use_nodes' is expected to be removed in Blender 6.0
+  world.use_nodes = True
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bpy/sheet_walker_v0.py:59: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  m.use_nodes = True
+00:01.286  render           | Saved: 'out/traveler_m/frames/walk_00.png'
+00:01.934  render           | Saved: 'out/traveler_m/frames/walk_01.png'
+00:02.473  render           | Saved: 'out/traveler_m/frames/walk_02.png'
+00:03.133  render           | Saved: 'out/traveler_m/frames/walk_03.png'
+WROTE out/traveler_m/frames/walk_00.png
+WROTE out/traveler_m/frames/walk_01.png
+WROTE out/traveler_m/frames/walk_02.png
+WROTE out/traveler_m/frames/walk_03.png
+Info: Saved as "traveler_m_v0.blend"
+BLEND out/traveler_m/traveler_m_v0.blend
+SHEET out/traveler_m/traveler_m_walk_sheet.png
+Blender 5.2.1 LTS (hash 9e2066aef7ef built 2026-08-25 01:35:57)
+
+Blender quit

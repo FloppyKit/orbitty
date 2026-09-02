@@ -1,0 +1,14 @@
+{
+  "name": "Horse",
+  "license": "Orbitty Season 1 bitty crew (Grok Imagine + Matt bible, blessed 2026-08-23)",
+  "frames": [
+    "walk_0.png",
+    "walk_1.png",
+    "walk_2.png",
+    "walk_3.png"
+  ],
+  "role": "walker",
+  "idleFrames": [
+    "idle.png"
+  ]
+}

@@ -1,0 +1,43 @@
+00:00.409  blend            | Read blend: "/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/exports/femhumandx_waist_cinch.blend"
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1.py:45: DeprecationWarning: 'World.use_nodes' is expected to be removed in Blender 6.0
+  s.world.use_nodes = True
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1.py:170: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  mat.use_nodes = True
+/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1.py:135: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  mat.use_nodes = True
+00:01.714  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/portrait_front.png'
+00:02.387  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/portrait_34.png'
+00:02.978  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/portrait_profile.png'
+00:03.414  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/full_front.png'
+00:03.848  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/full_34.png'
+00:04.279  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/full_back.png'
+00:04.742  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/turn_000.png'
+00:05.231  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/turn_045.png'
+00:05.740  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/turn_090.png'
+00:06.255  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/turn_135.png'
+00:06.735  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/turn_180.png'
+00:07.218  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/turn_225.png'
+00:07.672  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/turn_270.png'
+00:08.146  render           | Saved: '/Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/turn_315.png'
+HEAD head.001 BODY FemmeBody
+UV_PROJECT applied
+Info: Saved as "femhuman_face_map_pass1.blend"
+SAVED /Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/femhuman_face_map_pass1.blend
+RENDER /Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/portrait_front.png
+RENDER /Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/portrait_34.png
+RENDER /Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/portrait_profile.png
+RENDER /Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/full_front.png
+RENDER /Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/full_34.png
+RENDER /Users/dude/goose artifacts/livesprite-tauri/brand/walkers/bodies_dx/face_map_pass1/turns/full_back.png
+TURN 0
+TURN 45
+TURN 90
+TURN 135
+TURN 180
+TURN 225
+TURN 270
+TURN 315
+PASS1_OK
+Blender 5.2.1 LTS (hash 9e2066aef7ef built 2026-08-25 01:35:57)
+
+Blender quit

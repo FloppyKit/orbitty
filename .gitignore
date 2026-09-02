@@ -1,0 +1,22 @@
+.DS_Store
+node_modules
+/build
+/dist
+/.svelte-kit
+/package
+.env
+.env.*
+!.env.example
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust / Tauri
+src-tauri/target
+src-tauri/gen/schemas/*.json
+
+# Writer debris
+docs/*.pid
+docs/*.log
+docs/cursor-runs/
+*.pid
+*.log

@@ -1,0 +1,11 @@
+/* GO-ORBITTY-RAIL-REVIEW: Cloud's four-layer field, saved as ONE shared
+   recipe. Any solid pane opts in via .orbit-field — never on overlay-
+   transparent chrome (companion / board / rail / STARS check-in body),
+   which keeps --bg-fill / --panel-fill. Do not fork these hex values. */
+.orbit-field {
+  background:
+    radial-gradient(560px 360px at 24% 26%, rgb(229 158 61 / 0.09), transparent 70%),
+    radial-gradient(520px 400px at 78% 30%, rgb(61 143 138 / 0.11), transparent 70%),
+    radial-gradient(620px 440px at 52% 82%, rgb(199 147 230 / 0.09), transparent 70%),
+    #0b1020;
+}

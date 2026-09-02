@@ -1,0 +1,11 @@
+{
+  "name": "Orbitty Guy",
+  "license": "Orbitty original (Grok Imagine + Matt bible)",
+  "frames": [
+    "walk_0.png",
+    "walk_1.png",
+    "walk_2.png",
+    "walk_3.png"
+  ],
+  "role": "walker"
+}

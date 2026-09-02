@@ -1,0 +1,4190 @@
+<script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
+  import { emitTo, listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { open as shellOpen } from "@tauri-apps/plugin-shell";
+  import { onMount, onDestroy } from "svelte";
+  import {
+    applyHostTokens,
+    applyWindowOpacity,
+    clampWindowOpacity,
+  } from "../themes/apply";
+
+  // Rail brain — mounted only when +page.svelte dispatches the `main`
+  // window here. Overlay windows never load this file.
+
+  interface WindowInfo {
+    id: string;
+    pid: number;
+    appName: string;
+    title: string;
+    bundleId: string | null;
+    // Reboot-stable fingerprint `{bundleId or appName}|{title}|{n}` — live
+    // ids die on reboot; claims rematch on this.
+    stableKey: string;
+    iconBase64: string | null;
+    isFrontmost: boolean;
+    isMinimized: boolean;
+    // GO-ORBITTY-SLEEPERS: the window's AXDocument as an existing on-disk
+    // path (file:// only) — the file-sleeper wake stamp.
+    documentPath?: string | null;
+    // True on synthesized rows for claims whose window is closed (orphans).
+    sleeping?: boolean;
+  }
+
+  interface AxStatus {
+    trusted: boolean;
+    bundlePath: string;
+    signingLine: string;
+    inBundle: boolean;
+    isAdhoc: boolean;
+  }
+
+  interface Project {
+    id: string;
+    name: string;
+  }
+
+  interface Claim {
+    windowId: string;
+    projectId: string;
+    // Epoch seconds; 0 in pre-S4 saves (migrated to first-seen on load).
+    lastTouchedAt: number;
+    // Reboot-rematch fingerprint, stamped from the live window at claim time
+    // (live AX title, never the display override). Optional: pre-GO saves.
+    bundleId?: string | null;
+    appName?: string;
+    titleAtClaim?: string;
+    titleIndex?: number;
+    // Sprite picker (claim menu): packs/<id> folder; null/absent = the
+    // generated being (GO-ORBITTY-CHARS).
+    spritePackId?: string | null;
+    // GO-ORBITTY-CHARS: generated-person roll seed, stamped at claim time
+    // (old saves are seeded on load) — the same claim keeps the same being.
+    charSeed?: number | null;
+    // Explicit layer picks once the Being editor touches them; absent =
+    // derived from charSeed native-side.
+    charLook?: CharLook | null;
+    // Per-walker size (0.4–2.5); null/absent = the gear's global spriteScale.
+    spriteScale?: number | null;
+    // GO-ORBITTY-WALKER-CONTEXT: occupancy planet for the sprite. Absent
+    // or unknown = walk on projectId. Rail Assign still rewrites projectId.
+    walkerHome?: string | null;
+    // GO-ORBITTY-SLEEPERS wake trail (all additive, stamped from the live
+    // window only — never invented): AX document path; Hermes-class
+    // profile/session; optional linked Action or Terminal-class recipe.
+    filePath?: string | null;
+    hermesProfile?: string | null;
+    hermesSession?: string | null;
+    actionId?: string | null;
+    command?: string | null;
+    cwd?: string | null;
+  }
+
+  // GO-ORBITTY-S1-BITTYS: kind/palette are the Season 1 crew picks (kind =
+  // index into the 11-kind table, palette = 0 default + 3 recolors). Absent
+  // in pre-S1 saves — the native side maps legacy species onto the nearest
+  // Kind+Palette. The legacy layer fields stay so old saves load.
+  interface CharLook {
+    body: number;
+    clothes: number;
+    eyes: number;
+    mouth: number;
+    hat: number;
+    colors: number;
+    species?: number;
+    kind?: number | null;
+    palette?: number | null;
+  }
+
+  // One Season 1 kind: display name, pack slug base, and its palette names
+  // ("Default" + 3 recolors) — the Being editor's only silhouette controls.
+  interface BittyKind {
+    name: string;
+    slug: string;
+    palettes: string[];
+  }
+
+  // S4.3: cards are born at CLAIM time (kind "window", status "doing") or at
+  // Add-a-to-do time in the Lists window (kind "todo", no windowId). Unclaim
+  // keeps the card as a loose project todo. `starred` is shape-only for now.
+  interface KanbanCard {
+    id: string;
+    title: string;
+    projectId: string;
+    windowId?: string | null;
+    kind?: "window" | "todo" | "needed";
+    status: "todo" | "doing" | "done";
+    createdAt: number;
+    lastTouchedAt: number;
+    completedAt?: number | null;
+    goalAligned: boolean;
+    clinicalOrMaster: boolean;
+    pointsAwarded: number;
+    starred?: boolean;
+    // S4.4 detail-panel fields (owned by the Lists window; round-tripped).
+    notes?: string;
+    difficulty?: "trivial" | "easy" | "medium" | "hard";
+    subtasks?: { id: string; title: string; done: boolean }[];
+    dueAt?: number | null;
+    tagIds?: string[];
+    // GO-ORBITTY-LP-NEEDED (round-tripped): the rail only reads open/later
+    // to sit the walker (GO-ORBITTY-CADENCE); the Lists window owns writes.
+    neededState?: "open" | "later" | "answered" | "skipped";
+  }
+
+  interface PointsEntry {
+    id: string;
+    cardId: string;
+    amount: number;
+    day: string; // local YYYY-MM-DD — the daily cap sums on this
+    at: number;
+  }
+
+  interface Tag {
+    id: string;
+    name: string;
+    color?: string | null;
+  }
+
+  interface WindowTags {
+    windowId: string;
+    tagIds: string[];
+  }
+
+  // Display-only rename of a window's title (rail is the only writer). An
+  // absent entry means the live AX title shows; AX/OS titles never change.
+  interface TitleOverride {
+    windowId: string;
+    title: string;
+  }
+
+  interface ActionShortcut {
+    id: string;
+    name: string;
+    command: string;
+    cwd?: string | null;
+  }
+
+  interface AgentShortcut {
+    id: string;
+    name: string;
+    harness: string; // "hermes" | "cursor"
+    profile: string;
+    model?: string | null;
+    mdPaths: string[];
+    projectId?: string | null;
+  }
+
+  // GO-LS-TAURI-AVATAR-LARGE: the companion window's slice. The rail never
+  // writes its contents — it round-trips the loaded value untouched so rail
+  // saves don't strip it.
+  interface CompanionBounds {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }
+  interface CompanionSlice {
+    visible: boolean;
+    bounds: CompanionBounds | null;
+    imagePackId: string | null;
+    state?: string;
+    talkSource?: string;
+  }
+
+  // GO-LS-STARS-STATUS: the operator-green radar. Five spokes 0–4, keyed by
+  // local YYYY-MM-DD; explicit check-in only (no wearables, no dwell score).
+  // promptsOptIn defaults false — the companion's one-strip menu stays
+  // silent until the human opts in. promptsAck is the strip dismissal stamp
+  // ("{day}:{sig}") — one show per day unless they check in again.
+  interface StarsCheckin {
+    sleep: number;
+    terroir: number;
+    athleticism: number;
+    relationships: number;
+    self: number;
+  }
+  interface StarsSlice {
+    promptsOptIn: boolean;
+    checkins: Record<string, StarsCheckin>;
+    promptsAck?: string;
+  }
+
+  // GO-ORBITTY-WORD-SKY: only the mute list persists. The Sky window owns
+  // it; the rail round-trips the slice untouched (same discipline as STARS).
+  interface SkySlice {
+    muted: string[];
+  }
+
+  // GO-ORBITTY-RAIL-DRAWER: the native leash owns this slice (dock/pluck,
+  // dx/dy, plucked bounds) for companion / kanban / settings only. The rail
+  // round-trips it untouched — dropping it would silently re-dock plucks.
+  interface DrawerSlice {
+    docked?: boolean;
+    dx?: number;
+    dy?: number;
+    bounds?: { x: number; y: number; w: number; h: number } | null;
+  }
+
+  interface PersistedState {
+    themeId: string;
+    windowOpacity: number;
+    projects: Project[];
+    claims: Claim[];
+    tags: Tag[];
+    windowTags: WindowTags[];
+    collapsedSectionIds: string[];
+    nudgeSuppressedWindowIds: string[];
+    kanbanCards: KanbanCard[];
+    pointsLedger: PointsEntry[];
+    titleOverrides: TitleOverride[];
+    autohideRowChrome: boolean;
+    hideTitles: boolean;
+    hideAppIcons: boolean;
+    spriteScale: number;
+    marbleDrift: boolean;
+    actionShortcuts: ActionShortcut[];
+    agentShortcuts: AgentShortcut[];
+    companion?: CompanionSlice;
+    stars?: StarsSlice;
+    sky?: SkySlice;
+    sharedPaneMode?: "board" | "stars";
+    drawers?: Record<string, DrawerSlice>;
+  }
+
+  interface Theme {
+    id: string;
+    name: string;
+    block: "System" | "Custom";
+  }
+
+  // System-first: the primary pair keeps the Tahoe semantic fills and wears
+  // the Orbitty brand triad for accent/mark/focus (GO-ORBITTY-COMPANION-BRAND).
+  // S4.2 retired Clear — translucency is the Background opacity slider, not a
+  // theme. Custom holds Terminal only; the seven old palette skins are gone.
+  const THEMES: Theme[] = [
+    { id: "systemLight", name: "Light", block: "System" },
+    { id: "systemDark", name: "Dark", block: "System" },
+    { id: "terminal", name: "Terminal", block: "Custom" },
+  ];
+  const BLOCKS = ["System", "Custom"] as const;
+  const THEME_IDS = new Set(THEMES.map((t) => t.id));
+
+  function osThemeId(): string {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "systemDark"
+      : "systemLight";
+  }
+
+  function defaultThemeId(): string {
+    return osThemeId();
+  }
+
+  // Old saves may name retired ids (clear / liquidGlass included); anything
+  // unrecognized falls back to OS Light/Dark, keeping the saved opacity.
+  function migrateThemeId(id: string): string {
+    return THEME_IDS.has(id) ? id : "";
+  }
+
+  let status = $state<AxStatus | null>(null);
+  let windows = $state<WindowInfo[]>([]);
+  let refreshedAt = $state("");
+  let copied = $state(false);
+
+  let themeId = $state("");
+  // True once the theme came from a saved state or an explicit pick. While
+  // false the theme is the OS default and tracks live OS light/dark flips.
+  let themeChosen = false;
+  // S4.3: window background opacity (0.2–1.0, default 1.0). Fades only the
+  // chrome fills via JS-computed --bg-fill/--panel-fill, never text/icons.
+  let windowOpacity = $state(1.0);
+  let projects = $state<Project[]>([]);
+  let claims = $state<Claim[]>([]);
+  let tags = $state<Tag[]>([]);
+  let windowTags = $state<WindowTags[]>([]);
+  let collapsedSectionIds = $state<string[]>([]);
+  // Claim-first nudge: shown once per window id, then silent (persisted).
+  let nudgeSuppressed = $state<string[]>([]);
+  let nudgeFor = $state<string | null>(null);
+  let nudgeNewName = $state("");
+  let stateLoaded = $state(false);
+
+  // S4: local Kanban + points ledger (persisted), zombie ages.
+  let kanbanCards = $state<KanbanCard[]>([]);
+  let pointsLedger = $state<PointsEntry[]>([]);
+  // Display-only window title renames, persisted; rail is the only writer.
+  let titleOverrides = $state<TitleOverride[]>([]);
+  // Inline rename: window id being edited + the draft string.
+  let renamingId = $state<string | null>(null);
+  let renameValue = $state("");
+  // Right-click on a window title: tiny context menu (View on board / Rename).
+  let ctxMenu = $state<{ x: number; y: number; windowId: string } | null>(null);
+  // S4.6 circle-complete: ids mid fill-animation, then the row completes.
+  let completingIds = $state<string[]>([]);
+  // Per-section "+ To-do" inline form.
+  let addingTodoFor = $state<string | null>(null);
+  let newTodoTitle = $state("");
+
+  // S5: Hermes coordinator note (dismissible) + per-project soul.md panel.
+  // Both live in the Agents lane now — never on project headers.
+  let hermesNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
+  let soulFor = $state<string | null>(null);
+  let soulBody = $state("");
+  let soulPath = $state("");
+  let soulMsg = $state("");
+
+  // Settings (gear): chrome toggles, persisted in state.json.
+  let autohideRowChrome = $state(true);
+  let hideTitles = $state(false);
+  let hideAppIcons = $state(false);
+  let spriteScale = $state(1);
+  // GO-ORBITTY-MARBLE-DRIFT: Settings owns the toggle; the rail round-trips
+  // it and rides it to the native habitat on the snapshot.
+  let marbleDrift = $state(false);
+
+  // Actions lane: user-authored shell shortcuts (run via /bin/zsh -lc).
+  let actionShortcuts = $state<ActionShortcut[]>([]);
+  let actionNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
+  let addingAction = $state(false);
+  let newActionName = $state("");
+  let newActionCommand = $state("");
+  let newActionCwd = $state("");
+  let runningActionId = $state<string | null>(null);
+
+  // Agents lane: user-authored harness shortcuts. Orbitty writes the query
+  // file and hands off to the harness — it never runs the model.
+  let agentShortcuts = $state<AgentShortcut[]>([]);
+
+  // GO-LS-TAURI-AVATAR-LARGE: companion slice, round-tripped opaquely (the
+  // companion window and the native side own the contents).
+  let companionState = $state<CompanionSlice>({
+    visible: false,
+    bounds: null,
+    imagePackId: null,
+    state: "idle",
+  });
+
+  // GO-LS-STARS-STATUS / S1.1: the STARS window owns check-ins (Save today)
+  // and the Prompts toggle; the companion rides promptsOptIn/promptsAck
+  // through native commands. The rail only round-trips the slice — loaded
+  // once, adopted on state:changed, written back untouched by persist().
+  let starsState = $state<StarsSlice>({ promptsOptIn: false, checkins: {} });
+
+  // GO-ORBITTY-WORD-SKY: the Sky window owns the mute list; the rail only
+  // round-trips it so persist() never strips the slice.
+  let skyState = $state<SkySlice>({ muted: [] });
+
+  // GO-ORBITTY-RAIL-DRAWER: the native leash owns dock/pluck state; the
+  // rail only round-trips it so persist() never strips the slice.
+  let drawersState = $state<Record<string, DrawerSlice>>({});
+
+  let addingAgent = $state(false);
+  let newAgentName = $state("");
+  let newAgentHarness = $state("hermes");
+  let newAgentProfile = $state("");
+  let newAgentModel = $state("");
+  let newAgentMdPaths = $state("");
+  let newAgentProjectId = $state("");
+
+  // Gear → Packs (GO-LS-TAURI-USER-PACKS): local folder/zip/image import
+  // only. GO-ORBITTY-CHARS killed the website-download path — a sprite is
+  // generated (no pack) or imported from disk, never fetched.
+  interface PackInfo {
+    id: string;
+    name: string;
+    license: string | null;
+    warnLicense: boolean;
+    frameCount: number;
+    path: string;
+    role: string;
+  }
+  let packs = $state<PackInfo[]>([]);
+  let packsDir = $state("");
+  let packNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
+  let packBusy = $state(false);
+
+  async function refreshPacks() {
+    try {
+      packs = await invoke<PackInfo[]>("list_packs");
+      packsDir = await invoke<string>("packs_dir");
+    } catch {
+      // packs are decorative; the rail never blocks on them
+    }
+  }
+
+  async function importPackFolder() {
+    if (packBusy) return;
+    packBusy = true;
+    packNote = null;
+    try {
+      const p = await invoke<PackInfo | null>("import_pack_folder");
+      if (p) {
+        packNote = {
+          kind: "ok",
+          text: `${p.name}: ${p.frameCount} frame${p.frameCount === 1 ? "" : "s"}${p.warnLicense ? " — no license in manifest, confirm rights" : ""}`,
+        };
+        await refreshPacks();
+      }
+    } catch (e) {
+      packNote = { kind: "err", text: `${e}` };
+    }
+    packBusy = false;
+  }
+
+  async function importPackZip() {
+    if (packBusy) return;
+    packBusy = true;
+    packNote = null;
+    try {
+      const p = await invoke<PackInfo | null>("import_pack_zip");
+      if (p) {
+        packNote = {
+          kind: "ok",
+          text: `${p.name}: ${p.frameCount} frame${p.frameCount === 1 ? "" : "s"}${p.warnLicense ? " — no license in manifest, confirm rights" : ""}`,
+        };
+        await refreshPacks();
+      }
+    } catch (e) {
+      packNote = { kind: "err", text: `${e}` };
+    }
+    packBusy = false;
+  }
+
+  async function importPackImage() {
+    if (packBusy) return;
+    packBusy = true;
+    packNote = null;
+    try {
+      const p = await invoke<PackInfo | null>("import_pack_image");
+      if (p) {
+        packNote = {
+          kind: "ok",
+          text: `${p.name}: ${p.frameCount} frame${p.frameCount === 1 ? "" : "s"}${p.warnLicense ? " — no license in manifest, confirm rights" : ""}`,
+        };
+        await refreshPacks();
+      }
+    } catch (e) {
+      packNote = { kind: "err", text: `${e}` };
+    }
+    packBusy = false;
+  }
+
+  async function removePack(id: string) {
+    try {
+      await invoke("remove_pack", { id });
+      await refreshPacks();
+    } catch (e) {
+      packNote = { kind: "err", text: `${e}` };
+    }
+  }
+
+  function openUrl(url: string) {
+    shellOpen(url).catch(() => {});
+  }
+
+  // Rail lanes (list-head tabs): Projects is the default window list;
+  // Agents holds Hermes/Soul; Actions is a stub until GO lands.
+  // Session-only.
+  let lane = $state<"projects" | "agents">("projects");
+
+  const DAY_S = 86400;
+  const DAILY_CAP = 12;
+  const FADE_AFTER_S = 7 * DAY_S;
+  const PARK_AFTER_S = 14 * DAY_S;
+  const GONE_AFTER_S = 21 * DAY_S;
+
+  function nowEpoch(): number {
+    return Date.now() / 1000;
+  }
+
+  function todayKey(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  // Zombie aging (TS-7): visual only, titles only, never auto-kill.
+  function ageClass(windowId: string): "fresh" | "fade" | "park" | "gone" {
+    const t = claims.find((c) => c.windowId === windowId)?.lastTouchedAt ?? 0;
+    if (t <= 0) return "fresh";
+    const age = nowEpoch() - t;
+    if (age >= GONE_AFTER_S) return "gone";
+    if (age >= PARK_AFTER_S) return "park";
+    if (age >= FADE_AFTER_S) return "fade";
+    return "fresh";
+  }
+
+  function pointsToday(): number {
+    const key = todayKey();
+    return pointsLedger
+      .filter((e) => e.day === key)
+      .reduce((a, e) => a + e.amount, 0);
+  }
+
+  // Touch bumps: explicit actions persist immediately; the 800ms frontmost
+  // tick funnels through a 30s throttle so the poll can't thrash the disk.
+  let lastTouchPersist = 0;
+  function touchClaim(windowId: string, force = false) {
+    const now = nowEpoch();
+    claims = claims.map((c) =>
+      c.windowId === windowId ? { ...c, lastTouchedAt: now } : c,
+    );
+    if (force || now - lastTouchPersist > 30) {
+      lastTouchPersist = now;
+      persist();
+    }
+  }
+
+
+  let newProjectName = $state("");
+  let creatingProject = $state(false);
+  // List-head filter chip: null = All. Session-only, not persisted.
+  let tagFilter = $state<string | null>(null);
+
+  // Drag-and-drop claim: window id being dragged + section key under the cursor.
+  const UNMAPPED_KEY = "__unmapped__";
+  let dragWindowId = $state<string | null>(null);
+  let dropTarget = $state<string | null>(null);
+
+  // Claim counts only when its project still exists.
+  let liveClaims = $derived(
+    claims.filter((c) => projects.some((p) => p.id === c.projectId)),
+  );
+
+  let unmapped = $derived(
+    windows.filter((w) => !liveClaims.some((c) => c.windowId === w.id)),
+  );
+
+  // S4.6: open todos live inside their project section on the rail, oldest
+  // first — the same cards the Lists window shows.
+  function todosFor(projectId: string): KanbanCard[] {
+    return kanbanCards
+      .filter(
+        // GO-ORBITTY-LP-NEEDED: Needed cards never count as rail todos.
+        (c) =>
+          c.kind !== "needed" &&
+          c.status !== "done" &&
+          !c.windowId &&
+          c.projectId === projectId,
+      )
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  let nudgeWindow = $derived(
+    nudgeFor ? windows.find((w) => w.id === nudgeFor) : undefined,
+  );
+
+  // Tag assignments pruned to tags that still exist (same pattern as claims).
+  let liveWindowTags = $derived(
+    windowTags
+      .map((wt) => ({
+        windowId: wt.windowId,
+        tagIds: wt.tagIds.filter((id) => tags.some((t) => t.id === id)),
+      }))
+      .filter((wt) => wt.tagIds.length > 0),
+  );
+
+  function rowsFor(projectId: string): WindowInfo[] {
+    const live = windows.filter((w) =>
+      liveClaims.some((c) => c.windowId === w.id && c.projectId === projectId),
+    );
+    // GO-ORBITTY-SLEEPERS: a claimed window that closed stays listed as an
+    // asleep row, synthesized from the claim fingerprint (icon may be gone —
+    // that's fine). Done/Unclaim is the only way it leaves.
+    const sleepers: WindowInfo[] = liveClaims
+      .filter(
+        (c) =>
+          c.projectId === projectId &&
+          !windows.some((w) => w.id === c.windowId),
+      )
+      .map((c) => ({
+        id: c.windowId,
+        pid: 0,
+        appName: c.appName ?? "App",
+        title: c.titleAtClaim || c.appName || "",
+        bundleId: c.bundleId ?? null,
+        stableKey: claimStableKey(c) ?? "",
+        iconBase64: null,
+        isFrontmost: false,
+        isMinimized: true,
+        documentPath: c.filePath ?? null,
+        sleeping: true,
+      }));
+    return [...live, ...sleepers];
+  }
+
+  // The tag filter narrows rows inside each section; grouping stays by home
+  // project — tags never create sections.
+  function visibleRows(rows: WindowInfo[]): WindowInfo[] {
+    if (!tagFilter) return rows;
+    return rows.filter((w) => hasTag(w.id, tagFilter!));
+  }
+
+  function hasTag(windowId: string, tagId: string): boolean {
+    return liveWindowTags.some(
+      (wt) => wt.windowId === windowId && wt.tagIds.includes(tagId),
+    );
+  }
+
+  function tagsFor(windowId: string): Tag[] {
+    const ids =
+      liveWindowTags.find((wt) => wt.windowId === windowId)?.tagIds ?? [];
+    return tags.filter((t) => ids.includes(t.id));
+  }
+
+  function isCollapsed(sectionId: string): boolean {
+    return collapsedSectionIds.includes(sectionId);
+  }
+
+  function toggleCollapse(sectionId: string) {
+    collapsedSectionIds = isCollapsed(sectionId)
+      ? collapsedSectionIds.filter((id) => id !== sectionId)
+      : [...collapsedSectionIds, sectionId];
+    persist();
+  }
+
+  function toggleTag(windowId: string, tagId: string) {
+    const cur =
+      liveWindowTags.find((wt) => wt.windowId === windowId)?.tagIds ?? [];
+    const next = cur.includes(tagId)
+      ? cur.filter((id) => id !== tagId)
+      : [...cur, tagId];
+    windowTags = [
+      ...liveWindowTags.filter((wt) => wt.windowId !== windowId),
+      ...(next.length ? [{ windowId, tagIds: next }] : []),
+    ];
+    persist();
+  }
+
+  // What a row shows: the persisted rename when one exists, else the live
+  // AX title, else the app name — never blank, never a lonely "—".
+  function titleFor(w: WindowInfo): string {
+    return (
+      titleOverrides.find((o) => o.windowId === w.id)?.title ||
+      w.title ||
+      w.appName
+    );
+  }
+
+  function startRename(w: WindowInfo) {
+    renamingId = w.id;
+    renameValue =
+      titleOverrides.find((o) => o.windowId === w.id)?.title ?? w.title;
+  }
+
+  // GO-ORBITTY-RAIL-ROW-MENU: the row menu — Assign to… / Rename /
+  // Minimize XOR Restore / Close window / × Unclaim (claimed only).
+  let ctxAssignOpen = $state(false);
+
+  function openCtxMenu(e: MouseEvent, w: WindowInfo) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Clamp inside the rail so the menu never opens under the cursor's edge.
+    const x = Math.min(e.clientX, window.innerWidth - 170);
+    const y = Math.min(e.clientY, window.innerHeight - 220);
+    ctxMenu = { x, y, windowId: w.id };
+    ctxAssignOpen = false;
+    newProjectName = "";
+  }
+
+  function ctxWindow(): WindowInfo | undefined {
+    return windows.find((w) => w.id === ctxMenu?.windowId);
+  }
+
+  function ctxProject(): Project | undefined {
+    const id = ctxMenu?.windowId;
+    if (!id) return undefined;
+    const projectId = liveClaims.find((c) => c.windowId === id)?.projectId;
+    return projects.find((p) => p.id === projectId);
+  }
+
+  function ctxAssign(projectId: string) {
+    const w = ctxWindow();
+    ctxMenu = null;
+    if (w) claim(w.id, projectId);
+  }
+
+  function ctxCreateAndClaim() {
+    const w = ctxWindow();
+    if (!w || !newProjectName.trim()) return;
+    const p = createProject(newProjectName);
+    ctxMenu = null;
+    claim(w.id, p.id);
+    newProjectName = "";
+  }
+
+  function ctxRename() {
+    const w = ctxWindow();
+    ctxMenu = null;
+    if (w) startRename(w);
+  }
+
+  function ctxMinimize() {
+    const w = ctxWindow();
+    ctxMenu = null;
+    // Claimed → the walker walks its planet; unmapped → Dock only (the
+    // habitat snapshot never sees unclaimed windows).
+    if (w) stow(w);
+  }
+
+  function ctxRestore() {
+    const w = ctxWindow();
+    ctxMenu = null;
+    if (w) restore(w);
+  }
+
+  // Close = the AX close button only — never Complete (the circle is the
+  // only Done door). Claimed windows become sleepers on the next poll.
+  function ctxCloseWindow() {
+    const w = ctxWindow();
+    ctxMenu = null;
+    if (!w) return;
+    invoke("close_window", { id: w.id })
+      .catch(() => {})
+      .then(() => tick());
+  }
+
+  // Unclaim ≠ Close: the OS window stays exactly where it is.
+  function ctxUnclaim() {
+    const w = ctxWindow();
+    ctxMenu = null;
+    if (w) unclaim(w.id);
+  }
+
+  // Empty commit clears the override — the row falls back to the live title.
+  function commitRename(w: WindowInfo) {
+    const next = renameValue.trim();
+    const cur = titleOverrides.find((o) => o.windowId === w.id)?.title ?? "";
+    if (next !== cur) {
+      titleOverrides = next
+        ? [
+            ...titleOverrides.filter((o) => o.windowId !== w.id),
+            { windowId: w.id, title: next },
+          ]
+        : titleOverrides.filter((o) => o.windowId !== w.id);
+      persist();
+    }
+    renamingId = null;
+  }
+
+  async function persist() {
+    if (!stateLoaded) return;
+    const state: PersistedState = {
+      // Only an explicit choice is saved; an untouched theme stays "" so the
+      // next launch keeps following the OS instead of freezing today's pick.
+      themeId: themeChosen ? themeId : "",
+      windowOpacity,
+      projects,
+      claims: liveClaims,
+      tags,
+      windowTags: liveWindowTags,
+      collapsedSectionIds,
+      nudgeSuppressedWindowIds: nudgeSuppressed,
+      kanbanCards,
+      pointsLedger,
+      titleOverrides,
+      autohideRowChrome,
+      hideTitles,
+      hideAppIcons,
+      spriteScale,
+      marbleDrift,
+      actionShortcuts,
+      agentShortcuts,
+      companion: companionState,
+      stars: starsState,
+      sky: skyState,
+      drawers: drawersState,
+    };
+    try {
+      await invoke("save_state", { state });
+    } catch {
+      // next mutation retries; rail stays usable without persistence
+    }
+    syncHabitat();
+  }
+
+  // Habitat: push a snapshot of claimed projects to the native planet panels.
+  // Signature-gated so the 800ms poll only invokes on real change. Tags never
+  // reach the habitat — only home claims make sprites. Zombie `gone` claims
+  // (21+ days untouched) stay listed in the rail but leave the planet; a
+  // project whose claims all went gone loses its (now ghost) planet until
+  // something is touched again. GO-ORBITTY-SLEEPERS: sleepers (closed claimed
+  // windows) are the exception — `gone` never evicts a sleeper; it stays on
+  // its planet, asleep and dim, until Done/Unclaim.
+  let lastHabitatSig = "";
+  async function syncHabitat() {
+    if (!stateLoaded || !status?.trusted) return;
+    const planets = projects
+      .map((p) => ({
+        p,
+        rows: [
+          // Live claimed windows — every claim is a walker now (open or
+          // minimized); the native side parks only age-`park` zombies.
+          ...windows.filter((w) =>
+            liveClaims.some(
+              (c) =>
+                c.windowId === w.id &&
+                occupancyOf(c) === p.id &&
+                ageClass(w.id) !== "gone",
+            ),
+          ),
+          // GO-ORBITTY-SLEEPERS / CADENCE-FIX: orphan claims (window
+          // closed) ride the snapshot as sleeper rows — a closed claim
+          // keeps a dim, still walker until Done/Unclaim. Without this the
+          // body outlived its row on the planet: the drag-into-hang ghost.
+          ...liveClaims
+            .filter(
+              (c) =>
+                occupancyOf(c) === p.id &&
+                !windows.some((w) => w.id === c.windowId),
+            )
+            .map((c) => ({
+              id: c.windowId,
+              pid: 0,
+              appName: c.appName ?? "App",
+              title: c.titleAtClaim || c.appName || "",
+              bundleId: c.bundleId ?? null,
+              stableKey: claimStableKey(c) ?? "",
+              iconBase64: null,
+              isFrontmost: false,
+              isMinimized: true,
+              documentPath: c.filePath ?? null,
+              sleeping: true,
+            })),
+        ],
+      }))
+      .filter(({ rows }) => rows.length > 0)
+      .map(({ p, rows }) => ({
+        projectId: p.id,
+        name: p.name,
+        collapsed: isCollapsed(p.id),
+        entries: rows.map((w) => {
+          const c = liveClaims.find((x) => x.windowId === w.id);
+          // GO-ORBITTY-CADENCE: the window's board truth rides the snapshot
+          // (one channel — sync_habitat). The window-linked card wins for
+          // this window id: an open card first, else the latest done one
+          // (so the walk-off still shows between Complete and the rail's
+          // unclaim). Needed cards never pose as the linked card — their
+          // status is a dummy — they only sit the walker via neededState.
+          const linked = kanbanCards.filter(
+            (k) => k.windowId === w.id && k.kind !== "needed",
+          );
+          const openCard = linked.find((k) => k.status !== "done");
+          const doneCard = openCard
+            ? undefined
+            : linked
+                .filter((k) => k.status === "done")
+                .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0];
+          const card = openCard ?? doneCard;
+          // A Needed (open/later) naming this window — or this project
+          // with no window — sits the walker. Needed wins over Doing.
+          const needed = kanbanCards.find(
+            (k) =>
+              k.kind === "needed" &&
+              (k.neededState === "open" || k.neededState === "later") &&
+              (k.windowId === w.id ||
+                (k.windowId == null && (k.projectId ?? "") === p.id)),
+          );
+          return {
+            id: w.id,
+            appName: w.appName,
+            title: w.title,
+            bundleId: w.bundleId,
+            minimized: w.isMinimized,
+            iconBase64: w.iconBase64,
+            age: ageClass(w.id),
+            asleep: !!w.sleeping,
+            spritePackId: c?.spritePackId ?? "",
+            // GO-ORBITTY-CHARS: the generated being + per-walker size ride
+            // the snapshot; 0 scale = inherit the gear's global slider.
+            charSeed: c?.charSeed ?? 0,
+            charLook: c?.charLook ?? null,
+            spriteScale: c?.spriteScale ?? 0,
+            walkerHome: c?.walkerHome ?? "",
+            cardStatus: card?.status ?? "",
+            cardKind: card?.kind ?? "",
+            neededState: needed ? (needed.neededState ?? "open") : "",
+          };
+        }),
+      }));
+    // Pack ids join the signature: an import/remove changes the frame pool
+    // the habitat draws from, so it must re-sync even when no window moved.
+    const sig = JSON.stringify([
+      planets.map((p) => [
+        p.projectId,
+        p.collapsed,
+        p.entries.map((e) => [
+          e.id,
+          e.minimized,
+          !!e.iconBase64,
+          e.age,
+          e.asleep,
+          e.spritePackId,
+          e.charSeed,
+          e.charLook,
+          e.spriteScale,
+          e.walkerHome,
+          e.cardStatus,
+          e.cardKind,
+          e.neededState,
+        ]),
+      ]),
+      packs.map((pk) => pk.id),
+      spriteScale,
+      marbleDrift,
+    ]);
+    if (sig === lastHabitatSig) return;
+    lastHabitatSig = sig;
+    try {
+      await invoke("sync_habitat", {
+        snapshot: {
+          planets,
+          spriteScale,
+          marbleDrift,
+          allPlanets: projects.map((p) => ({ projectId: p.id, name: p.name })),
+        },
+      });
+    } catch {
+      lastHabitatSig = ""; // retry next tick
+    }
+  }
+
+  // GO-ORBITTY-RAIL-ROW-MENU: row left-click = locate (glow only — never
+  // focus, never wake, never the Being editor). Open window → Orbitty
+  // overlay ring on its AX frame; minimized claimed → walker stroke on its
+  // planet; sleeper → the dim walker if it still has a planet, else a CSS
+  // flash on the row. A real drag never reaches here (no click fires).
+  let locateFlashIds = $state<string[]>([]);
+
+  function flashRow(windowId: string) {
+    if (locateFlashIds.includes(windowId)) return;
+    locateFlashIds = [...locateFlashIds, windowId];
+    setTimeout(() => {
+      locateFlashIds = locateFlashIds.filter((x) => x !== windowId);
+    }, 550);
+  }
+
+  async function locateRow(w: WindowInfo) {
+    const claim = liveClaims.find((c) => c.windowId === w.id);
+    const hasPlanet =
+      !!claim && projects.some((p) => p.id === claim.projectId);
+    if (w.sleeping || w.isMinimized) {
+      if (hasPlanet) {
+        try {
+          await invoke("locate_walker", { entryId: w.id });
+        } catch {
+          // habitat may be mid-sync; the glow is best-effort
+        }
+      } else {
+        flashRow(w.id);
+      }
+      return;
+    }
+    try {
+      await invoke("locate_window", { id: w.id });
+    } catch {
+      flashRow(w.id);
+    }
+  }
+
+  async function stow(w: WindowInfo) {
+    try {
+      await invoke("minimize_window", { id: w.id });
+    } catch {
+      // app may refuse or exit; next tick reflects reality
+    }
+    await tick();
+  }
+
+  async function restore(w: WindowInfo) {
+    try {
+      await invoke("restore_window", { id: w.id });
+    } catch {}
+    touchClaim(w.id, true);
+    await tick();
+  }
+
+  // GO-ORBITTY-SLEEPERS: click an asleep row → wake through the claim's
+  // stamps (live → file → Hermes session → recipe → app). One honest line
+  // comes back either way; the click counts as claim activity.
+  let wakeNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  async function wakeSleeper(w: WindowInfo) {
+    wakeNote = null;
+    try {
+      const msg = await invoke<string>("wake_sleeper", { id: w.id });
+      wakeNote = { kind: "ok", text: msg };
+    } catch (e) {
+      wakeNote = { kind: "err", text: `${e}` };
+    }
+    touchClaim(w.id, true);
+    await tick();
+  }
+
+  function nudgeClaim(projectId: string) {
+    if (!nudgeFor) return;
+    claim(nudgeFor, projectId);
+    nudgeFor = null;
+  }
+
+  function nudgeCreate() {
+    if (!nudgeFor || !nudgeNewName.trim()) return;
+    const p = createProject(nudgeNewName);
+    claim(nudgeFor, p.id);
+    nudgeFor = null;
+    nudgeNewName = "";
+  }
+
+  function pickTheme(id: string) {
+    themeChosen = true;
+    themeId = id;
+    persist();
+  }
+
+  // S4.2: live-apply while dragging, persist once on release.
+  function onOpacityInput() {
+    windowOpacity = clampWindowOpacity(windowOpacity);
+    applyWindowOpacity(windowOpacity);
+  }
+
+  function onOpacityCommit() {
+    onOpacityInput();
+    persist();
+  }
+
+  function clampSpriteScale(n: number) {
+    if (!Number.isFinite(n)) return 1;
+    return Math.min(2.5, Math.max(0.4, n));
+  }
+
+  function onSpriteScaleInput() {
+    spriteScale = clampSpriteScale(spriteScale);
+    lastHabitatSig = "";
+    syncHabitat();
+  }
+
+  function onSpriteScaleCommit() {
+    onSpriteScaleInput();
+    persist();
+  }
+
+  // GO-ORBITTY-BOARD-STARS: Board and STARS share the one 780×520 `kanban`
+  // overlay — the native side persists the mode, shows the pane, and emits
+  // the swap; this webview (when it IS the pane) mounts KanbanPage.
+  async function openKanban() {
+    try {
+      await invoke("open_kanban");
+    } catch {
+      // window may already exist mid-creation; next click retries
+    }
+  }
+
+  // GO-ORBITTY-RAIL-REVIEW: the rail no longer opens the Sky window — the
+  // word field lives inside STARS Review. The sky webview itself stays
+  // (hide-not-destroy); open_sky_window remains on the native side.
+
+  // Home button: order every planet panel front (peer order preserved
+  // native-side; other apps keep their relative stacking).
+  async function bringAllFront() {
+    try {
+      await invoke("bring_all_front");
+    } catch {
+      // no planets yet — harmless
+    }
+  }
+
+  // One drag source: JS startDragging on the banner. Overlay's ~28px
+  // native strip is covered by this chrome, so it cannot be the handle.
+  // Dual-drag (JS + data-tauri-drag-region) used to jump the rail off
+  // the click — do not put the region back. × stays click-only.
+  // Wordmark: click = Home, drag past 5px = move.
+  let wordmarkDidDrag = false;
+
+  function onBannerMouseDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest(".winx")) return;
+
+    if (t?.closest(".wordmark")) {
+      wordmarkDidDrag = false;
+      const sx = e.screenX;
+      const sy = e.screenY;
+      const onMove = (ev: MouseEvent) => {
+        if (Math.hypot(ev.screenX - sx, ev.screenY - sy) < 5) return;
+        wordmarkDidDrag = true;
+        window.removeEventListener("mousemove", onMove);
+        getCurrentWindow()
+          .startDragging()
+          .catch(() => {});
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+      return;
+    }
+
+    e.preventDefault();
+    getCurrentWindow()
+      .startDragging()
+      .catch(() => {});
+  }
+
+  function onWordmarkClick() {
+    if (wordmarkDidDrag) return;
+    bringAllFront();
+  }
+
+  // Settings toggles (gear panel): persisted like theme/opacity.
+  function toggleAutohide() {
+    autohideRowChrome = !autohideRowChrome;
+    persist();
+  }
+
+  function toggleHideTitles() {
+    hideTitles = !hideTitles;
+    persist();
+  }
+
+  function toggleHideIcons() {
+    hideAppIcons = !hideAppIcons;
+    persist();
+  }
+
+  // Actions lane: user-authored shell shortcuts. Click runs the command via
+  // /bin/zsh -lc in cwd or $HOME; stdout/stderr surface in a small note and
+  // never crash the rail.
+  interface ActionResult {
+    ok: boolean;
+    code: number | null;
+    stdout: string;
+    stderr: string;
+  }
+
+  function addAction() {
+    const name = newActionName.trim();
+    const command = newActionCommand.trim();
+    if (!name || !command) return;
+    actionShortcuts = [
+      ...actionShortcuts,
+      {
+        id: `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        command,
+        cwd: newActionCwd.trim() || null,
+      },
+    ];
+    newActionName = "";
+    newActionCommand = "";
+    newActionCwd = "";
+    addingAction = false;
+    persist();
+  }
+
+  function deleteAction(id: string) {
+    actionShortcuts = actionShortcuts.filter((a) => a.id !== id);
+    persist();
+  }
+
+  async function runAction(a: ActionShortcut) {
+    if (runningActionId) return;
+    runningActionId = a.id;
+    actionNote = null;
+    try {
+      const r = await invoke<ActionResult>("run_action", {
+        command: a.command,
+        cwd: a.cwd ?? null,
+      });
+      const out = [r.stdout, r.stderr].filter(Boolean).join("\n");
+      const head = r.ok ? `${a.name}: done` : `${a.name}: exit ${r.code ?? "?"}`;
+      actionNote = {
+        kind: r.ok ? "ok" : "err",
+        text: out ? `${head}\n${out}` : head,
+      };
+    } catch (e) {
+      actionNote = { kind: "err", text: `${a.name}: ${e}` };
+    }
+    runningActionId = null;
+  }
+
+  // Agents lane: launch the external harness with a query file = readable
+  // .md paths + titles-only planet context when attached to a project.
+  function addAgent() {
+    const name = newAgentName.trim();
+    if (!name) return;
+    agentShortcuts = [
+      ...agentShortcuts,
+      {
+        id: `ag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        harness: newAgentHarness,
+        profile: newAgentProfile.trim() || "grok",
+        model: newAgentModel.trim() || null,
+        mdPaths: newAgentMdPaths
+          .split(",")
+          .map((p) => p.trim())
+          .filter(Boolean),
+        projectId: newAgentProjectId || null,
+      },
+    ];
+    newAgentName = "";
+    newAgentHarness = "hermes";
+    newAgentProfile = "";
+    newAgentModel = "";
+    newAgentMdPaths = "";
+    newAgentProjectId = "";
+    addingAgent = false;
+    persist();
+  }
+
+  function deleteAgent(id: string) {
+    agentShortcuts = agentShortcuts.filter((a) => a.id !== id);
+    persist();
+  }
+
+  async function launchAgent(a: AgentShortcut) {
+    const p = a.projectId ? projects.find((x) => x.id === a.projectId) : undefined;
+    const titles = p
+      ? [
+          ...rowsFor(p.id).map((w) =>
+            w.title ? `${w.appName} — ${w.title}` : w.appName,
+          ),
+          ...todosFor(p.id).map((c) => `To-do: ${c.title}`),
+        ]
+      : [];
+    try {
+      const route = await invoke<string>("launch_agent", {
+        shortcut: a,
+        projectName: p?.name ?? null,
+        titles,
+      });
+      hermesNote = { kind: "ok", text: `${a.name}: ${route}` };
+    } catch (e) {
+      hermesNote = { kind: "err", text: `${a.name}: ${e}` };
+    }
+  }
+
+  // Open Lists focused on one card: open_kanban puts the shared pane in
+  // board mode (KanbanPage), which listens for `orbitty:focus-card`,
+  // selects the card's project and opens its detail. The delayed re-emit
+  // covers a kanban webview that is still mid-load (or mid page-swap) when
+  // the first event lands.
+  async function openKanbanFocus(cardId: string) {
+    await openKanban();
+    emitTo("kanban", "orbitty:focus-card", cardId).catch(() => {});
+    setTimeout(
+      () => emitTo("kanban", "orbitty:focus-card", cardId).catch(() => {}),
+      400,
+    );
+  }
+
+  // S5 Hermes: launch/focus the EXISTING harness with a titles-only context
+  // file (claimed window titles + open to-do titles — never file contents).
+  async function launchHermes(p: Project) {
+    const titles = [
+      ...rowsFor(p.id).map((w) =>
+        w.title ? `${w.appName} — ${w.title}` : w.appName,
+      ),
+      ...todosFor(p.id).map((c) => `To-do: ${c.title}`),
+    ];
+    try {
+      const route = await invoke<string>("launch_coordinator", {
+        projectId: p.id,
+        projectName: p.name,
+        titles,
+      });
+      hermesNote = { kind: "ok", text: `${p.name}: ${route}` };
+    } catch (e) {
+      hermesNote = { kind: "err", text: `${e}` };
+    }
+  }
+
+  // S5 soul.md: read always; writes only through the explicit Save button.
+  async function toggleSoul(p: Project) {
+    if (soulFor === p.id) {
+      soulFor = null;
+      return;
+    }
+    soulFor = p.id;
+    soulBody = "";
+    soulPath = "";
+    soulMsg = "Loading…";
+    try {
+      soulBody = await invoke<string>("load_soul", {
+        projectId: p.id,
+        projectName: p.name,
+      });
+      soulPath = await invoke<string>("soul_path", { projectId: p.id });
+      soulMsg = "";
+    } catch (e) {
+      soulMsg = `${e}`;
+    }
+  }
+
+  async function saveSoul() {
+    if (!soulFor) return;
+    try {
+      await invoke("save_soul", { projectId: soulFor, body: soulBody });
+      soulMsg = "Saved.";
+      setTimeout(() => {
+        if (soulMsg === "Saved.") soulMsg = "";
+      }, 1500);
+    } catch (e) {
+      soulMsg = `${e}`;
+    }
+  }
+
+  async function openSoulEditor() {
+    if (!soulFor) return;
+    const p = projects.find((x) => x.id === soulFor);
+    try {
+      await invoke("open_soul_in_editor", {
+        projectId: soulFor,
+        projectName: p?.name ?? null,
+      });
+    } catch (e) {
+      soulMsg = `${e}`;
+    }
+  }
+
+  function createProject(name: string): Project {
+    const p: Project = {
+      id: `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name: name.trim(),
+    };
+    projects = [...projects, p];
+    return p;
+  }
+
+  function newCardId(): string {
+    return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function isClinicalOrMaster(windowId: string): boolean {
+    return tagsFor(windowId).some((t) => {
+      const n = t.name.trim().toLowerCase();
+      return n === "clinical" || n === "master";
+    });
+  }
+
+  // Reboot-rematch fingerprint: the 1-based position of this window among
+  // live windows sharing its bundle+title — the same `n` the native
+  // stableKey carries. Stamped from the live AX title, never the override.
+  function titleIndexFor(w: WindowInfo): number {
+    const bundle = w.bundleId || w.appName;
+    return (
+      windows
+        .filter(
+          (x) => (x.bundleId || x.appName) === bundle && x.title === w.title,
+        )
+        .findIndex((x) => x.id === w.id) + 1
+    );
+  }
+
+  function claimStableKey(c: Claim): string | null {
+    const bundle = c.bundleId || c.appName;
+    if (!bundle || c.titleAtClaim == null || !c.titleIndex) return null;
+    return `${bundle}|${c.titleAtClaim}|${c.titleIndex}`;
+  }
+
+  // GO-ORBITTY-SLEEPERS: Hermes-class = the bundle id or app name says so.
+  function isHermesClass(w: WindowInfo): boolean {
+    return /hermes/i.test(w.bundleId ?? "") || /hermes/i.test(w.appName);
+  }
+
+  // Wake-trail stamps, taken from the LIVE window only (never invented):
+  // the AX document path, and the Hermes session hint from the AX title.
+  // Re-claiming keeps whatever a previous claim stamped (prev).
+  function sleeperStamps(w: WindowInfo, prev?: Claim): Partial<Claim> {
+    return {
+      filePath: w.documentPath ?? prev?.filePath ?? null,
+      hermesProfile: prev?.hermesProfile ?? null,
+      hermesSession:
+        isHermesClass(w) && w.title
+          ? w.title
+          : (prev?.hermesSession ?? null),
+      actionId: prev?.actionId ?? null,
+      command: prev?.command ?? null,
+      cwd: prev?.cwd ?? null,
+    };
+  }
+
+  // GO-ORBITTY-CHARS: a fresh roll seed for a brand-new claim (u32 range —
+  // the native side takes u64). The look derives from it until the Being
+  // editor materializes explicit picks.
+  function rollCharSeed(): number {
+    return Math.floor(Math.random() * 0xffffffff) >>> 0;
+  }
+
+  // S4.3: claiming a window immediately creates/updates its Kanban card
+  // (status doing) — the board reflects claimed work before any Done.
+  function claim(windowId: string, projectId: string) {
+    const now = nowEpoch();
+    const w = windows.find((x) => x.id === windowId);
+    // The sprite pick / generated being / per-walker size are per-window
+    // preferences — re-claiming into another project keeps them; a
+    // first-time claim rolls a fresh person (GO-ORBITTY-CHARS).
+    const prev = liveClaims.find((c) => c.windowId === windowId);
+    claims = [
+      ...liveClaims.filter((c) => c.windowId !== windowId),
+      {
+        windowId,
+        projectId,
+        lastTouchedAt: now,
+        spritePackId: prev?.spritePackId ?? null,
+        charSeed: prev?.charSeed ?? rollCharSeed(),
+        charLook: prev?.charLook ?? null,
+        spriteScale: prev?.spriteScale ?? null,
+        walkerHome: prev?.walkerHome ?? null,
+        ...(w
+          ? {
+              bundleId: w.bundleId ?? null,
+              appName: w.appName,
+              titleAtClaim: w.title,
+              titleIndex: titleIndexFor(w),
+              ...sleeperStamps(w, prev),
+            }
+          : {}),
+      },
+    ];
+    const shown = w
+      ? titleOverrides.find((o) => o.windowId === w.id)?.title || w.title
+      : "";
+    const title = w ? (shown ? `${w.appName} — ${shown}` : w.appName) : "Window";
+    const open = kanbanCards.find(
+      (c) => c.windowId === windowId && c.status !== "done",
+    );
+    if (open) {
+      kanbanCards = kanbanCards.map((c) =>
+        c.id === open.id
+          ? {
+              ...c,
+              projectId,
+              windowId,
+              title: c.title || title,
+              kind: c.kind ?? "window",
+              status: "doing",
+              clinicalOrMaster: c.clinicalOrMaster || isClinicalOrMaster(windowId),
+              lastTouchedAt: now,
+            }
+          : c,
+      );
+    } else {
+      kanbanCards = [
+        ...kanbanCards,
+        {
+          id: newCardId(),
+          title,
+          projectId,
+          windowId,
+          kind: "window" as const,
+          status: "doing" as const,
+          createdAt: now,
+          lastTouchedAt: now,
+          completedAt: null,
+          goalAligned: true,
+          clinicalOrMaster: isClinicalOrMaster(windowId),
+          pointsAwarded: 0,
+          starred: false,
+        },
+      ];
+    }
+    persist();
+  }
+
+  // Unclaim never deletes the card: it stays on the project's list as a
+  // loose todo without a window.
+  function unclaim(windowId: string) {
+    claims = liveClaims.filter((c) => c.windowId !== windowId);
+    const now = nowEpoch();
+    kanbanCards = kanbanCards.map((c) =>
+      c.windowId === windowId && c.status !== "done"
+        ? { ...c, windowId: null, status: "todo", lastTouchedAt: now }
+        : c,
+    );
+    persist();
+  }
+
+  // S4 complete — the only door that retires a sprite and can mint points.
+  // Explicit click + confirm on a home-claimed row; never from dwell,
+  // minimize, or title heuristics. Also AX-closes the OS window (its own
+  // close button, never a pid kill); if the app refuses, the card still
+  // completes — no panic.
+  async function completeWindow(w: WindowInfo, project: Project) {
+    const now = nowEpoch();
+    const clinicalOrMaster = isClinicalOrMaster(w.id);
+    const shown = titleOverrides.find((o) => o.windowId === w.id)?.title || w.title;
+    const title = shown ? `${w.appName} — ${shown}` : w.appName;
+    const existing =
+      kanbanCards.find(
+        (c) => c.windowId === w.id && c.projectId === project.id,
+      ) ?? kanbanCards.find((c) => c.windowId === w.id);
+    // Award once per card (first transition to done only); 1 pt default,
+    // 2 if tagged clinical/master; 0 when the daily cap would be exceeded —
+    // the card still completes, quietly.
+    const firstComplete = !existing?.completedAt;
+    const base = clinicalOrMaster ? 2 : 1;
+    const award = firstComplete && pointsToday() + base <= DAILY_CAP ? base : 0;
+    const cardId =
+      existing?.id ??
+      `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    if (existing) {
+      kanbanCards = kanbanCards.map((c) =>
+        c.id === cardId
+          ? {
+              ...c,
+              status: "done",
+              title: c.title || title,
+              clinicalOrMaster: c.clinicalOrMaster || clinicalOrMaster,
+              lastTouchedAt: now,
+              completedAt: c.completedAt ?? now,
+              pointsAwarded: c.pointsAwarded + award,
+            }
+          : c,
+      );
+    } else {
+      kanbanCards = [
+        ...kanbanCards,
+        {
+          id: cardId,
+          title,
+          projectId: project.id,
+          windowId: w.id,
+          status: "done",
+          createdAt: now,
+          lastTouchedAt: now,
+          completedAt: now,
+          goalAligned: true,
+          clinicalOrMaster,
+          pointsAwarded: award,
+        },
+      ];
+    }
+    if (award > 0) {
+      pointsLedger = [
+        ...pointsLedger,
+        {
+          id: `pt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          cardId,
+          amount: award,
+          day: todayKey(),
+          at: now,
+        },
+      ];
+    }
+    // GO-ORBITTY-CADENCE: the claim SURVIVES the complete so the walker can
+    // walk off the north rim — the card's done status rides the snapshot and
+    // the native side narrates the walk. The eviction itself is unchanged:
+    // the habitat:walked-off listener below unclaims once the walker is off
+    // (and a done entry with no walker to walk off — marble, open dot —
+    // emits immediately, so nothing lingers).
+    persist();
+    // Complete → close → sync: AX press on the window's own close button.
+    // A refusal (no button, save prompt, app ignores) leaves the card done.
+    try {
+      await invoke("close_window", { id: w.id });
+    } catch {}
+    await tick();
+  }
+
+  // Completing a free todo from a rail project section: same points rules
+  // as a window card (award once per card, daily cap), minus the walk-off.
+  function completeTodo(card: KanbanCard) {
+    const now = nowEpoch();
+    const alreadyAwarded = pointsLedger.some((e) => e.cardId === card.id);
+    const base = card.clinicalOrMaster ? 2 : 1;
+    const award =
+      !alreadyAwarded && pointsToday() + base <= DAILY_CAP ? base : 0;
+    kanbanCards = kanbanCards.map((c) =>
+      c.id === card.id
+        ? {
+            ...c,
+            status: "done",
+            lastTouchedAt: now,
+            completedAt: now,
+            pointsAwarded: c.pointsAwarded + award,
+          }
+        : c,
+    );
+    if (award > 0) {
+      pointsLedger = [
+        ...pointsLedger,
+        {
+          id: `pt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          cardId: card.id,
+          amount: award,
+          day: todayKey(),
+          at: now,
+        },
+      ];
+    }
+    persist();
+  }
+
+  // S4.6: one click on the open circle fills it (the fill is the confirm),
+  // then the row completes and leaves the rail.
+  function circleComplete(key: string, fn: () => void) {
+    if (completingIds.includes(key)) return;
+    completingIds = [...completingIds, key];
+    setTimeout(() => {
+      completingIds = completingIds.filter((k) => k !== key);
+      fn();
+    }, 240);
+  }
+
+  // "+ To-do" under a project section: a loose todo card on that project.
+  // Creating one opens Lists focused on the new card.
+  function addTodoTo(projectId: string) {
+    const title = newTodoTitle.trim();
+    if (!title) return;
+    const now = nowEpoch();
+    const id = newCardId();
+    kanbanCards = [
+      ...kanbanCards,
+      {
+        id,
+        title,
+        projectId,
+        windowId: null,
+        kind: "todo" as const,
+        status: "todo" as const,
+        createdAt: now,
+        lastTouchedAt: now,
+        completedAt: null,
+        goalAligned: true,
+        clinicalOrMaster: false,
+        pointsAwarded: 0,
+        starred: false,
+      },
+    ];
+    newTodoTitle = "";
+    addingTodoFor = null;
+    persist();
+    openKanbanFocus(id);
+  }
+
+  // Sprite assignment (GO-ORBITTY-RAIL-ROW-MENU): the pack id lives on the
+  // claim and rides the habitat snapshot; null/"" = the generated being.
+  // The picker UI is the planet walker's right-click NSMenu — the rail
+  // receives `habitat:walker-pack` and writes the claim here.
+  function occupancyOf(c: Claim): string {
+    if (c.walkerHome && projects.some((p) => p.id === c.walkerHome)) {
+      return c.walkerHome;
+    }
+    return c.projectId;
+  }
+
+  function setWalkerHome(windowId: string, projectId: string) {
+    if (!projects.some((p) => p.id === projectId)) return;
+    claims = liveClaims.map((c) =>
+      c.windowId === windowId ? { ...c, walkerHome: projectId } : c,
+    );
+    persist();
+  }
+
+  function setSpritePack(windowId: string, packId: string | null) {
+    claims = liveClaims.map((c) =>
+      c.windowId === windowId ? { ...c, spritePackId: packId || null } : c,
+    );
+    persist();
+  }
+
+  // ---------- Being editor (GO-ORBITTY-CHARS) ----------
+  // The door is the planet walker's right-click menu → "Open being…"
+  // (habitat:being, GO-ORBITTY-RAIL-ROW-MENU). Every change writes the
+  // claim straight away (persist → syncHabitat), so the planet redraws
+  // live; there is no Save/Cancel. Double-click on the walker still
+  // restores the window.
+
+  let beingEditorFor = $state<string | null>(null);
+  let bittyKinds = $state<BittyKind[]>([]);
+  let editorLook = $state<CharLook | null>(null);
+  let editorPreview = $state("");
+
+  function beingClaim(): Claim | undefined {
+    return beingEditorFor
+      ? liveClaims.find((c) => c.windowId === beingEditorFor)
+      : undefined;
+  }
+
+  function beingWindow(): WindowInfo | undefined {
+    return beingEditorFor
+      ? windows.find((w) => w.id === beingEditorFor)
+      : undefined;
+  }
+
+  async function refreshBeingPreview() {
+    if (!editorLook) {
+      editorPreview = "";
+      return;
+    }
+    try {
+      const b64 = await invoke<string>("char_preview", {
+        look: editorLook,
+        px: 8,
+      });
+      editorPreview = `data:image/png;base64,${b64}`;
+    } catch {
+      editorPreview = ""; // preview is decorative; the planet is the truth
+    }
+  }
+
+  // Write the draft look (+ seed) onto the claim and redraw everywhere.
+  async function commitBeingLook(seed?: number) {
+    const id = beingEditorFor;
+    if (!id || !editorLook) return;
+    claims = liveClaims.map((c) =>
+      c.windowId === id
+        ? { ...c, charLook: { ...editorLook! }, ...(seed != null ? { charSeed: seed } : {}) }
+        : c,
+    );
+    persist();
+    await refreshBeingPreview();
+  }
+
+  async function openBeingEditor(windowId: string) {
+    const c = liveClaims.find((x) => x.windowId === windowId);
+    if (!c) return; // only claimed windows have beings
+    if (bittyKinds.length === 0) {
+      try {
+        bittyKinds = await invoke<BittyKind[]>("bitty_catalog");
+      } catch {
+        bittyKinds = [];
+      }
+    }
+    // Materialize: a claim without explicit picks derives them from its
+    // seed once, so the cyclers edit concrete indices from then on.
+    let seed = c.charSeed ?? 0;
+    if (!seed) {
+      seed = rollCharSeed();
+      claims = liveClaims.map((x) =>
+        x.windowId === windowId ? { ...x, charSeed: seed } : x,
+      );
+    }
+    let look = c.charLook;
+    if (!look) {
+      try {
+        look = await invoke<CharLook>("roll_char_look", { seed });
+      } catch {
+        look = { species: 0, body: 0, clothes: 0, eyes: 0, mouth: 0, hat: 0, colors: 0, kind: 0, palette: 0 };
+      }
+    }
+    // Pre-S1 looks carry no kind/palette — the native side maps the legacy
+    // species onto the nearest Kind+Palette so the cyclers start concrete.
+    try {
+      look = await invoke<CharLook>("normalize_char_look", { look });
+    } catch {
+      // keep the un-normalized look; the planet still resolves it
+    }
+    beingEditorFor = windowId;
+    editorLook = { ...look };
+    await commitBeingLook();
+  }
+
+  function closeBeingEditor() {
+    beingEditorFor = null;
+    editorLook = null;
+    editorPreview = "";
+  }
+
+  // Kind + Palette are the only cyclers (GO-ORBITTY-S1-BITTYS). Indices
+  // wrap mod the table sizes; the palette index carries across kinds (every
+  // kind has exactly 4 palettes).
+  function beingKindIndex(): number {
+    return editorLook?.kind ?? 0;
+  }
+
+  function beingPaletteIndex(): number {
+    return editorLook?.palette ?? 0;
+  }
+
+  function cycleKind(dir: 1 | -1) {
+    if (!editorLook || bittyKinds.length === 0) return;
+    const n = bittyKinds.length;
+    const k = (((beingKindIndex() + dir) % n) + n) % n;
+    const p = beingPaletteIndex() % (bittyKinds[k]?.palettes.length || 1);
+    editorLook = { ...editorLook, kind: k, palette: p };
+    commitBeingLook();
+  }
+
+  function cyclePalette(dir: 1 | -1) {
+    if (!editorLook || bittyKinds.length === 0) return;
+    const n = bittyKinds[beingKindIndex()]?.palettes.length || 1;
+    const p = (((beingPaletteIndex() + dir) % n) + n) % n;
+    editorLook = { ...editorLook, palette: p };
+    commitBeingLook();
+  }
+
+  function kindLabel(): string {
+    return bittyKinds[beingKindIndex()]?.name ?? "";
+  }
+
+  function paletteLabel(): string {
+    return bittyKinds[beingKindIndex()]?.palettes[beingPaletteIndex()] ?? "";
+  }
+
+  async function rerollBeing() {
+    const seed = rollCharSeed();
+    try {
+      editorLook = await invoke<CharLook>("roll_char_look", { seed });
+    } catch {
+      return;
+    }
+    await commitBeingLook(seed);
+  }
+
+  // Per-walker size: null = follow the gear's global slider.
+  function beingScale(): number {
+    return beingClaim()?.spriteScale ?? spriteScale;
+  }
+
+  function onBeingScaleInput(e: Event) {
+    const id = beingEditorFor;
+    if (!id) return;
+    const v = clampSpriteScale(+(e.target as HTMLInputElement).value);
+    claims = liveClaims.map((c) =>
+      c.windowId === id ? { ...c, spriteScale: v } : c,
+    );
+    lastHabitatSig = "";
+    syncHabitat();
+  }
+
+  function onBeingScaleCommit() {
+    persist();
+  }
+
+  function resetBeingScale() {
+    const id = beingEditorFor;
+    if (!id) return;
+    claims = liveClaims.map((c) =>
+      c.windowId === id ? { ...c, spriteScale: null } : c,
+    );
+    persist();
+  }
+
+  function beingMoveHome(projectId: string) {
+    const id = beingEditorFor;
+    if (!id) return;
+    claim(id, projectId);
+  }
+
+  function beingUnclaim() {
+    const id = beingEditorFor;
+    if (!id) return;
+    unclaim(id);
+    closeBeingEditor();
+  }
+
+  function createProjectOnly() {
+    if (!newProjectName.trim()) return;
+    createProject(newProjectName);
+    newProjectName = "";
+    creatingProject = false;
+    persist();
+  }
+
+  function onDragStart(e: DragEvent, w: WindowInfo) {
+    dragWindowId = w.id;
+    ctxMenu = null;
+    e.dataTransfer?.setData("text/plain", w.id);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  }
+
+  function onDragEnd() {
+    dragWindowId = null;
+    dropTarget = null;
+  }
+
+  // Window drags must keep working even if Svelte state was lost mid-gesture
+  // (the 800ms poll can mutate the source row and cancel the HTML5 session):
+  // trust the dataTransfer type list, not just dragWindowId.
+  function isWindowDrag(e: DragEvent): boolean {
+    return (
+      !!dragWindowId || !!e.dataTransfer?.types?.includes("text/plain")
+    );
+  }
+
+  function onSectionDragEnter(e: DragEvent, key: string) {
+    if (!isWindowDrag(e)) return;
+    e.preventDefault();
+    dropTarget = key;
+  }
+
+  function onSectionDragOver(e: DragEvent, key: string) {
+    if (!isWindowDrag(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    if (dropTarget !== key) dropTarget = key;
+  }
+
+  function onSectionDragLeave(e: DragEvent, key: string) {
+    // dragleave fires when moving between children; only clear when the
+    // pointer actually leaves the section.
+    const next = e.relatedTarget as Node | null;
+    if (
+      next &&
+      e.currentTarget instanceof HTMLElement &&
+      e.currentTarget.contains(next)
+    )
+      return;
+    if (dropTarget === key) dropTarget = null;
+  }
+
+  function onSectionDrop(e: DragEvent, projectId: string | null) {
+    e.preventDefault();
+    // dataTransfer is authoritative inside drop; Svelte state is the fallback
+    // in case the 800ms poll tore down and rebuilt the source row mid-gesture.
+    const id = e.dataTransfer?.getData("text/plain") || dragWindowId;
+    if (id) {
+      if (projectId) {
+        claim(id, projectId);
+      } else {
+        unclaim(id);
+      }
+    }
+    dragWindowId = null;
+    dropTarget = null;
+  }
+
+  async function tick() {
+    try {
+      const s = await invoke<AxStatus>("accessibility_status");
+      status = s;
+      // Don't swap the rows array mid-drag: mutating the dragged row's DOM
+      // can cancel the HTML5 drag session in WKWebView.
+      if (s.trusted && !dragWindowId) {
+        windows = await invoke<WindowInfo[]>("list_windows");
+        refreshedAt = new Date().toLocaleTimeString();
+        rematchClaims();
+        // Frontmost tick: a claimed window the human is actively in counts as
+        // touched (throttled persist inside), so zombies self-heal by use.
+        const front = windows.find((w) => w.isFrontmost);
+        if (front && liveClaims.some((c) => c.windowId === front.id)) {
+          touchClaim(front.id);
+        }
+        checkNudge();
+        syncHabitat();
+      }
+    } catch {
+      // keep last good state; next poll retries
+    }
+  }
+
+  // GO-LS-TAURI-USER-PACKS reboot rematch. Live ids are pid:cgWindowID —
+  // they die on reboot. Claims carry a bundle+title fingerprint; when a
+  // claim's id is gone, adopt the best unused live window (exact stableKey,
+  // else same bundle+title first unused) and rewrite the id everywhere.
+  // Two claims never merge onto one window; unmatched claims stay listed as
+  // orphans until their window returns — nothing is deleted.
+  function rematchClaims() {
+    if (!stateLoaded) return;
+    const liveIds = new Set(windows.map((w) => w.id));
+    const used = new Set<string>();
+    let changed = false;
+    // Live claims keep their ids; backfill the fingerprint on pre-GO claims
+    // so they survive the NEXT reboot too. While a claim is live, refresh
+    // its sleeper wake trail (file path / Hermes session) from the window.
+    for (const c of liveClaims) {
+      if (!liveIds.has(c.windowId)) continue;
+      used.add(c.windowId);
+      const w = windows.find((x) => x.id === c.windowId);
+      if (!w) continue;
+      if (c.titleAtClaim == null) {
+        c.bundleId = w.bundleId ?? null;
+        c.appName = w.appName;
+        c.titleAtClaim = w.title;
+        c.titleIndex = titleIndexFor(w);
+        changed = true;
+      }
+      if (w.documentPath && c.filePath !== w.documentPath) {
+        c.filePath = w.documentPath;
+        changed = true;
+      }
+      if (isHermesClass(w) && w.title && c.hermesSession !== w.title) {
+        c.hermesSession = w.title;
+        changed = true;
+      }
+    }
+    for (const c of liveClaims) {
+      if (liveIds.has(c.windowId)) continue;
+      const key = claimStableKey(c);
+      let pick: WindowInfo | undefined;
+      if (key) pick = windows.find((w) => !used.has(w.id) && w.stableKey === key);
+      if (!pick && (c.bundleId || c.appName) && c.titleAtClaim != null) {
+        const bundle = c.bundleId || c.appName;
+        pick = windows.find(
+          (w) =>
+            !used.has(w.id) &&
+            (w.bundleId || w.appName) === bundle &&
+            w.title === c.titleAtClaim,
+        );
+      }
+      if (!pick) continue; // orphan — waits for its window to return
+      used.add(pick.id);
+      rewriteWindowId(c.windowId, pick);
+      changed = true;
+    }
+    if (changed) persist();
+  }
+
+  // One id swap, all slices: claim (with a refreshed fingerprint and wake
+  // trail), cards, tags, title overrides, nudge suppression.
+  function rewriteWindowId(oldId: string, w: WindowInfo) {
+    claims = claims.map((c) =>
+      c.windowId === oldId
+        ? {
+            ...c,
+            windowId: w.id,
+            bundleId: w.bundleId ?? null,
+            appName: w.appName,
+            titleAtClaim: w.title,
+            titleIndex: titleIndexFor(w),
+            filePath: w.documentPath ?? c.filePath ?? null,
+            hermesSession:
+              isHermesClass(w) && w.title ? w.title : (c.hermesSession ?? null),
+          }
+        : c,
+    );
+    kanbanCards = kanbanCards.map((c) =>
+      c.windowId === oldId ? { ...c, windowId: w.id } : c,
+    );
+    windowTags = windowTags.map((wt) =>
+      wt.windowId === oldId ? { ...wt, windowId: w.id } : wt,
+    );
+    titleOverrides = titleOverrides.map((o) =>
+      o.windowId === oldId ? { ...o, windowId: w.id } : o,
+    );
+    nudgeSuppressed = nudgeSuppressed.map((id) => (id === oldId ? w.id : id));
+  }
+
+  // Claim-first nudge: an OS minimize (yellow / ⌘M / Dock) of an unmapped
+  // window asks once — pick or create a home, or dismiss. After that the
+  // window id is silent forever (persisted). Never auto-claim.
+  //
+  // GO-LS-TAURI-USER-PACKS: windows ALREADY minimized on the first poll after
+  // launch never nudge — their ids AND stableKeys go straight to
+  // nudgeSuppressed (the stableKey keeps them silent across reboots too).
+  // After that, only a visible → minimized transition can nudge, once per id.
+  let nudgePrimed = false;
+  let prevMinimized = new Set<string>();
+
+  function checkNudge() {
+    if (!stateLoaded) return;
+    const minimizedNow = new Set(
+      windows.filter((w) => w.isMinimized).map((w) => w.id),
+    );
+    if (!nudgePrimed) {
+      nudgePrimed = true;
+      prevMinimized = minimizedNow;
+      const alreadyMin = windows.filter((w) => w.isMinimized);
+      if (alreadyMin.length > 0) {
+        const extra = alreadyMin.flatMap((w) => [w.id, w.stableKey]);
+        nudgeSuppressed = [...new Set([...nudgeSuppressed, ...extra])];
+        persist();
+      }
+      return; // first poll never nudges
+    }
+    if (nudgeFor && !minimizedNow.has(nudgeFor)) {
+      nudgeFor = null; // restored or gone before acting on the banner
+    }
+    if (!nudgeFor) {
+      const candidate = windows.find(
+        (w) =>
+          w.isMinimized &&
+          !prevMinimized.has(w.id) && // a real visible → minimized transition
+          !liveClaims.some((c) => c.windowId === w.id) &&
+          !nudgeSuppressed.includes(w.id) &&
+          !nudgeSuppressed.includes(w.stableKey),
+      );
+      if (candidate) {
+        nudgeSuppressed = [
+          ...new Set([...nudgeSuppressed, candidate.id, candidate.stableKey]),
+        ];
+        nudgeFor = candidate.id;
+        nudgeNewName = "";
+        persist();
+      }
+    }
+    prevMinimized = minimizedNow;
+  }
+
+  // Rail drag lives on the banner (onBannerMouseDown). Overlay's native
+  // strip is covered by this chrome, so it cannot be the handle.
+
+  async function openSettings() {
+    try {
+      await invoke("open_accessibility_settings");
+    } catch {}
+  }
+
+  async function retry() {
+    try {
+      await invoke("prompt_accessibility");
+    } catch {}
+    await tick();
+  }
+
+  async function copyPath() {
+    if (!status) return;
+    try {
+      await navigator.clipboard.writeText(status.bundlePath);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch {}
+  }
+
+  $effect(() => {
+    if (!themeId) return;
+    document.documentElement.dataset.theme = themeId;
+    applyHostTokens(themeId);
+    // S4.2: no Clear material — vibrancy stays off for every theme.
+    invoke("set_vibrancy", { enabled: false }).catch(() => {});
+    // S4.4: re-assert the native transparency surgery (WKWebView
+    // drawsBackground can come back up white after load).
+    invoke("ensure_glass").catch(() => {});
+  });
+
+  // Reads themeId too: the rgba fills are computed from the resolved theme
+  // tokens, so a theme flip must re-derive them (theme effect above runs
+  // first and sets the tokens).
+  $effect(() => {
+    if (!themeId) return;
+    applyWindowOpacity(windowOpacity);
+  });
+
+  let timer: ReturnType<typeof setInterval>;
+  let unlistenExpand: (() => void) | undefined;
+  let unlistenCollapse: (() => void) | undefined;
+  let unlistenBeing: (() => void) | undefined;
+  let unlistenWalkerPack: (() => void) | undefined;
+  let unlistenWalkerHome: (() => void) | undefined;
+  let unlistenWalkedOff: (() => void) | undefined;
+  let unlistenState: (() => void) | undefined;
+
+  // GO-ORBITTY-RAIL-ROW-MENU: walker right-click menu pick. `kind` = import
+  // first ("image" / "folder"); `packId` = direct pick (null = Generated).
+  interface WalkerPackPick {
+    entryId: string;
+    kind?: string | null;
+    packId?: string | null;
+  }
+  const osMedia = window.matchMedia("(prefers-color-scheme: dark)");
+  const onOsThemeChange = () => {
+    if (!themeChosen) themeId = osThemeId();
+  };
+  onMount(async () => {
+    try {
+      const s = await invoke<PersistedState>("load_state");
+      const migrated = migrateThemeId(s.themeId ?? "");
+      if (migrated) {
+        themeId = migrated;
+        themeChosen = true;
+      } else {
+        themeId = defaultThemeId();
+      }
+      windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
+      projects = s.projects ?? [];
+      // Pre-S4 claims carry lastTouchedAt 0 — no earlier data exists, so the
+      // zombie clock honestly starts at first S4 launch.
+      const firstSeen = Date.now() / 1000;
+      claims = (s.claims ?? []).map((c) =>
+        c.lastTouchedAt > 0 ? c : { ...c, lastTouchedAt: firstSeen },
+      );
+      // GO-ORBITTY-CHARS: pre-GO saves have no charSeed — roll one per claim
+      // so every existing walker keeps a stable being from here on.
+      {
+        let seeded = false;
+        claims = claims.map((c) => {
+          if (c.charSeed) return c;
+          seeded = true;
+          return { ...c, charSeed: rollCharSeed() };
+        });
+        if (seeded) persist();
+      }
+      tags = s.tags ?? [];
+      windowTags = s.windowTags ?? [];
+      collapsedSectionIds = s.collapsedSectionIds ?? [];
+      nudgeSuppressed = s.nudgeSuppressedWindowIds ?? [];
+      kanbanCards = s.kanbanCards ?? [];
+      pointsLedger = s.pointsLedger ?? [];
+      titleOverrides = s.titleOverrides ?? [];
+      autohideRowChrome = s.autohideRowChrome ?? true;
+      // Legacy showFullTitles is ignored on purpose: both old values land on
+      // titles visible, one line, ellipsis.
+      hideTitles = s.hideTitles ?? false;
+      hideAppIcons = s.hideAppIcons ?? false;
+      spriteScale = clampSpriteScale(s.spriteScale ?? 1);
+      marbleDrift = s.marbleDrift ?? false;
+      actionShortcuts = s.actionShortcuts ?? [];
+      agentShortcuts = s.agentShortcuts ?? [];
+      companionState = s.companion ?? companionState;
+      starsState = s.stars ?? { promptsOptIn: false, checkins: {} };
+      skyState = s.sky ?? { muted: [] };
+      drawersState = s.drawers ?? {};
+    } catch {
+      themeId = defaultThemeId();
+    }
+    stateLoaded = true;
+    refreshPacks();
+    // Marble click on a planet expands the matching rail section; the
+    // planet's right-click Minimize collapses it back.
+    unlistenExpand = await listen<string>("habitat:expand", (e) => {
+      if (isCollapsed(e.payload)) toggleCollapse(e.payload);
+    });
+    unlistenCollapse = await listen<string>("habitat:collapse", (e) => {
+      if (!isCollapsed(e.payload)) toggleCollapse(e.payload);
+    });
+    // GO-ORBITTY-RAIL-ROW-MENU: the walker right-click menu's "Open
+    // being…" is the Being editor's only door (walker single-click is the
+    // locate stroke now).
+    unlistenBeing = await listen<string>("habitat:being", (e) => {
+      openBeingEditor(e.payload);
+    });
+    // Walker right-click menu picks land here: import-first verbs run the
+    // native picker then skin the walker with the new pack; a direct pick
+    // writes the claim (null = back to the generated being). The native
+    // side never writes claims.
+    unlistenWalkerPack = await listen<WalkerPackPick>(
+      "habitat:walker-pack",
+      async (e) => {
+        const { entryId, kind, packId } = e.payload;
+        if (kind === "image" || kind === "folder") {
+          try {
+            const p = await invoke<PackInfo | null>(
+              kind === "image" ? "import_pack_image" : "import_pack_folder",
+            );
+            if (p) {
+              setSpritePack(entryId, p.id);
+              await refreshPacks();
+            }
+          } catch (err) {
+            wakeNote = { kind: "err", text: `${err}` };
+          }
+          return;
+        }
+        setSpritePack(entryId, packId ?? null);
+      },
+    );
+    unlistenWalkerHome = await listen<{ entryId: string; projectId: string }>(
+      "habitat:walker-home",
+      (e) => {
+        setWalkerHome(e.payload.entryId, e.payload.projectId);
+      },
+    );
+    // GO-ORBITTY-CADENCE: a Done walker crossed the north rim (or had no
+    // walker to walk off — marble / open dot). The walk-off is narration;
+    // THIS is the existing Done eviction: unclaim, same as the pre-cadence
+    // complete path. Idempotent (the native side re-emits while a done
+    // entry lingers), and a re-claim mid-walk (a new open card for the
+    // window) cancels the eviction so a live claim is never yanked.
+    unlistenWalkedOff = await listen<string>("habitat:walked-off", (e) => {
+      const windowId = e.payload;
+      const open = kanbanCards.find(
+        (c) => c.windowId === windowId && c.status !== "done",
+      );
+      if (open) return;
+      if (!liveClaims.some((c) => c.windowId === windowId)) return;
+      claims = liveClaims.filter((c) => c.windowId !== windowId);
+      persist();
+    });
+    // The Lists window writes state.json too (todos, checkbox completes).
+    // Adopt its card/ledger writes and any claims it removed; rail-owned
+    // slices (projects, tags, UI state) stay local. Echoes of our own saves
+    // reload identical data — harmless. Skipped mid-drag so a window drag
+    // can't be cancelled by a DOM swap.
+    unlistenState = await listen("state:changed", async () => {
+      if (dragWindowId) return;
+      try {
+        const s = await invoke<PersistedState>("load_state");
+        kanbanCards = s.kanbanCards ?? [];
+        pointsLedger = s.pointsLedger ?? [];
+        companionState = s.companion ?? companionState;
+        // STARS: the STARS window's check-in saves and the companion's
+        // Prompts toggle / strip ack land here; the rail only round-trips.
+        starsState = s.stars ?? starsState;
+        // Sky: the Sky window's mute writes land here; round-trip only.
+        skyState = s.sky ?? skyState;
+        // Rail-drawer leash writes (pluck / re-tether / dx/dy) land here;
+        // round-trip only — the native side owns the slice.
+        drawersState = s.drawers ?? drawersState;
+        // Settings window writes theme / opacity / sprite / row chrome.
+        const migrated = migrateThemeId(s.themeId ?? "");
+        if (migrated) {
+          themeId = migrated;
+          themeChosen = true;
+        }
+        windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
+        spriteScale = clampSpriteScale(s.spriteScale ?? 1);
+        autohideRowChrome = s.autohideRowChrome ?? autohideRowChrome;
+        hideTitles = s.hideTitles ?? hideTitles;
+        hideAppIcons = s.hideAppIcons ?? hideAppIcons;
+        marbleDrift = s.marbleDrift ?? marbleDrift;
+        refreshPacks();
+        const diskClaims = s.claims ?? [];
+        claims = liveClaims.filter((c) =>
+          diskClaims.some(
+            (d) => d.windowId === c.windowId && d.projectId === c.projectId,
+          ),
+        );
+        // CADENCE-FIX: sig-gated, not a blind lastHabitatSig nuke — a
+        // loose-card move (no window, no claim) recomputes to the same
+        // signature and skips the invoke entirely, so it can't stall the
+        // app. Real adopted changes (claims, linked cards) change the sig
+        // and sync here, ahead of the 800ms poll.
+        syncHabitat();
+      } catch {
+        // next change retries
+      }
+    });
+    osMedia.addEventListener("change", onOsThemeChange);
+    tick();
+    timer = setInterval(tick, 800);
+  });
+  onDestroy(() => {
+    clearInterval(timer);
+    unlistenExpand?.();
+    unlistenCollapse?.();
+    unlistenBeing?.();
+    unlistenWalkerPack?.();
+    unlistenWalkerHome?.();
+    unlistenWalkedOff?.();
+    unlistenState?.();
+    osMedia.removeEventListener("change", onOsThemeChange);
+  });
+</script>
+
+{#snippet winRow(w: WindowInfo, project: Project | null)}
+  {@const age = project ? ageClass(w.id) : "fresh"}
+  {@const sleeping = !!w.sleeping}
+  <li>
+    <div
+      class="rowwrap"
+      class:dragging={dragWindowId === w.id}
+      class:zfade={age === "fade"}
+      class:zpark={age === "park"}
+      class:zgone={age === "gone"}
+      class:sleeping
+      role="group"
+      draggable="true"
+      ondragstart={(e) => onDragStart(e, w)}
+      ondragend={onDragEnd}
+      title={sleeping
+        ? "Asleep — the window is closed; double-click to wake it. Drag still re-homes."
+        : "Drag onto a project to claim"}
+    >
+      {#if project}
+        <button
+          class="circle-btn"
+          class:filling={completingIds.includes(w.id)}
+          onclick={() => circleComplete(w.id, () => completeWindow(w, project))}
+          title="Complete — marks the card done, retires the sprite, closes the window"
+          aria-label="Complete"
+          >{#if completingIds.includes(w.id)}✓{/if}</button
+        >
+      {/if}
+      {#if renamingId === w.id}
+        <span class="row editing">
+          <input
+            class="rename-input"
+            bind:value={renameValue}
+            placeholder={w.title || w.appName}
+            aria-label="Rename window title (empty restores the live title)"
+            autofocus
+            onfocus={(e) => e.currentTarget.select()}
+            onkeydown={(e) => {
+              if (e.key === "Enter") commitRename(w);
+              if (e.key === "Escape") renamingId = null;
+            }}
+            onblur={() => commitRename(w)}
+          />
+        </span>
+      {:else}
+        <button
+          class="row"
+          class:front={w.isFrontmost}
+          class:min={w.isMinimized}
+          class:sleeping
+          class:locate-flash={locateFlashIds.includes(w.id)}
+          onclick={() => locateRow(w)}
+          ondblclick={() =>
+            sleeping ? wakeSleeper(w) : w.isMinimized ? restore(w) : stow(w)}
+          oncontextmenu={(e) => openCtxMenu(e, w)}
+          title={sleeping
+            ? `${w.appName} — ${w.title} · asleep — click glows, double-click wakes`
+            : w.isMinimized
+              ? `${w.appName} — ${w.title} · click glows, double-click restores`
+              : `${w.appName} — ${w.title} · click glows, double-click minimizes`}
+        >
+          {#if w.iconBase64}
+            <img class="app-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
+          {:else}
+            <span class="app-icon fallback" aria-hidden="true"
+              >{w.appName.charAt(0) || "?"}</span
+            >
+          {/if}
+          <span class="wtitle">{titleFor(w)}</span>
+          {#if sleeping}<span class="tag sleeptag">asleep</span>{/if}
+          {#each tagsFor(w.id) as t (t.id)}
+            <span class="tag wtag" title="Tag: {t.name}">{t.name}</span>
+          {/each}
+          {#if age !== "fresh"}<span class="tag ztag">{age}</span>{/if}
+          {#if w.isFrontmost}<span class="tag front-tag">front</span>{/if}
+        </button>
+      {/if}
+    </div>
+  </li>
+{/snippet}
+
+{#snippet todoRow(card: KanbanCard)}
+  <li class="todo-row">
+    <button
+      class="circle-btn"
+      class:filling={completingIds.includes(card.id)}
+      onclick={() => circleComplete(card.id, () => completeTodo(card))}
+      title="Complete — marks the to-do done"
+      aria-label="Complete to-do"
+      >{#if completingIds.includes(card.id)}✓{/if}</button
+    >
+    <button
+      class="todo-name"
+      onclick={() => openKanbanFocus(card.id)}
+      title="{card.title} — open in Lists">{card.title}</button
+    >
+  </li>
+{/snippet}
+
+<main
+  class="rail"
+  class:autohide={autohideRowChrome}
+  class:hide-titles={hideTitles}
+  class:hide-icons={hideAppIcons}
+>
+  <div class="chrome">
+    <header
+      class="banner"
+      onmousedown={onBannerMouseDown}
+    >
+      <button
+        class="winx"
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => invoke("hide_window", { label: "main" }).catch(() => {})}
+        title="Hide Orbitty — quit from the tray icon"
+        aria-label="Hide Orbitty">×</button
+      >
+      <h1>
+        <button
+          class="wordmark"
+          onclick={onWordmarkClick}
+          title="Home — click to bring planets front, drag to move the rail"
+          aria-label="Home — bring all planet panels to the front"
+          ><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span></button
+        >
+      </h1>
+      {#if status?.trusted && refreshedAt}
+        <span class="clock" title="last refresh">{refreshedAt}</span>
+      {/if}
+    </header>
+
+    {#if status?.trusted && stateLoaded}
+      <div class="list-head">
+        <span class="lane-tabs" role="group" aria-label="Rail lane">
+          <button
+            class="mini lane-tab"
+            class:active={lane === "projects"}
+            role="tab"
+            aria-selected={lane === "projects"}
+            onclick={() => (lane = "projects")}>Projects</button
+          >
+          <button
+            class="mini lane-tab"
+            class:active={lane === "agents"}
+            role="tab"
+            aria-selected={lane === "agents"}
+            onclick={() => (lane = "agents")}>Agents</button
+          >
+        </span>
+        {#if lane === "projects"}
+          <span class="count">{windows.length} window{windows.length === 1 ? "" : "s"}</span>
+          {#if creatingProject}
+            <span class="newproj">
+              <input
+                bind:value={newProjectName}
+                placeholder="Project name"
+                onkeydown={(e) => e.key === "Enter" && createProjectOnly()}
+              />
+              <button class="mini" onclick={createProjectOnly}>Add</button>
+              <button class="mini ghost" onclick={() => (creatingProject = false)}>×</button>
+            </span>
+          {:else}
+            <button class="mini" onclick={() => (creatingProject = true)}>+ Project</button>
+          {/if}
+        {/if}
+      </div>
+      {#if lane === "projects" && tags.length > 0}
+        <div class="tag-filters">
+          <button
+            class="mini"
+            class:active={tagFilter === null}
+            onclick={() => (tagFilter = null)}>All</button
+          >
+          {#each tags as t (t.id)}
+            <button
+              class="mini"
+              class:active={tagFilter === t.id}
+              onclick={() => (tagFilter = tagFilter === t.id ? null : t.id)}
+              >{t.name}</button
+            >
+          {/each}
+        </div>
+      {/if}
+    {/if}
+  </div>
+
+  <div class="scroll">
+    {#if status && !status.trusted}
+      <section class="card">
+        <h2>Accessibility access required</h2>
+        <p class="body">
+          Orbitty needs Accessibility to list and focus windows. macOS ties the
+          grant to this exact build — enable it for:
+        </p>
+        <p class="path">{status.bundlePath}</p>
+        <p class="signing">{status.signingLine}</p>
+        <div class="actions">
+          <button class="primary" onclick={openSettings}>Open System Settings</button>
+          <button onclick={retry}>Retry</button>
+          <button class="ghost" onclick={copyPath}>{copied ? "Copied" : "Copy path"}</button>
+        </div>
+        <p class="hint">
+          Privacy &amp; Security → Accessibility → enable the toggle for this app,
+          then Retry. This view updates automatically once granted.
+        </p>
+      </section>
+    {:else if status && stateLoaded}
+      {#if lane === "agents"}
+        <p class="lane-hint">
+          Hermes opens your existing chat app. Soul is a note you Save —
+          Orbitty doesn't write it for you.
+        </p>
+        {#if hermesNote}
+          <div class="hermes-note" class:err={hermesNote.kind === "err"}>
+            <span class="hermes-text">{hermesNote.text}</span>
+            <button class="mini ghost" onclick={() => (hermesNote = null)} aria-label="Dismiss">×</button>
+          </div>
+        {/if}
+        {#if projects.length === 0}
+          <p class="lane-empty">
+            No projects yet — create one in Projects and its Agents show up here.
+          </p>
+        {:else}
+          <ul class="wins">
+            {#each projects as p (p.id)}
+              <li class="agent-row">
+                <span class="agent-name">{p.name}</span>
+                <button
+                  class="mini"
+                  onclick={() => launchHermes(p)}
+                  title="Hermes — focus or launch the existing harness with this planet's titles-only context"
+                >Hermes</button>
+                <button
+                  class="mini"
+                  class:active={soulFor === p.id}
+                  onclick={() => toggleSoul(p)}
+                  title="soul.md — read always; writes only via Save"
+                >Soul</button>
+              </li>
+              {#if soulFor === p.id}
+                <li>
+                  <div class="soul-panel agent-soul">
+                    <textarea
+                      class="soul-body"
+                      rows="6"
+                      bind:value={soulBody}
+                      spellcheck="false"
+                      placeholder="Loading soul.md…"
+                    ></textarea>
+                    <div class="soul-actions">
+                      <button
+                        class="mini"
+                        onclick={saveSoul}
+                        title="The only writer of soul.md">Save</button>
+                      <button
+                        class="mini ghost"
+                        onclick={openSoulEditor}
+                        title={soulPath
+                          ? `Open in the default editor: ${soulPath} (opens the file on disk — Save first if edited)`
+                          : "Open in the default editor"}>Open in editor</button>
+                      {#if soulMsg}<span class="soul-msg">{soulMsg}</span>{/if}
+                    </div>
+                  </div>
+                </li>
+              {/if}
+            {/each}
+          </ul>
+        {/if}
+      {:else if windows.length === 0 && projects.length === 0}
+        <p class="empty">No windows found.</p>
+      {:else}
+        {#if nudgeWindow}
+          <div class="nudge">
+            <span class="nudge-text">
+              <b>{nudgeWindow.appName}</b>
+              {nudgeWindow.title || "window"} minimized — no home, no sprite. Claim
+              one?
+            </span>
+            <div class="nudge-actions">
+              {#each projects as p (p.id)}
+                <button class="mini" onclick={() => nudgeClaim(p.id)}>{p.name}</button>
+              {/each}
+              <span class="newproj">
+                <input
+                  bind:value={nudgeNewName}
+                  placeholder="New project…"
+                  onkeydown={(e) => e.key === "Enter" && nudgeCreate()}
+                />
+                <button class="mini" onclick={nudgeCreate}>Claim</button>
+              </span>
+              <button class="mini ghost" onclick={() => (nudgeFor = null)}>Later</button>
+            </div>
+          </div>
+        {/if}
+        {#if projects.length === 0}
+          <p class="proj-hint">
+            No projects yet — create one with <b>+ Project</b> above, then drag
+            a window onto it to claim.
+          </p>
+        {/if}
+        {#if wakeNote}
+          <div class="hermes-note" class:err={wakeNote.kind === "err"}>
+            <span class="hermes-text">{wakeNote.text}</span>
+            <button class="mini ghost" onclick={() => (wakeNote = null)} aria-label="Dismiss">×</button>
+          </div>
+        {/if}
+        <ul class="wins">
+          {#each projects as p (p.id)}
+            {@const rows = rowsFor(p.id)}
+            <li
+              class="section"
+              class:drop-ok={dropTarget === p.id}
+              ondragenter={(e) => onSectionDragEnter(e, p.id)}
+              ondragover={(e) => onSectionDragOver(e, p.id)}
+              ondragleave={(e) => onSectionDragLeave(e, p.id)}
+              ondrop={(e) => onSectionDrop(e, p.id)}
+            >
+              <button
+                class="section-head"
+                onclick={() => toggleCollapse(p.id)}
+                aria-expanded={!isCollapsed(p.id)}
+                title={isCollapsed(p.id)
+                  ? "Expand — you can also drop a window on this header"
+                  : "Collapse"}
+              >
+                <span class="chev" class:open={!isCollapsed(p.id)} aria-hidden="true">▸</span>
+                <span class="section-name">{p.name}</span>
+                <span class="section-count">{visibleRows(rows).length + todosFor(p.id).length}</span>
+              </button>
+              {#if !isCollapsed(p.id)}
+                <ul class="wins">
+                  {#each visibleRows(rows) as w (w.id)}
+                    {@render winRow(w, p)}
+                  {/each}
+                  {#each todosFor(p.id) as card (card.id)}
+                    {@render todoRow(card)}
+                  {/each}
+                  {#if visibleRows(rows).length === 0 && todosFor(p.id).length === 0}
+                    <li class="section-empty">
+                      {tagFilter
+                        ? "No windows with this tag"
+                        : "Drop a window here to claim it"}
+                    </li>
+                  {/if}
+                  <li class="todo-add">
+                    {#if addingTodoFor === p.id}
+                      <span class="newproj">
+                        <input
+                          bind:value={newTodoTitle}
+                          placeholder="New to-do…"
+                          onkeydown={(e) => e.key === "Enter" && addTodoTo(p.id)}
+                        />
+                        <button class="mini" onclick={() => addTodoTo(p.id)}>Add</button>
+                        <button class="mini ghost" onclick={() => (addingTodoFor = null)}>×</button>
+                      </span>
+                    {:else}
+                      <button
+                        class="mini ghost"
+                        onclick={() => {
+                          addingTodoFor = p.id;
+                          newTodoTitle = "";
+                        }}>+ To-do</button
+                      >
+                    {/if}
+                  </li>
+                </ul>
+              {/if}
+            </li>
+          {/each}
+
+          <li
+            class="section"
+            class:drop-ok={dropTarget === UNMAPPED_KEY}
+            ondragenter={(e) => onSectionDragEnter(e, UNMAPPED_KEY)}
+            ondragover={(e) => onSectionDragOver(e, UNMAPPED_KEY)}
+            ondragleave={(e) => onSectionDragLeave(e, UNMAPPED_KEY)}
+            ondrop={(e) => onSectionDrop(e, null)}
+          >
+            <button
+              class="section-head"
+              onclick={() => toggleCollapse(UNMAPPED_KEY)}
+              aria-expanded={!isCollapsed(UNMAPPED_KEY)}
+              title={isCollapsed(UNMAPPED_KEY)
+                ? "Expand — you can also drop a window on this header"
+                : "Collapse"}
+            >
+              <span class="chev" class:open={!isCollapsed(UNMAPPED_KEY)} aria-hidden="true">▸</span>
+              <span class="section-name">Unmapped</span>
+              <span class="section-count">{visibleRows(unmapped).length}</span>
+            </button>
+            {#if !isCollapsed(UNMAPPED_KEY)}
+              <ul class="wins">
+                {#each visibleRows(unmapped) as w (w.id)}
+                  {@render winRow(w, null)}
+                {/each}
+                {#if visibleRows(unmapped).length === 0}
+                  <li class="section-empty">
+                    {tagFilter ? "No windows with this tag" : "Drop here to unclaim"}
+                  </li>
+                {/if}
+              </ul>
+            {/if}
+          </li>
+        </ul>
+      {/if}
+    {/if}
+  </div>
+
+  <footer class="foot">
+    Drag a row onto a project to claim · stowed home windows walk their planet
+    · <a
+      href="https://orbitty.space"
+      onclick={(e) => {
+        e.preventDefault();
+        shellOpen("https://orbitty.space").catch(() => {});
+      }}>orbitty.space</a>
+  </footer>
+
+  {#if beingEditorFor && beingClaim()}
+    {@const bw = beingWindow()}
+    {@const bc = beingClaim()!}
+    <div class="being-editor" role="dialog" aria-label="Being editor">
+      <div class="being-head">
+        <span class="being-title" title={bw ? `${bw.appName} — ${bw.title}` : bc.windowId}>
+          {bw ? bw.appName : "Being"}
+        </span>
+        <button class="mini ghost" onclick={closeBeingEditor} aria-label="Close being editor">×</button>
+      </div>
+
+      {#if editorPreview}
+        <img class="being-preview" src={editorPreview} alt="Being preview" />
+      {/if}
+
+      <div class="being-actions">
+        <button class="mini" onclick={rerollBeing} title="New random being">Reroll</button>
+      </div>
+
+      <div class="being-row">
+        <div class="being-slot">
+          <button class="mini ghost" onclick={() => cycleKind(-1)} aria-label="Previous kind">‹</button>
+          <span class="slot-name">Kind</span>
+          <span class="slot-val">{kindLabel()}</span>
+          <button class="mini ghost" onclick={() => cycleKind(1)} aria-label="Next kind">›</button>
+        </div>
+      </div>
+      <div class="being-row">
+        <div class="being-slot">
+          <button class="mini ghost" onclick={() => cyclePalette(-1)} aria-label="Previous palette">‹</button>
+          <span class="slot-name">Palette</span>
+          <span class="slot-val">{paletteLabel()}</span>
+          <button class="mini ghost" onclick={() => cyclePalette(1)} aria-label="Next palette">›</button>
+        </div>
+      </div>
+
+      <label class="being-scale">
+        Size
+        <input
+          type="range"
+          min="0.4"
+          max="2.5"
+          step="0.05"
+          value={beingScale()}
+          oninput={onBeingScaleInput}
+          onchange={onBeingScaleCommit}
+        />
+        <span>{beingScale().toFixed(2)}×</span>
+        <button
+          class="mini ghost"
+          onclick={resetBeingScale}
+          title="Follow the gear's global sprite size"
+          disabled={bc.spriteScale == null}
+        >global</button>
+      </label>
+
+      <span class="menu-label">Tags</span>
+      <div class="being-actions">
+        {#each tags as t (t.id)}
+          <button
+            class="mini"
+            class:active={hasTag(bc.windowId, t.id)}
+            aria-pressed={hasTag(bc.windowId, t.id)}
+            onclick={() => toggleTag(bc.windowId, t.id)}>{t.name}</button
+          >
+        {/each}
+        {#if tags.length === 0}
+          <span class="slot-name">No tags yet.</span>
+        {/if}
+      </div>
+
+      <span class="menu-label">Home</span>
+      <div class="being-actions">
+        {#each projects as p (p.id)}
+          <button
+            class="mini"
+            class:active={bc.projectId === p.id}
+            aria-pressed={bc.projectId === p.id}
+            onclick={() => beingMoveHome(p.id)}>{p.name}</button
+          >
+        {/each}
+        <button
+          class="mini ghost"
+          onclick={beingUnclaim}
+          title="Remove the claim — the walker leaves its planet"
+        >Unclaim</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if ctxMenu}
+    {@const cw = ctxWindow()}
+    {@const cp = ctxProject()}
+    <button
+      class="ctx-backdrop"
+      aria-label="Close menu"
+      onclick={() => (ctxMenu = null)}
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        ctxMenu = null;
+      }}
+    ></button>
+    <div
+      class="ctx-menu"
+      role="menu"
+      style="left: {ctxMenu.x}px; top: {ctxMenu.y}px"
+    >
+      <button
+        class="ctx-item"
+        role="menuitem"
+        aria-expanded={ctxAssignOpen}
+        onclick={() => (ctxAssignOpen = !ctxAssignOpen)}
+        >Assign to…</button
+      >
+      {#if ctxAssignOpen}
+        <div class="ctx-sub" role="group" aria-label="Assign to project">
+          {#each projects as p (p.id)}
+            <button
+              class="ctx-item"
+              class:active={cp?.id === p.id}
+              role="menuitem"
+              onclick={() => ctxAssign(p.id)}>{p.name}</button
+            >
+          {/each}
+          <span class="ctx-newproj">
+            <input
+              bind:value={newProjectName}
+              placeholder="New project…"
+              onkeydown={(e) => e.key === "Enter" && ctxCreateAndClaim()}
+            />
+            <button class="mini" onclick={ctxCreateAndClaim}>Claim</button>
+          </span>
+        </div>
+      {/if}
+      <button class="ctx-item" role="menuitem" onclick={ctxRename}>Rename</button>
+      {#if cw && !cw.sleeping}
+        {#if cw.isMinimized}
+          <button class="ctx-item" role="menuitem" onclick={ctxRestore}
+            >Restore</button
+          >
+        {:else}
+          <button class="ctx-item" role="menuitem" onclick={ctxMinimize}
+            >Minimize</button
+          >
+        {/if}
+        <button class="ctx-item" role="menuitem" onclick={ctxCloseWindow}
+          >Close window</button
+        >
+      {/if}
+      {#if cp}
+        <div class="ctx-sep" role="separator"></div>
+        <button class="ctx-item danger" role="menuitem" onclick={ctxUnclaim}
+          >× Unclaim</button
+        >
+      {/if}
+    </div>
+  {/if}
+</main>
+
+
+<style>
+
+  /* S4.3: every painted chrome fill is a JS-computed rgba (--bg-fill /
+     --panel-fill = theme color × slider alpha, see themes/apply.ts) so the
+     wallpaper shows through the whole rail. Text, icons, buttons and accent
+     fills never fade; below 50% a slight solid-bg halo keeps ink readable. */
+  .rail {
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    background: var(--bg-fill, var(--bg));
+    border-radius: 12px;
+  }
+
+  :global(.low-fill) .rail {
+    text-shadow: 0 1px 2px var(--bg-solid, transparent);
+  }
+
+  /* Fixed chrome: banner + window stack + list-head never scroll. The
+     theme/settings panel lives in .scroll so it can never push content off
+     the window. */
+  .chrome {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 12px 8px;
+    border-bottom: 1px solid var(--edge);
+  }
+
+  /* Real scrollport — `overflow-y: overlay` leaves WKWebView without one.
+     Thin scrollbar, thumb fades in on hover. */
+  .scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 12px 0;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--dim) 45%, transparent) transparent;
+  }
+
+  .scroll::-webkit-scrollbar {
+    width: 5px;
+    background: transparent;
+  }
+
+  .scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+  }
+
+  .scroll:hover::-webkit-scrollbar-thumb,
+  .scroll:focus-within::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--dim) 55%, transparent);
+  }
+
+  /* Overlay titlebar with the traffic lights hidden: the wordmark strip is
+     the window drag surface (× and gear excluded). JS startDragging on
+     the banner is the one source — Overlay's strip is covered. */
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 2px 0 6px;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+  }
+  .banner:active {
+    cursor: grabbing;
+  }
+
+  /* The only close affordance: hides the rail, never quits (tray → Quit). */
+  .winx {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    font: inherit;
+    font-size: 0.82rem;
+    line-height: 1;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+
+  .winx:hover {
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .banner h1 {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  /* GO-ORBITTY-RAIL-REVIEW: the wordmark IS Home — bringAllFront, not a
+     seventh stack button. */
+  .wordmark {
+    font: inherit;
+    letter-spacing: inherit;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: grab;
+  }
+
+  /* GO-ORBITTY-WORDMARK: ochre i-dot / ink O / accent ty. Slight bevel on
+     the wordmark only — pane names stay plain --ink. */
+  .mark {
+    text-shadow:
+      1px 1px 0 rgba(0, 0, 0, 0.28),
+      -1px -1px 0 rgba(255, 255, 255, 0.09);
+  }
+
+  .o {
+    color: var(--ink);
+    text-shadow:
+      1px 1px 0 rgba(0, 0, 0, 0.42),
+      -1px -1px 0 rgba(255, 255, 255, 0.14);
+  }
+
+  .idot {
+    color: #e59e3d;
+    text-shadow:
+      1px 1px 0 rgba(0, 0, 0, 0.42),
+      -1px -1px 0 rgba(255, 255, 255, 0.14);
+  }
+
+  .rest {
+    color: var(--ink);
+  }
+
+  .pop {
+    color: var(--accent);
+  }
+
+  /* Narrow rail: the clock clips away (min-width 0). */
+  .clock {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 0.68rem;
+    color: var(--dim);
+  }
+
+  .theme-panel {
+    margin-bottom: 8px;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    padding: 10px 12px 12px;
+  }
+
+  .theme-panel h2 {
+    margin: 0 0 6px;
+    font-size: 0.78rem;
+    color: var(--accent);
+  }
+
+  /* S1.1: the STARS pane moved out to its own window (StarsPage.svelte). */
+
+  .block-label {
+    margin: 8px 0 4px;
+    font-size: 0.64rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+
+  .theme-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .setting-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Gear → Packs (GO-LS-TAURI-USER-PACKS). */
+  .pack-list {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .pack-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+  }
+
+  .pack-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .pack-meta {
+    flex-shrink: 0;
+    font-size: 0.64rem;
+    color: var(--dim);
+  }
+
+  .pack-license {
+    flex-shrink: 0;
+    font-size: 0.62rem;
+    color: var(--dim);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 0 0.35rem;
+  }
+
+  .pack-license.warn {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .pack-caption {
+    margin: 6px 0 0;
+    font-size: 0.64rem;
+    line-height: 1.5;
+    color: var(--dim);
+  }
+
+  /* Being editor (GO-ORBITTY-CHARS): popover card above the rail. */
+  .being-editor {
+    position: fixed;
+    right: 10px;
+    bottom: 10px;
+    z-index: 60;
+    width: 236px;
+    max-height: 82vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    background: var(--bg-fill, var(--bg));
+    box-shadow: 0 8px 28px rgb(0 0 0 / 0.35);
+  }
+
+  .being-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .being-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .being-preview {
+    align-self: center;
+    width: 96px;
+    height: 128px;
+    image-rendering: pixelated;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    background: var(--bg);
+    object-fit: contain;
+  }
+
+  .being-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .being-slot {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 2px 4px;
+  }
+
+  .being-slot .slot-name {
+    font-size: 0.62rem;
+    color: var(--dim);
+  }
+
+  .being-slot .slot-val {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    font-size: 0.66rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .being-scale {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.64rem;
+    color: var(--dim);
+  }
+
+  .being-scale input[type="range"] {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .being-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .swatch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+
+  .swatch.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .chips {
+    display: inline-flex;
+    gap: 2px;
+  }
+
+  .chips i {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    display: inline-block;
+  }
+
+  .chips[data-theme="systemLight"] .c-bg { background: #ececec; }
+  .chips[data-theme="systemLight"] .c-fg { background: rgba(0, 0, 0, 0.85); }
+  .chips[data-theme="systemLight"] .c-ac { background: #3d8f8a; }
+  .chips[data-theme="systemDark"] .c-bg { background: #1e1e1e; }
+  .chips[data-theme="systemDark"] .c-fg { background: rgba(255, 255, 255, 0.85); }
+  .chips[data-theme="systemDark"] .c-ac { background: #3d8f8a; }
+  .chips[data-theme="terminal"] .c-bg { background: #0a120e; }
+  .chips[data-theme="terminal"] .c-fg { background: #c8f0d0; }
+  .chips[data-theme="terminal"] .c-ac { background: #3ddc84; }
+
+  /* S4.2 Background opacity slider (window background fill only). */
+  .opacity-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 0.68rem;
+    color: var(--ink);
+  }
+
+  .opacity-row label {
+    flex-shrink: 0;
+    color: var(--dim);
+  }
+
+  .opacity-row input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--accent);
+  }
+
+  .opacity-val {
+    flex-shrink: 0;
+    width: 34px;
+    text-align: right;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card {
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    padding: 14px;
+  }
+
+  .card h2 {
+    margin: 0 0 8px;
+    font-size: 0.92rem;
+    color: var(--accent);
+  }
+
+  .card .body {
+    margin: 0 0 10px;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    color: var(--dim);
+  }
+
+  .path {
+    margin: 0 0 8px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    line-height: 1.45;
+    word-break: break-all;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 8px;
+  }
+
+  .signing {
+    margin: 0 0 12px;
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: var(--accent);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .actions button {
+    font: inherit;
+    font-size: 0.74rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+
+  .actions button:hover {
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .actions .primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 700;
+  }
+
+  .actions .ghost {
+    color: var(--dim);
+  }
+
+  .hint {
+    margin: 10px 0 0;
+    font-size: 0.68rem;
+    line-height: 1.5;
+    color: var(--dim);
+  }
+
+  .list-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .count {
+    font-size: 0.68rem;
+    color: var(--dim);
+  }
+
+  .list-head > .mini {
+    margin-left: auto;
+  }
+
+  .mini {
+    font: inherit;
+    font-size: 0.68rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+
+  .mini:hover {
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .mini.active {
+    border-color: var(--focus, #6e4db0);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .mini.ghost {
+    color: var(--dim);
+  }
+
+  .newproj {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .newproj input {
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 3px 6px;
+    width: 130px;
+  }
+
+  .newproj input:focus {
+    outline: none;
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .empty {
+    color: var(--dim);
+    font-size: 0.82rem;
+    text-align: center;
+    margin-top: 32px;
+  }
+
+  .wins {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 6px;
+    padding: 2px;
+    border: 1px dashed transparent;
+    border-radius: 8px;
+    transition:
+      border-color 0.12s,
+      background 0.12s,
+      box-shadow 0.12s;
+  }
+
+  .section.drop-ok {
+    border: 1px solid var(--accent);
+    background: var(--panel-fill, var(--panel));
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 6px 18px rgba(0, 0, 0, 0.18);
+  }
+
+  /* Section heads are the primary drop targets — keep them tall. The whole
+     head is also the collapse toggle; drop handlers live on the parent
+     section, so claiming into a collapsed folder keeps working. */
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 26px;
+    padding: 4px 8px;
+    font: inherit;
+    text-align: left;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .section-head:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .section-head:focus-visible {
+    outline: 2px solid var(--focus, #6e4db0);
+    outline-offset: 1px;
+  }
+
+  .chev {
+    flex-shrink: 0;
+    font-size: 0.58rem;
+    color: var(--dim);
+    transition: transform 0.12s;
+  }
+
+  .chev.open {
+    transform: rotate(90deg);
+  }
+
+  .section.drop-ok .section-head {
+    background: var(--bg-fill, var(--bg));
+  }
+
+  .section.drop-ok .section-name {
+    color: var(--accent);
+  }
+
+  .section-name {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+
+  .section-count {
+    font-size: 0.64rem;
+    color: var(--dim);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 0 0.35rem;
+  }
+
+  /* Lane tabs on the list-head — the active lane gets the --focus edge. */
+  .lane-tabs {
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  /* Agents lane. */
+  .lane-hint {
+    margin: 2px 2px 8px;
+    font-size: 0.68rem;
+    line-height: 1.5;
+    color: var(--dim);
+  }
+
+  .lane-empty {
+    margin: 12px 2px;
+    padding: 10px 12px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--dim);
+    background: var(--panel-fill, var(--panel));
+    border: 1px dashed var(--edge);
+    border-radius: 8px;
+  }
+
+  .agent-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 26px;
+    padding: 3px 8px;
+  }
+
+  .agent-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .agent-soul {
+    margin-left: 0;
+  }
+
+  /* S5 soul.md panel: read always, Save is the only writer. */
+  .soul-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 2px 0 4px 11px;
+    padding: 6px 8px;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+  }
+
+  .soul-body {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 6px 8px;
+    resize: vertical;
+    min-height: 72px;
+  }
+
+  .soul-body:focus {
+    outline: none;
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .soul-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .soul-msg {
+    font-size: 0.64rem;
+    color: var(--dim);
+  }
+
+  /* S5 Hermes launch/focus result (ok or path-hint error), dismissible. */
+  .hermes-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 2px 8px;
+    padding: 6px 10px;
+    font-size: 0.68rem;
+    line-height: 1.45;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    word-break: break-all;
+  }
+
+  .hermes-note.err {
+    border-color: var(--accent);
+  }
+
+  .hermes-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Empty sections stay a real drop target, not a one-line label. */
+  .section-empty {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+    margin: 2px 4px;
+    padding: 4px 8px 4px 11px;
+    font-size: 0.68rem;
+    color: var(--dim);
+    border: 1px dashed var(--edge);
+    border-radius: 6px;
+  }
+
+  .section.drop-ok .section-empty {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .proj-hint {
+    margin: 4px 2px 8px;
+    padding: 8px 10px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--dim);
+    background: var(--panel-fill, var(--panel));
+    border: 1px dashed var(--edge);
+    border-radius: 8px;
+  }
+
+  .proj-hint b {
+    color: var(--accent);
+  }
+
+  /* Row layout: the title ellipsizes inside .row (flex:1, min-width:0) while
+     the action controls stay visible (flex-shrink:0); if the rail gets too
+     narrow the actions wrap to a second line instead of clipping Done off
+     the right edge. */
+  .rowwrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 2px;
+    border-radius: 4px;
+  }
+
+  .rowwrap.dragging {
+    opacity: 0.45;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    font: inherit;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+
+  .row:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .row.front {
+    border-left-color: var(--focus, #6e4db0);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .row.front .wtitle {
+    font-weight: 700;
+  }
+
+  /* Inline rename: the row swaps its button for an input in the same box. */
+  .row.editing {
+    padding: 4px 8px;
+  }
+
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 0.8rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--focus, #6e4db0);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+
+  .rename-input:focus {
+    outline: none;
+  }
+
+  .row.min {
+    opacity: 0.55;
+  }
+
+  .app-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    object-fit: contain;
+  }
+
+  .app-icon.fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  /* S4.6 circle-complete: an open circle at the far left of claimed window
+     rows and todo rows — the only door that retires a sprite and can mint
+     points. One click fills it with a check (the fill is the confirm), then
+     the row completes and leaves the rail. */
+  .circle-btn {
+    flex-shrink: 0;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    font: inherit;
+    font-size: 0.62rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--bg);
+    background: transparent;
+    border: 1.5px solid var(--dim);
+    border-radius: 999px;
+    cursor: pointer;
+    transition:
+      background 0.18s,
+      border-color 0.18s;
+  }
+
+  .circle-btn:hover {
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .circle-btn.filling {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* Zombie aging (TS-7): the rail keeps faded rows listed, quietly dimmed;
+     the habitat handles the sprite-side fade/park/cull. */
+  .rowwrap.zfade .row {
+    opacity: 0.75;
+  }
+
+  .rowwrap.zpark .row {
+    opacity: 0.6;
+  }
+
+  .rowwrap.zgone .row {
+    opacity: 0.45;
+  }
+
+  .ztag {
+    font-style: normal;
+    opacity: 0.8;
+  }
+
+  /* GO-ORBITTY-SLEEPERS: a closed claimed window keeps an obvious asleep
+     row — dimmed, italic title, dashed "asleep" tag — never a ghost hole. */
+  .row.sleeping {
+    opacity: 0.6;
+  }
+
+  .row.sleeping .wtitle {
+    font-style: italic;
+  }
+
+  .sleeptag {
+    border-style: dashed;
+    font-style: normal;
+  }
+
+  /* S4.6 todo rows: loose project todos listed under the project's windows,
+     same leading circle. The title opens the Lists window. */
+  .todo-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 26px;
+  }
+
+  .todo-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: inherit;
+    font-size: 0.78rem;
+    text-align: left;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 5px 8px;
+    cursor: pointer;
+  }
+
+  .todo-name:hover {
+    color: var(--accent);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .todo-add {
+    display: flex;
+    padding: 2px 4px 2px 25px;
+  }
+
+  .todo-add .newproj {
+    margin-left: 0;
+  }
+
+  /* Claim-first nudge: shown once per unmapped minimized window. */
+  .nudge {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 2px 2px 8px;
+    padding: 8px 10px;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+  }
+
+  .nudge-text {
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+
+  .nudge-text b {
+    color: var(--accent);
+  }
+
+  .nudge-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .nudge-actions .newproj {
+    margin-left: 0;
+  }
+
+  .menu-label {
+    flex-basis: 100%;
+    margin-top: 2px;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+
+  .menu-label:first-child {
+    margin-top: 0;
+  }
+
+  .tag-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  /* min-width keeps tags from crushing the title to 0px — it ellipsizes
+     instead of vanishing. */
+  .wtitle {
+    flex: 1;
+    min-width: 4.5em;
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Hide titles: the title string leaves the layout entirely — icon +
+     chrome only. The row button keeps its height and hit target. */
+  .rail.hide-titles .wtitle {
+    display: none;
+  }
+
+  /* Auto-hide row chrome (default on): the complete-circle stays hidden
+     until the row is hovered or focused within (todo circles follow the
+     same rule on their row). Layout is kept — buttons fade, never reflow. */
+  .rail.autohide .circle-btn {
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity 0.12s,
+      background 0.18s,
+      border-color 0.18s;
+  }
+
+  .rail.autohide .rowwrap:hover .circle-btn,
+  .rail.autohide .rowwrap:focus-within .circle-btn,
+  .rail.autohide .todo-row:hover .circle-btn,
+  .rail.autohide .todo-row:focus-within .circle-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Hide icons: app icons leave the layout entirely (title-only rows). */
+  .rail.hide-icons .app-icon {
+    display: none;
+  }
+
+  .tag {
+    flex-shrink: 0;
+    font-size: 0.64rem;
+    color: var(--dim);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 0 0.4rem;
+  }
+
+  .front-tag {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .wtag {
+    max-width: 72px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: var(--panel-fill, var(--panel));
+  }
+
+  /* Right-click window-title menu: fixed inside the rail, above the list. */
+  .ctx-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: default;
+  }
+
+  .ctx-menu {
+    position: fixed;
+    z-index: 41;
+    display: flex;
+    flex-direction: column;
+    min-width: 140px;
+    padding: 4px;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  }
+
+  .ctx-item {
+    font: inherit;
+    font-size: 0.74rem;
+    text-align: left;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+
+  .ctx-item:hover {
+    color: var(--bg);
+    background: var(--accent);
+  }
+
+  .ctx-item.active {
+    color: var(--accent);
+  }
+
+  .ctx-item.active:hover {
+    color: var(--bg);
+  }
+
+  .ctx-item.danger:hover {
+    color: #fff;
+    background: #b3432b;
+  }
+
+  .ctx-sub {
+    display: flex;
+    flex-direction: column;
+    margin: 1px 0 2px;
+    padding: 2px 0 2px 10px;
+    border-left: 2px solid var(--edge);
+    margin-left: 10px;
+  }
+
+  .ctx-newproj {
+    display: flex;
+    gap: 4px;
+    padding: 3px 6px 3px 10px;
+    align-items: center;
+  }
+
+  .ctx-newproj input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 0.74rem;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--edge);
+    border-radius: 5px;
+    padding: 3px 6px;
+  }
+
+  .ctx-sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--edge);
+  }
+
+  /* GO-ORBITTY-RAIL-ROW-MENU: sleeper-without-walker locate fallback —
+     a ~500ms row flash (the walker stroke / overlay ring are native). */
+  @keyframes locate-flash {
+    0%,
+    100% {
+      box-shadow: inset 0 0 0 0 transparent;
+    }
+    25%,
+    75% {
+      box-shadow: inset 0 0 0 2px var(--accent);
+    }
+  }
+
+  .row.locate-flash {
+    border-radius: 7px;
+    animation: locate-flash 0.5s ease-in-out;
+  }
+
+  .foot {
+    flex-shrink: 0;
+    padding: 6px 12px 8px;
+    font-size: 0.66rem;
+    color: var(--dim);
+    text-align: center;
+  }
+
+  .foot a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .foot a:hover {
+    text-decoration: underline;
+  }
+</style>
