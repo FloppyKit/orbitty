@@ -47,14 +47,10 @@
   // tiny float and a small yaw/roll on send that settles; Reduce
   // Motion stills both. A body with no bust art sits on Full with
   // Head disabled — never a crop fallback, never a neck shear.
-  // GO-ORBITTY-CAPTION-CHUNK: collapsed caption pager. A fresh agent
-  // reply — collapsed only, never expanded, never loaded history — is
-  // cut to fill the live `.cc.bot` box (idle ~40vh, hosted 3-line cap),
-  // not a 60-word budget. Overflow ends …; hover the bubble shows the
-  // full reply (CSS overlay, not title=). Enter / Space / click pages
-  // leftover; the last remaining chunk stays (does not dump whole).
-  // Upper-right expander toggles chunk vs full-in-slot. Speak reads the
-  // visible chunk. User bubbles never page.
+  // GO-ORBITTY-CAPTION-BUBBLE: collapsed CC. Speak off = small scroll
+  // (no paging). Speak on = fitPages to that small box so say can flip.
+  // Click the bot text = transient in-window full overlay. Enter/Space
+  // page leftover only while Speak on. User bubbles never page.
   // GO-ORBITTY-GHOST-DOCK: ghost (idle collapsed, not hosted) gets a
   // tight spirit + a bottom dock. .ghost .stage .floatwrap shrinks to a
   // centered square (shorter of stage w/h) so the reported hit box hugs
@@ -210,7 +206,7 @@
   let pages = $state<string[]>([]);
   let pageIdx = $state(0);
   let pageRaw: string[] = [];
-  let ccSlotFull = $state(false);
+  let ccOpen = $state(false);
   let pageGen = 0;
   let autoTimer: ReturnType<typeof setTimeout> | undefined;
   let mainEl: HTMLElement | null = null;
@@ -238,7 +234,7 @@
     pages = [];
     pageRaw = [];
     pageIdx = 0;
-    ccSlotFull = false;
+    ccOpen = false;
   }
 
   function paginateToBox(text: string): string[] {
@@ -287,14 +283,17 @@
     }
     await tick();
     if (gen !== pageGen) return;
-    const rawPages = paginateToBox(text);
-    if (rawPages.length > 1) {
-      pages = rawPages.map(mdLite);
-      pageRaw = rawPages.map((p) => p.replace(/\s+/g, " ").trim());
-      pageIdx = 0;
-      pagedTurnIdx = idx;
-      speakPage();
-      return;
+    // CAPTION-BUBBLE: Speak off = small scroll, no tiles. Speak on = caps.
+    if (speak) {
+      const rawPages = paginateToBox(text);
+      if (rawPages.length > 1) {
+        pages = rawPages.map(mdLite);
+        pageRaw = rawPages.map((p) => p.replace(/\s+/g, " ").trim());
+        pageIdx = 0;
+        pagedTurnIdx = idx;
+        speakPage();
+        return;
+      }
     }
     speakReply(text);
   }
@@ -323,13 +322,13 @@
   }
 
   function advancePage() {
-    if (pagedTurnIdx < 0 || pages.length === 0 || ccSlotFull) return;
+    if (pagedTurnIdx < 0 || pages.length === 0 || ccOpen) return;
     clearAuto();
     if (pageIdx < pages.length - 1) {
       pageIdx++;
       speakPage();
     }
-    // Last remaining chunk stays in the slot (hover / expander = full).
+    // Last remaining chunk stays; click-expand is the full reply.
   }
 
   // Enter / Space advance. Composing wins: a non-empty field keeps
@@ -344,6 +343,11 @@
       // HOST-CC: hosted + expanded — Escape collapses the overlay only.
       // The well stays mounted, the host frame stays, the companion
       // window stays visible.
+      if (ccOpen) {
+        ccOpen = false;
+        e.preventDefault();
+        return;
+      }
       if (hosted !== "off" && expanded) {
         expanded = false;
         invoke("set_companion_expanded", { expanded: false }).catch(() => {});
@@ -351,7 +355,7 @@
         return;
       }
     }
-    if (pagedTurnIdx < 0 || pages.length === 0) return;
+    if (pagedTurnIdx < 0 || pages.length === 0 || ccOpen) return;
     if (e.key !== "Enter" && e.key !== " ") return;
     const tag = (e.target as HTMLElement | null)?.tagName ?? "";
     if (tag === "SELECT" || tag === "BUTTON" || tag === "TEXTAREA") return;
@@ -360,9 +364,15 @@
     advancePage();
   }
 
-  // Click anywhere on the pane advances — controls, the composer, and
-  // the drag portrait keep their own clicks, and selecting bubble text
-  // isn't an advance.
+  // CAPTION-BUBBLE: click the bot CC toggles the full overlay. Pane
+  // click no longer pages (that stole expand). Enter/Space/`say` page.
+  function onBotClick(e: MouseEvent) {
+    if (e.button !== 0) return;
+    if (window.getSelection()?.toString()) return;
+    e.stopPropagation();
+    ccOpen = !ccOpen;
+  }
+
   function onPaneClick(e: MouseEvent) {
     if (planetsOpen) {
       const t = e.target as HTMLElement | null;
@@ -370,11 +380,8 @@
         planetsOpen = false;
       }
     }
-    if (pagedTurnIdx < 0 || pages.length === 0) return;
     const t = e.target as HTMLElement | null;
-    if (t?.closest("button, select, input, textarea, a, form, .exphead, .cc-exp")) return;
-    if (window.getSelection()?.toString()) return;
-    advancePage();
+    if (ccOpen && !t?.closest(".cc.bot, .cc-full")) ccOpen = false;
   }
 
   // HEADROOM: per-surface view prefs. Collapsed defaults Full, expanded
@@ -1104,7 +1111,7 @@
       sending,
       pagedTurnIdx,
       pageIdx,
-      ccSlotFull,
+      ccOpen,
       sendNote,
       showPromptStrip,
       planetsOpen,
@@ -1459,32 +1466,21 @@
       <div class="ccrow them wait-row" aria-live="polite">{@render wait()}</div>
     {/if}
     {#if botLine && !sending}
-      <div class="ccrow them" class:slotfull={ccSlotFull}>
-        <!-- CAPTION-CHUNK: fill the live box; leftover pages; hover =
-             full reply (CSS overlay). Expander = full-in-slot. -->
+      <div class="ccrow them" class:open={ccOpen}>
+        <!-- CAPTION-BUBBLE: small scroll; click = in-window full. -->
         <div
           class="cc bot"
-          class:paged={pagedTurnIdx >= 0 && !ccSlotFull}
+          class:paged={pagedTurnIdx >= 0 && !ccOpen}
+          onclick={onBotClick}
         >
-          {#if ccSlotFull}
-            {@html mdLite(botLine)}
-          {:else if pagedTurnIdx >= 0 && pageViewHtml}
+          {#if pagedTurnIdx >= 0 && pageViewHtml && !ccOpen}
             {@html pageViewHtml}
           {:else}
             {@html mdLite(botLine)}
           {/if}
-          {#if pagedTurnIdx >= 0}
-            <button
-              type="button"
-              class="cc-exp"
-              onclick={() => (ccSlotFull = !ccSlotFull)}
-              aria-label={ccSlotFull ? "Show chunk" : "Show full in slot"}
-              title={ccSlotFull ? "Show chunk" : "Show full in slot"}
-            >{ccSlotFull ? "▴" : "▾"}</button>
-          {/if}
         </div>
-        {#if pagedTurnIdx >= 0 && !ccSlotFull}
-          <div class="cc-hover">{@html mdLite(botLine)}</div>
+        {#if ccOpen}
+          <div class="cc-full">{@html mdLite(botLine)}</div>
         {/if}
       </div>
     {/if}
@@ -2543,7 +2539,7 @@
   .cc {
     margin: 0;
     max-width: 82%;
-    max-height: 40vh;
+    max-height: calc(1.3em * 6 + 10px);
     overflow-y: auto;
     padding: 5px 10px;
     font-size: 0.68rem;
@@ -2555,9 +2551,7 @@
   }
 
   /* GO-ORBITTY-HOST-CC: hosted collapsed CC caps each bubble at ~3
-     lines, clipped with no scrollbar so the well keeps its room.
-     CAPTION-CHUNK: hover overlay holds the full text (not title=).
-     Idle CC keeps the 40vh scroll-inside-bubble. */
+     lines. CAPTION-BUBBLE: idle is ~6 lines + scroll; click opens full. */
   .hosting .cc {
     max-height: calc(1.3em * 3 + 10px);
     overflow: hidden;
@@ -2565,43 +2559,18 @@
 
   .cc.bot {
     position: relative;
-  }
-
-  .cc.bot:has(.cc-exp) {
-    padding-right: 22px;
-  }
-
-  .cc-exp {
-    position: absolute;
-    top: 2px;
-    right: 4px;
-    z-index: 1;
-    font: inherit;
-    font-size: 0.62rem;
-    line-height: 1;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    padding: 2px 4px;
     cursor: pointer;
   }
 
-  .cc-exp:hover {
-    color: var(--accent);
-  }
-
-  /* CAPTION-CHUNK: hover overlay is the full reply. Native title= often
-     does not paint on the transparent panel. pointer-events none so
-     click still pages leftover. */
-  .cc-hover {
-    display: none;
+  /* CAPTION-BUBBLE: click-open full reply, in-window. Sprite-on opens
+     up into the stage; sprite-off hug opens down over the dock. */
+  .cc-full {
     position: absolute;
     left: 10px;
     bottom: calc(100% + 6px);
     z-index: 7;
     max-width: min(92%, 28rem);
-    max-height: 50vh;
+    max-height: 40vh;
     overflow-y: auto;
     padding: 8px 10px;
     font-size: 0.72rem;
@@ -2610,26 +2579,13 @@
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
     border-radius: 12px;
-    pointer-events: none;
     overflow-wrap: anywhere;
   }
 
-  .ccrow.them:hover .cc-hover {
-    display: block;
-  }
-
-  /* CAPTION-CHUNK bounce: sprite-off hug has no air above the CC — the
-     overlay opened off the top of the window. Open down over the dock
-     instead. Do not grow the idle frame. */
-  .ghost.spriteoff .cc-hover {
+  .ghost.spriteoff .cc-full {
     bottom: auto;
     top: calc(100% + 4px);
-    max-height: 45vh;
-  }
-
-  .ccrow.them.slotfull .cc.bot {
-    overflow-y: auto;
-    max-height: 40vh;
+    max-height: 8rem;
   }
 
   .cc :global(ul),
