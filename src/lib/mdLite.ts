@@ -46,8 +46,8 @@ const UL_ITEM = /^\s*[-*]\s+(.+)$/;
 const OL_ITEM = /^\s*\d+[.)]\s+(.+)$/;
 const DASH_RULE = /^\s*-{3,}\s*$/;
 
-// GO-ORBITTY-COMPANION-CAPTION-WORDS: the collapsed pager splits the RAW
-// reply into ~60-word pages (wordPages below) and mdLite's each page; the
+// GO-ORBITTY-CAPTION-CHUNK: the collapsed pager fills the live CC box
+// (fitPages below). wordPages remains for a fixed token budget.
 // block parse stays exported next to the render.
 // mdLite(src) === mdLiteJoin(mdLiteChunks(src)) — byte-identical.
 export interface MdLiteChunk {
@@ -163,11 +163,75 @@ export function mdLite(src: string): string {
   return mdLiteJoin(mdLiteChunks(src));
 }
 
-// GO-ORBITTY-COMPANION-CAPTION-WORDS: split a RAW reply into pages of
-// ~budget words (whitespace-split tokens of the raw text, never HTML,
-// never a character count). Breaks prefer a paragraph boundary (\n\n),
-// then a sentence end (.!?), then a word gap; every cut lands on a word
-// boundary so the loop always advances and a page is never blank.
+// GO-ORBITTY-CAPTION-CHUNK: split RAW text into prefixes that `fits`
+// accepts. `fits(prefix, hasMore)` is a DOM measure (scrollHeight vs the
+// live `.cc.bot` cap). Cuts land on a word boundary; prefer a paragraph
+// break then a sentence end in the back half of the fitted window.
+export function fitPages(
+  src: string,
+  fits: (prefix: string, hasMore: boolean) => boolean,
+): string[] {
+  let rest = (src ?? "").replace(/\r\n/g, "\n").trim();
+  const pages: string[] = [];
+  while (rest) {
+    const end = longestFit(rest, fits);
+    if (end <= 0) {
+      const tok = firstToken(rest);
+      if (!tok) break;
+      pages.push(tok);
+      rest = rest.slice(tok.length).trim();
+      continue;
+    }
+    const piece = rest.slice(0, end).trim();
+    if (!piece) break;
+    pages.push(piece);
+    rest = rest.slice(end).trim();
+  }
+  return pages;
+}
+
+function firstToken(s: string): string {
+  const m = s.match(/\S+/);
+  return m ? m[0] : s.slice(0, 1);
+}
+
+function longestFit(
+  rest: string,
+  fits: (prefix: string, hasMore: boolean) => boolean,
+): number {
+  const toks = Array.from(rest.matchAll(/\S+/g));
+  if (toks.length === 0) return 0;
+  if (fits(rest, false)) return rest.length;
+  let lo = 1;
+  let hi = toks.length;
+  let best = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const token = toks[mid - 1];
+    const end = (token.index ?? 0) + token[0].length;
+    const prefix = rest.slice(0, end);
+    if (fits(prefix, mid < toks.length)) {
+      best = end;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  if (best <= 0) return 0;
+  const prefix = rest.slice(0, best);
+  const para = prefix.lastIndexOf("\n\n");
+  if (para >= best / 2) return para;
+  let sen = -1;
+  for (let i = prefix.length - 1; i >= Math.floor(best / 2); i--) {
+    if ("!?.".includes(prefix[i])) {
+      sen = i + 1;
+      break;
+    }
+  }
+  return sen > 0 ? sen : best;
+}
+
+// Fixed token-budget split (paragraph, then sentence, then word).
 export function wordPages(src: string, budget = 60): string[] {
   const count = (s: string) => s.split(/\s+/).filter(Boolean).length;
   const paras = (src ?? "")

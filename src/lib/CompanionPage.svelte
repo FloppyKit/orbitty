@@ -47,20 +47,14 @@
   // tiny float and a small yaw/roll on send that settles; Reduce
   // Motion stills both. A body with no bust art sits on Full with
   // Head disabled — never a crop fallback, never a neck shear.
-  // GO-ORBITTY-COMPANION-CAPTION-WORDS: collapsed caption pager. A fresh
-  // agent reply — collapsed view only, never expanded, never loaded
-  // history — is split into pages of ~60 words of the RAW text
-  // (paragraph break preferred, then sentence, then word; never a blank
-  // page); each page is mdLite'd on its own. A non-final page's last
-  // line ends …; Enter / Space / click-anywhere on the pane advances
-  // (no Next button), and advancing past the last page releases the
-  // reply into the CC slot whole. While the pager holds, the paged CC
-  // bubble is overflow:hidden — no scrollbar on the caption. Sound on
-  // (Speak) reads each page aloud and auto-advances after the estimated
-  // clip (~1.2s beat when a page has nothing speakable); sound off
-  // waits for the key/click; Reduce Motion never auto-advances. User
-  // bubbles never page. Head vs Full (viewPref) never gates the pager —
-  // collapsed vs expanded does.
+  // GO-ORBITTY-CAPTION-CHUNK: collapsed caption pager. A fresh agent
+  // reply — collapsed only, never expanded, never loaded history — is
+  // cut to fill the live `.cc.bot` box (idle ~40vh, hosted 3-line cap),
+  // not a 60-word budget. Overflow ends …; hover the bubble shows the
+  // full reply (CSS overlay, not title=). Enter / Space / click pages
+  // leftover; the last remaining chunk stays (does not dump whole).
+  // Upper-right expander toggles chunk vs full-in-slot. Speak reads the
+  // visible chunk. User bubbles never page.
   // GO-ORBITTY-GHOST-DOCK: ghost (idle collapsed, not hosted) gets a
   // tight spirit + a bottom dock. .ghost .stage .floatwrap shrinks to a
   // centered square (shorter of stage w/h) so the reported hit box hugs
@@ -94,7 +88,7 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
-  import { mdLite, wordPages } from "./mdLite";
+  import { mdLite, fitPages } from "./mdLite";
   import { listenPaneVis } from "./paneVis";
   import KanbanPage from "./KanbanPage.svelte";
   import StarsPage from "./StarsPage.svelte";
@@ -216,6 +210,8 @@
   let pages = $state<string[]>([]);
   let pageIdx = $state(0);
   let pageRaw: string[] = [];
+  let ccSlotFull = $state(false);
+  let pageGen = 0;
   let autoTimer: ReturnType<typeof setTimeout> | undefined;
   let mainEl: HTMLElement | null = null;
 
@@ -242,25 +238,63 @@
     pages = [];
     pageRaw = [];
     pageIdx = 0;
+    ccSlotFull = false;
+  }
+
+  function paginateToBox(text: string): string[] {
+    const src = mainEl?.querySelector(".cc.bot") as HTMLElement | null;
+    if (!src || src.clientWidth < 8) return [text];
+    const cs = getComputedStyle(src);
+    const cap = parseFloat(cs.maxHeight);
+    const maxH = Number.isFinite(cap) && cap > 8 ? cap : src.clientHeight;
+    if (!(maxH > 8)) return [text];
+    const probe = src.cloneNode(false) as HTMLElement;
+    probe.removeAttribute("title");
+    probe.style.position = "absolute";
+    probe.style.left = "-9999px";
+    probe.style.top = "0";
+    probe.style.visibility = "hidden";
+    probe.style.pointerEvents = "none";
+    probe.style.height = "auto";
+    probe.style.maxHeight = "none";
+    probe.style.overflow = "hidden";
+    probe.style.width = `${src.clientWidth}px`;
+    src.parentElement?.appendChild(probe);
+    const fits = (prefix: string, hasMore: boolean) => {
+      probe.innerHTML =
+        mdLite(prefix) + (hasMore ? `<span class="pgmore">…</span>` : "");
+      return probe.scrollHeight <= maxH + 1;
+    };
+    let rawPages: string[];
+    try {
+      rawPages = fitPages(text, fits);
+    } finally {
+      probe.remove();
+    }
+    return rawPages.length > 0 ? rawPages : [text];
   }
 
   // A fresh agent reply just became the transcript tail. Collapsed only:
-  // split the RAW text into ~60-word pages (a single long paragraph
-  // splits too — there is no block-count gate); a one-page reply renders
-  // (and speaks) whole. Expanded never pages. Each page is mdLite'd on
-  // its own; the raw page doubles as the speakable text.
-  function arriveReply(text: string, idx: number) {
+  // fill the live `.cc.bot` box. One-page replies render (and speak)
+  // whole. Expanded never pages. Each page is mdLite'd on its own; the
+  // raw page doubles as the speakable text.
+  async function arriveReply(text: string, idx: number) {
+    const gen = ++pageGen;
     releasePager();
-    if (!expanded) {
-      const rawPages = wordPages(text);
-      if (rawPages.length > 1) {
-        pages = rawPages.map(mdLite);
-        pageRaw = rawPages.map((p) => p.replace(/\s+/g, " ").trim());
-        pageIdx = 0;
-        pagedTurnIdx = idx;
-        speakPage();
-        return;
-      }
+    if (expanded) {
+      speakReply(text);
+      return;
+    }
+    await tick();
+    if (gen !== pageGen) return;
+    const rawPages = paginateToBox(text);
+    if (rawPages.length > 1) {
+      pages = rawPages.map(mdLite);
+      pageRaw = rawPages.map((p) => p.replace(/\s+/g, " ").trim());
+      pageIdx = 0;
+      pagedTurnIdx = idx;
+      speakPage();
+      return;
     }
     speakReply(text);
   }
@@ -278,6 +312,7 @@
       });
     }
     if (!speak) return;
+    if (pageIdx >= pages.length - 1) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const words = raw ? raw.split(" ").filter(Boolean).length : 0;
     const ms = words === 0 ? 1200 : Math.max(1200, (words / 175) * 60000 + 300);
@@ -288,15 +323,13 @@
   }
 
   function advancePage() {
-    if (pagedTurnIdx < 0 || pages.length === 0) return;
+    if (pagedTurnIdx < 0 || pages.length === 0 || ccSlotFull) return;
     clearAuto();
     if (pageIdx < pages.length - 1) {
       pageIdx++;
       speakPage();
-    } else {
-      // Read to the end — the reply joins the scrollback whole.
-      releasePager();
     }
+    // Last remaining chunk stays in the slot (hover / expander = full).
   }
 
   // Enter / Space advance. Composing wins: a non-empty field keeps
@@ -339,7 +372,7 @@
     }
     if (pagedTurnIdx < 0 || pages.length === 0) return;
     const t = e.target as HTMLElement | null;
-    if (t?.closest("button, select, input, textarea, a, form, .exphead")) return;
+    if (t?.closest("button, select, input, textarea, a, form, .exphead, .cc-exp")) return;
     if (window.getSelection()?.toString()) return;
     advancePage();
   }
@@ -661,9 +694,8 @@
     try {
       const reply = await invoke<string>("companion_send", { line });
       botLine = reply;
-      // CAPTION-WORDS: speaking is the arrival effect's job now — it
-      // pages a long collapsed reply into word pages first and reads
-      // page one instead of the whole reply.
+      // CAPTION-CHUNK: speaking is the arrival effect's job — fill the
+      // live CC box, then read page one.
       // companion_send persists the exchange and emits state:changed;
       // if that loadState won the race, this exact exchange is already
       // the tail — append the reply only when it isn't.
@@ -1072,6 +1104,7 @@
       sending,
       pagedTurnIdx,
       pageIdx,
+      ccSlotFull,
       sendNote,
       showPromptStrip,
       planetsOpen,
@@ -1426,17 +1459,33 @@
       <div class="ccrow them wait-row" aria-live="polite">{@render wait()}</div>
     {/if}
     {#if botLine && !sending}
-      <div class="ccrow them">
-        <!-- CAPTION-WORDS: while the pager holds, the bot CC slot shows
-             one ~60-word page at a time (… while more remains); the last
-             page releases the reply into the slot whole. -->
-        <div class="cc bot" class:paged={pagedTurnIdx >= 0} title={botLine}>
-          {#if pagedTurnIdx >= 0 && pageViewHtml}
+      <div class="ccrow them" class:slotfull={ccSlotFull}>
+        <!-- CAPTION-CHUNK: fill the live box; leftover pages; hover =
+             full reply (CSS overlay). Expander = full-in-slot. -->
+        <div
+          class="cc bot"
+          class:paged={pagedTurnIdx >= 0 && !ccSlotFull}
+        >
+          {#if ccSlotFull}
+            {@html mdLite(botLine)}
+          {:else if pagedTurnIdx >= 0 && pageViewHtml}
             {@html pageViewHtml}
           {:else}
             {@html mdLite(botLine)}
           {/if}
+          {#if pagedTurnIdx >= 0}
+            <button
+              type="button"
+              class="cc-exp"
+              onclick={() => (ccSlotFull = !ccSlotFull)}
+              aria-label={ccSlotFull ? "Show chunk" : "Show full in slot"}
+              title={ccSlotFull ? "Show chunk" : "Show full in slot"}
+            >{ccSlotFull ? "▴" : "▾"}</button>
+          {/if}
         </div>
+        {#if pagedTurnIdx >= 0 && !ccSlotFull}
+          <div class="cc-hover">{@html mdLite(botLine)}</div>
+        {/if}
       </div>
     {/if}
   {/if}
@@ -2483,6 +2532,7 @@
   }
 
   .ccrow.them {
+    position: relative;
     justify-content: flex-start;
   }
 
@@ -2505,12 +2555,72 @@
   }
 
   /* GO-ORBITTY-HOST-CC: hosted collapsed CC caps each bubble at ~3
-     lines, clipped with no scrollbar (hover title= still holds the full
-     text) so the well keeps its room. Idle CC keeps the 40vh
-     scroll-inside-bubble. */
+     lines, clipped with no scrollbar so the well keeps its room.
+     CAPTION-CHUNK: hover overlay holds the full text (not title=).
+     Idle CC keeps the 40vh scroll-inside-bubble. */
   .hosting .cc {
     max-height: calc(1.3em * 3 + 10px);
     overflow: hidden;
+  }
+
+  .cc.bot {
+    position: relative;
+  }
+
+  .cc.bot:has(.cc-exp) {
+    padding-right: 22px;
+  }
+
+  .cc-exp {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    z-index: 1;
+    font: inherit;
+    font-size: 0.62rem;
+    line-height: 1;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 4px;
+    cursor: pointer;
+  }
+
+  .cc-exp:hover {
+    color: var(--accent);
+  }
+
+  /* CAPTION-CHUNK: hover overlay is the full reply. Native title= often
+     does not paint on the transparent panel. pointer-events none so
+     click still pages leftover. */
+  .cc-hover {
+    display: none;
+    position: absolute;
+    left: 10px;
+    bottom: calc(100% + 6px);
+    z-index: 7;
+    max-width: min(92%, 28rem);
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 8px 10px;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    pointer-events: none;
+    overflow-wrap: anywhere;
+  }
+
+  .ccrow.them:hover .cc-hover {
+    display: block;
+  }
+
+  .ccrow.them.slotfull .cc.bot {
+    overflow-y: auto;
+    max-height: 40vh;
   }
 
   .cc :global(ul),
