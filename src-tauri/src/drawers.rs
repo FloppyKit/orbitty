@@ -1592,11 +1592,17 @@ fn appkit_place_points(w: &tauri::WebviewWindow, r: &state::CompanionBounds) {
 /// from the post-place outer_position read-back ONLY (no scale-guessed
 /// prediction), so our own move never reads as a drag.
 pub(crate) fn place_logical_rect(w: &tauri::WebviewWindow, label: &str, r: &state::CompanionBounds) {
+    // COMPANION-MIN: idle companion floor 420×450. Other panes keep 280×360.
+    let (fw, fh) = if label == "companion" && !crate::panes::companion_hugged() {
+        (420.0, 450.0)
+    } else {
+        (280.0, 360.0)
+    };
     let r = state::CompanionBounds {
         x: r.x,
         y: r.y,
-        w: r.w.max(280.0),
-        h: r.h.max(360.0),
+        w: r.w.max(fw),
+        h: r.h.max(fh),
     };
     appkit_place_points(w, &r);
     if let Ok(p) = w.outer_position() {
