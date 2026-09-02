@@ -153,7 +153,13 @@ fn prompt_accessibility() -> bool {
 /// every display is re-homed on the primary (left inset).
 /// GO-ORBITTY-INSPECTOR: the tray Inspector item is the caller — the rail
 /// is the inspector, summoned on purpose (rail delete is forbidden).
-fn show_rail(app: &tauri::AppHandle) {
+/// GO-ORBITTY-INSPECTOR-HOST: embedded pop-out also invokes this.
+#[tauri::command]
+fn show_rail(app: tauri::AppHandle) {
+    show_rail_inner(&app);
+}
+
+fn show_rail_inner(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -386,6 +392,7 @@ pub fn run() {
             companion::companion_frames,
             panes::hide_window,
             panes::set_companion_host,
+            show_rail,
             companion_clear::set_companion_hits,
             companion_clear::companion_front,
             bring_all_front,
@@ -619,7 +626,7 @@ pub fn run() {
                         let _ = panes::show_labeled(app, "settings");
                     }
                     "inspector" => {
-                        show_rail(app);
+                        show_rail_inner(app);
                     }
                     "restore_all" => {
                         habitat::restore_all();

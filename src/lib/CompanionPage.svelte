@@ -88,13 +88,13 @@
   import { listenPaneVis } from "./paneVis";
   import KanbanPage from "./KanbanPage.svelte";
   import StarsPage from "./StarsPage.svelte";
+  import RailPage from "./RailPage.svelte";
 
   import type {
     CompanionSlice,
     CompanionTurn,
     KanbanCard,
     PersistedState,
-    Project,
     StarsSlice,
   } from "./persist";
   interface CompanionSheet {
@@ -189,8 +189,9 @@
   // GO-ORBITTY-HOST-SPLIT: the companion window is the host. Session-only
   // — boot is always the idle spirit and nothing persists `hosted`.
   // "launchpad" = KanbanPage embedded in the well (pop-out allowed);
-  // "stars" = StarsPage embedded (no pop-out, ever).
-  type HostMode = "off" | "launchpad" | "stars";
+  // "stars" = StarsPage embedded (no pop-out, ever);
+  // "inspector" = RailPage embedded (pop-out to the rail window).
+  type HostMode = "off" | "launchpad" | "stars" | "inspector";
   let hosted = $state<HostMode>("off");
 
   // ---------- GO-ORBITTY-COMPANION-CAPTION-WORDS: collapsed pager ------
@@ -335,11 +336,6 @@
   // Enter = send and Space = type; focused buttons/selects keep theirs.
   function onPaneKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
-      if (planetsOpen) {
-        planetsOpen = false;
-        e.preventDefault();
-        return;
-      }
       // HOST-CC: hosted + expanded — Escape collapses the overlay only.
       // The well stays mounted, the host frame stays, the companion
       // window stays visible.
@@ -374,12 +370,6 @@
   }
 
   function onPaneClick(e: MouseEvent) {
-    if (planetsOpen) {
-      const t = e.target as HTMLElement | null;
-      if (!t?.closest(".planetspop") && !t?.closest(".planetsdest")) {
-        planetsOpen = false;
-      }
-    }
     const t = e.target as HTMLElement | null;
     if (ccOpen && !t?.closest(".cc.bot, .cc-full")) ccOpen = false;
   }
@@ -764,7 +754,7 @@
   // stays mounted, the host frame stays up; collapse = second Expand or
   // Escape.
 
-  async function enterHost(mode: "launchpad" | "stars") {
+  async function enterHost(mode: "launchpad" | "stars" | "inspector") {
     if (hosted !== "off") {
       // Launchpad ↔ STARS swap: flip the well AND still invoke
       // set_companion_host — rust re-asserts HOSTED / the slab
@@ -807,34 +797,14 @@
     }
   }
 
-  // Dest strip: Launchpad/STARS toggle the well (click again dismisses —
-  // the spirit gets the full stage back). A visible kanban overlay is
-  // absorbed: the native enter hides it. Never invoke("open_kanban") /
-  // open_stars here — those are the overlay, not the well.
-  async function toggleDest(mode: "launchpad" | "stars") {
+  // Dest strip: Launchpad/STARS/Inspector toggle the well (click again
+  // dismisses — the spirit gets the full stage back). A visible kanban
+  // overlay is absorbed: the native enter hides it. Never invoke
+  // open_kanban / open_stars / show_rail here — those are the overlay /
+  // rail window, not the well.
+  async function toggleDest(mode: "launchpad" | "stars" | "inspector") {
     if (hosted === mode) await dismissHost();
     else await enterHost(mode);
-  }
-
-  // PLANETS-POP: the Planets dest toggles a name list anchored above the
-  // dests — over the well/stage/CC, never down over the composer. Rows
-  // are the rail's projects; All fronts every disc, a name fronts that
-  // disc only. Unknown ids no-op native-side (never an all-fallback).
-  let projects = $state<Project[]>([]);
-  let planetsOpen = $state(false);
-
-  function togglePlanetsPop() {
-    planetsOpen = !planetsOpen;
-  }
-
-  async function pickPlanet(id: string | null) {
-    planetsOpen = false;
-    try {
-      if (id === null) await invoke("bring_all_front");
-      else await invoke("bring_planet_front", { id });
-    } catch (e) {
-      sendNote = `${e}`;
-    }
   }
 
   // Launchpad-only pop-out (the embedded banner button): the real kanban
@@ -846,6 +816,19 @@
     try {
       await invoke("set_companion_host", { mode: "off" });
       await invoke("open_kanban");
+    } catch (e) {
+      sendNote = `${e}`;
+    }
+  }
+
+  // GO-ORBITTY-INSPECTOR-HOST: same pop-out pattern — dismiss the well,
+  // then show the real rail window. Tray Inspector still show_rail too.
+  async function popoutInspector() {
+    if (hosted !== "inspector") return;
+    hosted = "off";
+    try {
+      await invoke("set_companion_host", { mode: "off" });
+      await invoke("show_rail");
     } catch (e) {
       sendNote = `${e}`;
     }
@@ -974,7 +957,6 @@
       stars = s.stars ?? { promptsOptIn: false, checkins: {} };
       prompts = stars.promptsOptIn ?? false;
       cards = s.kanbanCards ?? [];
-      projects = s.projects ?? [];
       // CAPTION: the first successful load is history, never an arrival —
       // prime the tail sig so the pager effect sees no change.
       if (!primed) {
@@ -1025,7 +1007,7 @@
     const t = e.target as HTMLElement | null;
     if (
       !t?.closest(
-        ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .winx, .gear, .note, .planetspop"
+        ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .winx, .gear, .note"
       )
     )
       return;
@@ -1044,7 +1026,7 @@
     if (t?.closest("input, textarea, select, button, a, .field")) return;
     if (t?.closest(".bubble, .cc")) return;
     if (t?.closest('[draggable="true"]')) return;
-    if (t?.closest(".ghostdock, .floatwrap, .k-banner, .s-banner")) return;
+    if (t?.closest(".ghostdock, .floatwrap, .k-banner, .s-banner, .banner")) return;
     e.preventDefault();
     getCurrentWindow()
       .startDragging()
@@ -1094,7 +1076,6 @@
     push(mainEl.querySelector(".winx"));
     push(mainEl.querySelector(".gear"));
     push(mainEl.querySelector(".note"));
-    push(mainEl.querySelector(".planetspop"));
     invoke("set_companion_hits", { rects }).catch(() => {});
   }
 
@@ -1114,10 +1095,8 @@
       ccOpen,
       sendNote,
       showPromptStrip,
-      planetsOpen,
       missing,
       drawFrames,
-      projects.length,
     ];
     void watching;
     if (expanded || hosted !== "off") {
@@ -1250,7 +1229,7 @@
     // never toggleDest (the dest buttons still own toggling).
     unlistenEnterHost = await listen<string>("orbitty:enter-host", (e) => {
       const m = e.payload;
-      if (m === "launchpad" || m === "stars") void enterHost(m);
+      if (m === "launchpad" || m === "stars" || m === "inspector") void enterHost(m);
     });
     unlistenTalk.push(
       await listen<string>("talk:partial", (e) => {
@@ -1422,11 +1401,10 @@
 
   {#if hosted !== "off"}
     <!-- HOST-SPLIT + HOST-CC: the well — left ~2/3 is the embedded
-         Launchpad (KanbanPage) or STARS (StarsPage), right 1/3 is the
-         Head spirit stage. The well stays MOUNTED while expanded — the
-         transcript overlays it inside .wellwrap (Kanban/STARS never
-         unmount: List|Board state lives there). The two capped CC lines
-         + agentrow + composer stay full-width below the well. -->
+         Launchpad / STARS / Inspector, right 1/3 is the Head spirit
+         stage. The well stays MOUNTED while expanded — the transcript
+         overlays it inside .wellwrap. The two capped CC lines +
+         agentrow + composer stay full-width below the well. -->
     <div class="wellwrap">
       <div class="hostwell">
         <!-- SPRITE-OFF: no .wellhead when the sprite is hidden — the
@@ -1434,8 +1412,10 @@
         <div class="wellpane" class:fullwell={!sprite}>
           {#if hosted === "launchpad"}
             <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
-          {:else}
+          {:else if hosted === "stars"}
             <StarsPage embedded onClose={dismissHost} />
+          {:else if hosted === "inspector"}
+            <RailPage embedded onClose={dismissHost} onPopout={popoutInspector} />
           {/if}
         </div>
         {#if sprite}
@@ -1581,13 +1561,11 @@
         </button>
         <button
           class="dest iconbtn planetsdest"
-          class:on={planetsOpen}
-          onclick={togglePlanetsPop}
-          aria-expanded={planetsOpen}
-          aria-haspopup="menu"
-          aria-label="Planets"
-          data-chip="Planets"
-          title="Front a planet — All fronts every disc"
+          class:on={hosted === "inspector"}
+          onclick={() => toggleDest("inspector")}
+          aria-label="Inspector"
+          data-chip="Inspector"
+          title="Inspector in the well — click again to dismiss"
         >
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <circle cx="12" cy="12" r="5" />
@@ -1603,30 +1581,6 @@
             />
           </svg>
         </button>
-        {#if planetsOpen}
-          <!-- PLANETS-POP: anchored above the dests (bottom:100% on the
-               relative .dests) so it overlays the well / stage / CC /
-               transcript — never the composer below the agentrow. -->
-          <div class="planetspop" role="menu" aria-label="Planets">
-            {#if projects.length === 0}
-              <div class="planetsrow empty">No planets yet</div>
-            {:else}
-              <button
-                class="planetsrow"
-                role="menuitem"
-                onclick={() => pickPlanet(null)}
-              >All planets</button>
-              {#each projects as p (p.id)}
-                <button
-                  class="planetsrow"
-                  role="menuitem"
-                  title={p.name}
-                  onclick={() => pickPlanet(p.id)}
-                >{p.name}</button>
-              {/each}
-            {/if}
-          </div>
-        {/if}
       </span>
       <button
         class="expandbtn iconbtn speakbtn"

@@ -28,8 +28,23 @@
     WindowTags,
   } from "./persist";
 
-  // Rail brain — mounted only when +page.svelte dispatches the `main`
-  // window here. Overlay windows never load this file.
+  // Rail brain — mounted when +page.svelte dispatches the `main` window,
+  // and again embedded in the companion inspector well
+  // (GO-ORBITTY-INSPECTOR-HOST). Overlay windows never load this file.
+
+  // GO-ORBITTY-INSPECTOR-HOST: embedded mounts this page in the companion's
+  // inspector well — × calls onClose (never hide_window), the banner
+  // wordmark is Inspector, and a pop-out control (onPopout) hands the
+  // chrome back to the real rail window. The overlay passes nothing.
+  let {
+    embedded = false,
+    onClose,
+    onPopout,
+  }: {
+    embedded?: boolean;
+    onClose?: () => void;
+    onPopout?: () => void;
+  } = $props();
 
   interface AxStatus {
     trusted: boolean;
@@ -897,7 +912,7 @@
   function onBannerMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     const t = e.target as HTMLElement | null;
-    if (t?.closest(".winx")) return;
+    if (t?.closest(".winx, .popout")) return;
 
     if (t?.closest(".wordmark")) {
       wordmarkDidDrag = false;
@@ -1751,6 +1766,10 @@
       if (s.trusted && !dragWindowId) {
         windows = await invoke<WindowInfo[]>("list_windows");
         refreshedAt = new Date().toLocaleTimeString();
+        // INSPECTOR-HOST: habitat sync / rematch stay on the main rail
+        // instance so two mounts don't double-write. Embedded still lists
+        // windows so the well stays live.
+        if (embedded) return;
         rematchClaims();
         // Frontmost tick: a claimed window the human is actively in counts as
         // touched (throttled persist inside), so zombies self-heal by use.
@@ -2251,6 +2270,7 @@
 
 <main
   class="rail"
+  class:embedded
   class:autohide={autohideRowChrome}
   class:hide-titles={hideTitles}
   class:hide-icons={hideAppIcons}
@@ -2263,11 +2283,19 @@
       <button
         class="winx"
         onmousedown={(e) => e.stopPropagation()}
-        onclick={() => invoke("hide_window", { label: "main" }).catch(() => {})}
-        title="Hide Orbitty — quit from the tray icon"
-        aria-label="Hide Orbitty">×</button
+        onclick={() =>
+          embedded
+            ? onClose?.()
+            : invoke("hide_window", { label: "main" }).catch(() => {})}
+        title={embedded
+          ? "Dismiss the inspector well — the companion stays"
+          : "Hide Orbitty — quit from the tray icon"}
+        aria-label={embedded ? "Dismiss Inspector" : "Hide Orbitty"}>×</button
       >
       <h1>
+        {#if embedded}
+          Inspector
+        {:else}
         <button
           class="wordmark"
           onclick={onWordmarkClick}
@@ -2275,7 +2303,31 @@
           aria-label="Home — bring all planet panels to the front"
           ><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span></button
         >
+        {/if}
       </h1>
+      {#if embedded}
+        <button
+          class="popout"
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => onPopout?.()}
+          title="Pop out to the rail window — the well closes, the companion stays"
+          aria-label="Pop out Inspector"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M15 3h6v6" />
+            <path d="M10 14 21 3" />
+            <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+          </svg>
+        </button>
+      {/if}
       {#if status?.trusted && refreshedAt}
         <span class="clock" title="last refresh">{refreshedAt}</span>
       {/if}
@@ -2742,6 +2794,40 @@
     box-sizing: border-box;
     background: var(--bg-fill, var(--bg));
     border-radius: 12px;
+  }
+
+  /* GO-ORBITTY-INSPECTOR-HOST: fill the well pane; square corners inside
+     the companion's rounded clip. */
+  .rail.embedded {
+    height: auto;
+    flex: 1;
+    min-height: 0;
+    border-radius: 0;
+  }
+
+  .popout {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .popout:hover {
+    color: var(--accent);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .popout svg {
+    width: 13px;
+    height: 13px;
   }
 
   :global(.low-fill) .rail {

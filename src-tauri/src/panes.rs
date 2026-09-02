@@ -426,7 +426,7 @@ pub(crate) fn unhug_before_persist(app: &tauri::AppHandle) {
 
 /// GO-ORBITTY-HOST-SPLIT: the ONE native path that resizes the companion
 /// for hosting — the frontend never set_sizes the companion itself.
-///   "launchpad" | "stars" → stash the live idle rect (once per host
+///   "launchpad" | "stars" | "inspector" → stash the live idle rect (once per host
 ///     session — a Launchpad ↔ STARS well swap never re-stashes the grown
 ///     rect), hide the shared `kanban` overlay if it is visible (never
 ///     destroy), grow the companion to the display-fit host frame —
@@ -441,14 +441,14 @@ pub(crate) fn unhug_before_persist(app: &tauri::AppHandle) {
 /// command only owns the window frame.
 #[tauri::command]
 pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), String> {
-    let on = mode == "launchpad" || mode == "stars";
+    let on = mode == "launchpad" || mode == "stars" || mode == "inspector";
     let Some(w) = app.get_webview_window("companion") else {
         return Err("no window labeled companion".to_string());
     };
     if on {
         let stashed = host_stash().lock().map(|s| s.is_some()).unwrap_or(false);
         // GO-ORBITTY-COMPANION-RAISE: already hosted (Launchpad ↔ STARS
-        // well swap, tray re-assert) — host_changed only, so HOSTED
+        // ↔ inspector well swap, tray re-assert) — host_changed only, so HOSTED
         // re-asserts and apply_mode slabs. Never a second stash, never a
         // re-place: no re-grow, no hop.
         if stashed {
@@ -470,6 +470,17 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
                 crate::drawers::persist_shown_place(&app, "kanban");
                 let _ = k.hide();
                 emit_pane_vis(&app, "kanban", false);
+            }
+        }
+        // GO-ORBITTY-INSPECTOR-HOST: the well IS the inspector. Hide the
+        // rail window (never destroy) so the desk isn't two inspectors.
+        // Tray Inspector / embedded pop-out still show_rail.
+        if mode == "inspector" {
+            if let Some(m) = app.get_webview_window("main") {
+                if m.is_visible().unwrap_or(false) {
+                    let _ = m.hide();
+                    emit_pane_vis(&app, "main", false);
+                }
             }
         }
         let cur =
