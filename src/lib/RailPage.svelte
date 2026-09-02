@@ -9,28 +9,27 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import type {
+    ActionShortcut,
+    AgentShortcut,
+    CharLook,
+    Claim,
+    CompanionSlice,
+    DrawerSlice,
+    KanbanCard,
+    PersistedState,
+    PointsEntry,
+    Project,
+    SkySlice,
+    StarsSlice,
+    Tag,
+    TitleOverride,
+    WindowInfo,
+    WindowTags,
+  } from "./persist";
 
   // Rail brain — mounted only when +page.svelte dispatches the `main`
   // window here. Overlay windows never load this file.
-
-  interface WindowInfo {
-    id: string;
-    pid: number;
-    appName: string;
-    title: string;
-    bundleId: string | null;
-    // Reboot-stable fingerprint `{bundleId or appName}|{title}|{n}` — live
-    // ids die on reboot; claims rematch on this.
-    stableKey: string;
-    iconBase64: string | null;
-    isFrontmost: boolean;
-    isMinimized: boolean;
-    // GO-ORBITTY-SLEEPERS: the window's AXDocument as an existing on-disk
-    // path (file:// only) — the file-sleeper wake stamp.
-    documentPath?: string | null;
-    // True on synthesized rows for claims whose window is closed (orphans).
-    sleeping?: boolean;
-  }
 
   interface AxStatus {
     trusted: boolean;
@@ -40,217 +39,12 @@
     isAdhoc: boolean;
   }
 
-  interface Project {
-    id: string;
-    name: string;
-  }
-
-  interface Claim {
-    windowId: string;
-    projectId: string;
-    // Epoch seconds; 0 in pre-S4 saves (migrated to first-seen on load).
-    lastTouchedAt: number;
-    // Reboot-rematch fingerprint, stamped from the live window at claim time
-    // (live AX title, never the display override). Optional: pre-GO saves.
-    bundleId?: string | null;
-    appName?: string;
-    titleAtClaim?: string;
-    titleIndex?: number;
-    // Sprite picker (claim menu): packs/<id> folder; null/absent = the
-    // generated being (GO-ORBITTY-CHARS).
-    spritePackId?: string | null;
-    // GO-ORBITTY-CHARS: generated-person roll seed, stamped at claim time
-    // (old saves are seeded on load) — the same claim keeps the same being.
-    charSeed?: number | null;
-    // Explicit layer picks once the Being editor touches them; absent =
-    // derived from charSeed native-side.
-    charLook?: CharLook | null;
-    // Per-walker size (0.4–2.5); null/absent = the gear's global spriteScale.
-    spriteScale?: number | null;
-    // GO-ORBITTY-WALKER-CONTEXT: occupancy planet for the sprite. Absent
-    // or unknown = walk on projectId. Rail Assign still rewrites projectId.
-    walkerHome?: string | null;
-    // GO-ORBITTY-SLEEPERS wake trail (all additive, stamped from the live
-    // window only — never invented): AX document path; Hermes-class
-    // profile/session; optional linked Action or Terminal-class recipe.
-    filePath?: string | null;
-    hermesProfile?: string | null;
-    hermesSession?: string | null;
-    actionId?: string | null;
-    command?: string | null;
-    cwd?: string | null;
-  }
-
-  // GO-ORBITTY-S1-BITTYS: kind/palette are the Season 1 crew picks (kind =
-  // index into the 11-kind table, palette = 0 default + 3 recolors). Absent
-  // in pre-S1 saves — the native side maps legacy species onto the nearest
-  // Kind+Palette. The legacy layer fields stay so old saves load.
-  interface CharLook {
-    body: number;
-    clothes: number;
-    eyes: number;
-    mouth: number;
-    hat: number;
-    colors: number;
-    species?: number;
-    kind?: number | null;
-    palette?: number | null;
-  }
-
   // One Season 1 kind: display name, pack slug base, and its palette names
   // ("Default" + 3 recolors) — the Being editor's only silhouette controls.
   interface BittyKind {
     name: string;
     slug: string;
     palettes: string[];
-  }
-
-  // S4.3: cards are born at CLAIM time (kind "window", status "doing") or at
-  // Add-a-to-do time in the Lists window (kind "todo", no windowId). Unclaim
-  // keeps the card as a loose project todo. `starred` is shape-only for now.
-  interface KanbanCard {
-    id: string;
-    title: string;
-    projectId: string;
-    windowId?: string | null;
-    kind?: "window" | "todo" | "needed";
-    status: "todo" | "doing" | "done";
-    createdAt: number;
-    lastTouchedAt: number;
-    completedAt?: number | null;
-    goalAligned: boolean;
-    clinicalOrMaster: boolean;
-    pointsAwarded: number;
-    starred?: boolean;
-    // S4.4 detail-panel fields (owned by the Lists window; round-tripped).
-    notes?: string;
-    difficulty?: "trivial" | "easy" | "medium" | "hard";
-    subtasks?: { id: string; title: string; done: boolean }[];
-    dueAt?: number | null;
-    tagIds?: string[];
-    // GO-ORBITTY-LP-NEEDED (round-tripped): the rail only reads open/later
-    // to sit the walker (GO-ORBITTY-CADENCE); the Lists window owns writes.
-    neededState?: "open" | "later" | "answered" | "skipped";
-  }
-
-  interface PointsEntry {
-    id: string;
-    cardId: string;
-    amount: number;
-    day: string; // local YYYY-MM-DD — the daily cap sums on this
-    at: number;
-  }
-
-  interface Tag {
-    id: string;
-    name: string;
-    color?: string | null;
-  }
-
-  interface WindowTags {
-    windowId: string;
-    tagIds: string[];
-  }
-
-  // Display-only rename of a window's title (rail is the only writer). An
-  // absent entry means the live AX title shows; AX/OS titles never change.
-  interface TitleOverride {
-    windowId: string;
-    title: string;
-  }
-
-  interface ActionShortcut {
-    id: string;
-    name: string;
-    command: string;
-    cwd?: string | null;
-  }
-
-  interface AgentShortcut {
-    id: string;
-    name: string;
-    harness: string; // "hermes" | "cursor"
-    profile: string;
-    model?: string | null;
-    mdPaths: string[];
-    projectId?: string | null;
-  }
-
-  // GO-LS-TAURI-AVATAR-LARGE: the companion window's slice. The rail never
-  // writes its contents — it round-trips the loaded value untouched so rail
-  // saves don't strip it.
-  interface CompanionBounds {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  }
-  interface CompanionSlice {
-    visible: boolean;
-    bounds: CompanionBounds | null;
-    imagePackId: string | null;
-    state?: string;
-    talkSource?: string;
-  }
-
-  // GO-LS-STARS-STATUS: the operator-green radar. Five spokes 0–4, keyed by
-  // local YYYY-MM-DD; explicit check-in only (no wearables, no dwell score).
-  // promptsOptIn defaults false — the companion's one-strip menu stays
-  // silent until the human opts in. promptsAck is the strip dismissal stamp
-  // ("{day}:{sig}") — one show per day unless they check in again.
-  interface StarsCheckin {
-    sleep: number;
-    terroir: number;
-    athleticism: number;
-    relationships: number;
-    self: number;
-  }
-  interface StarsSlice {
-    promptsOptIn: boolean;
-    checkins: Record<string, StarsCheckin>;
-    promptsAck?: string;
-  }
-
-  // GO-ORBITTY-WORD-SKY: only the mute list persists. The Sky window owns
-  // it; the rail round-trips the slice untouched (same discipline as STARS).
-  interface SkySlice {
-    muted: string[];
-  }
-
-  // GO-ORBITTY-RAIL-DRAWER: the native leash owns this slice (dock/pluck,
-  // dx/dy, plucked bounds) for companion / kanban / settings only. The rail
-  // round-trips it untouched — dropping it would silently re-dock plucks.
-  interface DrawerSlice {
-    docked?: boolean;
-    dx?: number;
-    dy?: number;
-    bounds?: { x: number; y: number; w: number; h: number } | null;
-  }
-
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-    projects: Project[];
-    claims: Claim[];
-    tags: Tag[];
-    windowTags: WindowTags[];
-    collapsedSectionIds: string[];
-    nudgeSuppressedWindowIds: string[];
-    kanbanCards: KanbanCard[];
-    pointsLedger: PointsEntry[];
-    titleOverrides: TitleOverride[];
-    autohideRowChrome: boolean;
-    hideTitles: boolean;
-    hideAppIcons: boolean;
-    spriteScale: number;
-    marbleDrift: boolean;
-    actionShortcuts: ActionShortcut[];
-    agentShortcuts: AgentShortcut[];
-    companion?: CompanionSlice;
-    stars?: StarsSlice;
-    sky?: SkySlice;
-    sharedPaneMode?: "board" | "stars";
-    drawers?: Record<string, DrawerSlice>;
   }
 
   interface Theme {

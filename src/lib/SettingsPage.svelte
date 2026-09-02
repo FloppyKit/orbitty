@@ -12,6 +12,7 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import type { DrawerSlice, PersistedState } from "./persist";
 
   interface PackInfo {
     id: string;
@@ -22,36 +23,10 @@
     path: string;
     role: string;
   }
-  interface CompanionSlice {
-    talkSource?: string;
-    imagePackId?: string | null;
-    bounds?: { x: number; y: number; w: number; h: number } | null;
-  }
-  // GO-ORBITTY-RAIL-DRAWER: the native leash owns dock/pluck per pane;
-  // this window only reads status and fires Re-tether.
-  interface DrawerSlice {
-    docked?: boolean;
-    dx?: number;
-    dy?: number;
-    bounds?: { x: number; y: number; w: number; h: number } | null;
-  }
   interface BodyPack {
     id: string;
     name: string;
   }
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-    autohideRowChrome?: boolean;
-    hideTitles?: boolean;
-    hideAppIcons?: boolean;
-    spriteScale?: number;
-    marbleDrift?: boolean;
-    companion?: CompanionSlice;
-    drawers?: Record<string, DrawerSlice>;
-    [key: string]: unknown;
-  }
-
   interface Theme {
     id: string;
     name: string;

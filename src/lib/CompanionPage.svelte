@@ -98,68 +98,14 @@
   import KanbanPage from "./KanbanPage.svelte";
   import StarsPage from "./StarsPage.svelte";
 
-  interface CompanionBounds {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  }
-  interface CompanionTurn {
-    role: string;
-    text: string;
-  }
-  // Only the fields this window reads; the native side owns the writes.
-  interface CompanionSlice {
-    visible: boolean;
-    bounds: CompanionBounds | null;
-    imagePackId: string | null;
-    state?: string;
-    lastUserLine?: string;
-    lastBotLine?: string;
-    agentProfile?: string;
-    expanded?: boolean;
-    turns?: CompanionTurn[];
-    speakReplies?: boolean;
-    talkSource?: string;
-    viewCollapsed?: string;
-    viewExpanded?: string;
-    sprite?: boolean;
-  }
-  // GO-LS-STARS-STATUS: read-only here — checkins are the rail's writes;
-  // this window's only STARS writes are the prompts opt-in and the strip
-  // ack, both via native load-modify-save commands.
-  interface StarsCheckin {
-    sleep: number;
-    terroir: number;
-    athleticism: number;
-    relationships: number;
-    self: number;
-  }
-  interface StarsSlice {
-    promptsOptIn: boolean;
-    checkins: Record<string, StarsCheckin>;
-    promptsAck?: string;
-  }
-  // Only what the Smallest todo chip reads.
-  interface KanbanCard {
-    id: string;
-    title: string;
-    status: string;
-    subtasks?: { id: string; title: string; done: boolean }[];
-  }
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-    companion?: CompanionSlice;
-    stars?: StarsSlice;
-    kanbanCards?: KanbanCard[];
-    projects?: ProjectRef[];
-  }
-  // Same shape as RailPage interface Project — the Planets popup rows.
-  interface ProjectRef {
-    id: string;
-    name: string;
-  }
+  import type {
+    CompanionSlice,
+    CompanionTurn,
+    KanbanCard,
+    PersistedState,
+    Project,
+    StarsSlice,
+  } from "./persist";
   interface CompanionSheet {
     dataUrl: string;
     frameW: number;
@@ -835,7 +781,7 @@
   // dests — over the well/stage/CC, never down over the composer. Rows
   // are the rail's projects; All fronts every disc, a name fronts that
   // disc only. Unknown ids no-op native-side (never an all-fallback).
-  let projects = $state<ProjectRef[]>([]);
+  let projects = $state<Project[]>([]);
   let planetsOpen = $state(false);
 
   function togglePlanetsPop() {
@@ -1027,6 +973,24 @@
     getCurrentWindow()
       .startDragging()
       .catch(() => {});
+  }
+
+  // FRONT-HOLD: a mousedown on any ghost hit (dock / spirit / bubble /
+  // × ⚙ / strips / popups) heavy-raises the companion natively, so no
+  // planet restack can bury it mid-click. Capture phase on <main>: the
+  // × ⚙ buttons stopPropagation on bubble, capture still sees them.
+  // Ghost only — the slab is a complete window with no bury risk.
+  function onHitMouseDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    if (expanded || hosted !== "off") return;
+    const t = e.target as HTMLElement | null;
+    if (
+      !t?.closest(
+        ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .winx, .gear, .note, .planetspop"
+      )
+    )
+      return;
+    invoke("companion_front").catch(() => {});
   }
 
   // GRAB-LAW: the slab (expanded / hosted) is a complete window — the
@@ -1379,6 +1343,7 @@
   class:ghost={!expanded && hosted === "off"}
   class:spriteoff={!sprite}
   onmousedown={onPaneMouseDown}
+  onmousedowncapture={onHitMouseDown}
   bind:this={mainEl}
 >
   {#if expanded && sprite}

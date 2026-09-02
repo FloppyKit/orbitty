@@ -29,6 +29,12 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import type {
+    AverageWindow,
+    PersistedState,
+    StarsCheckin,
+    StarsSlice,
+  } from "./persist";
 
   // GO-ORBITTY-BOARD-STARS: this page now mounts inside the one shared
   // 780×520 `kanban` overlay (stars mode) — hideLabel is the HOST window's
@@ -47,28 +53,7 @@
     onClose?: () => void;
   } = $props();
 
-  interface StarsCheckin {
-    sleep: number;
-    terroir: number;
-    athleticism: number;
-    relationships: number;
-    self: number;
-  }
-  type AverageWindow = "week" | "14" | "month";
-  interface StarsSlice {
-    promptsOptIn: boolean;
-    checkins: Record<string, StarsCheckin>;
-    promptsAck?: string;
-    averageWindow?: AverageWindow;
-  }
 
-  // Only the fields this window reads are typed; the loaded object is saved
-  // back whole, so every other slice round-trips at runtime.
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-    stars?: StarsSlice;
-  }
 
   // GO-ORBITTY-COMPANION-BRAND: the seven palette skins are retired; a
   // dead saved id falls back to the OS pair. Terminal stays valid.

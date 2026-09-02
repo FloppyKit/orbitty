@@ -13,47 +13,16 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
   import "./orbit-field.css";
+  import type {
+    CompanionSlice,
+    KanbanCard,
+    PersistedState,
+    Project,
+    SkySlice,
+    Tag,
+  } from "./persist";
 
-  interface KanbanCard {
-    id: string;
-    title: string;
-    projectId: string;
-    status: string;
-    lastTouchedAt?: number;
-    completedAt?: number | null;
-    notes?: string | null;
-    tagIds?: string[] | null;
-  }
-  interface Tag {
-    id: string;
-    name: string;
-  }
-  interface Project {
-    id: string;
-    name: string;
-  }
-  interface CompanionTurn {
-    role: string;
-    text: string;
-  }
-  interface CompanionSlice {
-    lastUserLine?: string;
-    turns?: CompanionTurn[];
-  }
-  interface SkySlice {
-    muted: string[];
-  }
 
-  // Only the fields this component reads are typed; mute saves load →
-  // mutate → save the WHOLE loaded object, so every other slice
-  // round-trips.
-  interface PersistedState {
-    projects?: Project[];
-    tags?: Tag[];
-    kanbanCards?: KanbanCard[];
-    companion?: CompanionSlice;
-    sky?: SkySlice;
-  }
 
   // Tiny English stopword set — good enough, no NLP crate. Contractions
   // self-clean: "don't" splits to "don"+"t", so the fragments are listed.

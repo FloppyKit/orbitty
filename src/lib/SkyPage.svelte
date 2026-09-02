@@ -15,13 +15,9 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import type { PersistedState } from "./persist";
 
-  // Only the fields this window reads are typed; the loaded object is never
-  // written from here (mute writes live in SkyField and round-trip whole).
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-  }
+
 
   // GO-ORBITTY-COMPANION-BRAND: the seven palette skins are retired; a
   // dead saved id falls back to the OS pair. Terminal stays valid.

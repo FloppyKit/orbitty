@@ -24,6 +24,20 @@
   import { onMount, onDestroy } from "svelte";
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
+  import type {
+    ActionShortcut,
+    Actor,
+    Claim,
+    Difficulty,
+    KanbanCard,
+    NeededState,
+    PersistedState,
+    PointsEntry,
+    Project,
+    Tag,
+    TitleOverride,
+    WindowInfo,
+  } from "./persist";
 
   // GO-ORBITTY-HOST-SPLIT: embedded mounts this page in the companion's
   // Launchpad well — × calls onClose (never hide_window), the banner
@@ -39,163 +53,10 @@
     onPopout?: () => void;
   } = $props();
 
-  interface WindowInfo {
-    id: string;
-    pid: number;
-    appName: string;
-    title: string;
-    bundleId: string | null;
-    stableKey: string;
-    iconBase64: string | null;
-    isFrontmost: boolean;
-    isMinimized: boolean;
-  }
-
-  interface Project {
-    id: string;
-    name: string;
-  }
-
-  interface Claim {
-    windowId: string;
-    projectId: string;
-    lastTouchedAt: number;
-    // GO-LS-TAURI-USER-PACKS reboot-rematch fingerprint (rail-owned; the
-    // rail rewrites windowId on rematch and Lists adopts it from disk).
-    bundleId?: string | null;
-    appName?: string;
-    titleAtClaim?: string;
-    titleIndex?: number;
-    walkerHome?: string | null;
-  }
-
-  interface Subtask {
-    id: string;
-    title: string;
-    done: boolean;
-  }
-
-  type Difficulty = "trivial" | "easy" | "medium" | "hard";
   type Status = "todo" | "doing" | "done";
-  // GO-ORBITTY-LP-NEEDED: Needed inbox states. `later` carries dueAt as
-  // the snooze stamp; a past dueAt counts as open for the strip.
-  type NeededState = "open" | "later" | "answered" | "skipped";
-  // GO-ORBITTY-LP-ACTOR: who completed a quest. Missing on pre-actor
-  // cards/rows — the HUD reads missing as "user" (history was human).
-  type Actor = "user" | "agent" | "action" | "vps";
   // Happened chip filter: All default; mine = user|missing; behalf =
   // agent|action|vps. Session-only, like the other view state.
   type DoneFilter = "all" | "mine" | "behalf";
-
-  interface KanbanCard {
-    id: string;
-    title: string;
-    projectId: string;
-    windowId?: string | null;
-    kind?: "window" | "todo" | "needed";
-    // Dummy "todo" on Needed cards so kind-blind code never crashes —
-    // every quest view filters kind first.
-    status: Status;
-    createdAt: number;
-    lastTouchedAt: number;
-    completedAt?: number | null;
-    goalAligned: boolean;
-    clinicalOrMaster: boolean;
-    pointsAwarded: number;
-    starred?: boolean;
-    // S4.4 detail fields (additive; difficulty never touches points).
-    notes?: string;
-    difficulty?: Difficulty;
-    subtasks?: Subtask[];
-    dueAt?: number | null;
-    tagIds?: string[];
-    // GO-ORBITTY-LP-NEEDED (additive): the super-quick user-only inbox.
-    neededState?: NeededState;
-    neededWhy?: string;
-    neededAnswer?: string;
-    // GO-ORBITTY-LP-ACTOR (additive): stamped by completeCard only.
-    actor?: Actor;
-  }
-
-  interface PointsEntry {
-    id: string;
-    cardId: string;
-    amount: number;
-    day: string;
-    at: number;
-    // GO-ORBITTY-LP-ACTOR (additive): who acted on the awarding complete.
-    actor?: Actor;
-  }
-
-  interface Tag {
-    id: string;
-    name: string;
-    color?: string | null;
-  }
-
-  interface WindowTags {
-    windowId: string;
-    tagIds: string[];
-  }
-
-  // Rail-owned display renames — read-only here, round-tripped untouched.
-  interface TitleOverride {
-    windowId: string;
-    title: string;
-  }
-
-  // GO-ORBITTY-BOARD-ACTIONS: rail-owned named macros (state.rs
-  // ActionShortcut, camelCase). The well below is a second writer — same
-  // shape, same id format, same run_action invoke as the rail.
-  interface ActionShortcut {
-    id: string;
-    name: string;
-    command: string;
-    cwd?: string | null;
-  }
-
-  // Full shape — this window saves state.json, so rail-owned fields must
-  // round-trip untouched.
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-    projects: Project[];
-    claims: Claim[];
-    tags: Tag[];
-    windowTags: WindowTags[];
-    collapsedSectionIds: string[];
-    nudgeSuppressedWindowIds: string[];
-    kanbanCards: KanbanCard[];
-    pointsLedger: PointsEntry[];
-    titleOverrides: TitleOverride[];
-    // GO-ORBITTY-BOARD-ACTIONS: declared so mutate() never serializes a
-    // state without the key and wipes the rail's macro array.
-    actionShortcuts?: ActionShortcut[];
-    // GO-LS-TAURI-AVATAR-LARGE: companion-window slice — owned by the
-    // companion window / native side; round-tripped untouched by mutate().
-    companion?: {
-      visible: boolean;
-      bounds: { x: number; y: number; w: number; h: number } | null;
-      imagePackId: string | null;
-      state?: string;
-    };
-    // GO-LS-STARS-STATUS: rail-owned check-in slice — round-tripped
-    // untouched by mutate() like the companion slice.
-    stars?: {
-      promptsOptIn: boolean;
-      checkins: Record<
-        string,
-        {
-          sleep: number;
-          terroir: number;
-          athleticism: number;
-          relationships: number;
-          self: number;
-        }
-      >;
-      promptsAck?: string;
-    };
-  }
 
   const DAILY_CAP = 12;
   const DIFFICULTIES: Difficulty[] = ["trivial", "easy", "medium", "hard"];
