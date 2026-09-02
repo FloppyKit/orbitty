@@ -2,11 +2,14 @@
 
 Dogfood: tray Quit → `~/Applications/Orbitty.app`. Sprite **on**.
 
-## Must
+## Must (this beat = unlock)
 
-- Sprite on: cannot shrink below **420 × 450**. Grow still works.
-- Dock dests stay a tight cluster (gaps do not stretch).
-- Sprite off: hug still works.
+- Sprite on: can shrink below 619×647, not below **280 × 360**.
+- Sprite off: hug to the CC+dock bar still works.
+
+## Next beat (after Matt says lock this)
+
+- Idle min = live AX of that window. Hug still drops.
 
 ## Must not
 

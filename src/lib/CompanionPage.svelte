@@ -2754,7 +2754,8 @@
      first (type / letter-spacing / gap) — never the icon hit targets,
      never the agentpick. */
   .dests {
-    flex: none;
+    flex: 1;
+    min-width: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
