@@ -72,12 +72,13 @@
   // window bottom, full window width; the paint stays inset — so the
   // borderless frame's edge resize arrows land on the companion, and a
   // mousedown on dock chrome (not a control) drags like the spirit.
-  // GO-ORBITTY-SPRITE-OFF: R-click the Full/Head button hides the sprite
+  // GO-ORBITTY-SPRITE-OFF: the Full/Head button hides the sprite
   // (persisted companion.sprite, default true — one flag for collapsed,
   // expanded, hosted) while chat stays. Off draws no stage / exphead /
   // wellhead: the ghost reports no floatwrap hit so empty air above the
   // dock clicks through, and the hosted well pane takes the full width.
-  // L-click stays Full ↔ Head; the per-surface view prefs survive Off.
+  // GO-ORBITTY-DOCK-TWEAK: L-click hides/shows the sprite; R-click is
+  // Full ↔ Head. Per-surface view prefs survive Off.
   // GO-ORBITTY-SPRITE-HUG: while !sprite the Full/Head glyph wears the
   // Speak-pattern slash, and idle collapsed + off hugs the window to the
   // measured CC+dock bar — the NATIVE side resizes (never a frontend
@@ -385,10 +386,10 @@
   }
 
   // SPRITE-OFF: one persisted flag (companion.sprite, default true) for
-  // all three surfaces. R-click the Full/Head button is the only toggle
-  // (preventDefault — no browser menu); L-click stays Full ↔ Head and
-  // the per-surface view prefs are never written here, so they survive
-  // Off. Off draws no stage / exphead / wellhead — chat stays.
+  // all three surfaces. DOCK-TWEAK: L-click the Full/Head button toggles
+  // it (R-click is Full ↔ Head, preventDefault — no browser menu). The
+  // per-surface view prefs are never written here, so they survive Off.
+  // Off draws no stage / exphead / wellhead — chat stays.
   let sprite = $state(true);
 
   // SPRITE-HUG: the bar height the native hug resizes to — CC rows (+
@@ -435,14 +436,13 @@
     }
   }
 
-  // Full/Head copy PLUS the R-click verb; honest "show" copy while off.
+  // DOCK-TWEAK: L-click hide/show sprite; R-click Full ↔ Head.
   const viewTitle = $derived(
     !sprite
-      ? "Sprite hidden — chat stays. Right-click: show sprite"
+      ? "Sprite hidden — chat stays. Click: show sprite · Right-click: Full or Head"
       : (bustOk
-          ? "Full figure or floating Head bust — remembered per surface (collapsed and expanded keep their own)"
-          : "This body has no bust art — Head needs bust_* frames") +
-        " · Right-click: hide sprite",
+          ? "Click: hide sprite · Right-click: Full figure or Head bust — remembered per surface"
+          : "Click: hide sprite · This body has no bust art — Head needs bust_* frames"),
   );
 
   // S2.7: Speak toggle (persisted companion.speakReplies, default off).
@@ -1611,18 +1611,20 @@
           {/if}
         </svg>
       </button>
-      <!-- SPRITE-OFF: L-click stays Full ↔ Head (toggleView); R-click
-           hides/shows the sprite. The button stays ENABLED while the
-           sprite is off — even with no bust art — so R-click can always
-           bring it back. -->
+      <!-- DOCK-TWEAK: L-click hides/shows the sprite; R-click Full ↔ Head.
+           The button stays ENABLED while the sprite is off — even with
+           no bust art — so L-click can always bring it back. -->
       <button
         class="expandbtn iconbtn viewbtn"
         class:on={headShowing}
-        onclick={toggleView}
-        oncontextmenu={toggleSprite}
+        onclick={toggleSprite}
+        oncontextmenu={(e) => {
+          e.preventDefault();
+          toggleView();
+        }}
         disabled={viewBusy || (sprite && !bustOk)}
         aria-pressed={headShowing}
-        aria-label="Head or full body view"
+        aria-label="Hide sprite, or right-click for Head or full body"
         title={viewTitle}
       >
         {#if headShowing}
@@ -2750,10 +2752,9 @@
     background: transparent;
   }
 
-  /* GO-ORBITTY-DEST-CHROME: dests wear the same outlined pill as the
-     other dock icon buttons — 1px --edge ring, 8px radius like
-     .expandbtn; the hover ring is --focus via the shared .iconbtn:hover
-     rule. */
+  /* GO-ORBITTY-DEST-CHROME + DOCK-TWEAK: dests wear the same outlined
+     pill as the other dock icon buttons — --panel-fill, 1px --edge,
+     8px radius like .expandbtn — so Expand does not eat the rings. */
   .dest {
     flex: none;
     position: relative;
@@ -2764,7 +2765,7 @@
     letter-spacing: 0.02em;
     white-space: nowrap;
     color: var(--dim);
-    background: transparent;
+    background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
     border-radius: 8px;
     cursor: pointer;
