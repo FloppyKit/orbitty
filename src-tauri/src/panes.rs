@@ -36,7 +36,7 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
         crate::talk::stop_if_any();
         companion_pin(&app, &w, false);
         persist_companion_hidden(&app, &w);
-        crate::companion_clear::hidden();
+        crate::companion_clear::hidden(&app);
     }
     Ok(())
 }
@@ -231,7 +231,7 @@ pub(crate) fn wire_pane_events(
                 crate::talk::stop_if_any();
                 companion_pin(&handle, &keeper, false);
                 persist_companion_hidden(&handle, &keeper);
-                crate::companion_clear::hidden();
+                crate::companion_clear::hidden(&handle);
             }
         }
     });

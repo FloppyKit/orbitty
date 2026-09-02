@@ -387,6 +387,7 @@ pub fn run() {
             panes::hide_window,
             panes::set_companion_host,
             companion_clear::set_companion_hits,
+            companion_clear::companion_front,
             bring_all_front,
             bring_planet_front,
             ensure_glass,

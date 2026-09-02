@@ -1884,7 +1884,6 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
     if visible && !ghosted && pane_appkit_visible(&w) {
         let _ = w.unminimize();
         let _ = w.show();
-        drawer_order_front(app, &w, label);
         w.set_focus().map_err(|e| e.to_string())?;
         let _ = w.set_ignore_cursor_events(false);
         crate::panes::emit_pane_vis(app, label, true);
@@ -1894,6 +1893,10 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
         if label == "companion" {
             crate::companion_clear::apply_mode(app);
         }
+        // GO-ORBITTY-FRONT-HOLD: the raise lands AFTER apply_mode so the
+        // ghost re-apply can never undo the front — Show Companion on an
+        // already-visible buried ghost recovers without Quit.
+        drawer_order_front(app, &w, label);
         return Ok(());
     }
     place_chrome(app, &w, label, &st);
