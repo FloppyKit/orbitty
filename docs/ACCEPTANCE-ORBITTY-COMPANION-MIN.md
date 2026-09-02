@@ -2,10 +2,14 @@
 
 Dogfood: tray Quit → `~/Applications/Orbitty.app`. Sprite **on**.
 
-## Must
+## Must (this beat = unlock)
 
-- Cannot shrink the companion smaller than **619 × 647** (the size it was when this GO landed). Grow still works.
-- Sprite off: hug to the CC+dock bar still works. Sprite on: back to ≥ 619×647.
+- Sprite on: can shrink below 619×647, not below **280 × 360**.
+- Sprite off: hug to the CC+dock bar still works.
+
+## Next beat (after Matt says lock this)
+
+- Idle min = live AX of that window. Hug still drops.
 
 ## Must not
 
