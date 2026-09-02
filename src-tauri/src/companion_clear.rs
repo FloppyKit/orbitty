@@ -45,12 +45,13 @@ static HOSTED: AtomicBool = AtomicBool::new(false);
 /// panes eat no clicks, so the poll idles (300ms) until a show re-arms it.
 static GHOST_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// GO-ORBITTY-COMPANION-RAISE summon hold: set on every entry into ghost
-/// (show/summon, collapse, host-off). While set, the poll holds mouse-on
-/// until the cursor ENTERS the companion frame — a summon from the tray
-/// or menu bar leaves the cursor outside the frame, and that must not
-/// instantly ghost-apply the window back under the planets. The same
-/// hold means a collapse racing host-on never arms a punch-through poll.
-/// Clears on cursor-enter, on slab, on hide.
+/// (show/summon, collapse, host-off). GO-ORBITTY-FRONT-HOLD flips the
+/// direction: while set, the poll holds mouse-on until the cursor LEAVES
+/// the companion frame — a summon landing over empty air inside the tall
+/// window must not spend the hold and ghost-apply the window back into a
+/// click-through the same tick (that re-buried the raised ghost). The
+/// same hold means a collapse racing host-on never arms a punch-through
+/// poll. Clears on cursor-leave, on slab, on hide.
 static SUMMON_HOLD: AtomicBool = AtomicBool::new(false);
 
 fn slab() -> bool {
@@ -91,10 +92,65 @@ pub(crate) fn host_changed(app: &tauri::AppHandle, on: bool) {
 }
 
 /// Companion hid — the poll idles. Ignore state is left as-is; the next
-/// show forces mouse-on and re-applies the mode.
-pub(crate) fn hidden() {
+/// show forces mouse-on and re-applies the mode. GO-ORBITTY-FRONT-HOLD:
+/// the one-level-up front (apply_mode) ends with the show.
+pub(crate) fn hidden(app: &tauri::AppHandle) {
     GHOST_ACTIVE.store(false, Ordering::SeqCst);
     SUMMON_HOLD.store(false, Ordering::SeqCst);
+    set_front_level(app, false);
+}
+
+/// GO-ORBITTY-CHROME-Z: companion chrome is a normal window vs other
+/// apps. Floating+1 (4) only while shown AND Orbitty is the active app
+/// — that still beats planet discs (3) so Show Companion recovers.
+/// Resign active (click Safari) or hide → NSNormalWindowLevel (0).
+fn set_front_level(app: &tauri::AppHandle, shown: bool) {
+    let handle = app.clone();
+    #[cfg(target_os = "macos")]
+    crate::main_thread_sync(move || {
+        use objc::runtime::Object;
+        use objc::{class, msg_send, sel, sel_impl};
+        let Some(w) = handle.get_webview_window("companion") else {
+            return;
+        };
+        let Ok(raw) = w.ns_window() else {
+            return;
+        };
+        if raw.is_null() {
+            return;
+        }
+        let active = shown && unsafe {
+            let ns_app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+            if ns_app.is_null() {
+                false
+            } else {
+                msg_send![ns_app, isActive]
+            }
+        };
+        let level: i64 = if active { 4 } else { 0 };
+        unsafe {
+            let nsw = raw as *mut Object;
+            let _: () = msg_send![nsw, setLevel: level];
+        }
+    });
+    #[cfg(not(target_os = "macos"))]
+    let _ = (handle, shown);
+}
+
+/// GO-ORBITTY-FRONT-HOLD law 5: a mousedown on any ghost hit (dock /
+/// spirit / bubble / × ⚙) heavy-raises the companion so no planet
+/// restack can steal the window mid-click. CompanionPage fires this on
+/// those mousedowns; a hidden companion is a no-op.
+#[tauri::command]
+pub fn companion_front(app: tauri::AppHandle) -> Result<(), String> {
+    let Some(w) = app.get_webview_window("companion") else {
+        return Ok(());
+    };
+    if !w.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
+    crate::drawers::appkit_order_front(&app, &w);
+    Ok(())
 }
 
 /// Re-apply slab/ghost from the mirrored mode + live visibility. Called
@@ -110,6 +166,9 @@ pub(crate) fn apply_mode(app: &tauri::AppHandle) {
         SUMMON_HOLD.store(false, Ordering::SeqCst);
         return;
     }
+    // GO-ORBITTY-CHROME-Z: level follows shown + NSApp isActive (see
+    // set_front_level). Not a permanent Floating+1 pin.
+    set_front_level(app, true);
     if slab() {
         GHOST_ACTIVE.store(false, Ordering::SeqCst);
         SUMMON_HOLD.store(false, Ordering::SeqCst);
@@ -117,8 +176,8 @@ pub(crate) fn apply_mode(app: &tauri::AppHandle) {
         return;
     }
     GHOST_ACTIVE.store(true, Ordering::SeqCst);
-    // GO-ORBITTY-COMPANION-RAISE: hold mouse-on until the cursor enters
-    // the frame (tray / ⌘⇧O / dock summons land outside it).
+    // GO-ORBITTY-FRONT-HOLD: hold mouse-on until the cursor LEAVES the
+    // frame — entering empty air inside it must not spend the hold.
     SUMMON_HOLD.store(true, Ordering::SeqCst);
     // Immediate cursor test — no 100ms hole before the next poll.
     apply_on_main(app);
@@ -171,16 +230,23 @@ fn ghost_apply(app: &tauri::AppHandle) {
             SUMMON_HOLD.store(false, Ordering::SeqCst);
             let _ = w.set_ignore_cursor_events(false);
         }
-        // Summon hold: the cursor is still outside the frame (tray /
-        // menu bar / dock) — stay mouse-on until it enters.
-        Some(CursorWhere::Outside) if SUMMON_HOLD.load(Ordering::SeqCst) => {
-            let _ = w.set_ignore_cursor_events(false);
-        }
-        // Cursor entered the frame (or the hold is already spent): the
-        // existing hit test runs — empty air click-throughs, hits don't.
-        Some(where_) => {
+        // GO-ORBITTY-FRONT-HOLD: the summon hold spends when the cursor
+        // LEAVES the frame — never when it enters empty air inside it.
+        // Outside, the window eats nothing: click-through is safe.
+        Some(CursorWhere::Outside) => {
             SUMMON_HOLD.store(false, Ordering::SeqCst);
-            let _ = w.set_ignore_cursor_events(!matches!(where_, CursorWhere::OverHit));
+            let _ = w.set_ignore_cursor_events(true);
+        }
+        // Cursor inside the frame: an armed summon hold keeps mouse-on
+        // until the leave (a summon landing over empty air stays
+        // clickable). Hold spent, the hit test runs — InsideEmpty really
+        // mouse-offs (air click-throughs, no dead zone), hits don't.
+        Some(where_) => {
+            if SUMMON_HOLD.load(Ordering::SeqCst) {
+                let _ = w.set_ignore_cursor_events(false);
+            } else {
+                let _ = w.set_ignore_cursor_events(!matches!(where_, CursorWhere::OverHit));
+            }
         }
     }
 }
@@ -267,11 +333,20 @@ pub fn start(app: tauri::AppHandle) {
         EXPANDED.store(st.companion.expanded, Ordering::SeqCst);
     }
     std::thread::spawn(move || loop {
+        // GO-ORBITTY-CHROME-Z: hosted Launchpad is a slab (ghost poll
+        // idles). Still re-apply z-order so resign-active drops level 4.
+        let shown = app
+            .get_webview_window("companion")
+            .map(|w| w.is_visible().unwrap_or(false))
+            .unwrap_or(false);
+        if shown {
+            set_front_level(&app, true);
+        }
         if GHOST_ACTIVE.load(Ordering::SeqCst) {
             apply_on_main(&app);
             std::thread::sleep(std::time::Duration::from_millis(100));
         } else {
-            std::thread::sleep(std::time::Duration::from_millis(300));
+            std::thread::sleep(std::time::Duration::from_millis(if shown { 100 } else { 300 }));
         }
     });
 }
