@@ -24,6 +24,8 @@
   import { onMount, onDestroy } from "svelte";
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
+  import NeededInbox from "./NeededInbox.svelte";
+  import ActionsWell from "./ActionsWell.svelte";
   import type {
     ActionShortcut,
     Actor,
@@ -78,14 +80,10 @@
   let windows = $state<WindowInfo[]>([]);
   let titleOverrides = $state<TitleOverride[]>([]);
 
-  // GO-ORBITTY-BOARD-ACTIONS: macros well state (mirrors the rail's).
+  // GO-ORBITTY-BOARD-ACTIONS: macros array (ActionsWell is the writer UI).
   let actionShortcuts = $state<ActionShortcut[]>([]);
-  let actionNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
-  let addingAction = $state(false);
-  let newActionName = $state("");
-  let newActionCommand = $state("");
-  let newActionCwd = $state("");
-  let runningActionId = $state<string | null>(null);
+  // GO-ORBITTY-LP-NEEDED: shared so strip + and sidebar form stay one toggle.
+  let addingNeeded = $state(false);
 
   // Sidebar selection: a smart filter, Inbox, or a project id. Session-only.
   let selected = $state("inbox");
@@ -492,188 +490,6 @@
     });
     newTodo = "";
   }
-
-  // ---- GO-ORBITTY-LP-NEEDED: the Needed inbox (pile, not a lens) ----
-  // Super-quick questions the user must answer. Never a fourth column,
-  // never points, never completeCard. Open + later show in the strip;
-  // a later whose dueAt has passed counts as open again.
-  let addingNeeded = $state(false);
-  let newNeeded = $state("");
-  let answerFor = $state<string | null>(null);
-  let answerDraft = $state("");
-
-  let neededNow = $derived(
-    kanbanCards
-      .filter(
-        (c) =>
-          c.kind === "needed" &&
-          (c.neededState === "open" || c.neededState === "later"),
-      )
-      .sort((a, b) => a.createdAt - b.createdAt),
-  );
-
-  function addNeeded() {
-    const title = newNeeded.trim();
-    if (!title) return;
-    const projectId = selectedProject?.id ?? "";
-    const now = Date.now() / 1000;
-    const id = `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    mutate((s) => {
-      s.kanbanCards = [
-        ...s.kanbanCards,
-        {
-          id,
-          title,
-          projectId,
-          windowId: null,
-          kind: "needed" as const,
-          neededState: "open" as const,
-          status: "todo" as const, // dummy — views filter kind first
-          createdAt: now,
-          lastTouchedAt: now,
-          completedAt: null,
-          goalAligned: false,
-          clinicalOrMaster: false,
-          pointsAwarded: 0,
-          starred: false,
-        },
-      ];
-    });
-    logEvent("needed-open", { cardId: id, title }, projectId);
-    newNeeded = "";
-    addingNeeded = false;
-  }
-
-  function answerNeeded(card: KanbanCard) {
-    const answer = answerDraft.trim();
-    if (!answer) return;
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              neededAnswer: answer,
-              neededState: "answered" as const,
-              lastTouchedAt: now,
-            }
-          : c,
-      );
-    });
-    // The answer text itself never enters the log — ids only.
-    logEvent("needed-answer", { cardId: card.id }, card.projectId);
-    answerFor = null;
-    answerDraft = "";
-  }
-
-  function skipNeeded(card: KanbanCard) {
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? { ...c, neededState: "skipped" as const, lastTouchedAt: now }
-          : c,
-      );
-    });
-    logEvent("needed-skip", { cardId: card.id }, card.projectId);
-    if (answerFor === card.id) {
-      answerFor = null;
-      answerDraft = "";
-    }
-  }
-
-  // Snooze one local day; the strip treats a past dueAt as open again.
-  function laterNeeded(card: KanbanCard) {
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              neededState: "later" as const,
-              dueAt: now + 86400,
-              lastTouchedAt: now,
-            }
-          : c,
-      );
-    });
-    logEvent("needed-later", { cardId: card.id }, card.projectId);
-    if (answerFor === card.id) {
-      answerFor = null;
-      answerDraft = "";
-    }
-  }
-
-  // ---- GO-ORBITTY-BOARD-ACTIONS: macros well (same array as the rail) ----
-
-  interface ActionResult {
-    ok: boolean;
-    code: number | null;
-    stdout: string;
-    stderr: string;
-  }
-
-  function addAction() {
-    const name = newActionName.trim();
-    const command = newActionCommand.trim();
-    if (!name || !command) return;
-    const cwd = newActionCwd.trim() || null;
-    mutate((s) => {
-      s.actionShortcuts = [
-        ...(s.actionShortcuts ?? []),
-        {
-          id: `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-          name,
-          command,
-          cwd,
-        },
-      ];
-    });
-    newActionName = "";
-    newActionCommand = "";
-    newActionCwd = "";
-    addingAction = false;
-  }
-
-  function deleteAction(id: string) {
-    mutate((s) => {
-      s.actionShortcuts = (s.actionShortcuts ?? []).filter((a) => a.id !== id);
-    });
-  }
-
-  // Click runs the command via /bin/zsh -lc in cwd or $HOME; stdout/stderr
-  // surface in a small note and never crash the page. Same copy as the rail.
-  async function runAction(a: ActionShortcut) {
-    if (runningActionId) return;
-    runningActionId = a.id;
-    actionNote = null;
-    try {
-      const r = await invoke<ActionResult>("run_action", {
-        command: a.command,
-        cwd: a.cwd ?? null,
-      });
-      const out = [r.stdout, r.stderr].filter(Boolean).join("\n");
-      const head = r.ok ? `${a.name}: done` : `${a.name}: exit ${r.code ?? "?"}`;
-      actionNote = {
-        kind: r.ok ? "ok" : "err",
-        text: out ? `${head}\n${out}` : head,
-      };
-    } catch (e) {
-      actionNote = { kind: "err", text: `${a.name}: ${e}` };
-    }
-    runningActionId = null;
-  }
-
-  // Next chip: same smallest rule as the companion — first Doing card,
-  // first undone subtask else the card title. Local focus only.
-  let nextTodo = $derived.by(() => {
-    const card = kanbanCards.find(
-      (c) => c.kind !== "needed" && c.status === "doing",
-    );
-    if (!card) return null;
-    const sub = card.subtasks?.find((s) => !s.done);
-    return { cardId: card.id, text: sub?.title || card.title };
-  });
 
   // ---- detail drawer mutations (all additive on the card) ----
 
@@ -1146,174 +962,32 @@
     <span class="k-pts" title="Points today / daily cap">{pointsToday()}/{DAILY_CAP}</span>
   </header>
 
-  <!-- GO-ORBITTY-LP-NEEDED: the Needed inbox strip — full width under the
-       banner, above .k-body. Rendered only while an open/later Needed
-       exists; empty means no chrome. Quiet pile, never a fourth column. -->
-  {#if neededNow.length > 0}
-    <section class="k-needed" aria-label="Needed from you">
-      <div class="kn-head">
-        <span class="kn-title">Needed from you</span>
-        <button
-          class="ka-plus"
-          onclick={() => (addingNeeded = true)}
-          title="Add a Needed question"
-          aria-label="Add a Needed question">+</button
-        >
-      </div>
-      <ul class="kn-rows">
-        {#each neededNow as card (card.id)}
-          <li class="kn-row">
-            <div class="kn-main">
-              <span class="kn-q">{card.title}</span>
-              {#if card.neededWhy}
-                <span class="kn-why">{card.neededWhy}</span>
-              {/if}
-              {#if answerFor === card.id}
-                <div class="kn-answer">
-                  <input
-                    bind:value={answerDraft}
-                    placeholder="Your answer…"
-                    aria-label="Your answer"
-                    onkeydown={(e) => {
-                      if (e.key === "Enter") answerNeeded(card);
-                      if (e.key === "Escape") {
-                        answerFor = null;
-                        answerDraft = "";
-                      }
-                    }}
-                  />
-                  <button class="mini" onclick={() => answerNeeded(card)}>Save</button>
-                </div>
-              {/if}
-            </div>
-            <div class="kn-acts">
-              <button
-                class="mini"
-                class:active={answerFor === card.id}
-                onclick={() => {
-                  answerFor = answerFor === card.id ? null : card.id;
-                  answerDraft = "";
-                }}>Answer</button
-              >
-              <button class="mini ghost" onclick={() => skipNeeded(card)}>Skip</button>
-              <button
-                class="mini ghost"
-                onclick={() => laterNeeded(card)}
-                title="Ask again tomorrow">Later</button
-              >
-            </div>
-          </li>
-        {/each}
-      </ul>
-    </section>
-  {/if}
+  <NeededInbox
+    variant="strip"
+    cards={kanbanCards}
+    projectId={selectedProject?.id ?? ""}
+    {mutate}
+    {logEvent}
+    bind:addingNeeded
+  />
 
   <div class="k-body">
     <aside class="k-side" aria-label="Lists">
-      <!-- GO-ORBITTY-BOARD-ACTIONS: named macros on the Launchpad sidebar —
-           the same actionShortcuts array as the rail, written via mutate(). -->
-      <section class="k-actions" aria-label="Actions">
-        <header class="ka-head">
-          <span class="ka-title">Actions</span>
-          <button
-            class="ka-plus"
-            onclick={() => (addingAction = !addingAction)}
-            title={addingAction ? "Cancel" : "Add an action"}
-            aria-label={addingAction ? "Cancel add action" : "Add action"}
-            aria-expanded={addingAction}>{addingAction ? "×" : "+"}</button
-          >
-        </header>
+      <ActionsWell
+        {actionShortcuts}
+        cards={kanbanCards}
+        {mutate}
+        {onFocusCard}
+      />
 
-        {#if nextTodo}
-          {@const t = nextTodo}
-          <button
-            class="ka-next"
-            onclick={() => onFocusCard(t.cardId)}
-            title="Focus the smallest open to-do — {t.text}"
-          >
-            <span class="ka-next-label">Next</span>
-            <span class="ka-next-text">{t.text}</span>
-          </button>
-        {/if}
-
-        {#each actionShortcuts as a (a.id)}
-          <div class="ka-row">
-            <button
-              class="ka-run"
-              class:running={runningActionId === a.id}
-              onclick={() => runAction(a)}
-              title="Run: {a.command}">{a.name}</button
-            >
-            <button
-              class="ka-del"
-              onclick={() => deleteAction(a.id)}
-              title="Delete {a.name}"
-              aria-label="Delete {a.name}">×</button
-            >
-          </div>
-        {:else}
-          {#if !addingAction}
-            <p class="ka-hint">No actions yet.</p>
-          {/if}
-        {/each}
-
-        {#if addingAction}
-          <div class="ka-form">
-            <input
-              bind:value={newActionName}
-              placeholder="Name"
-              aria-label="Action name"
-            />
-            <input
-              bind:value={newActionCommand}
-              placeholder="Command"
-              aria-label="Shell command"
-              onkeydown={(e) => e.key === "Enter" && addAction()}
-            />
-            <input
-              bind:value={newActionCwd}
-              placeholder="Working directory (optional)"
-              aria-label="Working directory (optional)"
-              onkeydown={(e) => e.key === "Enter" && addAction()}
-            />
-            <button class="mini" onclick={addAction}>Save</button>
-          </div>
-        {/if}
-
-        {#if actionNote}
-          <div class="ka-note" class:err={actionNote.kind === "err"}>
-            <span class="ka-notetext">{actionNote.text}</span>
-            <button class="mini ghost" onclick={() => (actionNote = null)} aria-label="Dismiss">×</button>
-          </div>
-        {/if}
-      </section>
-
-      <!-- GO-ORBITTY-LP-NEEDED: + Needed under the Actions well — always
-           available so the first card can be born while the strip is
-           hidden. One-line title; Enter/Save mints kind "needed". -->
-      <section class="k-needed-side" aria-label="Needed">
-        <header class="ka-head">
-          <span class="ka-title">Needed</span>
-          <button
-            class="ka-plus"
-            onclick={() => (addingNeeded = !addingNeeded)}
-            title={addingNeeded ? "Cancel" : "Add a Needed question"}
-            aria-label={addingNeeded ? "Cancel add needed" : "Add a Needed question"}
-            aria-expanded={addingNeeded}>{addingNeeded ? "×" : "+"}</button
-          >
-        </header>
-        {#if addingNeeded}
-          <div class="ka-form">
-            <input
-              bind:value={newNeeded}
-              placeholder="Needed from you…"
-              aria-label="Needed question"
-              onkeydown={(e) => e.key === "Enter" && addNeeded()}
-            />
-            <button class="mini" onclick={addNeeded}>Save</button>
-          </div>
-        {/if}
-      </section>
+      <NeededInbox
+        variant="side"
+        cards={kanbanCards}
+        projectId={selectedProject?.id ?? ""}
+        {mutate}
+        {logEvent}
+        bind:addingNeeded
+      />
 
       <div class="side-sep" aria-hidden="true"></div>
 
@@ -1809,102 +1483,6 @@
     padding: 1px 0.5rem;
   }
 
-  /* ---- GO-ORBITTY-LP-NEEDED: the Needed inbox strip (full width under
-     the banner). Quiet ochre label, theme-token rows — no red, no count. ---- */
-  .k-needed {
-    flex-shrink: 0;
-    padding: 8px 14px 10px;
-    border-bottom: 1px solid var(--edge);
-    background: var(--panel-fill, var(--panel));
-  }
-
-  .kn-head {
-    display: flex;
-    align-items: center;
-    padding: 0 0 4px;
-  }
-
-  .kn-title {
-    flex: 1;
-    font-size: 0.66rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: #e59e3d;
-  }
-
-  .kn-rows {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .kn-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 5px 8px;
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    background: var(--bg-fill, var(--bg));
-  }
-
-  .kn-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .kn-q {
-    font-size: 0.8rem;
-    line-height: 1.35;
-    color: var(--ink);
-    overflow-wrap: anywhere;
-  }
-
-  .kn-why {
-    font-size: 0.68rem;
-    line-height: 1.35;
-    color: var(--dim);
-    overflow-wrap: anywhere;
-  }
-
-  .kn-answer {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-  }
-
-  .kn-answer input {
-    flex: 1;
-    min-width: 0;
-    font: inherit;
-    font-size: 0.76rem;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 4px 8px;
-  }
-
-  .kn-answer input:focus {
-    outline: none;
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .kn-acts {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
   .k-body {
     flex: 1;
     min-height: 0;
@@ -2004,186 +1582,6 @@
     height: 1px;
     margin: 6px 10px;
     background: var(--edge);
-  }
-
-  /* ---- GO-ORBITTY-BOARD-ACTIONS: macros well at the top of the sidebar ---- */
-  .k-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .ka-head {
-    display: flex;
-    align-items: center;
-    padding: 0 4px 0 10px;
-  }
-
-  .ka-title {
-    flex: 1;
-    font-size: 0.66rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--dim);
-  }
-
-  .ka-plus {
-    font: inherit;
-    font-size: 0.82rem;
-    line-height: 1;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 5px;
-    padding: 1px 6px;
-    cursor: pointer;
-  }
-
-  .ka-plus:hover {
-    color: var(--accent);
-    background: var(--bg-fill, var(--bg));
-  }
-
-  .ka-next {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    width: 100%;
-    font: inherit;
-    font-size: 0.74rem;
-    text-align: left;
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 4px 10px;
-    cursor: pointer;
-  }
-
-  .ka-next:hover {
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .ka-next-label {
-    flex-shrink: 0;
-    font-size: 0.62rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--accent);
-  }
-
-  .ka-next-text {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--ink);
-  }
-
-  .ka-row {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-
-  .ka-run {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font: inherit;
-    font-size: 0.78rem;
-    text-align: left;
-    color: var(--ink);
-    background: transparent;
-    border: none;
-    border-radius: 7px;
-    padding: 4px 10px;
-    cursor: pointer;
-  }
-
-  .ka-run:hover {
-    background: var(--bg-fill, var(--bg));
-    color: var(--accent);
-  }
-
-  .ka-run.running {
-    opacity: 0.55;
-  }
-
-  .ka-del {
-    flex-shrink: 0;
-    font: inherit;
-    font-size: 0.74rem;
-    line-height: 1;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    padding: 1px 5px;
-    cursor: pointer;
-  }
-
-  .ka-del:hover {
-    color: #ff453a;
-  }
-
-  .ka-hint {
-    margin: 0;
-    padding: 0 10px;
-    font-size: 0.66rem;
-    color: var(--dim);
-  }
-
-  .ka-form {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 2px 0;
-  }
-
-  .ka-form input {
-    width: 100%;
-    box-sizing: border-box;
-    font: inherit;
-    font-size: 0.76rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 5px 8px;
-  }
-
-  .ka-form input:focus {
-    outline: none;
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .ka-note {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-    padding: 5px 8px;
-    font-size: 0.68rem;
-    line-height: 1.4;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    word-break: break-all;
-  }
-
-  .ka-note.err {
-    border-color: var(--accent);
-  }
-
-  .ka-notetext {
-    flex: 1;
-    min-width: 0;
-    white-space: pre-wrap;
   }
 
   .k-main {
