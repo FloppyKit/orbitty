@@ -1746,7 +1746,7 @@
       </button>
       <button
         type="button"
-        class="expandbtn iconbtn gear"
+        class="gear"
         onclick={() => invoke("open_settings_window").catch(() => {})}
         title="Open Settings"
         aria-label="Open Settings"
@@ -1755,7 +1755,7 @@
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
-          stroke-width="1.8"
+          stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
           aria-hidden="true"
@@ -2709,6 +2709,7 @@
      padding around the rows, never a control) is a drag region; the
      slab (expanded / hosted) never drags from the dock. */
   .ghostdock {
+    position: relative;
     display: flex;
     flex-direction: column;
   }
@@ -2926,6 +2927,34 @@
   .iconbtn:disabled {
     opacity: 0.45;
     cursor: default;
+  }
+
+  /* GEAR-DOCK: tiny corner glyph, not a dock-pill icon. */
+  .gear {
+    flex: none;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 2px;
+    padding: 0;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .gear svg {
+    width: 11px;
+    height: 11px;
+    display: block;
+  }
+
+  .gear:hover {
+    color: var(--ink);
   }
 
   /* Composer: field with the mic parked inside its right edge + Send
