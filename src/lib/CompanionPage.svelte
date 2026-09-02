@@ -122,9 +122,9 @@
   // untouched; an unknown stem fails open to the raw id.
   const AGENT_LABELS: Record<string, string> = {
     spark: "Spark",
-    grok: "Command",
-    "chaos-gremlin": "Riff",
-    "fkt-homie": "Witness",
+    grok: "Work",
+    "chaos-gremlin": "Chat",
+    "fkt-homie": "Hold",
   };
   const agentLabel = (id: string) => AGENT_LABELS[id] ?? id;
 
@@ -1510,8 +1510,8 @@
   {/if}
 
   <!-- GO-ORBITTY-GHOST-DOCK: agentrow + composer ride in one wrap — the
-       ghost's outlined bottom slab. × ⚙ stay floating corners OUTSIDE
-       the dock; expanded / hosted see no extra chrome. -->
+       ghost's outlined bottom slab. × stays a floating corner; ⚙ is on
+       the dock after Expand (GEAR-DOCK). -->
   <div class="ghostdock" onmousedown={onDockMouseDown}>
     <!-- Agent row: one strip — agent pick + icon toggles (Prompts, Speak,
          View, Expand/Collapse). The Body picker lives in Settings →
@@ -1744,6 +1744,28 @@
           </svg>
         {/if}
       </button>
+      <button
+        type="button"
+        class="expandbtn iconbtn gear"
+        onclick={() => invoke("open_settings_window").catch(() => {})}
+        title="Open Settings"
+        aria-label="Open Settings"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 0 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"
+          />
+        </svg>
+      </button>
     </div>
 
     <form
@@ -1856,13 +1878,6 @@
     title="Hide Companion — reopen from the rail or tray"
     aria-label="Hide Companion">×</button
   >
-  <button
-    class="gear"
-    onmousedown={(e) => e.stopPropagation()}
-    onclick={() => invoke("open_settings_window").catch(() => {})}
-    title="Open Settings"
-    aria-label="Open Settings">⚙</button
-  >
 </main>
 
 <style>
@@ -1923,33 +1938,6 @@
   }
 
   .winx:hover {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-  }
-
-  /* DEST-STRIP: the Settings gear mirrors .winx on the right corner. */
-  .gear {
-    position: absolute;
-    top: 8px;
-    right: 10px;
-    z-index: 2;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    font: inherit;
-    font-size: 0.82rem;
-    line-height: 1;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 999px;
-    cursor: pointer;
-  }
-
-  .gear:hover {
     color: var(--ink);
     background: var(--panel-fill, var(--panel));
   }
