@@ -21,7 +21,7 @@ use super::{
     lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens, set_caption,
     station_target, view_to_disc, visible_frames, walkoff_target, ClusterState, DecorKind,
     DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState, BARY_PREFIX,
-    BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DONE_HIDE_Y, DONE_OFF, DRIFT_JOIN_DIST, DRIFT_LEAVE_DIST,
+    BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DONE_HIDE_Y, DRIFT_JOIN_DIST, DRIFT_LEAVE_DIST,
     DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST, HOST_PREFIX,
     HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO, TRACK_T_MAX,
     TRACK_T_MIN, VIEW_PADDING,
@@ -677,17 +677,14 @@ fn anim_tick() {
                         dirty = true; // walking to the station
                     }
                 }
-                // Done: walk to the north rim, then off. Past the hide line
-                // the walker waits unseen for the rail's eviction — the
-                // emit fires once per walk-off; cadence never deletes the
-                // claim itself. CADENCE-FIX: the target comes from
-                // walkoff_target — rim then off, routed AROUND the disc
-                // center (the old straight line from the workbench went
-                // through (0,0) and read as "walks to the middle").
-                // CADENCE-PATH: the rim is the far/top ellipse edge and the
-                // hide line sits just past it, so the walker crosses the
-                // horizon before it can stall; a reached target retargets
-                // DONE_OFF at once — WalkOff never idles on the disc.
+                // Done: straight off the far/top rim onto the panel — one
+                // monotonic target, never a rim waypoint. Past the hide
+                // line the walker waits unseen for the rail's eviction —
+                // the emit fires once per walk-off; cadence never deletes
+                // the claim itself. CADENCE-EXIT: walkoff_target aims a
+                // hashed ±0.20 x at DONE_OFF's y, clamped so the target is
+                // never more south than the walker — y only ever decreases,
+                // so there is no yoyo and WalkOff never idles on the disc.
                 Pose::WalkOff => {
                     roam.pause_end = None;
                     if roam.y < DONE_HIDE_Y {
@@ -698,30 +695,31 @@ fn anim_tick() {
                         }
                         continue;
                     }
-                    let (mut tx, mut ty) = walkoff_target(id, roam.x, roam.y);
-                    let mut dx = tx - roam.x;
-                    let mut dy = ty - roam.y;
-                    let mut dist = (dx * dx + dy * dy).sqrt();
-                    if dist < 0.025 {
-                        // Rim/waypoint reached but the pose is still
-                        // WalkOff — never idle on the disc: retarget
-                        // straight off the rim.
-                        tx = DONE_OFF.0;
-                        ty = DONE_OFF.1;
-                        dx = tx - roam.x;
-                        dy = ty - roam.y;
-                        dist = (dx * dx + dy * dy).sqrt();
-                    }
+                    let (tx, ty) = walkoff_target(id, roam.x, roam.y);
+                    let dx = tx - roam.x;
+                    let dy = ty - roam.y;
+                    let dist = (dx * dx + dy * dy).sqrt();
                     roam.tx = tx;
                     roam.ty = ty;
-                    if dist >= 0.025 {
-                        let step = (0.16 * dt).min(dist);
-                        roam.x += dx / dist * step;
-                        roam.y += dy / dist * step;
-                        roam.facing_left = dx < -0.002;
-                        stepping[i] = true;
-                        dirty = true; // walking off
+                    if dist < 0.025 {
+                        // Target reached but still WalkOff above the hide
+                        // line — never freeze and never retarget (a fresh
+                        // target could pull y south again): snap past the
+                        // line and emit.
+                        roam.y = DONE_HIDE_Y - 0.01;
+                        if !roam.off_emitted {
+                            roam.off_emitted = true;
+                            emit_walked_off(id);
+                        }
+                        dirty = true; // erase the sprite this tick
+                        continue;
                     }
+                    let step = (0.16 * dt).min(dist);
+                    roam.x += dx / dist * step;
+                    roam.y += dy / dist * step;
+                    roam.facing_left = dx < -0.002;
+                    stepping[i] = true;
+                    dirty = true; // walking off
                 }
                 Pose::Roam => {
                     if any_work_sit {

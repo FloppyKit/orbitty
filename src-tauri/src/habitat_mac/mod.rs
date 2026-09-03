@@ -238,18 +238,15 @@ pub(crate) const STATION_BENCH: (f64, f64) = (-0.45, 0.05); // Todo — west
 // Doing — south / near, pulled in from the lip so a working walker
 // stands clearly on the disc (CADENCE-PATH: 0.38 sat on the front rim
 // and read as rim-strolling).
-pub(crate) const STATION_WORKBENCH: (f64, f64) = (0.0, 0.22);
+pub(crate) const STATION_WORKBENCH: (f64, f64) = (0.0, 0.10);
 pub(crate) const STATION_GATE: (f64, f64) = (0.45, 0.05); // Needed — east
-// Done — the FAR / top rim. Disc |y| ≈ 1 is the visual rim (oblique
-// radius_y = 0.55 r), so the old -0.55 was interior — the oval's upper
-// middle, never an exit. Rim stays on the disc, off is past the
-// ellipse, hide sits just past the rim so the walker visibly steps
-// over the horizon, then vanishes.
-pub(crate) const DONE_RIM: (f64, f64) = (0.0, -0.92);
-pub(crate) const DONE_OFF: (f64, f64) = (0.0, -1.40); // walk target past the rim
+// Done — past the FAR / top ellipse onto the panel (GO-ORBITTY-CADENCE-EXIT).
+// Hide sits just past the visual rim so the walker is seen stepping over
+// the horizon, then vanishes. Never a rim waypoint (that yoyo'd y south).
+pub(crate) const DONE_OFF: (f64, f64) = (0.0, -1.55);
 /// Past this line the walked-off walker hides until the rail's Done
 /// eviction (unclaim) lands — cadence never deletes the claim itself.
-pub(crate) const DONE_HIDE_Y: f64 = -1.08;
+pub(crate) const DONE_HIDE_Y: f64 = -1.12;
 
 /// Walker cadence, resolved from the snapshot's card fields. Cap = these
 /// four plus the ambient default; no fifth pose.
@@ -302,7 +299,7 @@ fn station_anchor(pose: Pose) -> Option<(f64, f64)> {
         Pose::Stand => Some(STATION_BENCH),
         Pose::Work => Some(STATION_WORKBENCH),
         Pose::Sit => Some(STATION_GATE),
-        Pose::WalkOff => Some(DONE_RIM),
+        Pose::WalkOff => Some(DONE_OFF),
         Pose::Roam => None,
     }
 }
@@ -342,47 +339,14 @@ fn sticky_pose(prev: Pose, next: Pose) -> Pose {
     }
 }
 
-/// Distance from the origin to the segment (x0,y0)→(x1,y1).
-fn seg_origin_dist(x0: f64, y0: f64, x1: f64, y1: f64) -> f64 {
-    let dx = x1 - x0;
-    let dy = y1 - y0;
-    let len2 = dx * dx + dy * dy;
-    if len2 < 1e-12 {
-        return (x0 * x0 + y0 * y0).sqrt();
-    }
-    let t = (-(x0 * dx + y0 * dy) / len2).clamp(0.0, 1.0);
-    let px = x0 + t * dx;
-    let py = y0 + t * dy;
-    (px * px + py * py).sqrt()
-}
-
-/// Done path target: rim, then off — never through the disc center. From
-/// the south stations (workbench) the straight line to DONE_RIM passes
-/// through (0,0); route around via a shoulder waypoint (hashed side) on
-/// the exit half — |r| ≈ 0.85 at y = -0.72, never a disc-middle y
-/// (|y| < 0.70 is not an exit) — so the leave reads as an exit over the
-/// horizon, not a commute across the nose.
-pub(crate) fn walkoff_target(entry_id: &str, x: f64, y: f64) -> (f64, f64) {
-    let d_rim = ((x - DONE_RIM.0).powi(2) + (y - DONE_RIM.1).powi(2)).sqrt();
-    if d_rim < 0.05 {
-        return DONE_OFF;
-    }
-    // Direct line to the rim clears the center — take it.
-    if seg_origin_dist(x, y, DONE_RIM.0, DONE_RIM.1) > 0.16 {
-        return DONE_RIM;
-    }
-    // Shoulder waypoint on the exit half: west or east (hashed side),
-    // far enough north that no leg homes at disc-middle; both legs
-    // skirt the center.
+/// GO-ORBITTY-CADENCE-EXIT: WalkOff always aims past the far rim onto
+/// the panel. Hashed x so two Done walkers don't overlap. `y` is clamped
+/// so a target is never more south than the walker already is — the old
+/// rim/shoulder homing pulled y back up and they yoyo'd forever.
+pub(crate) fn walkoff_target(entry_id: &str, _x: f64, y: f64) -> (f64, f64) {
     let h = hash_str(entry_id);
-    let wx = if (h >> 16) & 1 == 0 { -0.45 } else { 0.45 };
-    let wy = -0.72;
-    let d_w = ((x - wx).powi(2) + (y - wy).powi(2)).sqrt();
-    if d_w < 0.05 {
-        DONE_RIM
-    } else {
-        (wx, wy)
-    }
+    let tx = if (h >> 16) & 1 == 0 { -0.20 } else { 0.20 };
+    (tx, DONE_OFF.1.min(y))
 }
 
 /// A Done walker past the hide line: not drawn, not hit-tested — it waits
