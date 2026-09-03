@@ -195,10 +195,7 @@
   let hosted = $state<HostMode>("off");
 
   let mainEl: HTMLElement | null = null;
-  let captionTick = $state(0);
-  function onCaptionLayout() {
-    captionTick++;
-  }
+  let captionReady = $state(false);
   function onCaptionSpeakError(msg: string) {
     sendNote = msg;
   }
@@ -790,6 +787,8 @@
       cards = s.kanbanCards ?? [];
     } catch {
       // keep last good state; next state:changed retries
+    } finally {
+      captionReady = true;
     }
   }
 
@@ -914,7 +913,6 @@
       userLine,
       botLine,
       sending,
-      captionTick,
       sendNote,
       showPromptStrip,
       missing,
@@ -1057,8 +1055,8 @@
     {turns}
     {speak}
     {draft}
+    ready={captionReady}
     onSpeakError={onCaptionSpeakError}
-    onLayout={onCaptionLayout}
   />
 {/snippet}
 

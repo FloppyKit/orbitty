@@ -19,8 +19,8 @@
     turns = [],
     speak = false,
     draft = "",
+    ready = false,
     onSpeakError,
-    onLayout,
   }: {
     expanded?: boolean;
     hosted?: boolean;
@@ -30,8 +30,8 @@
     turns?: CompanionTurn[];
     speak?: boolean;
     draft?: string;
+    ready?: boolean;
     onSpeakError?: (msg: string) => void;
-    onLayout?: () => void;
   } = $props();
 
   // ---------- GO-ORBITTY-COMPANION-CAPTION-WORDS: collapsed pager ------
@@ -213,12 +213,17 @@
     if (ccOpen && !t?.closest(".cc.bot, .cc-full")) ccOpen = false;
   }
 
-  // First turns snapshot is history (prime, do not page). Later tail
-  // changes are arrivals. A new you tail releases the pager.
+  // First turns snapshot is history (prime, do not page). Wait until
+  // parent loadState has landed — the empty mount snapshot is not a
+  // tail, and treating it as one re-paged / spoke the last reply.
   $effect(() => {
     const n = turns.length;
     const tail = n > 0 ? turns[n - 1] : null;
     const sig = tail ? `${tail.role}\u0000${tail.text}` : "";
+    if (!ready) {
+      lastTailSig = sig;
+      return;
+    }
     if (!primed) {
       lastTailSig = sig;
       primed = true;
@@ -242,13 +247,6 @@
 
   $effect(() => {
     if (!speak) clearAuto();
-  });
-
-  $effect(() => {
-    void pagedTurnIdx;
-    void pageIdx;
-    void ccOpen;
-    onLayout?.();
   });
 
   $effect(() => {
