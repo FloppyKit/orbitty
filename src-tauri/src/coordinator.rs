@@ -476,7 +476,11 @@ pub fn set_companion_pack(app: tauri::AppHandle, pack_id: String) -> Result<Opti
         Some(raw.to_string())
     };
     if let Some(ref pid) = id {
-        if crate::packs::companion_pack_art(&app, pid).is_none() {
+        // GO-ORBITTY-COMPANION-3D: tang/female are reserved 3D bodies
+        // bundled at companion/3d — never pack folders, so the pack-art
+        // check is skipped for them.
+        let reserved_3d = pid == "tang" || pid == "female";
+        if !reserved_3d && crate::packs::companion_pack_art(&app, pid).is_none() {
             return Err(format!("companion pack {pid:?} missing"));
         }
     }

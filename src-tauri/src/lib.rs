@@ -390,6 +390,7 @@ pub fn run() {
             drawers::retether_drawer,
             drawers::retether_all_drawers,
             companion::companion_frames,
+            companion::companion_glb_url,
             panes::hide_window,
             panes::set_companion_host,
             show_rail,

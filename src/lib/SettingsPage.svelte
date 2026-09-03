@@ -463,14 +463,24 @@
             onchange={onBodyChange}
             disabled={bodyBusy}
             aria-label="Companion body"
-            title="Which body the companion wears — the blessed Spirit or an imported companion pack"
+            title="Which body the companion wears — the blessed Spirit, a bundled 3D body, or an imported companion pack"
           >
             <option value="spirit">Spirit</option>
+            <!-- GO-ORBITTY-COMPANION-3D: reserved bundled-GLB ids, never
+                 pack folders. Spirit stays the default. -->
+            <option value="tang">Tang · 3D</option>
+            <option value="female">Female · 3D</option>
             {#each bodyPacks as p (p.id)}
               <option value={p.id}>{p.name}</option>
             {/each}
           </select>
         </div>
+        {#if bodyId === "tang"}
+          <p class="help">
+            Tang is derived from Jacob by jupifox (CC BY 4.0) — credit
+            jupifox / Jacob.
+          </p>
+        {/if}
         <p class="block-label">Drawers</p>
         <div class="setting-row">
           <button

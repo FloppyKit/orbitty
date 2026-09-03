@@ -192,6 +192,32 @@ pub fn companion_frames(
     Err("spirit missing".into())
 }
 
+/// GO-ORBITTY-COMPANION-3D: resolve a bundled 3D companion body
+/// (`companion/3d/{id}.glb`) to its filesystem path — the webview wraps it
+/// with convertFileSrc for GLTFLoader (asset protocol scope:
+/// `$RESOURCE/companion/3d/**`). `tang` / `female` are reserved ids, never
+/// pack folders; anything else (or a missing file) returns "" so the
+/// webview fails soft to the spirit — never an Err that blanks the window.
+#[tauri::command]
+pub fn companion_glb_url(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    let id = id.trim();
+    if !matches!(id, "tang" | "female") {
+        return Ok(String::new());
+    }
+    let path = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("resource dir: {e}"))?
+        .join("companion")
+        .join("3d")
+        .join(format!("{id}.glb"));
+    if path.is_file() {
+        Ok(path.to_string_lossy().into_owned())
+    } else {
+        Ok(String::new())
+    }
+}
+
 /// Standard base64. habitat_mac keeps its own copy; this one is cfg-free.
 fn base64_encode(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

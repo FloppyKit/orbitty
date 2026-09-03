@@ -75,6 +75,13 @@
   // set_size), keeping the bottom edge so the dock doesn't jump. The
   // tall idle rect is stashed apart from HOST_STASH and is the only
   // rect ever persisted; sprite on / expand / host restore it first.
+  // GO-ORBITTY-COMPANION-3D: bodyId "tang"/"female" (reserved ids, never
+  // pack folders) mounts Companion3D — a three.js glTF body playing its
+  // `idle` clip — in the same three slots SpiritStage owns. Spirit stays
+  // the default; the spirit art still loads underneath as the warm
+  // fallback, and any WebGL/loader/404 miss reverts the pick to spirit
+  // (persisted) with one quiet line. three.js is dynamically imported
+  // only while a 3D body is selected.
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { emitTo, listen } from "@tauri-apps/api/event";
@@ -89,6 +96,7 @@
   import StarsPage from "./StarsPage.svelte";
   import RailPage from "./RailPage.svelte";
   import SpiritStage from "./SpiritStage.svelte";
+  import Companion3D from "./Companion3D.svelte";
   import CaptionPane from "./CaptionPane.svelte";
 
   import type {
@@ -182,6 +190,11 @@
   // The Body picker lives in Settings → Appearance (Companion body); this
   // window only follows the persisted pack (state:changed → loadState).
   let bodyId = $state("spirit");
+  // COMPANION-3D: reserved 3D body ids (bundled GLBs, never pack folders).
+  // glbFailed is the session fail-soft latch — a 3D miss reverts to the
+  // spirit (persisted) instead of leaving a black stage.
+  let glbFailed = $state(false);
+  const is3D = $derived(bodyId === "tang" || bodyId === "female");
 
   let expanded = $state(false);
   let turns = $state<CompanionTurn[]>([]);
@@ -218,8 +231,9 @@
   let viewBusy = $state(false);
   const viewPref = $derived(expanded ? viewExpanded : viewCollapsed);
   // Head shows only when the body actually has bust art — a missing bust
-  // is a quiet miss on Full (Head disabled), NEVER the 128px crop.
-  const bustOk = $derived(restBust.length > 0);
+  // is a quiet miss on Full (Head disabled), NEVER the 128px crop. A 3D
+  // body always has a Head: the Companion3D camera sits on DEF-HEAD.
+  const bustOk = $derived(is3D || restBust.length > 0);
   // HOST-SPLIT: the hosted right column follows Full/Head like idle —
   // collapsed reads viewCollapsed, expanded reads viewExpanded (viewPref
   // already splits the surfaces). No hosted force, never a pref write.
@@ -707,8 +721,13 @@
 
   // Spirit when imagePackId is empty; else a role:companion pack.
   // Missing pack fails soft to the blessed spirit (never a blank window).
+  // COMPANION-3D: reserved 3D ids load the SPIRIT art — it is the warm
+  // fallback under Companion3D (and what a 3D failure lands on).
   async function loadArt() {
-    const packId = bodyId === "spirit" ? null : bodyId;
+    const packId =
+      bodyId === "spirit" || bodyId === "tang" || bodyId === "female"
+        ? null
+        : bodyId;
     try {
       const art = await invoke<CompanionArt>("companion_frames", {
         packId,
@@ -759,6 +778,21 @@
     artLoaded = true;
   }
 
+  // COMPANION-3D fail-soft: WebGL2 missing / loader error / missing GLB →
+  // revert the pick to the blessed spirit (persisted, so Settings follows)
+  // with one quiet line. Never a black stage, never a crash.
+  async function onGlbFail() {
+    if (glbFailed) return;
+    glbFailed = true;
+    sendNote = "3D body failed; back on Spirit.";
+    bodyId = "spirit";
+    try {
+      await invoke<string | null>("set_companion_pack", { packId: "" });
+    } catch {
+      /* the local revert stands; the next state:changed re-syncs */
+    }
+  }
+
   async function loadState() {
     try {
       const s = await invoke<PersistedState>("load_state");
@@ -779,6 +813,7 @@
       const nextBody = pack && pack.length > 0 ? pack : "spirit";
       if (nextBody !== bodyId) {
         bodyId = nextBody;
+        glbFailed = false; // a fresh pick re-tries the 3D load
         artLoaded = false;
         void loadArt();
       }
@@ -1070,16 +1105,29 @@
   bind:this={mainEl}
 >
   {#if expanded && sprite}
-    <SpiritStage
-      corner
-      {headShowing}
-      {missing}
-      frames={drawFrames}
-      {frameIdx}
-      thinking={sending}
-      smooth={artSmooth}
-      onDrag={onDragMouseDown}
-    />
+    {#if is3D && !glbFailed}
+      {#key bodyId}
+        <Companion3D
+          corner
+          {headShowing}
+          {bodyId}
+          thinking={sending}
+          onDrag={onDragMouseDown}
+          onFail={onGlbFail}
+        />
+      {/key}
+    {:else}
+      <SpiritStage
+        corner
+        {headShowing}
+        {missing}
+        frames={drawFrames}
+        {frameIdx}
+        thinking={sending}
+        smooth={artSmooth}
+        onDrag={onDragMouseDown}
+      />
+    {/if}
   {/if}
 
   {#if hosted !== "off"}
@@ -1104,15 +1152,27 @@
         {#if sprite}
           <div class="wellhead">
             {#if !expanded}
-              <SpiritStage
-                {headShowing}
-                {missing}
-                frames={drawFrames}
-                {frameIdx}
-                thinking={sending}
-                smooth={artSmooth}
-                onDrag={onDragMouseDown}
-              />
+              {#if is3D && !glbFailed}
+                {#key bodyId}
+                  <Companion3D
+                    {headShowing}
+                    {bodyId}
+                    thinking={sending}
+                    onDrag={onDragMouseDown}
+                    onFail={onGlbFail}
+                  />
+                {/key}
+              {:else}
+                <SpiritStage
+                  {headShowing}
+                  {missing}
+                  frames={drawFrames}
+                  {frameIdx}
+                  thinking={sending}
+                  smooth={artSmooth}
+                  onDrag={onDragMouseDown}
+                />
+              {/if}
             {/if}
           </div>
         {/if}
@@ -1124,15 +1184,27 @@
   {:else if expanded}
     {@render caption(true, false)}
   {:else if sprite}
-    <SpiritStage
-      {headShowing}
-      {missing}
-      frames={drawFrames}
-      {frameIdx}
-      thinking={sending}
-      smooth={artSmooth}
-      onDrag={onDragMouseDown}
-    />
+    {#if is3D && !glbFailed}
+      {#key bodyId}
+        <Companion3D
+          {headShowing}
+          {bodyId}
+          thinking={sending}
+          onDrag={onDragMouseDown}
+          onFail={onGlbFail}
+        />
+      {/key}
+    {:else}
+      <SpiritStage
+        {headShowing}
+        {missing}
+        frames={drawFrames}
+        {frameIdx}
+        thinking={sending}
+        smooth={artSmooth}
+        onDrag={onDragMouseDown}
+      />
+    {/if}
   {/if}
 
   {#if !expanded}
