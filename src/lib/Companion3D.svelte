@@ -5,13 +5,17 @@
   // reporting (set_companion_hits) and window drag are untouched. three.js
   // is dynamically imported ONLY here, so the rail / kanban / settings
   // first paint never loads it. Plays the glTF `idle` clip looping; a
-  // send in flight crossfades to `think` when the file carries it (never
-  // nod/wave — that is GO-ORBITTY-COMPANION-PLAY). A slow camera orbit
+  // send in flight crossfades to `think` when the file carries it.
+  // GO-ORBITTY-COMPANION-PLAY: `companion.play` off the control socket
+  // lands here as `companion:play` and runs the five allowlisted gestures
+  // (idle · think · nod · look-left · look-right) — file clips first,
+  // bone envelopes only where a name is missing. A slow camera orbit
   // (~16 s) is the fallback ONLY when `idle` is missing. Reduce Motion
   // holds the rest pose; a hidden pane stops the render loop. Fail-soft:
   // no WebGL2 / loader error / missing GLB → onFail once and the parent
   // reverts to the blessed spirit — never a black stage.
   import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
   import { listenPaneVis } from "./paneVis";
   import type * as T3 from "three";
@@ -53,10 +57,12 @@
   let renderer: T3.WebGLRenderer | null = null;
   let scene: T3.Scene | null = null;
   let camera: T3.PerspectiveCamera | null = null;
+  let three: typeof import("three") | null = null;
   let mixer: T3.AnimationMixer | null = null;
   let clock: T3.Clock | null = null;
   let idleAction: T3.AnimationAction | null = null;
   let thinkAction: T3.AnimationAction | null = null;
+  let nodAction: T3.AnimationAction | null = null;
   let orbit = false;
   let orbitT = 0;
   let fullFrame: CamFrame | null = null;
@@ -64,6 +70,7 @@
   let motionMq: MediaQueryList | null = null;
   let ro: ResizeObserver | null = null;
   let unlistenVis: (() => void) | null = null;
+  let unlistenPlay: (() => void) | null = null;
 
   function fail(msg: string) {
     if (failed) return;
@@ -99,6 +106,7 @@
     if (!renderer || !scene || !camera || !clock) return;
     const dt = clock.getDelta();
     if (mixer) mixer.update(dt);
+    tickEnvelope(dt);
     if (orbit && fullFrame) {
       orbitT += dt;
       placeCamera(fullFrame, fullFrame.yaw + (orbitT * Math.PI * 2) / 16);
@@ -113,7 +121,7 @@
     if (!renderer || !clock) return;
     if (reduceMotion || hidden) {
       renderer.setAnimationLoop(null);
-      if (reduceMotion && mixer) mixer.setTime(0);
+      if (reduceMotion) holdRest();
       renderOnce();
     } else {
       clock.getDelta();
@@ -137,18 +145,198 @@
     if (reduceMotion || hidden) renderOnce();
   }
 
-  // Think-v9 stays on the spirit sheet; a 3D body crossfades to the glTF
-  // `think` clip while a send is in flight, else holds `idle`. In orbit
-  // fallback (no idle) the orbit holds — no invented motion.
-  function setThinking(on: boolean) {
+  // ---------- GO-ORBITTY-COMPANION-PLAY: named gestures, one at a time ----------
+  // Allowlist (lock): idle · think · nod · look-left · look-right. Grade 1
+  // is the glTF clip by animations[].name — idle/think/nod ship in both
+  // GLBs (brand/companion/3d/CLIPS.md). Bone envelopes are the fallback
+  // ONLY when a name is missing, so look-left/right (no file clip) are
+  // always envelopes: DEF-HEAD yaw ±25°, DEF-NECK at 30%. `wave` ships in
+  // the GLBs but is NOT this GO (shoulder not locked) — the socket errors
+  // on it. A new play cancels the old; a finished one-shot lands back on
+  // the base pose. Reduce Motion skips: cancel any pose, hold rest.
+  const PLAY_CLIPS = new Set(["idle", "think", "nod", "look-left", "look-right"]);
+  let basePose: "idle" | "think" = "idle";
+  let thinkOn = false;
+  let oneShot: T3.AnimationAction | null = null;
+  interface EnvBone {
+    obj: T3.Object3D;
+    saved: T3.Quaternion;
+    scale: number;
+  }
+  let envelope: {
+    t: number;
+    dur: number;
+    yaw: number;
+    pitch: number;
+    bones: EnvBone[];
+  } | null = null;
+
+  function baseAction(): T3.AnimationAction | null {
+    return basePose === "think" && thinkAction ? thinkAction : idleAction;
+  }
+
+  // The base loop — idle, or think while a send is in flight / on a
+  // manual `play think` hold. A one-shot in flight defers the crossfade;
+  // its finish lands on whatever basePose is then.
+  function setBase(pose: "idle" | "think") {
+    basePose = pose;
     if (!mixer || !idleAction || !thinkAction || orbit) return;
-    if (on === thinkAction.isRunning()) return;
-    if (on) {
+    if (oneShot) return;
+    if (reduceMotion) {
+      holdRest();
+      return;
+    }
+    if (pose === "think" === thinkOn) return;
+    thinkOn = pose === "think";
+    if (thinkOn) {
       thinkAction.reset().play();
       idleAction.crossFadeTo(thinkAction, 0.3, false);
     } else {
       idleAction.reset().play();
       thinkAction.crossFadeTo(idleAction, 0.3, false);
+    }
+  }
+
+  // Think-v9 stays on the spirit sheet; a 3D body crossfades to the glTF
+  // `think` clip while a send is in flight, else holds `idle`.
+  function setThinking(on: boolean) {
+    setBase(on ? "think" : "idle");
+  }
+
+  // Reduce Motion hold: no swing, no envelope, no mid-fade weights — the
+  // base clip parked at time 0 (first key = rest) at full weight.
+  function holdRest() {
+    cancelEnvelope();
+    if (oneShot) {
+      oneShot.stop();
+      oneShot = null;
+    }
+    const back = baseAction();
+    back?.reset().setEffectiveWeight(1).play();
+    if (back === thinkAction) idleAction?.stop();
+    else thinkAction?.stop();
+    mixer?.setTime(0);
+  }
+
+  function cancelEnvelope() {
+    if (!envelope) return;
+    for (const b of envelope.bones) b.obj.quaternion.copy(b.saved);
+    envelope = null;
+  }
+
+  // Bone envelope (fallback grade): snapshot the bone quats, then each
+  // tick set saved × offset — never accumulate. Keyed bones (DEF-HEAD
+  // under idle/think) get their file drift back the tick after we stop.
+  function startEnvelope(
+    yawDeg: number,
+    pitchDeg: number,
+    dur: number,
+    spec: [string, number][],
+  ) {
+    if (!three || !scene) return;
+    const bones: EnvBone[] = [];
+    for (const [name, scale] of spec) {
+      const obj = scene.getObjectByName(name);
+      if (obj) bones.push({ obj, saved: obj.quaternion.clone(), scale });
+    }
+    if (bones.length === 0) return; // rig without these bones: honest no-op
+    envelope = {
+      t: 0,
+      dur,
+      yaw: three.MathUtils.degToRad(yawDeg),
+      pitch: three.MathUtils.degToRad(pitchDeg),
+      bones,
+    };
+  }
+
+  function tickEnvelope(dt: number) {
+    if (!envelope || !three) return;
+    envelope.t += dt;
+    const k = Math.min(envelope.t / envelope.dur, 1);
+    // There-and-back with smoothstep ends.
+    const phase = k < 0.5 ? k * 2 : 2 - k * 2;
+    const s = phase * phase * (3 - 2 * phase);
+    for (const b of envelope.bones) {
+      const q = new three.Quaternion().setFromEuler(
+        new three.Euler(
+          envelope.pitch * b.scale * s,
+          envelope.yaw * b.scale * s,
+          0,
+        ),
+      );
+      b.obj.quaternion.copy(b.saved).multiply(q);
+    }
+    if (k >= 1) cancelEnvelope();
+  }
+
+  function startOneShot(action: T3.AnimationAction) {
+    if (!three) return;
+    oneShot = action;
+    action.reset().setLoop(three.LoopOnce, 1).play();
+    const back = baseAction();
+    if (back) back.crossFadeTo(action, 0.15, false);
+    else action.fadeIn(0.15); // orbit fallback: nothing playing under it
+  }
+
+  function cancelOneShot() {
+    if (!oneShot) return;
+    const os = oneShot;
+    oneShot = null;
+    const back = baseAction();
+    if (back && !orbit) {
+      back.reset().play();
+      os.crossFadeTo(back, 0.15, false);
+    } else {
+      os.stop();
+    }
+  }
+
+  function onMixerFinished(e: { action: T3.AnimationAction }) {
+    if (!oneShot || e.action !== oneShot) return;
+    const os = oneShot;
+    oneShot = null;
+    const back = baseAction();
+    if (back && !reduceMotion) {
+      back.reset().play();
+      os.crossFadeTo(back, 0.25, false);
+    } else {
+      os.stop();
+    }
+  }
+
+  // A companion.play off the control socket. Unknown names error at the
+  // socket before anything lands here; the guard keeps it honest if one
+  // ever did. Reduce Motion: skip the motion, hold idle.
+  function playClip(clip: string) {
+    if (!ready || !mixer || !three) return;
+    if (!PLAY_CLIPS.has(clip)) return;
+    if (reduceMotion) {
+      basePose = "idle";
+      holdRest();
+      renderOnce();
+      return;
+    }
+    cancelEnvelope();
+    cancelOneShot();
+    switch (clip) {
+      case "idle":
+        setBase("idle");
+        break;
+      case "think":
+        setBase("think");
+        break;
+      case "nod":
+        if (nodAction) startOneShot(nodAction);
+        // Fallback only when the file has no `nod` — the design puts the
+        // nod in DEF-NECK (~0.8 s down/up), DEF-HEAD at 30%.
+        else startEnvelope(0, 20, 0.8, [["DEF-NECK", 1], ["DEF-HEAD", 0.3]]);
+        break;
+      case "look-left":
+        startEnvelope(25, 0, 1.2, [["DEF-HEAD", 1], ["DEF-NECK", 0.3]]);
+        break;
+      case "look-right":
+        startEnvelope(-25, 0, 1.2, [["DEF-HEAD", 1], ["DEF-NECK", 0.3]]);
+        break;
     }
   }
 
@@ -158,6 +346,7 @@
     const probe = document.createElement("canvas");
     if (!probe.getContext("webgl2")) throw new Error("no WebGL2");
     const T = await import("three");
+    three = T;
     const { GLTFLoader } = await import(
       "three/addons/loaders/GLTFLoader.js"
     );
@@ -230,6 +419,15 @@
       orbit = true;
     }
     if (think) thinkAction = mixer.clipAction(think);
+    // PLAY: `nod` is a file one-shot (first=last rest keys, so an
+    // unclamped finish already sits on rest while the fade home runs).
+    const nod = clip("nod");
+    if (nod) {
+      nodAction = mixer.clipAction(nod);
+      nodAction.setLoop(T.LoopOnce, 1);
+      nodAction.clampWhenFinished = false;
+    }
+    mixer.addEventListener("finished", onMixerFinished);
 
     ro = new ResizeObserver(resize);
     ro.observe(wrapEl);
@@ -259,6 +457,11 @@
       hidden = !v;
       syncLoop();
     });
+    // companion.play off the control socket. Only a mounted 3D body
+    // listens — on the spirit sheet a play is a no-op success.
+    unlistenPlay = await listen<{ clip?: string }>("companion:play", (e) => {
+      playClip(e.payload?.clip ?? "");
+    });
     try {
       await boot();
     } catch (e) {
@@ -269,6 +472,7 @@
   onDestroy(() => {
     disposed = true;
     unlistenVis?.();
+    unlistenPlay?.();
     motionMq?.removeEventListener("change", onMotionChange);
     ro?.disconnect();
     renderer?.setAnimationLoop(null);

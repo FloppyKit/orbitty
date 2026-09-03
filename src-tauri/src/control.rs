@@ -341,6 +341,12 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
+        // GO-ORBITTY-COMPANION-PLAY: same ACL class as companion.send
+        // (companion.* — never read-only). Unknown clip = honest error.
+        "companion.play" => {
+            let clip = arg_str(args, "clip")?;
+            crate::companion::companion_play(app, &clip).map_err(tool_err)
+        }
         "packs.list" => crate::packs::list_packs(app.clone())
             .map(to_data)
             .map_err(tool_err),

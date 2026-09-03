@@ -28,6 +28,7 @@ commands:
   companion send -- \"line\"
   companion agents
   companion set-agent -- <profile>
+  companion play -- <clip>         idle · think · nod · look-left · look-right
   kanban open
   stars open
   packs list
@@ -93,7 +94,8 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
     Ok(o)
 }
 
-/// Payload for send / set-agent: everything after `--`, else trailing words.
+/// Payload for send / set-agent / play: everything after `--`, else
+/// trailing words.
 fn payload(o: &Opts) -> Result<String, String> {
     if !o.tail.is_empty() {
         return Ok(o.tail.join(" "));
@@ -128,6 +130,8 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["companion", "set-agent"] => {
             Ok(("companion.set_agent", json!({ "profile": payload(o)? })))
         }
+        // `companion play nod` and `companion play -- nod` both land here.
+        ["companion", "play", ..] => Ok(("companion.play", json!({ "clip": payload(o)? }))),
         ["kanban", "open"] => Ok(("kanban.open", json!({}))),
         ["stars", "open"] => Ok(("stars.open", json!({}))),
         ["packs", "list"] => Ok(("packs.list", json!({}))),
@@ -242,6 +246,7 @@ fn print_human(tool: &str, data: &Value) {
             }
         }
         "companion.set_agent" => println!("agent: {}", data.as_str().unwrap_or("")),
+        "companion.play" => println!("playing: {}", data["played"].as_str().unwrap_or("")),
         "packs.list" => {
             let Some(arr) = data.as_array() else {
                 return;

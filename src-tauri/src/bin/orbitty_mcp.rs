@@ -21,7 +21,7 @@ const SERVER_VERSION: &str = "0.1.0";
 struct ToolDef {
     name: &'static str,
     description: &'static str,
-    /// "none" | "id" | "line" | "profile"
+    /// "none" | "id" | "line" | "profile" | "clip"
     args: &'static str,
 }
 
@@ -39,6 +39,7 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "companion.send", description: "Send a line on the companion Berd path", args: "line" },
     ToolDef { name: "companion.agents", description: "List companion agent profiles", args: "none" },
     ToolDef { name: "companion.set_agent", description: "Set the companion agent profile", args: "profile" },
+    ToolDef { name: "companion.play", description: "Play an allowlisted gesture clip on the 3D companion body (no-op on the spirit sheet)", args: "clip" },
     ToolDef { name: "packs.list", description: "List installed sprite packs", args: "none" },
     ToolDef { name: "sleeper.wake", description: "Wake a sleeper by id", args: "id" },
     ToolDef { name: "state.get", description: "Read persisted Orbitty state", args: "none" },
@@ -64,6 +65,15 @@ fn input_schema(kind: &str) -> Value {
             "type": "object",
             "properties": { "profile": { "type": "string", "description": "Agent profile id" } },
             "required": ["profile"]
+        }),
+        "clip" => json!({
+            "type": "object",
+            "properties": { "clip": {
+                "type": "string",
+                "enum": ["idle", "think", "nod", "look-left", "look-right"],
+                "description": "Gesture clip name (allowlist; unknown names error)"
+            } },
+            "required": ["clip"]
         }),
         _ => json!({ "type": "object", "properties": {} }),
     }

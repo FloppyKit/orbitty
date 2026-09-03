@@ -218,6 +218,27 @@ pub fn companion_glb_url(app: tauri::AppHandle, id: String) -> Result<String, St
     }
 }
 
+/// GO-ORBITTY-COMPANION-PLAY: the five allowlisted gestures on the 3D
+/// body. `wave` ships in the GLBs but is NOT this GO (shoulder not
+/// locked) — it and any other name are an honest error, never a silent
+/// idle. The spirit sheet mounts no `companion:play` listener, so a play
+/// there is a no-op success — never fake frames on the PNGs.
+pub const PLAY_CLIPS: &[&str] = &["idle", "think", "nod", "look-left", "look-right"];
+
+pub fn companion_play(app: &tauri::AppHandle, clip: &str) -> Result<serde_json::Value, String> {
+    let clip = clip.trim();
+    if !PLAY_CLIPS.contains(&clip) {
+        return Err(format!(
+            "unknown clip {clip:?} — allowlist: {}",
+            PLAY_CLIPS.join(", ")
+        ));
+    }
+    use tauri::Emitter;
+    app.emit("companion:play", serde_json::json!({ "clip": clip }))
+        .map_err(|e| format!("emit companion:play: {e}"))?;
+    Ok(serde_json::json!({ "played": clip }))
+}
+
 /// Standard base64. habitat_mac keeps its own copy; this one is cfg-free.
 fn base64_encode(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
