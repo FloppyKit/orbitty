@@ -497,11 +497,12 @@ pub(crate) fn appkit_order_chrome(app: &tauri::AppHandle, w: &tauri::WebviewWind
 
 /// GO-ORBITTY-COMPANION-RAISE: a companion summon (tray Show Companion /
 /// left-click, ⌘⇧O, dock Reopen — every one routes through show_drawer)
-/// heavy-raises like the rail: planet panels sit at NSFloatingWindowLevel
-/// and bury a light chrome raise. Other drawers keep the light path.
+/// heavy-raises like the rail. FRONT-HOLD leftover: raise_now is activate
+/// + level 4 + orderFront in one hop so CHROME-Z cannot leave the window
+/// at 0 under the planets. Other drawers keep the light path.
 fn drawer_order_front(app: &tauri::AppHandle, w: &tauri::WebviewWindow, label: &str) {
     if label == "companion" {
-        appkit_order_front(app, w);
+        crate::companion_clear::raise_now(app);
     } else {
         appkit_order_chrome(app, w);
     }
@@ -1992,18 +1993,22 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
     place_chrome(app, &w, label, &st);
     w.show().map_err(|e| e.to_string())?;
     w.set_focus().map_err(|e| e.to_string())?;
+    let _ = w.set_ignore_cursor_events(false);
+    crate::panes::emit_pane_vis(app, label, true);
+    schedule_drawer_mount_check(app, label);
+    // GO-ORBITTY-COMPANION-CLEAR: re-apply slab/ghost first, then raise
+    // so apply_mode cannot undo the front (same order as already-visible).
+    if label == "companion" {
+        crate::companion_clear::apply_mode(app);
+    }
     drawer_order_front(app, &w, label);
     if !pane_appkit_visible(&w) {
         let _ = w.show();
         let _ = w.set_focus();
+        if label == "companion" {
+            crate::companion_clear::apply_mode(app);
+        }
         drawer_order_front(app, &w, label);
-    }
-    let _ = w.set_ignore_cursor_events(false);
-    crate::panes::emit_pane_vis(app, label, true);
-    schedule_drawer_mount_check(app, label);
-    // GO-ORBITTY-COMPANION-CLEAR: same re-apply on the cold-show path.
-    if label == "companion" {
-        crate::companion_clear::apply_mode(app);
     }
     Ok(())
 }

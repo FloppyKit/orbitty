@@ -11,6 +11,26 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 use tauri::Emitter;
 
+/// FRONT-HOLD leftover: popUpContextMenu runs a nested loop. Arm the
+/// companion poll quiet so setLevel hops cannot beach-ball the menu.
+struct MenuQuiet;
+impl MenuQuiet {
+    fn arm() -> Self {
+        crate::companion_clear::set_menu_quiet(true);
+        Self
+    }
+}
+impl Drop for MenuQuiet {
+    fn drop(&mut self) {
+        crate::companion_clear::set_menu_quiet(false);
+    }
+}
+
+unsafe fn pop_context_menu(menu: *mut Object, event: *mut Object, view: *mut Object) {
+    let _quiet = MenuQuiet::arm();
+    let _: () = msg_send![class!(NSMenu), popUpContextMenu: menu withEvent: event forView: view];
+}
+
 use super::audio;
 use super::{
     app_handle, building_cap, default_state, layout_beings, layout_decor, lock, max_radius,
@@ -116,6 +136,9 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
             };
             let panel = planet.panel as *mut Object;
             let _: () = msg_send![panel, orderFrontRegardless];
+            if let Some(app) = app_handle() {
+                crate::companion_clear::keep_front_if_ours(app);
+            }
             (
                 project_id.clone(),
                 panel,
@@ -550,7 +573,7 @@ unsafe fn boombox_context_menu(this: &Object, event: *mut Object, project_id: &s
     add_separator(menu);
     add_volume_items(menu, target, project_id, volume);
     let view = this as *const Object as *mut Object;
-    let _: () = msg_send![class!(NSMenu), popUpContextMenu: menu withEvent: event forView: view];
+    pop_context_menu(menu, event, view);
     let _: () = msg_send![menu, release];
 }
 
@@ -706,7 +729,7 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
     add_separator(menu);
     add_volume_items(menu, target, &project_id, volume);
     let view = this as *const Object as *mut Object;
-    let _: () = msg_send![class!(NSMenu), popUpContextMenu: menu withEvent: event forView: view];
+    pop_context_menu(menu, event, view);
     let _: () = msg_send![menu, release];
 }
 
@@ -866,7 +889,7 @@ unsafe fn walker_context_menu(this: &Object, event: *mut Object, entry_id: &str)
         true,
     );
     let view = this as *const Object as *mut Object;
-    let _: () = msg_send![class!(NSMenu), popUpContextMenu: menu withEvent: event forView: view];
+    pop_context_menu(menu, event, view);
     let _: () = msg_send![menu, release];
 }
 

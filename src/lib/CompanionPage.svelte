@@ -858,6 +858,9 @@
     if (e.button !== 0) return;
     if (expanded || hosted !== "off") return;
     const t = e.target as HTMLElement | null;
+    // Native <select> / field menus: activate+makeKey on this path was
+    // the beach ball while digging the agent picker.
+    if (t?.closest("input, textarea, select, option, .field")) return;
     if (
       !t?.closest(
         ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .winx, .gear, .note"

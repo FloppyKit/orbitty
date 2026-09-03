@@ -151,8 +151,12 @@ unsafe extern "C" fn display_link_output(
     _flags_out: *mut u64,
     _user_info: *mut c_void,
 ) -> i32 {
-    // Choose-music panel up: motion paused — post nothing until it closes.
-    if audio::MUSIC_PICKER_OPEN.load(Ordering::SeqCst) {
+    // Choose-music panel or a planet/walker NSMenu: motion paused —
+    // setFrameOrigin during a nested tracking loop beach-balls the menu
+    // (FRONT-HOLD leftover; same guard as MUSIC_PICKER_OPEN).
+    if audio::MUSIC_PICKER_OPEN.load(Ordering::SeqCst)
+        || crate::companion_clear::menu_quiet()
+    {
         return 0;
     }
     let n = DISPLAY_LINK_TICK.fetch_add(1, Ordering::Relaxed).wrapping_add(1);

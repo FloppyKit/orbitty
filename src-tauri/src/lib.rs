@@ -270,6 +270,40 @@ pub(crate) fn main_thread_sync<F: FnOnce() + Send>(f: F) {
     }
 }
 
+/// Same trampoline as `main_thread_sync`, but it never waits. The 10Hz
+/// companion poll uses this so a nested NSMenu run loop cannot beach-ball
+/// behind a `dispatch_sync` from a worker.
+#[cfg(target_os = "macos")]
+pub(crate) fn main_thread_async<F: FnOnce() + Send + 'static>(f: F) {
+    use objc::{class, msg_send, sel, sel_impl};
+    use std::ffi::c_void;
+    let is_main: bool = unsafe { msg_send![class!(NSThread), isMainThread] };
+    if is_main {
+        f();
+        return;
+    }
+    extern "C" {
+        static _dispatch_main_q: c_void;
+        fn dispatch_async_f(
+            queue: *mut c_void,
+            context: *mut c_void,
+            work: extern "C" fn(*mut c_void),
+        );
+    }
+    extern "C" fn trampoline<F: FnOnce()>(ctx: *mut c_void) {
+        let f = unsafe { Box::from_raw(ctx as *mut F) };
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    }
+    let ctx = Box::into_raw(Box::new(f)) as *mut c_void;
+    unsafe {
+        dispatch_async_f(
+            std::ptr::addr_of!(_dispatch_main_q) as *mut c_void,
+            ctx,
+            trampoline::<F>,
+        );
+    }
+}
+
 /// S4.4: re-apply the transparency surgery on the overlay windows. The
 /// frontend invokes this on mount (post-load), so a WKWebView that came up
 /// with the default white backing gets its drawsBackground killed for real.

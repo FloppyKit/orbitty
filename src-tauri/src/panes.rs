@@ -552,7 +552,17 @@ pub(crate) fn unhost_before_persist(app: &tauri::AppHandle) {
 pub(crate) fn show_companion(app: &tauri::AppHandle) -> Result<(), String> {
     // GO-ORBITTY-RAIL-DRAWER: docked companions take the inboard slot;
     // plucked ones restore bounds inside show_drawer.
+    // FRONT-HOLD leftover: an already-visible summon is raise-only —
+    // rewriting companion.visible + emitting state:changed on every ⌘⇧O
+    // reloaded every pane and beach-balled the desk.
+    let already = app
+        .get_webview_window("companion")
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false);
     crate::drawers::show_drawer(app, "companion")?;
+    if already {
+        return Ok(());
+    }
     let mut st = crate::state::load_state(app).unwrap_or_default();
     st.companion.visible = true;
     let _ = crate::state::save_state(app, &st);
