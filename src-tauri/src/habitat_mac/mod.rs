@@ -713,6 +713,11 @@ pub(crate) struct Planet {
     dots: Vec<Being>,
     /// Transient native caption pill (single-click feedback), ~2s.
     caption: Option<(String, Instant)>,
+    /// GO-ORBITTY-PLANET-MARK: the cursor is over a marble's disc — draw
+    /// the planet name as the caption pill whenever no click caption is
+    /// live. Set by the cursor watcher (panels ignore mouse events
+    /// off-disc, so AppKit tracking areas would never see the enter).
+    hover_name: bool,
     /// GO-ORBITTY-MARBLE-SOLAR: sun membership + join ease; cleared by
     /// isolation and when motion is stilled. The track itself (radius,
     /// phase, period) is hashed from the marble's id on the fly — these
@@ -2646,6 +2651,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 walkers,
                 dots,
                 caption: None,
+                hover_name: false,
                 orbit: None,
                 marble_scale: 1.0,
                 pin_until: None,

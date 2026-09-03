@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use super::audio;
-use super::input::{boombox_click, contains_interactive, BOOMBOX_CLICK_SLOP};
+use super::input::{boombox_click, contains_interactive, over_disc, BOOMBOX_CLICK_SLOP};
 use super::{
     app_handle, app_handle_cell, default_state, emit_walked_off, house_spawn, layout_beings,
     layout_decor, lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
@@ -1550,6 +1550,17 @@ fn cursor_tick() {
             };
             let over = contains_interactive(planet, local);
             let _: () = msg_send![panel, setIgnoresMouseEvents: !over];
+            // GO-ORBITTY-PLANET-MARK: marble hover names the planet. Done
+            // here in the cursor watcher — the panel ignores mouse events
+            // off-disc, so a tracking area would never see the enter. The
+            // draw falls back to the name only when no click caption is
+            // live, so placed/walker/boombox pills are never stomped.
+            let hover = planet.is_marble && over_disc(planet, local);
+            if hover != planet.hover_name {
+                planet.hover_name = hover;
+                let view = planet.view as *mut Object;
+                let _: () = msg_send![view, setNeedsDisplay: true];
+            }
             // Caption expiry (10Hz here so Reduce Motion can't pin it on).
             if planet
                 .caption

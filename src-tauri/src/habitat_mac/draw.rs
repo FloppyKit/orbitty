@@ -193,6 +193,12 @@ struct DrawData {
     dots: Vec<NSRect>,
     /// Fresh caption text (expired ones are dropped here, cleared on tick).
     caption: Option<String>,
+    /// Display name (GO-ORBITTY-PLANET-MARK): under-label on expanded
+    /// planets, hover pill on marbles.
+    name: String,
+    /// Cursor over a marble's disc — pill shows the name when no click
+    /// caption is live.
+    hover_name: bool,
     decor: Vec<DecorDraw>,
 }
 
@@ -334,6 +340,8 @@ fn draw_rect_guarded(this: &Object) {
                     .as_ref()
                     .filter(|(_, at)| at.elapsed() < CAPTION_TTL)
                     .map(|(text, _)| text.clone()),
+                name: p.name.clone(),
+                hover_name: p.hover_name,
                 decor,
             }
         })
@@ -623,10 +631,56 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     }
 
     // Click caption: a small pill above the disc, drawn last so it sits over
-    // any walker crossing the top of the orbit.
-    if let Some(text) = &d.caption {
+    // any walker crossing the top of the orbit. GO-ORBITTY-PLANET-MARK: a
+    // hovered marble falls back to its name here — a live click caption
+    // (placed / walker / boombox) always wins, and mouse-leave just drops
+    // the fallback, so those pills are never cleared early.
+    let pill = d.caption.as_ref().or(if d.hover_name {
+        Some(&d.name)
+    } else {
+        None
+    });
+    if let Some(text) = pill {
         draw_caption(center, ry, text);
     }
+
+    // GO-ORBITTY-PLANET-MARK: an expanded planet wears its name under the
+    // oval — always on, no hover hunt. Marbles stay bare (hover pill).
+    if !d.is_marble {
+        draw_under_label(center, ry, &d.name);
+    }
+}
+
+/// Expanded-planet under-label: the planet name in 11pt white, centered
+/// just below the oval, soft shadow instead of the pill backer so it reads
+/// on any wallpaper without looking like a second caption.
+unsafe fn draw_under_label(center: NSPoint, r: f64, text: &str) {
+    let ns_text = ns_string(text);
+    let font: *mut Object = msg_send![class!(NSFont), systemFontOfSize: 11.0f64];
+    let white: *mut Object = msg_send![class!(NSColor), whiteColor];
+    let shadow: *mut Object = msg_send![class!(NSShadow), alloc];
+    let shadow: *mut Object = msg_send![shadow, init];
+    let _: () = msg_send![shadow, setShadowOffset: CGSize { width: 0.0, height: -1.0 }];
+    let _: () = msg_send![shadow, setShadowBlurRadius: 2.0f64];
+    let black: *mut Object = msg_send![class!(NSColor), blackColor];
+    let shadow_color: *mut Object = msg_send![black, colorWithAlphaComponent: 0.6f64];
+    let _: () = msg_send![shadow, setShadowColor: shadow_color];
+    let keys = [ns_string("NSFont"), ns_string("NSColor"), ns_string("NSShadow")];
+    let vals = [font, white, shadow];
+    let attrs: *mut Object = msg_send![class!(NSDictionary),
+        dictionaryWithObjects: vals.as_ptr()
+        forKeys: keys.as_ptr()
+        count: 3usize];
+    if attrs.is_null() {
+        return;
+    }
+    let size: CGSize = msg_send![ns_text, sizeWithAttributes: attrs];
+    let _: () = msg_send![ns_text,
+        drawAtPoint: NSPoint {
+            x: center.x - size.width / 2.0,
+            y: center.y + r + 4.0,
+        }
+        withAttributes: attrs];
 }
 
 /// Tiny pixel-art painter for decor: `art` rows of glyph chars, each glyph

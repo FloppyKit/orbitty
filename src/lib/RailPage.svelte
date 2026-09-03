@@ -9,6 +9,7 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import { planetCss } from "./planetColor";
   import type {
     ActionShortcut,
     AgentShortcut,
@@ -2528,6 +2529,12 @@
                   : "Collapse"}
               >
                 <span class="chev" class:open={!isCollapsed(p.id)} aria-hidden="true">▸</span>
+                <span
+                  class="planet-chip"
+                  style="background: {planetCss(p.id)}"
+                  title={p.name}
+                  aria-hidden="true"
+                ></span>
                 <span class="section-name">{p.name}</span>
                 <span class="section-count">{visibleRows(rows).length + todosFor(p.id).length}</span>
               </button>
@@ -3469,6 +3476,15 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--dim);
+  }
+
+  /* GO-ORBITTY-PLANET-MARK: the list wears the disc's marble color. */
+  .planet-chip {
+    flex-shrink: 0;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
   }
 
   .section-count {

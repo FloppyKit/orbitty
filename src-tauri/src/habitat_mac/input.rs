@@ -76,7 +76,7 @@ fn hit_being(planet: &Planet, local: NSPoint) -> Option<(String, bool)> {
         .map(|b| (b.entry_id.clone(), false))
 }
 
-fn over_disc(planet: &Planet, local: NSPoint) -> bool {
+pub(crate) fn over_disc(planet: &Planet, local: NSPoint) -> bool {
     let side = (planet.radius + VIEW_PADDING) * 2.0;
     let dx = local.x - side / 2.0;
     let dy = local.y - side / 2.0;

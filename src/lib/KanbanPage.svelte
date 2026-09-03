@@ -24,6 +24,7 @@
   import { onMount, onDestroy } from "svelte";
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
+  import { planetCss } from "./planetColor";
   import NeededInbox from "./NeededInbox.svelte";
   import ActionsWell from "./ActionsWell.svelte";
   import type {
@@ -1024,6 +1025,12 @@
           class:sel={selected === p.id}
           onclick={() => (selected = p.id)}
         >
+          <span
+            class="planet-chip"
+            style="background: {planetCss(p.id)}"
+            title={p.name}
+            aria-hidden="true"
+          ></span>
           <span class="side-name">{p.name}</span>
           <span class="side-count">{sideCount(p.id)}</span>
         </button>
@@ -1032,6 +1039,14 @@
 
     <section class="k-main" aria-label={listTitle}>
       <div class="k-titlerow">
+        {#if selectedProject}
+          <span
+            class="planet-chip"
+            style="background: {planetCss(selectedProject.id)}"
+            title={selectedProject.name}
+            aria-hidden="true"
+          ></span>
+        {/if}
         <h2 class="k-title">{listTitle}</h2>
         {#if selected === "done"}
           {@render doneActorChips()}
@@ -1565,6 +1580,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* GO-ORBITTY-PLANET-MARK: the list wears the disc's marble color. */
+  .planet-chip {
+    flex-shrink: 0;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
   }
 
   .side-count {
