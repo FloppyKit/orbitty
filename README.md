@@ -43,9 +43,8 @@ orbittyctl windows list
 
 `docs/THIN_SLICE_LAWS.md` — explicit claim, unmapped = zero sprites, no harness in the engine, FKT stays out, not EHR.
 
-Accessibility, window corral, and planets are in the blessed app. Ignore any leftover “S0 scaffold” note in older papers.
-
 How the pieces sit: `docs/ARCHITECTURE.md`.  
-What is next (ops, not product): `~/.buzz/PLANS/ORBIT_ROADMAP.md`.
+What is next (ops, not product): `~/.buzz/PLANS/ORBIT_ROADMAP.md`.  
+Closed writer papers: `~/.buzz/PLANS/orbitty-closed/`. A live GO uses `docs/live/` (empty unless one is in flight).
 
 The Swift tree at `~/goose artifacts/livesprite` is archived. Do not launch it. Behavioral reference only: `docs/SWIFT_REFERENCE.md`.
