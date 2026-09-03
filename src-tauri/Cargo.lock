@@ -1841,6 +1841,7 @@ name = "livesprite"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "chrono",
  "core-foundation",
  "objc",
  "serde",

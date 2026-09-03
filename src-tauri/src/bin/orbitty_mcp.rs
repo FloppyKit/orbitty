@@ -5,6 +5,11 @@
 //! Forwards tools/call to the Orbitty Unix control socket using the
 //! same newline-JSON protocol as orbittyctl. Never links Tauri, never
 //! opens a WebView, never binds TCP, never writes goose config.
+//!
+//! GO-ORBITTY-MCP-WRITE lists the four write tools (kanban.add /
+//! kanban.move / needed.open / log.append) alongside the v0 read/open
+//! surface — same one Unix round-trip per tools/call, same control.json
+//! ACL (writes: full / named custom only).
 
 #[cfg(unix)]
 mod imp {
@@ -21,7 +26,8 @@ const SERVER_VERSION: &str = "0.1.0";
 struct ToolDef {
     name: &'static str,
     description: &'static str,
-    /// "none" | "id" | "line" | "profile" | "clip"
+    /// "none" | "id" | "line" | "profile" | "clip" | "kanban_add" |
+    /// "kanban_move" | "needed_open" | "log_append"
     args: &'static str,
 }
 
@@ -43,6 +49,12 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "packs.list", description: "List installed sprite packs", args: "none" },
     ToolDef { name: "sleeper.wake", description: "Wake a sleeper by id", args: "id" },
     ToolDef { name: "state.get", description: "Read persisted Orbitty state", args: "none" },
+    // GO-ORBITTY-MCP-WRITE: the four write tools. control.json ACL still
+    // applies — read / companion profiles get denied (4).
+    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move)", args: "kanban_add" },
+    ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
+    ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
+    ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
 ];
 
 fn known_tool(name: &str) -> bool {
@@ -74,6 +86,50 @@ fn input_schema(kind: &str) -> Value {
                 "description": "Gesture clip name (allowlist; unknown names error)"
             } },
             "required": ["clip"]
+        }),
+        "kanban_add" => json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "description": "Card title" },
+                "projectId": { "type": "string", "description": "Project id; omitted/empty = inbox" },
+                "status": {
+                    "type": "string",
+                    "enum": ["todo", "doing"],
+                    "description": "Initial column (default todo; done is never minted)"
+                }
+            },
+            "required": ["title"]
+        }),
+        "kanban_move" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "status": {
+                    "type": "string",
+                    "enum": ["todo", "doing", "done"],
+                    "description": "Target column; done = complete (points + cap), no unclaim"
+                }
+            },
+            "required": ["id", "status"]
+        }),
+        "needed_open" => json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "description": "What is needed" },
+                "projectId": { "type": "string", "description": "Project id; omitted/empty = inbox" },
+                "why": { "type": "string", "description": "Why it is needed" }
+            },
+            "required": ["title"]
+        }),
+        "log_append" => json!({
+            "type": "object",
+            "properties": {
+                "eType": { "type": "string", "description": "Event type tag" },
+                "content": { "type": "object", "description": "Small JSON object payload" },
+                "projectId": { "type": "string" },
+                "actor": { "type": "string", "description": "Event actor (default agent)" }
+            },
+            "required": ["eType"]
         }),
         _ => json!({ "type": "object", "properties": {} }),
     }

@@ -1,3 +1,5 @@
+#[cfg(unix)]
+mod board;
 mod chars;
 mod companion;
 mod companion_clear;
