@@ -86,6 +86,10 @@ pub struct HabitatPlanet {
 pub struct BoardCardTick {
     pub id: String,
     pub status: String,
+    /// Window this tick is linked to, if any. Native holds the blit on
+    /// "doing" until that walker touches the board (WalkOff + via_board).
+    #[serde(default)]
+    pub window_id: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]

@@ -19,7 +19,7 @@ use super::input::{boombox_click, contains_interactive, over_disc, BOOMBOX_CLICK
 use super::{
     app_handle, app_handle_cell, default_state, emit_walked_off, house_spawn, layout_beings,
     layout_decor, lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
-    set_caption, station_target, view_to_disc, visible_frames, walkoff_target, ClusterState,
+    set_caption, station_target, view_to_disc, visible_frames, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
     BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
     STATION_BOARD,
@@ -661,7 +661,7 @@ fn anim_tick() {
                     }
                 }
                 Pose::WalkOff => {
-                    let (tx, ty) = walkoff_target(id, house.0, house.1);
+                    let (tx, ty) = (STATION_BOARD.0, STATION_BOARD.1);
                     RoamState {
                         x: house.0,
                         y: house.1,
@@ -751,35 +751,28 @@ fn anim_tick() {
                         stepping[i] = true;
                     }
                 }
-                // Done: home to the igloo, then straight off the LEFT rim
-                // onto the panel — one monotonic target, never a rim
-                // waypoint. Past the hide line the walker waits unseen for
-                // the rail's eviction — the emit fires once per walk-off;
-                // cadence never deletes the claim itself. WORLD-TOWN:
-                // walkoff_target aims a hashed ±0.12 y at HOME_OFF's x,
-                // clamped so the target is never more EAST than the
-                // walker — x only ever decreases, so there is no yoyo and
-                // WalkOff never idles on the disc.
+                // Done: walk to the board, touch, blit flips, unclaim.
+                // No left-rim curtain — last walker lets the planet shrink.
                 Pose::WalkOff => {
                     roam.pause_end = None;
                     if roam.x < HOME_HIDE_X {
-                        if !roam.off_emitted {
-                            roam.off_emitted = true;
-                            dirty = true; // erase the sprite this tick
-                            emit_walked_off(id);
-                        }
-                        continue;
+                        roam.x = house.0;
+                        roam.y = house.1;
+                        roam.via_board = false;
+                        roam.off_emitted = false;
+                        moved = true;
                     }
-                    // WORLD-TOWN LEFTOVER: the walk-off touches the board
-                    // (done column) BEFORE heading home — no straight cut
-                    // from the field to space. Once within 0.05 of
-                    // STATION_BOARD the home leg below takes over.
                     if !roam.via_board {
                         let dx = STATION_BOARD.0 - roam.x;
                         let dy = STATION_BOARD.1 - roam.y;
                         let dist = (dx * dx + dy * dy).sqrt();
                         if dist < 0.05 {
                             roam.via_board = true;
+                            roam.x = STATION_BOARD.0;
+                            roam.y = STATION_BOARD.1;
+                            roam.tx = STATION_BOARD.0;
+                            roam.ty = STATION_BOARD.1;
+                            dirty = true; // lift blit hold this frame
                         } else {
                             roam.tx = STATION_BOARD.0;
                             roam.ty = STATION_BOARD.1;
@@ -788,36 +781,17 @@ fn anim_tick() {
                             roam.y += dy / dist * step;
                             roam.facing_left = dx < -0.002;
                             stepping[i] = true;
-                            moved = true; // walking to the board first
+                            moved = true;
                             continue;
                         }
                     }
-                    let (tx, ty) = walkoff_target(id, roam.x, roam.y);
-                    let dx = tx - roam.x;
-                    let dy = ty - roam.y;
-                    let dist = (dx * dx + dy * dy).sqrt();
-                    roam.tx = tx;
-                    roam.ty = ty;
-                    if dist < 0.025 {
-                        // Target reached but still WalkOff short of the
-                        // hide line — never freeze and never retarget (a
-                        // fresh target could pull x east again): snap past
-                        // the line and emit.
-                        roam.x = HOME_HIDE_X - 0.01;
-                        moved = true;
-                        if !roam.off_emitted {
-                            roam.off_emitted = true;
-                            emit_walked_off(id);
-                        }
-                        dirty = true; // erase the sprite this tick
-                        continue;
+                    roam.tx = STATION_BOARD.0;
+                    roam.ty = STATION_BOARD.1;
+                    if !roam.off_emitted {
+                        roam.off_emitted = true;
+                        emit_walked_off(id);
+                        dirty = true;
                     }
-                    let step = (0.16 * dt).min(dist);
-                    roam.x += dx / dist * step;
-                    roam.y += dy / dist * step;
-                    roam.facing_left = dx < -0.002;
-                    stepping[i] = true;
-                    moved = true; // walking off
                 }
                 Pose::Roam => {
                     if any_work_sit {

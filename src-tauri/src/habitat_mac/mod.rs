@@ -238,8 +238,9 @@ const BARY_PREFIX: &str = "b\n";
 /// middle, Needed front rim. A board-bound walker (Stand/Work) COMES
 /// FROM the igloo (STATION_HOUSE — user-placed buildings stay sandbox
 /// décor, never a spawn) and walks to its station. Sit snaps to the
-/// front rim (bad news skips the queue). Done walks to the igloo and
-/// off the LEFT rim (HOME_OFF / HOME_HIDE_X) — never off the top.
+/// front rim (bad news skips the queue). Done walks to the board,
+/// touches it, then unclaims there — never past the left rim into a
+/// hide curtain (the last walker lets the planet shrink).
 pub(crate) const STATION_HOUSE: (f64, f64) = (-0.78, 0.05); // igloo — left interior
 pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.58); // Todo — far/back board
 // Doing — the open interior field, off the front lip (the fanned target
@@ -278,8 +279,8 @@ pub(crate) enum Pose {
     /// queue (snap, never a scenic route). Idle frame 0, no bob, FULL
     /// brightness: sit is not a sleeper.
     Sit,
-    /// Done: walk to the igloo, then off the left rim; hidden past
-    /// HOME_HIDE_X.
+    /// Done: walk to the board, touch (blit flips), then unclaim.
+    /// No off-disc curtain walk.
     WalkOff,
 }
 
@@ -667,10 +668,9 @@ struct RoamState {
     /// north rim). Reset whenever the pose leaves WalkOff so a re-claimed
     /// walker's next Done emits again.
     off_emitted: bool,
-    /// WORLD-TOWN LEFTOVER: a Done walk-off touches the board (done
-    /// column) before heading home — true once the walker has reached
-    /// STATION_BOARD, so the home leg (walkoff_target / HOME_OFF) runs.
-    /// Reset whenever the pose leaves WalkOff.
+    /// WORLD-TOUCH: a Done walker has reached STATION_BOARD. Lifts the
+    /// blit hold (tick may move to done) and arms emit_walked_off.
+    /// Reset whenever the pose leaves WalkOff. Never a left-rim home leg.
     via_board: bool,
 }
 

@@ -358,7 +358,24 @@ fn draw_rect_guarded(this: &Object) {
             let mut board: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
             if !p.is_marble {
                 for c in &p.board_cards {
-                    let col = match c.status.as_str() {
+                    // WORLD-TOUCH: a Done tick stays in doing until that
+                    // walker has touched the board (via_board). The rail
+                    // already wrote status=done; the blit waits.
+                    let mut status = c.status.as_str();
+                    if status == "done" {
+                        if let Some(wid) = c.window_id.as_deref() {
+                            if p.walkers.iter().any(|b| {
+                                b.entry_id == wid && b.pose == Pose::WalkOff
+                            }) && p
+                                .roam
+                                .get(wid)
+                                .is_some_and(|r| !r.via_board)
+                            {
+                                status = "doing";
+                            }
+                        }
+                    }
+                    let col = match status {
                         "doing" => 1,
                         "done" => 2,
                         _ => 0,

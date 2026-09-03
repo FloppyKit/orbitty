@@ -691,7 +691,11 @@
             .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt);
           return [...open, ...done]
             .slice(0, 12)
-            .map((k) => ({ id: k.id, status: k.status }));
+            .map((k) => ({
+              id: k.id,
+              status: k.status,
+              windowId: k.windowId ?? null,
+            }));
         })(),
         entries: rows.map((w) => {
           const c = liveClaims.find((x) => x.windowId === w.id);
