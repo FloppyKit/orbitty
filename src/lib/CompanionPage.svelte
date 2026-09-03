@@ -2448,17 +2448,22 @@
      off the window edges. Expanded / hosted: no paint, no extra chrome,
      same stack as the unwrapped rows. DOCK-GRIP: ghost dock chrome (the
      padding around the rows, never a control) is a drag region; the
-     slab (expanded / hosted) never drags from the dock. */
+     slab (expanded / hosted) never drags from the dock.
+     HOST-DOCK leftover: bottom inset (8px margin + 1px border) stays in
+     every mode so dest toggle does not walk the dests. Ghost still adds
+     the side/top float and the visible ring. */
   .ghostdock {
     position: relative;
     display: flex;
     flex-direction: column;
+    margin-bottom: 8px;
+    border: 1px solid transparent;
   }
 
   .ghost .ghostdock {
     margin: 4px 8px 8px;
     background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
+    border-color: var(--edge);
     border-radius: 12px;
   }
 

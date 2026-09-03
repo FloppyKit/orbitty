@@ -492,12 +492,12 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
             });
         // GO-ORBITTY-HOST-FIT: size follows the display — 1080×620
         // landscape, 620×1080 portrait. GO-ORBITTY-HOST-DOCK: pin the
-        // live bottom-center so the dest dock stays under the cursor;
-        // clamp after may still shift at a screen edge.
+        // live bottom-center so the dest dock stays under the cursor.
+        // Leftover: clamp/place keep that bottom (top/sides may move).
         let grown = crate::drawers::host_grown_rect(cur);
         let pinned = crate::drawers::pin_bottom_center(cur, grown.w, grown.h);
-        let placed = crate::drawers::clamp_on_displays(pinned).unwrap_or(pinned);
-        crate::drawers::place_logical_rect(&w, "companion", &placed);
+        let placed = crate::drawers::clamp_on_displays_keep_bottom(pinned).unwrap_or(pinned);
+        crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
     } else {
         let stash = host_stash().lock().ok().and_then(|mut s| s.take());
         // GO-ORBITTY-HOST-STAY + HOST-DOCK: dismiss = idle SIZE pinned
@@ -516,7 +516,7 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
         });
         let restore = crate::drawers::pin_bottom_center(pin_from, rw, rh);
         let placed = crate::drawers::clamp_on_host_display(live, restore);
-        crate::drawers::place_logical_rect(&w, "companion", &placed);
+        crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
         // Persist the RESTORED idle rect — never the host frame.
         crate::drawers::persist_shown_place(&app, "companion");
         // GO-ORBITTY-SPRITE-HUG: dismiss-host with the sprite still off

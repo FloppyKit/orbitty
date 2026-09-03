@@ -1187,6 +1187,28 @@ fn clamp_to_frame(b: state::CompanionBounds, vf: &VisibleFrame) -> state::Compan
     }
 }
 
+/// HOST-DOCK leftover: same handle law, but keep `b`'s bottom when that
+/// still leaves a 24px handle on `vf`. Dest buttons sit on the bottom
+/// dock — a y-shift of the whole rect walks them. Top/sides may move.
+fn clamp_to_frame_keep_bottom(
+    b: state::CompanionBounds,
+    vf: &VisibleFrame,
+) -> state::CompanionBounds {
+    let bottom = b.y + b.h;
+    let r = clamp_to_frame(b, vf);
+    let kept = state::CompanionBounds {
+        x: r.x,
+        y: bottom - r.h,
+        w: r.w,
+        h: r.h,
+    };
+    if rect_handle_on(&kept, vf) {
+        kept
+    } else {
+        r
+    }
+}
+
 /// The one clamp: a 24px handle on SOME display. Fully off ALL displays →
 /// None (inboard-slot fallback). Touching a display but handle-thin
 /// everywhere → clamped onto the display it overlaps most. Never 0,0,
@@ -1194,6 +1216,14 @@ fn clamp_to_frame(b: state::CompanionBounds, vf: &VisibleFrame) -> state::Compan
 fn clamp_drawer_rect(
     b: state::CompanionBounds,
     vfs: &[VisibleFrame],
+) -> Option<state::CompanionBounds> {
+    clamp_drawer_rect_ex(b, vfs, false)
+}
+
+fn clamp_drawer_rect_ex(
+    b: state::CompanionBounds,
+    vfs: &[VisibleFrame],
+    keep_bottom: bool,
 ) -> Option<state::CompanionBounds> {
     if vfs.is_empty() {
         return Some(b);
@@ -1214,14 +1244,27 @@ fn clamp_drawer_rect(
                 .partial_cmp(&(bw * bh))
                 .unwrap_or(std::cmp::Ordering::Equal)
         })?;
-    Some(clamp_to_frame(b, best))
+    Some(if keep_bottom {
+        clamp_to_frame_keep_bottom(b, best)
+    } else {
+        clamp_to_frame(b, best)
+    })
 }
 
 /// GO-ORBITTY-PARK: the one clamp, against every live display's points
 /// visibleFrame — lets panes.rs park the companion without naming
 /// VisibleFrame. Reuse of clamp_drawer_rect, not a copy.
+#[allow(dead_code)]
 pub(crate) fn clamp_on_displays(b: state::CompanionBounds) -> Option<state::CompanionBounds> {
     clamp_drawer_rect(b, &points_frames(&screen_visible_frames()))
+}
+
+/// HOST-DOCK leftover: same every-display clamp, but the dest dock's
+/// bottom stays put when a handle still fits.
+pub(crate) fn clamp_on_displays_keep_bottom(
+    b: state::CompanionBounds,
+) -> Option<state::CompanionBounds> {
+    clamp_drawer_rect_ex(b, &points_frames(&screen_visible_frames()), true)
 }
 
 /// GO-ORBITTY-HOST-STAY: host dismiss clamps on the ONE display the live
@@ -1242,7 +1285,7 @@ pub(crate) fn clamp_on_host_display(
         return restore;
     }
     let Some(live) = live else {
-        return clamp_drawer_rect(restore, &pvfs).unwrap_or(restore);
+        return clamp_drawer_rect_ex(restore, &pvfs, true).unwrap_or(restore);
     };
     let vf = pvfs
         .iter()
@@ -1260,7 +1303,7 @@ pub(crate) fn clamp_on_host_display(
         })
         .or_else(|| pvfs.first());
     match vf {
-        Some(vf) => clamp_to_frame(restore, vf),
+        Some(vf) => clamp_to_frame_keep_bottom(restore, vf),
         None => restore,
     }
 }
@@ -1306,6 +1349,33 @@ pub(crate) fn pin_bottom_center(
         y: bottom - h,
         w,
         h,
+    }
+}
+
+/// HOST-DOCK leftover: place `r`, then if macOS constrainFrameRect slid
+/// the frame, put the bottom back so dests stay.
+pub(crate) fn place_logical_rect_keep_bottom(
+    w: &tauri::WebviewWindow,
+    label: &str,
+    r: &state::CompanionBounds,
+) {
+    let target_bottom = r.y + r.h;
+    place_logical_rect(w, label, r);
+    let Some(live) = live_points_rect(w) else {
+        return;
+    };
+    if (live.y + live.h - target_bottom).abs() <= 0.5 {
+        return;
+    }
+    let fixed = state::CompanionBounds {
+        x: live.x,
+        y: target_bottom - live.h,
+        w: live.w,
+        h: live.h,
+    };
+    appkit_place_points(w, &fixed);
+    if let Ok(p) = w.outer_position() {
+        drawer_expect(label, (p.x, p.y));
     }
 }
 
@@ -1997,4 +2067,39 @@ pub(crate) fn retether_all_drawers(app: tauri::AppHandle) -> Result<(), String> 
         retether_drawer(app.clone(), label.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod host_dock_tests {
+    use super::*;
+
+    fn rect(x: f64, y: f64, w: f64, h: f64) -> state::CompanionBounds {
+        state::CompanionBounds { x, y, w, h }
+    }
+
+    #[test]
+    fn pin_keeps_bottom_center() {
+        let cur = rect(100.0, 200.0, 520.0, 780.0);
+        let p = pin_bottom_center(cur, 1080.0, 620.0);
+        assert!((p.y + p.h - (cur.y + cur.h)).abs() < 1e-9);
+        assert!((p.x + p.w / 2.0 - (cur.x + cur.w / 2.0)).abs() < 1e-9);
+        assert_eq!(p.w, 1080.0);
+        assert_eq!(p.h, 620.0);
+    }
+
+    #[test]
+    fn clamp_keep_bottom_does_not_walk_dock() {
+        let vf = VisibleFrame {
+            x: 0.0,
+            y: 38.0,
+            w: 1512.0,
+            h: 874.0,
+        };
+        let pinned = rect(200.0, 100.0, 1080.0, 620.0);
+        let bottom = pinned.y + pinned.h;
+        let c = clamp_to_frame_keep_bottom(pinned, &vf);
+        assert!((c.y + c.h - bottom).abs() < 1e-9);
+        assert_eq!(c.w, 1080.0);
+        assert_eq!(c.h, 620.0);
+    }
 }
