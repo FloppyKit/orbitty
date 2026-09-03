@@ -1289,6 +1289,26 @@ pub(crate) fn host_grown_rect(cur: state::CompanionBounds) -> state::CompanionBo
     }
 }
 
+/// GO-ORBITTY-HOST-DOCK: keep `cur`'s bottom-center; apply new `w`/`h`.
+/// Dest buttons sit on the ghostdock at the bottom of the companion —
+/// pinning that edge (and the horizontal center) means dest toggle
+/// expand/contract does not walk the cursor. Clamp after may still
+/// shift for a 24px handle at a screen edge.
+pub(crate) fn pin_bottom_center(
+    cur: state::CompanionBounds,
+    w: f64,
+    h: f64,
+) -> state::CompanionBounds {
+    let cx = cur.x + cur.w / 2.0;
+    let bottom = cur.y + cur.h;
+    state::CompanionBounds {
+        x: cx - w / 2.0,
+        y: bottom - h,
+        w,
+        h,
+    }
+}
+
 /// Center `size` on `vf` (points, top-left), cascaded so first-opens of
 /// different labels do not land on one origin. Clamped to stay inside
 /// the visible frame when the pane fits.

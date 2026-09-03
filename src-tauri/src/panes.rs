@@ -490,35 +490,31 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
                 w: 520.0,
                 h: 780.0,
             });
-        // GO-ORBITTY-HOST-FIT: the grow follows the display the companion
-        // sits on — 1080×620 landscape, 620×1080 portrait. Origin stays
-        // live cur; the clamp below still never swaps w/h.
+        // GO-ORBITTY-HOST-FIT: size follows the display — 1080×620
+        // landscape, 620×1080 portrait. GO-ORBITTY-HOST-DOCK: pin the
+        // live bottom-center so the dest dock stays under the cursor;
+        // clamp after may still shift at a screen edge.
         let grown = crate::drawers::host_grown_rect(cur);
-        let placed = crate::drawers::clamp_on_displays(grown).unwrap_or(grown);
+        let pinned = crate::drawers::pin_bottom_center(cur, grown.w, grown.h);
+        let placed = crate::drawers::clamp_on_displays(pinned).unwrap_or(pinned);
         crate::drawers::place_logical_rect(&w, "companion", &placed);
     } else {
         let stash = host_stash().lock().ok().and_then(|mut s| s.take());
-        // GO-ORBITTY-HOST-STAY: dismiss = idle SIZE at the LIVE origin.
-        // w,h from the stash (fallback spec 520×780); x,y from the hosted
-        // window's live rect NOW — the stash origin is enter-time history,
-        // not the place (a hosted window dragged to another display must
-        // dismiss there). Clamp on that one display only — never the
-        // every-display pick that re-centered onto the middle screen.
+        // GO-ORBITTY-HOST-STAY + HOST-DOCK: dismiss = idle SIZE pinned
+        // to the LIVE hosted bottom-center (stash origin is enter-time
+        // history). Clamp on that one display only.
         let live = crate::drawers::live_points_rect(&w);
-        let restore = crate::state::CompanionBounds {
-            x: live
-                .as_ref()
-                .map(|r| r.x)
-                .or_else(|| stash.as_ref().map(|r| r.x))
-                .unwrap_or(0.0),
-            y: live
-                .as_ref()
-                .map(|r| r.y)
-                .or_else(|| stash.as_ref().map(|r| r.y))
-                .unwrap_or(0.0),
-            w: stash.as_ref().map(|r| r.w).unwrap_or(520.0),
-            h: stash.as_ref().map(|r| r.h).unwrap_or(780.0),
-        };
+        let rw = stash.as_ref().map(|r| r.w).unwrap_or(520.0);
+        let rh = stash.as_ref().map(|r| r.h).unwrap_or(780.0);
+        let pin_from = live.unwrap_or_else(|| {
+            stash.unwrap_or(crate::state::CompanionBounds {
+                x: 0.0,
+                y: 0.0,
+                w: rw,
+                h: rh,
+            })
+        });
+        let restore = crate::drawers::pin_bottom_center(pin_from, rw, rh);
         let placed = crate::drawers::clamp_on_host_display(live, restore);
         crate::drawers::place_logical_rect(&w, "companion", &placed);
         // Persist the RESTORED idle rect — never the host frame.
