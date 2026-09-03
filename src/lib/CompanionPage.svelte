@@ -89,6 +89,7 @@
   import KanbanPage from "./KanbanPage.svelte";
   import StarsPage from "./StarsPage.svelte";
   import RailPage from "./RailPage.svelte";
+  import SpiritStage from "./SpiritStage.svelte";
 
   import type {
     CompanionSlice,
@@ -1287,33 +1288,6 @@
   </span>
 {/snippet}
 
-{#snippet spiritStage()}
-  <!-- The one spirit stage: full-width when idle, the hosted right column
-       (.wellhead) inside the well. Full/Head follows viewPref on both —
-       viewCollapsed is never persist-overwritten. -->
-  <div class="stage" role="presentation">
-    {#if missing}
-      <p class="missing">spirit missing</p>
-    {:else if drawFrames.length > 0}
-      <div
-        class="floatwrap"
-        class:headview={headShowing}
-        onmousedown={onDragMouseDown}
-        role="presentation"
-      >
-        <img
-          class="spirit"
-          class:smooth={artSmooth}
-          class:react={headShowing && sending}
-          src={drawFrames[frameIdx] ?? drawFrames[0]}
-          alt="Your companion spirit"
-          draggable="false"
-        />
-      </div>
-    {/if}
-  </div>
-{/snippet}
-
 {#snippet transcriptPane()}
   <!-- The one expanded transcript: idle Expand fills the pane; HOST-CC
        hosted Expand is the SAME pane as an overlay on the well
@@ -1366,37 +1340,16 @@
   bind:this={mainEl}
 >
   {#if expanded && sprite}
-    <!-- CORNER: the expanded portrait is a 96×96 box absolute upper-right
-         of the pane (above agentrow/composer) — the surface view (Head
-         bust by default, or the full figure, object-fit inside the box).
-         It is the only expanded drag handle so the transcript can scroll;
-         the transcript runs from the top with a reserved right gutter so
-         bubbles never pass under the face. HEADROOM: the bust is the
-         body's own bust_* art, never a crop of the full frame. HOST-CC:
-         the same portrait rides the hosted overlay (z-index above the
-         scrim), still the one drag handle. -->
-    <div
-      class="exphead"
-      class:headview={headShowing}
-      onmousedown={onDragMouseDown}
-      role="presentation"
-    >
-      {#if !missing && drawFrames.length > 0}
-        <div class="floatwrap" class:headview={headShowing}>
-          <img
-            class="expimg"
-            class:smooth={artSmooth}
-            class:react={headShowing && sending}
-            src={drawFrames[frameIdx] ?? drawFrames[0]}
-            alt=""
-            draggable="false"
-          />
-        </div>
-      {/if}
-    </div>
-    {#if missing}
-      <p class="missing">spirit missing</p>
-    {/if}
+    <SpiritStage
+      corner
+      {headShowing}
+      {missing}
+      frames={drawFrames}
+      {frameIdx}
+      thinking={sending}
+      smooth={artSmooth}
+      onDrag={onDragMouseDown}
+    />
   {/if}
 
   {#if hosted !== "off"}
@@ -1420,7 +1373,17 @@
         </div>
         {#if sprite}
           <div class="wellhead">
-            {#if !expanded}{@render spiritStage()}{/if}
+            {#if !expanded}
+              <SpiritStage
+                {headShowing}
+                {missing}
+                frames={drawFrames}
+                {frameIdx}
+                thinking={sending}
+                smooth={artSmooth}
+                onDrag={onDragMouseDown}
+              />
+            {/if}
           </div>
         {/if}
       </div>
@@ -1431,7 +1394,15 @@
   {:else if expanded}
     {@render transcriptPane()}
   {:else if sprite}
-    {@render spiritStage()}
+    <SpiritStage
+      {headShowing}
+      {missing}
+      frames={drawFrames}
+      {frameIdx}
+      thinking={sending}
+      smooth={artSmooth}
+      onDrag={onDragMouseDown}
+    />
   {/if}
 
   {#if !expanded}
@@ -1896,25 +1867,6 @@
     background: var(--panel-fill, var(--panel));
   }
 
-  /* Ghost fills the upper area; the only drag handle when collapsed.
-     RENDER: min-height keeps the ghost visible when a collapsed CC
-     bubble is holding a tall table (the CC scrolls inside itself). */
-  .stage {
-    flex: 1;
-    min-height: 120px;
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    user-select: none;
-    -webkit-user-select: none;
-    cursor: grab;
-  }
-
-  .stage:active {
-    cursor: grabbing;
-  }
-
   /* GO-ORBITTY-HOST-CC: the wrap is the overlay's positioning context —
      the expanded transcript covers the well ONLY (agentrow + composer
      stay below it, usable). The well keeps its own flex so nothing
@@ -1957,41 +1909,10 @@
     display: flex;
   }
 
-  .wellhead .stage {
-    flex: 1;
-    width: auto;
-    min-height: 0;
-  }
-
   /* SPRITE-OFF hosted: no .wellhead — the pane takes the full well and
      drops the divider. */
   .wellpane.fullwell {
     border-right: none;
-  }
-
-  /* HEADROOM: the float wrapper keeps the spirit/bust filling the stage;
-     collapsed views never animate it — only expanded Full floats (see
-     bustfloat below). */
-  .stage .floatwrap {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  /* GO-ORBITTY-GHOST-DOCK: ghost shrinks the wrap to a centered square —
-     the shorter of the stage's width/height — so the reported spirit box
-     hugs the figure and the empty air around it clicks through. The
-     stage becomes a size container only in ghost; the slab (hosted /
-     expanded) keeps the full-bleed wrap above. */
-  .ghost .stage {
-    container-type: size;
-  }
-
-  .ghost .stage .floatwrap {
-    width: min(100cqw, 100cqh);
-    height: min(100cqw, 100cqh);
   }
 
   /* SPRITE-HUG: the old spriteoff ::before flex spacer is dead — the
@@ -1999,117 +1920,6 @@
      (keep-bottom), so the frame IS the chrome and there is no tall
      empty pane left to pin against. The bar stays ghost: empty air in
      it still clicks through via the reported hit list. */
-
-  .spirit {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    image-rendering: pixelated;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  .spirit.smooth {
-    image-rendering: auto;
-  }
-
-  /* CORNER: the expanded portrait is a 96×96 box parked absolute
-     upper-right of the pane (over the transcript's reserved gutter,
-     above agentrow/composer) and is the only expanded drag handle.
-     HEADROOM killed the 128px clip; CORNER killed the 44vh/34vh
-     full-width strip — Head bust and full figure both draw inside the
-     same 96 box (object-fit: contain, width follows the art's aspect). */
-  .exphead {
-    position: absolute;
-    top: 8px;
-    left: 10px;
-    right: auto;
-    z-index: 2;
-    width: 96px;
-    height: 96px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    user-select: none;
-    -webkit-user-select: none;
-    cursor: grab;
-  }
-
-  .exphead:active {
-    cursor: grabbing;
-  }
-
-  .exphead .floatwrap {
-    line-height: 0;
-    width: 96px;
-    height: 96px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .expimg {
-    display: block;
-    max-width: 96px;
-    max-height: 96px;
-    object-fit: contain;
-    image-rendering: pixelated;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  .expimg.smooth {
-    image-rendering: auto;
-  }
-
-  /* HEADROOM float: a few px of drift on the expanded Full figure. The
-     wrapper translates so the img's own react transform stays free.
-     CORNER: Head sits still in both views — the bouncy translate reads
-     as noise on a closeup, the sheet's own edge wave is enough. */
-  .exphead .floatwrap {
-    animation: bustfloat 6.5s ease-in-out infinite;
-  }
-
-  .exphead .floatwrap.headview {
-    animation: none;
-  }
-
-  @keyframes bustfloat {
-    0%,
-    100% {
-      transform: translate(0, 0);
-    }
-    25% {
-      transform: translate(1.5px, -2.5px);
-    }
-    50% {
-      transform: translate(0, -3.5px);
-    }
-    75% {
-      transform: translate(-1.5px, -2px);
-    }
-  }
-
-  /* Think/send: one small yaw/roll, then settle (runs once per send). */
-  .spirit.react,
-  .expimg.react {
-    animation: bustreact 0.9s ease-out 1;
-  }
-
-  @keyframes bustreact {
-    0% {
-      transform: rotate(0deg) scaleX(1);
-    }
-    30% {
-      transform: rotate(-3deg) scaleX(0.96);
-    }
-    60% {
-      transform: rotate(2.4deg) scaleX(1.02);
-    }
-    100% {
-      transform: rotate(0deg) scaleX(1);
-    }
-  }
 
   /* Expanded transcript: starts at the top of the pane and scrolls the
      saved turns; never a drag region. CORNER: padding-right is always
@@ -2438,22 +2248,6 @@
     .wmark .speck {
       display: none;
     }
-    /* HEADROOM: Reduce Motion sits the bust — no float, no react-rotate.
-       CORNER: the expanded Full float parks too. */
-    .exphead .floatwrap,
-    .spirit.react,
-    .expimg.react {
-      animation: none;
-    }
-  }
-
-
-  .missing {
-    margin: 0;
-    color: var(--dim);
-    font-size: 0.8rem;
-    letter-spacing: 0.04em;
-    text-align: center;
   }
 
   /* True CC (collapsed only — expanded is bubbles). S2.6: same SMS
