@@ -507,7 +507,25 @@ enum Projection {
 
 impl Default for Projection {
     fn default() -> Self {
+        Projection::Oblique
+    }
+}
+
+/// GO-ORBITTY-PROJ-LOCK: expanded planets are always 2.5D; marbles are
+/// always 2D. Not a persisted per-planet switch.
+fn locked_projection(is_marble: bool) -> Projection {
+    if is_marble {
         Projection::Flat
+    } else {
+        Projection::Oblique
+    }
+}
+
+fn locked_projection_str(is_marble: bool) -> &'static str {
+    if is_marble {
+        "flat"
+    } else {
+        "oblique"
     }
 }
 
@@ -534,7 +552,8 @@ pub(crate) struct WorldState {
     /// full volume — the container `default` would give 0.0.
     #[serde(default = "default_boombox_volume")]
     boombox_volume: f32,
-    /// "flat" (2D disc) | "oblique" (2.5D ellipse); empty = flat.
+    /// Legacy field. Live disc ignores this — GO-ORBITTY-PROJ-LOCK derives
+    /// projection from marble vs expanded. Rewritten on sync to heal.
     projection: String,
     /// First time this world was seen; 0 = pre-GROW save (set to now on
     /// load). The decor budget grows from this.
@@ -543,16 +562,6 @@ pub(crate) struct WorldState {
     mushrooms: Vec<DecorItem>,
     buildings: Vec<DecorItem>,
     boombox_pos: Option<DecorPoint>,
-}
-
-impl WorldState {
-    fn projection(&self) -> Projection {
-        if self.projection == "oblique" {
-            Projection::Oblique
-        } else {
-            Projection::Flat
-        }
-    }
 }
 
 fn default_boombox_volume() -> f32 {
@@ -1594,7 +1603,7 @@ fn default_state(screen_id: &str, existing_on_screen: usize) -> WorldState {
         boombox: false,
         music: String::new(),
         boombox_volume: 1.0,
-        projection: String::new(),
+        projection: "oblique".into(),
         first_seen: now_epoch(),
         plants: Vec::new(),
         mushrooms: Vec::new(),
@@ -1788,14 +1797,6 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
     decl.add_method(
         sel!(planetBoomboxVolume:),
         input::menu_boombox_volume as extern "C" fn(&Object, Sel, *mut Object),
-    );
-    decl.add_method(
-        sel!(planetSetFlat:),
-        input::menu_set_flat as extern "C" fn(&Object, Sel, *mut Object),
-    );
-    decl.add_method(
-        sel!(planetSetOblique:),
-        input::menu_set_oblique as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetPlaceBuilding:),
@@ -2482,8 +2483,10 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         let decor = h.worlds.get(project_id).cloned();
         if let Some(planet) = h.planets.get_mut(project_id) {
             planet.name = name.clone();
+            let want_proj = locked_projection(collapsed_eff);
+            let proj_changed = planet.projection != want_proj;
+            planet.projection = want_proj;
             if let Some(w) = decor {
-                planet.projection = w.projection();
                 planet.plants = w.plants;
                 planet.mushrooms = w.mushrooms;
                 planet.buildings = w.buildings;
@@ -2539,10 +2542,10 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                     planet.walker_entries =
                         walker_entries.iter().map(|e| (*e).clone()).collect();
                     planet.dot_entries = dot_entries.iter().map(|e| (*e).clone()).collect();
-                    if geometry_changed {
+                    if geometry_changed || proj_changed {
                         layout_beings(planet);
                     }
-                    if any_pose || geometry_changed {
+                    if any_pose || geometry_changed || proj_changed {
                         unsafe {
                             let view = planet.view as *mut Object;
                             let _: () = msg_send![view, setNeedsDisplay: true];
@@ -2628,7 +2631,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 is_marble: collapsed_eff,
                 color,
                 rotation: 0.0,
-                projection: state.projection(),
+                projection: locked_projection(collapsed_eff),
                 walkers,
                 dots,
                 caption: None,
@@ -2677,6 +2680,15 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             h.planets.insert(project_id.clone(), planet);
             if collapsed_eff {
                 marble_panels += 1;
+            }
+        }
+        // GO-ORBITTY-PROJ-LOCK: heal worlds.json so a leftover "flat"
+        // expanded save does not linger. Live disc never reads this.
+        if let Some(w) = h.worlds.get_mut(project_id) {
+            let want = locked_projection_str(collapsed_eff);
+            if w.projection != want {
+                w.projection = want.to_string();
+                h.worlds_dirty = true;
             }
         }
     }

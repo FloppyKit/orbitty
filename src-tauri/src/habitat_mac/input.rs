@@ -37,7 +37,7 @@ use super::{
     menu_target, now_epoch, ns_string, panel_set_frame, panic_msg, plant_cap, primary_screen_id,
     radius_y, sender_project_id, set_caption, view_to_disc, walker_hidden, world_entry, DecorItem,
     DecorKind, DecorPoint, DecorRef, Drag, Habitat, NSPoint, NSRect, PendingClick, Placement,
-    Planet, Projection, MIN_RADIUS, VIEW_PADDING,
+    Planet, MIN_RADIUS, VIEW_PADDING,
 };
 
 /// GO-ORBITTY-BOOMBOX-GAIN: press-release on the boombox under this
@@ -613,14 +613,13 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         boombox_context_menu(this, event, &project_id);
         return;
     }
-    let (oblique, plant_left, mush_left, build_left, has_box, volume) = {
+    let (plant_left, mush_left, build_left, has_box, volume) = {
         let h = lock();
         let now = now_epoch();
         h.worlds
             .get(&project_id)
             .map(|w| {
                 (
-                    w.projection() == Projection::Oblique,
                     plant_cap(w.first_seen, now).saturating_sub(w.plants.len()),
                     plant_cap(w.first_seen, now).saturating_sub(w.mushrooms.len()),
                     building_cap(w.first_seen, now).saturating_sub(w.buildings.len()),
@@ -628,7 +627,7 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
                     w.boombox_volume,
                 )
             })
-            .unwrap_or((false, 3, 3, 1, false, 1.0))
+            .unwrap_or((3, 3, 1, false, 1.0))
     };
     // Lock dropped: popUpContextMenu runs modally and the target's actions
     // re-lock on selection.
@@ -657,25 +656,6 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         &project_id,
         None,
         is_marble,
-    );
-    add_separator(menu);
-    add_menu_item(
-        menu,
-        "2D disc",
-        sel!(planetSetFlat:),
-        target,
-        &project_id,
-        Some(!oblique),
-        true,
-    );
-    add_menu_item(
-        menu,
-        "2.5D",
-        sel!(planetSetOblique:),
-        target,
-        &project_id,
-        Some(oblique),
-        true,
     );
     add_separator(menu);
     add_menu_item(
@@ -959,40 +939,6 @@ pub(crate) extern "C" fn walker_open_being(_this: &Object, _cmd: Sel, sender: *m
             if let Some(app) = app_handle() {
                 let _ = app.emit_to("main", "habitat:being", id);
             }
-        }
-    }));
-}
-
-pub(crate) extern "C" fn menu_set_flat(_this: &Object, _cmd: Sel, sender: *mut Object) {
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let Some(id) = sender_project_id(sender) else { return; };
-        let mut h = lock();
-        {
-            let world = world_entry(&mut h, &id);
-            world.projection = "flat".into();
-        }
-        h.worlds_dirty = true;
-        if let Some(planet) = h.planets.get_mut(&id) {
-            planet.projection = Projection::Flat;
-            layout_beings(planet);
-            set_caption(planet, "2D disc".into());
-        }
-    }));
-}
-
-pub(crate) extern "C" fn menu_set_oblique(_this: &Object, _cmd: Sel, sender: *mut Object) {
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let Some(id) = sender_project_id(sender) else { return; };
-        let mut h = lock();
-        {
-            let world = world_entry(&mut h, &id);
-            world.projection = "oblique".into();
-        }
-        h.worlds_dirty = true;
-        if let Some(planet) = h.planets.get_mut(&id) {
-            planet.projection = Projection::Oblique;
-            layout_beings(planet);
-            set_caption(planet, "2.5D".into());
         }
     }));
 }
