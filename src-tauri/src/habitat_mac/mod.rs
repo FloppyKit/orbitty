@@ -1985,9 +1985,10 @@ fn layout_beings(planet: &mut Planet) {
             // else STATION_HOUSE) and walks to the station — the world
             // narrates house → board/field instead of popping in at the
             // column. Sit still seeds AT the front rim (bad news skips the
-            // queue) and a Done walker seeds already past the hide line so
-            // its walked-off emit fires on the first tick without a
-            // phantom walk. Live card moves keep the existing roam entry,
+            // queue). LEFTOVER: a Done walker seeds AT THE HOUSE TOO —
+            // never past the hide line — so the walk off the top is
+            // visible; the walked-off emit fires when it crosses
+            // DONE_HIDE_Y. Live card moves keep the existing roam entry,
             // so those walks stay visible.
             match pose {
                 Pose::Stand | Pose::Work => {
@@ -2014,15 +2015,22 @@ fn layout_beings(planet: &mut Planet) {
                         off_emitted: false,
                     }
                 }
-                Pose::WalkOff => RoamState {
-                    x: DONE_OFF.0,
-                    y: DONE_HIDE_Y - 0.05,
-                    tx: DONE_OFF.0,
-                    ty: DONE_OFF.1,
-                    pause_end: None,
-                    facing_left: false,
-                    off_emitted: false,
-                },
+                Pose::WalkOff => {
+                    // LEFTOVER: seed at the house (y > DONE_HIDE_Y), never
+                    // past the hide line — a fresh Done roam that starts
+                    // hidden emits and vanishes on the first tick. From
+                    // here the walk off the top is visible.
+                    let (tx, ty) = walkoff_target(id, house.0, house.1);
+                    RoamState {
+                        x: house.0,
+                        y: house.1,
+                        tx,
+                        ty,
+                        pause_end: None,
+                        facing_left: false,
+                        off_emitted: false,
+                    }
+                }
                 Pose::Roam => {
                     let a = i as f64 * 2.3;
                     let r = 0.32;

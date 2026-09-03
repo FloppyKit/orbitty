@@ -24,7 +24,7 @@ use super::{
     BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DONE_HIDE_Y, DRIFT_JOIN_DIST,
     DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
     HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
-    STATION_HOUSE, TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING,
+    TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING,
 };
 
 // ---------- CVDisplayLink motion clock (GO-ORBITTY-MARBLE-RIM; post-and-return GO-ORBITTY-MARBLE-HITCH) ----------
@@ -592,6 +592,12 @@ fn anim_tick() {
             continue; // marbles are bare and still
         }
         let mut dirty = false;
+        // WORLD-PLACES leftover: layout_beings reruns ONLY when a roam
+        // x/y actually changed this tick — an arrived Work walker steps
+        // in place forever, and re-laying out every tick held the
+        // habitat lock on the AppKit thread (menu beach-ball). Bob alone
+        // still dirties the display below.
+        let mut moved = false;
         let now_i = Instant::now();
         let ids: Vec<String> = planet.walkers.iter().map(|b| b.entry_id.clone()).collect();
         // GO-ORBITTY-IDLE-STILL: bob only on a tick the walker actually
@@ -616,33 +622,73 @@ fn anim_tick() {
                 .get(i)
                 .map(|b| (b.pose, b.asleep))
                 .unwrap_or((Pose::Roam, false));
-            // Sleepers stand still where they were laid out — no roam. A
-            // Done card still walks a sleeper off: the complete ritual
-            // closes the window, and the walk-off narrates the eviction.
-            if asleep && pose != Pose::WalkOff {
-                continue;
-            }
-            // WORLD-PLACES: a board-bound walker comes from the house — a
-            // hashed building when the planet has any, else the far/north
-            // house interior. Computed before the roam borrow.
-            let house = if matches!(pose, Pose::Stand | Pose::Work) {
-                house_spawn(planet, id)
-            } else {
-                STATION_HOUSE
-            };
-            let roam = planet.roam.entry(id.clone()).or_insert_with(|| RoamState {
-                x: 0.2 * (i as f64).cos(),
-                y: 0.2 * (i as f64).sin(),
-                tx: 0.2,
-                ty: 0.0,
-                pause_end: None,
-                facing_left: false,
-                off_emitted: false,
+            // WORLD-PLACES leftover: create/get the roam BEFORE the
+            // sleeper continue — a new/asleep claim must not miss its
+            // house roam this tick. The seed is pose-aware (the old 0.2
+            // cos/sin circle fallback is gone): Stand/Work come from the
+            // house (a hashed building when the planet has any, else the
+            // far/north house interior), Sit seeds AT the rim station,
+            // WalkOff keeps the current roam or starts at the house —
+            // never past DONE_HIDE_Y, so the walk off the top is visible.
+            // Computed before the roam borrow.
+            let house = house_spawn(planet, id);
+            let roam = planet.roam.entry(id.clone()).or_insert_with(|| match pose {
+                Pose::Stand | Pose::Work => {
+                    let (tx, ty) = station_target(pose, id);
+                    RoamState {
+                        x: house.0,
+                        y: house.1,
+                        tx,
+                        ty,
+                        pause_end: None,
+                        facing_left: false,
+                        off_emitted: false,
+                    }
+                }
+                Pose::Sit => {
+                    let (tx, ty) = station_target(Pose::Sit, id);
+                    RoamState {
+                        x: tx,
+                        y: ty,
+                        tx,
+                        ty,
+                        pause_end: None,
+                        facing_left: false,
+                        off_emitted: false,
+                    }
+                }
+                Pose::WalkOff => {
+                    let (tx, ty) = walkoff_target(id, house.0, house.1);
+                    RoamState {
+                        x: house.0,
+                        y: house.1,
+                        tx,
+                        ty,
+                        pause_end: None,
+                        facing_left: false,
+                        off_emitted: false,
+                    }
+                }
+                Pose::Roam => RoamState {
+                    x: house.0,
+                    y: house.1,
+                    tx: house.0,
+                    ty: house.1,
+                    pause_end: None,
+                    facing_left: false,
+                    off_emitted: false,
+                },
             });
             // A walker that left WalkOff (re-claimed) re-arms its emit so
             // the NEXT Done walks off and evicts again.
             if pose != Pose::WalkOff {
                 roam.off_emitted = false;
+            }
+            // Sleepers stand still where they were laid out — no roam. A
+            // Done card still walks a sleeper off: the complete ritual
+            // closes the window, and the walk-off narrates the eviction.
+            if asleep && pose != Pose::WalkOff {
+                continue;
             }
             match pose {
                 // Needed: bad news skips the queue — snap to the gate, never
@@ -652,7 +698,7 @@ fn anim_tick() {
                     if (roam.x - tx).abs() > 1e-9 || (roam.y - ty).abs() > 1e-9 {
                         roam.x = tx;
                         roam.y = ty;
-                        dirty = true;
+                        moved = true;
                     }
                     roam.tx = tx;
                     roam.ty = ty;
@@ -675,6 +721,7 @@ fn anim_tick() {
                     if roam.y < DONE_HIDE_Y {
                         roam.x = house.0;
                         roam.y = house.1;
+                        moved = true;
                     }
                     let dx = roam.tx - roam.x;
                     let dy = roam.ty - roam.y;
@@ -685,13 +732,15 @@ fn anim_tick() {
                         roam.y += dy / dist * step;
                         roam.facing_left = dx < -0.002;
                         stepping[i] = true;
-                        dirty = true; // walking to the station
+                        moved = true; // walking to the station
                     } else if pose == Pose::Work {
                         // Arrived at the field: keep stepping in place —
                         // the walk cycle IS the work. The target stays
                         // hashed around STATION_FIELD, never |y| >= 0.22.
+                        // LEFTOVER: no dirty/layout here — the position
+                        // didn't change, so layout_beings must not rerun;
+                        // the bob sweep below still dirties the DISPLAY.
                         stepping[i] = true;
-                        dirty = true; // working the field
                     }
                 }
                 // Done: straight off the far/top rim onto the panel — one
@@ -724,6 +773,7 @@ fn anim_tick() {
                         // target could pull y south again): snap past the
                         // line and emit.
                         roam.y = DONE_HIDE_Y - 0.01;
+                        moved = true;
                         if !roam.off_emitted {
                             roam.off_emitted = true;
                             emit_walked_off(id);
@@ -736,7 +786,7 @@ fn anim_tick() {
                     roam.y += dy / dist * step;
                     roam.facing_left = dx < -0.002;
                     stepping[i] = true;
-                    dirty = true; // walking off
+                    moved = true; // walking off
                 }
                 Pose::Roam => {
                     if any_work_sit {
@@ -773,12 +823,19 @@ fn anim_tick() {
                         roam.y += dy / dist * step;
                         roam.facing_left = dx < -0.002;
                         stepping[i] = true;
-                        dirty = true; // roam stepped
+                        moved = true; // roam stepped
                     }
                 }
             }
         }
-        layout_beings(planet);
+        // WORLD-PLACES leftover: full layout ONLY on a real roam position
+        // change — an arrived Work walker steps in place forever, and
+        // re-laying out every tick held the habitat lock on the AppKit
+        // thread (menu beach-ball). A move implies a display refresh.
+        if moved {
+            layout_beings(planet);
+            dirty = true;
+        }
         for (i, b) in planet.walkers.iter_mut().enumerate() {
             let bob = if stepping.get(i).copied().unwrap_or(false) {
                 (bob_phase * 2.2 + (i as f64) * 1.1).sin() * 1.4
