@@ -240,8 +240,8 @@ const BARY_PREFIX: &str = "b\n";
 /// décor, never a spawn) and walks to its station. Sit snaps to the
 /// front rim (bad news skips the queue). Done walks to the igloo and
 /// off the LEFT rim (HOME_OFF / HOME_HIDE_X) — never off the top.
-pub(crate) const STATION_HOUSE: (f64, f64) = (-0.62, 0.05); // igloo — left interior
-pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.42); // Todo — far/back board
+pub(crate) const STATION_HOUSE: (f64, f64) = (-0.78, 0.05); // igloo — left interior
+pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.58); // Todo — far/back board
 // Doing — the open interior field, off the front lip (the fanned target
 // keeps |y| < 0.22 and x > -0.35, so the fan never enters the igloo):
 // the walk cycle keeps running here after arrival (CADENCE-PATH stilled
@@ -250,14 +250,15 @@ pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.42); // Todo — far/back 
 pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05);
 pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/south rim
 // Done — home: past the LEFT rim onto the panel (GO-ORBITTY-WORLD-TOWN,
-// replacing CADENCE-EXIT's north exit). Hide sits just past the visual
-// rim so the walker is seen stepping off the left edge, then vanishes.
+// replacing CADENCE-EXIT's north exit). Hide sits clearly past the
+// visual rim (LEFTOVER: no 1–2px curtain) so the walker is seen
+// stepping off the left edge, then vanishes.
 // Never a rim waypoint (that yoyo'd).
 pub(crate) const HOME_OFF: (f64, f64) = (-1.55, 0.05);
 /// Past this line (roam.x < HOME_HIDE_X) the walked-off walker hides
 /// until the rail's Done eviction (unclaim) lands — cadence never
 /// deletes the claim itself.
-pub(crate) const HOME_HIDE_X: f64 = -1.12;
+pub(crate) const HOME_HIDE_X: f64 = -1.40;
 
 /// Walker cadence, resolved from the snapshot's card fields. Cap = these
 /// four plus the ambient default; no fifth pose.
@@ -470,7 +471,7 @@ fn clamp_disc(x: f64, y: f64) -> (f64, f64) {
 
 /// One placed plant/mushroom: disc-local unit coords (-1..1) + birth time
 /// for the 7-day growth curve.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 struct DecorItem {
     x: f64,
@@ -479,7 +480,7 @@ struct DecorItem {
 }
 
 /// Boombox placement (no growth — it just sits there and plays).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 struct DecorPoint {
     x: f64,
@@ -666,6 +667,11 @@ struct RoamState {
     /// north rim). Reset whenever the pose leaves WalkOff so a re-claimed
     /// walker's next Done emits again.
     off_emitted: bool,
+    /// WORLD-TOWN LEFTOVER: a Done walk-off touches the board (done
+    /// column) before heading home — true once the walker has reached
+    /// STATION_BOARD, so the home leg (walkoff_target / HOME_OFF) runs.
+    /// Reset whenever the pose leaves WalkOff.
+    via_board: bool,
 }
 
 /// GO-ORBITTY-MARBLE-SOLAR: a marble's in-memory track membership.
@@ -2019,6 +2025,7 @@ fn layout_beings(planet: &mut Planet) {
                         pause_end: None,
                         facing_left: false,
                         off_emitted: false,
+                        via_board: false,
                     }
                 }
                 Pose::Sit => {
@@ -2031,6 +2038,7 @@ fn layout_beings(planet: &mut Planet) {
                         pause_end: None,
                         facing_left: false,
                         off_emitted: false,
+                        via_board: false,
                     }
                 }
                 Pose::WalkOff => {
@@ -2047,6 +2055,7 @@ fn layout_beings(planet: &mut Planet) {
                         pause_end: None,
                         facing_left: false,
                         off_emitted: false,
+                        via_board: false,
                     }
                 }
                 Pose::Roam => {
@@ -2060,6 +2069,7 @@ fn layout_beings(planet: &mut Planet) {
                         pause_end: None,
                         facing_left: false,
                         off_emitted: false,
+                        via_board: false,
                     }
                 }
             }
@@ -2522,12 +2532,22 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             let proj_changed = planet.projection != want_proj;
             planet.projection = want_proj;
             if let Some(w) = decor {
-                planet.plants = w.plants;
-                planet.mushrooms = w.mushrooms;
-                planet.buildings = w.buildings;
-                planet.boombox_pos = w.boombox_pos;
-                planet.boombox = w.boombox;
-                layout_decor(planet);
+                // LEFTOVER hitch: layout_decor only when the décor itself
+                // moved — a board drag / tick sync re-runs the frame math
+                // for nothing otherwise.
+                let decor_changed = planet.plants != w.plants
+                    || planet.mushrooms != w.mushrooms
+                    || planet.buildings != w.buildings
+                    || planet.boombox_pos != w.boombox_pos
+                    || planet.boombox != w.boombox;
+                if decor_changed {
+                    planet.plants = w.plants;
+                    planet.mushrooms = w.mushrooms;
+                    planet.buildings = w.buildings;
+                    planet.boombox_pos = w.boombox_pos;
+                    planet.boombox = w.boombox;
+                    layout_decor(planet);
+                }
             }
             let geometry_changed = planet.radius != radius || planet.is_marble != collapsed_eff;
             if geometry_changed {

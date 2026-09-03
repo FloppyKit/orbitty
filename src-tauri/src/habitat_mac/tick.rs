@@ -22,6 +22,7 @@ use super::{
     set_caption, station_target, view_to_disc, visible_frames, walkoff_target, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
     BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
+    STATION_BOARD,
     DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
     HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
     TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING,
@@ -643,6 +644,7 @@ fn anim_tick() {
                         pause_end: None,
                         facing_left: false,
                         off_emitted: false,
+                        via_board: false,
                     }
                 }
                 Pose::Sit => {
@@ -655,6 +657,7 @@ fn anim_tick() {
                         pause_end: None,
                         facing_left: false,
                         off_emitted: false,
+                        via_board: false,
                     }
                 }
                 Pose::WalkOff => {
@@ -667,6 +670,7 @@ fn anim_tick() {
                         pause_end: None,
                         facing_left: false,
                         off_emitted: false,
+                        via_board: false,
                     }
                 }
                 Pose::Roam => RoamState {
@@ -677,12 +681,15 @@ fn anim_tick() {
                     pause_end: None,
                     facing_left: false,
                     off_emitted: false,
+                    via_board: false,
                 },
             });
             // A walker that left WalkOff (re-claimed) re-arms its emit so
-            // the NEXT Done walks off and evicts again.
+            // the NEXT Done walks off and evicts again — and re-arms the
+            // board visit too (LEFTOVER via_board).
             if pose != Pose::WalkOff {
                 roam.off_emitted = false;
+                roam.via_board = false;
             }
             // Sleepers stand still where they were laid out — no roam. A
             // Done card still walks a sleeper off: the complete ritual
@@ -762,6 +769,28 @@ fn anim_tick() {
                             emit_walked_off(id);
                         }
                         continue;
+                    }
+                    // WORLD-TOWN LEFTOVER: the walk-off touches the board
+                    // (done column) BEFORE heading home — no straight cut
+                    // from the field to space. Once within 0.05 of
+                    // STATION_BOARD the home leg below takes over.
+                    if !roam.via_board {
+                        let dx = STATION_BOARD.0 - roam.x;
+                        let dy = STATION_BOARD.1 - roam.y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < 0.05 {
+                            roam.via_board = true;
+                        } else {
+                            roam.tx = STATION_BOARD.0;
+                            roam.ty = STATION_BOARD.1;
+                            let step = (0.16 * dt).min(dist);
+                            roam.x += dx / dist * step;
+                            roam.y += dy / dist * step;
+                            roam.facing_left = dx < -0.002;
+                            stepping[i] = true;
+                            moved = true; // walking to the board first
+                            continue;
+                        }
                     }
                     let (tx, ty) = walkoff_target(id, roam.x, roam.y);
                     let dx = tx - roam.x;

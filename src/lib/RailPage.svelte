@@ -355,6 +355,14 @@
   const UNMAPPED_KEY = "__unmapped__";
   let dragWindowId = $state<string | null>(null);
   let dropTarget = $state<string | null>(null);
+  // WORLD-TOWN LEFTOVER hitch: while a window drag is in flight — or within
+  // 400ms of dragstart (Svelte state can be lost mid-gesture) — the rail
+  // freezes AX polls and habitat syncs so the HTML5 session is never
+  // cancelled and the drop never beach-balls. claim() still fires on drop.
+  let dragStartedAt = 0;
+  function windowDragHot(): boolean {
+    return !!dragWindowId || Date.now() - dragStartedAt < 400;
+  }
 
   // Claim counts only when its project still exists.
   let liveClaims = $derived(
@@ -1715,6 +1723,7 @@
 
   function onDragStart(e: DragEvent, w: WindowInfo) {
     dragWindowId = w.id;
+    dragStartedAt = Date.now();
     ctxMenu = null;
     e.dataTransfer?.setData("text/plain", w.id);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
@@ -1777,6 +1786,10 @@
   }
 
   async function tick() {
+    // Frozen while a window drag is hot: no AX status, no list_windows, no
+    // syncHabitat — mutating the dragged row's DOM cancels the HTML5 drag
+    // session in WKWebView, and the sync is what beach-balled the drop.
+    if (windowDragHot()) return;
     try {
       const s = await invoke<AxStatus>("accessibility_status");
       status = s;
@@ -2127,7 +2140,7 @@
     // reload identical data — harmless. Skipped mid-drag so a window drag
     // can't be cancelled by a DOM swap.
     unlistenState = await listen("state:changed", async () => {
-      if (dragWindowId) return;
+      if (windowDragHot()) return;
       try {
         const s = await invoke<PersistedState>("load_state");
         kanbanCards = s.kanbanCards ?? [];
