@@ -797,7 +797,7 @@
     }
   }
 
-  // Dest strip: Launchpad/STARS/Inspector toggle the well (click again
+  // Dest strip: Launchpad/STARS/Planets toggle the well (click again
   // dismisses — the spirit gets the full stage back). A visible kanban
   // overlay is absorbed: the native enter hides it. Never invoke
   // open_kanban / open_stars / show_rail here — those are the overlay /
@@ -1563,9 +1563,9 @@
           class="dest iconbtn planetsdest"
           class:on={hosted === "inspector"}
           onclick={() => toggleDest("inspector")}
-          aria-label="Inspector"
-          data-chip="Inspector"
-          title="Inspector in the well — click again to dismiss"
+          aria-label="Planets"
+          data-chip="Planets"
+          title="Planets in the well — click again to dismiss"
         >
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <circle cx="12" cy="12" r="5" />
@@ -2490,13 +2490,6 @@
     border-radius: 14px;
     user-select: text;
     -webkit-user-select: text;
-  }
-
-  /* GO-ORBITTY-HOST-CC: hosted collapsed CC caps each bubble at ~3
-     lines. CAPTION-BUBBLE: idle is ~6 lines + scroll; click opens full. */
-  .hosting .cc {
-    max-height: calc(1.3em * 3 + 10px);
-    overflow: hidden;
   }
 
   .cc.bot {

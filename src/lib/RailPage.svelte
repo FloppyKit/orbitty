@@ -34,7 +34,7 @@
 
   // GO-ORBITTY-INSPECTOR-HOST: embedded mounts this page in the companion's
   // inspector well — × calls onClose (never hide_window), the banner
-  // wordmark is Inspector, and a pop-out control (onPopout) hands the
+  // title is Planets, and a pop-out control (onPopout) hands the
   // chrome back to the real rail window. The overlay passes nothing.
   let {
     embedded = false,
@@ -2288,13 +2288,13 @@
             ? onClose?.()
             : invoke("hide_window", { label: "main" }).catch(() => {})}
         title={embedded
-          ? "Dismiss the inspector well — the companion stays"
+          ? "Dismiss the Planets well — the companion stays"
           : "Hide Orbitty — quit from the tray icon"}
-        aria-label={embedded ? "Dismiss Inspector" : "Hide Orbitty"}>×</button
+        aria-label={embedded ? "Dismiss Planets" : "Hide Orbitty"}>×</button
       >
       <h1>
         {#if embedded}
-          Inspector
+          Planets
         {:else}
         <button
           class="wordmark"
@@ -2311,7 +2311,7 @@
           onmousedown={(e) => e.stopPropagation()}
           onclick={() => onPopout?.()}
           title="Pop out to the rail window — the well closes, the companion stays"
-          aria-label="Pop out Inspector"
+          aria-label="Pop out Planets"
         >
           <svg
             viewBox="0 0 24 24"
