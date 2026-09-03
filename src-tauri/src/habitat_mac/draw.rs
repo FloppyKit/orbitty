@@ -229,12 +229,13 @@ fn draw_rect_guarded(this: &Object) {
                         })
                         .unwrap_or(false);
                     // Pose-driven frame law: sit freezes on idle frame 0;
-                    // stand/work/roam/walkoff cycle only while stepping —
-                    // work arrived at the bench is idle frame 0 too
-                    // (CADENCE-PATH: the in-place walk cycle read as
-                    // rim-strolling).
+                    // stand/roam/walkoff cycle only while stepping; work
+                    // KEEPS the walk cycle after arrival — the field is
+                    // open interior now (WORLD-PLACES), not the front rim
+                    // that made CADENCE-PATH still it.
                     let cycling = match b.pose {
-                        Pose::Work | Pose::Stand | Pose::Roam | Pose::WalkOff => walking,
+                        Pose::Work => true,
+                        Pose::Stand | Pose::Roam | Pose::WalkOff => walking,
                         Pose::Sit => false,
                     };
                     let y = roam.map(|r| r.y).unwrap_or(0.0);
@@ -266,8 +267,11 @@ fn draw_rect_guarded(this: &Object) {
                         },
                         dim: b.dim,
                         flip: match b.pose {
-                            // Sit faces the planet center (the gate anchor
-                            // is east; flip mirrors the right-facing art).
+                            // Sit at the front rim (WORLD-PLACES): the
+                            // anchor is due south (x = 0), so this never
+                            // mirrors — right-facing art stands along the
+                            // rim. (The old east gate flipped to face the
+                            // planet center.)
                             Pose::Sit => station_anchor(Pose::Sit)
                                 .map(|(ax, _)| ax > 0.0)
                                 .unwrap_or(false),

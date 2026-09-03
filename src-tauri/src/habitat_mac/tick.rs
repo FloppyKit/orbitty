@@ -17,14 +17,14 @@ use tauri::{AppHandle, Emitter};
 use super::audio;
 use super::input::{boombox_click, contains_interactive, BOOMBOX_CLICK_SLOP};
 use super::{
-    app_handle, app_handle_cell, default_state, emit_walked_off, layout_beings, layout_decor,
-    lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens, set_caption,
-    station_target, view_to_disc, visible_frames, walkoff_target, ClusterState, DecorKind,
-    DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState, BARY_PREFIX,
-    BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DONE_HIDE_Y, DRIFT_JOIN_DIST, DRIFT_LEAVE_DIST,
-    DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST, HOST_PREFIX,
-    HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO, TRACK_T_MAX,
-    TRACK_T_MIN, VIEW_PADDING,
+    app_handle, app_handle_cell, default_state, emit_walked_off, house_spawn, layout_beings,
+    layout_decor, lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
+    set_caption, station_target, view_to_disc, visible_frames, walkoff_target, ClusterState,
+    DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
+    BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DONE_HIDE_Y, DRIFT_JOIN_DIST,
+    DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
+    HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
+    STATION_HOUSE, TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING,
 };
 
 // ---------- CVDisplayLink motion clock (GO-ORBITTY-MARBLE-RIM; post-and-return GO-ORBITTY-MARBLE-HITCH) ----------
@@ -597,9 +597,10 @@ fn anim_tick() {
         // GO-ORBITTY-IDLE-STILL: bob only on a tick the walker actually
         // steps (pause_end None and dist >= 0.025). Paused and asleep
         // walkers stand at bob 0; sleepers never enter the step branch.
-        // GO-ORBITTY-CADENCE-PATH: an arrived Doing walker does NOT step
-        // in place — work holds idle frame 0, bob 0, so a planet of
-        // arrived workers goes still like any idle world.
+        // GO-ORBITTY-WORLD-PLACES: an arrived Doing walker KEEPS stepping
+        // in the open field — the walk cycle IS the work (CADENCE-PATH's
+        // idle-in-place was only because that station sat on the front
+        // rim; the rim is Needed's now). Stand/Sit still park idle.
         let mut stepping = vec![false; ids.len()];
         // Ambient random roam dies the moment any walker on this planet
         // works or sits — the board, not the clock, drives motion. Sleepers
@@ -621,6 +622,14 @@ fn anim_tick() {
             if asleep && pose != Pose::WalkOff {
                 continue;
             }
+            // WORLD-PLACES: a board-bound walker comes from the house — a
+            // hashed building when the planet has any, else the far/north
+            // house interior. Computed before the roam borrow.
+            let house = if matches!(pose, Pose::Stand | Pose::Work) {
+                house_spawn(planet, id)
+            } else {
+                STATION_HOUSE
+            };
             let roam = planet.roam.entry(id.clone()).or_insert_with(|| RoamState {
                 x: 0.2 * (i as f64).cos(),
                 y: 0.2 * (i as f64).sin(),
@@ -649,21 +658,23 @@ fn anim_tick() {
                     roam.ty = ty;
                     roam.pause_end = None;
                 }
-                // Todo/Doing: the target is the station, never a random
-                // rad. Arrival parks — stand AND work both hold idle
-                // frame 0, bob 0 (CADENCE-PATH: the in-place walk cycle
-                // read as pacing the front rim); no re-park.
+                // Todo/Doing: the target is the station (west board /
+                // interior field), never a random rad. Stand parks on
+                // arrival — idle frame 0, bob 0. Work KEEPS the walk
+                // cycle in the open field (WORLD-PLACES: CADENCE-PATH
+                // stilled it only because the old station sat on the
+                // front rim; the rim is Needed's now); no re-park.
                 Pose::Stand | Pose::Work => {
                     let (tx, ty) = station_target(pose, id);
                     roam.tx = tx;
                     roam.ty = ty;
                     roam.pause_end = None;
                     // Back from off the rim (re-claim after Done): the
-                    // walker was invisible, so the return is a snap, not a
-                    // teleport on screen.
+                    // walker was invisible, so re-enter AT THE HOUSE and
+                    // walk the return — never a snap onto the station.
                     if roam.y < DONE_HIDE_Y {
-                        roam.x = tx;
-                        roam.y = ty;
+                        roam.x = house.0;
+                        roam.y = house.1;
                     }
                     let dx = roam.tx - roam.x;
                     let dy = roam.ty - roam.y;
@@ -675,6 +686,12 @@ fn anim_tick() {
                         roam.facing_left = dx < -0.002;
                         stepping[i] = true;
                         dirty = true; // walking to the station
+                    } else if pose == Pose::Work {
+                        // Arrived at the field: keep stepping in place —
+                        // the walk cycle IS the work. The target stays
+                        // hashed around STATION_FIELD, never |y| >= 0.22.
+                        stepping[i] = true;
+                        dirty = true; // working the field
                     }
                 }
                 // Done: straight off the far/top rim onto the panel — one

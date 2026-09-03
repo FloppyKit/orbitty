@@ -234,12 +234,20 @@ const BARY_PREFIX: &str = "b\n";
 /// disc +y renders screen-DOWN), so the compass-true stations mirror the
 /// handoff's approx y signs — north is the far rim at the TOP of the
 /// screen, where a leaving walker shrinks into the horizon.
-pub(crate) const STATION_BENCH: (f64, f64) = (-0.45, 0.05); // Todo — west
-// Doing — south / near, pulled in from the lip so a working walker
-// stands clearly on the disc (CADENCE-PATH: 0.38 sat on the front rim
-// and read as rim-strolling).
-pub(crate) const STATION_WORKBENCH: (f64, f64) = (0.0, 0.10);
-pub(crate) const STATION_GATE: (f64, f64) = (0.45, 0.05); // Needed — east
+///
+/// GO-ORBITTY-WORLD-PLACES: house → board → field → front rim. A
+/// board-bound walker (Stand/Work) COMES FROM the house — a hashed
+/// building when the planet has any, else STATION_HOUSE — and walks to
+/// its station. Sit snaps to the front rim (bad news skips the queue).
+/// Done still exits the top (CADENCE-EXIT, untouched).
+pub(crate) const STATION_HOUSE: (f64, f64) = (0.0, -0.28); // spawn — far/north interior
+pub(crate) const STATION_BOARD: (f64, f64) = (-0.28, 0.02); // Todo — west board
+// Doing — the open interior field, off the front lip (the fanned target
+// keeps |y| < 0.22): the walk cycle keeps running here after arrival
+// (CADENCE-PATH stilled it only because the old workbench station sat on
+// the front rim and read as rim-strolling; the rim is Needed's now).
+pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.02);
+pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/south rim
 // Done — past the FAR / top ellipse onto the panel (GO-ORBITTY-CADENCE-EXIT).
 // Hide sits just past the visual rim so the walker is seen stepping over
 // the horizon, then vanishes. Never a rim waypoint (that yoyo'd y south).
@@ -255,14 +263,15 @@ pub(crate) enum Pose {
     /// No card: the existing ambient amble — which dies planet-wide while
     /// any walker here works or sits.
     Roam,
-    /// Todo: stand at the bench (walk there, then idle frame 0, bob 0).
+    /// Todo: stand at the west board (walk from the house, then idle
+    /// frame 0, bob 0).
     Stand,
-    /// Doing: work at the workbench — walk there with the walk cycle,
-    /// then work in place: idle frame 0, bob 0 (CADENCE-PATH: the
-    /// in-place walk cycle read as strolling the front rim).
+    /// Doing: work the open interior field — walk from the house, then
+    /// KEEP the walk cycle after arrival (WORLD-PLACES; CADENCE-PATH's
+    /// idle-in-place was only because the station sat on the front rim).
     Work,
-    /// Needed (open/later): sit at the gate — bad news skips the queue
-    /// (snap, never a scenic route). Idle frame 0, no bob, FULL
+    /// Needed (open/later): sit at the front rim — bad news skips the
+    /// queue (snap, never a scenic route). Idle frame 0, no bob, FULL
     /// brightness: sit is not a sleeper.
     Sit,
     /// Done: walk to the north rim, then off; hidden past DONE_HIDE_Y.
@@ -296,9 +305,9 @@ pub(crate) fn pose_name(p: Pose) -> &'static str {
 
 fn station_anchor(pose: Pose) -> Option<(f64, f64)> {
     match pose {
-        Pose::Stand => Some(STATION_BENCH),
-        Pose::Work => Some(STATION_WORKBENCH),
-        Pose::Sit => Some(STATION_GATE),
+        Pose::Stand => Some(STATION_BOARD),
+        Pose::Work => Some(STATION_FIELD),
+        Pose::Sit => Some(STATION_RIM),
         Pose::WalkOff => Some(DONE_OFF),
         Pose::Roam => None,
     }
@@ -325,6 +334,19 @@ fn hash_str(s: &str) -> u64 {
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     h
+}
+
+/// GO-ORBITTY-WORLD-PLACES: where a board-bound walker comes FROM — a
+/// hashed building when the planet has any, else the far/north house
+/// interior. Stand/Work roams (and returns from hide) start here and
+/// walk to the station; Sit never spawns here (bad news snaps to the
+/// front rim).
+pub(crate) fn house_spawn(planet: &Planet, entry_id: &str) -> (f64, f64) {
+    if planet.buildings.is_empty() {
+        return STATION_HOUSE;
+    }
+    let d = &planet.buildings[(hash_str(entry_id) as usize) % planet.buildings.len()];
+    (d.x, d.y)
 }
 
 /// A walk-off in flight never flickers back to Roam on a blank snapshot
@@ -1955,15 +1977,32 @@ fn layout_beings(planet: &mut Planet) {
     let ids: Vec<String> = planet.walkers.iter().map(|b| b.entry_id.clone()).collect();
     for (i, id) in ids.iter().enumerate() {
         let pose = planet.walkers.get(i).map(|b| b.pose).unwrap_or(Pose::Roam);
+        // WORLD-PLACES: a fresh board-pose roam starts at the house.
+        let house = house_spawn(planet, id);
         planet.roam.entry(id.clone()).or_insert_with(|| {
-            // GO-ORBITTY-CADENCE: a fresh roam state seeds AT the walker's
-            // station (launch / marble-expand / rematch fast-forwards the
-            // world to now — never replay a backlog walk). A Done walker
-            // seeds already past the hide line so its walked-off emit fires
-            // on the first tick without a phantom walk. Live card moves
-            // keep the existing roam entry, so those walks stay visible.
+            // GO-ORBITTY-WORLD-PLACES: a fresh roam for a board pose seeds
+            // AT THE HOUSE (a hashed building when the planet has any,
+            // else STATION_HOUSE) and walks to the station — the world
+            // narrates house → board/field instead of popping in at the
+            // column. Sit still seeds AT the front rim (bad news skips the
+            // queue) and a Done walker seeds already past the hide line so
+            // its walked-off emit fires on the first tick without a
+            // phantom walk. Live card moves keep the existing roam entry,
+            // so those walks stay visible.
             match pose {
-                Pose::Stand | Pose::Work | Pose::Sit => {
+                Pose::Stand | Pose::Work => {
+                    let (tx, ty) = station_target(pose, id);
+                    RoamState {
+                        x: house.0,
+                        y: house.1,
+                        tx,
+                        ty,
+                        pause_end: None,
+                        facing_left: false,
+                        off_emitted: false,
+                    }
+                }
+                Pose::Sit => {
                     let (tx, ty) = station_target(pose, id);
                     RoamState {
                         x: tx,
