@@ -1,41 +1,51 @@
-# Orbitty (Tauri)
+# Orbitty
 
-**Living visual surface consolidating what's running — planets + claimed sprites. Seed of LifeRPG, not a harness.**
+Mac habitat for **what is actually running**. A window becomes a sprite only after you claim it onto a project planet. Unclaimed work is nothing — the rail may list it; the desk stays empty.
 
-Orbitty (formerly **LiveSprite**) — Tauri 2 + Svelte 5 + TypeScript + Vite for the Mac runtime. Site: https://orbitty.space
+Identifier `space.orbitty.mac`. MIT. Not an EHR: titles and metadata only, never PHI.
 
-## Swift tree = archived
+## The loop
 
-The native Swift app at `~/goose artifacts/livesprite` is **deprecated** — do not launch it; open Orbitty only. See `~/goose artifacts/livesprite/SWIFT_ARCHIVE.md`. It remains the behavioral reference for window corral, stow journal, planet z-order, and theme tokens — **no dual-write feature parity**. See `docs/SWIFT_REFERENCE.md`.
+1. **Claim** a window onto a named planet.
+2. A **walker** lives there (open, minimized, or sleeping if the window closed).
+3. Click to locate or restore. Right-click the being to edit it.
+4. **Done** walks off the far rim. Goal-aligned completes can earn capped points.
 
-## Thin-slice laws (bind all S1+ work)
+That is the product. Everything else is a seat or an inspector.
 
-- **Explicit claim only** — a window/tab becomes a sprite only after human claim.
-- **Unmapped = 0 sprites** — rail may list windows; habitat stays empty of ghosts.
-- **No harness in engine** — thin launchers into existing Hermes/Goose/Cursor only.
-- **FKT separate** — no signer merge into this tree.
-- **Not EHR** — titles/metadata only, no PHI.
+## Companion is a seat
 
-Full text: `docs/THIN_SLICE_LAWS.md` → nest SoT `~/.buzz/PLANS/LIVESPRITE_THIN_SLICE_LAWS_PIXEL_v0.md`.
+The default body is the Spirit flipbook. Orbitty does not host a model and is not a harness — launchers go into Hermes / Goose / Cursor that already exist. `three.js` loads only if you pick a 3D body; it never loads on the rail.
 
 ## Run
 
+Dogfood is the blessed app, not `tauri dev`:
+
 ```bash
-npm install
-npm run tauri dev      # dev smoke
-npm run tauri build    # release bundle (.app/.dmg in src-tauri/target/release/bundle)
+./scripts/install-stable.sh
+open ~/Applications/Orbitty.app
 ```
 
-**⌘⇧O** raises the companion; tray left-click raises the companion; right-click is the remote: **Show Companion · Launchpad · STARS · Settings · Inspector · Restore All Stowed Windows · Quit Orbitty**.
+First launch migrates `~/Library/Application Support/app.livesprite.mac` → `space.orbitty.mac` when the new directory is empty. Re-grant Accessibility once for `~/Applications/Orbitty.app` (sign identity stays “LiveSprite Local Codesign” so later rebuilds keep the grant).
 
-Blessed install: `scripts/install-stable.sh` → `~/Applications/Orbitty.app` (signed "LiveSprite Local Codesign"; re-grant Accessibility once for the new path). First launch migrates `~/Library/Application Support/app.livesprite.mac` → `space.orbitty.mac` when the new dir is empty.
+**⌘⇧O** raises the companion. Tray left-click does the same; right-click is the remote (Companion, Launchpad, STARS, Settings, Inspector, restore stowed windows, Quit). Quit does not force-restore minimized windows — they stay in the Dock.
 
-Note: Quit does **not** force-restore minimized windows — stowed windows stay in the Dock per OS policy (same as the Swift app).
+Drive a running app without opening a WebView:
 
-## Roadmap
+```bash
+orbittyctl status
+orbittyctl windows list
+```
 
-`~/.buzz/PLANS/ROADMAP_LIVESPRITE_FULL_TAURI_v0.md` (S0 → S6 cutover). Identifier `space.orbitty.mac`. MIT license.
+`orbitty-mcp` is the same socket over stdio.
 
-## Not in S0 (by design)
+## Laws
 
-No Accessibility/window corral (S1), no sprites/planets (S3), no Android, no Swift feature work.
+`docs/THIN_SLICE_LAWS.md` — explicit claim, unmapped = zero sprites, no harness in the engine, FKT stays out, not EHR.
+
+Accessibility, window corral, and planets are in the blessed app. Ignore any leftover “S0 scaffold” note in older papers.
+
+How the pieces sit: `docs/ARCHITECTURE.md`.  
+What is next (ops, not product): `~/.buzz/PLANS/ORBIT_ROADMAP.md`.
+
+The Swift tree at `~/goose artifacts/livesprite` is archived. Do not launch it. Behavioral reference only: `docs/SWIFT_REFERENCE.md`.
