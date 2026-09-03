@@ -231,30 +231,33 @@ const BARY_PREFIX: &str = "b\n";
 
 /// The one board → station → pose table. Stations are disc-local anchors,
 /// never Kenney buildings. The world view is flipped (isFlipped = true:
-/// disc +y renders screen-DOWN), so the compass-true stations mirror the
-/// handoff's approx y signs — north is the far rim at the TOP of the
-/// screen, where a leaving walker shrinks into the horizon.
+/// disc +y renders screen-DOWN), so +y = front/south, −y = far/back/top
+/// of the oval, −x = screen LEFT.
 ///
-/// GO-ORBITTY-WORLD-PLACES: house → board → field → front rim. A
-/// board-bound walker (Stand/Work) COMES FROM the house — a hashed
-/// building when the planet has any, else STATION_HOUSE — and walks to
-/// its station. Sit snaps to the front rim (bad news skips the queue).
-/// Done still exits the top (CADENCE-EXIT, untouched).
-pub(crate) const STATION_HOUSE: (f64, f64) = (0.0, -0.28); // spawn — far/north interior
-pub(crate) const STATION_BOARD: (f64, f64) = (-0.28, 0.02); // Todo — west board
+/// GO-ORBITTY-WORLD-TOWN compass: igloo LEFT, board far/BACK, field
+/// middle, Needed front rim. A board-bound walker (Stand/Work) COMES
+/// FROM the igloo (STATION_HOUSE — user-placed buildings stay sandbox
+/// décor, never a spawn) and walks to its station. Sit snaps to the
+/// front rim (bad news skips the queue). Done walks to the igloo and
+/// off the LEFT rim (HOME_OFF / HOME_HIDE_X) — never off the top.
+pub(crate) const STATION_HOUSE: (f64, f64) = (-0.62, 0.05); // igloo — left interior
+pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.42); // Todo — far/back board
 // Doing — the open interior field, off the front lip (the fanned target
-// keeps |y| < 0.22): the walk cycle keeps running here after arrival
-// (CADENCE-PATH stilled it only because the old workbench station sat on
-// the front rim and read as rim-strolling; the rim is Needed's now).
-pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.02);
+// keeps |y| < 0.22 and x > -0.35, so the fan never enters the igloo):
+// the walk cycle keeps running here after arrival (CADENCE-PATH stilled
+// it only because the old workbench station sat on the front rim and
+// read as rim-strolling; the rim is Needed's now).
+pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05);
 pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/south rim
-// Done — past the FAR / top ellipse onto the panel (GO-ORBITTY-CADENCE-EXIT).
-// Hide sits just past the visual rim so the walker is seen stepping over
-// the horizon, then vanishes. Never a rim waypoint (that yoyo'd y south).
-pub(crate) const DONE_OFF: (f64, f64) = (0.0, -1.55);
-/// Past this line the walked-off walker hides until the rail's Done
-/// eviction (unclaim) lands — cadence never deletes the claim itself.
-pub(crate) const DONE_HIDE_Y: f64 = -1.12;
+// Done — home: past the LEFT rim onto the panel (GO-ORBITTY-WORLD-TOWN,
+// replacing CADENCE-EXIT's north exit). Hide sits just past the visual
+// rim so the walker is seen stepping off the left edge, then vanishes.
+// Never a rim waypoint (that yoyo'd).
+pub(crate) const HOME_OFF: (f64, f64) = (-1.55, 0.05);
+/// Past this line (roam.x < HOME_HIDE_X) the walked-off walker hides
+/// until the rail's Done eviction (unclaim) lands — cadence never
+/// deletes the claim itself.
+pub(crate) const HOME_HIDE_X: f64 = -1.12;
 
 /// Walker cadence, resolved from the snapshot's card fields. Cap = these
 /// four plus the ambient default; no fifth pose.
@@ -274,7 +277,8 @@ pub(crate) enum Pose {
     /// queue (snap, never a scenic route). Idle frame 0, no bob, FULL
     /// brightness: sit is not a sleeper.
     Sit,
-    /// Done: walk to the north rim, then off; hidden past DONE_HIDE_Y.
+    /// Done: walk to the igloo, then off the left rim; hidden past
+    /// HOME_HIDE_X.
     WalkOff,
 }
 
@@ -308,7 +312,7 @@ fn station_anchor(pose: Pose) -> Option<(f64, f64)> {
         Pose::Stand => Some(STATION_BOARD),
         Pose::Work => Some(STATION_FIELD),
         Pose::Sit => Some(STATION_RIM),
-        Pose::WalkOff => Some(DONE_OFF),
+        Pose::WalkOff => Some(HOME_OFF),
         Pose::Roam => None,
     }
 }
@@ -336,17 +340,13 @@ fn hash_str(s: &str) -> u64 {
     h
 }
 
-/// GO-ORBITTY-WORLD-PLACES: where a board-bound walker comes FROM — a
-/// hashed building when the planet has any, else the far/north house
-/// interior. Stand/Work roams (and returns from hide) start here and
-/// walk to the station; Sit never spawns here (bad news snaps to the
-/// front rim).
-pub(crate) fn house_spawn(planet: &Planet, entry_id: &str) -> (f64, f64) {
-    if planet.buildings.is_empty() {
-        return STATION_HOUSE;
-    }
-    let d = &planet.buildings[(hash_str(entry_id) as usize) % planet.buildings.len()];
-    (d.x, d.y)
+/// GO-ORBITTY-WORLD-TOWN: where a board-bound walker comes FROM — the
+/// igloo station, always. User-placed `planet.buildings` stay sandbox
+/// décor and are never a spawn. Stand/Work roams (and returns from
+/// hide) start here and walk to the station; Sit never spawns here
+/// (bad news snaps to the front rim).
+pub(crate) fn house_spawn(_planet: &Planet, _entry_id: &str) -> (f64, f64) {
+    STATION_HOUSE
 }
 
 /// A walk-off in flight never flickers back to Roam on a blank snapshot
@@ -361,14 +361,15 @@ fn sticky_pose(prev: Pose, next: Pose) -> Pose {
     }
 }
 
-/// GO-ORBITTY-CADENCE-EXIT: WalkOff always aims past the far rim onto
-/// the panel. Hashed x so two Done walkers don't overlap. `y` is clamped
-/// so a target is never more south than the walker already is — the old
-/// rim/shoulder homing pulled y back up and they yoyo'd forever.
-pub(crate) fn walkoff_target(entry_id: &str, _x: f64, y: f64) -> (f64, f64) {
+/// GO-ORBITTY-WORLD-TOWN: WalkOff always aims past the LEFT rim onto
+/// the panel — Done goes home to the igloo, then off the west edge.
+/// Hashed y (±0.12) so two Done walkers don't overlap. `x` is clamped
+/// so a target is never more EAST than the walker already is — x only
+/// ever decreases, so there is no yoyo.
+pub(crate) fn walkoff_target(entry_id: &str, x: f64, _y: f64) -> (f64, f64) {
     let h = hash_str(entry_id);
-    let tx = if (h >> 16) & 1 == 0 { -0.20 } else { 0.20 };
-    (tx, DONE_OFF.1.min(y))
+    let ty = if (h >> 16) & 1 == 0 { -0.12 } else { 0.12 };
+    (HOME_OFF.0.min(x), ty)
 }
 
 /// A Done walker past the hide line: not drawn, not hit-tested — it waits
@@ -378,7 +379,7 @@ pub(crate) fn walker_hidden(planet: &Planet, b: &Being) -> bool {
         && planet
             .roam
             .get(&b.entry_id)
-            .is_some_and(|r| r.y < DONE_HIDE_Y)
+            .is_some_and(|r| r.x < HOME_HIDE_X)
 }
 
 /// The walk-off finished: tell the rail so its existing Done eviction
@@ -754,6 +755,10 @@ pub(crate) struct Planet {
     /// every Being — no icon re-decode, roam state untouched.
     walker_entries: Vec<HabitatEntry>,
     dot_entries: Vec<HabitatEntry>,
+    /// GO-ORBITTY-WORLD-TOWN: the back-board's ticks (id + column, no
+    /// titles), mirrored from the snapshot. Drawn as the three-column
+    /// board blit; marbles never draw it.
+    board_cards: Vec<crate::habitat::BoardCardTick>,
 }
 
 /// Any Planet drop (stale teardown, marble-budget cap, map clear) ends its
@@ -935,6 +940,14 @@ fn color_for(project_id: &str) -> (f64, f64, f64) {
     let sum: u32 = project_id.bytes().map(|b| b as u32).sum();
     let hue = ((sum as f64) * 137.508) % 360.0 / 360.0;
     hsv(hue, 0.55, 0.80)
+}
+
+/// GO-ORBITTY-WORLD-TOWN: stable per-card tick color for the board blit —
+/// the same golden-angle idea as color_for, one hue per card id.
+pub(crate) fn card_color(card_id: &str) -> (f64, f64, f64) {
+    let sum: u32 = card_id.bytes().map(|b| b as u32).sum();
+    let hue = ((sum as f64) * 137.508) % 360.0 / 360.0;
+    hsv(hue, 0.60, 0.92)
 }
 
 fn hsv(h: f64, s: f64, v: f64) -> (f64, f64, f64) {
@@ -1985,16 +1998,16 @@ fn layout_beings(planet: &mut Planet) {
         // WORLD-PLACES: a fresh board-pose roam starts at the house.
         let house = house_spawn(planet, id);
         planet.roam.entry(id.clone()).or_insert_with(|| {
-            // GO-ORBITTY-WORLD-PLACES: a fresh roam for a board pose seeds
-            // AT THE HOUSE (a hashed building when the planet has any,
-            // else STATION_HOUSE) and walks to the station — the world
-            // narrates house → board/field instead of popping in at the
-            // column. Sit still seeds AT the front rim (bad news skips the
-            // queue). LEFTOVER: a Done walker seeds AT THE HOUSE TOO —
-            // never past the hide line — so the walk off the top is
-            // visible; the walked-off emit fires when it crosses
-            // DONE_HIDE_Y. Live card moves keep the existing roam entry,
-            // so those walks stay visible.
+            // GO-ORBITTY-WORLD-TOWN: a fresh roam for a board pose seeds
+            // AT THE IGLOO (STATION_HOUSE — user buildings stay décor)
+            // and walks to the station — the world narrates
+            // igloo → board/field instead of popping in at the column.
+            // Sit still seeds AT the front rim (bad news skips the
+            // queue). LEFTOVER: a Done walker seeds AT THE IGLOO TOO —
+            // never past the hide line (x > HOME_HIDE_X) — so the walk
+            // home off the left rim is visible; the walked-off emit
+            // fires when it crosses HOME_HIDE_X. Live card moves keep
+            // the existing roam entry, so those walks stay visible.
             match pose {
                 Pose::Stand | Pose::Work => {
                     let (tx, ty) = station_target(pose, id);
@@ -2021,10 +2034,10 @@ fn layout_beings(planet: &mut Planet) {
                     }
                 }
                 Pose::WalkOff => {
-                    // LEFTOVER: seed at the house (y > DONE_HIDE_Y), never
+                    // LEFTOVER: seed at the igloo (x > HOME_HIDE_X), never
                     // past the hide line — a fresh Done roam that starts
                     // hidden emits and vanishes on the first tick. From
-                    // here the walk off the top is visible.
+                    // here the walk off the left rim is visible.
                     let (tx, ty) = walkoff_target(id, house.0, house.1);
                     RoamState {
                         x: house.0,
@@ -2405,6 +2418,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         name,
         collapsed,
         entries,
+        board_cards,
     } in &snapshot.planets
     {
         // Effective collapse: the snapshot's flag, or a cap-3 victim this
@@ -2499,6 +2513,11 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         let decor = h.worlds.get(project_id).cloned();
         if let Some(planet) = h.planets.get_mut(project_id) {
             planet.name = name.clone();
+            // WORLD-TOWN: the board blit's ticks ride the snapshot; a
+            // board drag changes them without touching any being field,
+            // so this dirties the view on its own (pose-only path too).
+            let board_changed = planet.board_cards != *board_cards;
+            planet.board_cards = board_cards.clone();
             let want_proj = locked_projection(collapsed_eff);
             let proj_changed = planet.projection != want_proj;
             planet.projection = want_proj;
@@ -2561,7 +2580,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                     if geometry_changed || proj_changed {
                         layout_beings(planet);
                     }
-                    if any_pose || geometry_changed || proj_changed {
+                    if any_pose || geometry_changed || proj_changed || board_changed {
                         unsafe {
                             let view = planet.view as *mut Object;
                             let _: () = msg_send![view, setNeedsDisplay: true];
@@ -2666,6 +2685,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 roam: HashMap::new(),
                 walker_entries: walker_entries.iter().map(|e| (*e).clone()).collect(),
                 dot_entries: dot_entries.iter().map(|e| (*e).clone()).collect(),
+                board_cards: board_cards.clone(),
             };
             layout_beings(&mut planet);
             let Some(cls) = world_view_class() else {
@@ -2734,7 +2754,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             let mut snapped = false;
             for (id, pose) in posed {
                 let Some((tx, ty)) = (match pose {
-                    Pose::WalkOff => Some((DONE_OFF.0, DONE_HIDE_Y - 0.05)),
+                    Pose::WalkOff => Some((HOME_HIDE_X - 0.05, HOME_OFF.1)),
                     Pose::Stand | Pose::Work | Pose::Sit => Some(station_target(pose, &id)),
                     Pose::Roam => None,
                 }) else {
@@ -2766,7 +2786,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             .map(|b| b.entry_id.clone())
             .collect();
         for id in done_ids {
-            if planet.roam.get(&id).is_some_and(|r| r.y < DONE_HIDE_Y) {
+            if planet.roam.get(&id).is_some_and(|r| r.x < HOME_HIDE_X) {
                 emit_walked_off(&id);
             }
         }

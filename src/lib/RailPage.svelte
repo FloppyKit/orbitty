@@ -668,6 +668,23 @@
         projectId: p.id,
         name: p.name,
         collapsed: isCollapsed(p.id),
+        // GO-ORBITTY-WORLD-TOWN: the back-board's ticks — this project's
+        // kanban (Needed cards never land), capped ~12: oldest open first,
+        // then recent done. Ids + columns only; titles never ride.
+        boardCards: (() => {
+          const mine = kanbanCards.filter(
+            (k) => (k.projectId ?? "") === p.id && k.kind !== "needed",
+          );
+          const open = mine
+            .filter((k) => k.status !== "done")
+            .sort((a, b) => a.createdAt - b.createdAt);
+          const done = mine
+            .filter((k) => k.status === "done")
+            .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt);
+          return [...open, ...done]
+            .slice(0, 12)
+            .map((k) => ({ id: k.id, status: k.status }));
+        })(),
         entries: rows.map((w) => {
           const c = liveClaims.find((x) => x.windowId === w.id);
           // GO-ORBITTY-CADENCE: the window's board truth rides the snapshot
@@ -723,6 +740,7 @@
       planets.map((p) => [
         p.projectId,
         p.collapsed,
+        p.boardCards,
         p.entries.map((e) => [
           e.id,
           e.minimized,

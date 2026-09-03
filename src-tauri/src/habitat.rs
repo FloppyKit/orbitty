@@ -71,6 +71,21 @@ pub struct HabitatPlanet {
     pub name: String,
     pub collapsed: bool,
     pub entries: Vec<HabitatEntry>,
+    /// GO-ORBITTY-WORLD-TOWN: the project board's ticks for the back-board
+    /// blit — id + column only, no titles. The rail fills from kanbanCards
+    /// on this projectId (kind !== "needed"), capped ~12: oldest open
+    /// first, then recent done.
+    #[serde(default)]
+    pub board_cards: Vec<BoardCardTick>,
+}
+
+/// GO-ORBITTY-WORLD-TOWN: one board tick — a card's id (hashed for the
+/// tick color) and its column ("todo" | "doing" | "done").
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardCardTick {
+    pub id: String,
+    pub status: String,
 }
 
 #[derive(Deserialize, Clone, Debug)]

@@ -21,7 +21,7 @@ use super::{
     layout_decor, lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
     set_caption, station_target, view_to_disc, visible_frames, walkoff_target, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
-    BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DONE_HIDE_Y, DRIFT_JOIN_DIST,
+    BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
     DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
     HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
     TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING,
@@ -626,10 +626,10 @@ fn anim_tick() {
             // sleeper continue — a new/asleep claim must not miss its
             // house roam this tick. The seed is pose-aware (the old 0.2
             // cos/sin circle fallback is gone): Stand/Work come from the
-            // house (a hashed building when the planet has any, else the
-            // far/north house interior), Sit seeds AT the rim station,
-            // WalkOff keeps the current roam or starts at the house —
-            // never past DONE_HIDE_Y, so the walk off the top is visible.
+            // igloo (WORLD-TOWN: STATION_HOUSE only — user buildings stay
+            // décor), Sit seeds AT the rim station, WalkOff keeps the
+            // current roam or starts at the igloo — never past
+            // HOME_HIDE_X, so the walk off the left rim is visible.
             // Computed before the roam borrow.
             let house = house_spawn(planet, id);
             let roam = planet.roam.entry(id.clone()).or_insert_with(|| match pose {
@@ -715,10 +715,10 @@ fn anim_tick() {
                     roam.tx = tx;
                     roam.ty = ty;
                     roam.pause_end = None;
-                    // Back from off the rim (re-claim after Done): the
-                    // walker was invisible, so re-enter AT THE HOUSE and
-                    // walk the return — never a snap onto the station.
-                    if roam.y < DONE_HIDE_Y {
+                    // Back from off the left rim (re-claim after Done):
+                    // the walker was invisible, so re-enter AT THE IGLOO
+                    // and walk the return — never a snap onto the station.
+                    if roam.x < HOME_HIDE_X {
                         roam.x = house.0;
                         roam.y = house.1;
                         moved = true;
@@ -736,24 +736,26 @@ fn anim_tick() {
                     } else if pose == Pose::Work {
                         // Arrived at the field: keep stepping in place —
                         // the walk cycle IS the work. The target stays
-                        // hashed around STATION_FIELD, never |y| >= 0.22.
+                        // hashed around STATION_FIELD, never |y| >= 0.22
+                        // or x <= -0.35 (the fan never enters the igloo).
                         // LEFTOVER: no dirty/layout here — the position
                         // didn't change, so layout_beings must not rerun;
                         // the bob sweep below still dirties the DISPLAY.
                         stepping[i] = true;
                     }
                 }
-                // Done: straight off the far/top rim onto the panel — one
-                // monotonic target, never a rim waypoint. Past the hide
-                // line the walker waits unseen for the rail's eviction —
-                // the emit fires once per walk-off; cadence never deletes
-                // the claim itself. CADENCE-EXIT: walkoff_target aims a
-                // hashed ±0.20 x at DONE_OFF's y, clamped so the target is
-                // never more south than the walker — y only ever decreases,
-                // so there is no yoyo and WalkOff never idles on the disc.
+                // Done: home to the igloo, then straight off the LEFT rim
+                // onto the panel — one monotonic target, never a rim
+                // waypoint. Past the hide line the walker waits unseen for
+                // the rail's eviction — the emit fires once per walk-off;
+                // cadence never deletes the claim itself. WORLD-TOWN:
+                // walkoff_target aims a hashed ±0.12 y at HOME_OFF's x,
+                // clamped so the target is never more EAST than the
+                // walker — x only ever decreases, so there is no yoyo and
+                // WalkOff never idles on the disc.
                 Pose::WalkOff => {
                     roam.pause_end = None;
-                    if roam.y < DONE_HIDE_Y {
+                    if roam.x < HOME_HIDE_X {
                         if !roam.off_emitted {
                             roam.off_emitted = true;
                             dirty = true; // erase the sprite this tick
@@ -768,11 +770,11 @@ fn anim_tick() {
                     roam.tx = tx;
                     roam.ty = ty;
                     if dist < 0.025 {
-                        // Target reached but still WalkOff above the hide
-                        // line — never freeze and never retarget (a fresh
-                        // target could pull y south again): snap past the
-                        // line and emit.
-                        roam.y = DONE_HIDE_Y - 0.01;
+                        // Target reached but still WalkOff short of the
+                        // hide line — never freeze and never retarget (a
+                        // fresh target could pull x east again): snap past
+                        // the line and emit.
+                        roam.x = HOME_HIDE_X - 0.01;
                         moved = true;
                         if !roam.off_emitted {
                             roam.off_emitted = true;
