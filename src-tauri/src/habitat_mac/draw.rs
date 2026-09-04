@@ -12,7 +12,51 @@ use super::{
     card_color, fill_oval, lock, now_epoch, ns_color, ns_string, panic_msg, radius_y, set_fill,
     station_anchor, walker_fit, walker_hidden, CGSize, DecorKind, Habitat, NSPoint, NSRect,
     Pose, Projection, CAPTION_TTL, LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE,
+    VIEW_PADDING,
 };
+
+/// Planet board columns (todo / doing / done), view-local, same math as
+/// the blit. `None` if marble. Done is column 2.
+pub(crate) fn board_column_rects(
+    radius: f64,
+    projection: Projection,
+    marble_scale: f64,
+) -> [NSRect; 3] {
+    let side = (radius + VIEW_PADDING) * 2.0;
+    let center = NSPoint {
+        x: side / 2.0,
+        y: side / 2.0,
+    };
+    let r = radius * marble_scale;
+    let ry = radius_y(r, projection);
+    let town = (r / 72.0).clamp(0.7, 2.0);
+    let bx = center.x + STATION_BOARD.0 * r;
+    let by = center.y + STATION_BOARD.1 * ry;
+    let col_w = 9.0 * town;
+    let col_h = 30.0 * town;
+    let col_gap = 3.0 * town;
+    let board_left = bx - (col_w * 3.0 + col_gap * 2.0) / 2.0;
+    let board_top = by - col_h;
+    [
+        NSRect::new(board_left, board_top, col_w, col_h),
+        NSRect::new(board_left + col_w + col_gap, board_top, col_w, col_h),
+        NSRect::new(
+            board_left + 2.0 * (col_w + col_gap),
+            board_top,
+            col_w,
+            col_h,
+        ),
+    ]
+}
+
+pub(crate) fn hit_board_column(planet: &super::Planet, local: NSPoint) -> Option<usize> {
+    if planet.is_marble {
+        return None;
+    }
+    board_column_rects(planet.radius, planet.projection, planet.marble_scale)
+        .iter()
+        .position(|r| r.contains(local))
+}
 
 // Right-click decor (simple pixels on the disc surface). L leaf, S stem,
 // R cap, W stem/spots, . clear. PLANT is the sprout; TREE takes over at
@@ -580,13 +624,7 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
         // Board (todo/doing/done) at the back station: three faint rails
         // so empty columns still read; ticks stacked from the top, color
         // hashed per card id. No titles.
-        let bx = center.x + STATION_BOARD.0 * r;
-        let by = center.y + STATION_BOARD.1 * ry;
-        let col_w = 9.0 * town;
-        let col_h = 30.0 * town;
-        let col_gap = 3.0 * town;
-        let board_left = bx - (col_w * 3.0 + col_gap * 2.0) / 2.0;
-        let board_top = by - col_h; // bottom-anchored at the station
+        let cols = board_column_rects(d.radius, d.projection, d.marble_scale);
         let rail_tints = [
             (1.0, 1.0, 1.0, 0.16),    // todo — faint white
             (1.0, 0.75, 0.35, 0.22),  // doing — faint amber
@@ -594,9 +632,13 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
         ];
         let tick = 4.0 * town;
         let tick_step = tick + 1.5 * town;
+        let col_h = cols[0].size.height;
         let max_ticks = (((col_h - 2.0 * town + 1.5 * town) / tick_step).floor() as usize).max(1);
         for (ci, ticks) in d.board.iter().enumerate() {
-            let cx0 = board_left + ci as f64 * (col_w + col_gap);
+            let col = cols[ci];
+            let cx0 = col.origin.x;
+            let board_top = col.origin.y;
+            let col_w = col.size.width;
             let (tr, tg, tb, ta) = rail_tints[ci];
             set_fill(ns_color(tr, tg, tb, ta));
             let rail: *mut Object = msg_send![class!(NSBezierPath),

@@ -36,6 +36,7 @@ use super::{
     app_handle, building_cap, default_state, layout_beings, layout_decor, lock, max_radius,
     menu_target, now_epoch, ns_string, panel_set_frame, panic_msg, plant_cap, primary_screen_id,
     radius_y, sender_project_id, set_caption, view_to_disc, walker_hidden, world_entry, DecorItem,
+    draw::hit_board_column,
     DecorKind, DecorPoint, DecorRef, Drag, Habitat, NSPoint, NSRect, PendingClick, Placement,
     Planet, MIN_RADIUS, VIEW_PADDING,
 };
@@ -130,7 +131,7 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
         let local: NSPoint = msg_send![this, convertPoint: loc fromView: std::ptr::null::<Object>()];
         let view_ptr = this as *const Object as usize;
         let mut h = lock();
-        let (pid, panel, over, dref, being, radius, proj) = {
+        let (pid, panel, over, dref, being, radius, proj, board_col) = {
             let Some((project_id, planet)) = planet_for_view(&mut h, view_ptr) else {
                 return;
             };
@@ -147,6 +148,7 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
                 hit_being(planet, local),
                 planet.radius,
                 planet.projection,
+                hit_board_column(planet, local),
             )
         };
         if let Some((entry_id, walker)) = being {
@@ -172,6 +174,13 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
             }
             return;
         }
+        // WORLD-TOUCH leftover: Done column is the complete door on the
+        // planet board. Do not start a panel drag from that rail.
+        if board_col == Some(2) {
+            h.pending_board_done = Some(pid);
+            return;
+        }
+        h.pending_board_done = None;
         let place = h.placement.take();
         if let Some(place) = place {
             if place.project_id == pid && over {
@@ -277,6 +286,21 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
         let local: NSPoint = msg_send![this, convertPoint: loc fromView: std::ptr::null::<Object>()];
         let clicks: usize = msg_send![event, clickCount];
         let view_ptr = this as *const Object as usize;
+        {
+            let mut h = lock();
+            if let Some(pid) = h.pending_board_done.take() {
+                let still = h.planets.get(&pid).is_some_and(|p| {
+                    p.view == view_ptr && hit_board_column(p, local) == Some(2)
+                });
+                drop(h);
+                if still {
+                    if let Some(app) = app_handle() {
+                        let _ = app.emit_to("main", "habitat:board-done", pid);
+                    }
+                }
+                return;
+            }
+        }
         let action = {
             let mut h = lock();
             let Some(pending) = h.pending_click.take() else {

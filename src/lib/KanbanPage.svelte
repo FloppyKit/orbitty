@@ -436,8 +436,8 @@
   }
 
   // Board drag: drop on a column = status move. Dropping on Done is the
-  // same complete door as the checkbox. Dragging a window-claimed card out
-  // of Doing unclaims its window — the board never lies about linkage.
+  // same complete door as the checkbox. Todo/Doing keep the window claim
+  // (town: todo = board, doing = field). Unclaim is Unclaim, not a column.
   function moveCard(card: KanbanCard, target: Status) {
     if (card.status === target) return;
     if (target === "done") {
@@ -453,13 +453,9 @@
               status: target,
               completedAt: null,
               lastTouchedAt: now,
-              windowId: target === "doing" ? (c.windowId ?? null) : null,
             }
           : c,
       );
-      if (card.status === "doing" && card.windowId) {
-        s.claims = s.claims.filter((c) => c.windowId !== card.windowId);
-      }
     });
     logEvent("board-move", { from: card.status, to: target, cardId: card.id }, card.projectId);
   }

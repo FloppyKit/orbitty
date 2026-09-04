@@ -314,7 +314,7 @@ fn station_anchor(pose: Pose) -> Option<(f64, f64)> {
         Pose::Stand => Some(STATION_BOARD),
         Pose::Work => Some(STATION_FIELD),
         Pose::Sit => Some(STATION_RIM),
-        Pose::WalkOff => Some(HOME_OFF),
+        Pose::WalkOff => Some(STATION_BOARD),
         Pose::Roam => None,
     }
 }
@@ -825,6 +825,8 @@ pub(crate) struct Habitat {
     worlds_dirty: bool,
     drag: Option<Drag>,
     pending_click: Option<PendingClick>,
+    /// WORLD-TOUCH leftover: mouse-down on the planet board's Done column.
+    pending_board_done: Option<String>,
     /// GO-ORBITTY-RAIL-ROW-MENU: the locate stroke — (entry id, armed at).
     /// Drawn as a ~500ms ring around the walker's frame; cursor_tick
     /// expires it (10Hz, so Reduce Motion can't pin it on).
@@ -2042,11 +2044,7 @@ fn layout_beings(planet: &mut Planet) {
                     }
                 }
                 Pose::WalkOff => {
-                    // LEFTOVER: seed at the igloo (x > HOME_HIDE_X), never
-                    // past the hide line — a fresh Done roam that starts
-                    // hidden emits and vanishes on the first tick. From
-                    // here the walk off the left rim is visible.
-                    let (tx, ty) = walkoff_target(id, house.0, house.1);
+                    let (tx, ty) = (STATION_BOARD.0, STATION_BOARD.1);
                     RoamState {
                         x: house.0,
                         y: house.1,
@@ -2774,8 +2772,9 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             let mut snapped = false;
             for (id, pose) in posed {
                 let Some((tx, ty)) = (match pose {
-                    Pose::WalkOff => Some((HOME_HIDE_X - 0.05, HOME_OFF.1)),
-                    Pose::Stand | Pose::Work | Pose::Sit => Some(station_target(pose, &id)),
+                    Pose::WalkOff | Pose::Stand | Pose::Work | Pose::Sit => {
+                        Some(station_target(pose, &id))
+                    }
                     Pose::Roam => None,
                 }) else {
                     continue;

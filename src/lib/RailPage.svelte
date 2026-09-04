@@ -1258,8 +1258,8 @@
     return Math.floor(Math.random() * 0xffffffff) >>> 0;
   }
 
-  // S4.3: claiming a window immediately creates/updates its Kanban card
-  // (status doing) — the board reflects claimed work before any Done.
+  // Claim lands as Todo — walker comes from the igloo and stands at the
+  // board. Doing (field walk) is an explicit column move, not the claim.
   function claim(windowId: string, projectId: string) {
     const now = nowEpoch();
     const w = windows.find((x) => x.id === windowId);
@@ -1305,7 +1305,7 @@
               windowId,
               title: c.title || title,
               kind: c.kind ?? "window",
-              status: "doing",
+              status: "todo",
               clinicalOrMaster: c.clinicalOrMaster || isClinicalOrMaster(windowId),
               lastTouchedAt: now,
             }
@@ -1320,7 +1320,7 @@
           projectId,
           windowId,
           kind: "window" as const,
-          status: "doing" as const,
+          status: "todo" as const,
           createdAt: now,
           lastTouchedAt: now,
           completedAt: null,
@@ -2010,6 +2010,7 @@
   let unlistenWalkerPack: (() => void) | undefined;
   let unlistenWalkerHome: (() => void) | undefined;
   let unlistenWalkedOff: (() => void) | undefined;
+  let unlistenBoardDone: (() => void) | undefined;
   let unlistenState: (() => void) | undefined;
 
   // GO-ORBITTY-RAIL-ROW-MENU: walker right-click menu pick. `kind` = import
@@ -2128,6 +2129,21 @@
     // complete path. Idempotent (the native side re-emits while a done
     // entry lingers), and a re-claim mid-walk (a new open card for the
     // window) cancels the eviction so a live claim is never yanked.
+    unlistenBoardDone = await listen<string>("habitat:board-done", (e) => {
+      const project = projects.find((p) => p.id === e.payload);
+      if (!project) return;
+      for (const c of liveClaims.filter((x) => x.projectId === project.id)) {
+        const open = kanbanCards.find(
+          (k) =>
+            k.windowId === c.windowId &&
+            k.status !== "done" &&
+            k.kind !== "needed",
+        );
+        if (!open) continue;
+        const w = windows.find((x) => x.id === c.windowId);
+        if (w) completeWindow(w, project);
+      }
+    });
     unlistenWalkedOff = await listen<string>("habitat:walked-off", (e) => {
       const windowId = e.payload;
       const open = kanbanCards.find(
@@ -2199,6 +2215,7 @@
     unlistenWalkerPack?.();
     unlistenWalkerHome?.();
     unlistenWalkedOff?.();
+    unlistenBoardDone?.();
     unlistenState?.();
     osMedia.removeEventListener("change", onOsThemeChange);
   });
