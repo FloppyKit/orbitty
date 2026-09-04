@@ -78,7 +78,6 @@
     { id: "systemDark", name: "Dark", block: "System" },
     { id: "terminal", name: "Terminal", block: "Custom" },
   ];
-  const BLOCKS = ["System", "Custom"] as const;
   const THEME_IDS = new Set(THEMES.map((t) => t.id));
 
   function osThemeId(): string {
@@ -153,17 +152,9 @@
   // it and rides it to the native habitat on the snapshot.
   let marbleDrift = $state(false);
 
-  // Actions lane: user-authored shell shortcuts (run via /bin/zsh -lc).
+  // Settings / Launchpad own the writers. Rail only round-trips these so
+  // persist() never strips the arrays.
   let actionShortcuts = $state<ActionShortcut[]>([]);
-  let actionNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
-  let addingAction = $state(false);
-  let newActionName = $state("");
-  let newActionCommand = $state("");
-  let newActionCwd = $state("");
-  let runningActionId = $state<string | null>(null);
-
-  // Agents lane: user-authored harness shortcuts. Orbitty writes the query
-  // file and hands off to the harness — it never runs the model.
   let agentShortcuts = $state<AgentShortcut[]>([]);
 
   // GO-LS-TAURI-AVATAR-LARGE: companion slice, round-tripped opaquely (the
@@ -189,17 +180,8 @@
   // rail only round-trips it so persist() never strips the slice.
   let drawersState = $state<Record<string, DrawerSlice>>({});
 
-  let addingAgent = $state(false);
-  let newAgentName = $state("");
-  let newAgentHarness = $state("hermes");
-  let newAgentProfile = $state("");
-  let newAgentModel = $state("");
-  let newAgentMdPaths = $state("");
-  let newAgentProjectId = $state("");
-
-  // Gear → Packs (GO-LS-TAURI-USER-PACKS): local folder/zip/image import
-  // only. GO-ORBITTY-CHARS killed the website-download path — a sprite is
-  // generated (no pack) or imported from disk, never fetched.
+  // Pack ids ride the habitat signature so an import/remove redraws
+  // walkers. Import UI is Settings + the walker NSMenu (inline invoke).
   interface PackInfo {
     id: string;
     name: string;
@@ -210,92 +192,17 @@
     role: string;
   }
   let packs = $state<PackInfo[]>([]);
-  let packsDir = $state("");
-  let packNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
-  let packBusy = $state(false);
 
   async function refreshPacks() {
     try {
       packs = await invoke<PackInfo[]>("list_packs");
-      packsDir = await invoke<string>("packs_dir");
     } catch {
       // packs are decorative; the rail never blocks on them
     }
   }
 
-  async function importPackFolder() {
-    if (packBusy) return;
-    packBusy = true;
-    packNote = null;
-    try {
-      const p = await invoke<PackInfo | null>("import_pack_folder");
-      if (p) {
-        packNote = {
-          kind: "ok",
-          text: `${p.name}: ${p.frameCount} frame${p.frameCount === 1 ? "" : "s"}${p.warnLicense ? " — no license in manifest, confirm rights" : ""}`,
-        };
-        await refreshPacks();
-      }
-    } catch (e) {
-      packNote = { kind: "err", text: `${e}` };
-    }
-    packBusy = false;
-  }
-
-  async function importPackZip() {
-    if (packBusy) return;
-    packBusy = true;
-    packNote = null;
-    try {
-      const p = await invoke<PackInfo | null>("import_pack_zip");
-      if (p) {
-        packNote = {
-          kind: "ok",
-          text: `${p.name}: ${p.frameCount} frame${p.frameCount === 1 ? "" : "s"}${p.warnLicense ? " — no license in manifest, confirm rights" : ""}`,
-        };
-        await refreshPacks();
-      }
-    } catch (e) {
-      packNote = { kind: "err", text: `${e}` };
-    }
-    packBusy = false;
-  }
-
-  async function importPackImage() {
-    if (packBusy) return;
-    packBusy = true;
-    packNote = null;
-    try {
-      const p = await invoke<PackInfo | null>("import_pack_image");
-      if (p) {
-        packNote = {
-          kind: "ok",
-          text: `${p.name}: ${p.frameCount} frame${p.frameCount === 1 ? "" : "s"}${p.warnLicense ? " — no license in manifest, confirm rights" : ""}`,
-        };
-        await refreshPacks();
-      }
-    } catch (e) {
-      packNote = { kind: "err", text: `${e}` };
-    }
-    packBusy = false;
-  }
-
-  async function removePack(id: string) {
-    try {
-      await invoke("remove_pack", { id });
-      await refreshPacks();
-    } catch (e) {
-      packNote = { kind: "err", text: `${e}` };
-    }
-  }
-
-  function openUrl(url: string) {
-    shellOpen(url).catch(() => {});
-  }
-
   // Rail lanes (list-head tabs): Projects is the default window list;
-  // Agents holds Hermes/Soul; Actions is a stub until GO lands.
-  // Session-only.
+  // Agents holds Hermes/Soul. Session-only.
   let lane = $state<"projects" | "agents">("projects");
 
   const DAY_S = 86400;
@@ -875,37 +782,9 @@
     nudgeNewName = "";
   }
 
-  function pickTheme(id: string) {
-    themeChosen = true;
-    themeId = id;
-    persist();
-  }
-
-  // S4.2: live-apply while dragging, persist once on release.
-  function onOpacityInput() {
-    windowOpacity = clampWindowOpacity(windowOpacity);
-    applyWindowOpacity(windowOpacity);
-  }
-
-  function onOpacityCommit() {
-    onOpacityInput();
-    persist();
-  }
-
   function clampSpriteScale(n: number) {
     if (!Number.isFinite(n)) return 1;
     return Math.min(2.5, Math.max(0.4, n));
-  }
-
-  function onSpriteScaleInput() {
-    spriteScale = clampSpriteScale(spriteScale);
-    lastHabitatSig = "";
-    syncHabitat();
-  }
-
-  function onSpriteScaleCommit() {
-    onSpriteScaleInput();
-    persist();
   }
 
   // GO-ORBITTY-BOARD-STARS: Board and STARS share the one 780×520 `kanban`
@@ -975,135 +854,6 @@
   function onWordmarkClick() {
     if (wordmarkDidDrag) return;
     bringAllFront();
-  }
-
-  // Settings toggles (gear panel): persisted like theme/opacity.
-  function toggleAutohide() {
-    autohideRowChrome = !autohideRowChrome;
-    persist();
-  }
-
-  function toggleHideTitles() {
-    hideTitles = !hideTitles;
-    persist();
-  }
-
-  function toggleHideIcons() {
-    hideAppIcons = !hideAppIcons;
-    persist();
-  }
-
-  // Actions lane: user-authored shell shortcuts. Click runs the command via
-  // /bin/zsh -lc in cwd or $HOME; stdout/stderr surface in a small note and
-  // never crash the rail.
-  interface ActionResult {
-    ok: boolean;
-    code: number | null;
-    stdout: string;
-    stderr: string;
-  }
-
-  function addAction() {
-    const name = newActionName.trim();
-    const command = newActionCommand.trim();
-    if (!name || !command) return;
-    actionShortcuts = [
-      ...actionShortcuts,
-      {
-        id: `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        name,
-        command,
-        cwd: newActionCwd.trim() || null,
-      },
-    ];
-    newActionName = "";
-    newActionCommand = "";
-    newActionCwd = "";
-    addingAction = false;
-    persist();
-  }
-
-  function deleteAction(id: string) {
-    actionShortcuts = actionShortcuts.filter((a) => a.id !== id);
-    persist();
-  }
-
-  async function runAction(a: ActionShortcut) {
-    if (runningActionId) return;
-    runningActionId = a.id;
-    actionNote = null;
-    try {
-      const r = await invoke<ActionResult>("run_action", {
-        command: a.command,
-        cwd: a.cwd ?? null,
-      });
-      const out = [r.stdout, r.stderr].filter(Boolean).join("\n");
-      const head = r.ok ? `${a.name}: done` : `${a.name}: exit ${r.code ?? "?"}`;
-      actionNote = {
-        kind: r.ok ? "ok" : "err",
-        text: out ? `${head}\n${out}` : head,
-      };
-    } catch (e) {
-      actionNote = { kind: "err", text: `${a.name}: ${e}` };
-    }
-    runningActionId = null;
-  }
-
-  // Agents lane: launch the external harness with a query file = readable
-  // .md paths + titles-only planet context when attached to a project.
-  function addAgent() {
-    const name = newAgentName.trim();
-    if (!name) return;
-    agentShortcuts = [
-      ...agentShortcuts,
-      {
-        id: `ag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        name,
-        harness: newAgentHarness,
-        profile: newAgentProfile.trim() || "grok",
-        model: newAgentModel.trim() || null,
-        mdPaths: newAgentMdPaths
-          .split(",")
-          .map((p) => p.trim())
-          .filter(Boolean),
-        projectId: newAgentProjectId || null,
-      },
-    ];
-    newAgentName = "";
-    newAgentHarness = "hermes";
-    newAgentProfile = "";
-    newAgentModel = "";
-    newAgentMdPaths = "";
-    newAgentProjectId = "";
-    addingAgent = false;
-    persist();
-  }
-
-  function deleteAgent(id: string) {
-    agentShortcuts = agentShortcuts.filter((a) => a.id !== id);
-    persist();
-  }
-
-  async function launchAgent(a: AgentShortcut) {
-    const p = a.projectId ? projects.find((x) => x.id === a.projectId) : undefined;
-    const titles = p
-      ? [
-          ...rowsFor(p.id).map((w) =>
-            w.title ? `${w.appName} — ${w.title}` : w.appName,
-          ),
-          ...todosFor(p.id).map((c) => `To-do: ${c.title}`),
-        ]
-      : [];
-    try {
-      const route = await invoke<string>("launch_agent", {
-        shortcut: a,
-        projectName: p?.name ?? null,
-        titles,
-      });
-      hermesNote = { kind: "ok", text: `${a.name}: ${route}` };
-    } catch (e) {
-      hermesNote = { kind: "err", text: `${a.name}: ${e}` };
-    }
   }
 
   // Open Lists focused on one card: open_kanban puts the shared pane in
@@ -3030,98 +2780,6 @@
     color: var(--dim);
   }
 
-  .theme-panel {
-    margin-bottom: 8px;
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 10px;
-    padding: 10px 12px 12px;
-  }
-
-  .theme-panel h2 {
-    margin: 0 0 6px;
-    font-size: 0.78rem;
-    color: var(--accent);
-  }
-
-  /* S1.1: the STARS pane moved out to its own window (StarsPage.svelte). */
-
-  .block-label {
-    margin: 8px 0 4px;
-    font-size: 0.64rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--dim);
-  }
-
-  .theme-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .setting-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-  }
-
-  /* Gear → Packs (GO-LS-TAURI-USER-PACKS). */
-  .pack-list {
-    list-style: none;
-    margin: 4px 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .pack-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 22px;
-  }
-
-  .pack-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: var(--ink);
-  }
-
-  .pack-meta {
-    flex-shrink: 0;
-    font-size: 0.64rem;
-    color: var(--dim);
-  }
-
-  .pack-license {
-    flex-shrink: 0;
-    font-size: 0.62rem;
-    color: var(--dim);
-    border: 1px solid var(--edge);
-    border-radius: 999px;
-    padding: 0 0.35rem;
-  }
-
-  .pack-license.warn {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-
-  .pack-caption {
-    margin: 6px 0 0;
-    font-size: 0.64rem;
-    line-height: 1.5;
-    color: var(--dim);
-  }
-
   /* Being editor (GO-ORBITTY-CHARS): popover card above the rail. */
   .being-editor {
     position: fixed;
@@ -3221,77 +2879,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-  }
-
-  .swatch {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font: inherit;
-    font-size: 0.72rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 6px;
-    padding: 4px 8px;
-    cursor: pointer;
-  }
-
-  .swatch.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    font-weight: 700;
-  }
-
-  .chips {
-    display: inline-flex;
-    gap: 2px;
-  }
-
-  .chips i {
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    display: inline-block;
-  }
-
-  .chips[data-theme="systemLight"] .c-bg { background: #ececec; }
-  .chips[data-theme="systemLight"] .c-fg { background: rgba(0, 0, 0, 0.85); }
-  .chips[data-theme="systemLight"] .c-ac { background: #3d8f8a; }
-  .chips[data-theme="systemDark"] .c-bg { background: #1e1e1e; }
-  .chips[data-theme="systemDark"] .c-fg { background: rgba(255, 255, 255, 0.85); }
-  .chips[data-theme="systemDark"] .c-ac { background: #3d8f8a; }
-  .chips[data-theme="terminal"] .c-bg { background: #0a120e; }
-  .chips[data-theme="terminal"] .c-fg { background: #c8f0d0; }
-  .chips[data-theme="terminal"] .c-ac { background: #3ddc84; }
-
-  /* S4.2 Background opacity slider (window background fill only). */
-  .opacity-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-    font-size: 0.68rem;
-    color: var(--ink);
-  }
-
-  .opacity-row label {
-    flex-shrink: 0;
-    color: var(--dim);
-  }
-
-  .opacity-row input[type="range"] {
-    flex: 1;
-    min-width: 0;
-    accent-color: var(--accent);
-  }
-
-  .opacity-val {
-    flex-shrink: 0;
-    width: 34px;
-    text-align: right;
-    color: var(--dim);
-    font-variant-numeric: tabular-nums;
   }
 
   .card {
