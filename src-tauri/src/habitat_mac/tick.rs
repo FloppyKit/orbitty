@@ -22,7 +22,6 @@ use super::{
     set_caption, station_target, view_to_disc, visible_frames, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
     BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
-    STATION_BOARD,
     DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
     HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
     TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING,
@@ -617,6 +616,14 @@ fn anim_tick() {
             .walkers
             .iter()
             .any(|b| !b.asleep && matches!(b.pose, Pose::Work | Pose::Sit));
+        // WORLD-STOP: Done walks to the south/near lip of the painted
+        // rails, not STATION_BOARD (back of the blit). Same rects as the
+        // Done-column hit-test.
+        let lip = super::draw::board_near_lip(
+            planet.radius,
+            planet.projection,
+            planet.marble_scale,
+        );
         for (i, id) in ids.iter().enumerate() {
             let (pose, asleep) = planet
                 .walkers
@@ -660,19 +667,16 @@ fn anim_tick() {
                         via_board: false,
                     }
                 }
-                Pose::WalkOff => {
-                    let (tx, ty) = (STATION_BOARD.0, STATION_BOARD.1);
-                    RoamState {
-                        x: house.0,
-                        y: house.1,
-                        tx,
-                        ty,
-                        pause_end: None,
-                        facing_left: false,
-                        off_emitted: false,
-                        via_board: false,
-                    }
-                }
+                Pose::WalkOff => RoamState {
+                    x: house.0,
+                    y: house.1,
+                    tx: lip.0,
+                    ty: lip.1,
+                    pause_end: None,
+                    facing_left: false,
+                    off_emitted: false,
+                    via_board: false,
+                },
                 Pose::Roam => RoamState {
                     x: house.0,
                     y: house.1,
@@ -751,31 +755,36 @@ fn anim_tick() {
                         stepping[i] = true;
                     }
                 }
-                // Done: walk to the board, touch, blit flips, unclaim.
-                // No left-rim curtain — last walker lets the planet shrink.
+                // Done: walk to the near lip of the board, blit flips,
+                // dwell so checkout reads, then unclaim. Park — do not
+                // keep integrating toward STATION_BOARD / north. No
+                // left-rim curtain; last walker lets the planet shrink.
                 Pose::WalkOff => {
-                    roam.pause_end = None;
                     if roam.x < HOME_HIDE_X {
                         roam.x = house.0;
                         roam.y = house.1;
                         roam.via_board = false;
                         roam.off_emitted = false;
+                        roam.pause_end = None;
                         moved = true;
                     }
                     if !roam.via_board {
-                        let dx = STATION_BOARD.0 - roam.x;
-                        let dy = STATION_BOARD.1 - roam.y;
+                        let dx = lip.0 - roam.x;
+                        let dy = lip.1 - roam.y;
                         let dist = (dx * dx + dy * dy).sqrt();
                         if dist < 0.05 {
                             roam.via_board = true;
-                            roam.x = STATION_BOARD.0;
-                            roam.y = STATION_BOARD.1;
-                            roam.tx = STATION_BOARD.0;
-                            roam.ty = STATION_BOARD.1;
+                            roam.x = lip.0;
+                            roam.y = lip.1;
+                            roam.tx = lip.0;
+                            roam.ty = lip.1;
+                            roam.pause_end =
+                                Some(now_i + Duration::from_millis(400));
                             dirty = true; // lift blit hold this frame
+                            moved = true;
                         } else {
-                            roam.tx = STATION_BOARD.0;
-                            roam.ty = STATION_BOARD.1;
+                            roam.tx = lip.0;
+                            roam.ty = lip.1;
                             let step = (0.16 * dt).min(dist);
                             roam.x += dx / dist * step;
                             roam.y += dy / dist * step;
@@ -785,8 +794,15 @@ fn anim_tick() {
                             continue;
                         }
                     }
-                    roam.tx = STATION_BOARD.0;
-                    roam.ty = STATION_BOARD.1;
+                    // Parked at the lip. stepping stays false.
+                    roam.tx = lip.0;
+                    roam.ty = lip.1;
+                    if let Some(end) = roam.pause_end {
+                        if now_i < end {
+                            continue;
+                        }
+                        roam.pause_end = None;
+                    }
                     if !roam.off_emitted {
                         roam.off_emitted = true;
                         emit_walked_off(id);

@@ -49,6 +49,31 @@ pub(crate) fn board_column_rects(
     ]
 }
 
+/// Disc-local south / near lip of the three rails — the edge a Done
+/// walker walks up to. Same rects as the Done-column hit-test.
+///
+/// Flipped view: larger y is front/south. `STATION_BOARD` is the back
+/// anchor the blit is bottom-pinned to (the rails extend north of it);
+/// the lip is the south edge of those rails, not that station point.
+pub(crate) fn board_near_lip(
+    radius: f64,
+    projection: Projection,
+    marble_scale: f64,
+) -> (f64, f64) {
+    let cols = board_column_rects(radius, projection, marble_scale);
+    let side = (radius + VIEW_PADDING) * 2.0;
+    let center = NSPoint {
+        x: side / 2.0,
+        y: side / 2.0,
+    };
+    let r = (radius * marble_scale).max(1e-6);
+    let ry = radius_y(r, projection).max(1e-6);
+    let vx = (cols[0].origin.x + cols[2].max_x()) / 2.0;
+    // South edge of the rails (front in disc space).
+    let vy = cols[0].max_y();
+    ((vx - center.x) / r, (vy - center.y) / ry)
+}
+
 pub(crate) fn hit_board_column(planet: &super::Planet, local: NSPoint) -> Option<usize> {
     if planet.is_marble {
         return None;

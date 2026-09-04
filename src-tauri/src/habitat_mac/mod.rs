@@ -238,9 +238,9 @@ const BARY_PREFIX: &str = "b\n";
 /// middle, Needed front rim. A board-bound walker (Stand/Work) COMES
 /// FROM the igloo (STATION_HOUSE — user-placed buildings stay sandbox
 /// décor, never a spawn) and walks to its station. Sit snaps to the
-/// front rim (bad news skips the queue). Done walks to the board,
-/// touches it, then unclaims there — never past the left rim into a
-/// hide curtain (the last walker lets the planet shrink).
+/// front rim (bad news skips the queue). Done walks to the near lip
+/// of the board, dwells, then unclaims there — never past the left
+/// rim into a hide curtain (the last walker lets the planet shrink).
 pub(crate) const STATION_HOUSE: (f64, f64) = (-0.78, 0.05); // igloo — left interior
 pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.58); // Todo — far/back board
 // Doing — the open interior field, off the front lip (the fanned target
@@ -279,8 +279,8 @@ pub(crate) enum Pose {
     /// queue (snap, never a scenic route). Idle frame 0, no bob, FULL
     /// brightness: sit is not a sleeper.
     Sit,
-    /// Done: walk to the board, touch (blit flips), then unclaim.
-    /// No off-disc curtain walk.
+    /// Done: walk to the near lip of the board, touch (blit flips),
+    /// dwell, then unclaim. No off-disc curtain walk.
     WalkOff,
 }
 
@@ -668,9 +668,11 @@ struct RoamState {
     /// north rim). Reset whenever the pose leaves WalkOff so a re-claimed
     /// walker's next Done emits again.
     off_emitted: bool,
-    /// WORLD-TOUCH: a Done walker has reached STATION_BOARD. Lifts the
-    /// blit hold (tick may move to done) and arms emit_walked_off.
-    /// Reset whenever the pose leaves WalkOff. Never a left-rim home leg.
+    /// WORLD-TOUCH / WORLD-STOP: a Done walker has reached the near lip
+    /// of the board (south edge of `board_column_rects`, not STATION_BOARD).
+    /// Lifts the blit hold (tick may move to done) and arms the dwell
+    /// then emit_walked_off. Reset whenever the pose leaves WalkOff.
+    /// Never a left-rim home leg.
     via_board: bool,
 }
 
@@ -2001,6 +2003,7 @@ fn layout_beings(planet: &mut Planet) {
         y: side / 2.0,
     };
     let ids: Vec<String> = planet.walkers.iter().map(|b| b.entry_id.clone()).collect();
+    let lip = draw::board_near_lip(planet.radius, planet.projection, planet.marble_scale);
     for (i, id) in ids.iter().enumerate() {
         let pose = planet.walkers.get(i).map(|b| b.pose).unwrap_or(Pose::Roam);
         // WORLD-PLACES: a fresh board-pose roam starts at the house.
@@ -2011,11 +2014,10 @@ fn layout_beings(planet: &mut Planet) {
             // and walks to the station — the world narrates
             // igloo → board/field instead of popping in at the column.
             // Sit still seeds AT the front rim (bad news skips the
-            // queue). LEFTOVER: a Done walker seeds AT THE IGLOO TOO —
-            // never past the hide line (x > HOME_HIDE_X) — so the walk
-            // home off the left rim is visible; the walked-off emit
-            // fires when it crosses HOME_HIDE_X. Live card moves keep
-            // the existing roam entry, so those walks stay visible.
+            // queue). A Done walker seeds AT THE IGLOO TOO and walks
+            // to the near lip of the board (WORLD-STOP). Live card
+            // moves keep the existing roam entry, so those walks stay
+            // visible.
             match pose {
                 Pose::Stand | Pose::Work => {
                     let (tx, ty) = station_target(pose, id);
@@ -2043,19 +2045,16 @@ fn layout_beings(planet: &mut Planet) {
                         via_board: false,
                     }
                 }
-                Pose::WalkOff => {
-                    let (tx, ty) = (STATION_BOARD.0, STATION_BOARD.1);
-                    RoamState {
-                        x: house.0,
-                        y: house.1,
-                        tx,
-                        ty,
-                        pause_end: None,
-                        facing_left: false,
-                        off_emitted: false,
-                        via_board: false,
-                    }
-                }
+                Pose::WalkOff => RoamState {
+                    x: house.0,
+                    y: house.1,
+                    tx: lip.0,
+                    ty: lip.1,
+                    pause_end: None,
+                    facing_left: false,
+                    off_emitted: false,
+                    via_board: false,
+                },
                 Pose::Roam => {
                     let a = i as f64 * 2.3;
                     let r = 0.32;
