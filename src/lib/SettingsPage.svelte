@@ -149,11 +149,15 @@
       .join("");
   }
 
-  // KeyboardEvent.key → a token the native combo parser accepts.
-  function keyToken(key: string): string | null {
-    if (key.length === 1) return key.toLowerCase();
+  // Physical key (`e.code`), not `e.key`. Option+letter on a Mac types
+  // ©/†/å — those strings fail the native parser and every ⌘⌥ chord
+  // showed conflict. KeyG → g, Digit1 → 1.
+  function keyToken(e: KeyboardEvent): string | null {
+    const c = e.code;
+    if (/^Key[A-Z]$/.test(c)) return c.slice(3).toLowerCase();
+    if (/^Digit[0-9]$/.test(c)) return c.slice(5);
     const named: Record<string, string> = {
-      " ": "space",
+      Space: "space",
       Enter: "enter",
       Tab: "tab",
       Backspace: "backspace",
@@ -164,9 +168,22 @@
       ArrowRight: "right",
       Home: "home",
       End: "end",
+      Minus: "-",
+      Equal: "=",
+      BracketLeft: "[",
+      BracketRight: "]",
+      Backslash: "\\",
+      Semicolon: ";",
+      Quote: "'",
+      Comma: ",",
+      Period: ".",
+      Slash: "/",
+      Backquote: "`",
     };
-    if (named[key]) return named[key];
-    if (/^F\d{1,2}$/.test(key)) return key.toLowerCase();
+    if (named[c]) return named[c];
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(c)) return c.toLowerCase();
+    const k = e.key;
+    if (k.length === 1 && /[a-z0-9]/i.test(k)) return k.toLowerCase();
     return null;
   }
 
@@ -198,7 +215,7 @@
       return;
     }
     if (mods.length === 0) return;
-    const key = keyToken(e.key);
+    const key = keyToken(e);
     if (!key) return;
     recordingId = null;
     void setCombo(id, [...mods, key].join("+"));
@@ -754,8 +771,8 @@
           cancels, Delete clears). No combo = tell Spirit. Add a row with
           <code>orbittyctl action add --name N --cmd "C" [--cwd D] [--combo K]</code>
           — no modal here. ⌘H / ⌘M / ⌘Q / ⌘W are Mac hide / minimize /
-          quit / close and show conflict — use ⌘⌥ plus a letter. ⌘⇧O and
-          ⌘Space stay reserved.
+          quit / close. ⌘⌥ plus a letter is the lane (physical key, so
+          Option+G is G not ©). ⌘⇧O and ⌘Space stay reserved.
         </p>
       </section>
     {:else}
