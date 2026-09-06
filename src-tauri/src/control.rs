@@ -17,6 +17,12 @@
 //! kanban.move / needed.open / log.append). Writes are never in
 //! READ_TOOLS and never match companion.*, so only `full` or a named
 //! `custom` allowlist reaches them; `read` / `companion` deny (4).
+//!
+//! GO-ORBITTY-ACTION-FILE adds the action recipe file (action.list /
+//! action.add / action.run / action.rm). `action.list` is read-profile
+//! safe; the companion profile (Spark) may `action.run` + `action.add` —
+//! it mints and runs named recipes, never a raw shell; `action.rm` needs
+//! `full` or a custom allowlist naming the tool or the `action.*` prefix.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -216,6 +222,8 @@ const READ_TOOLS: &[&str] = &[
     "packs.list",
     "companion.agents",
     "state.get",
+    // GO-ORBITTY-ACTION-FILE: the list is the read face of the file.
+    "action.list",
 ];
 
 fn allowed(acl: &Acl, tool: &str) -> bool {
@@ -224,9 +232,19 @@ fn allowed(acl: &Acl, tool: &str) -> bool {
         Acl::Full => true,
         Acl::Read => READ_TOOLS.contains(&tool),
         Acl::Companion => {
-            READ_TOOLS.contains(&tool) || tool.starts_with("companion.")
+            // GO-ORBITTY-ACTION-FILE: Spark mints and runs named recipes
+            // (action.add / action.run) — never a raw shell, never rm.
+            READ_TOOLS.contains(&tool)
+                || tool.starts_with("companion.")
+                || tool == "action.run"
+                || tool == "action.add"
         }
-        Acl::Custom(list) => list.iter().any(|t| t == tool),
+        // A custom entry names a tool exactly, or a whole prefix with a
+        // trailing `*` (e.g. "action.*" reaches all four action tools).
+        Acl::Custom(list) => list.iter().any(|t| match t.strip_suffix('*') {
+            Some(prefix) => tool.starts_with(prefix),
+            None => t == tool,
+        }),
     }
 }
 
@@ -375,6 +393,35 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map_err(tool_err)
         }
         "state.get" => crate::state::load_state(app).map(to_data).map_err(tool_err),
+        // GO-ORBITTY-ACTION-FILE: the action recipe file. list = read
+        // profile; add/run = companion (Spark mints) and up; rm = full /
+        // named custom only. Runs go through the same logged /bin/zsh -lc
+        // 120s door as the Settings list click — lengths-only event log.
+        "action.list" => crate::actions::action_list(app).map_err(tool_err),
+        "action.add" => {
+            let name = arg_str(args, "name")?;
+            let cmd = arg_str(args, "cmd")?;
+            crate::actions::action_add(
+                app,
+                &name,
+                &cmd,
+                arg_opt(args, "cwd").as_deref(),
+                arg_opt(args, "combo").as_deref(),
+            )
+            .map(to_data)
+            .map_err(tool_err)
+        }
+        "action.run" => {
+            let id = arg_opt(args, "id");
+            let name = arg_opt(args, "name");
+            crate::actions::action_run(app, id.as_deref(), name.as_deref())
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        "action.rm" => {
+            let id = arg_str(args, "id")?;
+            crate::actions::action_rm(app, &id).map_err(tool_err)
+        }
         // GO-ORBITTY-MCP-WRITE: the four write tools. Same mutate path as
         // the save_state command (claim diff + state:changed emit) so the
         // UI live-updates. ACL: full / named custom only (see READ_TOOLS).

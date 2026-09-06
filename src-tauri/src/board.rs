@@ -46,8 +46,8 @@ fn base36(mut n: u64) -> String {
 }
 
 /// `<prefix>-<base36 millis>-<6 base36 rand>` — the rail/board id shape
-/// (`c-` todos, `n-` needed, `pt-` points rows).
-fn new_id(prefix: &str) -> String {
+/// (`c-` todos, `n-` needed, `pt-` points rows, `a-` actions).
+pub(crate) fn new_id(prefix: &str) -> String {
     use std::io::Read;
     let mut b = [0u8; 8];
     if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
@@ -70,7 +70,7 @@ fn today_key() -> String {
 
 /// The one save door — same shape as the Tauri `save_state` command:
 /// atomic write, claim diff (best-effort), `state:changed` emit.
-fn save_with_events(
+pub(crate) fn save_with_events(
     app: &tauri::AppHandle,
     before: &PersistedState,
     after: &PersistedState,

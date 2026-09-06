@@ -123,6 +123,9 @@ export interface ActionShortcut {
   name: string;
   command: string;
   cwd?: string | null;
+  // GO-ORBITTY-ACTION-FILE: optional global chord, e.g. "cmd+alt+m".
+  // Empty/absent = Spirit-only (chat intercept or Settings click).
+  combo?: string | null;
 }
 
 export interface AgentShortcut {

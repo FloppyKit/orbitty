@@ -27,7 +27,8 @@ struct ToolDef {
     name: &'static str,
     description: &'static str,
     /// "none" | "id" | "line" | "profile" | "clip" | "kanban_add" |
-    /// "kanban_move" | "needed_open" | "log_append"
+    /// "kanban_move" | "needed_open" | "log_append" | "action_add" |
+    /// "action_run" | "action_rm"
     args: &'static str,
 }
 
@@ -55,6 +56,13 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
+    // GO-ORBITTY-ACTION-FILE: the action recipe file. list is read-safe;
+    // add / run ride the companion profile (Spark mints + runs named
+    // recipes, never a raw shell); rm needs full / named custom ("action.*").
+    ToolDef { name: "action.list", description: "List action shortcuts (id, name, combo, command, conflict status)", args: "none" },
+    ToolDef { name: "action.add", description: "Mint an action shortcut: a named /bin/zsh -lc recipe with an optional global combo like cmd+alt+m", args: "action_add" },
+    ToolDef { name: "action.run", description: "Run an action by id or name (the logged 120s /bin/zsh -lc door; output clipped)", args: "action_run" },
+    ToolDef { name: "action.rm", description: "Remove an action by id (full / named custom ACL only)", args: "action_rm" },
 ];
 
 fn known_tool(name: &str) -> bool {
@@ -130,6 +138,30 @@ fn input_schema(kind: &str) -> Value {
                 "actor": { "type": "string", "description": "Event actor (default agent)" }
             },
             "required": ["eType"]
+        }),
+        "action_add" => json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Action name (the list's run word)" },
+                "cmd": { "type": "string", "description": "Shell recipe, run via /bin/zsh -lc (120s cap)" },
+                "cwd": { "type": "string", "description": "Working directory; omitted/empty = $HOME" },
+                "combo": { "type": "string", "description": "Global chord like cmd+alt+m; omitted = Spirit-only. Reserved (cmd+shift+o, cmd+space) or taken chords register nothing and show conflict" }
+            },
+            "required": ["name", "cmd"]
+        }),
+        "action_run" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Action id" },
+                "name": { "type": "string", "description": "Action name (exact; unique case-insensitive fallback)" }
+            }
+        }),
+        "action_rm" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Action id" }
+            },
+            "required": ["id"]
         }),
         _ => json!({ "type": "object", "properties": {} }),
     }

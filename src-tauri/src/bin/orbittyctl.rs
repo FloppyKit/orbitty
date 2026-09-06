@@ -32,6 +32,10 @@ commands:
   kanban open
   kanban add --title \"t\" [--project P] [--status todo|doing]
   kanban move --id <id> --status todo|doing|done
+  action list
+  action add --name N --cmd \"C\" [--cwd D] [--combo cmd+alt+m]
+  action run --id <id> | --name <name>
+  action rm --id <id>
   needed open --title \"t\" [--project P] [--why \"w\"]
   log append --type T [--project P] [--actor agent] -- '{\"k\":1}'
   stars open
@@ -50,6 +54,12 @@ log append) mutate through the app's one save door — the UI live-updates.
 ACL: control.json profile full, or a named custom allowlist entry; read /
 companion are denied (exit 4).
 
+GO-ORBITTY-ACTION-FILE: action list is read-safe; the companion profile
+may action add / action run (Spark mints named recipes — never a raw
+shell); action rm needs full or a custom entry naming it (or \"action.*\").
+Combos register globally on persist; reserved (cmd+shift+o, cmd+space) or
+taken chords show [conflict] in action list.
+
 exit codes: 0 ok · 2 Orbitty not running · 3 auth · 4 denied · 5 AX · 1 other";
 
 struct Opts {
@@ -63,6 +73,10 @@ struct Opts {
     why: Option<String>,
     etype: Option<String>,
     actor: Option<String>,
+    name: Option<String>,
+    cmd: Option<String>,
+    cwd: Option<String>,
+    combo: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
 }
@@ -79,6 +93,10 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         why: None,
         etype: None,
         actor: None,
+        name: None,
+        cmd: None,
+        cwd: None,
+        combo: None,
         words: Vec::new(),
         tail: Vec::new(),
     };
@@ -109,6 +127,12 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--why" => o.why = Some(it.next().ok_or("--why needs a value")?.clone()),
             "--type" => o.etype = Some(it.next().ok_or("--type needs a value")?.clone()),
             "--actor" => o.actor = Some(it.next().ok_or("--actor needs a value")?.clone()),
+            "--name" => o.name = Some(it.next().ok_or("--name needs a value")?.clone()),
+            "--cmd" => o.cmd = Some(it.next().ok_or("--cmd needs a value")?.clone()),
+            "--cwd" => o.cwd = Some(it.next().ok_or("--cwd needs a value")?.clone()),
+            "--combo" => {
+                o.combo = Some(it.next().ok_or("--combo needs a value")?.clone())
+            }
             "-h" | "--help" => {
                 println!("{USAGE}");
                 exit(0);
@@ -124,6 +148,12 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             s if s.starts_with("--why=") => o.why = Some(s["--why=".len()..].to_string()),
             s if s.starts_with("--type=") => o.etype = Some(s["--type=".len()..].to_string()),
             s if s.starts_with("--actor=") => o.actor = Some(s["--actor=".len()..].to_string()),
+            s if s.starts_with("--name=") => o.name = Some(s["--name=".len()..].to_string()),
+            s if s.starts_with("--cmd=") => o.cmd = Some(s["--cmd=".len()..].to_string()),
+            s if s.starts_with("--cwd=") => o.cwd = Some(s["--cwd=".len()..].to_string()),
+            s if s.starts_with("--combo=") => {
+                o.combo = Some(s["--combo=".len()..].to_string())
+            }
             s if s.starts_with('-') && s.len() > 1 => {
                 return Err(format!("unknown flag {s:?}\n\n{USAGE}"))
             }
@@ -199,6 +229,32 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             "kanban.move",
             json!({ "id": need_id(o)?, "status": need_flag(&o.status, "--status")? }),
         )),
+        // GO-ORBITTY-ACTION-FILE: the action recipe file. The server owns
+        // validation (parse, reserved chords, unknown ids) and the ACL.
+        ["action", "list"] => Ok(("action.list", json!({}))),
+        ["action", "add"] => {
+            let mut a = json!({
+                "name": need_flag(&o.name, "--name")?,
+                "cmd": need_flag(&o.cmd, "--cmd")?,
+            });
+            if let Some(d) = opt(&o.cwd) {
+                a["cwd"] = json!(d);
+            }
+            if let Some(k) = opt(&o.combo) {
+                a["combo"] = json!(k);
+            }
+            Ok(("action.add", a))
+        }
+        ["action", "run"] => {
+            if let Some(id) = opt(&o.id) {
+                Ok(("action.run", json!({ "id": id })))
+            } else if let Some(n) = opt(&o.name) {
+                Ok(("action.run", json!({ "name": n })))
+            } else {
+                Err("missing --id <id> or --name <name>".to_string())
+            }
+        }
+        ["action", "rm"] => Ok(("action.rm", json!({ "id": need_id(o)? }))),
         ["needed", "open"] => {
             let mut a = json!({ "title": need_flag(&o.title, "--title")? });
             if let Some(p) = opt(&o.project) {
@@ -372,6 +428,54 @@ fn print_human(tool: &str, data: &Value) {
             data["id"].as_str().unwrap_or("?"),
             data["status"].as_str().unwrap_or("?")
         ),
+        "action.list" => {
+            let Some(arr) = data.as_array() else {
+                return;
+            };
+            if arr.is_empty() {
+                println!("(no actions)");
+            }
+            for a in arr {
+                let id = a["id"].as_str().unwrap_or("?");
+                let name = a["name"].as_str().unwrap_or("?");
+                let combo = a["combo"].as_str().unwrap_or("—");
+                let cmd = a["command"].as_str().unwrap_or("");
+                let mark = if a["status"].as_str() == Some("conflict") {
+                    "  [conflict]"
+                } else {
+                    ""
+                };
+                println!("{id}  {name}  {combo}  {cmd}{mark}");
+            }
+        }
+        "action.add" => println!(
+            "added {} — {}",
+            data["id"].as_str().unwrap_or("?"),
+            data["name"].as_str().unwrap_or("")
+        ),
+        "action.rm" => println!("removed {}", data["id"].as_str().unwrap_or("?")),
+        "action.run" => {
+            let ok = data["ok"].as_bool().unwrap_or(false);
+            let head = if ok {
+                "done".to_string()
+            } else {
+                format!(
+                    "exit {}",
+                    data["code"]
+                        .as_i64()
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "?".into())
+                )
+            };
+            println!("{head}");
+            for s in ["stdout", "stderr"]
+                .into_iter()
+                .filter_map(|k| data[k].as_str())
+                .filter(|s| !s.is_empty())
+            {
+                println!("{s}");
+            }
+        }
         "needed.open" => println!(
             "needed {} — {}",
             data["id"].as_str().unwrap_or("?"),

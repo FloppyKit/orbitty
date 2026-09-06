@@ -1442,8 +1442,19 @@ pub fn run_action(
     command: String,
     cwd: Option<String>,
 ) -> Result<ActionResult, String> {
+    run_action_logged(&app, command, cwd)
+}
+
+/// GO-ORBITTY-ACTION-FILE: the logged run body, shared by the invoke
+/// command, the control plane (`action.run`), and combo presses. Same
+/// contract: `/bin/zsh -lc`, 120s, event log lengths only.
+pub(crate) fn run_action_logged(
+    app: &tauri::AppHandle,
+    command: String,
+    cwd: Option<String>,
+) -> Result<ActionResult, String> {
     crate::event_log::append_best(
-        &app,
+        app,
         "action-start",
         None,
         None,
@@ -1457,7 +1468,7 @@ pub fn run_action(
         Err(_) => (false, None),
     };
     crate::event_log::append_best(
-        &app,
+        app,
         "action-end",
         None,
         None,

@@ -26,9 +26,7 @@
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
   import NeededInbox from "./NeededInbox.svelte";
-  import ActionsWell from "./ActionsWell.svelte";
   import type {
-    ActionShortcut,
     Actor,
     Claim,
     Difficulty,
@@ -81,8 +79,9 @@
   let windows = $state<WindowInfo[]>([]);
   let titleOverrides = $state<TitleOverride[]>([]);
 
-  // GO-ORBITTY-BOARD-ACTIONS: macros array (ActionsWell is the writer UI).
-  let actionShortcuts = $state<ActionShortcut[]>([]);
+  // GO-ORBITTY-ACTION-FILE: no Actions well here — actions are a Settings
+  // list + `orbittyctl action` verbs; the slice still round-trips via
+  // load → mutate → save.
   // GO-ORBITTY-LP-NEEDED: shared so strip + and sidebar form stay one toggle.
   let addingNeeded = $state(false);
 
@@ -310,7 +309,6 @@
       kanbanCards = s.kanbanCards ?? [];
       pointsLedger = s.pointsLedger ?? [];
       titleOverrides = s.titleOverrides ?? [];
-      actionShortcuts = s.actionShortcuts ?? [];
     } catch {
       // keep last good state; next state:changed retries
     }
@@ -354,7 +352,6 @@
       s.kanbanCards ??= [];
       s.pointsLedger ??= [];
       s.titleOverrides ??= [];
-      s.actionShortcuts ??= [];
       fn(s);
       await invoke("save_state", { state: s });
       await loadState();
@@ -970,13 +967,6 @@
 
   <div class="k-body">
     <aside class="k-side" aria-label="Lists">
-      <ActionsWell
-        {actionShortcuts}
-        cards={kanbanCards}
-        {mutate}
-        {onFocusCard}
-      />
-
       <NeededInbox
         variant="side"
         cards={kanbanCards}

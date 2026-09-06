@@ -1,3 +1,4 @@
+mod actions;
 #[cfg(unix)]
 mod board;
 mod chars;
@@ -394,6 +395,9 @@ fn save_state(app: tauri::AppHandle, state: state::PersistedState) -> Result<(),
     }
     // Keep the separate Kanban window in sync with the rail's writes.
     let _ = app.emit("state:changed", ());
+    // GO-ORBITTY-ACTION-FILE: every persist re-syncs action combo
+    // registrations (best-effort — a collision marks conflict, never errs).
+    actions::sync_combos(&app, &state.action_shortcuts);
     Ok(())
 }
 
@@ -462,6 +466,7 @@ pub fn run() {
             coordinator::ack_stars_prompt,
             coordinator::speak_reply,
             coordinator::run_action,
+            actions::action_combo_status,
             coordinator::launch_agent,
             coordinator::wake_sleeper,
             coordinator::load_soul,
@@ -531,6 +536,14 @@ pub fn run() {
                         let _ = handle.emit_to("companion", "orbitty:companion-summon", ());
                     })?;
             }
+
+            // GO-ORBITTY-ACTION-FILE: register persisted action combos on
+            // load (same plugin as the summon above). Every later persist
+            // re-syncs via the save_state command / action.* tools.
+            let boot_actions = state::load_state(app.handle())
+                .map(|s| s.action_shortcuts)
+                .unwrap_or_default();
+            actions::sync_combos(app.handle(), &boot_actions);
 
             // All webview windows: any close request (⌘W, menu Close Window,
             // programmatic close) hides instead of destroying. Quit lives on
