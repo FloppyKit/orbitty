@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter};
 use super::audio;
 use super::input::{boombox_click, contains_interactive, over_disc, BOOMBOX_CLICK_SLOP};
 use super::{
-    app_handle, app_handle_cell, default_state, emit_walked_off, house_spawn, layout_beings,
+    app_handle, app_handle_cell, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings,
     layout_decor, lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
     set_caption, station_target, view_to_disc, visible_frames, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
@@ -653,6 +653,7 @@ fn anim_tick() {
                         off_emitted: false,
                         via_board: false,
                         via_home: false,
+                        via_checkin: false,
                     }
                 }
                 Pose::Sit => {
@@ -667,6 +668,7 @@ fn anim_tick() {
                         off_emitted: false,
                         via_board: false,
                         via_home: false,
+                        via_checkin: false,
                     }
                 }
                 Pose::WalkOff => RoamState {
@@ -679,6 +681,7 @@ fn anim_tick() {
                     off_emitted: false,
                     via_board: false,
                     via_home: false,
+                    via_checkin: false,
                 },
                 Pose::Roam => RoamState {
                     x: house.0,
@@ -690,6 +693,7 @@ fn anim_tick() {
                     off_emitted: false,
                     via_board: false,
                     via_home: false,
+                    via_checkin: false,
                 },
             });
             // A walker that left WalkOff (re-claimed) re-arms its emit so
@@ -737,11 +741,27 @@ fn anim_tick() {
                     if roam.x < HOME_HIDE_X {
                         roam.x = house.0;
                         roam.y = house.1;
+                        // GO-ORBITTY-WORLD-CHECKIN: the return from hide
+                        // is a fresh claim journey — re-arm the board
+                        // check-in so this claim touches the board too.
+                        roam.via_checkin = false;
                         moved = true;
                     }
                     let dx = roam.tx - roam.x;
                     let dy = roam.ty - roam.y;
                     let dist = (dx * dx + dy * dy).sqrt();
+                    // GO-ORBITTY-WORLD-CHECKIN: a Stand (Todo) walker
+                    // arriving at the near lip of the board checks in
+                    // ONCE — the rail flips that window's card
+                    // todo→doing and the next sync walks it to the field
+                    // as Work. The board touch is the punch; the walker
+                    // never parks idle waiting for a human drag. Sticky
+                    // after the flip: a manual drag back to Todo stays
+                    // Todo (no second emit on this roam entry).
+                    if pose == Pose::Stand && !roam.via_checkin && dist < 0.05 {
+                        roam.via_checkin = true;
+                        emit_board_checkin(id);
+                    }
                     if dist >= 0.025 {
                         let step = (0.16 * dt).min(dist);
                         roam.x += dx / dist * step;

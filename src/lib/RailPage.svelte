@@ -1761,6 +1761,7 @@
   let unlistenWalkerHome: (() => void) | undefined;
   let unlistenWalkedOff: (() => void) | undefined;
   let unlistenBoardDone: (() => void) | undefined;
+  let unlistenCheckin: (() => void) | undefined;
   let unlistenState: (() => void) | undefined;
 
   // GO-ORBITTY-RAIL-ROW-MENU: walker right-click menu pick. `kind` = import
@@ -1904,6 +1905,25 @@
       claims = liveClaims.filter((c) => c.windowId !== windowId);
       persist();
     });
+    // GO-ORBITTY-WORLD-CHECKIN: a Todo walker touched the near lip of
+    // the board — the board walk IS the check-in. If that window's card
+    // is still todo, flip it to doing and persist; syncHabitat then
+    // sends Work and the walker leaves the board for the field on its
+    // own (no idle park waiting for a human drag). claim() still lands
+    // Todo; the native side emits once per claim journey, so a manual
+    // drag back to Todo stays Todo. Launchpad drags are untouched.
+    unlistenCheckin = await listen<string>("habitat:board-checkin", (e) => {
+      const windowId = e.payload;
+      const card = kanbanCards.find(
+        (c) => c.windowId === windowId && c.status === "todo",
+      );
+      if (!card) return;
+      const now = nowEpoch();
+      kanbanCards = kanbanCards.map((c) =>
+        c.id === card.id ? { ...c, status: "doing", lastTouchedAt: now } : c,
+      );
+      persist();
+    });
     // The Lists window writes state.json too (todos, checkbox completes).
     // Adopt its card/ledger writes and any claims it removed; rail-owned
     // slices (projects, tags, UI state) stay local. Echoes of our own saves
@@ -1966,6 +1986,7 @@
     unlistenWalkerHome?.();
     unlistenWalkedOff?.();
     unlistenBoardDone?.();
+    unlistenCheckin?.();
     unlistenState?.();
     osMedia.removeEventListener("change", onOsThemeChange);
   });

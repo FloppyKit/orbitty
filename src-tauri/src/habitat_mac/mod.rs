@@ -397,6 +397,18 @@ pub(crate) fn emit_walked_off(entry_id: &str) {
     }
 }
 
+/// GO-ORBITTY-WORLD-CHECKIN: a Todo walker touched the near lip of the
+/// board — the rail's listener flips that window's card todo→doing
+/// (only if still todo; a human drag always wins). Fire-and-forget,
+/// once per claim journey (anim_tick's via_checkin), same shape as
+/// emit_walked_off. Not a WalkOff path — via_board/via_home stay
+/// Done-only.
+pub(crate) fn emit_board_checkin(entry_id: &str) {
+    if let Some(app) = app_handle() {
+        let _ = app.emit_to("main", "habitat:board-checkin", entry_id.to_string());
+    }
+}
+
 
 /// Decor budget: 3 plants + 3 mushrooms at first sight, +1 each every 2
 /// days, capped at 5+5; the boombox is always a single placement.
@@ -678,6 +690,13 @@ struct RoamState {
     /// Emit only after this. Reset whenever the pose leaves WalkOff.
     /// Never a left-rim curtain (`HOME_OFF` stays dead).
     via_home: bool,
+    /// GO-ORBITTY-WORLD-CHECKIN: a Stand (Todo) walker has touched the
+    /// board and the check-in emit fired — the rail flips that window's
+    /// card todo→doing and the next sync walks it to the field as Work.
+    /// Sticky for the roam entry's life (a manual drag back to Todo
+    /// stays Todo); re-arms only on a fresh claim journey — a new roam
+    /// entry, or the return-from-hide teleport in anim_tick.
+    via_checkin: bool,
 }
 
 /// GO-ORBITTY-MARBLE-SOLAR: a marble's in-memory track membership.
@@ -2035,6 +2054,7 @@ fn layout_beings(planet: &mut Planet) {
                         off_emitted: false,
                         via_board: false,
                         via_home: false,
+                        via_checkin: false,
                     }
                 }
                 Pose::Sit => {
@@ -2049,6 +2069,7 @@ fn layout_beings(planet: &mut Planet) {
                         off_emitted: false,
                         via_board: false,
                         via_home: false,
+                        via_checkin: false,
                     }
                 }
                 Pose::WalkOff => RoamState {
@@ -2061,6 +2082,7 @@ fn layout_beings(planet: &mut Planet) {
                     off_emitted: false,
                     via_board: false,
                     via_home: false,
+                    via_checkin: false,
                 },
                 Pose::Roam => {
                     let a = i as f64 * 2.3;
@@ -2075,6 +2097,7 @@ fn layout_beings(planet: &mut Planet) {
                         off_emitted: false,
                         via_board: false,
                         via_home: false,
+                        via_checkin: false,
                     }
                 }
             }
