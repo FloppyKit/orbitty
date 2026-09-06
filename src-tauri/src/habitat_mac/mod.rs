@@ -239,8 +239,9 @@ const BARY_PREFIX: &str = "b\n";
 /// FROM the igloo (STATION_HOUSE — user-placed buildings stay sandbox
 /// décor, never a spawn) and walks to its station. Sit snaps to the
 /// front rim (bad news skips the queue). Done walks to the near lip
-/// of the board, dwells, then unclaims there — never past the left
-/// rim into a hide curtain (the last walker lets the planet shrink).
+/// of the board, dwells, walks home to the igloo, then unclaims —
+/// never past the left rim into a hide curtain (the last walker lets
+/// the planet shrink).
 pub(crate) const STATION_HOUSE: (f64, f64) = (-0.78, 0.05); // igloo — left interior
 pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.58); // Todo — far/back board
 // Doing — the open interior field, off the front lip (the fanned target
@@ -280,7 +281,7 @@ pub(crate) enum Pose {
     /// brightness: sit is not a sleeper.
     Sit,
     /// Done: walk to the near lip of the board, touch (blit flips),
-    /// dwell, then unclaim. No off-disc curtain walk.
+    /// dwell, walk home to the igloo, then unclaim. No off-disc curtain.
     WalkOff,
 }
 
@@ -670,10 +671,13 @@ struct RoamState {
     off_emitted: bool,
     /// WORLD-TOUCH / WORLD-STOP: a Done walker has reached the near lip
     /// of the board (south edge of `board_column_rects`, not STATION_BOARD).
-    /// Lifts the blit hold (tick may move to done) and arms the dwell
-    /// then emit_walked_off. Reset whenever the pose leaves WalkOff.
-    /// Never a left-rim home leg.
+    /// Lifts the blit hold (tick may move to done) and arms the lip dwell.
+    /// Reset whenever the pose leaves WalkOff.
     via_board: bool,
+    /// WORLD-HOME: after the lip dwell, the walker has reached the igloo.
+    /// Emit only after this. Reset whenever the pose leaves WalkOff.
+    /// Never a left-rim curtain (`HOME_OFF` stays dead).
+    via_home: bool,
 }
 
 /// GO-ORBITTY-MARBLE-SOLAR: a marble's in-memory track membership.
@@ -2030,6 +2034,7 @@ fn layout_beings(planet: &mut Planet) {
                         facing_left: false,
                         off_emitted: false,
                         via_board: false,
+                        via_home: false,
                     }
                 }
                 Pose::Sit => {
@@ -2043,6 +2048,7 @@ fn layout_beings(planet: &mut Planet) {
                         facing_left: false,
                         off_emitted: false,
                         via_board: false,
+                        via_home: false,
                     }
                 }
                 Pose::WalkOff => RoamState {
@@ -2054,6 +2060,7 @@ fn layout_beings(planet: &mut Planet) {
                     facing_left: false,
                     off_emitted: false,
                     via_board: false,
+                    via_home: false,
                 },
                 Pose::Roam => {
                     let a = i as f64 * 2.3;
@@ -2067,6 +2074,7 @@ fn layout_beings(planet: &mut Planet) {
                         facing_left: false,
                         off_emitted: false,
                         via_board: false,
+                        via_home: false,
                     }
                 }
             }

@@ -652,6 +652,7 @@ fn anim_tick() {
                         facing_left: false,
                         off_emitted: false,
                         via_board: false,
+                        via_home: false,
                     }
                 }
                 Pose::Sit => {
@@ -665,6 +666,7 @@ fn anim_tick() {
                         facing_left: false,
                         off_emitted: false,
                         via_board: false,
+                        via_home: false,
                     }
                 }
                 Pose::WalkOff => RoamState {
@@ -676,6 +678,7 @@ fn anim_tick() {
                     facing_left: false,
                     off_emitted: false,
                     via_board: false,
+                    via_home: false,
                 },
                 Pose::Roam => RoamState {
                     x: house.0,
@@ -686,6 +689,7 @@ fn anim_tick() {
                     facing_left: false,
                     off_emitted: false,
                     via_board: false,
+                    via_home: false,
                 },
             });
             // A walker that left WalkOff (re-claimed) re-arms its emit so
@@ -694,6 +698,7 @@ fn anim_tick() {
             if pose != Pose::WalkOff {
                 roam.off_emitted = false;
                 roam.via_board = false;
+                roam.via_home = false;
             }
             // Sleepers stand still where they were laid out — no roam. A
             // Done card still walks a sleeper off: the complete ritual
@@ -756,14 +761,15 @@ fn anim_tick() {
                     }
                 }
                 // Done: walk to the near lip of the board, blit flips,
-                // dwell so checkout reads, then unclaim. Park — do not
-                // keep integrating toward STATION_BOARD / north. No
+                // dwell so checkout reads, walk home to the igloo, dwell
+                // at the door, then unclaim. No north walk-through. No
                 // left-rim curtain; last walker lets the planet shrink.
                 Pose::WalkOff => {
                     if roam.x < HOME_HIDE_X {
                         roam.x = house.0;
                         roam.y = house.1;
                         roam.via_board = false;
+                        roam.via_home = false;
                         roam.off_emitted = false;
                         roam.pause_end = None;
                         moved = true;
@@ -794,15 +800,41 @@ fn anim_tick() {
                             continue;
                         }
                     }
-                    // Parked at the lip. stepping stays false.
-                    roam.tx = lip.0;
-                    roam.ty = lip.1;
                     if let Some(end) = roam.pause_end {
                         if now_i < end {
                             continue;
                         }
                         roam.pause_end = None;
                     }
+                    if !roam.via_home {
+                        let dx = house.0 - roam.x;
+                        let dy = house.1 - roam.y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < 0.05 {
+                            roam.via_home = true;
+                            roam.x = house.0;
+                            roam.y = house.1;
+                            roam.tx = house.0;
+                            roam.ty = house.1;
+                            roam.pause_end =
+                                Some(now_i + Duration::from_millis(400));
+                            dirty = true;
+                            moved = true;
+                            continue;
+                        } else {
+                            roam.tx = house.0;
+                            roam.ty = house.1;
+                            let step = (0.16 * dt).min(dist);
+                            roam.x += dx / dist * step;
+                            roam.y += dy / dist * step;
+                            roam.facing_left = dx < -0.002;
+                            stepping[i] = true;
+                            moved = true;
+                            continue;
+                        }
+                    }
+                    roam.tx = house.0;
+                    roam.ty = house.1;
                     if !roam.off_emitted {
                         roam.off_emitted = true;
                         emit_walked_off(id);
