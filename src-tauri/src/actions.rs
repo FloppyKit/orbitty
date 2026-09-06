@@ -36,13 +36,38 @@ fn parse_combo(combo: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, St
     Ok(s)
 }
 
-/// ⌘⇧O is the companion summon; ⌘Space is Spotlight's. Neither is ever
-/// registered for an action — a row carrying one shows `conflict`.
+/// Never register these — a row carrying one shows `conflict`.
+/// ⌘⇧O = companion summon. ⌘Space = Spotlight. Super-only letters below
+/// are Mac menu equivalents (Hide, Minimize, Quit, Close, …): Carbon
+/// RegisterEventHotKey succeeds, then the menu swallows the press while
+/// Orbitty is frontmost, so the action looks dead. ⌘⌥+letter is fine.
 #[cfg(target_os = "macos")]
 fn is_reserved(s: &tauri_plugin_global_shortcut::Shortcut) -> bool {
     use tauri_plugin_global_shortcut::{Code, Modifiers};
-    (s.mods == Modifiers::SUPER | Modifiers::SHIFT && s.key == Code::KeyO)
-        || (s.mods == Modifiers::SUPER && s.key == Code::Space)
+    if s.mods == Modifiers::SUPER | Modifiers::SHIFT && s.key == Code::KeyO {
+        return true;
+    }
+    if s.mods == Modifiers::SUPER && matches!(s.key, Code::Space | Code::Tab | Code::Backquote) {
+        return true;
+    }
+    s.mods == Modifiers::SUPER
+        && matches!(
+            s.key,
+            Code::KeyH
+                | Code::KeyM
+                | Code::KeyQ
+                | Code::KeyW
+                | Code::KeyN
+                | Code::KeyO
+                | Code::KeyS
+                | Code::KeyP
+                | Code::KeyA
+                | Code::KeyZ
+                | Code::KeyX
+                | Code::KeyC
+                | Code::KeyV
+                | Code::Comma
+        )
 }
 
 #[cfg(target_os = "macos")]
@@ -69,17 +94,44 @@ mod reg {
 
     /// A combo press runs the action's CURRENT command (looked up fresh by
     /// id, so an edit without a chord change never goes stale) on a worker
-    /// thread — the handler itself never blocks on /bin/zsh.
+    /// thread — the handler itself never blocks on /bin/zsh. Emit so
+    /// Settings can show the same run note as a name click (`echo hi`
+    /// otherwise looks like the chord did nothing).
     fn fire(app: tauri::AppHandle, id: String) {
         std::thread::spawn(move || {
+            use serde_json::{json, Value};
+            use tauri::Emitter;
             let Ok(st) = crate::state::load_state(&app) else {
                 return;
             };
             let Some(a) = st.action_shortcuts.iter().find(|a| a.id == id) else {
                 return;
             };
-            let _ =
-                crate::coordinator::run_action_logged(&app, a.command.clone(), a.cwd.clone());
+            let name = a.name.clone();
+            let ran = crate::coordinator::run_action_logged(
+                &app,
+                a.command.clone(),
+                a.cwd.clone(),
+            );
+            let payload = match ran {
+                Ok(r) => json!({
+                    "id": id,
+                    "name": name,
+                    "ok": r.ok,
+                    "code": r.code,
+                    "stdout": r.stdout,
+                    "stderr": r.stderr,
+                }),
+                Err(e) => json!({
+                    "id": id,
+                    "name": name,
+                    "ok": false,
+                    "code": Value::Null,
+                    "stdout": "",
+                    "stderr": e,
+                }),
+            };
+            let _ = app.emit("orbitty:action-ran", payload);
         });
     }
 

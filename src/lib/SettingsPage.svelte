@@ -463,6 +463,7 @@
     }
   };
   let unlisten: (() => void) | undefined;
+  let unlistenRan: (() => void) | undefined;
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
     await loadState();
@@ -472,11 +473,28 @@
       loadState();
       refreshComboStatus();
     });
+    unlistenRan = await listen<{
+      id: string;
+      name: string;
+      ok: boolean;
+      code: number | null;
+      stdout: string;
+      stderr: string;
+    }>("orbitty:action-ran", (e) => {
+      const r = e.payload;
+      const out = [r.stdout, r.stderr].filter(Boolean).join("\n");
+      const head = r.ok ? `${r.name}: done` : `${r.name}: exit ${r.code ?? "?"}`;
+      actionNote = {
+        kind: r.ok ? "ok" : "err",
+        text: out ? `${head}\n${out}` : head,
+      };
+    });
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("keydown", onRecordKeydown, true);
   });
   onDestroy(() => {
     unlisten?.();
+    unlistenRan?.();
     document.removeEventListener("visibilitychange", onVisibility);
     window.removeEventListener("keydown", onRecordKeydown, true);
   });
@@ -735,8 +753,9 @@
           Click a name to run. Click a combo to record the next chord (Esc
           cancels, Delete clears). No combo = tell Spirit. Add a row with
           <code>orbittyctl action add --name N --cmd "C" [--cwd D] [--combo K]</code>
-          — no modal here. ⌘⇧O and ⌘Space are reserved; a chord taken by
-          the OS or another app shows conflict.
+          — no modal here. ⌘H / ⌘M / ⌘Q / ⌘W are Mac hide / minimize /
+          quit / close and show conflict — use ⌘⌥ plus a letter. ⌘⇧O and
+          ⌘Space stay reserved.
         </p>
       </section>
     {:else}
