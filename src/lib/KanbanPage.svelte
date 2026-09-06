@@ -12,12 +12,14 @@
   // completed a quest. completeCard stamps "user"; Happened splits via the
   // All / I did / On my behalf chips (missing actor = pre-actor human
   // history = I did). Needed never enters the complete door.
-  // GO-ORBITTY-LP-MINE: a mixed filtered set splits into two quiet
-  // sections — "On this planet" (kind "window"; heading "Inbox" when the
-  // Inbox is selected) then "My list" (kind "todo" / loose). One kind
-  // only → no headings. Board keeps three columns but parks window cards
-  // above todos inside each. No new column, no shame counts; add-a-todo
-  // still mints kind "todo" and the rail claim door is untouched.
+  // GO-ORBITTY-LP-INBOX: Launchpad first paint is YOUR work — rows are
+  // kind "todo" (and the Needed strip) only. Kind "window" never paints
+  // here: no "On this planet" split, no window-first sort, sidebar planet
+  // rows filter your todos and never load the window map. The Planets
+  // sheet owns windows later. Every todo row wears a planet color dot
+  // when projectId is a live project, the List|Board toggle sticks
+  // across sessions (default list), and add-a-todo still mints kind
+  // "todo". The rail claim door is untouched.
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -90,8 +92,16 @@
   let newTodo = $state("");
   let showCompleted = $state(true);
 
-  // S4.4: List | Board toggle + detail drawer. Both session-only.
-  let view = $state<"list" | "board">("list");
+  // S4.4: List | Board toggle + detail drawer. LP-INBOX: the toggle is
+  // last-used across sessions (default list); the rest stays session-only.
+  const VIEW_KEY = "orbitty.launchpad.view";
+  let view = $state<"list" | "board">(
+    localStorage.getItem(VIEW_KEY) === "board" ? "board" : "list",
+  );
+  function setView(v: "list" | "board") {
+    view = v;
+    localStorage.setItem(VIEW_KEY, v);
+  }
   let detailId = $state<string | null>(null);
   let newSubtask = $state("");
 
@@ -128,12 +138,18 @@
 
   // Needed is never a quest: every quest view filters kind first (Needed
   // cards carry a dummy status "todo" only so kind-blind code can't crash).
+  // LP-INBOX: kind "window" never paints on Launchpad — the Planets sheet
+  // owns windows.
   let openCards = $derived(
-    kanbanCards.filter((c) => c.kind !== "needed" && c.status !== "done"),
+    kanbanCards.filter(
+      (c) => c.kind !== "needed" && c.kind !== "window" && c.status !== "done",
+    ),
   );
   let doneCards = $derived(
     kanbanCards
-      .filter((c) => c.kind !== "needed" && c.status === "done" && c.completedAt)
+      .filter(
+        (c) => c.kind !== "needed" && c.kind !== "window" && c.status === "done" && c.completedAt,
+      )
       .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
   );
 
@@ -148,17 +164,14 @@
     return doneFilter === "all" || actorSide(c) === doneFilter;
   }
 
-  // Open rows: window-linked (doing) first, then todos, oldest first.
+  // Open rows: todos only, oldest first.
   let visibleOpen = $derived.by(() => {
     if (selected === "done") return [];
     const rows =
       selected === "today"
         ? openCards.filter((c) => c.createdAt >= startOfToday())
         : openCards.filter((c) => listOf(c) === selected);
-    return [...rows].sort(
-      (a, b) =>
-        (a.windowId ? 0 : 1) - (b.windowId ? 0 : 1) || a.createdAt - b.createdAt,
-    );
+    return [...rows].sort((a, b) => a.createdAt - b.createdAt);
   });
 
   let visibleDone = $derived.by(() => {
@@ -167,23 +180,16 @@
     return doneCards.filter((c) => listOf(c) === selected);
   });
 
-  // GO-ORBITTY-LP-MINE: kind split for the quiet sections. A missing kind
-  // reads as mine — pre-kind cards were all user todos. Headings appear
-  // only when BOTH kinds are present; a lone kind renders flat.
-  let openWindows = $derived(visibleOpen.filter((c) => c.kind === "window"));
-  let openTodos = $derived(visibleOpen.filter((c) => c.kind !== "window"));
-  let openSplit = $derived(openWindows.length > 0 && openTodos.length > 0);
-  let doneWindows = $derived(visibleDone.filter((c) => c.kind === "window"));
-  let doneTodos = $derived(visibleDone.filter((c) => c.kind !== "window"));
-  let doneSplit = $derived(doneWindows.length > 0 && doneTodos.length > 0);
-  let windowHeading = $derived(
-    selected === "inbox" ? "Inbox" : "On this planet",
-  );
+  // LP-INBOX: planet color dot — only when projectId is a LIVE project
+  // (a vanished project falls back to Inbox and gets no dot).
+  function livePlanetId(card: KanbanCard): string | null {
+    return projects.some((p) => p.id === card.projectId) ? card.projectId : null;
+  }
 
   // Board scope mirrors the sidebar selection; the Done smart filter boards
   // every card so all three columns stay meaningful.
   function inScope(c: KanbanCard): boolean {
-    if (c.kind === "needed") return false;
+    if (c.kind === "needed" || c.kind === "window") return false;
     if (selected === "done") return true;
     if (selected === "today") return c.createdAt >= startOfToday();
     return listOf(c) === selected;
@@ -192,23 +198,13 @@
   let boardCols = $derived.by(() => {
     const scoped = kanbanCards.filter(inScope);
     const byAge = (a: KanbanCard, b: KanbanCard) => a.createdAt - b.createdAt;
-    // GO-ORBITTY-LP-MINE: ongoings above mine inside every column — same
-    // three columns, no new chrome.
-    const kindFirst = (a: KanbanCard, b: KanbanCard) =>
-      (a.kind === "window" ? 0 : 1) - (b.kind === "window" ? 0 : 1);
     return {
-      todo: scoped
-        .filter((c) => c.status === "todo")
-        .sort((a, b) => kindFirst(a, b) || byAge(a, b)),
-      doing: scoped
-        .filter((c) => c.status === "doing")
-        .sort((a, b) => kindFirst(a, b) || byAge(a, b)),
+      todo: scoped.filter((c) => c.status === "todo").sort(byAge),
+      doing: scoped.filter((c) => c.status === "doing").sort(byAge),
       done: scoped
         .filter((c) => c.status === "done")
         .filter(inDoneFilter)
-        .sort(
-          (a, b) => kindFirst(a, b) || (b.completedAt ?? 0) - (a.completedAt ?? 0),
-        ),
+        .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
     } as Record<Status, KanbanCard[]>;
   });
 
@@ -673,7 +669,11 @@
     if (!p) return;
     const titles = kanbanCards
       .filter(
-        (c) => c.kind !== "needed" && c.status !== "done" && listOf(c) === p.id,
+        (c) =>
+          c.kind !== "needed" &&
+          c.kind !== "window" &&
+          c.status !== "done" &&
+          listOf(c) === p.id,
       )
       .map((c) => c.title);
     try {
@@ -833,30 +833,24 @@
   </div>
 {/snippet}
 
-<!-- GO-ORBITTY-LP-MINE: row snippets so the split sections and the flat
-     list share one row shape. -->
+<!-- GO-ORBITTY-LP-INBOX: one row shape, todos only. Every row wears a
+     planet color dot when projectId is a live project. -->
 {#snippet openRow(card: KanbanCard)}
-  {@const w = winFor(card)}
-  <li class="k-row" class:min={w?.isMinimized}>
+  {@const pid = livePlanetId(card)}
+  <li class="k-row">
     <button
       class="k-check"
       onclick={() => toggleCard(card)}
       title="Mark done"
       aria-label="Mark done"
     ></button>
-    {#if card.windowId}
-      <button
-        class="k-iconbtn"
-        onclick={() => focusCard(card)}
-        title={w ? `Focus ${w.appName}` : "Window not open"}
-        aria-label="Focus linked window"
-      >
-        {#if w?.iconBase64}
-          <img class="k-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
-        {:else}
-          <span class="k-icon fallback" aria-hidden="true">▦</span>
-        {/if}
-      </button>
+    {#if pid}
+      <span
+        class="planet-chip"
+        style="background: {planetCss(pid)}"
+        title={projectName(pid)}
+        aria-hidden="true"
+      ></span>
     {/if}
     <button
       class="k-name"
@@ -874,6 +868,7 @@
 
 {#snippet doneRow(card: KanbanCard)}
   {@const chip = doneChip(card)}
+  {@const pid = livePlanetId(card)}
   <li class="k-row done">
     <button
       class="k-check checked"
@@ -881,6 +876,14 @@
       title="Reopen as a to-do"
       aria-label="Reopen as a to-do">✓</button
     >
+    {#if pid}
+      <span
+        class="planet-chip"
+        style="background: {planetCss(pid)}"
+        title={projectName(pid)}
+        aria-hidden="true"
+      ></span>
+    {/if}
     <button
       class="k-name strike"
       onclick={() => openDetail(card)}
@@ -944,13 +947,13 @@
         role="tab"
         aria-selected={view === "list"}
         class:active={view === "list"}
-        onclick={() => (view = "list")}>List</button
+        onclick={() => setView("list")}>List</button
       >
       <button
         role="tab"
         aria-selected={view === "board"}
         class:active={view === "board"}
-        onclick={() => (view = "board")}>Board</button
+        onclick={() => setView("board")}>Board</button
       >
     </div>
     <span class="k-pts" title="Points today / daily cap">{pointsToday()}/{DAILY_CAP}</span>
@@ -1072,7 +1075,7 @@
               </header>
               <div class="b-cards">
                 {#each boardCols[col.id] as card (card.id)}
-                  {@const w = winFor(card)}
+                  {@const pid = livePlanetId(card)}
                   <article
                     class="b-card"
                     class:dragging={dragCardId === card.id}
@@ -1087,12 +1090,13 @@
                     title="{displayTitle(card)} — click for details, drag to move"
                   >
                     <div class="b-card-top">
-                      {#if card.windowId}
-                        {#if w?.iconBase64}
-                          <img class="k-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
-                        {:else}
-                          <span class="k-icon fallback" aria-hidden="true">▦</span>
-                        {/if}
+                      {#if pid}
+                        <span
+                          class="planet-chip"
+                          style="background: {planetCss(pid)}"
+                          title={projectName(pid)}
+                          aria-hidden="true"
+                        ></span>
                       {/if}
                       <span class="b-title" class:strike={card.status === "done"}>{displayTitle(card)}</span>
                     </div>
@@ -1111,36 +1115,21 @@
           {/each}
         </div>
       {:else}
-        <!-- GO-ORBITTY-LP-MINE: a mixed set renders two quiet sections —
-             ongoings first, then mine. One kind only stays a flat list. -->
-        {#if openSplit}
-          <h3 class="k-sect">{windowHeading}</h3>
-          <ul class="k-rows">
-            {#each openWindows as card (card.id)}
-              {@render openRow(card)}
-            {/each}
-          </ul>
-          <h3 class="k-sect">My list</h3>
-          <ul class="k-rows">
-            {#each openTodos as card (card.id)}
-              {@render openRow(card)}
-            {/each}
-          </ul>
-        {:else}
-          <ul class="k-rows">
-            {#each visibleOpen as card (card.id)}
-              {@render openRow(card)}
-            {:else}
-              <li class="k-empty">
-                {selected === "done"
-                  ? "Nothing done yet — check a to-do."
-                  : selected === "today"
-                    ? "Nothing new today."
-                    : "All clear. Add a to-do below."}
-              </li>
-            {/each}
-          </ul>
-        {/if}
+        <!-- GO-ORBITTY-LP-INBOX: one flat list of your todos — no
+             "On this planet" / window-first split. -->
+        <ul class="k-rows">
+          {#each visibleOpen as card (card.id)}
+            {@render openRow(card)}
+          {:else}
+            <li class="k-empty">
+              {selected === "done"
+                ? "Nothing done yet — check a to-do."
+                : selected === "today"
+                  ? "Nothing new today."
+                  : "All clear. Add a to-do below."}
+            </li>
+          {/each}
+        </ul>
 
         {#if visibleDone.length > 0}
           <button
@@ -1152,26 +1141,11 @@
             Completed ({visibleDone.length})
           </button>
           {#if showCompleted}
-            {#if doneSplit}
-              <h3 class="k-sect">{windowHeading}</h3>
-              <ul class="k-rows done">
-                {#each doneWindows as card (card.id)}
-                  {@render doneRow(card)}
-                {/each}
-              </ul>
-              <h3 class="k-sect">My list</h3>
-              <ul class="k-rows done">
-                {#each doneTodos as card (card.id)}
-                  {@render doneRow(card)}
-                {/each}
-              </ul>
-            {:else}
-              <ul class="k-rows done">
-                {#each visibleDone as card (card.id)}
-                  {@render doneRow(card)}
-                {/each}
-              </ul>
-            {/if}
+            <ul class="k-rows done">
+              {#each visibleDone as card (card.id)}
+                {@render doneRow(card)}
+              {/each}
+            </ul>
           {/if}
         {/if}
       {/if}
@@ -1669,10 +1643,6 @@
     background: var(--panel-fill, var(--panel));
   }
 
-  .k-row.min .k-name {
-    opacity: 0.55;
-  }
-
   .k-check {
     flex-shrink: 0;
     display: inline-flex;
@@ -1700,18 +1670,6 @@
     color: var(--bg);
     background: var(--accent);
     border-color: var(--accent);
-  }
-
-  .k-iconbtn {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
   }
 
   .k-icon {
@@ -1899,20 +1857,6 @@
 
   .chev.open {
     transform: rotate(90deg);
-  }
-
-  /* GO-ORBITTY-LP-MINE: quiet section headings — no counts, no shame. */
-  .k-sect {
-    margin: 10px 2px 4px;
-    font-size: 0.66rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--dim);
-  }
-
-  .k-main .k-sect:first-of-type {
-    margin-top: 2px;
   }
 
   .k-add {
