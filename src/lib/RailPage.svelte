@@ -613,6 +613,116 @@
   // windows) are the exception — `gone` never evicts a sleeper; it stays on
   // its planet, asleep and dim, until Done/Unclaim.
   let lastHabitatSig = "";
+  // GO-ORBITTY-SLEEPERS / CADENCE-FIX: one sleeper row from a claim
+  // fingerprint — a closed claim keeps a dim, still walker until
+  // Done/Unclaim (without it the body outlived its row on the planet:
+  // the drag-into-hang ghost). Shared by the live snapshot's orphan
+  // claims and by WORLD-FIRST-PAINT's every-claim cheap pass.
+  function sleeperRowFor(c: Claim): WindowInfo {
+    return {
+      id: c.windowId,
+      pid: 0,
+      appName: c.appName ?? "App",
+      title: c.titleAtClaim || c.appName || "",
+      bundleId: c.bundleId ?? null,
+      stableKey: claimStableKey(c) ?? "",
+      iconBase64: null,
+      isFrontmost: false,
+      isMinimized: true,
+      documentPath: c.filePath ?? null,
+      sleeping: true,
+    };
+  }
+
+  // GO-ORBITTY-WORLD-TOWN: the back-board's ticks — this project's
+  // kanban (Needed cards never land), capped ~12: oldest open first,
+  // then recent done. Ids + columns only; titles never ride.
+  function boardCardsFor(p: Project) {
+    const mine = kanbanCards.filter(
+      (k) => (k.projectId ?? "") === p.id && k.kind !== "needed",
+    );
+    const open = mine
+      .filter((k) => k.status !== "done")
+      .sort((a, b) => a.createdAt - b.createdAt);
+    const done = mine
+      .filter((k) => k.status === "done")
+      .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt);
+    return [...open, ...done].slice(0, 12).map((k) => ({
+      id: k.id,
+      status: k.status,
+      windowId: k.windowId ?? null,
+    }));
+  }
+
+  function habitatEntryFor(w: WindowInfo, p: Project) {
+    const c = liveClaims.find((x) => x.windowId === w.id);
+    // GO-ORBITTY-CADENCE: the window's board truth rides the snapshot
+    // (one channel — sync_habitat). The window-linked card wins for
+    // this window id: an open card first, else the latest done one
+    // (so the walk-off still shows between Complete and the rail's
+    // unclaim). Needed cards never pose as the linked card — their
+    // status is a dummy — they only sit the walker via neededState.
+    const linked = kanbanCards.filter(
+      (k) => k.windowId === w.id && k.kind !== "needed",
+    );
+    const openCard = linked.find((k) => k.status !== "done");
+    const doneCard = openCard
+      ? undefined
+      : linked
+          .filter((k) => k.status === "done")
+          .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0];
+    const card = openCard ?? doneCard;
+    // A Needed (open/later) naming this window — or this project
+    // with no window — sits the walker. Needed wins over Doing.
+    const needed = kanbanCards.find(
+      (k) =>
+        k.kind === "needed" &&
+        (k.neededState === "open" || k.neededState === "later") &&
+        (k.windowId === w.id ||
+          (k.windowId == null && (k.projectId ?? "") === p.id)),
+    );
+    return {
+      id: w.id,
+      appName: w.appName,
+      title: w.title,
+      bundleId: w.bundleId,
+      minimized: w.isMinimized,
+      iconBase64: w.iconBase64,
+      age: ageClass(w.id),
+      asleep: !!w.sleeping,
+      spritePackId: c?.spritePackId ?? "",
+      // GO-ORBITTY-CHARS: the generated being + per-walker size ride
+      // the snapshot; 0 scale = inherit the gear's global slider.
+      charSeed: c?.charSeed ?? 0,
+      charLook: c?.charLook ?? null,
+      spriteScale: c?.spriteScale ?? 0,
+      cardStatus: card?.status ?? "",
+      cardKind: card?.kind ?? "",
+      neededState: needed ? (needed.neededState ?? "open") : "",
+    };
+  }
+
+  function habitatPlanetFor(p: Project, rows: WindowInfo[]) {
+    return {
+      projectId: p.id,
+      name: p.name,
+      collapsed: isCollapsed(p.id),
+      boardCards: boardCardsFor(p),
+      entries: rows.map((w) => habitatEntryFor(w, p)),
+    };
+  }
+
+  function habitatSnapshotPayload(
+    planets: ReturnType<typeof habitatPlanetFor>[],
+  ) {
+    return {
+      planets,
+      spriteScale,
+      marbleDrift,
+      allPlanets: projects.map((p) => ({ projectId: p.id, name: p.name })),
+    };
+  }
+
   async function syncHabitat() {
     if (!stateLoaded || !status?.trusted) return;
     const planets = projects
@@ -629,105 +739,19 @@
                 ageClass(w.id) !== "gone",
             ),
           ),
-          // GO-ORBITTY-SLEEPERS / CADENCE-FIX: orphan claims (window
-          // closed) ride the snapshot as sleeper rows — a closed claim
-          // keeps a dim, still walker until Done/Unclaim. Without this the
-          // body outlived its row on the planet: the drag-into-hang ghost.
+          // Orphan claims (window closed) ride the snapshot as sleeper
+          // rows — see sleeperRowFor.
           ...liveClaims
             .filter(
               (c) =>
                 occupancyOf(c) === p.id &&
                 !windows.some((w) => w.id === c.windowId),
             )
-            .map((c) => ({
-              id: c.windowId,
-              pid: 0,
-              appName: c.appName ?? "App",
-              title: c.titleAtClaim || c.appName || "",
-              bundleId: c.bundleId ?? null,
-              stableKey: claimStableKey(c) ?? "",
-              iconBase64: null,
-              isFrontmost: false,
-              isMinimized: true,
-              documentPath: c.filePath ?? null,
-              sleeping: true,
-            })),
+            .map(sleeperRowFor),
         ],
       }))
       .filter(({ rows }) => rows.length > 0)
-      .map(({ p, rows }) => ({
-        projectId: p.id,
-        name: p.name,
-        collapsed: isCollapsed(p.id),
-        // GO-ORBITTY-WORLD-TOWN: the back-board's ticks — this project's
-        // kanban (Needed cards never land), capped ~12: oldest open first,
-        // then recent done. Ids + columns only; titles never ride.
-        boardCards: (() => {
-          const mine = kanbanCards.filter(
-            (k) => (k.projectId ?? "") === p.id && k.kind !== "needed",
-          );
-          const open = mine
-            .filter((k) => k.status !== "done")
-            .sort((a, b) => a.createdAt - b.createdAt);
-          const done = mine
-            .filter((k) => k.status === "done")
-            .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt);
-          return [...open, ...done]
-            .slice(0, 12)
-            .map((k) => ({
-              id: k.id,
-              status: k.status,
-              windowId: k.windowId ?? null,
-            }));
-        })(),
-        entries: rows.map((w) => {
-          const c = liveClaims.find((x) => x.windowId === w.id);
-          // GO-ORBITTY-CADENCE: the window's board truth rides the snapshot
-          // (one channel — sync_habitat). The window-linked card wins for
-          // this window id: an open card first, else the latest done one
-          // (so the walk-off still shows between Complete and the rail's
-          // unclaim). Needed cards never pose as the linked card — their
-          // status is a dummy — they only sit the walker via neededState.
-          const linked = kanbanCards.filter(
-            (k) => k.windowId === w.id && k.kind !== "needed",
-          );
-          const openCard = linked.find((k) => k.status !== "done");
-          const doneCard = openCard
-            ? undefined
-            : linked
-                .filter((k) => k.status === "done")
-                .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0];
-          const card = openCard ?? doneCard;
-          // A Needed (open/later) naming this window — or this project
-          // with no window — sits the walker. Needed wins over Doing.
-          const needed = kanbanCards.find(
-            (k) =>
-              k.kind === "needed" &&
-              (k.neededState === "open" || k.neededState === "later") &&
-              (k.windowId === w.id ||
-                (k.windowId == null && (k.projectId ?? "") === p.id)),
-          );
-          return {
-            id: w.id,
-            appName: w.appName,
-            title: w.title,
-            bundleId: w.bundleId,
-            minimized: w.isMinimized,
-            iconBase64: w.iconBase64,
-            age: ageClass(w.id),
-            asleep: !!w.sleeping,
-            spritePackId: c?.spritePackId ?? "",
-            // GO-ORBITTY-CHARS: the generated being + per-walker size ride
-            // the snapshot; 0 scale = inherit the gear's global slider.
-            charSeed: c?.charSeed ?? 0,
-            charLook: c?.charLook ?? null,
-            spriteScale: c?.spriteScale ?? 0,
-            cardStatus: card?.status ?? "",
-            cardKind: card?.kind ?? "",
-            neededState: needed ? (needed.neededState ?? "open") : "",
-          };
-        }),
-      }));
+      .map(({ p, rows }) => habitatPlanetFor(p, rows));
     // Pack ids join the signature: an import/remove changes the frame pool
     // the habitat draws from, so it must re-sync even when no window moved.
     const sig = JSON.stringify([
@@ -758,15 +782,40 @@
     lastHabitatSig = sig;
     try {
       await invoke("sync_habitat", {
-        snapshot: {
-          planets,
-          spriteScale,
-          marbleDrift,
-          allPlanets: projects.map((p) => ({ projectId: p.id, name: p.name })),
-        },
+        snapshot: habitatSnapshotPayload(planets),
       });
     } catch {
       lastHabitatSig = ""; // retry next tick
+    }
+  }
+
+  // GO-ORBITTY-WORLD-FIRST-PAINT: launch paints the last-known planet
+  // discs BEFORE the first AX enumeration — every claim rides as a
+  // sleeper row (dim, still, no icon), so the first sync_habitat blit
+  // never waits on list_windows (that AX wait was the load beach-ball).
+  // The native side reuses its persisted world geometry, so the discs
+  // land where they were last seen; the 800ms tick's live snapshot then
+  // wakes what AX finds. lastHabitatSig is untouched here, so that
+  // first live sync always lands. Main rail only — the embedded sheet
+  // never syncs (the tick guards it too).
+  async function syncHabitatLastKnown() {
+    if (!stateLoaded || !status?.trusted || embedded) return;
+    const planets = projects
+      .map((p) => ({
+        p,
+        rows: liveClaims
+          .filter((c) => occupancyOf(c) === p.id)
+          .map(sleeperRowFor),
+      }))
+      .filter(({ rows }) => rows.length > 0)
+      .map(({ p, rows }) => habitatPlanetFor(p, rows));
+    if (planets.length === 0) return;
+    try {
+      await invoke("sync_habitat", {
+        snapshot: habitatSnapshotPayload(planets),
+      });
+    } catch {
+      /* the live tick retries */
     }
   }
 
@@ -2050,7 +2099,22 @@
       }
     });
     osMedia.addEventListener("change", onOsThemeChange);
-    tick();
+    // GO-ORBITTY-WORLD-FIRST-PAINT: cheap last-known discs first — the
+    // one cheap AX trust check gates them, then the normal tick
+    // (list_windows → live sync) catches up. First paint never blocks
+    // on the AX enumeration.
+    void (async () => {
+      if (!embedded) {
+        try {
+          const s = await invoke<AxStatus>("accessibility_status");
+          status = s;
+          await syncHabitatLastKnown();
+        } catch {
+          /* the tick below retries */
+        }
+      }
+      tick();
+    })();
     timer = setInterval(tick, 800);
   });
   onDestroy(() => {
