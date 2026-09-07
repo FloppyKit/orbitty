@@ -4,9 +4,11 @@
   // Full/Head sprite toggle, Expand, ⚙ last after Expand (GEAR-DOCK),
   // composer. Paint + presses only: CompanionPage owns all state, the
   // sends (the field still calls companion_send), and the well. Planets
-  // dest = toggleDest("inspector") — never a PLANETS-POP menu, and the
-  // chip stays Planets. × stays a CompanionPage corner.
+  // dest L-click = toggleDest("inspector"). R-click = planet menu
+  // (Add + live names) — not a dest toggle. × stays a CompanionPage corner.
   import { invoke } from "@tauri-apps/api/core";
+  import { planetCss } from "./planetColor";
+  import type { Project } from "./persist";
 
   // GO-ORBITTY-FOURCAST-RECAST: chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
@@ -41,6 +43,9 @@
     togglePrompts,
     toggleDest,
     onNewPlanet,
+    planets = [],
+    onPlanetClick,
+    onPlanetDblClick,
     toggleSpeak,
     toggleSprite,
     toggleView,
@@ -70,6 +75,9 @@
     togglePrompts: () => void;
     toggleDest: (mode: "launchpad" | "stars" | "inspector") => void;
     onNewPlanet: () => void;
+    planets?: Project[];
+    onPlanetClick: (id: string) => void;
+    onPlanetDblClick: (id: string) => void;
     toggleSpeak: () => void;
     toggleSprite: (e: MouseEvent) => void;
     toggleView: () => void;
@@ -80,6 +88,55 @@
     talkStopSend: () => void;
     onDockMouseDown: (e: MouseEvent) => void;
   } = $props();
+
+  let planetsMenuOpen = $state(false);
+  let skipDestClick = false;
+  let planetsWrapEl: HTMLSpanElement | null = $state(null);
+
+  function onPlanetsClick() {
+    if (skipDestClick) {
+      skipDestClick = false;
+      return;
+    }
+    planetsMenuOpen = false;
+    toggleDest("inspector");
+  }
+
+  function onPlanetsContext(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    skipDestClick = true;
+    planetsMenuOpen = !planetsMenuOpen;
+    setTimeout(() => {
+      skipDestClick = false;
+    }, 300);
+  }
+
+  function addPlanetFromMenu() {
+    planetsMenuOpen = false;
+    onNewPlanet();
+  }
+
+  $effect(() => {
+    if (!planetsMenuOpen) return;
+    const onDown = (ev: MouseEvent) => {
+      const n = ev.target as Node | null;
+      if (n && planetsWrapEl?.contains(n)) return;
+      planetsMenuOpen = false;
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") planetsMenuOpen = false;
+    };
+    const t = setTimeout(() => {
+      window.addEventListener("mousedown", onDown, true);
+      window.addEventListener("keydown", onKey, true);
+    }, 0);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  });
 </script>
 
 <!-- GO-ORBITTY-GHOST-DOCK: agentrow + composer ride in one wrap — the
@@ -152,33 +209,61 @@
           <path d="M12 3 L14.1 9.1 L20.6 9.2 L15.4 13.1 L17.3 19.3 L12 15.6 L6.7 19.3 L8.6 13.1 L3.4 9.2 L9.9 9.1 Z" />
         </svg>
       </button>
-      <button
-        class="dest iconbtn planetsdest"
-        class:on={hosted === "inspector"}
-        onclick={() => toggleDest("inspector")}
-        oncontextmenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onNewPlanet();
-        }}
-        aria-label="Planets, or right-click for New planet"
-        data-chip="Planets"
-        title="Planets in the well — click again to dismiss. Right-click: New planet"
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <circle cx="12" cy="12" r="5" />
-          <ellipse
-            cx="12"
-            cy="12"
-            rx="9.4"
-            ry="3.3"
-            transform="rotate(-20 12 12)"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.7"
-          />
-        </svg>
-      </button>
+      <span class="planetsdest-wrap" bind:this={planetsWrapEl}>
+        <button
+          class="dest iconbtn planetsdest"
+          class:on={hosted === "inspector"}
+          onclick={onPlanetsClick}
+          oncontextmenu={onPlanetsContext}
+          aria-label="Planets. Right-click for Add planet and the live list"
+          data-chip="Planets"
+          title="Planets in the well — click again to dismiss. Right-click: Add planet and names"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="12" cy="12" r="5" />
+            <ellipse
+              cx="12"
+              cy="12"
+              rx="9.4"
+              ry="3.3"
+              transform="rotate(-20 12 12)"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+            />
+          </svg>
+        </button>
+        {#if planetsMenuOpen}
+          <div class="planetspop" role="menu" aria-label="Planets">
+            <button
+              type="button"
+              class="planetsrow"
+              role="menuitem"
+              onclick={addPlanetFromMenu}>+ Planet</button
+            >
+            {#if planets.length === 0}
+              <div class="planetsrow empty">No planets yet</div>
+            {:else}
+              {#each planets as p (p.id)}
+                <button
+                  type="button"
+                  class="planetsrow"
+                  role="menuitem"
+                  onclick={() => onPlanetClick(p.id)}
+                  ondblclick={() => onPlanetDblClick(p.id)}
+                >
+                  <span
+                    class="planet-chip"
+                    style="background: {planetCss(p.id)}"
+                    aria-hidden="true"
+                  ></span>
+                  {p.name}
+                </button>
+              {/each}
+            {/if}
+          </div>
+        {/if}
+      </span>
     </span>
     <button
       class="expandbtn iconbtn speakbtn"
@@ -492,6 +577,12 @@
      over the composer. z-index 6 sits above the well + transcript (the
      chrome ×/gear are 2). Height-capped so a long world list scrolls
      inside itself instead of reaching the window top. */
+  .planetsdest-wrap {
+    position: relative;
+    flex: none;
+    display: inline-flex;
+  }
+
   .planetspop {
     position: absolute;
     bottom: calc(100% + 8px);
@@ -512,6 +603,9 @@
   }
 
   .planetsrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     padding: 5px 8px;
     font: inherit;
     font-size: 0.72rem;
@@ -524,6 +618,13 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .planet-chip {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
   }
 
   .planetsrow:hover {

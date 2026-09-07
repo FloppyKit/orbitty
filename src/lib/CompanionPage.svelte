@@ -110,6 +110,7 @@
     CompanionTurn,
     KanbanCard,
     PersistedState,
+    Project,
     StarsSlice,
   } from "./persist";
   interface CompanionSheet {
@@ -644,13 +645,29 @@
     else await enterHost(mode);
   }
 
-  // PLANETS-SHEET leftover: dest right-click mints a planet. Click still
-  // toggles the well. Same createProject door as the hosted + Planet row.
+  // PLANETS-SHEET leftover: dest L-click toggles the well. R-click is a
+  // menu — Add planet (same createProject door as the hosted + Planet
+  // row) plus live names. Click a name raises that disc; double-click
+  // expand/collapses it (same habitat:expand / collapse the marble uses).
   let createPlanetTick = $state(0);
+  let projects = $state<Project[]>([]);
+  let collapsedSectionIds = $state<string[]>([]);
   async function requestNewPlanet() {
     if (hosted !== "inspector") await enterHost("inspector");
     if (hosted !== "inspector") return;
     createPlanetTick += 1;
+  }
+  function planetClick(id: string) {
+    invoke("bring_planet_front", { id }).catch(() => {});
+  }
+  function planetDblClick(id: string) {
+    const collapsed = collapsedSectionIds.includes(id);
+    emitTo("main", collapsed ? "habitat:expand" : "habitat:collapse", id).catch(
+      () => {},
+    );
+    collapsedSectionIds = collapsed
+      ? collapsedSectionIds.filter((x) => x !== id)
+      : [...collapsedSectionIds, id];
   }
 
   // Launchpad-only pop-out (the embedded banner button): the real kanban
@@ -824,6 +841,8 @@
       stars = s.stars ?? { promptsOptIn: false, checkins: {} };
       prompts = stars.promptsOptIn ?? false;
       cards = s.kanbanCards ?? [];
+      projects = s.projects ?? [];
+      collapsedSectionIds = s.collapsedSectionIds ?? [];
     } catch {
       // keep last good state; next state:changed retries
     } finally {
@@ -1269,6 +1288,9 @@
     {togglePrompts}
     {toggleDest}
     onNewPlanet={requestNewPlanet}
+    planets={projects}
+    onPlanetClick={planetClick}
+    onPlanetDblClick={planetDblClick}
     {toggleSpeak}
     {toggleSprite}
     {toggleView}
