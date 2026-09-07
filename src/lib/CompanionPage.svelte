@@ -219,10 +219,25 @@
   let tileLeave = $state(false);
   let tileGen = 0;
 
+  // GO-ORBITTY-TILE-YAW: the hosted dest swap yaws the well. A dest chip
+  // to a *different* dest while hosted mounts the outgoing page as an
+  // overlay copy rotating rotateY(±22deg) + fading while the incoming
+  // swings in from the other side — both mounted the whole time, so the
+  // well never flashes blank. Direction comes from the ring (forward =
+  // next, back = prev); perspective lives on the well only, and the Spark
+  // column / dock / CC never transform. The native side still gets its
+  // one host_changed assert — no second grow, no re-place. Reduced
+  // motion: crossfade only (no rotateY).
+  const DEST_RING: readonly HostMode[] = ["launchpad", "stars", "inspector"];
+  const TILE_YAW_MS = 200;
+  let yawPrev = $state<HostMode | null>(null);
+  let yawDir = $state<1 | -1>(1);
+
   function tileReset() {
     tilePre = false;
     tileEnter = false;
     tileLeave = false;
+    yawPrev = null;
   }
 
   let mainEl: HTMLElement | null = null;
@@ -632,12 +647,34 @@
       // the frame never restored, so the card simply stays.
       tileReset();
       const prev = hosted;
+      // TILE-YAW: a chip to a *different* dest yaws — direction from the
+      // ring (forward = next, back = prev). A same-dest re-assert
+      // (focus-card, tray raise) never yaws.
+      if (prev !== mode) {
+        const from = DEST_RING.indexOf(prev);
+        yawDir = DEST_RING.indexOf(mode) === (from + 1) % DEST_RING.length ? 1 : -1;
+        yawPrev = prev;
+      }
       hosted = mode;
       try {
         await invoke("set_companion_host", { mode });
       } catch (e) {
         hosted = prev;
+        yawPrev = null;
         sendNote = `${e}`;
+        return;
+      }
+      // TILE-YAW: both copies are mounted now (outgoing under yawPrev,
+      // incoming under hosted) — drop the outgoing once the CSS has
+      // finished. A fresh enter/swap/leave bumps tileGen and owns it.
+      if (yawPrev !== null) {
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        setTimeout(
+          () => {
+            if (gen === tileGen) yawPrev = null;
+          },
+          (reduce ? 140 : TILE_YAW_MS) + 40,
+        );
       }
       return;
     }
@@ -685,6 +722,7 @@
     const gen = ++tileGen;
     tilePre = false;
     tileEnter = false;
+    yawPrev = null; // TILE-YAW: a mid-yaw dismiss drops the outgoing copy
     // TILE-DROP: reverse the drop INSIDE the still-grown frame — the
     // native idle restore waits for the CSS to end (timeout = duration).
     // The idle size is never restored mid-animation. Reduced motion:
@@ -1243,19 +1281,42 @@
       <div class="hostwell">
         <!-- SPRITE-OFF: no .wellhead when the sprite is hidden — the
              pane takes the full well (the card keeps its ring). -->
-        <div class="wellpane" class:fullwell={!sprite}>
-          {#if hosted === "launchpad"}
-            <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
-          {:else if hosted === "stars"}
-            <StarsPage embedded onClose={dismissHost} />
-          {:else if hosted === "inspector"}
-            <RailPage
-              embedded
-              onClose={dismissHost}
-              onPopout={popoutInspector}
-              {createPlanetTick}
-            />
+        <div class="wellpane" class:fullwell={!sprite} class:yawing={yawPrev !== null}>
+          <!-- TILE-YAW: on a hosted dest swap the outgoing page rides an
+               absolute overlay copy (yawPrev) rotating out while the
+               incoming swings in from the other side — both mounted the
+               whole 200ms, so the well never flashes blank. Not yawing:
+               one static layer, same flex sizing as before. -->
+          {#if yawPrev !== null}
+            <div class="yawlayer yaw-out" class:yaw-back={yawDir === -1}>
+              {#if yawPrev === "launchpad"}
+                <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
+              {:else if yawPrev === "stars"}
+                <StarsPage embedded onClose={dismissHost} />
+              {:else}
+                <RailPage
+                  embedded
+                  onClose={dismissHost}
+                  onPopout={popoutInspector}
+                  {createPlanetTick}
+                />
+              {/if}
+            </div>
           {/if}
+          <div class="yawlayer" class:yaw-in={yawPrev !== null} class:yaw-back={yawDir === -1}>
+            {#if hosted === "launchpad"}
+              <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
+            {:else if hosted === "stars"}
+              <StarsPage embedded onClose={dismissHost} />
+            {:else if hosted === "inspector"}
+              <RailPage
+                embedded
+                onClose={dismissHost}
+                onPopout={popoutInspector}
+                {createPlanetTick}
+              />
+            {/if}
+          </div>
         </div>
         {#if sprite}
           <div class="wellhead">
@@ -1500,6 +1561,7 @@
      their square inner chrome — the wrap is the card, not each page's
      banner. One tile at a time; no motion in this phrase. */
   .wellpane {
+    position: relative; /* TILE-YAW: the outgoing overlay anchors here */
     flex: 1 1 66%;
     min-width: 0;
     min-height: 0;
@@ -1600,8 +1662,95 @@
     }
   }
 
-  /* Reduced motion: fade or snap — never a translate. Enter fades; the
-     leave wait is 0 JS-side, so dismiss is a snap. */
+  /* GO-ORBITTY-TILE-YAW: the yaw verb — hosted dest swap. The card chrome
+     (fill / border / radius) stays put; the PAGE inside yaws. The
+     outgoing overlay copy rotates rotateY(∓22deg) + fades while the
+     incoming swings in from ±22deg — both mounted the whole 200ms, so
+     the well never flashes blank. Perspective on the well only, never
+     the window; the Spark column / dock / CC never transform. Forward =
+     next in the launchpad → stars → inspector ring; .yaw-back mirrors.
+     22deg from center — a swing, never a 90° cube. */
+  .yawlayer {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .wellpane.yawing {
+    perspective: 900px;
+  }
+
+  .wellpane.yawing .yawlayer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none; /* 200ms input blackout on the card — no misclick */
+  }
+
+  .wellpane.yawing .yawlayer.yaw-out {
+    animation: orbitty-tile-yaw-out 200ms ease-in both;
+  }
+
+  .wellpane.yawing .yawlayer.yaw-in {
+    animation: orbitty-tile-yaw-in 200ms ease-out both;
+  }
+
+  .wellpane.yawing .yawlayer.yaw-out.yaw-back {
+    animation-name: orbitty-tile-yaw-out-back;
+  }
+
+  .wellpane.yawing .yawlayer.yaw-in.yaw-back {
+    animation-name: orbitty-tile-yaw-in-back;
+  }
+
+  @keyframes orbitty-tile-yaw-out {
+    0% {
+      opacity: 1;
+      transform: rotateY(0deg);
+    }
+    100% {
+      opacity: 0;
+      transform: rotateY(-22deg);
+    }
+  }
+
+  @keyframes orbitty-tile-yaw-in {
+    0% {
+      opacity: 0;
+      transform: rotateY(22deg);
+    }
+    100% {
+      opacity: 1;
+      transform: rotateY(0deg);
+    }
+  }
+
+  @keyframes orbitty-tile-yaw-out-back {
+    0% {
+      opacity: 1;
+      transform: rotateY(0deg);
+    }
+    100% {
+      opacity: 0;
+      transform: rotateY(22deg);
+    }
+  }
+
+  @keyframes orbitty-tile-yaw-in-back {
+    0% {
+      opacity: 0;
+      transform: rotateY(-22deg);
+    }
+    100% {
+      opacity: 1;
+      transform: rotateY(0deg);
+    }
+  }
+
+  /* Reduced motion: fade or snap — never a translate, never a rotateY.
+     Enter fades; the leave wait is 0 JS-side, so dismiss is a snap. The
+     yaw degrades to a crossfade (the JS cleanup shortens to match). */
   @media (prefers-reduced-motion: reduce) {
     .companion.tile-pre .wellpane,
     .companion.tile-pre .wellhead {
@@ -1610,6 +1759,21 @@
     .companion.tile-enter .wellpane,
     .companion.tile-enter .wellhead {
       animation: orbitty-tile-fade 140ms ease-out both;
+    }
+    .wellpane.yawing .yawlayer.yaw-out {
+      animation: orbitty-tile-yaw-fade-out 140ms ease-out both;
+    }
+    .wellpane.yawing .yawlayer.yaw-in {
+      animation: orbitty-tile-fade 140ms ease-out both;
+    }
+  }
+
+  @keyframes orbitty-tile-yaw-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
     }
   }
 
