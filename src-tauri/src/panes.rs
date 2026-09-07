@@ -131,7 +131,12 @@ pub(crate) fn ensure_window(
     // bar plus the in-SPA banner was two drag sources — grab failed
     // or the window ran ahead of the cursor. Borderless; JS
     // startDragging on the banner is the one handle. Rail stays Overlay.
-    if crate::state::DRAWER_LABELS.contains(&label) || label == "sky" {
+    // GO-ORBITTY-TILE-YAW leftover: the companion joins them — its
+    // Overlay strip flashed on the host grow / sprite-hug resize (a
+    // titlebar blink that moved the screen). The JS dock grip + spirit
+    // drag stay the one handle; the grow itself stays instant
+    // keep-bottom, never an animated NSWindow bounds.
+    if crate::state::DRAWER_LABELS.contains(&label) || label == "sky" || label == "companion" {
         config.decorations = false;
         config.maximizable = false;
         config.minimizable = false;
@@ -455,11 +460,30 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
             crate::companion_clear::host_changed(&app, true);
             return Ok(());
         }
-        // GO-ORBITTY-SPRITE-HUG: enter-host from hugged restores the tall
-        // idle FIRST, so the stash below is the tall rect — never the
-        // live bar.
-        unhug_companion(&app);
-        if let Some(r) = crate::drawers::live_points_rect(&w) {
+        // GO-ORBITTY-SPRITE-HUG: enter-host from hugged must NOT
+        // physically unhug first — bar → tall → grown is two waited
+        // setFrames with a runloop turn between, and the tall idle
+        // frame flashes on screen mid-grow (the sprite-off flash).
+        // Compute the rect unhug_companion WOULD restore (same math,
+        // never placed) so the host stash below is the tall rect —
+        // never the live bar — then grow once: bar → grown, a single
+        // instant keep-bottom jump. The hug-height slot survives for
+        // the dismiss-time re-hug.
+        let from_hug = hug_stash().lock().ok().and_then(|mut s| s.take());
+        let base = match from_hug {
+            Some(tall) => {
+                companion_min_size(&w, false);
+                let live = crate::drawers::live_points_rect(&w);
+                Some(crate::state::CompanionBounds {
+                    x: live.as_ref().map(|r| r.x).unwrap_or(tall.x),
+                    y: live.as_ref().map(|r| r.y + r.h - tall.h).unwrap_or(tall.y),
+                    w: tall.w,
+                    h: tall.h,
+                })
+            }
+            None => crate::drawers::live_points_rect(&w),
+        };
+        if let Some(r) = base {
             if let Ok(mut s) = host_stash().lock() {
                 *s = Some(r);
             }
@@ -483,13 +507,15 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
                 }
             }
         }
-        let cur =
-            crate::drawers::live_points_rect(&w).unwrap_or(crate::state::CompanionBounds {
-                x: 0.0,
-                y: 0.0,
-                w: 520.0,
-                h: 780.0,
-            });
+        // Pin from the same base the stash kept (the would-be-restored
+        // tall rect when hugged — its bottom-center is the bar's, so
+        // the dock stays put) — never the still-hugged live bar.
+        let cur = base.unwrap_or(crate::state::CompanionBounds {
+            x: 0.0,
+            y: 0.0,
+            w: 520.0,
+            h: 780.0,
+        });
         // GO-ORBITTY-HOST-FIT: size follows the display — 1080×620
         // landscape, 620×1080 portrait. GO-ORBITTY-HOST-DOCK: pin the
         // live bottom-center so the dest dock stays under the cursor.
