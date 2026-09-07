@@ -185,6 +185,12 @@ fn apply_front_level(handle: &tauri::AppHandle, shown: bool) {
 /// dock click was the menu beach ball) + level 4 + heavy orderFront.
 /// One main-thread block so apply_mode cannot leave the window at 0
 /// under the planets. ⌘⇧O / tray / dock Reopen / hit-mousedown.
+/// GO-ORBITTY-TILE-YAW leftover (summon clamp): a summon ALWAYS recovers
+/// — never bail on a hidden companion (the old `!is_visible` return
+/// stranded a dock-click-dropped window until Quit + relaunch). Show
+/// first, then the dock law: bottom edge sunk below every display (or no
+/// 24px handle anywhere) → clamp back on-screen so the dock is
+/// clickable — THEN raise.
 pub(crate) fn raise_now(app: &tauri::AppHandle) {
     let handle = app.clone();
     #[cfg(target_os = "macos")]
@@ -195,8 +201,11 @@ pub(crate) fn raise_now(app: &tauri::AppHandle) {
             return;
         };
         if !w.is_visible().unwrap_or(false) {
-            return;
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_ignore_cursor_events(false);
         }
+        crate::drawers::ensure_companion_dock_onscreen(&w);
         let Ok(raw) = w.ns_window() else {
             return;
         };
@@ -226,6 +235,14 @@ pub(crate) fn raise_now(app: &tauri::AppHandle) {
     #[cfg(not(target_os = "macos"))]
     {
         if let Some(w) = handle.get_webview_window("companion") {
+            // Summon clamp: show a hidden companion, dock on-screen, then
+            // raise (same law as the macOS block above).
+            if !w.is_visible().unwrap_or(false) {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_ignore_cursor_events(false);
+            }
+            crate::drawers::ensure_companion_dock_onscreen(&w);
             crate::drawers::appkit_order_front(&handle, &w);
         }
     }

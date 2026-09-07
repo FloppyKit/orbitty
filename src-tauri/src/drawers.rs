@@ -1309,6 +1309,74 @@ pub(crate) fn clamp_on_host_display(
     }
 }
 
+/// GO-ORBITTY-TILE-YAW leftover (summon clamp): the companion's dock must
+/// stay clickable — a keep-bottom place whose bottom edge already hangs
+/// below every display (the dock-click drop, a hug from a low-parked
+/// idle, a host grow pinned to a sunk bottom) strands the window with no
+/// usable handle, and ⌘⇧O / tray / dock Reopen could not recover it
+/// (Matt's lost-companion report). Law: SOME display must show a 24px
+/// handle AND the rect's bottom edge (the dock) at/above that display's
+/// visible bottom. Fail → dock-visible clamp onto the display the rect
+/// is mostly on / overlaps most / first: the bottom edge comes back onto
+/// the screen (never a top-sliver "rescue" that leaves the dock below),
+/// x fully on when it fits. A hugged bar re-places through the 120 hug
+/// floor — the rescue never unhugs. No-op while any display satisfies
+/// the law — never yanks a pane in use.
+pub(crate) fn ensure_companion_dock_onscreen(w: &tauri::WebviewWindow) {
+    let pvfs = points_frames(&screen_visible_frames());
+    if pvfs.is_empty() {
+        return;
+    }
+    let Some(live) = live_points_rect(w) else {
+        return;
+    };
+    let dock_ok =
+        |vf: &VisibleFrame| rect_handle_on(&live, vf) && live.y + live.h <= vf.y + vf.h + 0.5;
+    if pvfs.iter().any(dock_ok) {
+        return;
+    }
+    let vf = pvfs
+        .iter()
+        .find(|vf| rect_mostly_on(&live, vf))
+        .or_else(|| {
+            pvfs.iter()
+                .filter(|vf| !rect_fully_off(&live, vf))
+                .max_by(|a, c| {
+                    let (aw, ah) = rect_overlap(&live, a);
+                    let (bw, bh) = rect_overlap(&live, c);
+                    (aw * ah)
+                        .partial_cmp(&(bw * bh))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+        })
+        .or_else(|| pvfs.first());
+    let Some(vf) = vf else { return };
+    let y = if live.h <= vf.h {
+        live.y.clamp(vf.y, vf.y + vf.h - live.h)
+    } else {
+        // Taller than the display: bottom AT the visible bottom — the
+        // dock shows even though the top hangs off.
+        vf.y + vf.h - live.h
+    };
+    let x = if live.w <= vf.w {
+        live.x.clamp(vf.x, vf.x + vf.w - live.w)
+    } else {
+        live.x
+            .clamp(vf.x - live.w + DRAWER_HANDLE, vf.x + vf.w - DRAWER_HANDLE)
+    };
+    let r = state::CompanionBounds {
+        x,
+        y,
+        w: live.w,
+        h: live.h,
+    };
+    if crate::panes::companion_hugged() {
+        place_hug_rect(w, "companion", &r);
+    } else {
+        place_logical_rect(w, "companion", &r);
+    }
+}
+
 /// GO-ORBITTY-HOST-FIT: the host grow follows the display the companion
 /// sits on — the visibleFrame the live rect is mostly on (else first
 /// screen). Landscape (vf.w >= vf.h) grows wide 1080×620; portrait
@@ -1972,7 +2040,11 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
                     .unwrap_or(false)
             })
             .unwrap_or(false);
-    if visible && !ghosted && pane_appkit_visible(&w) {
+    // GO-ORBITTY-TILE-YAW leftover (summon clamp): a visible pane with no
+    // 24px handle on ANY display is lost, not "already visible" — fall
+    // through to the place path so the summon actually recovers it (for
+    // the companion, raise_now then clamps the dock back on-screen).
+    if visible && !ghosted && pane_appkit_visible(&w) && !drawer_live_off(&w) {
         let _ = w.unminimize();
         let _ = w.show();
         w.set_focus().map_err(|e| e.to_string())?;

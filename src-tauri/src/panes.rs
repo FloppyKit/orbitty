@@ -372,6 +372,12 @@ pub(crate) fn hug_companion(app: &tauri::AppHandle, hug_height: Option<f64>) {
     if !w.is_visible().unwrap_or(false) {
         return;
     }
+    // GO-ORBITTY-TILE-YAW leftover (summon clamp): never hug from a rect
+    // whose dock already hangs below every display — the keep-bottom bar
+    // would inherit the sunk bottom and strand the dock unclickable.
+    // Rescue first so the bar math below bases on a clickable rect; runs
+    // before the already-fit early-return so a lost bar re-fits too.
+    crate::drawers::ensure_companion_dock_onscreen(&w);
     let Some(live) = crate::drawers::live_points_rect(&w) else {
         return;
     };
@@ -415,6 +421,10 @@ pub(crate) fn unhug_companion(app: &tauri::AppHandle) {
             h: tall.h,
         };
         crate::drawers::place_logical_rect(&w, "companion", &r);
+        // GO-ORBITTY-TILE-YAW leftover (summon clamp): the keep-bottom
+        // restore inherits the bar's bottom — rescue if that leaves the
+        // dock sunk below every display.
+        crate::drawers::ensure_companion_dock_onscreen(&w);
         companion_min_size(&w, false);
     }
 }
@@ -524,6 +534,11 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
         let pinned = crate::drawers::pin_bottom_center(cur, grown.w, grown.h);
         let placed = crate::drawers::clamp_on_displays_keep_bottom(pinned).unwrap_or(pinned);
         crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
+        // GO-ORBITTY-TILE-YAW leftover (summon clamp): the keep-bottom
+        // grow must not leave the dock sunk below every display (a
+        // low-parked idle pins a sunk bottom; a fully-off pinned rect
+        // survives the unwrap_or) — rescue onto the display.
+        crate::drawers::ensure_companion_dock_onscreen(&w);
     } else {
         let stash = host_stash().lock().ok().and_then(|mut s| s.take());
         // GO-ORBITTY-HOST-STAY + HOST-DOCK: dismiss = idle SIZE pinned
@@ -543,6 +558,10 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
         let restore = crate::drawers::pin_bottom_center(pin_from, rw, rh);
         let placed = crate::drawers::clamp_on_host_display(live, restore);
         crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
+        // GO-ORBITTY-TILE-YAW leftover (summon clamp): never dismiss into
+        // a rect whose dock is sunk — rescue BEFORE the persist so the
+        // saved idle place is clickable too.
+        crate::drawers::ensure_companion_dock_onscreen(&w);
         // Persist the RESTORED idle rect — never the host frame.
         crate::drawers::persist_shown_place(&app, "companion");
         // GO-ORBITTY-SPRITE-HUG: dismiss-host with the sprite still off

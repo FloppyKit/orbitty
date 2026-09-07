@@ -206,14 +206,21 @@
   // GO-ORBITTY-TILE-DROP: the card drops in INSIDE the natively-grown
   // frame — the grow itself stays instant (keep-bottom), never a
   // set_size / set_position interpolation. set_companion_host lands
-  // FIRST, with the idle ghost display:none'd under tilePre — the
-  // stretched ghost / dock / spirit never lay out or paint into the
-  // grown frame (that stretch-then-swap was the dock+spirit hitch,
-  // sprite-off included); only then does the well mount, tilePre
-  // holding the seed from-state, and tileEnter plays the drop in the
-  // grown frame with Spark already at hosted rest. tileLeave plays the
-  // reverse and only when the CSS ends does the native side restore the
-  // idle rect.
+  // FIRST, with the idle ghost chrome display:none'd under tilePre —
+  // the stretched ghost / CC never lay out or paint into the grown
+  // frame (that stretch-then-swap was the dock hitch, sprite-off
+  // included); only then does the well mount, tilePre holding the seed
+  // from-state, and tileEnter plays the drop in the grown frame.
+  // tileLeave plays the reverse and only when the CSS ends does the
+  // native side restore the idle rect.
+  // TILE-YAW leftover (no sprite hitch, Matt): the idle FULL spirit is
+  // never display:none'd and never remounts as a Head/bust or the shoved
+  // wellhead column mid-enter — that full → head → shove sequence WAS
+  // the hitch. spiritHold keeps the identical idle floatwrap box (same
+  // size, same place above the dock, measured window-local at enter) as
+  // an absolute overlay across the grow AND the drop; only after the
+  // tile has entered does the hosted column become the spirit's rest
+  // state (Full/Head pref read, never written, on host).
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
   // TILE-YAW leftover (Matt): the drop is a SEED DROP — the tile starts
   // as a singular pixel ONE INCH IN FROM THE COMPANION WINDOW'S
@@ -229,6 +236,12 @@
   let tilePre = $state(false);
   let tileEnter = $state(false);
   let tileLeave = $state(false);
+  // TILE-YAW leftover (no sprite hitch): while true, the idle full
+  // spirit renders as an absolute overlay at its measured idle box
+  // (same size/place above the dock) instead of the in-flow stage or
+  // the hosted wellhead — set at enter, cleared only once the tile has
+  // entered. Never a Full/Head pref write.
+  let spiritHold = $state(false);
   let tileGen = 0;
 
   // GO-ORBITTY-TILE-YAW leftover: the hosted dest swap is a TRIANGULAR
@@ -262,6 +275,7 @@
     tilePre = false;
     tileEnter = false;
     tileLeave = false;
+    spiritHold = false;
     swapPrev = null;
   }
 
@@ -712,16 +726,35 @@
     }
     // TILE-DROP (corner seed + still chrome): grow FIRST — but land the
     // tilePre class BEFORE the native grow (the await tick below), so
-    // the idle ghost is display:none'd while the frame grows: ghost /
-    // CC / spirit never lay out or paint into the grown 1080×620 frame
-    // (that stretch-then-swap was the hitch). Only the dock rides the
-    // grow, bottom-pinned by the keep-bottom native place. The well
-    // mounts after, already in the grown frame, tilePre holding the
-    // seed from-state; then the drop plays and ONLY the tile moves —
-    // Spark is already at hosted rest in the right column (no
-    // translateX aside), the dock never transforms. Mounting the tile
-    // in the idle-sized window and growing after was the push-in
-    // stutter — sprite-off included, where the hugged bar jumped.
+    // the idle ghost chrome is display:none'd while the frame grows:
+    // ghost / CC never lay out or paint into the grown 1080×620 frame
+    // (that stretch-then-swap was the hitch). The dock alone rides the
+    // grow, bottom-pinned by the keep-bottom native place — and the idle
+    // FULL spirit rides too, held at its exact idle box by spiritHold
+    // (TILE-YAW leftover: never display:none the spirit, never a
+    // Head/column remount mid-enter). The well mounts after, already in
+    // the grown frame, tilePre holding the seed from-state; then the
+    // drop plays and ONLY the tile moves — the dock never transforms.
+    // Mounting the tile in the idle-sized window and growing after was
+    // the push-in stutter — sprite-off included, where the hugged bar
+    // jumped.
+    // Measure the idle floatwrap box BEFORE tilePre re-classes the pane
+    // (window-local; the keep-bottom grow preserves the bottom offset,
+    // pin_bottom_center preserves the center-x). 3D bodies keep the old
+    // path — no Companion3D in the hold overlay.
+    const holdFw =
+      !expanded && sprite && !is3D
+        ? mainEl?.querySelector(".stage .floatwrap")?.getBoundingClientRect()
+        : null;
+    spiritHold = !!holdFw && holdFw.width >= 2 && holdFw.height >= 2;
+    if (spiritHold && mainEl && holdFw) {
+      mainEl.style.setProperty("--hold-w", `${Math.round(holdFw.width)}px`);
+      mainEl.style.setProperty("--hold-h", `${Math.round(holdFw.height)}px`);
+      mainEl.style.setProperty(
+        "--hold-b",
+        `${Math.round(window.innerHeight - holdFw.bottom)}px`,
+      );
+    }
     tilePre = true;
     await tick();
     try {
@@ -737,9 +770,11 @@
     hosted = mode;
     // TILE-DROP: the grow has landed — the well mounts held at the seed
     // and the drop plays on the next frame INSIDE the grown frame, the
-    // tile alone (Spark is already at hosted rest; the dock never
-    // transforms). The enter class comes back off once the CSS has
-    // finished so a later .wellpane remount doesn't replay the drop.
+    // tile alone (Spark holds its idle box above the dock; the dock
+    // never transforms). The enter class comes back off once the CSS
+    // has finished so a later .wellpane remount doesn't replay the
+    // drop — and ONLY THEN does spiritHold release the spirit to the
+    // hosted column (the rest state), never mid-drop.
     await tick();
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     requestAnimationFrame(() => {
@@ -748,7 +783,11 @@
       tileEnter = true;
       setTimeout(
         () => {
-          if (gen === tileGen) tileEnter = false;
+          if (gen !== tileGen) return;
+          tileEnter = false;
+          // The tile has entered — the hosted column becomes the
+          // spirit's rest state now (one straight cut, no animation).
+          spiritHold = false;
         },
         (reduce ? 140 : TILE_ENTER_MS) + 80,
       );
@@ -765,6 +804,9 @@
     const gen = ++tileGen;
     tilePre = false;
     tileEnter = false;
+    // A mid-drop dismiss supersedes the enter timeout that clears the
+    // hold — release the spirit to the hosted column now.
+    spiritHold = false;
     swapPrev = null; // a mid-turn dismiss drops the outgoing face
     // TILE-DROP: reverse the drop INSIDE the still-grown frame — the
     // native idle restore waits for the CSS to end (timeout = duration).
@@ -1377,8 +1419,11 @@
           </div>
         </div>
         {#if sprite}
+          <!-- The .wellhead div stays mounted through the drop (empty
+               while spiritHold) so the tile's rest width never shifts;
+               the spirit column takes over only after the enter. -->
           <div class="wellhead">
-            {#if !expanded}
+            {#if !expanded && !spiritHold}
               {#if is3D && !glbFailed}
                 {#key bodyId}
                   <Companion3D
@@ -1410,7 +1455,7 @@
     </div>
   {:else if expanded}
     {@render caption(true, false)}
-  {:else if sprite}
+  {:else if sprite && !spiritHold}
     {#if is3D && !glbFailed}
       {#key bodyId}
         <Companion3D
@@ -1436,6 +1481,27 @@
 
   {#if !expanded}
     {@render caption(false, hosted !== "off")}
+  {/if}
+
+  <!-- TILE-YAW leftover (no sprite hitch): the held idle spirit — the
+       exact idle floatwrap box (measured at enter, window-local),
+       bottom-pinned over the dock while the frame grows and the tile
+       drops. Never a Head/bust swap, never the shoved column mid-enter;
+       the hosted .wellhead takes over only after the tile has entered.
+       Renders in both the pre-host ghost frame and the grown hosted
+       frame, so the box is identical across the grow. -->
+  {#if spiritHold}
+    <div class="spirthold">
+      <SpiritStage
+        {headShowing}
+        {missing}
+        frames={drawFrames}
+        {frameIdx}
+        thinking={sending}
+        smooth={artSmooth}
+        onDrag={onDragMouseDown}
+      />
+    </div>
   {/if}
 
   {#if sendNote}
@@ -1671,18 +1737,42 @@
 
   /* Corner seed + still chrome: while the native grow lands (tile-pre,
      still idle — .hosting comes with the well mount after), every
-     idle-ghost child but the dock is display:none, so the stretched
-     ghost / CC / spirit never lay out or paint into the grown frame
-     (that stretch-then-swap was the dock+spirit hitch). The dock alone
-     rides the grow, held on the bottom edge the keep-bottom native
-     place preserves — flex-end keeps it there with the flex:1 stage
-     gone. */
+     idle-ghost child but the dock and the held spirit is display:none,
+     so the stretched ghost / CC never lay out or paint into the grown
+     frame (that stretch-then-swap was the dock hitch). The dock rides
+     the grow, held on the bottom edge the keep-bottom native place
+     preserves — flex-end keeps it there with the flex:1 stage gone.
+     TILE-YAW leftover: the idle full spirit is NEVER display:none'd
+     here — .spirthold holds it at its exact idle box through the grow
+     and the drop (hiding it and remounting a head/column mid-enter was
+     the sprite hitch). */
   .companion.tile-pre:not(.hosting) {
     justify-content: flex-end;
   }
 
-  .companion.tile-pre:not(.hosting) > *:not(.ghostdock):not(.winx) {
+  .companion.tile-pre:not(.hosting) > *:not(.ghostdock):not(.winx):not(.spirthold) {
     display: none;
+  }
+
+  /* TILE-YAW leftover (no sprite hitch): the held idle spirit during
+     the grow + the drop. The exact idle floatwrap box, window-local:
+     left 50% (the keep-bottom grow preserves the window center-x) and
+     bottom --hold-b above the window bottom (keep-bottom preserves the
+     bottom edge), so the spirit neither moves nor resizes while the
+     frame grows and the tile falls. Height capped to the grown frame
+     so a tall idle spirit never clips its head above the shorter host
+     frame. Paints over the dropping card (the companion stands in
+     front), under the ×. Same box in the ghost frame and the hosted
+     frame, so the grow itself is invisible on the spirit. */
+  .spirthold {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: var(--hold-b, 120px);
+    width: min(var(--hold-w, 320px), calc(100% - 16px));
+    height: min(var(--hold-h, 320px), calc(100% - var(--hold-b, 120px) - 8px));
+    z-index: 1;
+    display: flex;
   }
 
   .companion.tile-pre .wellpane {
