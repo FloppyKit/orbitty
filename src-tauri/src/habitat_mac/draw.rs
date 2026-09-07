@@ -867,9 +867,10 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     draw_planet_locate(d, center, r, ry, rect);
 }
 
-/// Dest-menu find glow. Marble: a saturn ring that starts upper-left →
-/// lower-right, spins once, and is clipped so the disc hides the back
-/// half. Expanded: rim glow + name sized to nearly the disc width.
+/// Dest-menu find glow. Marble: saturn ring stays in a UL→LR plane,
+/// crosses the front of the disc, hides behind it, and a highlight
+/// travels around the ring (in-plane spin — not tumbling). Expanded:
+/// rim glow + name ~15% smaller than the last pass.
 unsafe fn draw_planet_locate(
     d: &DrawData,
     center: NSPoint,
@@ -885,52 +886,31 @@ unsafe fn draw_planet_locate(
     let white: *mut Object = msg_send![class!(NSColor), whiteColor];
     let base = d.color;
     if d.is_marble {
-        let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
-        // Even-odd clip: keep the ring only *outside* the disc so the
-        // planet hides the back of the saturn ring.
-        let hole: *mut Object = msg_send![class!(NSBezierPath), bezierPath];
-        let pad = r * 6.0;
-        let _: () = msg_send![hole,
-            appendBezierPathWithRect: NSRect::new(
-                center.x - pad,
-                center.y - pad,
-                pad * 2.0,
-                pad * 2.0,
-            )];
-        let disc: *mut Object =
-            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
-        let _: () = msg_send![hole, appendBezierPath: disc];
-        let _: () = msg_send![hole, setWindingRule: 1usize]; // even-odd
-        let _: () = msg_send![hole, addClip];
-        let tf: *mut Object = msg_send![class!(NSAffineTransform), transform];
-        let _: () = msg_send![tf, translateXBy: center.x yBy: center.y];
-        // Start on the UL→LR diagonal (\), then one turn while it fades.
-        let deg = -45.0 + t * 360.0;
-        let _: () = msg_send![tf, rotateByDegrees: deg];
-        let _: () = msg_send![tf, translateXBy: -center.x yBy: -center.y];
-        let _: () = msg_send![tf, concat];
+        let tilt = -45.0f64;
         let rw = r * 2.70;
         let rh = ry * 0.90;
         let ring_rect = NSRect::new(center.x - rw / 2.0, center.y - rh / 2.0, rw, rh);
-        let glow: *mut Object = msg_send![white, colorWithAlphaComponent: 0.35f64 * fade];
-        let _: () = msg_send![glow, setStroke];
-        let outer: *mut Object =
-            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect];
-        let _: () = msg_send![outer, setLineWidth: 5.0f64];
-        let _: () = msg_send![outer, stroke];
-        let ink: *mut Object =
-            msg_send![white, colorWithAlphaComponent: 0.92f64 * fade];
-        let _: () = msg_send![ink, setStroke];
-        let inner: *mut Object =
-            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect];
-        let _: () = msg_send![inner, setLineWidth: 2.2f64];
-        let _: () = msg_send![inner, stroke];
-        let tint = ns_color(base.0, base.1, base.2, 0.55 * fade);
-        let _: () = msg_send![tint, setStroke];
-        let color_ring: *mut Object =
-            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect.inset(1.5)];
-        let _: () = msg_send![color_ring, setLineWidth: 1.4f64];
-        let _: () = msg_send![color_ring, stroke];
+        let pad = r * 6.0;
+        let spin = t * 360.0;
+        // Ears: the ring outside the disc (front and back tips).
+        let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+        clip_outside_oval(rect, pad);
+        concat_tilt(center, tilt);
+        stroke_saturn_ellipse(ring_rect, fade, base);
+        stroke_saturn_highlight(center, ring_rect, spin, fade);
+        let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
+        // Front crossing: inside the disc, only the near long edge
+        // (lower half of the unrotated ellipse, then tilted).
+        let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+        let disc: *mut Object =
+            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
+        let _: () = msg_send![disc, addClip];
+        concat_tilt(center, tilt);
+        let front: *mut Object = msg_send![class!(NSBezierPath),
+            bezierPathWithRect: NSRect::new(center.x - pad, center.y, pad * 2.0, pad)];
+        let _: () = msg_send![front, addClip];
+        stroke_saturn_ellipse(ring_rect, fade, base);
+        stroke_saturn_highlight(center, ring_rect, spin, fade);
         let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
     } else {
         let glow: *mut Object = msg_send![white, colorWithAlphaComponent: 0.5f64 * fade];
@@ -956,9 +936,88 @@ unsafe fn draw_planet_locate(
     }
 }
 
+unsafe fn concat_tilt(center: NSPoint, degrees: f64) {
+    let tf: *mut Object = msg_send![class!(NSAffineTransform), transform];
+    let _: () = msg_send![tf, translateXBy: center.x yBy: center.y];
+    let _: () = msg_send![tf, rotateByDegrees: degrees];
+    let _: () = msg_send![tf, translateXBy: -center.x yBy: -center.y];
+    let _: () = msg_send![tf, concat];
+}
+
+unsafe fn clip_outside_oval(rect: NSRect, pad: f64) {
+    let hole: *mut Object = msg_send![class!(NSBezierPath), bezierPath];
+    let c = NSPoint {
+        x: rect.mid_x(),
+        y: rect.mid_y(),
+    };
+    let _: () = msg_send![hole,
+        appendBezierPathWithRect: NSRect::new(c.x - pad, c.y - pad, pad * 2.0, pad * 2.0)];
+    let disc: *mut Object =
+        msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
+    let _: () = msg_send![hole, appendBezierPath: disc];
+    let _: () = msg_send![hole, setWindingRule: 1usize];
+    let _: () = msg_send![hole, addClip];
+}
+
+unsafe fn stroke_saturn_ellipse(
+    ring_rect: NSRect,
+    fade: f64,
+    base: (f64, f64, f64),
+) {
+    let white: *mut Object = msg_send![class!(NSColor), whiteColor];
+    let glow: *mut Object = msg_send![white, colorWithAlphaComponent: 0.32f64 * fade];
+    let _: () = msg_send![glow, setStroke];
+    let outer: *mut Object =
+        msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect];
+    let _: () = msg_send![outer, setLineWidth: 5.0f64];
+    let _: () = msg_send![outer, stroke];
+    let ink: *mut Object = msg_send![white, colorWithAlphaComponent: 0.78f64 * fade];
+    let _: () = msg_send![ink, setStroke];
+    let inner: *mut Object =
+        msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect];
+    let _: () = msg_send![inner, setLineWidth: 2.0f64];
+    let _: () = msg_send![inner, stroke];
+    let tint = ns_color(base.0, base.1, base.2, 0.5 * fade);
+    let _: () = msg_send![tint, setStroke];
+    let color_ring: *mut Object =
+        msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect.inset(1.5)];
+    let _: () = msg_send![color_ring, setLineWidth: 1.4f64];
+    let _: () = msg_send![color_ring, stroke];
+}
+
+/// Bright chunk traveling around the ellipse — the ring spinning in its
+/// plane, not the oval tumbling around the planet.
+unsafe fn stroke_saturn_highlight(
+    center: NSPoint,
+    ring_rect: NSRect,
+    spin_deg: f64,
+    fade: f64,
+) {
+    let white: *mut Object = msg_send![class!(NSColor), whiteColor];
+    let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+    let pie: *mut Object = msg_send![class!(NSBezierPath), bezierPath];
+    let _: () = msg_send![pie, moveToPoint: center];
+    let reach = ring_rect.size.width.max(ring_rect.size.height);
+    let _: () = msg_send![pie,
+        appendBezierPathWithArcWithCenter: center
+        radius: reach
+        startAngle: spin_deg
+        endAngle: spin_deg + 70.0
+        clockwise: 0u8];
+    let _: () = msg_send![pie, closePath];
+    let _: () = msg_send![pie, addClip];
+    let ink: *mut Object = msg_send![white, colorWithAlphaComponent: fade];
+    let _: () = msg_send![ink, setStroke];
+    let hi: *mut Object =
+        msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect];
+    let _: () = msg_send![hi, setLineWidth: 3.2f64];
+    let _: () = msg_send![hi, stroke];
+    let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
+}
+
 unsafe fn draw_center_flash(center: NSPoint, r: f64, text: &str, fade: f64) {
     let ns_text = ns_string(text);
-    let max_w = (r * 2.0 * 0.92).max(24.0);
+    let max_w = (r * 2.0 * 0.78).max(24.0);
     let probe = 48.0;
     let probe_font: *mut Object = msg_send![class!(NSFont), boldSystemFontOfSize: probe];
     let white: *mut Object = msg_send![class!(NSColor), whiteColor];
@@ -973,9 +1032,9 @@ unsafe fn draw_center_flash(center: NSPoint, r: f64, text: &str, fade: f64) {
     }
     let probe_size: CGSize = msg_send![ns_text, sizeWithAttributes: probe_attrs];
     let font_size = if probe_size.width > 1.0 {
-        (probe * max_w / probe_size.width).clamp(18.0, r * 0.95)
+        (probe * max_w / probe_size.width).clamp(16.0, r * 0.80)
     } else {
-        32.0
+        28.0
     };
     let font: *mut Object = msg_send![class!(NSFont), boldSystemFontOfSize: font_size];
     let ink: *mut Object = msg_send![white, colorWithAlphaComponent: fade];
