@@ -886,7 +886,7 @@ unsafe fn draw_planet_locate(
     let white: *mut Object = msg_send![class!(NSColor), whiteColor];
     let base = d.color;
     if d.is_marble {
-        let tilt = -45.0f64;
+        let tilt = -42.0f64;
         let rw = r * 2.70;
         let rh = ry * 0.90;
         let ring_rect = NSRect::new(center.x - rw / 2.0, center.y - rh / 2.0, rw, rh);
