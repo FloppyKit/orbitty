@@ -646,7 +646,6 @@
             charSeed: c?.charSeed ?? 0,
             charLook: c?.charLook ?? null,
             spriteScale: c?.spriteScale ?? 0,
-            walkerHome: c?.walkerHome ?? "",
             cardStatus: card?.status ?? "",
             cardKind: card?.kind ?? "",
             neededState: needed ? (needed.neededState ?? "open") : "",
@@ -670,7 +669,6 @@
           e.charSeed,
           e.charLook,
           e.spriteScale,
-          e.walkerHome,
           e.cardStatus,
           e.cardKind,
           e.neededState,
@@ -1027,7 +1025,10 @@
         charSeed: prev?.charSeed ?? rollCharSeed(),
         charLook: prev?.charLook ?? null,
         spriteScale: prev?.spriteScale ?? null,
-        walkerHome: prev?.walkerHome ?? null,
+        // GO-ORBITTY-CLAIM-ONE: claiming (rail Assign or walker
+        // Assign-to-planet — same door) clears any leftover teleport
+        // home. Occupancy is projectId only.
+        walkerHome: null,
         ...(w
           ? {
               bundleId: w.bundleId ?? null,
@@ -1259,19 +1260,11 @@
   // claim and rides the habitat snapshot; null/"" = the generated being.
   // The picker UI is the planet walker's right-click NSMenu — the rail
   // receives `habitat:walker-pack` and writes the claim here.
+  // GO-ORBITTY-CLAIM-ONE: one windowId, one projectId — occupancy IS the
+  // claim. The walkerHome occupancy teleport is gone; the field stays on
+  // Claim only so pre-CLAIM-ONE saves still load, and nothing reads it.
   function occupancyOf(c: Claim): string {
-    if (c.walkerHome && projects.some((p) => p.id === c.walkerHome)) {
-      return c.walkerHome;
-    }
     return c.projectId;
-  }
-
-  function setWalkerHome(windowId: string, projectId: string) {
-    if (!projects.some((p) => p.id === projectId)) return;
-    claims = liveClaims.map((c) =>
-      c.windowId === windowId ? { ...c, walkerHome: projectId } : c,
-    );
-    persist();
   }
 
   function setSpritePack(windowId: string, packId: string | null) {
@@ -1758,7 +1751,7 @@
   let unlistenCollapse: (() => void) | undefined;
   let unlistenBeing: (() => void) | undefined;
   let unlistenWalkerPack: (() => void) | undefined;
-  let unlistenWalkerHome: (() => void) | undefined;
+  let unlistenWalkerAssign: (() => void) | undefined;
   let unlistenWalkedOff: (() => void) | undefined;
   let unlistenBoardDone: (() => void) | undefined;
   let unlistenCheckin: (() => void) | undefined;
@@ -1868,10 +1861,14 @@
         setSpritePack(entryId, packId ?? null);
       },
     );
-    unlistenWalkerHome = await listen<{ entryId: string; projectId: string }>(
-      "habitat:walker-home",
+    // GO-ORBITTY-CLAIM-ONE: walker Assign-to-planet IS the rail claim —
+    // the same persist door. claim() rewrites projectId (exclusive per
+    // windowId), moves the open kanban window card with it, and the sprite
+    // follows the claim. No occupancy teleport, no dual home.
+    unlistenWalkerAssign = await listen<{ entryId: string; projectId: string }>(
+      "habitat:walker-assign",
       (e) => {
-        setWalkerHome(e.payload.entryId, e.payload.projectId);
+        claim(e.payload.entryId, e.payload.projectId);
       },
     );
     // GO-ORBITTY-CADENCE: a Done walker crossed the north rim (or had no
@@ -1983,7 +1980,7 @@
     unlistenCollapse?.();
     unlistenBeing?.();
     unlistenWalkerPack?.();
-    unlistenWalkerHome?.();
+    unlistenWalkerAssign?.();
     unlistenWalkedOff?.();
     unlistenBoardDone?.();
     unlistenCheckin?.();

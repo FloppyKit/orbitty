@@ -753,7 +753,7 @@ struct WalkerPackEvent {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct WalkerHomeEvent {
+struct WalkerAssignEvent {
     entry_id: String,
     project_id: String,
 }
@@ -849,7 +849,10 @@ unsafe fn walker_context_menu(this: &Object, event: *mut Object, entry_id: &str)
         );
     }
     add_separator(menu);
-    // GO-ORBITTY-WALKER-CONTEXT: occupancy teleport. Claim stays.
+    // GO-ORBITTY-CLAIM-ONE: Assign to planet IS the rail claim — the pick
+    // emits habitat:walker-assign and the rail rewrites projectId through
+    // the same persist door (one windowId, one planet; the open kanban
+    // card and the sprite follow the claim). No occupancy teleport.
     let names = {
         let h = lock();
         h.planet_names.clone()
@@ -947,8 +950,8 @@ pub(crate) extern "C" fn walker_assign(_this: &Object, _cmd: Sel, sender: *mut O
         if let Some(app) = app_handle() {
             let _ = app.emit_to(
                 "main",
-                "habitat:walker-home",
-                WalkerHomeEvent {
+                "habitat:walker-assign",
+                WalkerAssignEvent {
                     entry_id: entry_id.to_string(),
                     project_id: project_id.to_string(),
                 },

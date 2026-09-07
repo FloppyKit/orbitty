@@ -2895,7 +2895,6 @@ fn being_fields_eq(a: &HabitatEntry, b: &HabitatEntry) -> bool {
         && a.char_look == b.char_look
         && a.sprite_scale == b.sprite_scale
         && a.asleep == b.asleep
-        && a.walker_home == b.walker_home
 }
 
 unsafe fn panel_set_frame(panel: *mut Object, frame: NSRect, display: bool) {

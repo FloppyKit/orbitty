@@ -39,10 +39,9 @@ pub struct HabitatEntry {
     /// restore_window on a dead id.
     #[serde(default)]
     pub asleep: bool,
-    /// GO-ORBITTY-WALKER-CONTEXT: occupancy planet. Empty = walk on the
-    /// claim's project. Rail never rewrites claims from this field.
-    #[serde(default)]
-    pub walker_home: String,
+    // GO-ORBITTY-CLAIM-ONE: walker_home (the occupancy teleport) is gone —
+    // occupancy is the entry's planet, i.e. the claim's projectId. One
+    // windowId, one projectId.
     /// GO-ORBITTY-CADENCE: the window-linked card's column
     /// ("todo" | "doing" | "done"; "" = no linked card). The rail resolves
     /// which card wins; the native side holds the status → station/pose

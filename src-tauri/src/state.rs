@@ -494,9 +494,9 @@ pub struct Claim {
     /// Per-walker size (0.4–2.5); absent/0 = the gear's global spriteScale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprite_scale: Option<f64>,
-    /// GO-ORBITTY-WALKER-CONTEXT: occupancy planet for the sprite. Absent
-    /// or unknown id = walk on `project_id` (today). Rail Assign still
-    /// rewrites `project_id`; this field never does.
+    /// GO-ORBITTY-CLAIM-ONE: legacy occupancy-teleport leftover. Ignored —
+    /// occupancy is `project_id` only (one windowId, one planet). The
+    /// field stays additive so pre-CLAIM-ONE saves still load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub walker_home: Option<String>,
     // GO-ORBITTY-SLEEPERS wake stamps (all additive — old saves load). A
