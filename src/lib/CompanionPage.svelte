@@ -212,7 +212,7 @@
   // when the CSS ends does the native side restore the idle rect.
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
   // TILE-YAW leftover (Matt): the drop is a DROP-PUSH — from above and
-  // slightly small (translateY(-18%) + scale(0.96) + opacity 0) easing
+  // clearly small (translateY(-18%) + scale(0.88) + opacity 0) easing
   // out to rest ON the base. Never past rest, never a rebound — the
   // chop is dead (see the orbitty-tile-drop-in keyframes). Reduced
   // motion: enter fades (no translate/scale), leave is a snap (0 wait).
@@ -229,20 +229,22 @@
   // prism rotating around a vertical axis through the card — the step
   // is ±120deg, never 22/34/90. A dest chip to a *different* dest while
   // hosted mounts the outgoing page as a second face; both faces ride
-  // the turn for 500ms (the crease between them IS the read), then the
+  // the turn for 400ms (the crease between them IS the read), then the
   // outgoing face unmounts — the well never flashes blank. Ring
   // direction picks which way the prism turns (forward = the next face
-  // comes around from the right, back = from the left). The glass card
-  // (.wellpane chrome) stays put — only the pages inside are faces, and
-  // Spark / dock / CC never transform. Each face sits at translateZ(r)
-  // with r = paneWidth / (2·tan(π/3)) — the triangular apothem measured
-  // from the pane at swap start — and pulls back by the same r so the
-  // front face lands exactly on the card plane (no magnify pop at the
-  // start or end of the turn). The native side still gets its one
-  // host_changed assert — no second grow, no re-place. Reduced motion:
-  // crossfade only (no rotate).
+  // comes around from the right, back = from the left). The WHOLE TILE
+  // turns: for the 400ms the pane's own chrome goes transparent and
+  // each face IS the glass card — fill, 1px --edge, 12px radius,
+  // content — yawing over the desk. No static frame around spinning
+  // pages, and Spark / dock / CC never transform. Each face sits at
+  // translateZ(r) with r = paneWidth / (2·tan(π/3)) — the triangular
+  // apothem measured from the pane at swap start — and pulls back by
+  // the same r so the front face lands exactly on the card plane (no
+  // magnify pop at the start or end of the turn). The native side
+  // still gets its one host_changed assert — no second grow, no
+  // re-place. Reduced motion: crossfade only (no rotate).
   const DEST_RING: readonly HostMode[] = ["launchpad", "stars", "inspector"];
-  const TILE_YAW_MS = 500;
+  const TILE_YAW_MS = 400;
   let swapPrev = $state<HostMode | null>(null);
   let swapDir = $state<1 | -1>(1);
   // Prism apothem in px, measured from .wellpane at swap start.
@@ -687,7 +689,7 @@
       }
       // Both faces are mounted now (outgoing under swapPrev, incoming
       // under hosted) — drop the outgoing face once the CSS turn has
-      // finished (timeout matches the 500ms keyframes; 140 reduced). A
+      // finished (timeout matches the 400ms keyframes; 140 reduced). A
       // fresh enter/swap/leave bumps tileGen and owns it.
       if (swapPrev !== null) {
         const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1313,11 +1315,13 @@
           <!-- TILE-YAW leftover (triangular prism): on a hosted dest swap
                the outgoing page mounts as a second face (swapPrev) and
                both faces ride a ±120deg rotateY around the card's
-               vertical axis — the crease between them is the read. The
-               card chrome stays put; only the pages are faces. Both
-               mounted the whole 500ms, so the well never flashes blank.
-               Not turning: one static layer, no 3D, same flex sizing as
-               before. -->
+               vertical axis — the crease between them is the read. Each
+               face IS the tile for the turn (fill / 1px edge / 12px
+               radius ride WITH it); the pane's own chrome goes
+               transparent so no static frame rings the moving cards.
+               Both mounted the whole 400ms, so the well never flashes
+               blank. Not turning: one static layer, no 3D, same flex
+               sizing as before. -->
           {#if swapPrev !== null}
             <div class="prismface face-out" class:face-back={swapDir === -1}>
               {#if swapPrev === "launchpad"}
@@ -1619,7 +1623,7 @@
      leftover, Matt: the chop is dead). The native grow stays instant
      (keep-bottom); this CSS animates INSIDE the grown frame and never
      fights the dock pinning. Enter: the card drops from above AND
-     slightly small — translateY(-18%) + scale(0.96) + opacity 0 — and
+     clearly small — translateY(-18%) + scale(0.88) + opacity 0 — and
      eases out to rest ON the base (translateY(0) scale(1)). Never past
      rest, never a rebound. The Spark column eases in from a bit toward
      center on the same clock. Leave: the exact reverse, and only when
@@ -1628,7 +1632,7 @@
      set_companion_host is in flight. */
   .companion.tile-pre .wellpane {
     opacity: 0;
-    transform: translateY(-18%) scale(0.96);
+    transform: translateY(-18%) scale(0.88);
   }
 
   .companion.tile-pre .wellhead {
@@ -1652,13 +1656,13 @@
     animation: orbitty-tile-aside-out 200ms ease-in both;
   }
 
-  /* The drop-push: one ease-out run from above + slightly small to
+  /* The drop-push: one ease-out run from above + clearly small to
      rest. Opacity rides the same clock so the card materializes as it
      settles onto the base — no overshoot keyframe anywhere. */
   @keyframes orbitty-tile-drop-in {
     0% {
       opacity: 0;
-      transform: translateY(-18%) scale(0.96);
+      transform: translateY(-18%) scale(0.88);
     }
     100% {
       opacity: 1;
@@ -1684,7 +1688,7 @@
     }
     100% {
       opacity: 0;
-      transform: translateY(-18%) scale(0.96);
+      transform: translateY(-18%) scale(0.88);
     }
   }
 
@@ -1703,9 +1707,12 @@
      turn (Matt: not a recipe-card deal, not a book, not an X, not a 90°
      cube). The three dests are the three faces of a triangular prism
      rotating around a vertical axis through the card — the step is
-     ±120deg. The card chrome (.wellpane fill / border / radius) stays
-     put and supplies the perspective + the rounded clip; only the
-     PAGES inside are faces. Each face transform is
+     ±120deg. The WHOLE TILE yaws: .wellpane.turning sheds its own
+     chrome (transparent fill/border, overflow visible) and only
+     supplies the perspective — each FACE is the glass card (fill, 1px
+     --edge, 12px radius, content clipped to the radius) turning over
+     the desk. No static frame rings the moving pages. Each face
+     transform is
      translateZ(-r) rotateY(θ) translateZ(r) with r = --prism-r (the
      apothem paneWidth / (2·tan(π/3)), measured JS-side at swap start):
      the face orbits the prism axis sitting r behind the card plane, so
@@ -1714,7 +1721,7 @@
      it passes 90°, so the outgoing face exits edge-on and the incoming
      face grows in from the crease — the user SEES the edge turn. A
      slight brightness dip on the receding face sells the depth. Both
-     faces stay mounted the whole 500ms (ease-in-out; the JS cleanup
+     faces stay mounted the whole 400ms (ease-in-out; the JS cleanup
      timeout matches), so the well never flashes blank. Forward = next
      in the launchpad → stars → inspector ring: the front face exits
      left and the next face comes around from the right (.face-back
@@ -1729,26 +1736,40 @@
 
   .wellpane.turning {
     perspective: 1400px;
+    /* Whole-tile turn: the pane sheds its own chrome for the 400ms so
+       no static frame rings the moving tiles — the desk shows around
+       them. border-color (not border-width) keeps the box identical;
+       the faces below carry the card. */
+    background: transparent;
+    border-color: transparent;
+    overflow: visible;
   }
 
-  /* During the turn both faces are absolute copies of the card box,
-     opaque (each face carries the card fill WITH it as it turns) and
-     input-blackouted for the 500ms. No transform here at base — the
-     keyframes own every rotate/translate so reduced motion can simply
-     swap the animation. */
+  /* During the turn both faces are absolute copies of the card box and
+     each IS the tile — the card fill / 1px --edge / 12px radius ride
+     WITH the face as it yaws (content clipped to the radius), opaque,
+     input-blackouted for the 400ms. inset:-1px + border-box puts the
+     face's border exactly where the pane's border sat, so the chrome
+     handoff at cleanup lands on the same box with no 1px pop. No
+     transform here at base — the keyframes own every rotate/translate
+     so reduced motion can simply swap the animation. */
   .wellpane.turning .prismface,
   .wellpane.turning .wellpage.face-in {
     position: absolute;
-    inset: 0;
-    pointer-events: none; /* 500ms input blackout on the card — no misclick */
+    inset: -1px;
+    box-sizing: border-box;
+    pointer-events: none; /* 400ms input blackout on the card — no misclick */
     background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    overflow: hidden;
     backface-visibility: hidden;
   }
 
   /* The outgoing face: starts at rest on the card plane (identity-net)
      and orbits away — forward exits left (0 → -120deg). */
   .wellpane.turning .prismface.face-out {
-    animation: orbitty-prism-out-fwd 500ms ease-in-out both;
+    animation: orbitty-prism-out-fwd 400ms ease-in-out both;
   }
 
   .wellpane.turning .prismface.face-out.face-back {
@@ -1758,7 +1779,7 @@
   /* The incoming face: starts one face around the prism (±120deg,
      backface-hidden until it comes around) and lands exactly at rest. */
   .wellpane.turning .wellpage.face-in {
-    animation: orbitty-prism-in-fwd 500ms ease-in-out both;
+    animation: orbitty-prism-in-fwd 400ms ease-in-out both;
   }
 
   .wellpane.turning .wellpage.face-in.face-back {
