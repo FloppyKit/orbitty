@@ -867,14 +867,14 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     draw_planet_locate(d, center, r, ry, rect);
 }
 
-/// Dest-menu find glow. Marble: a slightly diagonal saturn ring (same
-/// lean as the Planets dest logo). Expanded: brighter rim + name in the
-/// disc center that fades out.
+/// Dest-menu find glow. Marble: a saturn ring that starts upper-left →
+/// lower-right, spins once, and is clipped so the disc hides the back
+/// half. Expanded: rim glow + name sized to nearly the disc width.
 unsafe fn draw_planet_locate(
     d: &DrawData,
     center: NSPoint,
     r: f64,
-    _ry: f64,
+    ry: f64,
     rect: NSRect,
 ) {
     let Some(t) = d.locate_t else { return };
@@ -886,13 +886,31 @@ unsafe fn draw_planet_locate(
     let base = d.color;
     if d.is_marble {
         let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+        // Even-odd clip: keep the ring only *outside* the disc so the
+        // planet hides the back of the saturn ring.
+        let hole: *mut Object = msg_send![class!(NSBezierPath), bezierPath];
+        let pad = r * 6.0;
+        let _: () = msg_send![hole,
+            appendBezierPathWithRect: NSRect::new(
+                center.x - pad,
+                center.y - pad,
+                pad * 2.0,
+                pad * 2.0,
+            )];
+        let disc: *mut Object =
+            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
+        let _: () = msg_send![hole, appendBezierPath: disc];
+        let _: () = msg_send![hole, setWindingRule: 1usize]; // even-odd
+        let _: () = msg_send![hole, addClip];
         let tf: *mut Object = msg_send![class!(NSAffineTransform), transform];
         let _: () = msg_send![tf, translateXBy: center.x yBy: center.y];
-        let _: () = msg_send![tf, rotateByDegrees: -20.0f64];
+        // Start on the UL→LR diagonal (\), then one turn while it fades.
+        let deg = -45.0 + t * 360.0;
+        let _: () = msg_send![tf, rotateByDegrees: deg];
         let _: () = msg_send![tf, translateXBy: -center.x yBy: -center.y];
         let _: () = msg_send![tf, concat];
-        let rw = r * 2.35;
-        let rh = r * 0.78;
+        let rw = r * 2.70;
+        let rh = ry * 0.90;
         let ring_rect = NSRect::new(center.x - rw / 2.0, center.y - rh / 2.0, rw, rh);
         let glow: *mut Object = msg_send![white, colorWithAlphaComponent: 0.35f64 * fade];
         let _: () = msg_send![glow, setStroke];
@@ -934,22 +952,40 @@ unsafe fn draw_planet_locate(
             msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
         let _: () = msg_send![color_ring, setLineWidth: 1.8f64];
         let _: () = msg_send![color_ring, stroke];
-        draw_center_flash(center, &d.name, fade);
+        draw_center_flash(center, r, &d.name, fade);
     }
 }
 
-unsafe fn draw_center_flash(center: NSPoint, text: &str, fade: f64) {
+unsafe fn draw_center_flash(center: NSPoint, r: f64, text: &str, fade: f64) {
     let ns_text = ns_string(text);
-    let font: *mut Object = msg_send![class!(NSFont), boldSystemFontOfSize: 15.0f64];
+    let max_w = (r * 2.0 * 0.92).max(24.0);
+    let probe = 48.0;
+    let probe_font: *mut Object = msg_send![class!(NSFont), boldSystemFontOfSize: probe];
     let white: *mut Object = msg_send![class!(NSColor), whiteColor];
+    let probe_keys = [ns_string("NSFont"), ns_string("NSColor")];
+    let probe_vals = [probe_font, white];
+    let probe_attrs: *mut Object = msg_send![class!(NSDictionary),
+        dictionaryWithObjects: probe_vals.as_ptr()
+        forKeys: probe_keys.as_ptr()
+        count: 2usize];
+    if probe_attrs.is_null() {
+        return;
+    }
+    let probe_size: CGSize = msg_send![ns_text, sizeWithAttributes: probe_attrs];
+    let font_size = if probe_size.width > 1.0 {
+        (probe * max_w / probe_size.width).clamp(18.0, r * 0.95)
+    } else {
+        32.0
+    };
+    let font: *mut Object = msg_send![class!(NSFont), boldSystemFontOfSize: font_size];
     let ink: *mut Object = msg_send![white, colorWithAlphaComponent: fade];
     let shadow: *mut Object = msg_send![class!(NSShadow), alloc];
     let shadow: *mut Object = msg_send![shadow, init];
     let _: () = msg_send![shadow, setShadowOffset: CGSize { width: 0.0, height: -1.0 }];
-    let _: () = msg_send![shadow, setShadowBlurRadius: 4.0f64];
+    let _: () = msg_send![shadow, setShadowBlurRadius: 6.0f64];
     let black: *mut Object = msg_send![class!(NSColor), blackColor];
     let shadow_color: *mut Object =
-        msg_send![black, colorWithAlphaComponent: 0.75f64 * fade];
+        msg_send![black, colorWithAlphaComponent: 0.8f64 * fade];
     let _: () = msg_send![shadow, setShadowColor: shadow_color];
     let keys = [ns_string("NSFont"), ns_string("NSColor"), ns_string("NSShadow")];
     let vals = [font, ink, shadow];
