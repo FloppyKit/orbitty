@@ -507,13 +507,14 @@
   /* GO-ORBITTY-GHOST-DOCK: one wrap around agentrow + composer. Ghost
      paints it as the small outlined bottom slab — same paint as the
      expanded window (--bg-fill, radius 12, 1px --edge) — floating just
-     off the window edges. Expanded / hosted: no paint, no extra chrome,
-     same stack as the unwrapped rows. DOCK-GRIP: ghost dock chrome (the
-     padding around the rows, never a control) is a drag region; the
-     slab (expanded / hosted) never drags from the dock.
+     off the window edges. TILE-DROP leftover: hosted dests (Launchpad /
+     STARS / Planets) keep that same ring so the dock stays findable and
+     grabbable on the transparent desk. Idle expanded (not hosted) still
+     rides the slab fill with no extra ring. DOCK-GRIP: dock chrome
+     (padding around the rows, never a control) drags on every surface.
      HOST-DOCK leftover: bottom inset (8px margin + 1px border) stays in
-     every mode so dest toggle does not walk the dests. Ghost still adds
-     the side/top float and the visible ring. */
+     every mode so dest toggle does not walk the dests. Ghost / hosting
+     add the side/top float and the visible ring. */
   .ghostdock {
     position: relative;
     display: flex;
@@ -522,7 +523,8 @@
     border: 1px solid transparent;
   }
 
-  :global(.ghost) .ghostdock {
+  :global(.ghost) .ghostdock,
+  :global(.hosting) .ghostdock {
     margin: 4px 8px 8px;
     background: var(--bg-fill, var(--bg));
     border-color: var(--edge);
