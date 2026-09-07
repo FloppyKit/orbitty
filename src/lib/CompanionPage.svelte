@@ -203,6 +203,28 @@
   type HostMode = "off" | "launchpad" | "stars" | "inspector";
   let hosted = $state<HostMode>("off");
 
+  // GO-ORBITTY-TILE-DROP: the card drops in and the Spark column shifts
+  // over INSIDE the natively-grown frame — the grow itself stays instant
+  // (keep-bottom), never a set_size / set_position interpolation.
+  // tilePre holds the from-state at mount so the rested card never
+  // flashes while set_companion_host is in flight; tileEnter plays the
+  // drop once the grow has landed; tileLeave plays the reverse and only
+  // when the CSS ends does the native side restore the idle rect.
+  // tileGen lets a fresh enter/swap supersede a mid-flight leave.
+  // Reduced motion: enter fades (no translate), leave is a snap (0 wait).
+  const TILE_ENTER_MS = 220;
+  const TILE_LEAVE_MS = 200;
+  let tilePre = $state(false);
+  let tileEnter = $state(false);
+  let tileLeave = $state(false);
+  let tileGen = 0;
+
+  function tileReset() {
+    tilePre = false;
+    tileEnter = false;
+    tileLeave = false;
+  }
+
   let mainEl: HTMLElement | null = null;
   let captionReady = $state(false);
   function onCaptionSpeakError(msg: string) {
@@ -211,12 +233,19 @@
 
   // HOST-CC: hosted + expanded — Escape collapses the overlay only.
   // CaptionPane owns ccOpen Escape and Enter/Space paging.
+  // TILE-DROP: hosted + no overlay — Escape dismisses the host (the
+  // reverse drop plays first; see dismissHost). CaptionPane's ccOpen
+  // Escape stopImmediatePropagation fires ahead of this listener, so an
+  // open CC overlay still eats its own Escape.
   function onPaneKey(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
     if (hosted !== "off" && expanded) {
       expanded = false;
       invoke("set_companion_expanded", { expanded: false }).catch(() => {});
       e.preventDefault();
+    } else if (hosted !== "off") {
+      e.preventDefault();
+      void dismissHost();
     }
   }
 
@@ -593,10 +622,15 @@
   // Escape.
 
   async function enterHost(mode: "launchpad" | "stars" | "inspector") {
+    const gen = ++tileGen; // a fresh enter/swap supersedes any in-flight leave
     if (hosted !== "off") {
       // Launchpad ↔ STARS swap: flip the well AND still invoke
       // set_companion_host — rust re-asserts HOSTED / the slab
       // (host_changed only: no second stash, no re-place, no re-grow).
+      // TILE-DROP: no drop replay here — the hosted swap motion is
+      // TILE-YAW's, not this phrase. A mid-flight leave is cancelled;
+      // the frame never restored, so the card simply stays.
+      tileReset();
       const prev = hosted;
       hosted = mode;
       try {
@@ -607,6 +641,9 @@
       }
       return;
     }
+    // TILE-DROP: hold the from-state at mount so the rested card never
+    // flashes inside the growing frame.
+    tilePre = true;
     hosted = mode;
     try {
       // COMPANION-RAISE: native host-on lands BEFORE the collapse —
@@ -615,9 +652,27 @@
       await invoke("set_companion_host", { mode });
     } catch (e) {
       hosted = "off";
+      tileReset();
       sendNote = `${e}`;
       return;
     }
+    // TILE-DROP: the native grow has landed and the well is mounted —
+    // play the drop on the next frame. The enter class comes back off
+    // once the CSS has finished so a later .wellhead remount (sprite
+    // toggle) doesn't replay the aside.
+    await tick();
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() => {
+      if (gen !== tileGen) return;
+      tilePre = false;
+      tileEnter = true;
+      setTimeout(
+        () => {
+          if (gen === tileGen) tileEnter = false;
+        },
+        (reduce ? 140 : TILE_ENTER_MS) + 80,
+      );
+    });
     // Force collapsed on enter (the existing persisted expanded flag).
     if (expanded) {
       expanded = false;
@@ -626,7 +681,21 @@
   }
 
   async function dismissHost() {
-    if (hosted === "off") return;
+    if (hosted === "off" || tileLeave) return;
+    const gen = ++tileGen;
+    tilePre = false;
+    tileEnter = false;
+    // TILE-DROP: reverse the drop INSIDE the still-grown frame — the
+    // native idle restore waits for the CSS to end (timeout = duration).
+    // The idle size is never restored mid-animation. Reduced motion:
+    // 0 wait, a snap.
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduce) {
+      tileLeave = true;
+      await new Promise((r) => setTimeout(r, TILE_LEAVE_MS));
+      if (gen !== tileGen) return; // a fresh enter/swap superseded us
+      tileLeave = false;
+    }
     hosted = "off";
     try {
       await invoke("set_companion_host", { mode: "off" });
@@ -676,6 +745,8 @@
   // companion. Never parks — the two sit side by side.
   async function popoutLaunchpad() {
     if (hosted !== "launchpad") return;
+    tileGen++; // cancel any in-flight leave; pop-out stays instant
+    tileReset();
     hosted = "off";
     try {
       await invoke("set_companion_host", { mode: "off" });
@@ -689,6 +760,8 @@
   // then show the real rail window. Tray Inspector still show_rail too.
   async function popoutInspector() {
     if (hosted !== "inspector") return;
+    tileGen++; // cancel any in-flight leave; pop-out stays instant
+    tileReset();
     hosted = "off";
     try {
       await invoke("set_companion_host", { mode: "off" });
@@ -1127,6 +1200,9 @@
   class:hosting={hosted !== "off"}
   class:ghost={!expanded && hosted === "off"}
   class:spriteoff={!sprite}
+  class:tile-pre={tilePre}
+  class:tile-enter={tileEnter}
+  class:tile-leave={tileLeave}
   onmousedown={onPaneMouseDown}
   onmousedowncapture={onHitMouseDown}
   bind:this={mainEl}
@@ -1440,6 +1516,110 @@
     min-width: 0;
     min-height: 0;
     display: flex;
+  }
+
+  /* GO-ORBITTY-TILE-DROP: the drop verb. The native grow stays instant
+     (keep-bottom); this CSS animates INSIDE the grown frame and never
+     fights the dock pinning. Enter: the card drops from translateY(-18%)
+     + opacity 0 with a 10px overshoot; the Spark column eases in from a
+     bit toward center. Leave: the exact reverse, and only when it ends
+     does dismissHost invoke the native off. .tile-pre holds the
+     from-state at mount so the rested card never flashes while
+     set_companion_host is in flight. */
+  .companion.tile-pre .wellpane {
+    opacity: 0;
+    transform: translateY(-18%);
+  }
+
+  .companion.tile-pre .wellhead {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+
+  .companion.tile-enter .wellpane {
+    animation: orbitty-tile-drop-in 220ms ease-out both;
+  }
+
+  .companion.tile-enter .wellhead {
+    animation: orbitty-tile-aside-in 220ms ease-out both;
+  }
+
+  .companion.tile-leave .wellpane {
+    animation: orbitty-tile-drop-out 200ms ease-in both;
+  }
+
+  .companion.tile-leave .wellhead {
+    animation: orbitty-tile-aside-out 200ms ease-in both;
+  }
+
+  @keyframes orbitty-tile-drop-in {
+    0% {
+      opacity: 0;
+      transform: translateY(-18%);
+    }
+    62% {
+      opacity: 1;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes orbitty-tile-aside-in {
+    0% {
+      opacity: 0;
+      transform: translateX(-28px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes orbitty-tile-drop-out {
+    0% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-18%);
+    }
+  }
+
+  @keyframes orbitty-tile-aside-out {
+    0% {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(-28px);
+    }
+  }
+
+  /* Reduced motion: fade or snap — never a translate. Enter fades; the
+     leave wait is 0 JS-side, so dismiss is a snap. */
+  @media (prefers-reduced-motion: reduce) {
+    .companion.tile-pre .wellpane,
+    .companion.tile-pre .wellhead {
+      transform: none;
+    }
+    .companion.tile-enter .wellpane,
+    .companion.tile-enter .wellhead {
+      animation: orbitty-tile-fade 140ms ease-out both;
+    }
+  }
+
+  @keyframes orbitty-tile-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   /* SPRITE-OFF hosted: no .wellhead — the pane takes the full well. The
