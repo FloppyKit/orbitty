@@ -11,13 +11,34 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 use tauri::Emitter;
 
+/// FRONT-HOLD leftover: popUpContextMenu runs a nested loop. Arm the
+/// companion poll quiet so setLevel hops cannot beach-ball the menu.
+struct MenuQuiet;
+impl MenuQuiet {
+    fn arm() -> Self {
+        crate::companion_clear::set_menu_quiet(true);
+        Self
+    }
+}
+impl Drop for MenuQuiet {
+    fn drop(&mut self) {
+        crate::companion_clear::set_menu_quiet(false);
+    }
+}
+
+unsafe fn pop_context_menu(menu: *mut Object, event: *mut Object, view: *mut Object) {
+    let _quiet = MenuQuiet::arm();
+    let _: () = msg_send![class!(NSMenu), popUpContextMenu: menu withEvent: event forView: view];
+}
+
 use super::audio;
 use super::{
     app_handle, building_cap, default_state, layout_beings, layout_decor, lock, max_radius,
     menu_target, now_epoch, ns_string, panel_set_frame, panic_msg, plant_cap, primary_screen_id,
     radius_y, sender_project_id, set_caption, view_to_disc, walker_hidden, world_entry, DecorItem,
+    draw::hit_board_column,
     DecorKind, DecorPoint, DecorRef, Drag, Habitat, NSPoint, NSRect, PendingClick, Placement,
-    Planet, Projection, MIN_RADIUS, VIEW_PADDING,
+    Planet, MIN_RADIUS, VIEW_PADDING,
 };
 
 /// GO-ORBITTY-BOOMBOX-GAIN: press-release on the boombox under this
@@ -56,7 +77,7 @@ fn hit_being(planet: &Planet, local: NSPoint) -> Option<(String, bool)> {
         .map(|b| (b.entry_id.clone(), false))
 }
 
-fn over_disc(planet: &Planet, local: NSPoint) -> bool {
+pub(crate) fn over_disc(planet: &Planet, local: NSPoint) -> bool {
     let side = (planet.radius + VIEW_PADDING) * 2.0;
     let dx = local.x - side / 2.0;
     let dy = local.y - side / 2.0;
@@ -110,12 +131,15 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
         let local: NSPoint = msg_send![this, convertPoint: loc fromView: std::ptr::null::<Object>()];
         let view_ptr = this as *const Object as usize;
         let mut h = lock();
-        let (pid, panel, over, dref, being, radius, proj) = {
+        let (pid, panel, over, dref, being, radius, proj, board_col) = {
             let Some((project_id, planet)) = planet_for_view(&mut h, view_ptr) else {
                 return;
             };
             let panel = planet.panel as *mut Object;
             let _: () = msg_send![panel, orderFrontRegardless];
+            if let Some(app) = app_handle() {
+                crate::companion_clear::keep_front_if_ours(app);
+            }
             (
                 project_id.clone(),
                 panel,
@@ -124,6 +148,7 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
                 hit_being(planet, local),
                 planet.radius,
                 planet.projection,
+                hit_board_column(planet, local),
             )
         };
         if let Some((entry_id, walker)) = being {
@@ -149,6 +174,13 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
             }
             return;
         }
+        // WORLD-TOUCH leftover: Done column is the complete door on the
+        // planet board. Do not start a panel drag from that rail.
+        if board_col == Some(2) {
+            h.pending_board_done = Some(pid);
+            return;
+        }
+        h.pending_board_done = None;
         let place = h.placement.take();
         if let Some(place) = place {
             if place.project_id == pid && over {
@@ -254,6 +286,21 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
         let local: NSPoint = msg_send![this, convertPoint: loc fromView: std::ptr::null::<Object>()];
         let clicks: usize = msg_send![event, clickCount];
         let view_ptr = this as *const Object as usize;
+        {
+            let mut h = lock();
+            if let Some(pid) = h.pending_board_done.take() {
+                let still = h.planets.get(&pid).is_some_and(|p| {
+                    p.view == view_ptr && hit_board_column(p, local) == Some(2)
+                });
+                drop(h);
+                if still {
+                    if let Some(app) = app_handle() {
+                        let _ = app.emit_to("main", "habitat:board-done", pid);
+                    }
+                }
+                return;
+            }
+        }
         let action = {
             let mut h = lock();
             let Some(pending) = h.pending_click.take() else {
@@ -550,7 +597,7 @@ unsafe fn boombox_context_menu(this: &Object, event: *mut Object, project_id: &s
     add_separator(menu);
     add_volume_items(menu, target, project_id, volume);
     let view = this as *const Object as *mut Object;
-    let _: () = msg_send![class!(NSMenu), popUpContextMenu: menu withEvent: event forView: view];
+    pop_context_menu(menu, event, view);
     let _: () = msg_send![menu, release];
 }
 
@@ -590,14 +637,13 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         boombox_context_menu(this, event, &project_id);
         return;
     }
-    let (oblique, plant_left, mush_left, build_left, has_box, volume) = {
+    let (plant_left, mush_left, build_left, has_box, volume) = {
         let h = lock();
         let now = now_epoch();
         h.worlds
             .get(&project_id)
             .map(|w| {
                 (
-                    w.projection() == Projection::Oblique,
                     plant_cap(w.first_seen, now).saturating_sub(w.plants.len()),
                     plant_cap(w.first_seen, now).saturating_sub(w.mushrooms.len()),
                     building_cap(w.first_seen, now).saturating_sub(w.buildings.len()),
@@ -605,7 +651,7 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
                     w.boombox_volume,
                 )
             })
-            .unwrap_or((false, 3, 3, 1, false, 1.0))
+            .unwrap_or((3, 3, 1, false, 1.0))
     };
     // Lock dropped: popUpContextMenu runs modally and the target's actions
     // re-lock on selection.
@@ -634,25 +680,6 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         &project_id,
         None,
         is_marble,
-    );
-    add_separator(menu);
-    add_menu_item(
-        menu,
-        "2D disc",
-        sel!(planetSetFlat:),
-        target,
-        &project_id,
-        Some(!oblique),
-        true,
-    );
-    add_menu_item(
-        menu,
-        "2.5D",
-        sel!(planetSetOblique:),
-        target,
-        &project_id,
-        Some(oblique),
-        true,
     );
     add_separator(menu);
     add_menu_item(
@@ -706,7 +733,7 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
     add_separator(menu);
     add_volume_items(menu, target, &project_id, volume);
     let view = this as *const Object as *mut Object;
-    let _: () = msg_send![class!(NSMenu), popUpContextMenu: menu withEvent: event forView: view];
+    pop_context_menu(menu, event, view);
     let _: () = msg_send![menu, release];
 }
 
@@ -726,7 +753,7 @@ struct WalkerPackEvent {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct WalkerHomeEvent {
+struct WalkerAssignEvent {
     entry_id: String,
     project_id: String,
 }
@@ -822,7 +849,10 @@ unsafe fn walker_context_menu(this: &Object, event: *mut Object, entry_id: &str)
         );
     }
     add_separator(menu);
-    // GO-ORBITTY-WALKER-CONTEXT: occupancy teleport. Claim stays.
+    // GO-ORBITTY-CLAIM-ONE: Assign to planet IS the rail claim — the pick
+    // emits habitat:walker-assign and the rail rewrites projectId through
+    // the same persist door (one windowId, one planet; the open kanban
+    // card and the sprite follow the claim). No occupancy teleport.
     let names = {
         let h = lock();
         h.planet_names.clone()
@@ -866,7 +896,7 @@ unsafe fn walker_context_menu(this: &Object, event: *mut Object, entry_id: &str)
         true,
     );
     let view = this as *const Object as *mut Object;
-    let _: () = msg_send![class!(NSMenu), popUpContextMenu: menu withEvent: event forView: view];
+    pop_context_menu(menu, event, view);
     let _: () = msg_send![menu, release];
 }
 
@@ -920,8 +950,8 @@ pub(crate) extern "C" fn walker_assign(_this: &Object, _cmd: Sel, sender: *mut O
         if let Some(app) = app_handle() {
             let _ = app.emit_to(
                 "main",
-                "habitat:walker-home",
-                WalkerHomeEvent {
+                "habitat:walker-assign",
+                WalkerAssignEvent {
                     entry_id: entry_id.to_string(),
                     project_id: project_id.to_string(),
                 },
@@ -936,40 +966,6 @@ pub(crate) extern "C" fn walker_open_being(_this: &Object, _cmd: Sel, sender: *m
             if let Some(app) = app_handle() {
                 let _ = app.emit_to("main", "habitat:being", id);
             }
-        }
-    }));
-}
-
-pub(crate) extern "C" fn menu_set_flat(_this: &Object, _cmd: Sel, sender: *mut Object) {
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let Some(id) = sender_project_id(sender) else { return; };
-        let mut h = lock();
-        {
-            let world = world_entry(&mut h, &id);
-            world.projection = "flat".into();
-        }
-        h.worlds_dirty = true;
-        if let Some(planet) = h.planets.get_mut(&id) {
-            planet.projection = Projection::Flat;
-            layout_beings(planet);
-            set_caption(planet, "2D disc".into());
-        }
-    }));
-}
-
-pub(crate) extern "C" fn menu_set_oblique(_this: &Object, _cmd: Sel, sender: *mut Object) {
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let Some(id) = sender_project_id(sender) else { return; };
-        let mut h = lock();
-        {
-            let world = world_entry(&mut h, &id);
-            world.projection = "oblique".into();
-        }
-        h.worlds_dirty = true;
-        if let Some(planet) = h.planets.get_mut(&id) {
-            planet.projection = Projection::Oblique;
-            layout_beings(planet);
-            set_caption(planet, "2.5D".into());
         }
     }));
 }

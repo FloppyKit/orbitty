@@ -1,3 +1,6 @@
+mod actions;
+#[cfg(unix)]
+mod board;
 mod chars;
 mod companion;
 mod companion_clear;
@@ -153,7 +156,13 @@ fn prompt_accessibility() -> bool {
 /// every display is re-homed on the primary (left inset).
 /// GO-ORBITTY-INSPECTOR: the tray Inspector item is the caller — the rail
 /// is the inspector, summoned on purpose (rail delete is forbidden).
-fn show_rail(app: &tauri::AppHandle) {
+/// GO-ORBITTY-INSPECTOR-HOST: embedded pop-out also invokes this.
+#[tauri::command]
+fn show_rail(app: tauri::AppHandle) {
+    show_rail_inner(&app);
+}
+
+fn show_rail_inner(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -264,6 +273,40 @@ pub(crate) fn main_thread_sync<F: FnOnce() + Send>(f: F) {
     }
 }
 
+/// Same trampoline as `main_thread_sync`, but it never waits. The 10Hz
+/// companion poll uses this so a nested NSMenu run loop cannot beach-ball
+/// behind a `dispatch_sync` from a worker.
+#[cfg(target_os = "macos")]
+pub(crate) fn main_thread_async<F: FnOnce() + Send + 'static>(f: F) {
+    use objc::{class, msg_send, sel, sel_impl};
+    use std::ffi::c_void;
+    let is_main: bool = unsafe { msg_send![class!(NSThread), isMainThread] };
+    if is_main {
+        f();
+        return;
+    }
+    extern "C" {
+        static _dispatch_main_q: c_void;
+        fn dispatch_async_f(
+            queue: *mut c_void,
+            context: *mut c_void,
+            work: extern "C" fn(*mut c_void),
+        );
+    }
+    extern "C" fn trampoline<F: FnOnce()>(ctx: *mut c_void) {
+        let f = unsafe { Box::from_raw(ctx as *mut F) };
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    }
+    let ctx = Box::into_raw(Box::new(f)) as *mut c_void;
+    unsafe {
+        dispatch_async_f(
+            std::ptr::addr_of!(_dispatch_main_q) as *mut c_void,
+            ctx,
+            trampoline::<F>,
+        );
+    }
+}
+
 /// S4.4: re-apply the transparency surgery on the overlay windows. The
 /// frontend invokes this on mount (post-load), so a WKWebView that came up
 /// with the default white backing gets its drawsBackground killed for real.
@@ -352,6 +395,9 @@ fn save_state(app: tauri::AppHandle, state: state::PersistedState) -> Result<(),
     }
     // Keep the separate Kanban window in sync with the rail's writes.
     let _ = app.emit("state:changed", ());
+    // GO-ORBITTY-ACTION-FILE: every persist re-syncs action combo
+    // registrations (best-effort — a collision marks conflict, never errs).
+    actions::sync_combos(&app, &state.action_shortcuts);
     Ok(())
 }
 
@@ -384,9 +430,12 @@ pub fn run() {
             drawers::retether_drawer,
             drawers::retether_all_drawers,
             companion::companion_frames,
+            companion::companion_glb_url,
             panes::hide_window,
             panes::set_companion_host,
+            show_rail,
             companion_clear::set_companion_hits,
+            companion_clear::companion_front,
             bring_all_front,
             bring_planet_front,
             ensure_glass,
@@ -417,6 +466,7 @@ pub fn run() {
             coordinator::ack_stars_prompt,
             coordinator::speak_reply,
             coordinator::run_action,
+            actions::action_combo_status,
             coordinator::launch_agent,
             coordinator::wake_sleeper,
             coordinator::load_soul,
@@ -486,6 +536,14 @@ pub fn run() {
                         let _ = handle.emit_to("companion", "orbitty:companion-summon", ());
                     })?;
             }
+
+            // GO-ORBITTY-ACTION-FILE: register persisted action combos on
+            // load (same plugin as the summon above). Every later persist
+            // re-syncs via the save_state command / action.* tools.
+            let boot_actions = state::load_state(app.handle())
+                .map(|s| s.action_shortcuts)
+                .unwrap_or_default();
+            actions::sync_combos(app.handle(), &boot_actions);
 
             // All webview windows: any close request (⌘W, menu Close Window,
             // programmatic close) hides instead of destroying. Quit lives on
@@ -618,7 +676,7 @@ pub fn run() {
                         let _ = panes::show_labeled(app, "settings");
                     }
                     "inspector" => {
-                        show_rail(app);
+                        show_rail_inner(app);
                     }
                     "restore_all" => {
                         habitat::restore_all();

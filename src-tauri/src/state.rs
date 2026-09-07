@@ -20,7 +20,7 @@
 //! Settings slice adds `autohideRowChrome` (default true) / `hideTitles`
 //! (default false; legacy `showFullTitles` is ignored — old saves load with
 //! titles visible, one line) and the user-authored shortcut lanes:
-//! `actionShortcuts: [{id,name,command,cwd?}]`,
+//! `actionShortcuts: [{id,name,command,cwd?,combo?}]`,
 //! `agentShortcuts: [{id,name,harness,profile,model?,mdPaths[],projectId?}]`.
 //! S4.4 adds the Habitica-thin detail fields on cards (all optional, all
 //! additive — old saves load, and the rail's saves must not strip them).
@@ -418,6 +418,12 @@ pub struct ActionShortcut {
     pub command: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// GO-ORBITTY-ACTION-FILE: optional global chord, e.g. "cmd+alt+m".
+    /// Absent/empty = Spirit-only. Registered native-side on load and on
+    /// every persist; reserved/taken chords are never registered (the
+    /// Settings list shows `conflict`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combo: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -488,9 +494,9 @@ pub struct Claim {
     /// Per-walker size (0.4–2.5); absent/0 = the gear's global spriteScale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprite_scale: Option<f64>,
-    /// GO-ORBITTY-WALKER-CONTEXT: occupancy planet for the sprite. Absent
-    /// or unknown id = walk on `project_id` (today). Rail Assign still
-    /// rewrites `project_id`; this field never does.
+    /// GO-ORBITTY-CLAIM-ONE: legacy occupancy-teleport leftover. Ignored —
+    /// occupancy is `project_id` only (one windowId, one planet). The
+    /// field stays additive so pre-CLAIM-ONE saves still load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub walker_home: Option<String>,
     // GO-ORBITTY-SLEEPERS wake stamps (all additive — old saves load). A

@@ -36,20 +36,20 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
         crate::talk::stop_if_any();
         companion_pin(&app, &w, false);
         persist_companion_hidden(&app, &w);
-        crate::companion_clear::hidden();
+        crate::companion_clear::hidden(&app);
     }
     Ok(())
 }
 
 /// GO-ORBITTY-SLIM-PANES: pane specs mirror the pre-slim tauri.conf.json
-/// entries (transparent, Overlay, hiddenTitle, no drag-drop; companion keeps
-/// its 280×360 minimum). Panes are created on first open and kept warm on
-/// hide — launch spawns the rail only, and hide never destroys.
+/// entries (transparent, Overlay, hiddenTitle, no drag-drop).
+/// GO-ORBITTY-COMPANION-MIN: 619×647 was a miss (oversized persist).
+/// Idle floor is 280×360 until Matt sizes and we lock live AX. Hug 280×120.
 /// Returns (title, width, height, min (w, h)).
 pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(f64, f64)>)> {
     match label {
         "kanban" => Some(("", 780.0, 520.0, None)),
-        "companion" => Some(("", 520.0, 780.0, Some((280.0, 360.0)))),
+        "companion" => Some(("", 619.0, 647.0, Some((280.0, 360.0)))),
         // GO-ORBITTY-PANE-404: no "stars" spec — Board+STARS share the one
         // `kanban` overlay, so nothing may ever spawn/pin a `stars` pane.
         "settings" | "sky" => Some(("", 420.0, 560.0, None)),
@@ -91,6 +91,11 @@ pub(crate) fn ensure_window(
     label: &str,
 ) -> Result<tauri::WebviewWindow, String> {
     if let Some(w) = app.get_webview_window(label) {
+        // COMPANION-MIN: already-created panes keep the old 280×360 until
+        // hug/unhug; re-assert the idle floor on every ensure.
+        if label == "companion" && !companion_hugged() {
+            companion_min_size(&w, false);
+        }
         return Ok(w);
     }
     let Some((title, width, height, min)) = pane_spec(label) else {
@@ -231,7 +236,7 @@ pub(crate) fn wire_pane_events(
                 crate::talk::stop_if_any();
                 companion_pin(&handle, &keeper, false);
                 persist_companion_hidden(&handle, &keeper);
-                crate::companion_clear::hidden();
+                crate::companion_clear::hidden(&handle);
             }
         }
     });
@@ -331,9 +336,8 @@ pub(crate) fn companion_hugged() -> bool {
     hug_stash().lock().map(|s| s.is_some()).unwrap_or(false)
 }
 
-/// The 360 companion min-height blocks the bar (a ~160–220 bar cannot
-/// exist at that floor), so it drops to 120 while hugged and returns to
-/// the pane-spec min on unhug.
+/// Hug bar sits below the idle min, so the floor drops to 120 while
+/// hugged and returns to the pane-spec min on unhug.
 fn companion_min_size(w: &tauri::WebviewWindow, hugged: bool) {
     let (mw, mh) = if hugged {
         (280.0, 120.0)
@@ -422,7 +426,7 @@ pub(crate) fn unhug_before_persist(app: &tauri::AppHandle) {
 
 /// GO-ORBITTY-HOST-SPLIT: the ONE native path that resizes the companion
 /// for hosting — the frontend never set_sizes the companion itself.
-///   "launchpad" | "stars" → stash the live idle rect (once per host
+///   "launchpad" | "stars" | "inspector" → stash the live idle rect (once per host
 ///     session — a Launchpad ↔ STARS well swap never re-stashes the grown
 ///     rect), hide the shared `kanban` overlay if it is visible (never
 ///     destroy), grow the companion to the display-fit host frame —
@@ -437,14 +441,14 @@ pub(crate) fn unhug_before_persist(app: &tauri::AppHandle) {
 /// command only owns the window frame.
 #[tauri::command]
 pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), String> {
-    let on = mode == "launchpad" || mode == "stars";
+    let on = mode == "launchpad" || mode == "stars" || mode == "inspector";
     let Some(w) = app.get_webview_window("companion") else {
         return Err("no window labeled companion".to_string());
     };
     if on {
         let stashed = host_stash().lock().map(|s| s.is_some()).unwrap_or(false);
         // GO-ORBITTY-COMPANION-RAISE: already hosted (Launchpad ↔ STARS
-        // well swap, tray re-assert) — host_changed only, so HOSTED
+        // ↔ inspector well swap, tray re-assert) — host_changed only, so HOSTED
         // re-asserts and apply_mode slabs. Never a second stash, never a
         // re-place: no re-grow, no hop.
         if stashed {
@@ -468,6 +472,17 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
                 emit_pane_vis(&app, "kanban", false);
             }
         }
+        // GO-ORBITTY-INSPECTOR-HOST: the well IS the inspector. Hide the
+        // rail window (never destroy) so the desk isn't two inspectors.
+        // Tray Inspector / embedded pop-out still show_rail.
+        if mode == "inspector" {
+            if let Some(m) = app.get_webview_window("main") {
+                if m.is_visible().unwrap_or(false) {
+                    let _ = m.hide();
+                    emit_pane_vis(&app, "main", false);
+                }
+            }
+        }
         let cur =
             crate::drawers::live_points_rect(&w).unwrap_or(crate::state::CompanionBounds {
                 x: 0.0,
@@ -475,37 +490,33 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
                 w: 520.0,
                 h: 780.0,
             });
-        // GO-ORBITTY-HOST-FIT: the grow follows the display the companion
-        // sits on — 1080×620 landscape, 620×1080 portrait. Origin stays
-        // live cur; the clamp below still never swaps w/h.
+        // GO-ORBITTY-HOST-FIT: size follows the display — 1080×620
+        // landscape, 620×1080 portrait. GO-ORBITTY-HOST-DOCK: pin the
+        // live bottom-center so the dest dock stays under the cursor.
+        // Leftover: clamp/place keep that bottom (top/sides may move).
         let grown = crate::drawers::host_grown_rect(cur);
-        let placed = crate::drawers::clamp_on_displays(grown).unwrap_or(grown);
-        crate::drawers::place_logical_rect(&w, "companion", &placed);
+        let pinned = crate::drawers::pin_bottom_center(cur, grown.w, grown.h);
+        let placed = crate::drawers::clamp_on_displays_keep_bottom(pinned).unwrap_or(pinned);
+        crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
     } else {
         let stash = host_stash().lock().ok().and_then(|mut s| s.take());
-        // GO-ORBITTY-HOST-STAY: dismiss = idle SIZE at the LIVE origin.
-        // w,h from the stash (fallback spec 520×780); x,y from the hosted
-        // window's live rect NOW — the stash origin is enter-time history,
-        // not the place (a hosted window dragged to another display must
-        // dismiss there). Clamp on that one display only — never the
-        // every-display pick that re-centered onto the middle screen.
+        // GO-ORBITTY-HOST-STAY + HOST-DOCK: dismiss = idle SIZE pinned
+        // to the LIVE hosted bottom-center (stash origin is enter-time
+        // history). Clamp on that one display only.
         let live = crate::drawers::live_points_rect(&w);
-        let restore = crate::state::CompanionBounds {
-            x: live
-                .as_ref()
-                .map(|r| r.x)
-                .or_else(|| stash.as_ref().map(|r| r.x))
-                .unwrap_or(0.0),
-            y: live
-                .as_ref()
-                .map(|r| r.y)
-                .or_else(|| stash.as_ref().map(|r| r.y))
-                .unwrap_or(0.0),
-            w: stash.as_ref().map(|r| r.w).unwrap_or(520.0),
-            h: stash.as_ref().map(|r| r.h).unwrap_or(780.0),
-        };
+        let rw = stash.as_ref().map(|r| r.w).unwrap_or(520.0);
+        let rh = stash.as_ref().map(|r| r.h).unwrap_or(780.0);
+        let pin_from = live.unwrap_or_else(|| {
+            stash.unwrap_or(crate::state::CompanionBounds {
+                x: 0.0,
+                y: 0.0,
+                w: rw,
+                h: rh,
+            })
+        });
+        let restore = crate::drawers::pin_bottom_center(pin_from, rw, rh);
         let placed = crate::drawers::clamp_on_host_display(live, restore);
-        crate::drawers::place_logical_rect(&w, "companion", &placed);
+        crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
         // Persist the RESTORED idle rect — never the host frame.
         crate::drawers::persist_shown_place(&app, "companion");
         // GO-ORBITTY-SPRITE-HUG: dismiss-host with the sprite still off
@@ -541,7 +552,17 @@ pub(crate) fn unhost_before_persist(app: &tauri::AppHandle) {
 pub(crate) fn show_companion(app: &tauri::AppHandle) -> Result<(), String> {
     // GO-ORBITTY-RAIL-DRAWER: docked companions take the inboard slot;
     // plucked ones restore bounds inside show_drawer.
+    // FRONT-HOLD leftover: an already-visible summon is raise-only —
+    // rewriting companion.visible + emitting state:changed on every ⌘⇧O
+    // reloaded every pane and beach-balled the desk.
+    let already = app
+        .get_webview_window("companion")
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false);
     crate::drawers::show_drawer(app, "companion")?;
+    if already {
+        return Ok(());
+    }
     let mut st = crate::state::load_state(app).unwrap_or_default();
     st.companion.visible = true;
     let _ = crate::state::save_state(app, &st);

@@ -9,28 +9,43 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import { planetCss } from "./planetColor";
+  import type {
+    ActionShortcut,
+    AgentShortcut,
+    CharLook,
+    Claim,
+    CompanionSlice,
+    DrawerSlice,
+    KanbanCard,
+    PersistedState,
+    PointsEntry,
+    Project,
+    SkySlice,
+    StarsSlice,
+    Tag,
+    TitleOverride,
+    WindowInfo,
+    WindowTags,
+  } from "./persist";
 
-  // Rail brain — mounted only when +page.svelte dispatches the `main`
-  // window here. Overlay windows never load this file.
+  // Rail brain — mounted when +page.svelte dispatches the `main` window,
+  // and again embedded in the companion inspector well
+  // (GO-ORBITTY-INSPECTOR-HOST). Overlay windows never load this file.
 
-  interface WindowInfo {
-    id: string;
-    pid: number;
-    appName: string;
-    title: string;
-    bundleId: string | null;
-    // Reboot-stable fingerprint `{bundleId or appName}|{title}|{n}` — live
-    // ids die on reboot; claims rematch on this.
-    stableKey: string;
-    iconBase64: string | null;
-    isFrontmost: boolean;
-    isMinimized: boolean;
-    // GO-ORBITTY-SLEEPERS: the window's AXDocument as an existing on-disk
-    // path (file:// only) — the file-sleeper wake stamp.
-    documentPath?: string | null;
-    // True on synthesized rows for claims whose window is closed (orphans).
-    sleeping?: boolean;
-  }
+  // GO-ORBITTY-INSPECTOR-HOST: embedded mounts this page in the companion's
+  // inspector well — × calls onClose (never hide_window), the banner
+  // title is Planets, and a pop-out control (onPopout) hands the
+  // chrome back to the real rail window. The overlay passes nothing.
+  let {
+    embedded = false,
+    onClose,
+    onPopout,
+  }: {
+    embedded?: boolean;
+    onClose?: () => void;
+    onPopout?: () => void;
+  } = $props();
 
   interface AxStatus {
     trusted: boolean;
@@ -40,217 +55,12 @@
     isAdhoc: boolean;
   }
 
-  interface Project {
-    id: string;
-    name: string;
-  }
-
-  interface Claim {
-    windowId: string;
-    projectId: string;
-    // Epoch seconds; 0 in pre-S4 saves (migrated to first-seen on load).
-    lastTouchedAt: number;
-    // Reboot-rematch fingerprint, stamped from the live window at claim time
-    // (live AX title, never the display override). Optional: pre-GO saves.
-    bundleId?: string | null;
-    appName?: string;
-    titleAtClaim?: string;
-    titleIndex?: number;
-    // Sprite picker (claim menu): packs/<id> folder; null/absent = the
-    // generated being (GO-ORBITTY-CHARS).
-    spritePackId?: string | null;
-    // GO-ORBITTY-CHARS: generated-person roll seed, stamped at claim time
-    // (old saves are seeded on load) — the same claim keeps the same being.
-    charSeed?: number | null;
-    // Explicit layer picks once the Being editor touches them; absent =
-    // derived from charSeed native-side.
-    charLook?: CharLook | null;
-    // Per-walker size (0.4–2.5); null/absent = the gear's global spriteScale.
-    spriteScale?: number | null;
-    // GO-ORBITTY-WALKER-CONTEXT: occupancy planet for the sprite. Absent
-    // or unknown = walk on projectId. Rail Assign still rewrites projectId.
-    walkerHome?: string | null;
-    // GO-ORBITTY-SLEEPERS wake trail (all additive, stamped from the live
-    // window only — never invented): AX document path; Hermes-class
-    // profile/session; optional linked Action or Terminal-class recipe.
-    filePath?: string | null;
-    hermesProfile?: string | null;
-    hermesSession?: string | null;
-    actionId?: string | null;
-    command?: string | null;
-    cwd?: string | null;
-  }
-
-  // GO-ORBITTY-S1-BITTYS: kind/palette are the Season 1 crew picks (kind =
-  // index into the 11-kind table, palette = 0 default + 3 recolors). Absent
-  // in pre-S1 saves — the native side maps legacy species onto the nearest
-  // Kind+Palette. The legacy layer fields stay so old saves load.
-  interface CharLook {
-    body: number;
-    clothes: number;
-    eyes: number;
-    mouth: number;
-    hat: number;
-    colors: number;
-    species?: number;
-    kind?: number | null;
-    palette?: number | null;
-  }
-
   // One Season 1 kind: display name, pack slug base, and its palette names
   // ("Default" + 3 recolors) — the Being editor's only silhouette controls.
   interface BittyKind {
     name: string;
     slug: string;
     palettes: string[];
-  }
-
-  // S4.3: cards are born at CLAIM time (kind "window", status "doing") or at
-  // Add-a-to-do time in the Lists window (kind "todo", no windowId). Unclaim
-  // keeps the card as a loose project todo. `starred` is shape-only for now.
-  interface KanbanCard {
-    id: string;
-    title: string;
-    projectId: string;
-    windowId?: string | null;
-    kind?: "window" | "todo" | "needed";
-    status: "todo" | "doing" | "done";
-    createdAt: number;
-    lastTouchedAt: number;
-    completedAt?: number | null;
-    goalAligned: boolean;
-    clinicalOrMaster: boolean;
-    pointsAwarded: number;
-    starred?: boolean;
-    // S4.4 detail-panel fields (owned by the Lists window; round-tripped).
-    notes?: string;
-    difficulty?: "trivial" | "easy" | "medium" | "hard";
-    subtasks?: { id: string; title: string; done: boolean }[];
-    dueAt?: number | null;
-    tagIds?: string[];
-    // GO-ORBITTY-LP-NEEDED (round-tripped): the rail only reads open/later
-    // to sit the walker (GO-ORBITTY-CADENCE); the Lists window owns writes.
-    neededState?: "open" | "later" | "answered" | "skipped";
-  }
-
-  interface PointsEntry {
-    id: string;
-    cardId: string;
-    amount: number;
-    day: string; // local YYYY-MM-DD — the daily cap sums on this
-    at: number;
-  }
-
-  interface Tag {
-    id: string;
-    name: string;
-    color?: string | null;
-  }
-
-  interface WindowTags {
-    windowId: string;
-    tagIds: string[];
-  }
-
-  // Display-only rename of a window's title (rail is the only writer). An
-  // absent entry means the live AX title shows; AX/OS titles never change.
-  interface TitleOverride {
-    windowId: string;
-    title: string;
-  }
-
-  interface ActionShortcut {
-    id: string;
-    name: string;
-    command: string;
-    cwd?: string | null;
-  }
-
-  interface AgentShortcut {
-    id: string;
-    name: string;
-    harness: string; // "hermes" | "cursor"
-    profile: string;
-    model?: string | null;
-    mdPaths: string[];
-    projectId?: string | null;
-  }
-
-  // GO-LS-TAURI-AVATAR-LARGE: the companion window's slice. The rail never
-  // writes its contents — it round-trips the loaded value untouched so rail
-  // saves don't strip it.
-  interface CompanionBounds {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  }
-  interface CompanionSlice {
-    visible: boolean;
-    bounds: CompanionBounds | null;
-    imagePackId: string | null;
-    state?: string;
-    talkSource?: string;
-  }
-
-  // GO-LS-STARS-STATUS: the operator-green radar. Five spokes 0–4, keyed by
-  // local YYYY-MM-DD; explicit check-in only (no wearables, no dwell score).
-  // promptsOptIn defaults false — the companion's one-strip menu stays
-  // silent until the human opts in. promptsAck is the strip dismissal stamp
-  // ("{day}:{sig}") — one show per day unless they check in again.
-  interface StarsCheckin {
-    sleep: number;
-    terroir: number;
-    athleticism: number;
-    relationships: number;
-    self: number;
-  }
-  interface StarsSlice {
-    promptsOptIn: boolean;
-    checkins: Record<string, StarsCheckin>;
-    promptsAck?: string;
-  }
-
-  // GO-ORBITTY-WORD-SKY: only the mute list persists. The Sky window owns
-  // it; the rail round-trips the slice untouched (same discipline as STARS).
-  interface SkySlice {
-    muted: string[];
-  }
-
-  // GO-ORBITTY-RAIL-DRAWER: the native leash owns this slice (dock/pluck,
-  // dx/dy, plucked bounds) for companion / kanban / settings only. The rail
-  // round-trips it untouched — dropping it would silently re-dock plucks.
-  interface DrawerSlice {
-    docked?: boolean;
-    dx?: number;
-    dy?: number;
-    bounds?: { x: number; y: number; w: number; h: number } | null;
-  }
-
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-    projects: Project[];
-    claims: Claim[];
-    tags: Tag[];
-    windowTags: WindowTags[];
-    collapsedSectionIds: string[];
-    nudgeSuppressedWindowIds: string[];
-    kanbanCards: KanbanCard[];
-    pointsLedger: PointsEntry[];
-    titleOverrides: TitleOverride[];
-    autohideRowChrome: boolean;
-    hideTitles: boolean;
-    hideAppIcons: boolean;
-    spriteScale: number;
-    marbleDrift: boolean;
-    actionShortcuts: ActionShortcut[];
-    agentShortcuts: AgentShortcut[];
-    companion?: CompanionSlice;
-    stars?: StarsSlice;
-    sky?: SkySlice;
-    sharedPaneMode?: "board" | "stars";
-    drawers?: Record<string, DrawerSlice>;
   }
 
   interface Theme {
@@ -268,7 +78,6 @@
     { id: "systemDark", name: "Dark", block: "System" },
     { id: "terminal", name: "Terminal", block: "Custom" },
   ];
-  const BLOCKS = ["System", "Custom"] as const;
   const THEME_IDS = new Set(THEMES.map((t) => t.id));
 
   function osThemeId(): string {
@@ -343,17 +152,9 @@
   // it and rides it to the native habitat on the snapshot.
   let marbleDrift = $state(false);
 
-  // Actions lane: user-authored shell shortcuts (run via /bin/zsh -lc).
+  // Settings / Launchpad own the writers. Rail only round-trips these so
+  // persist() never strips the arrays.
   let actionShortcuts = $state<ActionShortcut[]>([]);
-  let actionNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
-  let addingAction = $state(false);
-  let newActionName = $state("");
-  let newActionCommand = $state("");
-  let newActionCwd = $state("");
-  let runningActionId = $state<string | null>(null);
-
-  // Agents lane: user-authored harness shortcuts. Orbitty writes the query
-  // file and hands off to the harness — it never runs the model.
   let agentShortcuts = $state<AgentShortcut[]>([]);
 
   // GO-LS-TAURI-AVATAR-LARGE: companion slice, round-tripped opaquely (the
@@ -379,17 +180,8 @@
   // rail only round-trips it so persist() never strips the slice.
   let drawersState = $state<Record<string, DrawerSlice>>({});
 
-  let addingAgent = $state(false);
-  let newAgentName = $state("");
-  let newAgentHarness = $state("hermes");
-  let newAgentProfile = $state("");
-  let newAgentModel = $state("");
-  let newAgentMdPaths = $state("");
-  let newAgentProjectId = $state("");
-
-  // Gear → Packs (GO-LS-TAURI-USER-PACKS): local folder/zip/image import
-  // only. GO-ORBITTY-CHARS killed the website-download path — a sprite is
-  // generated (no pack) or imported from disk, never fetched.
+  // Pack ids ride the habitat signature so an import/remove redraws
+  // walkers. Import UI is Settings + the walker NSMenu (inline invoke).
   interface PackInfo {
     id: string;
     name: string;
@@ -400,92 +192,17 @@
     role: string;
   }
   let packs = $state<PackInfo[]>([]);
-  let packsDir = $state("");
-  let packNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
-  let packBusy = $state(false);
 
   async function refreshPacks() {
     try {
       packs = await invoke<PackInfo[]>("list_packs");
-      packsDir = await invoke<string>("packs_dir");
     } catch {
       // packs are decorative; the rail never blocks on them
     }
   }
 
-  async function importPackFolder() {
-    if (packBusy) return;
-    packBusy = true;
-    packNote = null;
-    try {
-      const p = await invoke<PackInfo | null>("import_pack_folder");
-      if (p) {
-        packNote = {
-          kind: "ok",
-          text: `${p.name}: ${p.frameCount} frame${p.frameCount === 1 ? "" : "s"}${p.warnLicense ? " — no license in manifest, confirm rights" : ""}`,
-        };
-        await refreshPacks();
-      }
-    } catch (e) {
-      packNote = { kind: "err", text: `${e}` };
-    }
-    packBusy = false;
-  }
-
-  async function importPackZip() {
-    if (packBusy) return;
-    packBusy = true;
-    packNote = null;
-    try {
-      const p = await invoke<PackInfo | null>("import_pack_zip");
-      if (p) {
-        packNote = {
-          kind: "ok",
-          text: `${p.name}: ${p.frameCount} frame${p.frameCount === 1 ? "" : "s"}${p.warnLicense ? " — no license in manifest, confirm rights" : ""}`,
-        };
-        await refreshPacks();
-      }
-    } catch (e) {
-      packNote = { kind: "err", text: `${e}` };
-    }
-    packBusy = false;
-  }
-
-  async function importPackImage() {
-    if (packBusy) return;
-    packBusy = true;
-    packNote = null;
-    try {
-      const p = await invoke<PackInfo | null>("import_pack_image");
-      if (p) {
-        packNote = {
-          kind: "ok",
-          text: `${p.name}: ${p.frameCount} frame${p.frameCount === 1 ? "" : "s"}${p.warnLicense ? " — no license in manifest, confirm rights" : ""}`,
-        };
-        await refreshPacks();
-      }
-    } catch (e) {
-      packNote = { kind: "err", text: `${e}` };
-    }
-    packBusy = false;
-  }
-
-  async function removePack(id: string) {
-    try {
-      await invoke("remove_pack", { id });
-      await refreshPacks();
-    } catch (e) {
-      packNote = { kind: "err", text: `${e}` };
-    }
-  }
-
-  function openUrl(url: string) {
-    shellOpen(url).catch(() => {});
-  }
-
   // Rail lanes (list-head tabs): Projects is the default window list;
-  // Agents holds Hermes/Soul; Actions is a stub until GO lands.
-  // Session-only.
+  // Agents holds Hermes/Soul. Session-only.
   let lane = $state<"projects" | "agents">("projects");
 
   const DAY_S = 86400;
@@ -545,6 +262,14 @@
   const UNMAPPED_KEY = "__unmapped__";
   let dragWindowId = $state<string | null>(null);
   let dropTarget = $state<string | null>(null);
+  // WORLD-TOWN LEFTOVER hitch: while a window drag is in flight — or within
+  // 400ms of dragstart (Svelte state can be lost mid-gesture) — the rail
+  // freezes AX polls and habitat syncs so the HTML5 session is never
+  // cancelled and the drop never beach-balls. claim() still fires on drop.
+  let dragStartedAt = 0;
+  function windowDragHot(): boolean {
+    return !!dragWindowId || Date.now() - dragStartedAt < 400;
+  }
 
   // Claim counts only when its project still exists.
   let liveClaims = $derived(
@@ -858,6 +583,27 @@
         projectId: p.id,
         name: p.name,
         collapsed: isCollapsed(p.id),
+        // GO-ORBITTY-WORLD-TOWN: the back-board's ticks — this project's
+        // kanban (Needed cards never land), capped ~12: oldest open first,
+        // then recent done. Ids + columns only; titles never ride.
+        boardCards: (() => {
+          const mine = kanbanCards.filter(
+            (k) => (k.projectId ?? "") === p.id && k.kind !== "needed",
+          );
+          const open = mine
+            .filter((k) => k.status !== "done")
+            .sort((a, b) => a.createdAt - b.createdAt);
+          const done = mine
+            .filter((k) => k.status === "done")
+            .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt);
+          return [...open, ...done]
+            .slice(0, 12)
+            .map((k) => ({
+              id: k.id,
+              status: k.status,
+              windowId: k.windowId ?? null,
+            }));
+        })(),
         entries: rows.map((w) => {
           const c = liveClaims.find((x) => x.windowId === w.id);
           // GO-ORBITTY-CADENCE: the window's board truth rides the snapshot
@@ -900,7 +646,6 @@
             charSeed: c?.charSeed ?? 0,
             charLook: c?.charLook ?? null,
             spriteScale: c?.spriteScale ?? 0,
-            walkerHome: c?.walkerHome ?? "",
             cardStatus: card?.status ?? "",
             cardKind: card?.kind ?? "",
             neededState: needed ? (needed.neededState ?? "open") : "",
@@ -913,6 +658,7 @@
       planets.map((p) => [
         p.projectId,
         p.collapsed,
+        p.boardCards,
         p.entries.map((e) => [
           e.id,
           e.minimized,
@@ -923,7 +669,6 @@
           e.charSeed,
           e.charLook,
           e.spriteScale,
-          e.walkerHome,
           e.cardStatus,
           e.cardKind,
           e.neededState,
@@ -1035,37 +780,9 @@
     nudgeNewName = "";
   }
 
-  function pickTheme(id: string) {
-    themeChosen = true;
-    themeId = id;
-    persist();
-  }
-
-  // S4.2: live-apply while dragging, persist once on release.
-  function onOpacityInput() {
-    windowOpacity = clampWindowOpacity(windowOpacity);
-    applyWindowOpacity(windowOpacity);
-  }
-
-  function onOpacityCommit() {
-    onOpacityInput();
-    persist();
-  }
-
   function clampSpriteScale(n: number) {
     if (!Number.isFinite(n)) return 1;
     return Math.min(2.5, Math.max(0.4, n));
-  }
-
-  function onSpriteScaleInput() {
-    spriteScale = clampSpriteScale(spriteScale);
-    lastHabitatSig = "";
-    syncHabitat();
-  }
-
-  function onSpriteScaleCommit() {
-    onSpriteScaleInput();
-    persist();
   }
 
   // GO-ORBITTY-BOARD-STARS: Board and STARS share the one 780×520 `kanban`
@@ -1103,7 +820,7 @@
   function onBannerMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     const t = e.target as HTMLElement | null;
-    if (t?.closest(".winx")) return;
+    if (t?.closest(".winx, .popout")) return;
 
     if (t?.closest(".wordmark")) {
       wordmarkDidDrag = false;
@@ -1135,135 +852,6 @@
   function onWordmarkClick() {
     if (wordmarkDidDrag) return;
     bringAllFront();
-  }
-
-  // Settings toggles (gear panel): persisted like theme/opacity.
-  function toggleAutohide() {
-    autohideRowChrome = !autohideRowChrome;
-    persist();
-  }
-
-  function toggleHideTitles() {
-    hideTitles = !hideTitles;
-    persist();
-  }
-
-  function toggleHideIcons() {
-    hideAppIcons = !hideAppIcons;
-    persist();
-  }
-
-  // Actions lane: user-authored shell shortcuts. Click runs the command via
-  // /bin/zsh -lc in cwd or $HOME; stdout/stderr surface in a small note and
-  // never crash the rail.
-  interface ActionResult {
-    ok: boolean;
-    code: number | null;
-    stdout: string;
-    stderr: string;
-  }
-
-  function addAction() {
-    const name = newActionName.trim();
-    const command = newActionCommand.trim();
-    if (!name || !command) return;
-    actionShortcuts = [
-      ...actionShortcuts,
-      {
-        id: `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        name,
-        command,
-        cwd: newActionCwd.trim() || null,
-      },
-    ];
-    newActionName = "";
-    newActionCommand = "";
-    newActionCwd = "";
-    addingAction = false;
-    persist();
-  }
-
-  function deleteAction(id: string) {
-    actionShortcuts = actionShortcuts.filter((a) => a.id !== id);
-    persist();
-  }
-
-  async function runAction(a: ActionShortcut) {
-    if (runningActionId) return;
-    runningActionId = a.id;
-    actionNote = null;
-    try {
-      const r = await invoke<ActionResult>("run_action", {
-        command: a.command,
-        cwd: a.cwd ?? null,
-      });
-      const out = [r.stdout, r.stderr].filter(Boolean).join("\n");
-      const head = r.ok ? `${a.name}: done` : `${a.name}: exit ${r.code ?? "?"}`;
-      actionNote = {
-        kind: r.ok ? "ok" : "err",
-        text: out ? `${head}\n${out}` : head,
-      };
-    } catch (e) {
-      actionNote = { kind: "err", text: `${a.name}: ${e}` };
-    }
-    runningActionId = null;
-  }
-
-  // Agents lane: launch the external harness with a query file = readable
-  // .md paths + titles-only planet context when attached to a project.
-  function addAgent() {
-    const name = newAgentName.trim();
-    if (!name) return;
-    agentShortcuts = [
-      ...agentShortcuts,
-      {
-        id: `ag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        name,
-        harness: newAgentHarness,
-        profile: newAgentProfile.trim() || "grok",
-        model: newAgentModel.trim() || null,
-        mdPaths: newAgentMdPaths
-          .split(",")
-          .map((p) => p.trim())
-          .filter(Boolean),
-        projectId: newAgentProjectId || null,
-      },
-    ];
-    newAgentName = "";
-    newAgentHarness = "hermes";
-    newAgentProfile = "";
-    newAgentModel = "";
-    newAgentMdPaths = "";
-    newAgentProjectId = "";
-    addingAgent = false;
-    persist();
-  }
-
-  function deleteAgent(id: string) {
-    agentShortcuts = agentShortcuts.filter((a) => a.id !== id);
-    persist();
-  }
-
-  async function launchAgent(a: AgentShortcut) {
-    const p = a.projectId ? projects.find((x) => x.id === a.projectId) : undefined;
-    const titles = p
-      ? [
-          ...rowsFor(p.id).map((w) =>
-            w.title ? `${w.appName} — ${w.title}` : w.appName,
-          ),
-          ...todosFor(p.id).map((c) => `To-do: ${c.title}`),
-        ]
-      : [];
-    try {
-      const route = await invoke<string>("launch_agent", {
-        shortcut: a,
-        projectName: p?.name ?? null,
-        titles,
-      });
-      hermesNote = { kind: "ok", text: `${a.name}: ${route}` };
-    } catch (e) {
-      hermesNote = { kind: "err", text: `${a.name}: ${e}` };
-    }
   }
 
   // Open Lists focused on one card: open_kanban puts the shared pane in
@@ -1418,8 +1006,8 @@
     return Math.floor(Math.random() * 0xffffffff) >>> 0;
   }
 
-  // S4.3: claiming a window immediately creates/updates its Kanban card
-  // (status doing) — the board reflects claimed work before any Done.
+  // Claim lands as Todo — walker comes from the igloo and stands at the
+  // board. Doing (field walk) is an explicit column move, not the claim.
   function claim(windowId: string, projectId: string) {
     const now = nowEpoch();
     const w = windows.find((x) => x.id === windowId);
@@ -1437,7 +1025,10 @@
         charSeed: prev?.charSeed ?? rollCharSeed(),
         charLook: prev?.charLook ?? null,
         spriteScale: prev?.spriteScale ?? null,
-        walkerHome: prev?.walkerHome ?? null,
+        // GO-ORBITTY-CLAIM-ONE: claiming (rail Assign or walker
+        // Assign-to-planet — same door) clears any leftover teleport
+        // home. Occupancy is projectId only.
+        walkerHome: null,
         ...(w
           ? {
               bundleId: w.bundleId ?? null,
@@ -1465,7 +1056,7 @@
               windowId,
               title: c.title || title,
               kind: c.kind ?? "window",
-              status: "doing",
+              status: "todo",
               clinicalOrMaster: c.clinicalOrMaster || isClinicalOrMaster(windowId),
               lastTouchedAt: now,
             }
@@ -1480,7 +1071,7 @@
           projectId,
           windowId,
           kind: "window" as const,
-          status: "doing" as const,
+          status: "todo" as const,
           createdAt: now,
           lastTouchedAt: now,
           completedAt: null,
@@ -1669,19 +1260,11 @@
   // claim and rides the habitat snapshot; null/"" = the generated being.
   // The picker UI is the planet walker's right-click NSMenu — the rail
   // receives `habitat:walker-pack` and writes the claim here.
+  // GO-ORBITTY-CLAIM-ONE: one windowId, one projectId — occupancy IS the
+  // claim. The walkerHome occupancy teleport is gone; the field stays on
+  // Claim only so pre-CLAIM-ONE saves still load, and nothing reads it.
   function occupancyOf(c: Claim): string {
-    if (c.walkerHome && projects.some((p) => p.id === c.walkerHome)) {
-      return c.walkerHome;
-    }
     return c.projectId;
-  }
-
-  function setWalkerHome(windowId: string, projectId: string) {
-    if (!projects.some((p) => p.id === projectId)) return;
-    claims = liveClaims.map((c) =>
-      c.windowId === windowId ? { ...c, walkerHome: projectId } : c,
-    );
-    persist();
   }
 
   function setSpritePack(windowId: string, packId: string | null) {
@@ -1887,6 +1470,7 @@
 
   function onDragStart(e: DragEvent, w: WindowInfo) {
     dragWindowId = w.id;
+    dragStartedAt = Date.now();
     ctxMenu = null;
     e.dataTransfer?.setData("text/plain", w.id);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
@@ -1949,6 +1533,10 @@
   }
 
   async function tick() {
+    // Frozen while a window drag is hot: no AX status, no list_windows, no
+    // syncHabitat — mutating the dragged row's DOM cancels the HTML5 drag
+    // session in WKWebView, and the sync is what beach-balled the drop.
+    if (windowDragHot()) return;
     try {
       const s = await invoke<AxStatus>("accessibility_status");
       status = s;
@@ -1957,6 +1545,10 @@
       if (s.trusted && !dragWindowId) {
         windows = await invoke<WindowInfo[]>("list_windows");
         refreshedAt = new Date().toLocaleTimeString();
+        // INSPECTOR-HOST: habitat sync / rematch stay on the main rail
+        // instance so two mounts don't double-write. Embedded still lists
+        // windows so the well stays live.
+        if (embedded) return;
         rematchClaims();
         // Frontmost tick: a claimed window the human is actively in counts as
         // touched (throttled persist inside), so zombies self-heal by use.
@@ -2159,8 +1751,10 @@
   let unlistenCollapse: (() => void) | undefined;
   let unlistenBeing: (() => void) | undefined;
   let unlistenWalkerPack: (() => void) | undefined;
-  let unlistenWalkerHome: (() => void) | undefined;
+  let unlistenWalkerAssign: (() => void) | undefined;
   let unlistenWalkedOff: (() => void) | undefined;
+  let unlistenBoardDone: (() => void) | undefined;
+  let unlistenCheckin: (() => void) | undefined;
   let unlistenState: (() => void) | undefined;
 
   // GO-ORBITTY-RAIL-ROW-MENU: walker right-click menu pick. `kind` = import
@@ -2267,10 +1861,14 @@
         setSpritePack(entryId, packId ?? null);
       },
     );
-    unlistenWalkerHome = await listen<{ entryId: string; projectId: string }>(
-      "habitat:walker-home",
+    // GO-ORBITTY-CLAIM-ONE: walker Assign-to-planet IS the rail claim —
+    // the same persist door. claim() rewrites projectId (exclusive per
+    // windowId), moves the open kanban window card with it, and the sprite
+    // follows the claim. No occupancy teleport, no dual home.
+    unlistenWalkerAssign = await listen<{ entryId: string; projectId: string }>(
+      "habitat:walker-assign",
       (e) => {
-        setWalkerHome(e.payload.entryId, e.payload.projectId);
+        claim(e.payload.entryId, e.payload.projectId);
       },
     );
     // GO-ORBITTY-CADENCE: a Done walker crossed the north rim (or had no
@@ -2279,6 +1877,21 @@
     // complete path. Idempotent (the native side re-emits while a done
     // entry lingers), and a re-claim mid-walk (a new open card for the
     // window) cancels the eviction so a live claim is never yanked.
+    unlistenBoardDone = await listen<string>("habitat:board-done", (e) => {
+      const project = projects.find((p) => p.id === e.payload);
+      if (!project) return;
+      for (const c of liveClaims.filter((x) => x.projectId === project.id)) {
+        const open = kanbanCards.find(
+          (k) =>
+            k.windowId === c.windowId &&
+            k.status !== "done" &&
+            k.kind !== "needed",
+        );
+        if (!open) continue;
+        const w = windows.find((x) => x.id === c.windowId);
+        if (w) completeWindow(w, project);
+      }
+    });
     unlistenWalkedOff = await listen<string>("habitat:walked-off", (e) => {
       const windowId = e.payload;
       const open = kanbanCards.find(
@@ -2289,13 +1902,32 @@
       claims = liveClaims.filter((c) => c.windowId !== windowId);
       persist();
     });
+    // GO-ORBITTY-WORLD-CHECKIN: a Todo walker touched the near lip of
+    // the board — the board walk IS the check-in. If that window's card
+    // is still todo, flip it to doing and persist; syncHabitat then
+    // sends Work and the walker leaves the board for the field on its
+    // own (no idle park waiting for a human drag). claim() still lands
+    // Todo; the native side emits once per claim journey, so a manual
+    // drag back to Todo stays Todo. Launchpad drags are untouched.
+    unlistenCheckin = await listen<string>("habitat:board-checkin", (e) => {
+      const windowId = e.payload;
+      const card = kanbanCards.find(
+        (c) => c.windowId === windowId && c.status === "todo",
+      );
+      if (!card) return;
+      const now = nowEpoch();
+      kanbanCards = kanbanCards.map((c) =>
+        c.id === card.id ? { ...c, status: "doing", lastTouchedAt: now } : c,
+      );
+      persist();
+    });
     // The Lists window writes state.json too (todos, checkbox completes).
     // Adopt its card/ledger writes and any claims it removed; rail-owned
     // slices (projects, tags, UI state) stay local. Echoes of our own saves
     // reload identical data — harmless. Skipped mid-drag so a window drag
     // can't be cancelled by a DOM swap.
     unlistenState = await listen("state:changed", async () => {
-      if (dragWindowId) return;
+      if (windowDragHot()) return;
       try {
         const s = await invoke<PersistedState>("load_state");
         kanbanCards = s.kanbanCards ?? [];
@@ -2348,8 +1980,10 @@
     unlistenCollapse?.();
     unlistenBeing?.();
     unlistenWalkerPack?.();
-    unlistenWalkerHome?.();
+    unlistenWalkerAssign?.();
     unlistenWalkedOff?.();
+    unlistenBoardDone?.();
+    unlistenCheckin?.();
     unlistenState?.();
     osMedia.removeEventListener("change", onOsThemeChange);
   });
@@ -2457,6 +2091,7 @@
 
 <main
   class="rail"
+  class:embedded
   class:autohide={autohideRowChrome}
   class:hide-titles={hideTitles}
   class:hide-icons={hideAppIcons}
@@ -2469,11 +2104,19 @@
       <button
         class="winx"
         onmousedown={(e) => e.stopPropagation()}
-        onclick={() => invoke("hide_window", { label: "main" }).catch(() => {})}
-        title="Hide Orbitty — quit from the tray icon"
-        aria-label="Hide Orbitty">×</button
+        onclick={() =>
+          embedded
+            ? onClose?.()
+            : invoke("hide_window", { label: "main" }).catch(() => {})}
+        title={embedded
+          ? "Dismiss the Planets well — the companion stays"
+          : "Hide Orbitty — quit from the tray icon"}
+        aria-label={embedded ? "Dismiss Planets" : "Hide Orbitty"}>×</button
       >
       <h1>
+        {#if embedded}
+          Planets
+        {:else}
         <button
           class="wordmark"
           onclick={onWordmarkClick}
@@ -2481,7 +2124,31 @@
           aria-label="Home — bring all planet panels to the front"
           ><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span></button
         >
+        {/if}
       </h1>
+      {#if embedded}
+        <button
+          class="popout"
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => onPopout?.()}
+          title="Pop out to the rail window — the well closes, the companion stays"
+          aria-label="Pop out Planets"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M15 3h6v6" />
+            <path d="M10 14 21 3" />
+            <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+          </svg>
+        </button>
+      {/if}
       {#if status?.trusted && refreshedAt}
         <span class="clock" title="last refresh">{refreshedAt}</span>
       {/if}
@@ -2682,6 +2349,12 @@
                   : "Collapse"}
               >
                 <span class="chev" class:open={!isCollapsed(p.id)} aria-hidden="true">▸</span>
+                <span
+                  class="planet-chip"
+                  style="background: {planetCss(p.id)}"
+                  title={p.name}
+                  aria-hidden="true"
+                ></span>
                 <span class="section-name">{p.name}</span>
                 <span class="section-count">{visibleRows(rows).length + todosFor(p.id).length}</span>
               </button>
@@ -2950,6 +2623,40 @@
     border-radius: 12px;
   }
 
+  /* GO-ORBITTY-INSPECTOR-HOST: fill the well pane; square corners inside
+     the companion's rounded clip. */
+  .rail.embedded {
+    height: auto;
+    flex: 1;
+    min-height: 0;
+    border-radius: 0;
+  }
+
+  .popout {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .popout:hover {
+    color: var(--accent);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .popout svg {
+    width: 13px;
+    height: 13px;
+  }
+
   :global(.low-fill) .rail {
     text-shadow: 0 1px 2px var(--bg-solid, transparent);
   }
@@ -3091,98 +2798,6 @@
     color: var(--dim);
   }
 
-  .theme-panel {
-    margin-bottom: 8px;
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 10px;
-    padding: 10px 12px 12px;
-  }
-
-  .theme-panel h2 {
-    margin: 0 0 6px;
-    font-size: 0.78rem;
-    color: var(--accent);
-  }
-
-  /* S1.1: the STARS pane moved out to its own window (StarsPage.svelte). */
-
-  .block-label {
-    margin: 8px 0 4px;
-    font-size: 0.64rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--dim);
-  }
-
-  .theme-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .setting-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-  }
-
-  /* Gear → Packs (GO-LS-TAURI-USER-PACKS). */
-  .pack-list {
-    list-style: none;
-    margin: 4px 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .pack-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 22px;
-  }
-
-  .pack-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: var(--ink);
-  }
-
-  .pack-meta {
-    flex-shrink: 0;
-    font-size: 0.64rem;
-    color: var(--dim);
-  }
-
-  .pack-license {
-    flex-shrink: 0;
-    font-size: 0.62rem;
-    color: var(--dim);
-    border: 1px solid var(--edge);
-    border-radius: 999px;
-    padding: 0 0.35rem;
-  }
-
-  .pack-license.warn {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-
-  .pack-caption {
-    margin: 6px 0 0;
-    font-size: 0.64rem;
-    line-height: 1.5;
-    color: var(--dim);
-  }
-
   /* Being editor (GO-ORBITTY-CHARS): popover card above the rail. */
   .being-editor {
     position: fixed;
@@ -3282,77 +2897,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-  }
-
-  .swatch {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font: inherit;
-    font-size: 0.72rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 6px;
-    padding: 4px 8px;
-    cursor: pointer;
-  }
-
-  .swatch.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    font-weight: 700;
-  }
-
-  .chips {
-    display: inline-flex;
-    gap: 2px;
-  }
-
-  .chips i {
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    display: inline-block;
-  }
-
-  .chips[data-theme="systemLight"] .c-bg { background: #ececec; }
-  .chips[data-theme="systemLight"] .c-fg { background: rgba(0, 0, 0, 0.85); }
-  .chips[data-theme="systemLight"] .c-ac { background: #3d8f8a; }
-  .chips[data-theme="systemDark"] .c-bg { background: #1e1e1e; }
-  .chips[data-theme="systemDark"] .c-fg { background: rgba(255, 255, 255, 0.85); }
-  .chips[data-theme="systemDark"] .c-ac { background: #3d8f8a; }
-  .chips[data-theme="terminal"] .c-bg { background: #0a120e; }
-  .chips[data-theme="terminal"] .c-fg { background: #c8f0d0; }
-  .chips[data-theme="terminal"] .c-ac { background: #3ddc84; }
-
-  /* S4.2 Background opacity slider (window background fill only). */
-  .opacity-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-    font-size: 0.68rem;
-    color: var(--ink);
-  }
-
-  .opacity-row label {
-    flex-shrink: 0;
-    color: var(--dim);
-  }
-
-  .opacity-row input[type="range"] {
-    flex: 1;
-    min-width: 0;
-    accent-color: var(--accent);
-  }
-
-  .opacity-val {
-    flex-shrink: 0;
-    width: 34px;
-    text-align: right;
-    color: var(--dim);
-    font-variant-numeric: tabular-nums;
   }
 
   .card {
@@ -3589,6 +3133,15 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--dim);
+  }
+
+  /* GO-ORBITTY-PLANET-MARK: the list wears the disc's marble color. */
+  .planet-chip {
+    flex-shrink: 0;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
   }
 
   .section-count {

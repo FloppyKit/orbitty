@@ -47,20 +47,10 @@
   // tiny float and a small yaw/roll on send that settles; Reduce
   // Motion stills both. A body with no bust art sits on Full with
   // Head disabled — never a crop fallback, never a neck shear.
-  // GO-ORBITTY-COMPANION-CAPTION-WORDS: collapsed caption pager. A fresh
-  // agent reply — collapsed view only, never expanded, never loaded
-  // history — is split into pages of ~60 words of the RAW text
-  // (paragraph break preferred, then sentence, then word; never a blank
-  // page); each page is mdLite'd on its own. A non-final page's last
-  // line ends …; Enter / Space / click-anywhere on the pane advances
-  // (no Next button), and advancing past the last page releases the
-  // reply into the CC slot whole. While the pager holds, the paged CC
-  // bubble is overflow:hidden — no scrollbar on the caption. Sound on
-  // (Speak) reads each page aloud and auto-advances after the estimated
-  // clip (~1.2s beat when a page has nothing speakable); sound off
-  // waits for the key/click; Reduce Motion never auto-advances. User
-  // bubbles never page. Head vs Full (viewPref) never gates the pager —
-  // collapsed vs expanded does.
+  // GO-ORBITTY-CAPTION-BUBBLE: collapsed CC. Speak off = small scroll
+  // (no paging). Speak on = fitPages to that small box so say can flip.
+  // Click the bot text = transient in-window full overlay. Enter/Space
+  // page leftover only while Speak on. User bubbles never page.
   // GO-ORBITTY-GHOST-DOCK: ghost (idle collapsed, not hosted) gets a
   // tight spirit + a bottom dock. .ghost .stage .floatwrap shrinks to a
   // centered square (shorter of stage w/h) so the reported hit box hugs
@@ -72,18 +62,31 @@
   // window bottom, full window width; the paint stays inset — so the
   // borderless frame's edge resize arrows land on the companion, and a
   // mousedown on dock chrome (not a control) drags like the spirit.
-  // GO-ORBITTY-SPRITE-OFF: R-click the Full/Head button hides the sprite
+  // GO-ORBITTY-SPRITE-OFF: the Full/Head button hides the sprite
   // (persisted companion.sprite, default true — one flag for collapsed,
   // expanded, hosted) while chat stays. Off draws no stage / exphead /
   // wellhead: the ghost reports no floatwrap hit so empty air above the
   // dock clicks through, and the hosted well pane takes the full width.
-  // L-click stays Full ↔ Head; the per-surface view prefs survive Off.
+  // GO-ORBITTY-DOCK-TWEAK: L-click hides/shows the sprite; R-click is
+  // Full ↔ Head. Per-surface view prefs survive Off.
   // GO-ORBITTY-SPRITE-HUG: while !sprite the Full/Head glyph wears the
   // Speak-pattern slash, and idle collapsed + off hugs the window to the
   // measured CC+dock bar — the NATIVE side resizes (never a frontend
   // set_size), keeping the bottom edge so the dock doesn't jump. The
   // tall idle rect is stashed apart from HOST_STASH and is the only
   // rect ever persisted; sprite on / expand / host restore it first.
+  // GO-ORBITTY-COMPANION-3D: bodyId "tang"/"female" (reserved ids, never
+  // pack folders) mounts Companion3D — a three.js glTF body playing its
+  // `idle` clip — in the same three slots SpiritStage owns. Spirit stays
+  // the default; the spirit art still loads underneath as the warm
+  // fallback, and any WebGL/loader/404 miss reverts the pick to spirit
+  // (persisted) with one quiet line. three.js is dynamically imported
+  // only while a 3D body is selected.
+  // GO-ORBITTY-CLEAN-COMPANION-DOCK: the .ghostdock slab (agent pick,
+  // Prompts, dests, Speak, sprite/view, Expand, ⚙, composer) lives in
+  // CompanionDock.svelte — paint + presses only. All state, sends (the
+  // field still calls companion_send), the well, and the × corner stay
+  // here.
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { emitTo, listen } from "@tauri-apps/api/event";
@@ -93,73 +96,22 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
-  import { mdLite, wordPages } from "./mdLite";
   import { listenPaneVis } from "./paneVis";
   import KanbanPage from "./KanbanPage.svelte";
   import StarsPage from "./StarsPage.svelte";
+  import RailPage from "./RailPage.svelte";
+  import SpiritStage from "./SpiritStage.svelte";
+  import Companion3D from "./Companion3D.svelte";
+  import CaptionPane from "./CaptionPane.svelte";
+  import CompanionDock from "./CompanionDock.svelte";
 
-  interface CompanionBounds {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  }
-  interface CompanionTurn {
-    role: string;
-    text: string;
-  }
-  // Only the fields this window reads; the native side owns the writes.
-  interface CompanionSlice {
-    visible: boolean;
-    bounds: CompanionBounds | null;
-    imagePackId: string | null;
-    state?: string;
-    lastUserLine?: string;
-    lastBotLine?: string;
-    agentProfile?: string;
-    expanded?: boolean;
-    turns?: CompanionTurn[];
-    speakReplies?: boolean;
-    talkSource?: string;
-    viewCollapsed?: string;
-    viewExpanded?: string;
-    sprite?: boolean;
-  }
-  // GO-LS-STARS-STATUS: read-only here — checkins are the rail's writes;
-  // this window's only STARS writes are the prompts opt-in and the strip
-  // ack, both via native load-modify-save commands.
-  interface StarsCheckin {
-    sleep: number;
-    terroir: number;
-    athleticism: number;
-    relationships: number;
-    self: number;
-  }
-  interface StarsSlice {
-    promptsOptIn: boolean;
-    checkins: Record<string, StarsCheckin>;
-    promptsAck?: string;
-  }
-  // Only what the Smallest todo chip reads.
-  interface KanbanCard {
-    id: string;
-    title: string;
-    status: string;
-    subtasks?: { id: string; title: string; done: boolean }[];
-  }
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-    companion?: CompanionSlice;
-    stars?: StarsSlice;
-    kanbanCards?: KanbanCard[];
-    projects?: ProjectRef[];
-  }
-  // Same shape as RailPage interface Project — the Planets popup rows.
-  interface ProjectRef {
-    id: string;
-    name: string;
-  }
+  import type {
+    CompanionSlice,
+    CompanionTurn,
+    KanbanCard,
+    PersistedState,
+    StarsSlice,
+  } from "./persist";
   interface CompanionSheet {
     dataUrl: string;
     frameW: number;
@@ -179,17 +131,6 @@
     agents: string[];
     selected: string;
   }
-
-  // GO-ORBITTY-FOURCAST-RECAST: chrome labels only. The option value stays
-  // the stem id so set_companion_agent and the on-disk allowlist are
-  // untouched; an unknown stem fails open to the raw id.
-  const AGENT_LABELS: Record<string, string> = {
-    spark: "Spark",
-    grok: "Command",
-    "chaos-gremlin": "Riff",
-    "fkt-homie": "Witness",
-  };
-  const agentLabel = (id: string) => AGENT_LABELS[id] ?? id;
 
   // GO-ORBITTY-COMPANION-BRAND: the seven palette skins are retired; a
   // dead saved id falls back to the OS pair. Terminal stays valid.
@@ -244,157 +185,38 @@
   // The Body picker lives in Settings → Appearance (Companion body); this
   // window only follows the persisted pack (state:changed → loadState).
   let bodyId = $state("spirit");
+  // COMPANION-3D: reserved 3D body ids (bundled GLBs, never pack folders).
+  // glbFailed is the session fail-soft latch — a 3D miss reverts to the
+  // spirit (persisted) instead of leaving a black stage.
+  let glbFailed = $state(false);
+  const is3D = $derived(bodyId === "tang" || bodyId === "female");
 
   let expanded = $state(false);
   let turns = $state<CompanionTurn[]>([]);
-  let transcriptEl = $state<HTMLElement | null>(null);
 
   // GO-ORBITTY-HOST-SPLIT: the companion window is the host. Session-only
   // — boot is always the idle spirit and nothing persists `hosted`.
   // "launchpad" = KanbanPage embedded in the well (pop-out allowed);
-  // "stars" = StarsPage embedded (no pop-out, ever).
-  type HostMode = "off" | "launchpad" | "stars";
+  // "stars" = StarsPage embedded (no pop-out, ever);
+  // "inspector" = RailPage embedded (pop-out to the rail window).
+  type HostMode = "off" | "launchpad" | "stars" | "inspector";
   let hosted = $state<HostMode>("off");
 
-  // ---------- GO-ORBITTY-COMPANION-CAPTION-WORDS: collapsed pager ------
-  // Only the collapsed view pages, and only the reply arriving right now
-  // — primed/lastTailSig separate a fresh tail from a state reload, so
-  // persisted history never pages. The paged turn is bound by index
-  // (pagedTurnIdx), never by text, so a state:changed rewrite can't dump
-  // the pager. The paged turn renders one page at a time; pageRaw is the
-  // speakable text per page.
-  let primed = false;
-  let lastTailSig = "";
-  let pagedTurnIdx = $state(-1);
-  let pages = $state<string[]>([]);
-  let pageIdx = $state(0);
-  let pageRaw: string[] = [];
-  let autoTimer: ReturnType<typeof setTimeout> | undefined;
   let mainEl: HTMLElement | null = null;
-
-  // The current page's mdLite; a non-final page's last line ends ….
-  const pageViewHtml = $derived.by(() => {
-    if (pagedTurnIdx < 0 || pages.length === 0) return "";
-    const i = Math.min(pageIdx, pages.length - 1);
-    let h = pages[i];
-    if (i < pages.length - 1) h += `<span class="pgmore">…</span>`;
-    return h;
-  });
-
-  function clearAuto() {
-    if (autoTimer) {
-      clearTimeout(autoTimer);
-      autoTimer = undefined;
-    }
+  let captionReady = $state(false);
+  function onCaptionSpeakError(msg: string) {
+    sendNote = msg;
   }
 
-  function releasePager() {
-    clearAuto();
-    if (pagedTurnIdx < 0 && pages.length === 0) return;
-    pagedTurnIdx = -1;
-    pages = [];
-    pageRaw = [];
-    pageIdx = 0;
-  }
-
-  // A fresh agent reply just became the transcript tail. Collapsed only:
-  // split the RAW text into ~60-word pages (a single long paragraph
-  // splits too — there is no block-count gate); a one-page reply renders
-  // (and speaks) whole. Expanded never pages. Each page is mdLite'd on
-  // its own; the raw page doubles as the speakable text.
-  function arriveReply(text: string, idx: number) {
-    releasePager();
-    if (!expanded) {
-      const rawPages = wordPages(text);
-      if (rawPages.length > 1) {
-        pages = rawPages.map(mdLite);
-        pageRaw = rawPages.map((p) => p.replace(/\s+/g, " ").trim());
-        pageIdx = 0;
-        pagedTurnIdx = idx;
-        speakPage();
-        return;
-      }
-    }
-    speakReply(text);
-  }
-
-  // Sound on: read the page, then auto-advance after the clip — `say`
-  // runs ≈175 wpm by default and the native side fire-and-forgets it, so
-  // the estimate is the only clock; a page with nothing speakable gets
-  // the ~1.2s beat. Sound off waits; Reduce Motion never auto-advances.
-  function speakPage() {
-    clearAuto();
-    const raw = pageRaw[pageIdx] ?? "";
-    if (speak && raw) {
-      invoke("speak_reply", { text: raw }).catch((e) => {
-        sendNote = `${e}`;
-      });
-    }
-    if (!speak) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const words = raw ? raw.split(" ").filter(Boolean).length : 0;
-    const ms = words === 0 ? 1200 : Math.max(1200, (words / 175) * 60000 + 300);
-    autoTimer = setTimeout(() => {
-      autoTimer = undefined;
-      advancePage();
-    }, ms);
-  }
-
-  function advancePage() {
-    if (pagedTurnIdx < 0 || pages.length === 0) return;
-    clearAuto();
-    if (pageIdx < pages.length - 1) {
-      pageIdx++;
-      speakPage();
-    } else {
-      // Read to the end — the reply joins the scrollback whole.
-      releasePager();
-    }
-  }
-
-  // Enter / Space advance. Composing wins: a non-empty field keeps
-  // Enter = send and Space = type; focused buttons/selects keep theirs.
+  // HOST-CC: hosted + expanded — Escape collapses the overlay only.
+  // CaptionPane owns ccOpen Escape and Enter/Space paging.
   function onPaneKey(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      if (planetsOpen) {
-        planetsOpen = false;
-        e.preventDefault();
-        return;
-      }
-      // HOST-CC: hosted + expanded — Escape collapses the overlay only.
-      // The well stays mounted, the host frame stays, the companion
-      // window stays visible.
-      if (hosted !== "off" && expanded) {
-        expanded = false;
-        invoke("set_companion_expanded", { expanded: false }).catch(() => {});
-        e.preventDefault();
-        return;
-      }
+    if (e.key !== "Escape") return;
+    if (hosted !== "off" && expanded) {
+      expanded = false;
+      invoke("set_companion_expanded", { expanded: false }).catch(() => {});
+      e.preventDefault();
     }
-    if (pagedTurnIdx < 0 || pages.length === 0) return;
-    if (e.key !== "Enter" && e.key !== " ") return;
-    const tag = (e.target as HTMLElement | null)?.tagName ?? "";
-    if (tag === "SELECT" || tag === "BUTTON" || tag === "TEXTAREA") return;
-    if (tag === "INPUT" && draft.trim()) return;
-    e.preventDefault();
-    advancePage();
-  }
-
-  // Click anywhere on the pane advances — controls, the composer, and
-  // the drag portrait keep their own clicks, and selecting bubble text
-  // isn't an advance.
-  function onPaneClick(e: MouseEvent) {
-    if (planetsOpen) {
-      const t = e.target as HTMLElement | null;
-      if (!t?.closest(".planetspop") && !t?.closest(".planetsdest")) {
-        planetsOpen = false;
-      }
-    }
-    if (pagedTurnIdx < 0 || pages.length === 0) return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("button, select, input, textarea, a, form, .exphead")) return;
-    if (window.getSelection()?.toString()) return;
-    advancePage();
   }
 
   // HEADROOM: per-surface view prefs. Collapsed defaults Full, expanded
@@ -404,8 +226,9 @@
   let viewBusy = $state(false);
   const viewPref = $derived(expanded ? viewExpanded : viewCollapsed);
   // Head shows only when the body actually has bust art — a missing bust
-  // is a quiet miss on Full (Head disabled), NEVER the 128px crop.
-  const bustOk = $derived(restBust.length > 0);
+  // is a quiet miss on Full (Head disabled), NEVER the 128px crop. A 3D
+  // body always has a Head: the Companion3D camera sits on DEF-HEAD.
+  const bustOk = $derived(is3D || restBust.length > 0);
   // HOST-SPLIT: the hosted right column follows Full/Head like idle —
   // collapsed reads viewCollapsed, expanded reads viewExpanded (viewPref
   // already splits the surfaces). No hosted force, never a pref write.
@@ -439,10 +262,10 @@
   }
 
   // SPRITE-OFF: one persisted flag (companion.sprite, default true) for
-  // all three surfaces. R-click the Full/Head button is the only toggle
-  // (preventDefault — no browser menu); L-click stays Full ↔ Head and
-  // the per-surface view prefs are never written here, so they survive
-  // Off. Off draws no stage / exphead / wellhead — chat stays.
+  // all three surfaces. DOCK-TWEAK: L-click the Full/Head button toggles
+  // it (R-click is Full ↔ Head, preventDefault — no browser menu). The
+  // per-surface view prefs are never written here, so they survive Off.
+  // Off draws no stage / exphead / wellhead — chat stays.
   let sprite = $state(true);
 
   // SPRITE-HUG: the bar height the native hug resizes to — CC rows (+
@@ -489,14 +312,13 @@
     }
   }
 
-  // Full/Head copy PLUS the R-click verb; honest "show" copy while off.
+  // DOCK-TWEAK: L-click hide/show sprite; R-click Full ↔ Head.
   const viewTitle = $derived(
     !sprite
-      ? "Sprite hidden — chat stays. Right-click: show sprite"
+      ? "Sprite hidden — chat stays. Click: show sprite · Right-click: Full or Head"
       : (bustOk
-          ? "Full figure or floating Head bust — remembered per surface (collapsed and expanded keep their own)"
-          : "This body has no bust art — Head needs bust_* frames") +
-        " · Right-click: hide sprite",
+          ? "Click: hide sprite · Right-click: Full figure or Head bust — remembered per surface"
+          : "Click: hide sprite · This body has no bust art — Head needs bust_* frames"),
   );
 
   // S2.7: Speak toggle (persisted companion.speakReplies, default off).
@@ -511,19 +333,10 @@
     speak = next;
     try {
       await invoke("set_companion_speak", { enabled: next });
-      // Sound off mid-page → the pager waits for a key/click instead.
-      if (!next) clearAuto();
     } catch (e) {
       speak = !next;
       sendNote = `${e}`;
     }
-  }
-
-  function speakReply(text: string) {
-    if (!speak || !text.trim()) return;
-    invoke("speak_reply", { text }).catch((e) => {
-      sendNote = `${e}`;
-    });
   }
 
   // ---------- GO-LS-STARS-STATUS: prompts strip + hold-to-talk ----------
@@ -715,9 +528,8 @@
     try {
       const reply = await invoke<string>("companion_send", { line });
       botLine = reply;
-      // CAPTION-WORDS: speaking is the arrival effect's job now — it
-      // pages a long collapsed reply into word pages first and reads
-      // page one instead of the whole reply.
+      // CAPTION-CHUNK: speaking is the arrival effect's job — fill the
+      // live CC box, then read page one.
       // companion_send persists the exchange and emits state:changed;
       // if that loadState won the race, this exact exchange is already
       // the tail — append the reply only when it isn't.
@@ -779,7 +591,7 @@
   // stays mounted, the host frame stays up; collapse = second Expand or
   // Escape.
 
-  async function enterHost(mode: "launchpad" | "stars") {
+  async function enterHost(mode: "launchpad" | "stars" | "inspector") {
     if (hosted !== "off") {
       // Launchpad ↔ STARS swap: flip the well AND still invoke
       // set_companion_host — rust re-asserts HOSTED / the slab
@@ -822,34 +634,14 @@
     }
   }
 
-  // Dest strip: Launchpad/STARS toggle the well (click again dismisses —
-  // the spirit gets the full stage back). A visible kanban overlay is
-  // absorbed: the native enter hides it. Never invoke("open_kanban") /
-  // open_stars here — those are the overlay, not the well.
-  async function toggleDest(mode: "launchpad" | "stars") {
+  // Dest strip: Launchpad/STARS/Planets toggle the well (click again
+  // dismisses — the spirit gets the full stage back). A visible kanban
+  // overlay is absorbed: the native enter hides it. Never invoke
+  // open_kanban / open_stars / show_rail here — those are the overlay /
+  // rail window, not the well.
+  async function toggleDest(mode: "launchpad" | "stars" | "inspector") {
     if (hosted === mode) await dismissHost();
     else await enterHost(mode);
-  }
-
-  // PLANETS-POP: the Planets dest toggles a name list anchored above the
-  // dests — over the well/stage/CC, never down over the composer. Rows
-  // are the rail's projects; All fronts every disc, a name fronts that
-  // disc only. Unknown ids no-op native-side (never an all-fallback).
-  let projects = $state<ProjectRef[]>([]);
-  let planetsOpen = $state(false);
-
-  function togglePlanetsPop() {
-    planetsOpen = !planetsOpen;
-  }
-
-  async function pickPlanet(id: string | null) {
-    planetsOpen = false;
-    try {
-      if (id === null) await invoke("bring_all_front");
-      else await invoke("bring_planet_front", { id });
-    } catch (e) {
-      sendNote = `${e}`;
-    }
   }
 
   // Launchpad-only pop-out (the embedded banner button): the real kanban
@@ -861,6 +653,19 @@
     try {
       await invoke("set_companion_host", { mode: "off" });
       await invoke("open_kanban");
+    } catch (e) {
+      sendNote = `${e}`;
+    }
+  }
+
+  // GO-ORBITTY-INSPECTOR-HOST: same pop-out pattern — dismiss the well,
+  // then show the real rail window. Tray Inspector still show_rail too.
+  async function popoutInspector() {
+    if (hosted !== "inspector") return;
+    hosted = "off";
+    try {
+      await invoke("set_companion_host", { mode: "off" });
+      await invoke("show_rail");
     } catch (e) {
       sendNote = `${e}`;
     }
@@ -911,8 +716,13 @@
 
   // Spirit when imagePackId is empty; else a role:companion pack.
   // Missing pack fails soft to the blessed spirit (never a blank window).
+  // COMPANION-3D: reserved 3D ids load the SPIRIT art — it is the warm
+  // fallback under Companion3D (and what a 3D failure lands on).
   async function loadArt() {
-    const packId = bodyId === "spirit" ? null : bodyId;
+    const packId =
+      bodyId === "spirit" || bodyId === "tang" || bodyId === "female"
+        ? null
+        : bodyId;
     try {
       const art = await invoke<CompanionArt>("companion_frames", {
         packId,
@@ -963,6 +773,21 @@
     artLoaded = true;
   }
 
+  // COMPANION-3D fail-soft: WebGL2 missing / loader error / missing GLB →
+  // revert the pick to the blessed spirit (persisted, so Settings follows)
+  // with one quiet line. Never a black stage, never a crash.
+  async function onGlbFail() {
+    if (glbFailed) return;
+    glbFailed = true;
+    sendNote = "3D body failed; back on Spirit.";
+    bodyId = "spirit";
+    try {
+      await invoke<string | null>("set_companion_pack", { packId: "" });
+    } catch {
+      /* the local revert stands; the next state:changed re-syncs */
+    }
+  }
+
   async function loadState() {
     try {
       const s = await invoke<PersistedState>("load_state");
@@ -983,22 +808,17 @@
       const nextBody = pack && pack.length > 0 ? pack : "spirit";
       if (nextBody !== bodyId) {
         bodyId = nextBody;
+        glbFailed = false; // a fresh pick re-tries the 3D load
         artLoaded = false;
         void loadArt();
       }
       stars = s.stars ?? { promptsOptIn: false, checkins: {} };
       prompts = stars.promptsOptIn ?? false;
       cards = s.kanbanCards ?? [];
-      projects = s.projects ?? [];
-      // CAPTION: the first successful load is history, never an arrival —
-      // prime the tail sig so the pager effect sees no change.
-      if (!primed) {
-        const t = turns.length ? turns[turns.length - 1] : null;
-        lastTailSig = t ? `${t.role}\u0000${t.text}` : "";
-        primed = true;
-      }
     } catch {
       // keep last good state; next state:changed retries
+    } finally {
+      captionReady = true;
     }
   }
 
@@ -1029,6 +849,27 @@
       .catch(() => {});
   }
 
+  // FRONT-HOLD: a mousedown on any ghost hit (dock / spirit / bubble /
+  // × ⚙ / strips / popups) heavy-raises the companion natively, so no
+  // planet restack can bury it mid-click. Capture phase on <main>: the
+  // × ⚙ buttons stopPropagation on bubble, capture still sees them.
+  // Ghost only — the slab is a complete window with no bury risk.
+  function onHitMouseDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    if (expanded || hosted !== "off") return;
+    const t = e.target as HTMLElement | null;
+    // Native <select> / field menus: activate+makeKey on this path was
+    // the beach ball while digging the agent picker.
+    if (t?.closest("input, textarea, select, option, .field")) return;
+    if (
+      !t?.closest(
+        ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .winx, .gear, .note"
+      )
+    )
+      return;
+    invoke("companion_front").catch(() => {});
+  }
+
   // GRAB-LAW: the slab (expanded / hosted) is a complete window — the
   // pane drags from the well, transcript padding, chrome, spirit, empty
   // air. Never from a control (own presses), never from .bubble / .cc
@@ -1041,7 +882,7 @@
     if (t?.closest("input, textarea, select, button, a, .field")) return;
     if (t?.closest(".bubble, .cc")) return;
     if (t?.closest('[draggable="true"]')) return;
-    if (t?.closest(".ghostdock, .floatwrap, .k-banner, .s-banner")) return;
+    if (t?.closest(".ghostdock, .floatwrap, .k-banner, .s-banner, .banner")) return;
     e.preventDefault();
     getCurrentWindow()
       .startDragging()
@@ -1091,7 +932,6 @@
     push(mainEl.querySelector(".winx"));
     push(mainEl.querySelector(".gear"));
     push(mainEl.querySelector(".note"));
-    push(mainEl.querySelector(".planetspop"));
     invoke("set_companion_hits", { rects }).catch(() => {});
   }
 
@@ -1106,14 +946,10 @@
       userLine,
       botLine,
       sending,
-      pagedTurnIdx,
-      pageIdx,
       sendNote,
       showPromptStrip,
-      planetsOpen,
       missing,
       drawFrames,
-      projects.length,
     ];
     void watching;
     if (expanded || hosted !== "off") {
@@ -1143,42 +979,6 @@
     applyWindowOpacity(windowOpacity);
   });
 
-  // Keep the expanded transcript pinned to the latest turn — and to the
-  // current caption page while the pager is active.
-  $effect(() => {
-    const watching = [turns.length, sending, expanded, pageIdx, pagedTurnIdx];
-    void watching;
-    if (!expanded || !transcriptEl) return;
-    const el = transcriptEl;
-    tick().then(() => {
-      el.scrollTop = el.scrollHeight;
-    });
-  });
-
-  // CAPTION arrival detect: the tail turning into a fresh them reply is
-  // the only thing that can page. A new you tail (an interrupting send)
-  // releases the pager — the interrupted reply renders whole.
-  $effect(() => {
-    const n = turns.length;
-    const tail = n > 0 ? turns[n - 1] : null;
-    const sig = tail ? `${tail.role}\u0000${tail.text}` : "";
-    if (sig === lastTailSig) return;
-    lastTailSig = sig;
-    if (!primed) return;
-    if (!tail || tail.role !== "them") {
-      releasePager();
-      return;
-    }
-    arriveReply(tail.text, n - 1);
-  });
-
-  // The pager lives only on the collapsed view; expanding mid-page
-  // releases the reply so the whole text is the transcript bubble.
-  // Collapsing never re-pages history — only a fresh tail arrival pages.
-  $effect(() => {
-    if (expanded && pagedTurnIdx >= 0) releasePager();
-  });
-
   // Rest ↔ thinking swaps restart the cycle: frame 0 of the thinking set
   // when a send leaves, frame 0 of rest when the reply lands.
   $effect(() => {
@@ -1202,17 +1002,9 @@
       hitsObserver.observe(mainEl);
     }
     await loadState();
-    // CAPTION: if the first load failed, prime from whatever turns we
-    // have so a reply that lands later still counts as an arrival.
-    if (!primed) {
-      const t = turns.length ? turns[turns.length - 1] : null;
-      lastTailSig = t ? `${t.role}\u0000${t.text}` : "";
-      primed = true;
-    }
     await loadAgents();
     if (!artLoaded) await loadArt();
     window.addEventListener("keydown", onPaneKey);
-    mainEl?.addEventListener("click", onPaneClick);
     unlistenState = await listen("state:changed", loadState);
     // HITCH-DRAW: hide stops the 140ms tick (the window keeps warm, so
     // document.hidden never flips); show resumes it. frameIdx is untouched
@@ -1246,7 +1038,7 @@
     // never toggleDest (the dest buttons still own toggling).
     unlistenEnterHost = await listen<string>("orbitty:enter-host", (e) => {
       const m = e.payload;
-      if (m === "launchpad" || m === "stars") void enterHost(m);
+      if (m === "launchpad" || m === "stars" || m === "inspector") void enterHost(m);
     });
     unlistenTalk.push(
       await listen<string>("talk:partial", (e) => {
@@ -1275,10 +1067,8 @@
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
-    clearAuto();
     hitsObserver?.disconnect();
     window.removeEventListener("keydown", onPaneKey);
-    mainEl?.removeEventListener("click", onPaneClick);
     unlistenState?.();
     unlistenVis?.();
     unlistenSummon?.();
@@ -1288,89 +1078,19 @@
   });
 </script>
 
-{#snippet wait()}
-  <span class="wait" role="status" aria-busy="true">
-    <span class="sr-only">waiting</span>
-    <span class="wmark" aria-hidden="true">
-      <svg class="ring" viewBox="0 0 20 20" fill="none">
-        <ellipse cx="10" cy="10" rx="8" ry="5.2" transform="rotate(18 10 10)" />
-      </svg>
-      <i class="sq"></i>
-      <span class="tilt">
-        <i class="orb"></i>
-        <i class="speck"></i>
-      </span>
-    </span>
-  </span>
-{/snippet}
-
-{#snippet spiritStage()}
-  <!-- The one spirit stage: full-width when idle, the hosted right column
-       (.wellhead) inside the well. Full/Head follows viewPref on both —
-       viewCollapsed is never persist-overwritten. -->
-  <div class="stage" role="presentation">
-    {#if missing}
-      <p class="missing">spirit missing</p>
-    {:else if drawFrames.length > 0}
-      <div
-        class="floatwrap"
-        class:headview={headShowing}
-        onmousedown={onDragMouseDown}
-        role="presentation"
-      >
-        <img
-          class="spirit"
-          class:smooth={artSmooth}
-          class:react={headShowing && sending}
-          src={drawFrames[frameIdx] ?? drawFrames[0]}
-          alt="Your companion spirit"
-          draggable="false"
-        />
-      </div>
-    {/if}
-  </div>
-{/snippet}
-
-{#snippet transcriptPane()}
-  <!-- The one expanded transcript: idle Expand fills the pane; HOST-CC
-       hosted Expand is the SAME pane as an overlay on the well
-       (.hostoverlay — absolute inset 0 over .wellwrap, dimmed scrim,
-       opaque bubbles). CAPTION-WORDS: the pager itself is collapsed-only
-       (expanding releases it); the lock classes stay so the frame
-       between Expand and releasePager still shows no scrollbar. -->
-  <div
-    class="transcript"
-    class:hostoverlay={hosted !== "off"}
-    class:pagedlock={pagedTurnIdx >= 0}
-    bind:this={transcriptEl}
-  >
-    {#each turns as t, i}
-      <div class="row" class:you={t.role === "you"} class:them={t.role !== "you"}>
-        <!-- mdLite output only — a div so lists/tables stay inside the
-             bubble (a <p> would auto-close around block tags). -->
-        <div
-          class="bubble"
-          class:paged={i === pagedTurnIdx}
-          title={t.text}
-        >
-          {#if i === pagedTurnIdx && pageViewHtml}
-            <!-- CAPTION-WORDS: the arriving reply, one ~60-word page at
-                 a time, bound by turn index (mdLite inside each page;
-                 … while more remains). -->
-            {@html pageViewHtml}
-          {:else}
-            {@html mdLite(t.text)}
-          {/if}
-        </div>
-      </div>
-    {/each}
-    {#if sending}
-      <!-- Wait-in-slot: the bare mark IS the pending agent row — same
-           left alignment as a them bubble, last row, pinned into view
-           by the scroll effect watching `sending`. -->
-      <div class="row them wait-row" aria-live="polite">{@render wait()}</div>
-    {/if}
-  </div>
+{#snippet caption(expanded: boolean, hosted: boolean)}
+  <CaptionPane
+    {expanded}
+    {hosted}
+    {userLine}
+    {botLine}
+    {sending}
+    {turns}
+    {speak}
+    {draft}
+    ready={captionReady}
+    onSpeakError={onCaptionSpeakError}
+  />
 {/snippet}
 
 <main
@@ -1379,49 +1099,41 @@
   class:ghost={!expanded && hosted === "off"}
   class:spriteoff={!sprite}
   onmousedown={onPaneMouseDown}
+  onmousedowncapture={onHitMouseDown}
   bind:this={mainEl}
 >
   {#if expanded && sprite}
-    <!-- CORNER: the expanded portrait is a 96×96 box absolute upper-right
-         of the pane (above agentrow/composer) — the surface view (Head
-         bust by default, or the full figure, object-fit inside the box).
-         It is the only expanded drag handle so the transcript can scroll;
-         the transcript runs from the top with a reserved right gutter so
-         bubbles never pass under the face. HEADROOM: the bust is the
-         body's own bust_* art, never a crop of the full frame. HOST-CC:
-         the same portrait rides the hosted overlay (z-index above the
-         scrim), still the one drag handle. -->
-    <div
-      class="exphead"
-      class:headview={headShowing}
-      onmousedown={onDragMouseDown}
-      role="presentation"
-    >
-      {#if !missing && drawFrames.length > 0}
-        <div class="floatwrap" class:headview={headShowing}>
-          <img
-            class="expimg"
-            class:smooth={artSmooth}
-            class:react={headShowing && sending}
-            src={drawFrames[frameIdx] ?? drawFrames[0]}
-            alt=""
-            draggable="false"
-          />
-        </div>
-      {/if}
-    </div>
-    {#if missing}
-      <p class="missing">spirit missing</p>
+    {#if is3D && !glbFailed}
+      {#key bodyId}
+        <Companion3D
+          corner
+          {headShowing}
+          {bodyId}
+          thinking={sending}
+          onDrag={onDragMouseDown}
+          onFail={onGlbFail}
+        />
+      {/key}
+    {:else}
+      <SpiritStage
+        corner
+        {headShowing}
+        {missing}
+        frames={drawFrames}
+        {frameIdx}
+        thinking={sending}
+        smooth={artSmooth}
+        onDrag={onDragMouseDown}
+      />
     {/if}
   {/if}
 
   {#if hosted !== "off"}
     <!-- HOST-SPLIT + HOST-CC: the well — left ~2/3 is the embedded
-         Launchpad (KanbanPage) or STARS (StarsPage), right 1/3 is the
-         Head spirit stage. The well stays MOUNTED while expanded — the
-         transcript overlays it inside .wellwrap (Kanban/STARS never
-         unmount: List|Board state lives there). The two capped CC lines
-         + agentrow + composer stay full-width below the well. -->
+         Launchpad / STARS / Inspector, right 1/3 is the Head spirit
+         stage. The well stays MOUNTED while expanded — the transcript
+         overlays it inside .wellwrap. The two capped CC lines +
+         agentrow + composer stay full-width below the well. -->
     <div class="wellwrap">
       <div class="hostwell">
         <!-- SPRITE-OFF: no .wellhead when the sprite is hidden — the
@@ -1429,51 +1141,72 @@
         <div class="wellpane" class:fullwell={!sprite}>
           {#if hosted === "launchpad"}
             <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
-          {:else}
+          {:else if hosted === "stars"}
             <StarsPage embedded onClose={dismissHost} />
+          {:else if hosted === "inspector"}
+            <RailPage embedded onClose={dismissHost} onPopout={popoutInspector} />
           {/if}
         </div>
         {#if sprite}
           <div class="wellhead">
-            {#if !expanded}{@render spiritStage()}{/if}
+            {#if !expanded}
+              {#if is3D && !glbFailed}
+                {#key bodyId}
+                  <Companion3D
+                    {headShowing}
+                    {bodyId}
+                    thinking={sending}
+                    onDrag={onDragMouseDown}
+                    onFail={onGlbFail}
+                  />
+                {/key}
+              {:else}
+                <SpiritStage
+                  {headShowing}
+                  {missing}
+                  frames={drawFrames}
+                  {frameIdx}
+                  thinking={sending}
+                  smooth={artSmooth}
+                  onDrag={onDragMouseDown}
+                />
+              {/if}
+            {/if}
           </div>
         {/if}
       </div>
       {#if expanded}
-        {@render transcriptPane()}
+        {@render caption(true, true)}
       {/if}
     </div>
   {:else if expanded}
-    {@render transcriptPane()}
+    {@render caption(true, false)}
   {:else if sprite}
-    {@render spiritStage()}
+    {#if is3D && !glbFailed}
+      {#key bodyId}
+        <Companion3D
+          {headShowing}
+          {bodyId}
+          thinking={sending}
+          onDrag={onDragMouseDown}
+          onFail={onGlbFail}
+        />
+      {/key}
+    {:else}
+      <SpiritStage
+        {headShowing}
+        {missing}
+        frames={drawFrames}
+        {frameIdx}
+        thinking={sending}
+        smooth={artSmooth}
+        onDrag={onDragMouseDown}
+      />
+    {/if}
   {/if}
 
   {#if !expanded}
-    {#if userLine}
-      <div class="ccrow you">
-        <div class="cc user" title={userLine}>{@html mdLite(userLine)}</div>
-      </div>
-    {/if}
-    {#if sending}
-      <!-- Wait-in-slot: the mark holds the bot CC slot (where the reply
-           lands) while sending; the real bot line stays hidden. -->
-      <div class="ccrow them wait-row" aria-live="polite">{@render wait()}</div>
-    {/if}
-    {#if botLine && !sending}
-      <div class="ccrow them">
-        <!-- CAPTION-WORDS: while the pager holds, the bot CC slot shows
-             one ~60-word page at a time (… while more remains); the last
-             page releases the reply into the slot whole. -->
-        <div class="cc bot" class:paged={pagedTurnIdx >= 0} title={botLine}>
-          {#if pagedTurnIdx >= 0 && pageViewHtml}
-            {@html pageViewHtml}
-          {:else}
-            {@html mdLite(botLine)}
-          {/if}
-        </div>
-      </div>
-    {/if}
+    {@render caption(false, hosted !== "off")}
   {/if}
 
   {#if sendNote}
@@ -1499,338 +1232,38 @@
     </div>
   {/if}
 
-  <!-- GO-ORBITTY-GHOST-DOCK: agentrow + composer ride in one wrap — the
-       ghost's outlined bottom slab. × ⚙ stay floating corners OUTSIDE
-       the dock; expanded / hosted see no extra chrome. -->
-  <div class="ghostdock" onmousedown={onDockMouseDown}>
-    <!-- Agent row: one strip — agent pick + icon toggles (Prompts, Speak,
-         View, Expand/Collapse). The Body picker lives in Settings →
-         Appearance. Icons are inline SVG, currentColor, 16px. -->
-    <div class="agentrow">
-      <select
-        id="companion-agent"
-        class="agentpick"
-        bind:value={agent}
-        onchange={onAgentChange}
-        disabled={sending}
-        aria-label="Which agent soul is the companion"
-      >
-        {#each agents as a}
-          <option value={a}>{agentLabel(a)}</option>
-        {/each}
-      </select>
-      <button
-        class="expandbtn iconbtn promptsbtn"
-        class:on={prompts}
-        onclick={togglePrompts}
-        aria-pressed={prompts}
-        aria-label="STARS prompts"
-        title="STARS prompts — one quiet strip when today's check-in has a thin spoke. Off by default."
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M9 3l1.4 4.6L15 9l-4.6 1.4L9 15l-1.4-4.6L3 9l4.6-1.4z" />
-          <path d="M17 11l.9 2.9 2.9.9-2.9.9-.9 2.9-.9-2.9-2.9-.9 2.9-.9z" />
-          <path d="M16.5 3l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z" />
-        </svg>
-      </button>
-      <span class="dests" role="group" aria-label="Destinations">
-        <button
-          class="dest iconbtn"
-          class:on={hosted === "launchpad"}
-          onclick={() => toggleDest("launchpad")}
-          aria-label="Launchpad"
-          data-chip="Launchpad"
-          title="Launchpad in the well — click again to dismiss"
-        >
-          <!-- DEST-CHROME: the same ship flying ↗ — the blessed rocket
-               rotated 45° so the nose rides upper-right, never the
-               upright capsule. -->
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <g transform="rotate(45 12 12)">
-              <path
-                fill-rule="evenodd"
-                d="M12 2.5 C14.6 4.6 16 7.9 16 11.2 C16 13.1 15.7 14.9 15.2 16.2 L8.8 16.2 C8.3 14.9 8 13.1 8 11.2 C8 7.9 9.4 4.6 12 2.5 Z M10.5 9.3 a1.5 1.5 0 1 0 3 0 a1.5 1.5 0 1 0 -3 0 Z"
-              />
-              <path d="M8.7 12.3 C7.2 13.4 6.2 15.4 5.8 17.8 L8.9 16.6 C8.6 15.2 8.6 13.7 8.7 12.3 Z" />
-              <path d="M15.3 12.3 C16.8 13.4 17.8 15.4 18.2 17.8 L15.1 16.6 C15.4 15.2 15.4 13.7 15.3 12.3 Z" />
-              <path d="M12 17.6 C12.8 18.7 13.2 19.8 13.2 21 C12.5 20.6 11.5 20.6 10.8 21 C10.8 19.8 11.2 18.7 12 17.6 Z" />
-            </g>
-          </svg>
-        </button>
-        <button
-          class="dest iconbtn"
-          class:on={hosted === "stars"}
-          onclick={() => toggleDest("stars")}
-          aria-label="STARS"
-          data-chip="STARS"
-          title="STARS in the well — click again to dismiss"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 3 L14.1 9.1 L20.6 9.2 L15.4 13.1 L17.3 19.3 L12 15.6 L6.7 19.3 L8.6 13.1 L3.4 9.2 L9.9 9.1 Z" />
-          </svg>
-        </button>
-        <button
-          class="dest iconbtn planetsdest"
-          class:on={planetsOpen}
-          onclick={togglePlanetsPop}
-          aria-expanded={planetsOpen}
-          aria-haspopup="menu"
-          aria-label="Planets"
-          data-chip="Planets"
-          title="Front a planet — All fronts every disc"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <circle cx="12" cy="12" r="5" />
-            <ellipse
-              cx="12"
-              cy="12"
-              rx="9.4"
-              ry="3.3"
-              transform="rotate(-20 12 12)"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.7"
-            />
-          </svg>
-        </button>
-        {#if planetsOpen}
-          <!-- PLANETS-POP: anchored above the dests (bottom:100% on the
-               relative .dests) so it overlays the well / stage / CC /
-               transcript — never the composer below the agentrow. -->
-          <div class="planetspop" role="menu" aria-label="Planets">
-            {#if projects.length === 0}
-              <div class="planetsrow empty">No planets yet</div>
-            {:else}
-              <button
-                class="planetsrow"
-                role="menuitem"
-                onclick={() => pickPlanet(null)}
-              >All planets</button>
-              {#each projects as p (p.id)}
-                <button
-                  class="planetsrow"
-                  role="menuitem"
-                  title={p.name}
-                  onclick={() => pickPlanet(p.id)}
-                >{p.name}</button>
-              {/each}
-            {/if}
-          </div>
-        {/if}
-      </span>
-      <button
-        class="expandbtn iconbtn speakbtn"
-        class:on={speak}
-        onclick={toggleSpeak}
-        aria-pressed={speak}
-        aria-label="Speak replies"
-        title="Read bot replies aloud with the macOS system voice"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <polygon
-            points="11 5 6 9 2.5 9 2.5 15 6 15 11 19 11 5"
-            fill="currentColor"
-            stroke="none"
-          />
-          <path d="M15 9.2a4.2 4.2 0 0 1 0 5.6" />
-          {#if !speak}
-            <line x1="5.6" y1="18.4" x2="18.4" y2="5.6" />
-          {/if}
-        </svg>
-      </button>
-      <!-- SPRITE-OFF: L-click stays Full ↔ Head (toggleView); R-click
-           hides/shows the sprite. The button stays ENABLED while the
-           sprite is off — even with no bust art — so R-click can always
-           bring it back. -->
-      <button
-        class="expandbtn iconbtn viewbtn"
-        class:on={headShowing}
-        onclick={toggleView}
-        oncontextmenu={toggleSprite}
-        disabled={viewBusy || (sprite && !bustOk)}
-        aria-pressed={headShowing}
-        aria-label="Head or full body view"
-        title={viewTitle}
-      >
-        {#if headShowing}
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <circle cx="12" cy="8" r="4.4" />
-            <path d="M4.6 21c.6-4 3.6-6.4 7.4-6.4s6.8 2.4 7.4 6.4z" />
-            {#if !sprite}
-              <line
-                x1="5.6"
-                y1="18.4"
-                x2="18.4"
-                y2="5.6"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-            {/if}
-          </svg>
-        {:else}
-          <!-- Full body: restroom-man (head + shouldered torso + two legs),
-               never the circle + rounded-rect that read as a fat i. -->
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <circle cx="12" cy="4.6" r="2.6" />
-            <path
-              d="M9.2 8.4h5.6c1.3 0 2.2 1 2.2 2.2v4.4h-1.6v-3.6h-.6V21h-1.9v-6h-1.8v6H9.4v-9.6h-.6V15H7.2v-4.4c0-1.2.9-2.2 2-2.2z"
-            />
-            {#if !sprite}
-              <line
-                x1="5.6"
-                y1="18.4"
-                x2="18.4"
-                y2="5.6"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-            {/if}
-          </svg>
-        {/if}
-      </button>
-      <button
-        class="expandbtn iconbtn"
-        onclick={toggleExpanded}
-        aria-label={expanded ? "Collapse transcript" : "Expand transcript"}
-        title={expanded ? "Collapse transcript" : "Expand transcript"}
-      >
-        {#if expanded}
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <line x1="18" y1="6" x2="7.5" y2="16.5" />
-            <polyline points="15.5 16.5 7.5 16.5 7.5 8.5" />
-          </svg>
-        {:else}
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <line x1="6" y1="18" x2="16.5" y2="7.5" />
-            <polyline points="8.5 7.5 16.5 7.5 16.5 15.5" />
-          </svg>
-        {/if}
-      </button>
-    </div>
-
-    <form
-      class="composer"
-      onsubmit={(e) => {
-        e.preventDefault();
-        sendLine();
-      }}
-    >
-      <div class="fieldwrap" class:talking>
-        <input
-          class="field"
-          type="text"
-          bind:this={fieldEl}
-          bind:value={draft}
-          placeholder="type…"
-          aria-label="Message your companion"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <span class="talkslot">
-          {#if talking}
-            <button
-              type="button"
-              class="talkic"
-              onclick={talkStopOnly}
-              aria-label="Stop talking — text stays for review"
-              title="Stop talking — the text stays in the field; you hit Send"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.6"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <polyline points="4.5 12.5 9.5 17.5 19.5 6.5" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              class="talkic sendnow"
-              onclick={talkStopSend}
-              aria-label="Stop and send now"
-              title="Stop and send now"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.6"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <line x1="12" y1="19" x2="12" y2="5" />
-                <polyline points="5.5 11.5 12 5 18.5 11.5" />
-              </svg>
-            </button>
-          {:else}
-            <button
-              type="button"
-              class="talkic"
-              onclick={talkStart}
-              aria-label="Talk"
-              title="Click to talk. Source is Settings → Talk. Text lands in the field; you hit Send"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.9"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <rect x="9" y="2.5" width="6" height="11.5" rx="3" />
-                <path d="M5.5 10.5a6.5 6.5 0 0 0 13 0" />
-                <line x1="12" y1="17.5" x2="12" y2="21" />
-              </svg>
-            </button>
-          {/if}
-        </span>
-      </div>
-      <button
-        class="send"
-        type="submit"
-        disabled={sending || !draft.trim()}
-        aria-label="Send"
-        title="Send"
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M12 4l8 11h-4.5L12 10.4 8.5 15H4z" />
-        </svg>
-      </button>
-    </form>
-  </div>
+  <!-- GO-ORBITTY-CLEAN-COMPANION-DOCK: agentrow + dests + Speak +
+       sprite/view + Expand + ⚙ + composer live in CompanionDock.svelte.
+       × stays a floating corner here. -->
+  <CompanionDock
+    {agents}
+    bind:agent
+    {sending}
+    {prompts}
+    {hosted}
+    {speak}
+    {headShowing}
+    {viewBusy}
+    {sprite}
+    {bustOk}
+    {viewTitle}
+    {expanded}
+    {talking}
+    bind:draft
+    bind:fieldEl
+    {onAgentChange}
+    {togglePrompts}
+    {toggleDest}
+    {toggleSpeak}
+    {toggleSprite}
+    {toggleView}
+    {toggleExpanded}
+    {sendLine}
+    {talkStart}
+    {talkStopOnly}
+    {talkStopSend}
+    {onDockMouseDown}
+  />
 
   <button
     class="winx"
@@ -1843,13 +1276,6 @@
     }}
     title="Hide Companion — reopen from the rail or tray"
     aria-label="Hide Companion">×</button
-  >
-  <button
-    class="gear"
-    onmousedown={(e) => e.stopPropagation()}
-    onclick={() => invoke("open_settings_window").catch(() => {})}
-    title="Open Settings"
-    aria-label="Open Settings">⚙</button
   >
 </main>
 
@@ -1915,52 +1341,6 @@
     background: var(--panel-fill, var(--panel));
   }
 
-  /* DEST-STRIP: the Settings gear mirrors .winx on the right corner. */
-  .gear {
-    position: absolute;
-    top: 8px;
-    right: 10px;
-    z-index: 2;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    font: inherit;
-    font-size: 0.82rem;
-    line-height: 1;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 999px;
-    cursor: pointer;
-  }
-
-  .gear:hover {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-  }
-
-  /* Ghost fills the upper area; the only drag handle when collapsed.
-     RENDER: min-height keeps the ghost visible when a collapsed CC
-     bubble is holding a tall table (the CC scrolls inside itself). */
-  .stage {
-    flex: 1;
-    min-height: 120px;
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    user-select: none;
-    -webkit-user-select: none;
-    cursor: grab;
-  }
-
-  .stage:active {
-    cursor: grabbing;
-  }
-
   /* GO-ORBITTY-HOST-CC: the wrap is the overlay's positioning context —
      the expanded transcript covers the well ONLY (agentrow + composer
      stay below it, usable). The well keeps its own flex so nothing
@@ -2003,41 +1383,10 @@
     display: flex;
   }
 
-  .wellhead .stage {
-    flex: 1;
-    width: auto;
-    min-height: 0;
-  }
-
   /* SPRITE-OFF hosted: no .wellhead — the pane takes the full well and
      drops the divider. */
   .wellpane.fullwell {
     border-right: none;
-  }
-
-  /* HEADROOM: the float wrapper keeps the spirit/bust filling the stage;
-     collapsed views never animate it — only expanded Full floats (see
-     bustfloat below). */
-  .stage .floatwrap {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  /* GO-ORBITTY-GHOST-DOCK: ghost shrinks the wrap to a centered square —
-     the shorter of the stage's width/height — so the reported spirit box
-     hugs the figure and the empty air around it clicks through. The
-     stage becomes a size container only in ghost; the slab (hosted /
-     expanded) keeps the full-bleed wrap above. */
-  .ghost .stage {
-    container-type: size;
-  }
-
-  .ghost .stage .floatwrap {
-    width: min(100cqw, 100cqh);
-    height: min(100cqw, 100cqh);
   }
 
   /* SPRITE-HUG: the old spriteoff ::before flex spacer is dead — the
@@ -2046,536 +1395,8 @@
      empty pane left to pin against. The bar stays ghost: empty air in
      it still clicks through via the reported hit list. */
 
-  .spirit {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    image-rendering: pixelated;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  .spirit.smooth {
-    image-rendering: auto;
-  }
-
-  /* CORNER: the expanded portrait is a 96×96 box parked absolute
-     upper-right of the pane (over the transcript's reserved gutter,
-     above agentrow/composer) and is the only expanded drag handle.
-     HEADROOM killed the 128px clip; CORNER killed the 44vh/34vh
-     full-width strip — Head bust and full figure both draw inside the
-     same 96 box (object-fit: contain, width follows the art's aspect). */
-  .exphead {
-    position: absolute;
-    top: 8px;
-    left: 10px;
-    right: auto;
-    z-index: 2;
-    width: 96px;
-    height: 96px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    user-select: none;
-    -webkit-user-select: none;
-    cursor: grab;
-  }
-
-  .exphead:active {
-    cursor: grabbing;
-  }
-
-  .exphead .floatwrap {
-    line-height: 0;
-    width: 96px;
-    height: 96px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .expimg {
-    display: block;
-    max-width: 96px;
-    max-height: 96px;
-    object-fit: contain;
-    image-rendering: pixelated;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  .expimg.smooth {
-    image-rendering: auto;
-  }
-
-  /* HEADROOM float: a few px of drift on the expanded Full figure. The
-     wrapper translates so the img's own react transform stays free.
-     CORNER: Head sits still in both views — the bouncy translate reads
-     as noise on a closeup, the sheet's own edge wave is enough. */
-  .exphead .floatwrap {
-    animation: bustfloat 6.5s ease-in-out infinite;
-  }
-
-  .exphead .floatwrap.headview {
-    animation: none;
-  }
-
-  @keyframes bustfloat {
-    0%,
-    100% {
-      transform: translate(0, 0);
-    }
-    25% {
-      transform: translate(1.5px, -2.5px);
-    }
-    50% {
-      transform: translate(0, -3.5px);
-    }
-    75% {
-      transform: translate(-1.5px, -2px);
-    }
-  }
-
-  /* Think/send: one small yaw/roll, then settle (runs once per send). */
-  .spirit.react,
-  .expimg.react {
-    animation: bustreact 0.9s ease-out 1;
-  }
-
-  @keyframes bustreact {
-    0% {
-      transform: rotate(0deg) scaleX(1);
-    }
-    30% {
-      transform: rotate(-3deg) scaleX(0.96);
-    }
-    60% {
-      transform: rotate(2.4deg) scaleX(1.02);
-    }
-    100% {
-      transform: rotate(0deg) scaleX(1);
-    }
-  }
-
-  /* Expanded transcript: starts at the top of the pane and scrolls the
-     saved turns; never a drag region. CORNER: padding-right is always
-     106px (96 portrait + 10 gap) so you/them bubbles never run under
-     the face — you bubbles right-align inside the padded column.
-     S2.5: SMS bubbles — you right on a warm accent fill, them left on a
-     muted fill with an edge; no you:/them: prefixes. */
-  .transcript {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 4px 10px 2px 106px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  /* GO-ORBITTY-HOST-CC: hosted + expanded — the transcript overlays the
-     well (absolute, inset 0 over .wellwrap). The 72% bg scrim dims the
-     well so the board stays visible behind it; the bubbles keep their
-     own opaque fills. Not a second window; no grow/shrink on Expand. */
-  .transcript.hostoverlay {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    background: color-mix(in srgb, var(--bg-fill, var(--bg)) 72%, transparent);
-  }
-
-  .row {
-    display: flex;
-  }
-
-  .row.you {
-    justify-content: flex-end;
-  }
-
-  .row.them {
-    justify-content: flex-start;
-  }
-
-  /* GRAB-LAW: bubbles select + copy — never a drag surface. */
-  .bubble {
-    margin: 0;
-    max-width: 78%;
-    padding: 6px 10px;
-    font-size: 0.78rem;
-    line-height: 1.35;
-    overflow-wrap: anywhere;
-    border-radius: 14px;
-    user-select: text;
-    -webkit-user-select: text;
-  }
-
-  /* Same accent/on-accent contrast pair as the Send button. --on-accent
-     keeps you-text white on accent; never falls back to --bg. */
-  .row.you .bubble {
-    color: var(--on-accent, #ffffff);
-    background: var(--accent);
-  }
-
-  .row.them .bubble {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-  }
-
-  /* CAPTION-WORDS: the overflow ellipsis ending a non-final page's last
-     line. */
-  .bubble :global(.pgmore),
-  .cc :global(.pgmore) {
-    opacity: 0.7;
-  }
-
-  /* CAPTION-WORDS: while the pager holds, no scrollbar on the caption —
-     the paged bubble clips (collapsed CC; the transcript lock covers the
-     expand-release frame). */
-  .transcript.pagedlock {
-    overflow-y: hidden;
-  }
-
-  .bubble.paged,
-  .cc.paged {
-    overflow: hidden;
-  }
-
-  /* GO-ORBITTY-COMPANION-RENDER: mdLite output, same subset both views.
-     Only strong/em/code/lists/tables/br can appear. Borders and code
-     fills mix from currentColor so they read on the accent you-bubble
-     and the muted them-bubble alike. Inner tags are :global — {@html}
-     nodes never carry the component's scope class. */
-  .bubble :global(ul),
-  .bubble :global(ol),
-  .cc :global(ul),
-  .cc :global(ol) {
-    margin: 3px 0;
-    padding-left: 18px;
-  }
-
-  .bubble :global(li),
-  .cc :global(li) {
-    margin: 1px 0;
-  }
-
-  .bubble :global(table),
-  .cc :global(table) {
-    border-collapse: collapse;
-    margin: 4px 0;
-    max-width: 100%;
-  }
-
-  .bubble :global(th),
-  .bubble :global(td),
-  .cc :global(th),
-  .cc :global(td) {
-    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-    padding: 2px 7px;
-    text-align: left;
-    vertical-align: top;
-    overflow-wrap: anywhere;
-  }
-
-  .bubble :global(th),
-  .cc :global(th) {
-    font-weight: 600;
-  }
-
-  .bubble :global(code),
-  .cc :global(code) {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 0.92em;
-    padding: 0 4px;
-    border-radius: 4px;
-    background: color-mix(in srgb, currentColor 12%, transparent);
-  }
-
-  /* Wait mark (S2.9 Orbitty logo) — bare, NO text bubble: no fill, no
-     border on the wait chrome. Wait-in-slot: it rides the agent-text
-     slot (paired with .row.them expanded / .ccrow.them collapsed, which
-     supply the flex display, left alignment, and padding) — where the
-     reply will land. Thinking v9 still plays on the spirit; the mark is
-     never inside .bubble / .cc.bot. */
-  .wait-row {
-    flex: none;
-    justify-content: flex-start;
-    pointer-events: none;
-  }
-
-  .wait {
-    display: inline-flex;
-    align-items: center;
-  }
-
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-    border: 0;
-  }
-
-  .wmark {
-    position: relative;
-    display: inline-block;
-    width: 20px;
-    height: 20px;
-  }
-
-  .wmark .ring {
-    position: absolute;
-    inset: 0;
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-
-  .wmark .ring ellipse {
-    stroke: #7e63ce;
-    stroke-width: 1;
-  }
-
-  .wmark .sq {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 6px;
-    height: 6px;
-    margin: -3px 0 0 -3px;
-    border-radius: 2px;
-    background: linear-gradient(135deg, #e59e3d, #c8a45c);
-    animation: wspin 1.8s linear infinite;
-  }
-
-  .wmark .tilt {
-    position: absolute;
-    inset: 0;
-    transform: rotate(18deg);
-  }
-
-  .wmark .tilt i {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    display: block;
-    border-radius: 999px;
-  }
-
-  .wmark .orb {
-    width: 4px;
-    height: 4px;
-    margin: -2px 0 0 -2px;
-    background: #3db8b0;
-    animation: worbit 1.6s linear infinite;
-  }
-
-  .wmark .speck {
-    width: 2px;
-    height: 2px;
-    margin: -1px 0 0 -1px;
-    background: #f2e7ce;
-    opacity: 0.3;
-    animation: wspeck 3.4s linear infinite;
-  }
-
-  @keyframes wspin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @keyframes worbit {
-    0% {
-      transform: translate(6.93px, 2.6px);
-    }
-    8.33% {
-      transform: translate(8px, 0);
-    }
-    16.67% {
-      transform: translate(6.93px, -2.6px);
-    }
-    25% {
-      transform: translate(4px, -4.5px);
-    }
-    33.33% {
-      transform: translate(0, -5.2px);
-    }
-    41.67% {
-      transform: translate(-4px, -4.5px);
-    }
-    50% {
-      transform: translate(-6.93px, -2.6px);
-    }
-    58.33% {
-      transform: translate(-8px, 0);
-    }
-    66.67% {
-      transform: translate(-6.93px, 2.6px);
-    }
-    75% {
-      transform: translate(-4px, 4.5px);
-    }
-    83.33% {
-      transform: translate(0, 5.2px);
-    }
-    91.67% {
-      transform: translate(4px, 4.5px);
-    }
-    100% {
-      transform: translate(6.93px, 2.6px);
-    }
-  }
-
-  @keyframes wspeck {
-    0% {
-      transform: translate(-6.93px, 2.6px);
-    }
-    8.33% {
-      transform: translate(-4px, 4.5px);
-    }
-    16.67% {
-      transform: translate(0, 5.2px);
-    }
-    25% {
-      transform: translate(4px, 4.5px);
-    }
-    33.33% {
-      transform: translate(6.93px, 2.6px);
-    }
-    41.67% {
-      transform: translate(8px, 0);
-    }
-    50% {
-      transform: translate(6.93px, -2.6px);
-    }
-    58.33% {
-      transform: translate(4px, -4.5px);
-    }
-    66.67% {
-      transform: translate(0, -5.2px);
-    }
-    75% {
-      transform: translate(-4px, -4.5px);
-    }
-    83.33% {
-      transform: translate(-6.93px, -2.6px);
-    }
-    91.67% {
-      transform: translate(-8px, 0);
-    }
-    100% {
-      transform: translate(-6.93px, 2.6px);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .wmark .sq,
-    .wmark .orb {
-      animation: none;
-    }
-    .wmark .orb {
-      transform: translate(6.93px, 2.6px);
-    }
-    .wmark .speck {
-      display: none;
-    }
-    /* HEADROOM: Reduce Motion sits the bust — no float, no react-rotate.
-       CORNER: the expanded Full float parks too. */
-    .exphead .floatwrap,
-    .spirit.react,
-    .expimg.react {
-      animation: none;
-    }
-  }
-
-
-  .missing {
-    margin: 0;
-    color: var(--dim);
-    font-size: 0.8rem;
-    letter-spacing: 0.04em;
-    text-align: center;
-  }
-
-  /* True CC (collapsed only — expanded is bubbles). S2.6: same SMS
-     energy as the transcript — you right on accent, them left on panel
-     with an edge, no you:/them: prefixes; a row renders only while it
-     has text — no fake replies. */
-  .ccrow {
-    display: flex;
-    padding: 2px 10px;
-  }
-
-  .ccrow.you {
-    justify-content: flex-end;
-  }
-
-  .ccrow.them {
-    justify-content: flex-start;
-  }
-
-  /* RENDER: collapsed CC renders the same mdLite subset, compact —
-     smaller type, tight lists, mini-tables. A tall payload (a table)
-     scrolls INSIDE the bubble at max 40% of the pane so the ghost
-     stage stays visible. */
-  .cc {
-    margin: 0;
-    max-width: 82%;
-    max-height: 40vh;
-    overflow-y: auto;
-    padding: 5px 10px;
-    font-size: 0.68rem;
-    line-height: 1.3;
-    overflow-wrap: anywhere;
-    border-radius: 14px;
-    user-select: text;
-    -webkit-user-select: text;
-  }
-
-  /* GO-ORBITTY-HOST-CC: hosted collapsed CC caps each bubble at ~3
-     lines, clipped with no scrollbar (hover title= still holds the full
-     text) so the well keeps its room. Idle CC keeps the 40vh
-     scroll-inside-bubble. */
-  .hosting .cc {
-    max-height: calc(1.3em * 3 + 10px);
-    overflow: hidden;
-  }
-
-  .cc :global(ul),
-  .cc :global(ol) {
-    margin: 1px 0;
-    padding-left: 14px;
-  }
-
-  .cc :global(li) {
-    margin: 0;
-  }
-
-  .cc :global(table) {
-    margin: 2px 0;
-    font-size: 0.62rem;
-  }
-
-  .cc :global(th),
-  .cc :global(td) {
-    padding: 1px 5px;
-  }
-
-  .cc.user {
-    color: var(--on-accent, #ffffff);
-    background: var(--accent);
-  }
-
-  .cc.bot {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-  }
+  /* GO-ORBITTY-CLEAN-COMPANION-CAPTION: transcript / CC / wait mark live
+     in CaptionPane.svelte. */
 
   /* GO-LS-STARS-STATUS prompt strip: one quiet menu when Prompts is On and
      today's check-in has a thin spoke. Rest/Water/× ack and hide it until
@@ -2671,351 +1492,7 @@
     color: var(--ink);
   }
 
-  /* GO-ORBITTY-GHOST-DOCK: one wrap around agentrow + composer. Ghost
-     paints it as the small outlined bottom slab — same paint as the
-     expanded window (--bg-fill, radius 12, 1px --edge) — floating just
-     off the window edges. Expanded / hosted: no paint, no extra chrome,
-     same stack as the unwrapped rows. DOCK-GRIP: ghost dock chrome (the
-     padding around the rows, never a control) is a drag region; the
-     slab (expanded / hosted) never drags from the dock. */
-  .ghostdock {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .ghost .ghostdock {
-    margin: 4px 8px 8px;
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 12px;
-  }
-
-  /* Agent row: the agent soul pick + a strip of icon toggles (Prompts,
-     Speak, View, Expand/Collapse). Ghost chrome gaps drag (DOCK-GRIP);
-     the controls never do. */
-  .agentrow {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 10px 0;
-  }
-
-  .agentpick {
-    flex: none;
-    max-width: 46%;
-    padding: 3px 6px;
-    font: inherit;
-    font-size: 0.78rem;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    outline: none;
-  }
-
-  .agentpick:focus {
-    border-color: var(--focus, #6e4db0);
-  }
-
-  /* DEST-STRIP: the old spacer becomes the destination strip — quiet
-     text (rail .stack-btn energy, scaled down), one line, flex:1 so the
-     cluster holds the spark→speaker gap. At the 280px min the dests give
-     first (type / letter-spacing / gap) — never the icon hit targets,
-     never the agentpick. */
-  .dests {
-    flex: 1;
-    min-width: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    white-space: nowrap;
-    position: relative;
-  }
-
-  /* PLANETS-POP: the name list opens UP from the dest strip, so it
-     overlays the well / stage / CC / transcript and can never slide down
-     over the composer. z-index 6 sits above the well + transcript (the
-     chrome ×/gear are 2). Height-capped so a long world list scrolls
-     inside itself instead of reaching the window top. */
-  .planetspop {
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 6;
-    display: flex;
-    flex-direction: column;
-    min-width: 140px;
-    max-width: 220px;
-    max-height: 40vh;
-    overflow-y: auto;
-    padding: 4px;
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 10px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
-  }
-
-  .planetsrow {
-    padding: 5px 8px;
-    font: inherit;
-    font-size: 0.72rem;
-    text-align: left;
-    color: var(--ink);
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .planetsrow:hover {
-    background: var(--bg-fill, var(--bg));
-  }
-
-  .planetsrow.empty {
-    color: var(--dim);
-    cursor: default;
-  }
-
-  .planetsrow.empty:hover {
-    background: transparent;
-  }
-
-  /* GO-ORBITTY-DEST-CHROME: dests wear the same outlined pill as the
-     other dock icon buttons — 1px --edge ring, 8px radius like
-     .expandbtn; the hover ring is --focus via the shared .iconbtn:hover
-     rule. */
-  .dest {
-    flex: none;
-    position: relative;
-    padding: 2px 3px;
-    font: inherit;
-    font-size: 0.6rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-    color: var(--dim);
-    background: transparent;
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    cursor: pointer;
-  }
-
-  .dest:hover {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-  }
-
-  /* DEST-CHROME: CSS hover chip naming the dest (title= never paints on
-     the transparent panel). Opens UP from the button — over the stage /
-     CC / well like .planetspop, never down over the composer. Same
-     1px --edge ring + 8px radius as the pill; pointer-events none so it
-     never steals the dest's own hover. */
-  .dest::after {
-    content: attr(data-chip);
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 6;
-    padding: 2px 7px;
-    font-size: 0.62rem;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .dest:hover::after {
-    opacity: 1;
-  }
-
-  /* HOST-SPLIT: the dest whose well is live. */
-  .dest.on {
-    color: var(--accent);
-  }
-
-  .expandbtn {
-    flex: none;
-    padding: 4px 12px;
-    font: inherit;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    cursor: pointer;
-  }
-
-  .expandbtn:hover,
-  .iconbtn:hover {
-    border-color: var(--focus, #6e4db0);
-  }
-
-  /* Icon toggles: same pill as the old text buttons, squared up for a
-     16px glyph. GO-ORBITTY-COMPANION-BRAND: the on state is per-toggle
-     brand — Prompts sparkle = ochre --mark, Speak = violet --focus,
-     Head silhouette = --ink (never teal). Idle icons stay --ink.
-     GO-ORBITTY-HABITAT-BRAND: every on/hover RING is the deeper violet
-     --focus #6e4db0 — the sparkle FILL stays ochre, pinky #c793e6 is
-     --bloom (words/tags), never the ring. */
-  .iconbtn {
-    padding: 4px 7px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .iconbtn svg {
-    width: 16px;
-    height: 16px;
-    display: block;
-  }
-
-  .promptsbtn.on {
-    color: var(--mark, #e59e3d);
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .speakbtn.on {
-    color: var(--focus, #6e4db0);
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .viewbtn.on {
-    color: var(--ink);
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .iconbtn:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-
-  /* Composer: field with the mic parked inside its right edge + Send
-     outside. Ghost chrome gaps drag (DOCK-GRIP); field / mic / Send
-     never do. */
-  .composer {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px 10px;
-  }
-
-  .field {
-    flex: 1;
-    min-width: 0;
-    padding: 7px 10px;
-    font: inherit;
-    font-size: 0.82rem;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 9px;
-    outline: none;
-  }
-
-  .field:focus {
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .field::placeholder {
-    color: var(--dim);
-  }
-
-  .send {
-    flex: none;
-    padding: 7px 12px;
-    font: inherit;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--on-accent, #ffffff);
-    background: var(--accent);
-    border: none;
-    border-radius: 9px;
-    cursor: pointer;
-  }
-
-  .send svg {
-    width: 14px;
-    height: 14px;
-    display: block;
-  }
-
-  .send:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-
-  /* Mic in the field: the wrap is relative and the slot parks the mic
-     (idle) or check + up-arrow (recording) inside the right edge;
-     padding-right keeps typed text from running under the icons.
-     Check = stop (text stays for review); up-arrow = stop + send now. */
-  .fieldwrap {
-    position: relative;
-    flex: 1;
-    min-width: 0;
-    display: flex;
-  }
-
-  .fieldwrap .field {
-    width: 100%;
-    padding-right: 32px;
-  }
-
-  .fieldwrap.talking .field {
-    padding-right: 56px;
-  }
-
-  .talkslot {
-    position: absolute;
-    right: 5px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-  }
-
-  .talkic {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    touch-action: none;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  .talkic svg {
-    width: 16px;
-    height: 16px;
-    display: block;
-  }
-
-  .talkic:hover {
-    color: var(--accent);
-  }
-
-  .fieldwrap.talking .talkic {
-    color: var(--ink);
-  }
-
-  .talkic.sendnow {
-    color: var(--accent);
-  }
+  /* GO-ORBITTY-CLEAN-COMPANION-DOCK: dock styles (.ghostdock, agentrow,
+     dests, icon toggles, gear, composer, talk slot) moved to
+     CompanionDock.svelte with the markup. */
 </style>

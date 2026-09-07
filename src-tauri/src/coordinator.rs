@@ -476,7 +476,11 @@ pub fn set_companion_pack(app: tauri::AppHandle, pack_id: String) -> Result<Opti
         Some(raw.to_string())
     };
     if let Some(ref pid) = id {
-        if crate::packs::companion_pack_art(&app, pid).is_none() {
+        // GO-ORBITTY-COMPANION-3D: tang/female are reserved 3D bodies
+        // bundled at companion/3d — never pack folders, so the pack-art
+        // check is skipped for them.
+        let reserved_3d = pid == "tang" || pid == "female";
+        if !reserved_3d && crate::packs::companion_pack_art(&app, pid).is_none() {
             return Err(format!("companion pack {pid:?} missing"));
         }
     }
@@ -1438,8 +1442,19 @@ pub fn run_action(
     command: String,
     cwd: Option<String>,
 ) -> Result<ActionResult, String> {
+    run_action_logged(&app, command, cwd)
+}
+
+/// GO-ORBITTY-ACTION-FILE: the logged run body, shared by the invoke
+/// command, the control plane (`action.run`), and combo presses. Same
+/// contract: `/bin/zsh -lc`, 120s, event log lengths only.
+pub(crate) fn run_action_logged(
+    app: &tauri::AppHandle,
+    command: String,
+    cwd: Option<String>,
+) -> Result<ActionResult, String> {
     crate::event_log::append_best(
-        &app,
+        app,
         "action-start",
         None,
         None,
@@ -1453,7 +1468,7 @@ pub fn run_action(
         Err(_) => (false, None),
     };
     crate::event_log::append_best(
-        &app,
+        app,
         "action-end",
         None,
         None,

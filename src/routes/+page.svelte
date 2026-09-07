@@ -9,6 +9,7 @@
   import SettingsPage from "$lib/SettingsPage.svelte";
   import SkyPage from "$lib/SkyPage.svelte";
   import RailPage from "$lib/RailPage.svelte";
+  import type { PersistedState, SharedPaneMode } from "$lib/persist";
 
   // The same SPA bundle serves the separate Kanban/Companion/STARS/Sky
   // windows; each mounts only its own page and never runs the rail
@@ -84,7 +85,6 @@
   // renders nothing, and a transparent window rendering nothing still
   // hit-tests (the invisible click-eater over the rail). Belt-and-braces:
   // while the mode is somehow null the overlay ignores the mouse entirely.
-  type SharedPaneMode = "board" | "stars";
   let paneMode = $state<SharedPaneMode | null>("board");
   $effect(() => {
     if (!isKanbanWindow) return;
@@ -93,9 +93,7 @@
       .catch(() => {});
   });
 
-  interface PersistedState {
-    sharedPaneMode?: "board" | "stars";
-  }
+
 
   // Shared-pane mode channel (kanban window only): warm swaps land as the
   // event; the reconcile covers a create/load race where the event fired

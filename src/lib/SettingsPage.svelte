@@ -12,6 +12,7 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import type { ActionShortcut, DrawerSlice, PersistedState } from "./persist";
 
   interface PackInfo {
     id: string;
@@ -22,36 +23,10 @@
     path: string;
     role: string;
   }
-  interface CompanionSlice {
-    talkSource?: string;
-    imagePackId?: string | null;
-    bounds?: { x: number; y: number; w: number; h: number } | null;
-  }
-  // GO-ORBITTY-RAIL-DRAWER: the native leash owns dock/pluck per pane;
-  // this window only reads status and fires Re-tether.
-  interface DrawerSlice {
-    docked?: boolean;
-    dx?: number;
-    dy?: number;
-    bounds?: { x: number; y: number; w: number; h: number } | null;
-  }
   interface BodyPack {
     id: string;
     name: string;
   }
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-    autohideRowChrome?: boolean;
-    hideTitles?: boolean;
-    hideAppIcons?: boolean;
-    spriteScale?: number;
-    marbleDrift?: boolean;
-    companion?: CompanionSlice;
-    drawers?: Record<string, DrawerSlice>;
-    [key: string]: unknown;
-  }
-
   interface Theme {
     id: string;
     name: string;
@@ -89,7 +64,7 @@
   // Drawers row: leash status mirror (the native side is SoT).
   let drawers = $state<Record<string, DrawerSlice>>({});
   let companionHasBounds = $state(false);
-  let section = $state<"appearance" | "talk" | "packs">("appearance");
+  let section = $state<"appearance" | "talk" | "packs" | "actions">("appearance");
   // Companion body picker (Appearance): Spirit + role:companion packs.
   // Same persist as the old companion-row select — set_companion_pack
   // emits state:changed, and the companion window hot-swaps the art.
@@ -101,6 +76,166 @@
   let packsDir = $state("");
   let packNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
   let packBusy = $state(false);
+
+  // GO-ORBITTY-ACTION-FILE: the actions face is this monospace list, not a
+  // Launchpad well. Rows come from the same actionShortcuts slice; adding
+  // is `orbittyctl action add` (or Spark), never a modal here. Click a name
+  // to run; click a combo to record the next chord. conflict = the chord
+  // is reserved (⌘⇧O / ⌘Space) or taken by the OS / another app.
+  let actions = $state<ActionShortcut[]>([]);
+  let comboStatus = $state<Record<string, string>>({});
+  let recordingId = $state<string | null>(null);
+  let runningActionId = $state<string | null>(null);
+  let actionNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  interface ActionResult {
+    ok: boolean;
+    code: number | null;
+    stdout: string;
+    stderr: string;
+  }
+
+  async function refreshComboStatus() {
+    try {
+      comboStatus = await invoke<Record<string, string>>("action_combo_status");
+    } catch {
+      comboStatus = {};
+    }
+  }
+
+  async function runAction(a: ActionShortcut) {
+    if (runningActionId) return;
+    runningActionId = a.id;
+    actionNote = null;
+    try {
+      const r = await invoke<ActionResult>("run_action", {
+        command: a.command,
+        cwd: a.cwd ?? null,
+      });
+      const out = [r.stdout, r.stderr].filter(Boolean).join("\n");
+      const head = r.ok ? `${a.name}: done` : `${a.name}: exit ${r.code ?? "?"}`;
+      actionNote = {
+        kind: r.ok ? "ok" : "err",
+        text: out ? `${head}\n${out}` : head,
+      };
+    } catch (e) {
+      actionNote = { kind: "err", text: `${a.name}: ${e}` };
+    }
+    runningActionId = null;
+  }
+
+  // "cmd+alt+m" → "⌘⌥M" for the list; the stored string stays the locked
+  // lowercase format the native parser reads.
+  function comboGlyphs(c: string): string {
+    return c
+      .split("+")
+      .map((t) => {
+        const k = t.trim().toLowerCase();
+        if (["cmd", "command", "super", "meta"].includes(k)) return "⌘";
+        if (k === "shift") return "⇧";
+        if (["alt", "option", "opt"].includes(k)) return "⌥";
+        if (["ctrl", "control"].includes(k)) return "⌃";
+        if (k === "space") return "Space";
+        if (["return", "enter"].includes(k)) return "↩";
+        if (k === "tab") return "⇥";
+        if (k === "backspace") return "⌫";
+        if (k === "delete") return "⌦";
+        if (["up", "arrowup"].includes(k)) return "↑";
+        if (["down", "arrowdown"].includes(k)) return "↓";
+        if (["left", "arrowleft"].includes(k)) return "←";
+        if (["right", "arrowright"].includes(k)) return "→";
+        return k.length === 1 ? k.toUpperCase() : k;
+      })
+      .join("");
+  }
+
+  // Physical key (`e.code`), not `e.key`. Option+letter on a Mac types
+  // ©/†/å — those strings fail the native parser and every ⌘⌥ chord
+  // showed conflict. KeyG → g, Digit1 → 1.
+  function keyToken(e: KeyboardEvent): string | null {
+    const c = e.code;
+    if (/^Key[A-Z]$/.test(c)) return c.slice(3).toLowerCase();
+    if (/^Digit[0-9]$/.test(c)) return c.slice(5);
+    const named: Record<string, string> = {
+      Space: "space",
+      Enter: "enter",
+      Tab: "tab",
+      Backspace: "backspace",
+      Delete: "delete",
+      ArrowUp: "up",
+      ArrowDown: "down",
+      ArrowLeft: "left",
+      ArrowRight: "right",
+      Home: "home",
+      End: "end",
+      Minus: "-",
+      Equal: "=",
+      BracketLeft: "[",
+      BracketRight: "]",
+      Backslash: "\\",
+      Semicolon: ";",
+      Quote: "'",
+      Comma: ",",
+      Period: ".",
+      Slash: "/",
+      Backquote: "`",
+    };
+    if (named[c]) return named[c];
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(c)) return c.toLowerCase();
+    const k = e.key;
+    if (k.length === 1 && /[a-z0-9]/i.test(k)) return k.toLowerCase();
+    return null;
+  }
+
+  function startRecord(id: string) {
+    recordingId = recordingId === id ? null : id;
+  }
+
+  // While a combo cell is armed, the next chord lands on that row. Esc
+  // cancels; bare Delete/Backspace clears (empty = Spirit-only). A chord
+  // with no modifier is ignored — a global bare key would eat typing.
+  function onRecordKeydown(e: KeyboardEvent) {
+    if (!recordingId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      recordingId = null;
+      return;
+    }
+    if (["Meta", "Control", "Alt", "Shift"].includes(e.key)) return;
+    const mods: string[] = [];
+    if (e.metaKey) mods.push("cmd");
+    if (e.ctrlKey) mods.push("ctrl");
+    if (e.altKey) mods.push("alt");
+    if (e.shiftKey) mods.push("shift");
+    const id = recordingId;
+    if ((e.key === "Backspace" || e.key === "Delete") && mods.length === 0) {
+      recordingId = null;
+      void setCombo(id, null);
+      return;
+    }
+    if (mods.length === 0) return;
+    const key = keyToken(e);
+    if (!key) return;
+    recordingId = null;
+    void setCombo(id, [...mods, key].join("+"));
+  }
+
+  // Whole-object persist, same discipline as every other slice: load →
+  // set the one row's combo → save. The native save door re-syncs the
+  // global registrations; the status refresh picks up ok/conflict.
+  async function setCombo(id: string, combo: string | null) {
+    try {
+      const s = await invoke<PersistedState>("load_state");
+      const row = (s.actionShortcuts ?? []).find((a) => a.id === id);
+      if (!row) return;
+      row.combo = combo;
+      await invoke("save_state", { state: s });
+      await refreshComboStatus();
+    } catch (e) {
+      actionNote = { kind: "err", text: `combo: ${e}` };
+    }
+  }
 
   function clampSpriteScale(n: number) {
     if (!Number.isFinite(n)) return 1;
@@ -134,6 +269,7 @@
       bodyId = pack && pack.length > 0 ? pack : "spirit";
       drawers = s.drawers ?? {};
       companionHasBounds = !!s.companion?.bounds;
+      actions = s.actionShortcuts ?? [];
     } catch {
       themeId = osThemeId();
     }
@@ -340,19 +476,44 @@
     if (!document.hidden) {
       loadState();
       refreshPacks();
+      refreshComboStatus();
     }
   };
   let unlisten: (() => void) | undefined;
+  let unlistenRan: (() => void) | undefined;
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
     await loadState();
     await refreshPacks();
-    unlisten = await listen("state:changed", loadState);
+    await refreshComboStatus();
+    unlisten = await listen("state:changed", () => {
+      loadState();
+      refreshComboStatus();
+    });
+    unlistenRan = await listen<{
+      id: string;
+      name: string;
+      ok: boolean;
+      code: number | null;
+      stdout: string;
+      stderr: string;
+    }>("orbitty:action-ran", (e) => {
+      const r = e.payload;
+      const out = [r.stdout, r.stderr].filter(Boolean).join("\n");
+      const head = r.ok ? `${r.name}: done` : `${r.name}: exit ${r.code ?? "?"}`;
+      actionNote = {
+        kind: r.ok ? "ok" : "err",
+        text: out ? `${head}\n${out}` : head,
+      };
+    });
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("keydown", onRecordKeydown, true);
   });
   onDestroy(() => {
     unlisten?.();
+    unlistenRan?.();
     document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("keydown", onRecordKeydown, true);
   });
 
   function onBannerMouseDown(e: MouseEvent) {
@@ -395,6 +556,11 @@
       class="tab"
       class:on={section === "packs"}
       onclick={() => (section = "packs")}>Packs</button
+    >
+    <button
+      class="tab"
+      class:on={section === "actions"}
+      onclick={() => (section = "actions")}>Actions</button
     >
   </nav>
 
@@ -488,14 +654,24 @@
             onchange={onBodyChange}
             disabled={bodyBusy}
             aria-label="Companion body"
-            title="Which body the companion wears — the blessed Spirit or an imported companion pack"
+            title="Which body the companion wears — the blessed Spirit, a bundled 3D body, or an imported companion pack"
           >
             <option value="spirit">Spirit</option>
+            <!-- GO-ORBITTY-COMPANION-3D: reserved bundled-GLB ids, never
+                 pack folders. Spirit stays the default. -->
+            <option value="tang">Tang · 3D</option>
+            <option value="female">Female · 3D</option>
             {#each bodyPacks as p (p.id)}
               <option value={p.id}>{p.name}</option>
             {/each}
           </select>
         </div>
+        {#if bodyId === "tang"}
+          <p class="help">
+            Tang is derived from Jacob by jupifox (CC BY 4.0) — credit
+            jupifox / Jacob.
+          </p>
+        {/if}
         <p class="block-label">Drawers</p>
         <div class="setting-row">
           <button
@@ -549,6 +725,54 @@
           download. Hotkey needs Handy running and holds Ctrl+Space while
           Listening. Speak / Prompts stay on the companion. Send is still
           your tap.
+        </p>
+      </section>
+    {:else if section === "actions"}
+      <section class="panel">
+        {#if actions.length > 0}
+          <ul class="action-list">
+            {#each actions as a (a.id)}
+              <li class="action-row">
+                <button
+                  class="a-name"
+                  class:running={runningActionId === a.id}
+                  onclick={() => runAction(a)}
+                  title="Run: {a.command}"
+                >{a.name}</button>
+                <button
+                  class="a-combo"
+                  class:rec={recordingId === a.id}
+                  onclick={() => startRecord(a.id)}
+                  title={recordingId === a.id
+                    ? "Press the chord — Esc cancels, Delete clears"
+                    : a.combo
+                      ? `${a.combo} — click to record a new chord`
+                      : "No combo — tell Spirit, or click to record a chord"}
+                >{recordingId === a.id
+                  ? "press keys…"
+                  : a.combo
+                    ? comboGlyphs(a.combo)
+                    : "—"}</button>
+                {#if comboStatus[a.id] === "conflict"}
+                  <span class="a-conflict">conflict</span>
+                {/if}
+                <span class="a-cmd" title={a.command}>{a.command}</span>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="help">No actions yet.</p>
+        {/if}
+        {#if actionNote}
+          <p class="help" class:err={actionNote.kind === "err"}>{actionNote.text}</p>
+        {/if}
+        <p class="help">
+          Click a name to run. Click a combo to record the next chord (Esc
+          cancels, Delete clears). No combo = tell Spirit. Add a row with
+          <code>orbittyctl action add --name N --cmd "C" [--cwd D] [--combo K]</code>
+          — no modal here. ⌘H / ⌘M / ⌘Q / ⌘W are Mac hide / minimize /
+          quit / close. ⌘⌥ plus a letter is the lane (physical key, so
+          Option+G is G not ©). ⌘⇧O and ⌘Space stay reserved.
         </p>
       </section>
     {:else}
@@ -905,5 +1129,84 @@
   .pack-license.warn {
     color: var(--accent);
     border-color: var(--accent);
+  }
+  /* GO-ORBITTY-ACTION-FILE: the actions face — one monospace list. */
+  .action-list {
+    list-style: none;
+    margin: 2px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .action-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-height: 22px;
+  }
+  .a-name {
+    flex-shrink: 0;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: inherit;
+    font-size: 0.74rem;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    padding: 2px 6px;
+    cursor: pointer;
+  }
+  .a-name:hover {
+    color: var(--accent);
+    background: var(--bg-fill, var(--bg));
+  }
+  .a-name.running {
+    opacity: 0.55;
+  }
+  .a-combo {
+    flex-shrink: 0;
+    min-width: 44px;
+    text-align: center;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 5px;
+    padding: 1px 6px;
+    cursor: pointer;
+  }
+  .a-combo:hover {
+    border-color: var(--accent);
+  }
+  .a-combo.rec {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .a-conflict {
+    flex-shrink: 0;
+    font-size: 0.62rem;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 0 0.35rem;
+  }
+  .a-cmd {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.68rem;
+    color: var(--dim);
+  }
+  .help code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.62rem;
   }
 </style>

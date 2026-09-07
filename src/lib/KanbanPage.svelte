@@ -12,18 +12,35 @@
   // completed a quest. completeCard stamps "user"; Happened splits via the
   // All / I did / On my behalf chips (missing actor = pre-actor human
   // history = I did). Needed never enters the complete door.
-  // GO-ORBITTY-LP-MINE: a mixed filtered set splits into two quiet
-  // sections — "On this planet" (kind "window"; heading "Inbox" when the
-  // Inbox is selected) then "My list" (kind "todo" / loose). One kind
-  // only → no headings. Board keeps three columns but parks window cards
-  // above todos inside each. No new column, no shame counts; add-a-todo
-  // still mints kind "todo" and the rail claim door is untouched.
+  // GO-ORBITTY-LP-INBOX: Launchpad first paint is YOUR work — rows are
+  // kind "todo" (and the Needed strip) only. Kind "window" never paints
+  // here: no "On this planet" split, no window-first sort, sidebar planet
+  // rows filter your todos and never load the window map. The Planets
+  // sheet owns windows later. Every todo row wears a planet color dot
+  // when projectId is a live project, the List|Board toggle sticks
+  // across sessions (default list), and add-a-todo still mints kind
+  // "todo". The rail claim door is untouched.
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
+  import { planetCss } from "./planetColor";
+  import NeededInbox from "./NeededInbox.svelte";
+  import type {
+    Actor,
+    Claim,
+    Difficulty,
+    KanbanCard,
+    NeededState,
+    PersistedState,
+    PointsEntry,
+    Project,
+    Tag,
+    TitleOverride,
+    WindowInfo,
+  } from "./persist";
 
   // GO-ORBITTY-HOST-SPLIT: embedded mounts this page in the companion's
   // Launchpad well — × calls onClose (never hide_window), the banner
@@ -39,163 +56,10 @@
     onPopout?: () => void;
   } = $props();
 
-  interface WindowInfo {
-    id: string;
-    pid: number;
-    appName: string;
-    title: string;
-    bundleId: string | null;
-    stableKey: string;
-    iconBase64: string | null;
-    isFrontmost: boolean;
-    isMinimized: boolean;
-  }
-
-  interface Project {
-    id: string;
-    name: string;
-  }
-
-  interface Claim {
-    windowId: string;
-    projectId: string;
-    lastTouchedAt: number;
-    // GO-LS-TAURI-USER-PACKS reboot-rematch fingerprint (rail-owned; the
-    // rail rewrites windowId on rematch and Lists adopts it from disk).
-    bundleId?: string | null;
-    appName?: string;
-    titleAtClaim?: string;
-    titleIndex?: number;
-    walkerHome?: string | null;
-  }
-
-  interface Subtask {
-    id: string;
-    title: string;
-    done: boolean;
-  }
-
-  type Difficulty = "trivial" | "easy" | "medium" | "hard";
   type Status = "todo" | "doing" | "done";
-  // GO-ORBITTY-LP-NEEDED: Needed inbox states. `later` carries dueAt as
-  // the snooze stamp; a past dueAt counts as open for the strip.
-  type NeededState = "open" | "later" | "answered" | "skipped";
-  // GO-ORBITTY-LP-ACTOR: who completed a quest. Missing on pre-actor
-  // cards/rows — the HUD reads missing as "user" (history was human).
-  type Actor = "user" | "agent" | "action" | "vps";
   // Happened chip filter: All default; mine = user|missing; behalf =
   // agent|action|vps. Session-only, like the other view state.
   type DoneFilter = "all" | "mine" | "behalf";
-
-  interface KanbanCard {
-    id: string;
-    title: string;
-    projectId: string;
-    windowId?: string | null;
-    kind?: "window" | "todo" | "needed";
-    // Dummy "todo" on Needed cards so kind-blind code never crashes —
-    // every quest view filters kind first.
-    status: Status;
-    createdAt: number;
-    lastTouchedAt: number;
-    completedAt?: number | null;
-    goalAligned: boolean;
-    clinicalOrMaster: boolean;
-    pointsAwarded: number;
-    starred?: boolean;
-    // S4.4 detail fields (additive; difficulty never touches points).
-    notes?: string;
-    difficulty?: Difficulty;
-    subtasks?: Subtask[];
-    dueAt?: number | null;
-    tagIds?: string[];
-    // GO-ORBITTY-LP-NEEDED (additive): the super-quick user-only inbox.
-    neededState?: NeededState;
-    neededWhy?: string;
-    neededAnswer?: string;
-    // GO-ORBITTY-LP-ACTOR (additive): stamped by completeCard only.
-    actor?: Actor;
-  }
-
-  interface PointsEntry {
-    id: string;
-    cardId: string;
-    amount: number;
-    day: string;
-    at: number;
-    // GO-ORBITTY-LP-ACTOR (additive): who acted on the awarding complete.
-    actor?: Actor;
-  }
-
-  interface Tag {
-    id: string;
-    name: string;
-    color?: string | null;
-  }
-
-  interface WindowTags {
-    windowId: string;
-    tagIds: string[];
-  }
-
-  // Rail-owned display renames — read-only here, round-tripped untouched.
-  interface TitleOverride {
-    windowId: string;
-    title: string;
-  }
-
-  // GO-ORBITTY-BOARD-ACTIONS: rail-owned named macros (state.rs
-  // ActionShortcut, camelCase). The well below is a second writer — same
-  // shape, same id format, same run_action invoke as the rail.
-  interface ActionShortcut {
-    id: string;
-    name: string;
-    command: string;
-    cwd?: string | null;
-  }
-
-  // Full shape — this window saves state.json, so rail-owned fields must
-  // round-trip untouched.
-  interface PersistedState {
-    themeId: string;
-    windowOpacity: number;
-    projects: Project[];
-    claims: Claim[];
-    tags: Tag[];
-    windowTags: WindowTags[];
-    collapsedSectionIds: string[];
-    nudgeSuppressedWindowIds: string[];
-    kanbanCards: KanbanCard[];
-    pointsLedger: PointsEntry[];
-    titleOverrides: TitleOverride[];
-    // GO-ORBITTY-BOARD-ACTIONS: declared so mutate() never serializes a
-    // state without the key and wipes the rail's macro array.
-    actionShortcuts?: ActionShortcut[];
-    // GO-LS-TAURI-AVATAR-LARGE: companion-window slice — owned by the
-    // companion window / native side; round-tripped untouched by mutate().
-    companion?: {
-      visible: boolean;
-      bounds: { x: number; y: number; w: number; h: number } | null;
-      imagePackId: string | null;
-      state?: string;
-    };
-    // GO-LS-STARS-STATUS: rail-owned check-in slice — round-tripped
-    // untouched by mutate() like the companion slice.
-    stars?: {
-      promptsOptIn: boolean;
-      checkins: Record<
-        string,
-        {
-          sleep: number;
-          terroir: number;
-          athleticism: number;
-          relationships: number;
-          self: number;
-        }
-      >;
-      promptsAck?: string;
-    };
-  }
 
   const DAILY_CAP = 12;
   const DIFFICULTIES: Difficulty[] = ["trivial", "easy", "medium", "hard"];
@@ -217,22 +81,27 @@
   let windows = $state<WindowInfo[]>([]);
   let titleOverrides = $state<TitleOverride[]>([]);
 
-  // GO-ORBITTY-BOARD-ACTIONS: macros well state (mirrors the rail's).
-  let actionShortcuts = $state<ActionShortcut[]>([]);
-  let actionNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
-  let addingAction = $state(false);
-  let newActionName = $state("");
-  let newActionCommand = $state("");
-  let newActionCwd = $state("");
-  let runningActionId = $state<string | null>(null);
+  // GO-ORBITTY-ACTION-FILE: no Actions well here — actions are a Settings
+  // list + `orbittyctl action` verbs; the slice still round-trips via
+  // load → mutate → save.
+  // GO-ORBITTY-LP-NEEDED: shared so strip + and sidebar form stay one toggle.
+  let addingNeeded = $state(false);
 
   // Sidebar selection: a smart filter, Inbox, or a project id. Session-only.
   let selected = $state("inbox");
   let newTodo = $state("");
   let showCompleted = $state(true);
 
-  // S4.4: List | Board toggle + detail drawer. Both session-only.
-  let view = $state<"list" | "board">("list");
+  // S4.4: List | Board toggle + detail drawer. LP-INBOX: the toggle is
+  // last-used across sessions (default list); the rest stays session-only.
+  const VIEW_KEY = "orbitty.launchpad.view";
+  let view = $state<"list" | "board">(
+    localStorage.getItem(VIEW_KEY) === "board" ? "board" : "list",
+  );
+  function setView(v: "list" | "board") {
+    view = v;
+    localStorage.setItem(VIEW_KEY, v);
+  }
   let detailId = $state<string | null>(null);
   let newSubtask = $state("");
 
@@ -269,12 +138,18 @@
 
   // Needed is never a quest: every quest view filters kind first (Needed
   // cards carry a dummy status "todo" only so kind-blind code can't crash).
+  // LP-INBOX: kind "window" never paints on Launchpad — the Planets sheet
+  // owns windows.
   let openCards = $derived(
-    kanbanCards.filter((c) => c.kind !== "needed" && c.status !== "done"),
+    kanbanCards.filter(
+      (c) => c.kind !== "needed" && c.kind !== "window" && c.status !== "done",
+    ),
   );
   let doneCards = $derived(
     kanbanCards
-      .filter((c) => c.kind !== "needed" && c.status === "done" && c.completedAt)
+      .filter(
+        (c) => c.kind !== "needed" && c.kind !== "window" && c.status === "done" && c.completedAt,
+      )
       .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
   );
 
@@ -289,17 +164,14 @@
     return doneFilter === "all" || actorSide(c) === doneFilter;
   }
 
-  // Open rows: window-linked (doing) first, then todos, oldest first.
+  // Open rows: todos only, oldest first.
   let visibleOpen = $derived.by(() => {
     if (selected === "done") return [];
     const rows =
       selected === "today"
         ? openCards.filter((c) => c.createdAt >= startOfToday())
         : openCards.filter((c) => listOf(c) === selected);
-    return [...rows].sort(
-      (a, b) =>
-        (a.windowId ? 0 : 1) - (b.windowId ? 0 : 1) || a.createdAt - b.createdAt,
-    );
+    return [...rows].sort((a, b) => a.createdAt - b.createdAt);
   });
 
   let visibleDone = $derived.by(() => {
@@ -308,23 +180,16 @@
     return doneCards.filter((c) => listOf(c) === selected);
   });
 
-  // GO-ORBITTY-LP-MINE: kind split for the quiet sections. A missing kind
-  // reads as mine — pre-kind cards were all user todos. Headings appear
-  // only when BOTH kinds are present; a lone kind renders flat.
-  let openWindows = $derived(visibleOpen.filter((c) => c.kind === "window"));
-  let openTodos = $derived(visibleOpen.filter((c) => c.kind !== "window"));
-  let openSplit = $derived(openWindows.length > 0 && openTodos.length > 0);
-  let doneWindows = $derived(visibleDone.filter((c) => c.kind === "window"));
-  let doneTodos = $derived(visibleDone.filter((c) => c.kind !== "window"));
-  let doneSplit = $derived(doneWindows.length > 0 && doneTodos.length > 0);
-  let windowHeading = $derived(
-    selected === "inbox" ? "Inbox" : "On this planet",
-  );
+  // LP-INBOX: planet color dot — only when projectId is a LIVE project
+  // (a vanished project falls back to Inbox and gets no dot).
+  function livePlanetId(card: KanbanCard): string | null {
+    return projects.some((p) => p.id === card.projectId) ? card.projectId : null;
+  }
 
   // Board scope mirrors the sidebar selection; the Done smart filter boards
   // every card so all three columns stay meaningful.
   function inScope(c: KanbanCard): boolean {
-    if (c.kind === "needed") return false;
+    if (c.kind === "needed" || c.kind === "window") return false;
     if (selected === "done") return true;
     if (selected === "today") return c.createdAt >= startOfToday();
     return listOf(c) === selected;
@@ -333,23 +198,13 @@
   let boardCols = $derived.by(() => {
     const scoped = kanbanCards.filter(inScope);
     const byAge = (a: KanbanCard, b: KanbanCard) => a.createdAt - b.createdAt;
-    // GO-ORBITTY-LP-MINE: ongoings above mine inside every column — same
-    // three columns, no new chrome.
-    const kindFirst = (a: KanbanCard, b: KanbanCard) =>
-      (a.kind === "window" ? 0 : 1) - (b.kind === "window" ? 0 : 1);
     return {
-      todo: scoped
-        .filter((c) => c.status === "todo")
-        .sort((a, b) => kindFirst(a, b) || byAge(a, b)),
-      doing: scoped
-        .filter((c) => c.status === "doing")
-        .sort((a, b) => kindFirst(a, b) || byAge(a, b)),
+      todo: scoped.filter((c) => c.status === "todo").sort(byAge),
+      doing: scoped.filter((c) => c.status === "doing").sort(byAge),
       done: scoped
         .filter((c) => c.status === "done")
         .filter(inDoneFilter)
-        .sort(
-          (a, b) => kindFirst(a, b) || (b.completedAt ?? 0) - (a.completedAt ?? 0),
-        ),
+        .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
     } as Record<Status, KanbanCard[]>;
   });
 
@@ -450,7 +305,6 @@
       kanbanCards = s.kanbanCards ?? [];
       pointsLedger = s.pointsLedger ?? [];
       titleOverrides = s.titleOverrides ?? [];
-      actionShortcuts = s.actionShortcuts ?? [];
     } catch {
       // keep last good state; next state:changed retries
     }
@@ -494,7 +348,6 @@
       s.kanbanCards ??= [];
       s.pointsLedger ??= [];
       s.titleOverrides ??= [];
-      s.actionShortcuts ??= [];
       fn(s);
       await invoke("save_state", { state: s });
       await loadState();
@@ -576,8 +429,8 @@
   }
 
   // Board drag: drop on a column = status move. Dropping on Done is the
-  // same complete door as the checkbox. Dragging a window-claimed card out
-  // of Doing unclaims its window — the board never lies about linkage.
+  // same complete door as the checkbox. Todo/Doing keep the window claim
+  // (town: todo = board, doing = field). Unclaim is Unclaim, not a column.
   function moveCard(card: KanbanCard, target: Status) {
     if (card.status === target) return;
     if (target === "done") {
@@ -593,13 +446,9 @@
               status: target,
               completedAt: null,
               lastTouchedAt: now,
-              windowId: target === "doing" ? (c.windowId ?? null) : null,
             }
           : c,
       );
-      if (card.status === "doing" && card.windowId) {
-        s.claims = s.claims.filter((c) => c.windowId !== card.windowId);
-      }
     });
     logEvent("board-move", { from: card.status, to: target, cardId: card.id }, card.projectId);
   }
@@ -631,188 +480,6 @@
     });
     newTodo = "";
   }
-
-  // ---- GO-ORBITTY-LP-NEEDED: the Needed inbox (pile, not a lens) ----
-  // Super-quick questions the user must answer. Never a fourth column,
-  // never points, never completeCard. Open + later show in the strip;
-  // a later whose dueAt has passed counts as open again.
-  let addingNeeded = $state(false);
-  let newNeeded = $state("");
-  let answerFor = $state<string | null>(null);
-  let answerDraft = $state("");
-
-  let neededNow = $derived(
-    kanbanCards
-      .filter(
-        (c) =>
-          c.kind === "needed" &&
-          (c.neededState === "open" || c.neededState === "later"),
-      )
-      .sort((a, b) => a.createdAt - b.createdAt),
-  );
-
-  function addNeeded() {
-    const title = newNeeded.trim();
-    if (!title) return;
-    const projectId = selectedProject?.id ?? "";
-    const now = Date.now() / 1000;
-    const id = `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    mutate((s) => {
-      s.kanbanCards = [
-        ...s.kanbanCards,
-        {
-          id,
-          title,
-          projectId,
-          windowId: null,
-          kind: "needed" as const,
-          neededState: "open" as const,
-          status: "todo" as const, // dummy — views filter kind first
-          createdAt: now,
-          lastTouchedAt: now,
-          completedAt: null,
-          goalAligned: false,
-          clinicalOrMaster: false,
-          pointsAwarded: 0,
-          starred: false,
-        },
-      ];
-    });
-    logEvent("needed-open", { cardId: id, title }, projectId);
-    newNeeded = "";
-    addingNeeded = false;
-  }
-
-  function answerNeeded(card: KanbanCard) {
-    const answer = answerDraft.trim();
-    if (!answer) return;
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              neededAnswer: answer,
-              neededState: "answered" as const,
-              lastTouchedAt: now,
-            }
-          : c,
-      );
-    });
-    // The answer text itself never enters the log — ids only.
-    logEvent("needed-answer", { cardId: card.id }, card.projectId);
-    answerFor = null;
-    answerDraft = "";
-  }
-
-  function skipNeeded(card: KanbanCard) {
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? { ...c, neededState: "skipped" as const, lastTouchedAt: now }
-          : c,
-      );
-    });
-    logEvent("needed-skip", { cardId: card.id }, card.projectId);
-    if (answerFor === card.id) {
-      answerFor = null;
-      answerDraft = "";
-    }
-  }
-
-  // Snooze one local day; the strip treats a past dueAt as open again.
-  function laterNeeded(card: KanbanCard) {
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              neededState: "later" as const,
-              dueAt: now + 86400,
-              lastTouchedAt: now,
-            }
-          : c,
-      );
-    });
-    logEvent("needed-later", { cardId: card.id }, card.projectId);
-    if (answerFor === card.id) {
-      answerFor = null;
-      answerDraft = "";
-    }
-  }
-
-  // ---- GO-ORBITTY-BOARD-ACTIONS: macros well (same array as the rail) ----
-
-  interface ActionResult {
-    ok: boolean;
-    code: number | null;
-    stdout: string;
-    stderr: string;
-  }
-
-  function addAction() {
-    const name = newActionName.trim();
-    const command = newActionCommand.trim();
-    if (!name || !command) return;
-    const cwd = newActionCwd.trim() || null;
-    mutate((s) => {
-      s.actionShortcuts = [
-        ...(s.actionShortcuts ?? []),
-        {
-          id: `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-          name,
-          command,
-          cwd,
-        },
-      ];
-    });
-    newActionName = "";
-    newActionCommand = "";
-    newActionCwd = "";
-    addingAction = false;
-  }
-
-  function deleteAction(id: string) {
-    mutate((s) => {
-      s.actionShortcuts = (s.actionShortcuts ?? []).filter((a) => a.id !== id);
-    });
-  }
-
-  // Click runs the command via /bin/zsh -lc in cwd or $HOME; stdout/stderr
-  // surface in a small note and never crash the page. Same copy as the rail.
-  async function runAction(a: ActionShortcut) {
-    if (runningActionId) return;
-    runningActionId = a.id;
-    actionNote = null;
-    try {
-      const r = await invoke<ActionResult>("run_action", {
-        command: a.command,
-        cwd: a.cwd ?? null,
-      });
-      const out = [r.stdout, r.stderr].filter(Boolean).join("\n");
-      const head = r.ok ? `${a.name}: done` : `${a.name}: exit ${r.code ?? "?"}`;
-      actionNote = {
-        kind: r.ok ? "ok" : "err",
-        text: out ? `${head}\n${out}` : head,
-      };
-    } catch (e) {
-      actionNote = { kind: "err", text: `${a.name}: ${e}` };
-    }
-    runningActionId = null;
-  }
-
-  // Next chip: same smallest rule as the companion — first Doing card,
-  // first undone subtask else the card title. Local focus only.
-  let nextTodo = $derived.by(() => {
-    const card = kanbanCards.find(
-      (c) => c.kind !== "needed" && c.status === "doing",
-    );
-    if (!card) return null;
-    const sub = card.subtasks?.find((s) => !s.done);
-    return { cardId: card.id, text: sub?.title || card.title };
-  });
 
   // ---- detail drawer mutations (all additive on the card) ----
 
@@ -1002,7 +669,11 @@
     if (!p) return;
     const titles = kanbanCards
       .filter(
-        (c) => c.kind !== "needed" && c.status !== "done" && listOf(c) === p.id,
+        (c) =>
+          c.kind !== "needed" &&
+          c.kind !== "window" &&
+          c.status !== "done" &&
+          listOf(c) === p.id,
       )
       .map((c) => c.title);
     try {
@@ -1162,30 +833,24 @@
   </div>
 {/snippet}
 
-<!-- GO-ORBITTY-LP-MINE: row snippets so the split sections and the flat
-     list share one row shape. -->
+<!-- GO-ORBITTY-LP-INBOX: one row shape, todos only. Every row wears a
+     planet color dot when projectId is a live project. -->
 {#snippet openRow(card: KanbanCard)}
-  {@const w = winFor(card)}
-  <li class="k-row" class:min={w?.isMinimized}>
+  {@const pid = livePlanetId(card)}
+  <li class="k-row">
     <button
       class="k-check"
       onclick={() => toggleCard(card)}
       title="Mark done"
       aria-label="Mark done"
     ></button>
-    {#if card.windowId}
-      <button
-        class="k-iconbtn"
-        onclick={() => focusCard(card)}
-        title={w ? `Focus ${w.appName}` : "Window not open"}
-        aria-label="Focus linked window"
-      >
-        {#if w?.iconBase64}
-          <img class="k-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
-        {:else}
-          <span class="k-icon fallback" aria-hidden="true">▦</span>
-        {/if}
-      </button>
+    {#if pid}
+      <span
+        class="planet-chip"
+        style="background: {planetCss(pid)}"
+        title={projectName(pid)}
+        aria-hidden="true"
+      ></span>
     {/if}
     <button
       class="k-name"
@@ -1203,6 +868,7 @@
 
 {#snippet doneRow(card: KanbanCard)}
   {@const chip = doneChip(card)}
+  {@const pid = livePlanetId(card)}
   <li class="k-row done">
     <button
       class="k-check checked"
@@ -1210,6 +876,14 @@
       title="Reopen as a to-do"
       aria-label="Reopen as a to-do">✓</button
     >
+    {#if pid}
+      <span
+        class="planet-chip"
+        style="background: {planetCss(pid)}"
+        title={projectName(pid)}
+        aria-hidden="true"
+      ></span>
+    {/if}
     <button
       class="k-name strike"
       onclick={() => openDetail(card)}
@@ -1273,186 +947,37 @@
         role="tab"
         aria-selected={view === "list"}
         class:active={view === "list"}
-        onclick={() => (view = "list")}>List</button
+        onclick={() => setView("list")}>List</button
       >
       <button
         role="tab"
         aria-selected={view === "board"}
         class:active={view === "board"}
-        onclick={() => (view = "board")}>Board</button
+        onclick={() => setView("board")}>Board</button
       >
     </div>
     <span class="k-pts" title="Points today / daily cap">{pointsToday()}/{DAILY_CAP}</span>
   </header>
 
-  <!-- GO-ORBITTY-LP-NEEDED: the Needed inbox strip — full width under the
-       banner, above .k-body. Rendered only while an open/later Needed
-       exists; empty means no chrome. Quiet pile, never a fourth column. -->
-  {#if neededNow.length > 0}
-    <section class="k-needed" aria-label="Needed from you">
-      <div class="kn-head">
-        <span class="kn-title">Needed from you</span>
-        <button
-          class="ka-plus"
-          onclick={() => (addingNeeded = true)}
-          title="Add a Needed question"
-          aria-label="Add a Needed question">+</button
-        >
-      </div>
-      <ul class="kn-rows">
-        {#each neededNow as card (card.id)}
-          <li class="kn-row">
-            <div class="kn-main">
-              <span class="kn-q">{card.title}</span>
-              {#if card.neededWhy}
-                <span class="kn-why">{card.neededWhy}</span>
-              {/if}
-              {#if answerFor === card.id}
-                <div class="kn-answer">
-                  <input
-                    bind:value={answerDraft}
-                    placeholder="Your answer…"
-                    aria-label="Your answer"
-                    onkeydown={(e) => {
-                      if (e.key === "Enter") answerNeeded(card);
-                      if (e.key === "Escape") {
-                        answerFor = null;
-                        answerDraft = "";
-                      }
-                    }}
-                  />
-                  <button class="mini" onclick={() => answerNeeded(card)}>Save</button>
-                </div>
-              {/if}
-            </div>
-            <div class="kn-acts">
-              <button
-                class="mini"
-                class:active={answerFor === card.id}
-                onclick={() => {
-                  answerFor = answerFor === card.id ? null : card.id;
-                  answerDraft = "";
-                }}>Answer</button
-              >
-              <button class="mini ghost" onclick={() => skipNeeded(card)}>Skip</button>
-              <button
-                class="mini ghost"
-                onclick={() => laterNeeded(card)}
-                title="Ask again tomorrow">Later</button
-              >
-            </div>
-          </li>
-        {/each}
-      </ul>
-    </section>
-  {/if}
+  <NeededInbox
+    variant="strip"
+    cards={kanbanCards}
+    projectId={selectedProject?.id ?? ""}
+    {mutate}
+    {logEvent}
+    bind:addingNeeded
+  />
 
   <div class="k-body">
     <aside class="k-side" aria-label="Lists">
-      <!-- GO-ORBITTY-BOARD-ACTIONS: named macros on the Launchpad sidebar —
-           the same actionShortcuts array as the rail, written via mutate(). -->
-      <section class="k-actions" aria-label="Actions">
-        <header class="ka-head">
-          <span class="ka-title">Actions</span>
-          <button
-            class="ka-plus"
-            onclick={() => (addingAction = !addingAction)}
-            title={addingAction ? "Cancel" : "Add an action"}
-            aria-label={addingAction ? "Cancel add action" : "Add action"}
-            aria-expanded={addingAction}>{addingAction ? "×" : "+"}</button
-          >
-        </header>
-
-        {#if nextTodo}
-          {@const t = nextTodo}
-          <button
-            class="ka-next"
-            onclick={() => onFocusCard(t.cardId)}
-            title="Focus the smallest open to-do — {t.text}"
-          >
-            <span class="ka-next-label">Next</span>
-            <span class="ka-next-text">{t.text}</span>
-          </button>
-        {/if}
-
-        {#each actionShortcuts as a (a.id)}
-          <div class="ka-row">
-            <button
-              class="ka-run"
-              class:running={runningActionId === a.id}
-              onclick={() => runAction(a)}
-              title="Run: {a.command}">{a.name}</button
-            >
-            <button
-              class="ka-del"
-              onclick={() => deleteAction(a.id)}
-              title="Delete {a.name}"
-              aria-label="Delete {a.name}">×</button
-            >
-          </div>
-        {:else}
-          {#if !addingAction}
-            <p class="ka-hint">No actions yet.</p>
-          {/if}
-        {/each}
-
-        {#if addingAction}
-          <div class="ka-form">
-            <input
-              bind:value={newActionName}
-              placeholder="Name"
-              aria-label="Action name"
-            />
-            <input
-              bind:value={newActionCommand}
-              placeholder="Command"
-              aria-label="Shell command"
-              onkeydown={(e) => e.key === "Enter" && addAction()}
-            />
-            <input
-              bind:value={newActionCwd}
-              placeholder="Working directory (optional)"
-              aria-label="Working directory (optional)"
-              onkeydown={(e) => e.key === "Enter" && addAction()}
-            />
-            <button class="mini" onclick={addAction}>Save</button>
-          </div>
-        {/if}
-
-        {#if actionNote}
-          <div class="ka-note" class:err={actionNote.kind === "err"}>
-            <span class="ka-notetext">{actionNote.text}</span>
-            <button class="mini ghost" onclick={() => (actionNote = null)} aria-label="Dismiss">×</button>
-          </div>
-        {/if}
-      </section>
-
-      <!-- GO-ORBITTY-LP-NEEDED: + Needed under the Actions well — always
-           available so the first card can be born while the strip is
-           hidden. One-line title; Enter/Save mints kind "needed". -->
-      <section class="k-needed-side" aria-label="Needed">
-        <header class="ka-head">
-          <span class="ka-title">Needed</span>
-          <button
-            class="ka-plus"
-            onclick={() => (addingNeeded = !addingNeeded)}
-            title={addingNeeded ? "Cancel" : "Add a Needed question"}
-            aria-label={addingNeeded ? "Cancel add needed" : "Add a Needed question"}
-            aria-expanded={addingNeeded}>{addingNeeded ? "×" : "+"}</button
-          >
-        </header>
-        {#if addingNeeded}
-          <div class="ka-form">
-            <input
-              bind:value={newNeeded}
-              placeholder="Needed from you…"
-              aria-label="Needed question"
-              onkeydown={(e) => e.key === "Enter" && addNeeded()}
-            />
-            <button class="mini" onclick={addNeeded}>Save</button>
-          </div>
-        {/if}
-      </section>
+      <NeededInbox
+        variant="side"
+        cards={kanbanCards}
+        projectId={selectedProject?.id ?? ""}
+        {mutate}
+        {logEvent}
+        bind:addingNeeded
+      />
 
       <div class="side-sep" aria-hidden="true"></div>
 
@@ -1489,6 +1014,12 @@
           class:sel={selected === p.id}
           onclick={() => (selected = p.id)}
         >
+          <span
+            class="planet-chip"
+            style="background: {planetCss(p.id)}"
+            title={p.name}
+            aria-hidden="true"
+          ></span>
           <span class="side-name">{p.name}</span>
           <span class="side-count">{sideCount(p.id)}</span>
         </button>
@@ -1497,6 +1028,14 @@
 
     <section class="k-main" aria-label={listTitle}>
       <div class="k-titlerow">
+        {#if selectedProject}
+          <span
+            class="planet-chip"
+            style="background: {planetCss(selectedProject.id)}"
+            title={selectedProject.name}
+            aria-hidden="true"
+          ></span>
+        {/if}
         <h2 class="k-title">{listTitle}</h2>
         {#if selected === "done"}
           {@render doneActorChips()}
@@ -1536,7 +1075,7 @@
               </header>
               <div class="b-cards">
                 {#each boardCols[col.id] as card (card.id)}
-                  {@const w = winFor(card)}
+                  {@const pid = livePlanetId(card)}
                   <article
                     class="b-card"
                     class:dragging={dragCardId === card.id}
@@ -1551,12 +1090,13 @@
                     title="{displayTitle(card)} — click for details, drag to move"
                   >
                     <div class="b-card-top">
-                      {#if card.windowId}
-                        {#if w?.iconBase64}
-                          <img class="k-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
-                        {:else}
-                          <span class="k-icon fallback" aria-hidden="true">▦</span>
-                        {/if}
+                      {#if pid}
+                        <span
+                          class="planet-chip"
+                          style="background: {planetCss(pid)}"
+                          title={projectName(pid)}
+                          aria-hidden="true"
+                        ></span>
                       {/if}
                       <span class="b-title" class:strike={card.status === "done"}>{displayTitle(card)}</span>
                     </div>
@@ -1575,36 +1115,21 @@
           {/each}
         </div>
       {:else}
-        <!-- GO-ORBITTY-LP-MINE: a mixed set renders two quiet sections —
-             ongoings first, then mine. One kind only stays a flat list. -->
-        {#if openSplit}
-          <h3 class="k-sect">{windowHeading}</h3>
-          <ul class="k-rows">
-            {#each openWindows as card (card.id)}
-              {@render openRow(card)}
-            {/each}
-          </ul>
-          <h3 class="k-sect">My list</h3>
-          <ul class="k-rows">
-            {#each openTodos as card (card.id)}
-              {@render openRow(card)}
-            {/each}
-          </ul>
-        {:else}
-          <ul class="k-rows">
-            {#each visibleOpen as card (card.id)}
-              {@render openRow(card)}
-            {:else}
-              <li class="k-empty">
-                {selected === "done"
-                  ? "Nothing done yet — check a to-do."
-                  : selected === "today"
-                    ? "Nothing new today."
-                    : "All clear. Add a to-do below."}
-              </li>
-            {/each}
-          </ul>
-        {/if}
+        <!-- GO-ORBITTY-LP-INBOX: one flat list of your todos — no
+             "On this planet" / window-first split. -->
+        <ul class="k-rows">
+          {#each visibleOpen as card (card.id)}
+            {@render openRow(card)}
+          {:else}
+            <li class="k-empty">
+              {selected === "done"
+                ? "Nothing done yet — check a to-do."
+                : selected === "today"
+                  ? "Nothing new today."
+                  : "All clear. Add a to-do below."}
+            </li>
+          {/each}
+        </ul>
 
         {#if visibleDone.length > 0}
           <button
@@ -1616,26 +1141,11 @@
             Completed ({visibleDone.length})
           </button>
           {#if showCompleted}
-            {#if doneSplit}
-              <h3 class="k-sect">{windowHeading}</h3>
-              <ul class="k-rows done">
-                {#each doneWindows as card (card.id)}
-                  {@render doneRow(card)}
-                {/each}
-              </ul>
-              <h3 class="k-sect">My list</h3>
-              <ul class="k-rows done">
-                {#each doneTodos as card (card.id)}
-                  {@render doneRow(card)}
-                {/each}
-              </ul>
-            {:else}
-              <ul class="k-rows done">
-                {#each visibleDone as card (card.id)}
-                  {@render doneRow(card)}
-                {/each}
-              </ul>
-            {/if}
+            <ul class="k-rows done">
+              {#each visibleDone as card (card.id)}
+                {@render doneRow(card)}
+              {/each}
+            </ul>
           {/if}
         {/if}
       {/if}
@@ -1948,102 +1458,6 @@
     padding: 1px 0.5rem;
   }
 
-  /* ---- GO-ORBITTY-LP-NEEDED: the Needed inbox strip (full width under
-     the banner). Quiet ochre label, theme-token rows — no red, no count. ---- */
-  .k-needed {
-    flex-shrink: 0;
-    padding: 8px 14px 10px;
-    border-bottom: 1px solid var(--edge);
-    background: var(--panel-fill, var(--panel));
-  }
-
-  .kn-head {
-    display: flex;
-    align-items: center;
-    padding: 0 0 4px;
-  }
-
-  .kn-title {
-    flex: 1;
-    font-size: 0.66rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: #e59e3d;
-  }
-
-  .kn-rows {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .kn-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 5px 8px;
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    background: var(--bg-fill, var(--bg));
-  }
-
-  .kn-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .kn-q {
-    font-size: 0.8rem;
-    line-height: 1.35;
-    color: var(--ink);
-    overflow-wrap: anywhere;
-  }
-
-  .kn-why {
-    font-size: 0.68rem;
-    line-height: 1.35;
-    color: var(--dim);
-    overflow-wrap: anywhere;
-  }
-
-  .kn-answer {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-  }
-
-  .kn-answer input {
-    flex: 1;
-    min-width: 0;
-    font: inherit;
-    font-size: 0.76rem;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 4px 8px;
-  }
-
-  .kn-answer input:focus {
-    outline: none;
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .kn-acts {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
   .k-body {
     flex: 1;
     min-height: 0;
@@ -2128,6 +1542,15 @@
     white-space: nowrap;
   }
 
+  /* GO-ORBITTY-PLANET-MARK: the list wears the disc's marble color. */
+  .planet-chip {
+    flex-shrink: 0;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+
   .side-count {
     flex-shrink: 0;
     font-size: 0.66rem;
@@ -2143,186 +1566,6 @@
     height: 1px;
     margin: 6px 10px;
     background: var(--edge);
-  }
-
-  /* ---- GO-ORBITTY-BOARD-ACTIONS: macros well at the top of the sidebar ---- */
-  .k-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .ka-head {
-    display: flex;
-    align-items: center;
-    padding: 0 4px 0 10px;
-  }
-
-  .ka-title {
-    flex: 1;
-    font-size: 0.66rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--dim);
-  }
-
-  .ka-plus {
-    font: inherit;
-    font-size: 0.82rem;
-    line-height: 1;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 5px;
-    padding: 1px 6px;
-    cursor: pointer;
-  }
-
-  .ka-plus:hover {
-    color: var(--accent);
-    background: var(--bg-fill, var(--bg));
-  }
-
-  .ka-next {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    width: 100%;
-    font: inherit;
-    font-size: 0.74rem;
-    text-align: left;
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 4px 10px;
-    cursor: pointer;
-  }
-
-  .ka-next:hover {
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .ka-next-label {
-    flex-shrink: 0;
-    font-size: 0.62rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--accent);
-  }
-
-  .ka-next-text {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--ink);
-  }
-
-  .ka-row {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-
-  .ka-run {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font: inherit;
-    font-size: 0.78rem;
-    text-align: left;
-    color: var(--ink);
-    background: transparent;
-    border: none;
-    border-radius: 7px;
-    padding: 4px 10px;
-    cursor: pointer;
-  }
-
-  .ka-run:hover {
-    background: var(--bg-fill, var(--bg));
-    color: var(--accent);
-  }
-
-  .ka-run.running {
-    opacity: 0.55;
-  }
-
-  .ka-del {
-    flex-shrink: 0;
-    font: inherit;
-    font-size: 0.74rem;
-    line-height: 1;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    padding: 1px 5px;
-    cursor: pointer;
-  }
-
-  .ka-del:hover {
-    color: #ff453a;
-  }
-
-  .ka-hint {
-    margin: 0;
-    padding: 0 10px;
-    font-size: 0.66rem;
-    color: var(--dim);
-  }
-
-  .ka-form {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 2px 0;
-  }
-
-  .ka-form input {
-    width: 100%;
-    box-sizing: border-box;
-    font: inherit;
-    font-size: 0.76rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 5px 8px;
-  }
-
-  .ka-form input:focus {
-    outline: none;
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .ka-note {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-    padding: 5px 8px;
-    font-size: 0.68rem;
-    line-height: 1.4;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    word-break: break-all;
-  }
-
-  .ka-note.err {
-    border-color: var(--accent);
-  }
-
-  .ka-notetext {
-    flex: 1;
-    min-width: 0;
-    white-space: pre-wrap;
   }
 
   .k-main {
@@ -2400,10 +1643,6 @@
     background: var(--panel-fill, var(--panel));
   }
 
-  .k-row.min .k-name {
-    opacity: 0.55;
-  }
-
   .k-check {
     flex-shrink: 0;
     display: inline-flex;
@@ -2431,18 +1670,6 @@
     color: var(--bg);
     background: var(--accent);
     border-color: var(--accent);
-  }
-
-  .k-iconbtn {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
   }
 
   .k-icon {
@@ -2630,20 +1857,6 @@
 
   .chev.open {
     transform: rotate(90deg);
-  }
-
-  /* GO-ORBITTY-LP-MINE: quiet section headings — no counts, no shame. */
-  .k-sect {
-    margin: 10px 2px 4px;
-    font-size: 0.66rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--dim);
-  }
-
-  .k-main .k-sect:first-of-type {
-    margin-top: 2px;
   }
 
   .k-add {

@@ -62,6 +62,7 @@ use tauri::{AppHandle, Emitter, Manager};
 mod audio;
 mod tick;
 mod input;
+mod draw;
 
 pub use tick::{persist_now, start};
 
@@ -230,25 +231,36 @@ const BARY_PREFIX: &str = "b\n";
 
 /// The one board → station → pose table. Stations are disc-local anchors,
 /// never Kenney buildings. The world view is flipped (isFlipped = true:
-/// disc +y renders screen-DOWN), so the compass-true stations mirror the
-/// handoff's approx y signs — north is the far rim at the TOP of the
-/// screen, where a leaving walker shrinks into the horizon.
-pub(crate) const STATION_BENCH: (f64, f64) = (-0.45, 0.05); // Todo — west
-// Doing — south / near, pulled in from the lip so a working walker
-// stands clearly on the disc (CADENCE-PATH: 0.38 sat on the front rim
-// and read as rim-strolling).
-pub(crate) const STATION_WORKBENCH: (f64, f64) = (0.0, 0.22);
-pub(crate) const STATION_GATE: (f64, f64) = (0.45, 0.05); // Needed — east
-// Done — the FAR / top rim. Disc |y| ≈ 1 is the visual rim (oblique
-// radius_y = 0.55 r), so the old -0.55 was interior — the oval's upper
-// middle, never an exit. Rim stays on the disc, off is past the
-// ellipse, hide sits just past the rim so the walker visibly steps
-// over the horizon, then vanishes.
-pub(crate) const DONE_RIM: (f64, f64) = (0.0, -0.92);
-pub(crate) const DONE_OFF: (f64, f64) = (0.0, -1.40); // walk target past the rim
-/// Past this line the walked-off walker hides until the rail's Done
-/// eviction (unclaim) lands — cadence never deletes the claim itself.
-pub(crate) const DONE_HIDE_Y: f64 = -1.08;
+/// disc +y renders screen-DOWN), so +y = front/south, −y = far/back/top
+/// of the oval, −x = screen LEFT.
+///
+/// GO-ORBITTY-WORLD-TOWN compass: igloo LEFT, board far/BACK, field
+/// middle, Needed front rim. A board-bound walker (Stand/Work) COMES
+/// FROM the igloo (STATION_HOUSE — user-placed buildings stay sandbox
+/// décor, never a spawn) and walks to its station. Sit snaps to the
+/// front rim (bad news skips the queue). Done walks to the near lip
+/// of the board, dwells, walks home to the igloo, then unclaims —
+/// never past the left rim into a hide curtain (the last walker lets
+/// the planet shrink).
+pub(crate) const STATION_HOUSE: (f64, f64) = (-0.78, 0.05); // igloo — left interior
+pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.58); // Todo — far/back board
+// Doing — the open interior field, off the front lip (the fanned target
+// keeps |y| < 0.22 and x > -0.35, so the fan never enters the igloo):
+// the walk cycle keeps running here after arrival (CADENCE-PATH stilled
+// it only because the old workbench station sat on the front rim and
+// read as rim-strolling; the rim is Needed's now).
+pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05);
+pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/south rim
+// Done — home: past the LEFT rim onto the panel (GO-ORBITTY-WORLD-TOWN,
+// replacing CADENCE-EXIT's north exit). Hide sits clearly past the
+// visual rim (LEFTOVER: no 1–2px curtain) so the walker is seen
+// stepping off the left edge, then vanishes.
+// Never a rim waypoint (that yoyo'd).
+pub(crate) const HOME_OFF: (f64, f64) = (-1.55, 0.05);
+/// Past this line (roam.x < HOME_HIDE_X) the walked-off walker hides
+/// until the rail's Done eviction (unclaim) lands — cadence never
+/// deletes the claim itself.
+pub(crate) const HOME_HIDE_X: f64 = -1.40;
 
 /// Walker cadence, resolved from the snapshot's card fields. Cap = these
 /// four plus the ambient default; no fifth pose.
@@ -257,17 +269,19 @@ pub(crate) enum Pose {
     /// No card: the existing ambient amble — which dies planet-wide while
     /// any walker here works or sits.
     Roam,
-    /// Todo: stand at the bench (walk there, then idle frame 0, bob 0).
+    /// Todo: stand at the west board (walk from the house, then idle
+    /// frame 0, bob 0).
     Stand,
-    /// Doing: work at the workbench — walk there with the walk cycle,
-    /// then work in place: idle frame 0, bob 0 (CADENCE-PATH: the
-    /// in-place walk cycle read as strolling the front rim).
+    /// Doing: work the open interior field — walk from the house, then
+    /// KEEP the walk cycle after arrival (WORLD-PLACES; CADENCE-PATH's
+    /// idle-in-place was only because the station sat on the front rim).
     Work,
-    /// Needed (open/later): sit at the gate — bad news skips the queue
-    /// (snap, never a scenic route). Idle frame 0, no bob, FULL
+    /// Needed (open/later): sit at the front rim — bad news skips the
+    /// queue (snap, never a scenic route). Idle frame 0, no bob, FULL
     /// brightness: sit is not a sleeper.
     Sit,
-    /// Done: walk to the north rim, then off; hidden past DONE_HIDE_Y.
+    /// Done: walk to the near lip of the board, touch (blit flips),
+    /// dwell, walk home to the igloo, then unclaim. No off-disc curtain.
     WalkOff,
 }
 
@@ -298,10 +312,10 @@ pub(crate) fn pose_name(p: Pose) -> &'static str {
 
 fn station_anchor(pose: Pose) -> Option<(f64, f64)> {
     match pose {
-        Pose::Stand => Some(STATION_BENCH),
-        Pose::Work => Some(STATION_WORKBENCH),
-        Pose::Sit => Some(STATION_GATE),
-        Pose::WalkOff => Some(DONE_RIM),
+        Pose::Stand => Some(STATION_BOARD),
+        Pose::Work => Some(STATION_FIELD),
+        Pose::Sit => Some(STATION_RIM),
+        Pose::WalkOff => Some(STATION_BOARD),
         Pose::Roam => None,
     }
 }
@@ -329,6 +343,15 @@ fn hash_str(s: &str) -> u64 {
     h
 }
 
+/// GO-ORBITTY-WORLD-TOWN: where a board-bound walker comes FROM — the
+/// igloo station, always. User-placed `planet.buildings` stay sandbox
+/// décor and are never a spawn. Stand/Work roams (and returns from
+/// hide) start here and walk to the station; Sit never spawns here
+/// (bad news snaps to the front rim).
+pub(crate) fn house_spawn(_planet: &Planet, _entry_id: &str) -> (f64, f64) {
+    STATION_HOUSE
+}
+
 /// A walk-off in flight never flickers back to Roam on a blank snapshot
 /// (unlinked-card / doneCard race): only a real column — or the claim
 /// leaving the snapshot — cancels it. Without this a mid-walk `""` drops
@@ -341,47 +364,15 @@ fn sticky_pose(prev: Pose, next: Pose) -> Pose {
     }
 }
 
-/// Distance from the origin to the segment (x0,y0)→(x1,y1).
-fn seg_origin_dist(x0: f64, y0: f64, x1: f64, y1: f64) -> f64 {
-    let dx = x1 - x0;
-    let dy = y1 - y0;
-    let len2 = dx * dx + dy * dy;
-    if len2 < 1e-12 {
-        return (x0 * x0 + y0 * y0).sqrt();
-    }
-    let t = (-(x0 * dx + y0 * dy) / len2).clamp(0.0, 1.0);
-    let px = x0 + t * dx;
-    let py = y0 + t * dy;
-    (px * px + py * py).sqrt()
-}
-
-/// Done path target: rim, then off — never through the disc center. From
-/// the south stations (workbench) the straight line to DONE_RIM passes
-/// through (0,0); route around via a shoulder waypoint (hashed side) on
-/// the exit half — |r| ≈ 0.85 at y = -0.72, never a disc-middle y
-/// (|y| < 0.70 is not an exit) — so the leave reads as an exit over the
-/// horizon, not a commute across the nose.
-pub(crate) fn walkoff_target(entry_id: &str, x: f64, y: f64) -> (f64, f64) {
-    let d_rim = ((x - DONE_RIM.0).powi(2) + (y - DONE_RIM.1).powi(2)).sqrt();
-    if d_rim < 0.05 {
-        return DONE_OFF;
-    }
-    // Direct line to the rim clears the center — take it.
-    if seg_origin_dist(x, y, DONE_RIM.0, DONE_RIM.1) > 0.16 {
-        return DONE_RIM;
-    }
-    // Shoulder waypoint on the exit half: west or east (hashed side),
-    // far enough north that no leg homes at disc-middle; both legs
-    // skirt the center.
+/// GO-ORBITTY-WORLD-TOWN: WalkOff always aims past the LEFT rim onto
+/// the panel — Done goes home to the igloo, then off the west edge.
+/// Hashed y (±0.12) so two Done walkers don't overlap. `x` is clamped
+/// so a target is never more EAST than the walker already is — x only
+/// ever decreases, so there is no yoyo.
+pub(crate) fn walkoff_target(entry_id: &str, x: f64, _y: f64) -> (f64, f64) {
     let h = hash_str(entry_id);
-    let wx = if (h >> 16) & 1 == 0 { -0.45 } else { 0.45 };
-    let wy = -0.72;
-    let d_w = ((x - wx).powi(2) + (y - wy).powi(2)).sqrt();
-    if d_w < 0.05 {
-        DONE_RIM
-    } else {
-        (wx, wy)
-    }
+    let ty = if (h >> 16) & 1 == 0 { -0.12 } else { 0.12 };
+    (HOME_OFF.0.min(x), ty)
 }
 
 /// A Done walker past the hide line: not drawn, not hit-tested — it waits
@@ -391,7 +382,7 @@ pub(crate) fn walker_hidden(planet: &Planet, b: &Being) -> bool {
         && planet
             .roam
             .get(&b.entry_id)
-            .is_some_and(|r| r.y < DONE_HIDE_Y)
+            .is_some_and(|r| r.x < HOME_HIDE_X)
 }
 
 /// The walk-off finished: tell the rail so its existing Done eviction
@@ -406,67 +397,25 @@ pub(crate) fn emit_walked_off(entry_id: &str) {
     }
 }
 
-// Right-click decor (simple pixels on the disc surface). L leaf, S stem,
-// R cap, W stem/spots, . clear. PLANT is the sprout; TREE takes over at
-// half grown (ORBITTY_PLANET_PLACE_GROW: sprout → tree, ~7 days).
-const PLANT: [&str; 6] = ["..L..", ".L.L.", "..S..", "..S..", "..S..", ".SSS."];
+/// GO-ORBITTY-WORLD-CHECKIN: a Todo walker touched the near lip of the
+/// board — the rail's listener flips that window's card todo→doing
+/// (only if still todo; a human drag always wins). Fire-and-forget,
+/// once per claim journey (anim_tick's via_checkin), same shape as
+/// emit_walked_off. Not a WalkOff path — via_board/via_home stay
+/// Done-only.
+pub(crate) fn emit_board_checkin(entry_id: &str) {
+    if let Some(app) = app_handle() {
+        let _ = app.emit_to("main", "habitat:board-checkin", entry_id.to_string());
+    }
+}
 
-// T trunk, G canopy.
-const TREE: [&str; 9] = [
-    "...GGG...",
-    "..GGGGG..",
-    ".GGGGGGG.",
-    "..GGGGG..",
-    "...GGG...",
-    "....T....",
-    "....T....",
-    "....T....",
-    "..TTTTT..",
-];
 
-const MUSHROOM: [&str; 7] = [
-    "..RRR..",
-    ".RRRRR.",
-    "RRWRRWR",
-    ".RRRRR.",
-    "...W...",
-    "...W...",
-    "..WWW..",
-];
-
-// B body, H handle, K speaker cone, W cone glint.
-const HOUSE: [&str; 8] = [
-    "..RRRRR.",
-    ".RRRRRRR",
-    "RRRRRRRR",
-    "WWWWWWWW",
-    "WWDDDWWW",
-    "WWDDDWWW",
-    "WWDDDWWW",
-    "WWWWWWWW",
-];
-
-const BOOMBOX: [&str; 7] = [
-    "..HHHH..",
-    ".HHHHHH.",
-    "BBBBBBBB",
-    "BKKBBKKB",
-    "BKWBBWKB",
-    "BKKBBKKB",
-    "BBBBBBBB",
-];
-
-/// Decor growth window: planted → fully grown.
-const GROW_SECS: f64 = 7.0 * 86400.0;
 /// Decor budget: 3 plants + 3 mushrooms at first sight, +1 each every 2
 /// days, capped at 5+5; the boombox is always a single placement.
 const DECOR_BASE: usize = 3;
 const DECOR_CAP: usize = 5;
 const DECOR_STEP_SECS: f64 = 2.0 * 86400.0;
 
-fn growth_t(planted_at: f64, now: f64) -> f64 {
-    ((now - planted_at) / GROW_SECS).clamp(0.0, 1.0)
-}
 
 /// (plants, mushrooms) the world may hold right now.
 fn decor_budget(first_seen: f64, now: f64) -> (usize, usize) {
@@ -531,39 +480,12 @@ fn clamp_disc(x: f64, y: f64) -> (f64, f64) {
     }
 }
 
-/// Plant look at growth t: sprout art until half grown, then a tree
-/// (scale + extra pixels). Returns the art and its pixel scale.
-fn plant_metrics(t: f64) -> (&'static [&'static str], f64) {
-    let scale = 2.0 * (0.6 + 0.8 * t);
-    if t < 0.5 {
-        (&PLANT[..], scale)
-    } else {
-        (&TREE[..], scale)
-    }
-}
-
-/// Mushroom cluster: 1 cap at planting → up to 5 at full growth. Offsets
-/// are view px at scale 1.5 per mini shroom.
-const SHROOM_OFFSETS: [(f64, f64); 5] = [
-    (0.0, 0.0),
-    (-9.0, 4.0),
-    (9.0, 5.0),
-    (-5.0, -6.0),
-    (6.0, -5.0),
-];
-const SHROOM_SCALE: f64 = 1.5;
-
-fn shroom_count(t: f64) -> usize {
-    1 + (t * 4.0).round() as usize
-}
-
-const BOOMBOX_SCALE: f64 = 2.0;
 
 // ---------- persisted world positions ----------
 
 /// One placed plant/mushroom: disc-local unit coords (-1..1) + birth time
 /// for the 7-day growth curve.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 struct DecorItem {
     x: f64,
@@ -572,7 +494,7 @@ struct DecorItem {
 }
 
 /// Boombox placement (no growth — it just sits there and plays).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 struct DecorPoint {
     x: f64,
@@ -587,7 +509,25 @@ enum Projection {
 
 impl Default for Projection {
     fn default() -> Self {
+        Projection::Oblique
+    }
+}
+
+/// GO-ORBITTY-PROJ-LOCK: expanded planets are always 2.5D; marbles are
+/// always 2D. Not a persisted per-planet switch.
+fn locked_projection(is_marble: bool) -> Projection {
+    if is_marble {
         Projection::Flat
+    } else {
+        Projection::Oblique
+    }
+}
+
+fn locked_projection_str(is_marble: bool) -> &'static str {
+    if is_marble {
+        "flat"
+    } else {
+        "oblique"
     }
 }
 
@@ -614,7 +554,8 @@ pub(crate) struct WorldState {
     /// full volume — the container `default` would give 0.0.
     #[serde(default = "default_boombox_volume")]
     boombox_volume: f32,
-    /// "flat" (2D disc) | "oblique" (2.5D ellipse); empty = flat.
+    /// Legacy field. Live disc ignores this — GO-ORBITTY-PROJ-LOCK derives
+    /// projection from marble vs expanded. Rewritten on sync to heal.
     projection: String,
     /// First time this world was seen; 0 = pre-GROW save (set to now on
     /// load). The decor budget grows from this.
@@ -623,16 +564,6 @@ pub(crate) struct WorldState {
     mushrooms: Vec<DecorItem>,
     buildings: Vec<DecorItem>,
     boombox_pos: Option<DecorPoint>,
-}
-
-impl WorldState {
-    fn projection(&self) -> Projection {
-        if self.projection == "oblique" {
-            Projection::Oblique
-        } else {
-            Projection::Flat
-        }
-    }
 }
 
 fn default_boombox_volume() -> f32 {
@@ -750,6 +681,22 @@ struct RoamState {
     /// north rim). Reset whenever the pose leaves WalkOff so a re-claimed
     /// walker's next Done emits again.
     off_emitted: bool,
+    /// WORLD-TOUCH / WORLD-STOP: a Done walker has reached the near lip
+    /// of the board (south edge of `board_column_rects`, not STATION_BOARD).
+    /// Lifts the blit hold (tick may move to done) and arms the lip dwell.
+    /// Reset whenever the pose leaves WalkOff.
+    via_board: bool,
+    /// WORLD-HOME: after the lip dwell, the walker has reached the igloo.
+    /// Emit only after this. Reset whenever the pose leaves WalkOff.
+    /// Never a left-rim curtain (`HOME_OFF` stays dead).
+    via_home: bool,
+    /// GO-ORBITTY-WORLD-CHECKIN: a Stand (Todo) walker has touched the
+    /// board and the check-in emit fired — the rail flips that window's
+    /// card todo→doing and the next sync walks it to the field as Work.
+    /// Sticky for the roam entry's life (a manual drag back to Todo
+    /// stays Todo); re-arms only on a fresh claim journey — a new roam
+    /// entry, or the return-from-hide teleport in anim_tick.
+    via_checkin: bool,
 }
 
 /// GO-ORBITTY-MARBLE-SOLAR: a marble's in-memory track membership.
@@ -798,6 +745,11 @@ pub(crate) struct Planet {
     dots: Vec<Being>,
     /// Transient native caption pill (single-click feedback), ~2s.
     caption: Option<(String, Instant)>,
+    /// GO-ORBITTY-PLANET-MARK: the cursor is over a marble's disc — draw
+    /// the planet name as the caption pill whenever no click caption is
+    /// live. Set by the cursor watcher (panels ignore mouse events
+    /// off-disc, so AppKit tracking areas would never see the enter).
+    hover_name: bool,
     /// GO-ORBITTY-MARBLE-SOLAR: sun membership + join ease; cleared by
     /// isolation and when motion is stilled. The track itself (radius,
     /// phase, period) is hashed from the marble's id on the fly — these
@@ -834,6 +786,10 @@ pub(crate) struct Planet {
     /// every Being — no icon re-decode, roam state untouched.
     walker_entries: Vec<HabitatEntry>,
     dot_entries: Vec<HabitatEntry>,
+    /// GO-ORBITTY-WORLD-TOWN: the back-board's ticks (id + column, no
+    /// titles), mirrored from the snapshot. Drawn as the three-column
+    /// board blit; marbles never draw it.
+    board_cards: Vec<crate::habitat::BoardCardTick>,
 }
 
 /// Any Planet drop (stale teardown, marble-budget cap, map clear) ends its
@@ -894,6 +850,8 @@ pub(crate) struct Habitat {
     worlds_dirty: bool,
     drag: Option<Drag>,
     pending_click: Option<PendingClick>,
+    /// WORLD-TOUCH leftover: mouse-down on the planet board's Done column.
+    pending_board_done: Option<String>,
     /// GO-ORBITTY-RAIL-ROW-MENU: the locate stroke — (entry id, armed at).
     /// Drawn as a ~500ms ring around the walker's frame; cursor_tick
     /// expires it (10Hz, so Reduce Motion can't pin it on).
@@ -1009,19 +967,20 @@ unsafe fn fill_oval(rect: NSRect) {
     let _: () = msg_send![path, fill];
 }
 
-fn shaded(color: (f64, f64, f64), factor: f64) -> (f64, f64, f64) {
-    (
-        (color.0 * factor).min(1.0),
-        (color.1 * factor).min(1.0),
-        (color.2 * factor).min(1.0),
-    )
-}
 
 /// Stable per-project planet color: golden-angle hue scatter, pastel-leaning.
 fn color_for(project_id: &str) -> (f64, f64, f64) {
     let sum: u32 = project_id.bytes().map(|b| b as u32).sum();
     let hue = ((sum as f64) * 137.508) % 360.0 / 360.0;
     hsv(hue, 0.55, 0.80)
+}
+
+/// GO-ORBITTY-WORLD-TOWN: stable per-card tick color for the board blit —
+/// the same golden-angle idea as color_for, one hue per card id.
+pub(crate) fn card_color(card_id: &str) -> (f64, f64, f64) {
+    let sum: u32 = card_id.bytes().map(|b| b as u32).sum();
+    let hue = ((sum as f64) * 137.508) % 360.0 / 360.0;
+    hsv(hue, 0.60, 0.92)
 }
 
 fn hsv(h: f64, s: f64, v: f64) -> (f64, f64, f64) {
@@ -1086,17 +1045,6 @@ unsafe fn ns_image_from_bytes(bytes: &[u8]) -> *mut Object {
     img
 }
 
-/// Draw an NSImage into a flipped world view without inverting it.
-unsafe fn draw_nsimage(img: *mut Object, dest: NSRect, fraction: f64) {
-    let zero = NSRect::default();
-    let _: () = msg_send![img,
-        drawInRect: dest
-        fromRect: zero
-        operation: 2usize
-        fraction: fraction
-        respectFlipped: true
-        hints: std::ptr::null::<Object>()];
-}
 
 /// Bitmap rep for pixel dimensions / CGImage slicing. Returns null for
 /// formats NSBitmapImageRep can't parse (some webp) — callers fall back to
@@ -1313,33 +1261,6 @@ unsafe fn slice_rep_frames(rep: *mut Object, fw: isize, fh: isize, total: isize)
     out
 }
 
-/// Sleeping walker (GO-ORBITTY-SLEEPERS): a truly static frame — idle[0]
-/// when the pack ships an idle cycle, else walk[0]. No cycling at all.
-fn pack_frame_still(h: &Habitat, pack: Option<usize>) -> usize {
-    let Some((_, pf)) = pack.and_then(|p| h.pack_frames.get(p)) else {
-        return 0;
-    };
-    pf.idle.first().or_else(|| pf.walk.first()).copied().unwrap_or(0)
-}
-
-/// Current frame for a being: moving walkers cycle the walk art (up to 8
-/// frames at 10Hz, desynced per walker); paused walkers freeze on the
-/// still frame (idle[0] else walk[0]) — no idle cycling while standing.
-fn pack_frame_ptr(h: &Habitat, pack: Option<usize>, walker_index: usize, moving: bool) -> usize {
-    let Some((_, pf)) = pack.and_then(|p| h.pack_frames.get(p)) else {
-        return 0;
-    };
-    if moving {
-        let n = pf.walk.len();
-        if n == 0 {
-            return 0;
-        }
-        let cycle = if n >= 2 { n.min(8) } else { 1 };
-        pf.walk[((h.anim_frame / 2) as usize + walker_index) % cycle]
-    } else {
-        pack_frame_still(h, pack)
-    }
-}
 
 // ---------- being-editor preview (GO-ORBITTY-CHARS) ----------
 
@@ -1719,7 +1640,7 @@ fn default_state(screen_id: &str, existing_on_screen: usize) -> WorldState {
         boombox: false,
         music: String::new(),
         boombox_volume: 1.0,
-        projection: String::new(),
+        projection: "oblique".into(),
         first_seen: now_epoch(),
         plants: Vec::new(),
         mushrooms: Vec::new(),
@@ -1822,7 +1743,7 @@ unsafe fn register_world_view_class() -> Option<&'static Class> {
     // redraws the whole view.
     decl.add_method(
         sel!(drawRect:),
-        draw_rect as extern "C" fn(&Object, Sel, NSRect),
+        draw::draw_rect as extern "C" fn(&Object, Sel, NSRect),
     );
     decl.add_method(
         sel!(mouseDown:),
@@ -1915,14 +1836,6 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
         input::menu_boombox_volume as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
-        sel!(planetSetFlat:),
-        input::menu_set_flat as extern "C" fn(&Object, Sel, *mut Object),
-    );
-    decl.add_method(
-        sel!(planetSetOblique:),
-        input::menu_set_oblique as extern "C" fn(&Object, Sel, *mut Object),
-    );
-    decl.add_method(
         sel!(planetPlaceBuilding:),
         input::menu_place_building as extern "C" fn(&Object, Sel, *mut Object),
     );
@@ -1970,562 +1883,13 @@ extern "C" fn accepts_first_mouse(_this: &Object, _cmd: Sel, _event: *mut Object
     true
 }
 
-/// Copy of everything drawRect needs, so the lock isn't held across drawing.
-struct WalkerDraw {
-    frame: NSRect,
-    bob: f64,
-    icon: usize,
-    /// Generated-person layer picks (drawn when pack_frame is 0).
-    look: crate::chars::CharLook,
-    /// Per-walker size multiplier from the claim.
-    user_scale: f64,
-    /// 4-step walk cycle (0 = idle / contact).
-    walk_frame: u8,
-    /// Pack-frame NSImage (0 = generated person).
-    pack_frame: usize,
-    dim: f64,
-    /// Facing left (pack frames ship facing right).
-    flip: bool,
-    /// 2.5D front-arc emphasis; 1.0 in flat projection.
-    scale: f64,
-    /// GO-ORBITTY-RAIL-ROW-MENU locate: stroke a ring around this walker.
-    locate: bool,
-}
 
-struct DecorDraw {
-    kind: DecorKind,
-    /// Laid-out bounds (same rect hit-tests use).
-    frame: NSRect,
-    /// Growth 0..1 (boombox always 1).
-    t: f64,
-    /// Boombox playing (drawn dim when off).
-    on: bool,
-}
-
-struct DrawData {
-    radius: f64,
-    sprite_scale: f64,
-    is_marble: bool,
-    /// Drawn scale multiplier — always 1.0 since GO-ORBITTY-MARBLE-SOLAR
-    /// (fake Z is z-order only, no scale-throb).
-    marble_scale: f64,
-    color: (f64, f64, f64),
-    rotation: f64,
-    projection: Projection,
-    walkers: Vec<WalkerDraw>,
-    dots: Vec<NSRect>,
-    /// Fresh caption text (expired ones are dropped here, cleared on tick).
-    caption: Option<String>,
-    decor: Vec<DecorDraw>,
-}
-
+// drawRect body lives in draw.rs (GO-ORBITTY-CLEAN-HABITAT-DRAW).
 const CAPTION_TTL: Duration = Duration::from_secs(2);
 
 /// Locate stroke lifetime (GO-ORBITTY-RAIL-ROW-MENU): rail row left-click
 /// and walker left-click both glow ~500ms, then the ring draws out.
 const LOCATE_TTL: Duration = Duration::from_millis(500);
-
-extern "C" fn draw_rect(this: &Object, _cmd: Sel, _dirty: NSRect) {
-    // Called by AppKit inside the display cycle: a panic here cannot unwind
-    // through the extern boundary, so catch it instead of aborting the app.
-    let _ = catch_unwind(AssertUnwindSafe(|| draw_rect_guarded(this))).map_err(|p| {
-        eprintln!("habitat: drawRect panicked: {}", panic_msg(&*p));
-    });
-}
-
-fn draw_rect_guarded(this: &Object) {
-    let view_ptr = this as *const Object as usize;
-    let data = {
-        let h = lock();
-        let now = now_epoch();
-        h.planets.values().find(|p| p.view == view_ptr).map(|p| {
-            let walkers = p
-                .walkers
-                .iter()
-                .enumerate()
-                .filter_map(|(i, b)| {
-                    let roam = p.roam.get(&b.entry_id);
-                    // GO-ORBITTY-CADENCE: a Done walker past the hide line is
-                    // gone from the world (off the north rim) until the
-                    // rail's eviction lands — never drawn mid-padding.
-                    if walker_hidden(p, b) {
-                        return None;
-                    }
-                    let walking = roam
-                        .map(|r| {
-                            r.pause_end.is_none()
-                                && ((r.tx - r.x).powi(2) + (r.ty - r.y).powi(2)).sqrt() >= 0.025
-                        })
-                        .unwrap_or(false);
-                    // Pose-driven frame law: sit freezes on idle frame 0;
-                    // stand/work/roam/walkoff cycle only while stepping —
-                    // work arrived at the bench is idle frame 0 too
-                    // (CADENCE-PATH: the in-place walk cycle read as
-                    // rim-strolling).
-                    let cycling = match b.pose {
-                        Pose::Work | Pose::Stand | Pose::Roam | Pose::WalkOff => walking,
-                        Pose::Sit => false,
-                    };
-                    let y = roam.map(|r| r.y).unwrap_or(0.0);
-                    let locate = h
-                        .locate
-                        .as_ref()
-                        .is_some_and(|(id, at)| id == &b.entry_id && at.elapsed() < LOCATE_TTL);
-                    // Sleepers freeze on idle frame 0 — no walk cycle, no
-                    // idle cycling, no bob (bob is zeroed in anim_tick). A
-                    // Done sleeper walks off instead: the walk-off narrates
-                    // the eviction, so the still-sleeper law yields to it.
-                    let sleeper_still = b.asleep && b.pose != Pose::WalkOff;
-                    Some(WalkerDraw {
-                        frame: b.frame,
-                        bob: b.bob,
-                        icon: b.icon,
-                        look: b.look,
-                        user_scale: b.user_scale,
-                        locate,
-                        walk_frame: if cycling && !sleeper_still {
-                            ((h.anim_frame / 2) % 4) as u8
-                        } else {
-                            0
-                        },
-                        pack_frame: if sleeper_still {
-                            pack_frame_still(&h, b.pack)
-                        } else {
-                            pack_frame_ptr(&h, b.pack, i, cycling)
-                        },
-                        dim: b.dim,
-                        flip: match b.pose {
-                            // Sit faces the planet center (the gate anchor
-                            // is east; flip mirrors the right-facing art).
-                            Pose::Sit => station_anchor(Pose::Sit)
-                                .map(|(ax, _)| ax > 0.0)
-                                .unwrap_or(false),
-                            _ => roam.map(|r| r.facing_left).unwrap_or(false),
-                        },
-                        scale: match p.projection {
-                            Projection::Oblique => 1.0 + 0.25 * y,
-                            Projection::Flat => 1.0,
-                        },
-                    })
-                })
-                .collect::<Vec<_>>();
-            let mut decor = Vec::new();
-            if !p.is_marble {
-                for (dref, frame) in &p.decor_frames {
-                    let (t, on) = match dref.kind {
-                        DecorKind::Plant => (
-                            p.plants
-                                .get(dref.index)
-                                .map(|d| growth_t(d.planted_at, now))
-                                .unwrap_or(1.0),
-                            true,
-                        ),
-                        DecorKind::Mushroom => (
-                            p.mushrooms
-                                .get(dref.index)
-                                .map(|d| growth_t(d.planted_at, now))
-                                .unwrap_or(1.0),
-                            true,
-                        ),
-                        DecorKind::Building => (
-                            p.buildings
-                                .get(dref.index)
-                                .map(|d| growth_t(d.planted_at, now))
-                                .unwrap_or(1.0),
-                            true,
-                        ),
-                        DecorKind::Boombox => (1.0, p.boombox),
-                    };
-                    decor.push(DecorDraw {
-                        kind: dref.kind,
-                        frame: *frame,
-                        t,
-                        on,
-                    });
-                }
-            }
-            DrawData {
-                radius: p.radius,
-                sprite_scale: p.sprite_scale,
-                is_marble: p.is_marble,
-                marble_scale: p.marble_scale,
-                color: p.color,
-                rotation: p.rotation,
-                projection: p.projection,
-                walkers,
-                dots: p.dots.iter().map(|b| b.frame).collect::<Vec<_>>(),
-                caption: p
-                    .caption
-                    .as_ref()
-                    .filter(|(_, at)| at.elapsed() < CAPTION_TTL)
-                    .map(|(text, _)| text.clone()),
-                decor,
-            }
-        })
-    };
-    let Some(data) = data else {
-        return;
-    };
-    unsafe { draw_world(this, &data) }
-}
-
-unsafe fn draw_world(this: &Object, d: &DrawData) {
-    let bounds: NSRect = msg_send![this, bounds];
-    let center = NSPoint {
-        x: bounds.mid_x(),
-        y: bounds.mid_y(),
-    };
-    // marble_scale is 1.0 everywhere (fake Z is z-order only); the
-    // multiply stays so the disc math has one path.
-    let r = d.radius * d.marble_scale;
-    // 2.5D: the disc is an ellipse (ry ≈ rx*0.55); flat keeps ry == r.
-    let ry = radius_y(r, d.projection);
-    let rect = NSRect::new(center.x - r, center.y - ry, r * 2.0, ry * 2.0);
-    let base = d.color;
-    let dark = shaded(base, 0.6);
-    let light = shaded(base, 1.3);
-
-    // Soft shadow under the disc.
-    let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
-    let shadow: *mut Object = msg_send![class!(NSShadow), alloc];
-    let shadow: *mut Object = msg_send![shadow, init];
-    let _: () = msg_send![shadow, setShadowOffset: CGSize { width: 0.0, height: 3.0 }];
-    let _: () = msg_send![shadow, setShadowBlurRadius: if d.is_marble { 4.0 } else { 8.0 }];
-    let black: *mut Object = msg_send![class!(NSColor), blackColor];
-    let shadow_color: *mut Object = msg_send![black, colorWithAlphaComponent: 0.35f64];
-    let _: () = msg_send![shadow, setShadowColor: shadow_color];
-    let _: () = msg_send![shadow, set];
-    set_fill(ns_color(base.0, base.1, base.2, 1.0));
-    fill_oval(rect);
-    let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
-
-    // Everything inside the disc.
-    let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
-    let clip: *mut Object = msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
-    let _: () = msg_send![clip, addClip];
-
-    if !d.is_marble {
-        // Fake spin: features slide across the disc and narrow at the limbs.
-        let band_y: [f64; 3] = [-0.34, 0.04, 0.38];
-        for i in 0..3 {
-            let phase = d.rotation + (i as f64) * (std::f64::consts::TAU / 3.0);
-            let fx = center.x + phase.sin() * r * 0.55;
-            let fw = r * 0.46 * phase.cos().abs().max(0.18);
-            let fh = ry * 0.22;
-            let fy = center.y + band_y[i] * ry;
-            let c = if i % 2 == 0 { light } else { dark };
-            set_fill(ns_color(c.0, c.1, c.2, 0.30));
-            fill_oval(NSRect::new(fx - fw / 2.0, fy - fh / 2.0, fw, fh));
-        }
-    }
-
-    // Terminator shading: clear top-left → dark bottom-right.
-    let clear: *mut Object = msg_send![class!(NSColor), clearColor];
-    let shade: *mut Object = msg_send![black, colorWithAlphaComponent: 0.28f64];
-    let pair = [clear, shade];
-    let colors: *mut Object =
-        msg_send![class!(NSArray), arrayWithObjects: pair.as_ptr() count: 2usize];
-    let locations: [f64; 2] = [0.4, 1.0];
-    let space: *mut Object = msg_send![class!(NSColorSpace), deviceRGBColorSpace];
-    let grad: *mut Object = msg_send![class!(NSGradient), alloc];
-    let grad: *mut Object = msg_send![grad,
-        initWithColors: colors
-        atLocations: locations.as_ptr()
-        colorSpace: space];
-    if !grad.is_null() {
-        let start = NSPoint {
-            x: rect.origin.x + r * 0.3,
-            y: rect.origin.y + ry * 0.3,
-        };
-        let end = NSPoint {
-            x: rect.max_x() - r * 0.15,
-            y: rect.max_y() - ry * 0.15,
-        };
-        let _: () = msg_send![grad, drawFromPoint: start toPoint: end options: 0usize];
-    }
-
-    // Top-left highlight.
-    let white: *mut Object = msg_send![class!(NSColor), whiteColor];
-    let hl: *mut Object =
-        msg_send![white, colorWithAlphaComponent: if d.is_marble { 0.25 } else { 0.16 }];
-    set_fill(hl);
-    fill_oval(NSRect::new(
-        center.x - r * 0.62,
-        center.y - ry * 0.66,
-        r * 0.6,
-        ry * 0.34,
-    ));
-
-    // Placed decor on the surface (expanded planets only): plants grow
-    // sprout → tree, mushrooms 1 cap → cluster, boombox sits and plays.
-    for decor in &d.decor {
-        let cx = decor.frame.mid_x();
-        let base_y = decor.frame.max_y();
-        match decor.kind {
-            DecorKind::Plant => {
-                let (art, scale) = plant_metrics(decor.t);
-                draw_pixel_art(
-                    cx,
-                    base_y,
-                    art,
-                    scale,
-                    &[
-                        (b'L', (0.30, 0.62, 0.32)),
-                        (b'S', (0.16, 0.45, 0.22)),
-                        (b'G', (0.30, 0.62, 0.32)),
-                        (b'T', (0.35, 0.22, 0.12)),
-                    ],
-                    1.0,
-                );
-            }
-            DecorKind::Mushroom => {
-                // The laid-out frame bounds the whole cluster; each mini
-                // shroom is bottom-anchored at its offset from the base.
-                let n = shroom_count(decor.t);
-                let mini = 7.0 * SHROOM_SCALE;
-                for (dx, dy) in SHROOM_OFFSETS.iter().take(n) {
-                    draw_pixel_art(
-                        cx + dx,
-                        base_y + dy,
-                        &MUSHROOM[..],
-                        SHROOM_SCALE,
-                        &[(b'R', (0.75, 0.22, 0.22)), (b'W', (0.95, 0.93, 0.88))],
-                        1.0,
-                    );
-                }
-                let _ = mini;
-            }
-            DecorKind::Building => {
-                let scale = 1.6 + decor.t * 1.4;
-                draw_pixel_art(
-                    cx,
-                    base_y,
-                    &HOUSE[..],
-                    scale,
-                    &[
-                        (b'R', (0.62, 0.22, 0.18)),
-                        (b'W', (0.86, 0.78, 0.62)),
-                        (b'D', (0.28, 0.16, 0.10)),
-                    ],
-                    1.0,
-                );
-            }
-            DecorKind::Boombox => {
-                draw_pixel_art(
-                    cx,
-                    base_y,
-                    &BOOMBOX[..],
-                    BOOMBOX_SCALE,
-                    &[
-                        (b'H', (0.55, 0.55, 0.60)),
-                        (b'B', (0.18, 0.18, 0.22)),
-                        (b'K', (0.05, 0.05, 0.07)),
-                        (b'W', (0.85, 0.85, 0.90)),
-                    ],
-                    if decor.on { 1.0 } else { 0.55 },
-                );
-            }
-        }
-    }
-    let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
-
-    // Rim stroke.
-    let stroke_color = ns_color(dark.0, dark.1, dark.2, 0.8);
-    let _: () = msg_send![stroke_color, setStroke];
-    let ring: *mut Object =
-        msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect.inset(0.75)];
-    let _: () = msg_send![ring, setLineWidth: if d.is_marble { 1.0 } else { 1.5 }];
-    let _: () = msg_send![ring, stroke];
-
-    // Occupancy dots: white ring + project-color core.
-    for frame in &d.dots {
-        let white85: *mut Object = msg_send![white, colorWithAlphaComponent: 0.85f64];
-        set_fill(white85);
-        fill_oval(frame.inset(0.5));
-        set_fill(ns_color(base.0, base.1, base.2, 1.0));
-        fill_oval(frame.inset(3.0));
-    }
-
-    // Walkers: user-pack frame when one is loaded (GO-LS-TAURI-USER-PACKS),
-    // else the generated Orbitty person (GO-ORBITTY-CHARS); both carry the
-    // app-icon badge. `dim` fades zombies (7+ days untouched) without
-    // touching the walk physics. Pack frames draw fitted into a readable
-    // box, aspect-correct and nearest-neighbor — never a squashed strip —
-    // and flip when their roam takes them leftward. The person is painted
-    // per frame from its layer grid at the walker's own scale (gear slider
-    // × per-claim scale), bottom-anchored so it stands on the disc.
-    for w in &d.walkers {
-        let frame = &w.frame;
-        let mut sprite_rect = *frame;
-        if w.pack_frame != 0 {
-            let img = w.pack_frame as *mut Object;
-            let size: CGSize = msg_send![img, size];
-            let aspect = if size.width > 0.0 && size.height > 0.0 {
-                size.width / size.height
-            } else {
-                1.0
-            };
-            let fit = walker_fit(d.radius, d.sprite_scale * w.user_scale) * w.scale;
-            let (dw, dh) = if aspect >= 1.0 {
-                (fit, fit / aspect)
-            } else {
-                (fit * aspect, fit)
-            };
-            let cx = frame.mid_x();
-            // Bottom-aligned in the hit box (+ walk bob).
-            let base_y = frame.max_y() - 2.0 + w.bob;
-            let art = NSRect::new(cx - dw / 2.0, base_y - dh, dw, dh);
-            sprite_rect = art;
-            let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
-            let ctx: *mut Object = msg_send![class!(NSGraphicsContext), currentContext];
-            if !ctx.is_null() {
-                let _: () = msg_send![ctx, setImageInterpolation: 1usize];
-            }
-            if w.flip {
-                let tf: *mut Object = msg_send![class!(NSAffineTransform), transform];
-                let _: () = msg_send![tf, translateXBy: cx yBy: 0.0];
-                let _: () = msg_send![tf, scaleXBy: -1.0 yBy: 1.0];
-                let _: () = msg_send![tf, translateXBy: -cx yBy: 0.0];
-                let _: () = msg_send![tf, concat];
-            }
-            draw_nsimage(img, art, w.dim);
-            let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
-        } else {
-            let fit = walker_fit(d.radius, d.sprite_scale * w.user_scale) * w.scale;
-            let px = (fit / crate::chars::H as f64).clamp(1.5, 8.0);
-            let grid = crate::chars::grid(&w.look, w.walk_frame);
-            let pal = crate::chars::palette(&w.look);
-            let cx = frame.mid_x();
-            let base_y = frame.max_y() - 2.0 + w.bob;
-            let ox = cx - (crate::chars::W as f64 * px) / 2.0;
-            let oy = base_y - crate::chars::H as f64 * px;
-            sprite_rect = NSRect::new(ox, oy, crate::chars::W as f64 * px, crate::chars::H as f64 * px);
-            for (row, line) in grid.iter().enumerate() {
-                for (col, ch) in line.iter().enumerate() {
-                    let Some(c) = crate::chars::glyph_color(*ch, &pal) else {
-                        continue;
-                    };
-                    let draw_col = if w.flip { crate::chars::W - 1 - col } else { col };
-                    set_fill(ns_color(c.0, c.1, c.2, w.dim));
-                    let cell = NSRect::new(
-                        ox + draw_col as f64 * px,
-                        oy + row as f64 * px,
-                        px,
-                        px,
-                    );
-                    let _: () = msg_send![class!(NSBezierPath), fillRect: cell];
-                }
-            }
-        }
-        if w.icon != 0 {
-            // Sit on the drawn sprite's lower-right, overlapping the hem.
-            let bs = 14.0;
-            let badge = NSRect::new(
-                sprite_rect.max_x() - bs + 2.0,
-                sprite_rect.max_y() - bs + 2.0,
-                bs,
-                bs,
-            );
-            let white85: *mut Object =
-                msg_send![white, colorWithAlphaComponent: 0.85f64 * w.dim];
-            set_fill(white85);
-            fill_oval(badge.inset(-1.0));
-            draw_nsimage(w.icon as *mut Object, badge, w.dim);
-        }
-        if w.locate {
-            // Locate stroke (GO-ORBITTY-RAIL-ROW-MENU): a ~500ms ring around
-            // the walker's hit frame — glow only, never a focus/raise.
-            let ring_color: *mut Object =
-                msg_send![white, colorWithAlphaComponent: 0.85f64];
-            let _: () = msg_send![ring_color, setStroke];
-            let ring: *mut Object = msg_send![class!(NSBezierPath),
-                bezierPathWithRoundedRect: frame.inset(-4.0)
-                xRadius: 6.0f64
-                yRadius: 6.0f64];
-            let _: () = msg_send![ring, setLineWidth: 2.5f64];
-            let _: () = msg_send![ring, stroke];
-        }
-    }
-
-    // Click caption: a small pill above the disc, drawn last so it sits over
-    // any walker crossing the top of the orbit.
-    if let Some(text) = &d.caption {
-        draw_caption(center, ry, text);
-    }
-}
-
-/// Tiny pixel-art painter for decor: `art` rows of glyph chars, each glyph
-/// mapped to an rgb color, bottom-anchored at (cx, base_y) — plants grow
-/// upward from the point they were planted at.
-unsafe fn draw_pixel_art(
-    cx: f64,
-    base_y: f64,
-    art: &[&str],
-    scale: f64,
-    colors: &[(u8, (f64, f64, f64))],
-    alpha: f64,
-) {
-    let ox = cx - (art.first().map(|r| r.len()).unwrap_or(0) as f64 * scale) / 2.0;
-    let oy = base_y - art.len() as f64 * scale;
-    for (row, line) in art.iter().enumerate() {
-        for (col, ch) in line.bytes().enumerate() {
-            let Some(&(_, c)) = colors.iter().find(|(k, _)| *k == ch) else {
-                continue;
-            };
-            set_fill(ns_color(c.0, c.1, c.2, alpha));
-            let _: () = msg_send![class!(NSBezierPath),
-                fillRect: NSRect::new(
-                    ox + col as f64 * scale,
-                    oy + row as f64 * scale,
-                    scale,
-                    scale,
-                )];
-        }
-    }
-}
-
-/// Caption pill: dark rounded backer + white 11pt text, centered above the
-/// disc (VIEW_PADDING leaves headroom). NSString drawing is flipped-context
-/// aware, so the point is the text's top-left in this view's coords.
-unsafe fn draw_caption(center: NSPoint, r: f64, text: &str) {
-    let ns_text = ns_string(text);
-    let font: *mut Object = msg_send![class!(NSFont), systemFontOfSize: 11.0f64];
-    let white: *mut Object = msg_send![class!(NSColor), whiteColor];
-    let keys = [ns_string("NSFont"), ns_string("NSColor")];
-    let vals = [font, white];
-    let attrs: *mut Object = msg_send![class!(NSDictionary),
-        dictionaryWithObjects: vals.as_ptr()
-        forKeys: keys.as_ptr()
-        count: 2usize];
-    if attrs.is_null() {
-        return;
-    }
-    let size: CGSize = msg_send![ns_text, sizeWithAttributes: attrs];
-    let pad_x = 8.0;
-    let pad_y = 4.0;
-    let pill_w = size.width + pad_x * 2.0;
-    let pill_h = size.height + pad_y * 2.0;
-    let pill = NSRect::new(
-        center.x - pill_w / 2.0,
-        (center.y - r - pill_h - 6.0).max(1.0),
-        pill_w,
-        pill_h,
-    );
-    let black: *mut Object = msg_send![class!(NSColor), blackColor];
-    let bg: *mut Object = msg_send![black, colorWithAlphaComponent: 0.72f64];
-    set_fill(bg);
-    let path: *mut Object = msg_send![class!(NSBezierPath),
-        bezierPathWithRoundedRect: pill
-        xRadius: pill_h / 2.0
-        yRadius: pill_h / 2.0];
-    let _: () = msg_send![path, fill];
-    let _: () = msg_send![ns_text,
-        drawAtPoint: NSPoint {
-            x: pill.origin.x + pad_x,
-            y: pill.origin.y + pad_y,
-        }
-        withAttributes: attrs];
-}
 
 
 fn plant_cap(first_seen: f64, now: f64) -> usize {
@@ -2662,17 +2026,38 @@ fn layout_beings(planet: &mut Planet) {
         y: side / 2.0,
     };
     let ids: Vec<String> = planet.walkers.iter().map(|b| b.entry_id.clone()).collect();
+    let lip = draw::board_near_lip(planet.radius, planet.projection, planet.marble_scale);
     for (i, id) in ids.iter().enumerate() {
         let pose = planet.walkers.get(i).map(|b| b.pose).unwrap_or(Pose::Roam);
+        // WORLD-PLACES: a fresh board-pose roam starts at the house.
+        let house = house_spawn(planet, id);
         planet.roam.entry(id.clone()).or_insert_with(|| {
-            // GO-ORBITTY-CADENCE: a fresh roam state seeds AT the walker's
-            // station (launch / marble-expand / rematch fast-forwards the
-            // world to now — never replay a backlog walk). A Done walker
-            // seeds already past the hide line so its walked-off emit fires
-            // on the first tick without a phantom walk. Live card moves
-            // keep the existing roam entry, so those walks stay visible.
+            // GO-ORBITTY-WORLD-TOWN: a fresh roam for a board pose seeds
+            // AT THE IGLOO (STATION_HOUSE — user buildings stay décor)
+            // and walks to the station — the world narrates
+            // igloo → board/field instead of popping in at the column.
+            // Sit still seeds AT the front rim (bad news skips the
+            // queue). A Done walker seeds AT THE IGLOO TOO and walks
+            // to the near lip of the board (WORLD-STOP). Live card
+            // moves keep the existing roam entry, so those walks stay
+            // visible.
             match pose {
-                Pose::Stand | Pose::Work | Pose::Sit => {
+                Pose::Stand | Pose::Work => {
+                    let (tx, ty) = station_target(pose, id);
+                    RoamState {
+                        x: house.0,
+                        y: house.1,
+                        tx,
+                        ty,
+                        pause_end: None,
+                        facing_left: false,
+                        off_emitted: false,
+                        via_board: false,
+                        via_home: false,
+                        via_checkin: false,
+                    }
+                }
+                Pose::Sit => {
                     let (tx, ty) = station_target(pose, id);
                     RoamState {
                         x: tx,
@@ -2682,16 +2067,22 @@ fn layout_beings(planet: &mut Planet) {
                         pause_end: None,
                         facing_left: false,
                         off_emitted: false,
+                        via_board: false,
+                        via_home: false,
+                        via_checkin: false,
                     }
                 }
                 Pose::WalkOff => RoamState {
-                    x: DONE_OFF.0,
-                    y: DONE_HIDE_Y - 0.05,
-                    tx: DONE_OFF.0,
-                    ty: DONE_OFF.1,
+                    x: house.0,
+                    y: house.1,
+                    tx: lip.0,
+                    ty: lip.1,
                     pause_end: None,
                     facing_left: false,
                     off_emitted: false,
+                    via_board: false,
+                    via_home: false,
+                    via_checkin: false,
                 },
                 Pose::Roam => {
                     let a = i as f64 * 2.3;
@@ -2704,6 +2095,9 @@ fn layout_beings(planet: &mut Planet) {
                         pause_end: None,
                         facing_left: false,
                         off_emitted: false,
+                        via_board: false,
+                        via_home: false,
+                        via_checkin: false,
                     }
                 }
             }
@@ -2792,6 +2186,10 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
     } else {
         entry.sprite_scale.clamp(0.4, 2.5)
     };
+    // Rail Done AX-closes the window, so the walker is asleep during
+    // WalkOff. Sleeper dim (0.45) is for a closed window standing still —
+    // checkout stays full-bright until they actually leave.
+    let pose = pose_for(entry);
     Being {
         entry_id: entry.id.clone(),
         label,
@@ -2801,16 +2199,16 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
         look,
         user_scale,
         pack,
-        // Sleepers draw dim even when the zombie clock hasn't faded them —
-        // asleep is its own obvious state, and it stacks with fade.
-        dim: if entry.asleep || entry.age == "fade" || entry.age == "gone" {
+        dim: if pose == Pose::WalkOff {
+            1.0
+        } else if entry.asleep || entry.age == "fade" || entry.age == "gone" {
             0.45
         } else {
             1.0
         },
         asleep: entry.asleep,
         sprite_pack_id: entry.sprite_pack_id.clone(),
-        pose: pose_for(entry),
+        pose,
     }
 }
 
@@ -3062,6 +2460,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         name,
         collapsed,
         entries,
+        board_cards,
     } in &snapshot.planets
     {
         // Effective collapse: the snapshot's flag, or a cap-3 victim this
@@ -3156,14 +2555,31 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         let decor = h.worlds.get(project_id).cloned();
         if let Some(planet) = h.planets.get_mut(project_id) {
             planet.name = name.clone();
+            // WORLD-TOWN: the board blit's ticks ride the snapshot; a
+            // board drag changes them without touching any being field,
+            // so this dirties the view on its own (pose-only path too).
+            let board_changed = planet.board_cards != *board_cards;
+            planet.board_cards = board_cards.clone();
+            let want_proj = locked_projection(collapsed_eff);
+            let proj_changed = planet.projection != want_proj;
+            planet.projection = want_proj;
             if let Some(w) = decor {
-                planet.projection = w.projection();
-                planet.plants = w.plants;
-                planet.mushrooms = w.mushrooms;
-                planet.buildings = w.buildings;
-                planet.boombox_pos = w.boombox_pos;
-                planet.boombox = w.boombox;
-                layout_decor(planet);
+                // LEFTOVER hitch: layout_decor only when the décor itself
+                // moved — a board drag / tick sync re-runs the frame math
+                // for nothing otherwise.
+                let decor_changed = planet.plants != w.plants
+                    || planet.mushrooms != w.mushrooms
+                    || planet.buildings != w.buildings
+                    || planet.boombox_pos != w.boombox_pos
+                    || planet.boombox != w.boombox;
+                if decor_changed {
+                    planet.plants = w.plants;
+                    planet.mushrooms = w.mushrooms;
+                    planet.buildings = w.buildings;
+                    planet.boombox_pos = w.boombox_pos;
+                    planet.boombox = w.boombox;
+                    layout_decor(planet);
+                }
             }
             let geometry_changed = planet.radius != radius || planet.is_marble != collapsed_eff;
             if geometry_changed {
@@ -3213,10 +2629,10 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                     planet.walker_entries =
                         walker_entries.iter().map(|e| (*e).clone()).collect();
                     planet.dot_entries = dot_entries.iter().map(|e| (*e).clone()).collect();
-                    if geometry_changed {
+                    if geometry_changed || proj_changed {
                         layout_beings(planet);
                     }
-                    if any_pose || geometry_changed {
+                    if any_pose || geometry_changed || proj_changed || board_changed {
                         unsafe {
                             let view = planet.view as *mut Object;
                             let _: () = msg_send![view, setNeedsDisplay: true];
@@ -3302,10 +2718,11 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 is_marble: collapsed_eff,
                 color,
                 rotation: 0.0,
-                projection: state.projection(),
+                projection: locked_projection(collapsed_eff),
                 walkers,
                 dots,
                 caption: None,
+                hover_name: false,
                 orbit: None,
                 marble_scale: 1.0,
                 pin_until: None,
@@ -3320,6 +2737,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 roam: HashMap::new(),
                 walker_entries: walker_entries.iter().map(|e| (*e).clone()).collect(),
                 dot_entries: dot_entries.iter().map(|e| (*e).clone()).collect(),
+                board_cards: board_cards.clone(),
             };
             layout_beings(&mut planet);
             let Some(cls) = world_view_class() else {
@@ -3353,6 +2771,15 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 marble_panels += 1;
             }
         }
+        // GO-ORBITTY-PROJ-LOCK: heal worlds.json so a leftover "flat"
+        // expanded save does not linger. Live disc never reads this.
+        if let Some(w) = h.worlds.get_mut(project_id) {
+            let want = locked_projection_str(collapsed_eff);
+            if w.projection != want {
+                w.projection = want.to_string();
+                h.worlds_dirty = true;
+            }
+        }
     }
     // GO-ORBITTY-CADENCE: walked-off re-delivery + Reduce Motion
     // fast-forward. anim_tick emits when a Done walker crosses the hide
@@ -3379,8 +2806,9 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             let mut snapped = false;
             for (id, pose) in posed {
                 let Some((tx, ty)) = (match pose {
-                    Pose::WalkOff => Some((DONE_OFF.0, DONE_HIDE_Y - 0.05)),
-                    Pose::Stand | Pose::Work | Pose::Sit => Some(station_target(pose, &id)),
+                    Pose::WalkOff | Pose::Stand | Pose::Work | Pose::Sit => {
+                        Some(station_target(pose, &id))
+                    }
                     Pose::Roam => None,
                 }) else {
                     continue;
@@ -3411,7 +2839,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             .map(|b| b.entry_id.clone())
             .collect();
         for id in done_ids {
-            if planet.roam.get(&id).is_some_and(|r| r.y < DONE_HIDE_Y) {
+            if planet.roam.get(&id).is_some_and(|r| r.x < HOME_HIDE_X) {
                 emit_walked_off(&id);
             }
         }
@@ -3471,7 +2899,6 @@ fn being_fields_eq(a: &HabitatEntry, b: &HabitatEntry) -> bool {
         && a.char_look == b.char_look
         && a.sprite_scale == b.sprite_scale
         && a.asleep == b.asleep
-        && a.walker_home == b.walker_home
 }
 
 unsafe fn panel_set_frame(panel: *mut Object, frame: NSRect, display: bool) {

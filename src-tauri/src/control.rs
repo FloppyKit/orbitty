@@ -12,6 +12,17 @@
 //! closed (code 4). Exit-code contract lives in `docs/
 //! ACCEPTANCE-ORBITTY-CONTROL-PLANE-0.md`: 2 not-running (ctl-side), 3
 //! auth, 4 denied, 5 AX/degraded, 1 other.
+//!
+//! GO-ORBITTY-MCP-WRITE adds the four write tools (kanban.add /
+//! kanban.move / needed.open / log.append). Writes are never in
+//! READ_TOOLS and never match companion.*, so only `full` or a named
+//! `custom` allowlist reaches them; `read` / `companion` deny (4).
+//!
+//! GO-ORBITTY-ACTION-FILE adds the action recipe file (action.list /
+//! action.add / action.run / action.rm). `action.list` is read-profile
+//! safe; the companion profile (Spark) may `action.run` + `action.add` —
+//! it mints and runs named recipes, never a raw shell; `action.rm` needs
+//! `full` or a custom allowlist naming the tool or the `action.*` prefix.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -200,6 +211,10 @@ fn load_acl(dir: &Path) -> Result<Acl, String> {
     Err("control.json: need \"profile\" or \"allow\"".into())
 }
 
+// GO-ORBITTY-MCP-WRITE: the write tools (kanban.add / kanban.move /
+// needed.open / log.append) are deliberately NOT here and not companion.* —
+// `read` and `companion` profiles deny them (4); only `full` or a named
+// `custom` entry allows a write.
 const READ_TOOLS: &[&str] = &[
     "app.status",
     "app.accessibility_status",
@@ -207,6 +222,8 @@ const READ_TOOLS: &[&str] = &[
     "packs.list",
     "companion.agents",
     "state.get",
+    // GO-ORBITTY-ACTION-FILE: the list is the read face of the file.
+    "action.list",
 ];
 
 fn allowed(acl: &Acl, tool: &str) -> bool {
@@ -215,9 +232,19 @@ fn allowed(acl: &Acl, tool: &str) -> bool {
         Acl::Full => true,
         Acl::Read => READ_TOOLS.contains(&tool),
         Acl::Companion => {
-            READ_TOOLS.contains(&tool) || tool.starts_with("companion.")
+            // GO-ORBITTY-ACTION-FILE: Spark mints and runs named recipes
+            // (action.add / action.run) — never a raw shell, never rm.
+            READ_TOOLS.contains(&tool)
+                || tool.starts_with("companion.")
+                || tool == "action.run"
+                || tool == "action.add"
         }
-        Acl::Custom(list) => list.iter().any(|t| t == tool),
+        // A custom entry names a tool exactly, or a whole prefix with a
+        // trailing `*` (e.g. "action.*" reaches all four action tools).
+        Acl::Custom(list) => list.iter().any(|t| match t.strip_suffix('*') {
+            Some(prefix) => tool.starts_with(prefix),
+            None => t == tool,
+        }),
     }
 }
 
@@ -269,6 +296,15 @@ fn arg_str(args: &Value, key: &str) -> Result<String, (i32, String)> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .ok_or_else(|| (ERR_OTHER, format!("missing arg {key:?}")))
+}
+
+/// Optional string arg: absent / non-string / blank-after-trim = None.
+fn arg_opt(args: &Value, key: &str) -> Option<String> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 /// AX-gated fns already return "accessibility not granted" — surface that
@@ -341,6 +377,12 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
+        // GO-ORBITTY-COMPANION-PLAY: same ACL class as companion.send
+        // (companion.* — never read-only). Unknown clip = honest error.
+        "companion.play" => {
+            let clip = arg_str(args, "clip")?;
+            crate::companion::companion_play(app, &clip).map_err(tool_err)
+        }
         "packs.list" => crate::packs::list_packs(app.clone())
             .map(to_data)
             .map_err(tool_err),
@@ -351,6 +393,84 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map_err(tool_err)
         }
         "state.get" => crate::state::load_state(app).map(to_data).map_err(tool_err),
+        // GO-ORBITTY-ACTION-FILE: the action recipe file. list = read
+        // profile; add/run = companion (Spark mints) and up; rm = full /
+        // named custom only. Runs go through the same logged /bin/zsh -lc
+        // 120s door as the Settings list click — lengths-only event log.
+        "action.list" => crate::actions::action_list(app).map_err(tool_err),
+        "action.add" => {
+            let name = arg_str(args, "name")?;
+            let cmd = arg_str(args, "cmd")?;
+            crate::actions::action_add(
+                app,
+                &name,
+                &cmd,
+                arg_opt(args, "cwd").as_deref(),
+                arg_opt(args, "combo").as_deref(),
+            )
+            .map(to_data)
+            .map_err(tool_err)
+        }
+        "action.run" => {
+            let id = arg_opt(args, "id");
+            let name = arg_opt(args, "name");
+            crate::actions::action_run(app, id.as_deref(), name.as_deref())
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        "action.rm" => {
+            let id = arg_str(args, "id")?;
+            crate::actions::action_rm(app, &id).map_err(tool_err)
+        }
+        // GO-ORBITTY-MCP-WRITE: the four write tools. Same mutate path as
+        // the save_state command (claim diff + state:changed emit) so the
+        // UI live-updates. ACL: full / named custom only (see READ_TOOLS).
+        "kanban.add" => {
+            let title = arg_str(args, "title")?;
+            let project = arg_opt(args, "projectId").unwrap_or_default();
+            let status = arg_opt(args, "status").unwrap_or_default();
+            crate::board::kanban_add(app, &title, &project, &status)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        "kanban.move" => {
+            let id = arg_str(args, "id")?;
+            let status = arg_str(args, "status")?;
+            crate::board::kanban_move(app, &id, &status)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        "needed.open" => {
+            let title = arg_str(args, "title")?;
+            let project = arg_opt(args, "projectId").unwrap_or_default();
+            let why = arg_opt(args, "why");
+            crate::board::needed_open(app, &title, &project, why.as_deref())
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        "log.append" => {
+            let e_type = arg_str(args, "eType")?;
+            let content = match args.get("content") {
+                None | Some(Value::Null) => None,
+                Some(v) if v.is_object() => Some(v.clone()),
+                Some(_) => {
+                    return Err((ERR_OTHER, "log.append: content must be an object".into()));
+                }
+            };
+            let actor = arg_opt(args, "actor").unwrap_or_else(|| "agent".to_string());
+            // Same skip/ack contract as the UI's log_event command: a dead
+            // log never fails the caller.
+            let ack = crate::event_log::log_event(
+                app.clone(),
+                e_type,
+                None,
+                arg_opt(args, "projectId"),
+                Some(actor),
+                Some(true),
+                content,
+            );
+            Ok(to_data(ack))
+        }
         other => Err((ERR_OTHER, format!("unknown tool {other:?}"))),
     }
 }

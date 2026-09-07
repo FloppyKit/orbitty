@@ -39,10 +39,9 @@ pub struct HabitatEntry {
     /// restore_window on a dead id.
     #[serde(default)]
     pub asleep: bool,
-    /// GO-ORBITTY-WALKER-CONTEXT: occupancy planet. Empty = walk on the
-    /// claim's project. Rail never rewrites claims from this field.
-    #[serde(default)]
-    pub walker_home: String,
+    // GO-ORBITTY-CLAIM-ONE: walker_home (the occupancy teleport) is gone —
+    // occupancy is the entry's planet, i.e. the claim's projectId. One
+    // windowId, one projectId.
     /// GO-ORBITTY-CADENCE: the window-linked card's column
     /// ("todo" | "doing" | "done"; "" = no linked card). The rail resolves
     /// which card wins; the native side holds the status → station/pose
@@ -71,6 +70,25 @@ pub struct HabitatPlanet {
     pub name: String,
     pub collapsed: bool,
     pub entries: Vec<HabitatEntry>,
+    /// GO-ORBITTY-WORLD-TOWN: the project board's ticks for the back-board
+    /// blit — id + column only, no titles. The rail fills from kanbanCards
+    /// on this projectId (kind !== "needed"), capped ~12: oldest open
+    /// first, then recent done.
+    #[serde(default)]
+    pub board_cards: Vec<BoardCardTick>,
+}
+
+/// GO-ORBITTY-WORLD-TOWN: one board tick — a card's id (hashed for the
+/// tick color) and its column ("todo" | "doing" | "done").
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardCardTick {
+    pub id: String,
+    pub status: String,
+    /// Window this tick is linked to, if any. Native holds the blit on
+    /// "doing" until that walker touches the board (WalkOff + via_board).
+    #[serde(default)]
+    pub window_id: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]

@@ -32,11 +32,17 @@ tauri-build = { version = "2", features = [] }
 cc = "1"
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+# protocol-asset: GO-ORBITTY-COMPANION-3D serves the bundled GLBs via
+# convertFileSrc (scope $RESOURCE/companion/3d/**) — never a data-URL.
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# GO-ORBITTY-MCP-WRITE: local calendar day key for the points daily cap
+# (board.rs today_key, same as the frontend todayKey()). Minimal features —
+# no wasm/serde extras.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "alloc"] }
 # Pack zip import (GO-LS-TAURI-USER-PACKS): extraction only, deflate covers
 # the classic sprite-pack zip; no crypto/other codecs. GO-ORBITTY-CHARS:
 # no HTTP client — sprite art is generated (chars.rs) or imported locally.

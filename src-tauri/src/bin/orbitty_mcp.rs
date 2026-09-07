@@ -5,6 +5,11 @@
 //! Forwards tools/call to the Orbitty Unix control socket using the
 //! same newline-JSON protocol as orbittyctl. Never links Tauri, never
 //! opens a WebView, never binds TCP, never writes goose config.
+//!
+//! GO-ORBITTY-MCP-WRITE lists the four write tools (kanban.add /
+//! kanban.move / needed.open / log.append) alongside the v0 read/open
+//! surface — same one Unix round-trip per tools/call, same control.json
+//! ACL (writes: full / named custom only).
 
 #[cfg(unix)]
 mod imp {
@@ -21,7 +26,9 @@ const SERVER_VERSION: &str = "0.1.0";
 struct ToolDef {
     name: &'static str,
     description: &'static str,
-    /// "none" | "id" | "line" | "profile"
+    /// "none" | "id" | "line" | "profile" | "clip" | "kanban_add" |
+    /// "kanban_move" | "needed_open" | "log_append" | "action_add" |
+    /// "action_run" | "action_rm"
     args: &'static str,
 }
 
@@ -39,9 +46,23 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "companion.send", description: "Send a line on the companion Berd path", args: "line" },
     ToolDef { name: "companion.agents", description: "List companion agent profiles", args: "none" },
     ToolDef { name: "companion.set_agent", description: "Set the companion agent profile", args: "profile" },
+    ToolDef { name: "companion.play", description: "Play an allowlisted gesture clip on the 3D companion body (no-op on the spirit sheet)", args: "clip" },
     ToolDef { name: "packs.list", description: "List installed sprite packs", args: "none" },
     ToolDef { name: "sleeper.wake", description: "Wake a sleeper by id", args: "id" },
     ToolDef { name: "state.get", description: "Read persisted Orbitty state", args: "none" },
+    // GO-ORBITTY-MCP-WRITE: the four write tools. control.json ACL still
+    // applies — read / companion profiles get denied (4).
+    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move)", args: "kanban_add" },
+    ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
+    ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
+    ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
+    // GO-ORBITTY-ACTION-FILE: the action recipe file. list is read-safe;
+    // add / run ride the companion profile (Spark mints + runs named
+    // recipes, never a raw shell); rm needs full / named custom ("action.*").
+    ToolDef { name: "action.list", description: "List action shortcuts (id, name, combo, command, conflict status)", args: "none" },
+    ToolDef { name: "action.add", description: "Mint an action shortcut: a named /bin/zsh -lc recipe with an optional global combo like cmd+alt+m", args: "action_add" },
+    ToolDef { name: "action.run", description: "Run an action by id or name (the logged 120s /bin/zsh -lc door; output clipped)", args: "action_run" },
+    ToolDef { name: "action.rm", description: "Remove an action by id (full / named custom ACL only)", args: "action_rm" },
 ];
 
 fn known_tool(name: &str) -> bool {
@@ -64,6 +85,83 @@ fn input_schema(kind: &str) -> Value {
             "type": "object",
             "properties": { "profile": { "type": "string", "description": "Agent profile id" } },
             "required": ["profile"]
+        }),
+        "clip" => json!({
+            "type": "object",
+            "properties": { "clip": {
+                "type": "string",
+                "enum": ["idle", "think", "nod", "look-left", "look-right"],
+                "description": "Gesture clip name (allowlist; unknown names error)"
+            } },
+            "required": ["clip"]
+        }),
+        "kanban_add" => json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "description": "Card title" },
+                "projectId": { "type": "string", "description": "Project id; omitted/empty = inbox" },
+                "status": {
+                    "type": "string",
+                    "enum": ["todo", "doing"],
+                    "description": "Initial column (default todo; done is never minted)"
+                }
+            },
+            "required": ["title"]
+        }),
+        "kanban_move" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "status": {
+                    "type": "string",
+                    "enum": ["todo", "doing", "done"],
+                    "description": "Target column; done = complete (points + cap), no unclaim"
+                }
+            },
+            "required": ["id", "status"]
+        }),
+        "needed_open" => json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "description": "What is needed" },
+                "projectId": { "type": "string", "description": "Project id; omitted/empty = inbox" },
+                "why": { "type": "string", "description": "Why it is needed" }
+            },
+            "required": ["title"]
+        }),
+        "log_append" => json!({
+            "type": "object",
+            "properties": {
+                "eType": { "type": "string", "description": "Event type tag" },
+                "content": { "type": "object", "description": "Small JSON object payload" },
+                "projectId": { "type": "string" },
+                "actor": { "type": "string", "description": "Event actor (default agent)" }
+            },
+            "required": ["eType"]
+        }),
+        "action_add" => json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Action name (the list's run word)" },
+                "cmd": { "type": "string", "description": "Shell recipe, run via /bin/zsh -lc (120s cap)" },
+                "cwd": { "type": "string", "description": "Working directory; omitted/empty = $HOME" },
+                "combo": { "type": "string", "description": "Global chord like cmd+alt+m; omitted = Spirit-only. Reserved (cmd+shift+o, cmd+space) or taken chords register nothing and show conflict" }
+            },
+            "required": ["name", "cmd"]
+        }),
+        "action_run" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Action id" },
+                "name": { "type": "string", "description": "Action name (exact; unique case-insensitive fallback)" }
+            }
+        }),
+        "action_rm" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Action id" }
+            },
+            "required": ["id"]
         }),
         _ => json!({ "type": "object", "properties": {} }),
     }
