@@ -2173,6 +2173,25 @@
      On planets grouped by project (color + name + count, focused planet
      expanded, row click → focus_window). -->
 {#snippet planetsSheet()}
+  <div class="sheet-add">
+    {#if creatingProject}
+      <span class="newproj">
+        <input
+          bind:this={sheetNameEl}
+          bind:value={newProjectName}
+          placeholder="Planet name"
+          onkeydown={(e) => {
+            if (e.key === "Enter") createProjectOnly();
+            if (e.key === "Escape") creatingProject = false;
+          }}
+        />
+        <button class="mini" onclick={createProjectOnly}>Add</button>
+        <button class="mini ghost" onclick={() => (creatingProject = false)}>×</button>
+      </span>
+    {:else}
+      <button class="mini" onclick={() => (creatingProject = true)}>+ Planet</button>
+    {/if}
+  </div>
   <section class="sheet-sec" aria-label="Unclaimed windows">
     <h2 class="sheet-h">Unclaimed ({unmapped.length})</h2>
     {#if unmapped.length === 0}
@@ -2204,7 +2223,7 @@
             <li class="claim-picker">
               {#if projects.length === 0}
                 <button class="mini" onclick={() => (creatingProject = true)}
-                  >No planets yet — add one below</button
+                  >No planets yet — add one above</button
                 >
               {:else}
                 {#each projects as p (p.id)}
@@ -2285,25 +2304,6 @@
         {/each}
       </ul>
     {/if}
-    <div class="sheet-add">
-      {#if creatingProject}
-        <span class="newproj">
-          <input
-            bind:this={sheetNameEl}
-            bind:value={newProjectName}
-            placeholder="Planet name"
-            onkeydown={(e) => {
-              if (e.key === "Enter") createProjectOnly();
-              if (e.key === "Escape") creatingProject = false;
-            }}
-          />
-          <button class="mini" onclick={createProjectOnly}>Add</button>
-          <button class="mini ghost" onclick={() => (creatingProject = false)}>×</button>
-        </span>
-      {:else}
-        <button class="mini" onclick={() => (creatingProject = true)}>+ Planet</button>
-      {/if}
-    </div>
   </section>
 {/snippet}
 
@@ -3442,7 +3442,7 @@
   }
 
   .sheet-add {
-    margin: 8px 4px 2px;
+    margin: 2px 4px 8px;
   }
 
   .sheet-add .newproj {
