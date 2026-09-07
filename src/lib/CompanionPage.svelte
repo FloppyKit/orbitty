@@ -203,25 +203,27 @@
   type HostMode = "off" | "launchpad" | "stars" | "inspector";
   let hosted = $state<HostMode>("off");
 
-  // GO-ORBITTY-TILE-DROP: the card drops in and the Spark column shifts
-  // over INSIDE the natively-grown frame — the grow itself stays instant
-  // (keep-bottom), never a set_size / set_position interpolation.
-  // set_companion_host lands FIRST (the window grows while still showing
-  // the idle ghost — mounting the tile in the idle-sized frame and
-  // growing after was the push-in stutter, sprite-off included); only
-  // then does the well mount, tilePre holding the seed from-state, and
-  // tileEnter plays the drop in the grown frame. tileLeave plays the
+  // GO-ORBITTY-TILE-DROP: the card drops in INSIDE the natively-grown
+  // frame — the grow itself stays instant (keep-bottom), never a
+  // set_size / set_position interpolation. set_companion_host lands
+  // FIRST, with the idle ghost display:none'd under tilePre — the
+  // stretched ghost / dock / spirit never lay out or paint into the
+  // grown frame (that stretch-then-swap was the dock+spirit hitch,
+  // sprite-off included); only then does the well mount, tilePre
+  // holding the seed from-state, and tileEnter plays the drop in the
+  // grown frame with Spark already at hosted rest. tileLeave plays the
   // reverse and only when the CSS ends does the native side restore the
   // idle rect.
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
   // TILE-YAW leftover (Matt): the drop is a SEED DROP — the tile starts
-  // as a singular pixel at the TOP of the hosted frame, a little more
-  // left of the WINDOW center (transform-origin pins that seed), and
-  // falls top → bottom into the well while scaling up to full size. A
-  // seed → a card. Never past rest, never a rebound — the chop is dead
-  // (see the orbitty-tile-drop-in keyframes). Spark eases aside on the
-  // same clock, in the grown frame. Reduced motion: enter fades (no
-  // scale), leave is a snap (0 wait).
+  // as a singular pixel ONE INCH IN FROM THE COMPANION WINDOW'S
+  // UPPER-LEFT CORNER (a pixel transform-origin pins that seed — never
+  // a pane percentage) and falls into the well while scaling up to full
+  // size. A seed → a card. Never past rest, never a rebound — the chop
+  // is dead (see the orbitty-tile-drop-in keyframes). Spark is already
+  // at hosted rest in the right column and the dock never transforms —
+  // only the tile moves. Reduced motion: enter fades (no scale), leave
+  // is a snap (0 wait).
   const TILE_ENTER_MS = 450;
   const TILE_LEAVE_MS = 300;
   let tilePre = $state(false);
@@ -708,13 +710,20 @@
       }
       return;
     }
-    // TILE-DROP (no host flash): grow FIRST — set_companion_host lands
-    // the native frame while the window still shows the idle ghost, and
-    // the well mounts only after, already in the grown frame, tilePre
-    // holding the seed from-state. Mounting the tile in the idle-sized
-    // window and growing after was the push-in stutter — sprite-off
-    // included, where the hugged bar jumped.
+    // TILE-DROP (corner seed + still chrome): grow FIRST — but land the
+    // tilePre class BEFORE the native grow (the await tick below), so
+    // the idle ghost is display:none'd while the frame grows: ghost /
+    // CC / spirit never lay out or paint into the grown 1080×620 frame
+    // (that stretch-then-swap was the hitch). Only the dock rides the
+    // grow, bottom-pinned by the keep-bottom native place. The well
+    // mounts after, already in the grown frame, tilePre holding the
+    // seed from-state; then the drop plays and ONLY the tile moves —
+    // Spark is already at hosted rest in the right column (no
+    // translateX aside), the dock never transforms. Mounting the tile
+    // in the idle-sized window and growing after was the push-in
+    // stutter — sprite-off included, where the hugged bar jumped.
     tilePre = true;
+    await tick();
     try {
       // COMPANION-RAISE: native host-on lands BEFORE the collapse —
       // HOSTED=true (slab, poll idle) must be set before
@@ -727,10 +736,10 @@
     }
     hosted = mode;
     // TILE-DROP: the grow has landed — the well mounts held at the seed
-    // and the drop + Spark aside play on the next frame, both INSIDE
-    // the grown frame. The enter class comes back off once the CSS has
-    // finished so a later .wellhead remount (sprite toggle) doesn't
-    // replay the aside.
+    // and the drop plays on the next frame INSIDE the grown frame, the
+    // tile alone (Spark is already at hosted rest; the dock never
+    // transforms). The enter class comes back off once the CSS has
+    // finished so a later .wellpane remount doesn't replay the drop.
     await tick();
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     requestAnimationFrame(() => {
@@ -1633,39 +1642,47 @@
      leftover, Matt: the chop is dead). The native grow stays instant
      (keep-bottom); this CSS animates INSIDE the grown frame and never
      fights the dock pinning. Enter: the card starts as a singular
-     pixel at the TOP of the hosted frame, a little more left of the
-     window center — transform-origin pins that seed — and falls top →
-     bottom into
-     the well while scaling up to full size. A seed → a card, easing
-     out to rest ON the base (scale(1)). Never past rest, never a
-     rebound. The Spark column eases aside — out of the tile's way —
-     on the same clock. Leave: the exact reverse (the card shrinks
-     back up into the seed, Spark comes back), and only when it ends
-     does dismissHost invoke the native off. .tile-pre holds the
-     from-state at mount — the well mounts only after
-     set_companion_host has landed, never in the idle-sized frame. */
+     pixel ONE INCH IN FROM THE COMPANION WINDOW'S UPPER-LEFT CORNER —
+     a pixel origin, never a pane percentage (the old 61% / 40% was
+     center-seeking) — and falls into the well while scaling up to
+     full size. A seed → a card, easing out to rest ON the base
+     (scale(1)). Never past rest, never a rebound. The Spark column is
+     already at hosted rest (right column) — nothing animates it
+     aside — and the dock never transforms: ONLY the tile drops.
+     Leave: the exact reverse (the card shrinks back into the corner
+     seed), and only when it ends does dismissHost invoke the native
+     off. .tile-pre holds the from-state at mount — the well mounts
+     only after set_companion_host has landed, never in the idle-sized
+     frame. */
   .companion.tile-pre .wellpane,
   .companion.tile-enter .wellpane,
   .companion.tile-leave .wellpane {
-    /* The seed: top edge of the hosted frame, a little more left of
-       the WINDOW center (Matt — window center, not the pane-center
-       math that landed at 70%). Pinned to one window spot ~40% across
-       the 1080 frame: the pane is the left ~2/3 of the well (10px in,
-       ~693px wide), so that spot sits ~61% across the pane; -10px
-       puts it on the frame's top edge (the pane starts 10px down,
-       .hostwell padding). The portrait 620×1080 frame keeps the same
-       percentages — pane and window scale together. */
-    transform-origin: 61% -10px;
+    /* The seed: window-local (72px, 72px) — ~1 inch in from the
+       companion window's top-left corner. The pane's border box
+       starts at window-local (10px, 10px) (.hostwell padding;
+       .wellwrap is the column's first child), so the origin is
+       72−10 = 62px on both axes. A pixel origin pins the same window
+       corner spot in the 1080×620 landscape frame and the 620×1080
+       portrait one alike — and sprite-off fullwell too (the origin is
+       width-independent, which is why the old fullwell percentage
+       override is gone). */
+    transform-origin: 62px 62px;
   }
 
-  /* SPRITE-OFF hosted: the pane takes the full well width, so the
-     same window spot (~40% across the frame) is ~40% across the
-     pane — the seed lands where sprite-on lands it, a little more
-     left of the window center. */
-  .companion.tile-pre .wellpane.fullwell,
-  .companion.tile-enter .wellpane.fullwell,
-  .companion.tile-leave .wellpane.fullwell {
-    transform-origin: 40% -10px;
+  /* Corner seed + still chrome: while the native grow lands (tile-pre,
+     still idle — .hosting comes with the well mount after), every
+     idle-ghost child but the dock is display:none, so the stretched
+     ghost / CC / spirit never lay out or paint into the grown frame
+     (that stretch-then-swap was the dock+spirit hitch). The dock alone
+     rides the grow, held on the bottom edge the keep-bottom native
+     place preserves — flex-end keeps it there with the flex:1 stage
+     gone. */
+  .companion.tile-pre:not(.hosting) {
+    justify-content: flex-end;
+  }
+
+  .companion.tile-pre:not(.hosting) > *:not(.ghostdock):not(.winx) {
+    display: none;
   }
 
   .companion.tile-pre .wellpane {
@@ -1673,32 +1690,20 @@
     transform: scale(0.002);
   }
 
-  .companion.tile-pre .wellhead {
-    opacity: 0;
-    transform: translateX(-28px);
-  }
-
   .companion.tile-enter .wellpane {
     animation: orbitty-tile-drop-in 450ms ease-out both;
-  }
-
-  .companion.tile-enter .wellhead {
-    animation: orbitty-tile-aside-in 450ms ease-out both;
   }
 
   .companion.tile-leave .wellpane {
     animation: orbitty-tile-drop-out 300ms ease-in both;
   }
 
-  .companion.tile-leave .wellhead {
-    animation: orbitty-tile-aside-out 300ms ease-in both;
-  }
-
-  /* The seed drop: from a ~1px point at the seed to full size at rest.
-     Scaling about the pinned origin pulls every point of the card from
-     the seed down to its rest slot, so the card reads as falling top →
-     bottom while it grows. Opacity snaps in early so the seed pixel
-     reads before the swell. No overshoot keyframe anywhere. */
+  /* The seed drop: from a ~1px point at the corner seed to full size at
+     rest. Scaling about the pinned origin pulls every point of the card
+     from the seed out to its rest slot, so the card reads as falling
+     out of that upper-left inch while it grows. Opacity snaps in early
+     so the seed pixel reads before the swell. No overshoot keyframe
+     anywhere. */
   @keyframes orbitty-tile-drop-in {
     0% {
       opacity: 0;
@@ -1713,20 +1718,9 @@
     }
   }
 
-  @keyframes orbitty-tile-aside-in {
-    0% {
-      opacity: 0;
-      transform: translateX(-28px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateX(0);
-    }
-  }
-
-  /* Leave = the exact reverse: the card shrinks back up into the seed
-     (the origin stays pinned, so the collapse travels bottom → top)
-     and winks out at the pixel. */
+  /* Leave = the exact reverse: the card shrinks back into the corner
+     seed (the origin stays pinned, so the collapse travels back toward
+     that upper-left inch) and winks out at the pixel. */
   @keyframes orbitty-tile-drop-out {
     0% {
       opacity: 1;
@@ -1738,17 +1732,6 @@
     100% {
       opacity: 0;
       transform: scale(0.002);
-    }
-  }
-
-  @keyframes orbitty-tile-aside-out {
-    0% {
-      opacity: 1;
-      transform: translateX(0);
-    }
-    100% {
-      opacity: 0;
-      transform: translateX(-28px);
     }
   }
 
@@ -1893,12 +1876,10 @@
      to match): the outgoing face simply fades over the incoming one,
      which sits at rest — no 3D anywhere. */
   @media (prefers-reduced-motion: reduce) {
-    .companion.tile-pre .wellpane,
-    .companion.tile-pre .wellhead {
+    .companion.tile-pre .wellpane {
       transform: none;
     }
-    .companion.tile-enter .wellpane,
-    .companion.tile-enter .wellhead {
+    .companion.tile-enter .wellpane {
       animation: orbitty-tile-fade 140ms ease-out both;
     }
     .wellpane.turning .prismface.face-out {
