@@ -2186,6 +2186,10 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
     } else {
         entry.sprite_scale.clamp(0.4, 2.5)
     };
+    // Rail Done AX-closes the window, so the walker is asleep during
+    // WalkOff. Sleeper dim (0.45) is for a closed window standing still —
+    // checkout stays full-bright until they actually leave.
+    let pose = pose_for(entry);
     Being {
         entry_id: entry.id.clone(),
         label,
@@ -2195,16 +2199,16 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
         look,
         user_scale,
         pack,
-        // Sleepers draw dim even when the zombie clock hasn't faded them —
-        // asleep is its own obvious state, and it stacks with fade.
-        dim: if entry.asleep || entry.age == "fade" || entry.age == "gone" {
+        dim: if pose == Pose::WalkOff {
+            1.0
+        } else if entry.asleep || entry.age == "fade" || entry.age == "gone" {
             0.45
         } else {
             1.0
         },
         asleep: entry.asleep,
         sprite_pack_id: entry.sprite_pack_id.clone(),
-        pose: pose_for(entry),
+        pose,
     }
 }
 
