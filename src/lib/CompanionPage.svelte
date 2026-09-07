@@ -211,37 +211,39 @@
   // drop once the grow has landed; tileLeave plays the reverse and only
   // when the CSS ends does the native side restore the idle rect.
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
-  // Reduced motion: enter fades (no translate), leave is a snap (0 wait).
-  const TILE_ENTER_MS = 220;
+  // The drop is a CHOP: the card falls past rest, small rebound, settle
+  // (see the orbitty-tile-drop-in keyframes). Reduced motion: enter
+  // fades (no translate), leave is a snap (0 wait).
+  const TILE_ENTER_MS = 300;
   const TILE_LEAVE_MS = 200;
   let tilePre = $state(false);
   let tileEnter = $state(false);
   let tileLeave = $state(false);
   let tileGen = 0;
 
-  // GO-ORBITTY-TILE-YAW: the hosted dest swap yaws the well. A dest chip
-  // to a *different* dest while hosted mounts the outgoing page as an
-  // overlay copy — the ONLY face that turns. It hinges on a vertical
-  // edge (left going forward, right going back) and swings rotateY(34deg)
-  // off like a door, fading on top, revealing the incoming page sitting
-  // at rest underneath. The incoming never rotateYs — two
-  // counter-rotating copies crossed in the middle and read as a big X
-  // landing on the screen. Both stay mounted the whole 420ms, so the
-  // well never flashes blank. Direction comes from the ring (forward =
-  // next, back = prev); perspective lives on the well only, and the
-  // Spark column / dock / CC never transform. The native side still
-  // gets its one host_changed assert — no second grow, no re-place.
-  // Reduced motion: crossfade only (no rotateY).
+  // GO-ORBITTY-TILE-YAW leftover: the hosted dest swap is a RECIPE-CARD
+  // deal, not a page flip (Matt killed the door/book). A dest chip to a
+  // *different* dest while hosted mounts the outgoing page as an overlay
+  // copy — the top card — which slides DOWN inside the well and fades,
+  // clipped by the card's own overflow so it deals into the stack and
+  // never out the side, while the incoming page sits underneath and
+  // eases up a few percent from below to rest. No rotateY, no cube, no
+  // X. Both stay mounted the whole 500ms, so the well never flashes
+  // blank. Ring direction (forward = next, back = prev) only biases the
+  // fall a few px left/right — a drift, never a flight off-stage. The
+  // Spark column / dock / CC never transform; no perspective anywhere.
+  // The native side still gets its one host_changed assert — no second
+  // grow, no re-place. Reduced motion: crossfade only (no translate).
   const DEST_RING: readonly HostMode[] = ["launchpad", "stars", "inspector"];
-  const TILE_YAW_MS = 420;
-  let yawPrev = $state<HostMode | null>(null);
-  let yawDir = $state<1 | -1>(1);
+  const TILE_YAW_MS = 500;
+  let dealPrev = $state<HostMode | null>(null);
+  let dealDir = $state<1 | -1>(1);
 
   function tileReset() {
     tilePre = false;
     tileEnter = false;
     tileLeave = false;
-    yawPrev = null;
+    dealPrev = null;
   }
 
   let mainEl: HTMLElement | null = null;
@@ -651,31 +653,32 @@
       // the frame never restored, so the card simply stays.
       tileReset();
       const prev = hosted;
-      // TILE-YAW: a chip to a *different* dest yaws — direction from the
-      // ring (forward = next, back = prev). A same-dest re-assert
-      // (focus-card, tray raise) never yaws.
+      // TILE-YAW leftover: a chip to a *different* dest deals — ring
+      // direction (forward = next, back = prev) only biases the fall a
+      // few px. A same-dest re-assert (focus-card, tray raise) never
+      // deals.
       if (prev !== mode) {
         const from = DEST_RING.indexOf(prev);
-        yawDir = DEST_RING.indexOf(mode) === (from + 1) % DEST_RING.length ? 1 : -1;
-        yawPrev = prev;
+        dealDir = DEST_RING.indexOf(mode) === (from + 1) % DEST_RING.length ? 1 : -1;
+        dealPrev = prev;
       }
       hosted = mode;
       try {
         await invoke("set_companion_host", { mode });
       } catch (e) {
         hosted = prev;
-        yawPrev = null;
+        dealPrev = null;
         sendNote = `${e}`;
         return;
       }
-      // TILE-YAW: both copies are mounted now (outgoing under yawPrev,
-      // incoming under hosted) — drop the outgoing once the CSS has
-      // finished. A fresh enter/swap/leave bumps tileGen and owns it.
-      if (yawPrev !== null) {
+      // Both copies are mounted now (outgoing under dealPrev, incoming
+      // under hosted) — drop the outgoing once the CSS has finished. A
+      // fresh enter/swap/leave bumps tileGen and owns it.
+      if (dealPrev !== null) {
         const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         setTimeout(
           () => {
-            if (gen === tileGen) yawPrev = null;
+            if (gen === tileGen) dealPrev = null;
           },
           (reduce ? 140 : TILE_YAW_MS) + 40,
         );
@@ -726,7 +729,7 @@
     const gen = ++tileGen;
     tilePre = false;
     tileEnter = false;
-    yawPrev = null; // TILE-YAW: a mid-yaw dismiss drops the outgoing copy
+    dealPrev = null; // a mid-deal dismiss drops the outgoing copy
     // TILE-DROP: reverse the drop INSIDE the still-grown frame — the
     // native idle restore waits for the CSS to end (timeout = duration).
     // The idle size is never restored mid-animation. Reduced motion:
@@ -1285,20 +1288,21 @@
       <div class="hostwell">
         <!-- SPRITE-OFF: no .wellhead when the sprite is hidden — the
              pane takes the full well (the card keeps its ring). -->
-        <div class="wellpane" class:fullwell={!sprite} class:yawing={yawPrev !== null}>
-          <!-- TILE-YAW: on a hosted dest swap the outgoing page rides an
-               absolute overlay copy (yawPrev) — the one face that turns,
-               hinged on a vertical edge and swinging out like a door,
-               while the incoming page sits at rest underneath and is
-               revealed (no rotateY on the incoming — that overlap was
-               the X). Both mounted the whole 420ms, so the well never
-               flashes blank. Not yawing: one static layer, same flex
-               sizing as before. -->
-          {#if yawPrev !== null}
-            <div class="yawlayer yaw-out" class:yaw-back={yawDir === -1}>
-              {#if yawPrev === "launchpad"}
+        <div class="wellpane" class:fullwell={!sprite} class:dealing={dealPrev !== null}>
+          <!-- TILE-YAW leftover (recipe cards): on a hosted dest swap the
+               outgoing page rides an absolute overlay copy (dealPrev) —
+               the top card — sliding DOWN inside the well and fading
+               (the card's overflow clip deals it into the stack, never
+               out the side), while the incoming page eases up a few
+               percent from below to rest underneath. No rotateY. Both
+               mounted the whole 500ms, so the well never flashes blank.
+               Not dealing: one static layer, same flex sizing as
+               before. -->
+          {#if dealPrev !== null}
+            <div class="deallayer deal-out" class:deal-back={dealDir === -1}>
+              {#if dealPrev === "launchpad"}
                 <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
-              {:else if yawPrev === "stars"}
+              {:else if dealPrev === "stars"}
                 <StarsPage embedded onClose={dismissHost} />
               {:else}
                 <RailPage
@@ -1310,7 +1314,7 @@
               {/if}
             </div>
           {/if}
-          <div class="yawlayer" class:yaw-in={yawPrev !== null}>
+          <div class="deallayer" class:deal-in={dealPrev !== null}>
             {#if hosted === "launchpad"}
               <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
             {:else if hosted === "stars"}
@@ -1587,14 +1591,16 @@
     display: flex;
   }
 
-  /* GO-ORBITTY-TILE-DROP: the drop verb. The native grow stays instant
-     (keep-bottom); this CSS animates INSIDE the grown frame and never
-     fights the dock pinning. Enter: the card drops from translateY(-18%)
-     + opacity 0 with a 10px overshoot; the Spark column eases in from a
-     bit toward center. Leave: the exact reverse, and only when it ends
-     does dismissHost invoke the native off. .tile-pre holds the
-     from-state at mount so the rested card never flashes while
-     set_companion_host is in flight. */
+  /* GO-ORBITTY-TILE-DROP: the drop verb — a CHOP. The native grow stays
+     instant (keep-bottom); this CSS animates INSIDE the grown frame and
+     never fights the dock pinning. Enter: the card drops from
+     translateY(-18%) + opacity 0, accelerates down and lands PAST rest
+     (26px — the old 10px read as timid), then a small rebound back up
+     and settle: a chop, not a trampoline. The Spark column eases in
+     from a bit toward center on the same clock. Leave: the exact
+     reverse, and only when it ends does dismissHost invoke the native
+     off. .tile-pre holds the from-state at mount so the rested card
+     never flashes while set_companion_host is in flight. */
   .companion.tile-pre .wellpane {
     opacity: 0;
     transform: translateY(-18%);
@@ -1606,11 +1612,11 @@
   }
 
   .companion.tile-enter .wellpane {
-    animation: orbitty-tile-drop-in 220ms ease-out both;
+    animation: orbitty-tile-drop-in 300ms ease-out both;
   }
 
   .companion.tile-enter .wellhead {
-    animation: orbitty-tile-aside-in 220ms ease-out both;
+    animation: orbitty-tile-aside-in 300ms ease-out both;
   }
 
   .companion.tile-leave .wellpane {
@@ -1621,14 +1627,27 @@
     animation: orbitty-tile-aside-out 200ms ease-in both;
   }
 
+  /* The chop, keyed per segment: ease-in on the fall (gravity — the
+     card accelerates into the chop), ease-out on the rebound rise,
+     ease-in-out on the settle. Opacity lands early (24%) so the fall
+     reads; transform interpolates 0→56% on the 0% keyframe's ease-in. */
   @keyframes orbitty-tile-drop-in {
     0% {
       opacity: 0;
       transform: translateY(-18%);
+      animation-timing-function: ease-in;
     }
-    62% {
+    24% {
       opacity: 1;
-      transform: translateY(10px);
+    }
+    56% {
+      opacity: 1;
+      transform: translateY(26px); /* lands PAST rest — the chop */
+      animation-timing-function: ease-out;
+    }
+    80% {
+      transform: translateY(-4px); /* small rebound, not a trampoline */
+      animation-timing-function: ease-in-out;
     }
     100% {
       opacity: 1;
@@ -1669,24 +1688,21 @@
     }
   }
 
-  /* GO-ORBITTY-TILE-YAW: the yaw verb — hosted dest swap. The card chrome
-     (fill / border / radius) stays put; the PAGE inside yaws. ONE face
-     turns: the outgoing overlay copy hinges on a vertical edge
-     (transform-origin left going forward, right going back) and swings
-     rotateY(34deg) off like a door, fading out on top, while the
-     incoming page sits at rest underneath and is simply revealed — the
-     incoming never rotateYs (two counter-rotating copies crossed in the
-     middle and read as a big X landing on the screen). Both mounted the
-     whole 420ms, so the well never flashes blank. Perspective on the
-     well only, never the window; the Spark column / dock / CC never
-     transform. Forward = next in the launchpad → stars → inspector
-     ring; .yaw-back mirrors. 34deg from rest — a swing, never a 90°
-     cube. 420ms ease-in-out (200ms ease-in at 22deg read as a clip,
-     not a yaw). The outgoing HOLDS opacity through mid-swing so the
-     turn reads, then dissolves — a door, not a crossfade pop. While
-     .yawing the card drops overflow:hidden so the turning face isn't
-     hard-clipped by the card edge; at rest the clip is untouched. */
-  .yawlayer {
+  /* GO-ORBITTY-TILE-YAW leftover: the swap verb is a RECIPE-CARD deal,
+     not a page flip (Matt killed the door/book). The card chrome (fill /
+     border / radius) stays put; the PAGE inside deals. The outgoing
+     overlay copy is the top card: it slides DOWN inside the well and
+     fades, clipped by the card's own overflow so it deals into the
+     stack — never out the side, never off-stage. The incoming page
+     never rotates and never flies in: it sits underneath and eases up a
+     few percent from below to rest as the deal reveals it. Both mounted
+     the whole 500ms, so the well never flashes blank. Ring direction
+     only biases the fall a few px left/right (forward = next in the
+     launchpad → stars → inspector ring; .deal-back mirrors) — a drift,
+     not a flight. 500ms ease-in-out: a beat slower than the old 420ms
+     swing, fluid. No perspective anywhere; the Spark column / dock / CC
+     never transform. */
+  .deallayer {
     flex: 1;
     min-width: 0;
     min-height: 0;
@@ -1694,73 +1710,77 @@
     flex-direction: column;
   }
 
-  .wellpane.yawing {
-    perspective: 900px;
-    overflow: visible; /* yaw only: no hard clip on the rotating faces */
+  .wellpane.dealing {
+    overflow: hidden; /* the deal stays INSIDE the card — clipped at the well edge */
   }
 
-  .wellpane.yawing .yawlayer {
+  .wellpane.dealing .deallayer {
     position: absolute;
     inset: 0;
-    pointer-events: none; /* 420ms input blackout on the card — no misclick */
+    pointer-events: none; /* 500ms input blackout on the card — no misclick */
   }
 
-  /* The door: the outgoing face is the only rotating copy — hinged on
-     the left edge going forward (right on .yaw-back) and stacked on top
-     so its swing covers the resting incoming page until the fade hands
-     off. The receding free edge foreshortens INTO the card (a toward-
-     viewer swing at 34deg would project across the Spark column). */
-  .wellpane.yawing .yawlayer.yaw-out {
+  /* The top card: stacked on top, slides down into the well and fades.
+     The fade is back-loaded (still ~opaque through mid-deal) so the
+     slide reads first; the last sliver dissolves instead of popping at
+     the clip. Forward drifts 10px left, .deal-back 10px right — a bias,
+     never an exit. */
+  .wellpane.dealing .deallayer.deal-out {
     z-index: 1;
-    transform-origin: left center;
-    animation: orbitty-tile-yaw-out 420ms ease-in-out both;
+    animation: orbitty-tile-deal-out 500ms ease-in-out both;
   }
 
-  .wellpane.yawing .yawlayer.yaw-out.yaw-back {
-    transform-origin: right center;
-    animation-name: orbitty-tile-yaw-out-back;
+  .wellpane.dealing .deallayer.deal-out.deal-back {
+    animation-name: orbitty-tile-deal-out-back;
   }
 
-  /* The incoming face does not turn: no animation, no transform — it
-     sits at rest underneath and the swinging door reveals it. */
+  /* The next card: underneath, eases up a few percent from below to
+     rest as the top card deals away. No fade — the outgoing covers it
+     at the start, so opacity would be invisible anyway. */
+  .wellpane.dealing .deallayer.deal-in {
+    animation: orbitty-tile-deal-in 500ms ease-in-out both;
+  }
 
-  /* Opacity is keyed apart from the rotate: the door is still clearly
-     there through the middle of the swing (the fade lives in the back
-     half), so the silhouette reads as one foreshortened card turning —
-     a trapezoid in perspective — never two rectangles crossing.
-     Forward hinges left and the free edge recedes (rotateY +34);
-     .yaw-back mirrors (hinge right, rotateY -34). */
-  @keyframes orbitty-tile-yaw-out {
+  @keyframes orbitty-tile-deal-out {
     0% {
       opacity: 1;
-      transform: rotateY(0deg);
+      transform: translate(0, 0);
     }
     55% {
-      opacity: 0.85;
+      opacity: 0.9;
     }
     100% {
       opacity: 0;
-      transform: rotateY(34deg);
+      transform: translate(-10px, 110%);
     }
   }
 
-  @keyframes orbitty-tile-yaw-out-back {
+  @keyframes orbitty-tile-deal-out-back {
     0% {
       opacity: 1;
-      transform: rotateY(0deg);
+      transform: translate(0, 0);
     }
     55% {
-      opacity: 0.85;
+      opacity: 0.9;
     }
     100% {
       opacity: 0;
-      transform: rotateY(-34deg);
+      transform: translate(10px, 110%);
     }
   }
 
-  /* Reduced motion: fade or snap — never a translate, never a rotateY.
-     Enter fades; the leave wait is 0 JS-side, so dismiss is a snap. The
-     yaw degrades to a crossfade (the JS cleanup shortens to match). */
+  @keyframes orbitty-tile-deal-in {
+    0% {
+      transform: translateY(5%);
+    }
+    100% {
+      transform: translateY(0);
+    }
+  }
+
+  /* Reduced motion: fade or snap — never a translate. Enter fades; the
+     leave wait is 0 JS-side, so dismiss is a snap. The deal degrades to
+     a short crossfade (the JS cleanup shortens to match). */
   @media (prefers-reduced-motion: reduce) {
     .companion.tile-pre .wellpane,
     .companion.tile-pre .wellhead {
@@ -1770,14 +1790,17 @@
     .companion.tile-enter .wellhead {
       animation: orbitty-tile-fade 140ms ease-out both;
     }
-    .wellpane.yawing .yawlayer.yaw-out {
-      animation: orbitty-tile-yaw-fade-out 140ms ease-out both;
+    .wellpane.dealing .deallayer.deal-out {
+      animation: orbitty-tile-deal-fade-out 140ms ease-out both;
     }
-    /* yaw-in stays at rest here too — the outgoing fade over it IS the
+    /* deal-in stays at rest here — the outgoing fade over it IS the
        crossfade. */
+    .wellpane.dealing .deallayer.deal-in {
+      animation: none;
+    }
   }
 
-  @keyframes orbitty-tile-yaw-fade-out {
+  @keyframes orbitty-tile-deal-fade-out {
     from {
       opacity: 1;
     }
