@@ -221,16 +221,17 @@
 
   // GO-ORBITTY-TILE-YAW: the hosted dest swap yaws the well. A dest chip
   // to a *different* dest while hosted mounts the outgoing page as an
-  // overlay copy rotating rotateY(±34deg) while the incoming swings in
-  // from the other side — both mounted the whole time, so the well never
-  // flashes blank. Leftover (readable swing): 420ms ease-in-out — 200ms
-  // at 22deg was too fast to name as yaw — and the outgoing HOLDS its
-  // opacity through the middle of the swing so the rotate is visible
-  // (a turn, not a crossfade pop). Direction comes from the ring
-  // (forward = next, back = prev); perspective lives on the well only,
-  // and the Spark column / dock / CC never transform. The native side
-  // still gets its one host_changed assert — no second grow, no
-  // re-place. Reduced motion: crossfade only (no rotateY).
+  // overlay copy — the ONLY face that turns. It hinges on a vertical
+  // edge (left going forward, right going back) and swings rotateY(34deg)
+  // off like a door, fading on top, revealing the incoming page sitting
+  // at rest underneath. The incoming never rotateYs — two
+  // counter-rotating copies crossed in the middle and read as a big X
+  // landing on the screen. Both stay mounted the whole 420ms, so the
+  // well never flashes blank. Direction comes from the ring (forward =
+  // next, back = prev); perspective lives on the well only, and the
+  // Spark column / dock / CC never transform. The native side still
+  // gets its one host_changed assert — no second grow, no re-place.
+  // Reduced motion: crossfade only (no rotateY).
   const DEST_RING: readonly HostMode[] = ["launchpad", "stars", "inspector"];
   const TILE_YAW_MS = 420;
   let yawPrev = $state<HostMode | null>(null);
@@ -1286,10 +1287,13 @@
              pane takes the full well (the card keeps its ring). -->
         <div class="wellpane" class:fullwell={!sprite} class:yawing={yawPrev !== null}>
           <!-- TILE-YAW: on a hosted dest swap the outgoing page rides an
-               absolute overlay copy (yawPrev) rotating out while the
-               incoming swings in from the other side — both mounted the
-               whole 420ms, so the well never flashes blank. Not yawing:
-               one static layer, same flex sizing as before. -->
+               absolute overlay copy (yawPrev) — the one face that turns,
+               hinged on a vertical edge and swinging out like a door,
+               while the incoming page sits at rest underneath and is
+               revealed (no rotateY on the incoming — that overlap was
+               the X). Both mounted the whole 420ms, so the well never
+               flashes blank. Not yawing: one static layer, same flex
+               sizing as before. -->
           {#if yawPrev !== null}
             <div class="yawlayer yaw-out" class:yaw-back={yawDir === -1}>
               {#if yawPrev === "launchpad"}
@@ -1306,7 +1310,7 @@
               {/if}
             </div>
           {/if}
-          <div class="yawlayer" class:yaw-in={yawPrev !== null} class:yaw-back={yawDir === -1}>
+          <div class="yawlayer" class:yaw-in={yawPrev !== null}>
             {#if hosted === "launchpad"}
               <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
             {:else if hosted === "stars"}
@@ -1666,20 +1670,22 @@
   }
 
   /* GO-ORBITTY-TILE-YAW: the yaw verb — hosted dest swap. The card chrome
-     (fill / border / radius) stays put; the PAGE inside yaws. The
-     outgoing overlay copy rotates rotateY(∓34deg) while the incoming
-     swings in from ±34deg — both mounted the whole 420ms, so the well
-     never flashes blank. Perspective on the well only, never the
-     window; the Spark column / dock / CC never transform. Forward =
-     next in the launchpad → stars → inspector ring; .yaw-back mirrors.
-     34deg from center — a swing, never a 90° cube.
-     Leftover (readable swing): 420ms ease-in-out both ways (200ms
-     ease-in at 22deg read as a clip, not a yaw). The outgoing HOLDS
-     opacity through mid-swing and the incoming is well up before center,
-     so the two faces overlap as a turn — not a crossfade pop. While
-     .yawing the card drops overflow:hidden so the rotated faces aren't
-     hard-clipped by the card edge (the near edge of a 34deg rotate
-     projects past it); at rest the clip is untouched. */
+     (fill / border / radius) stays put; the PAGE inside yaws. ONE face
+     turns: the outgoing overlay copy hinges on a vertical edge
+     (transform-origin left going forward, right going back) and swings
+     rotateY(34deg) off like a door, fading out on top, while the
+     incoming page sits at rest underneath and is simply revealed — the
+     incoming never rotateYs (two counter-rotating copies crossed in the
+     middle and read as a big X landing on the screen). Both mounted the
+     whole 420ms, so the well never flashes blank. Perspective on the
+     well only, never the window; the Spark column / dock / CC never
+     transform. Forward = next in the launchpad → stars → inspector
+     ring; .yaw-back mirrors. 34deg from rest — a swing, never a 90°
+     cube. 420ms ease-in-out (200ms ease-in at 22deg read as a clip,
+     not a yaw). The outgoing HOLDS opacity through mid-swing so the
+     turn reads, then dissolves — a door, not a crossfade pop. While
+     .yawing the card drops overflow:hidden so the turning face isn't
+     hard-clipped by the card edge; at rest the clip is untouched. */
   .yawlayer {
     flex: 1;
     min-width: 0;
@@ -1699,26 +1705,31 @@
     pointer-events: none; /* 420ms input blackout on the card — no misclick */
   }
 
+  /* The door: the outgoing face is the only rotating copy — hinged on
+     the left edge going forward (right on .yaw-back) and stacked on top
+     so its swing covers the resting incoming page until the fade hands
+     off. The receding free edge foreshortens INTO the card (a toward-
+     viewer swing at 34deg would project across the Spark column). */
   .wellpane.yawing .yawlayer.yaw-out {
+    z-index: 1;
+    transform-origin: left center;
     animation: orbitty-tile-yaw-out 420ms ease-in-out both;
   }
 
-  .wellpane.yawing .yawlayer.yaw-in {
-    animation: orbitty-tile-yaw-in 420ms ease-in-out both;
-  }
-
   .wellpane.yawing .yawlayer.yaw-out.yaw-back {
+    transform-origin: right center;
     animation-name: orbitty-tile-yaw-out-back;
   }
 
-  .wellpane.yawing .yawlayer.yaw-in.yaw-back {
-    animation-name: orbitty-tile-yaw-in-back;
-  }
+  /* The incoming face does not turn: no animation, no transform — it
+     sits at rest underneath and the swinging door reveals it. */
 
-  /* Opacity is keyed apart from the rotate: the outgoing face is still
-     clearly there through the middle of the swing (the fade lives in
-     the back half), and the incoming face is mostly up by center and
-     finishes opaque — the overlap reads as a turn. */
+  /* Opacity is keyed apart from the rotate: the door is still clearly
+     there through the middle of the swing (the fade lives in the back
+     half), so the silhouette reads as one foreshortened card turning —
+     a trapezoid in perspective — never two rectangles crossing.
+     Forward hinges left and the free edge recedes (rotateY +34);
+     .yaw-back mirrors (hinge right, rotateY -34). */
   @keyframes orbitty-tile-yaw-out {
     0% {
       opacity: 1;
@@ -1729,21 +1740,7 @@
     }
     100% {
       opacity: 0;
-      transform: rotateY(-34deg);
-    }
-  }
-
-  @keyframes orbitty-tile-yaw-in {
-    0% {
-      opacity: 0;
       transform: rotateY(34deg);
-    }
-    40% {
-      opacity: 0.75;
-    }
-    100% {
-      opacity: 1;
-      transform: rotateY(0deg);
     }
   }
 
@@ -1757,21 +1754,7 @@
     }
     100% {
       opacity: 0;
-      transform: rotateY(34deg);
-    }
-  }
-
-  @keyframes orbitty-tile-yaw-in-back {
-    0% {
-      opacity: 0;
       transform: rotateY(-34deg);
-    }
-    40% {
-      opacity: 0.75;
-    }
-    100% {
-      opacity: 1;
-      transform: rotateY(0deg);
     }
   }
 
@@ -1790,9 +1773,8 @@
     .wellpane.yawing .yawlayer.yaw-out {
       animation: orbitty-tile-yaw-fade-out 140ms ease-out both;
     }
-    .wellpane.yawing .yawlayer.yaw-in {
-      animation: orbitty-tile-fade 140ms ease-out both;
-    }
+    /* yaw-in stays at rest here too — the outgoing fade over it IS the
+       crossfade. */
   }
 
   @keyframes orbitty-tile-yaw-fade-out {
