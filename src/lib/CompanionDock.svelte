@@ -6,6 +6,7 @@
   // sends (the field still calls companion_send), and the well. Planets
   // dest L-click = toggleDest("inspector"). R-click = planet menu
   // (Add + live names) — not a dest toggle. × stays a CompanionPage corner.
+  import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { planetCss } from "./planetColor";
   import type { Project } from "./persist";
@@ -70,7 +71,7 @@
     expanded: boolean;
     talking: boolean;
     draft: string;
-    fieldEl: HTMLInputElement | null;
+    fieldEl: HTMLTextAreaElement | null;
     onAgentChange: () => void;
     togglePrompts: () => void;
     toggleDest: (mode: "launchpad" | "stars" | "inspector") => void;
@@ -136,6 +137,75 @@
       window.removeEventListener("mousedown", onDown, true);
       window.removeEventListener("keydown", onKey, true);
     };
+  });
+
+  // COMPOSER-WRAP: the one-line field is a wrapping textarea now (Grok
+  // web composer). Enter sends, Shift+Enter newline, ⌘↩/Ctrl+↩ send.
+  // Auto-grows from scrollHeight (WKWebView-safe — no field-sizing),
+  // caps at 6 visible lines then scrolls inside the box so it never
+  // eats the spirit. Empty clears the inline height entirely, so the
+  // idle box is the exact 0224c1f one-line height (rows=1, same
+  // padding/font/border). No chevron, no extra icon.
+  const MAX_EXTRA_LINES = 5; // 1 idle line + 5 = 6 visible lines
+
+  let oneLineH = 0; // border-box px of the empty field
+  let lineH = 0; // content px per wrapped line
+
+  function measureField() {
+    const el = fieldEl;
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const border =
+      parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    lineH = el.scrollHeight - pad; // empty → one line of content
+    oneLineH = el.scrollHeight + border; // empty → border-box target
+  }
+
+  function growField() {
+    const el = fieldEl;
+    if (!el) return;
+    // Park at rows=1 so scrollHeight reports the honest content height.
+    el.style.height = "auto";
+    if (draft === "") {
+      // Idle / just sent: no inline height at all → CSS rows=1 → the
+      // pixel-exact 0224c1f empty height. Re-measure so a late font or
+      // layout change never drifts the cap math.
+      measureField();
+      el.style.height = "";
+      el.style.overflowY = "hidden";
+      return;
+    }
+    const border =
+      parseFloat(getComputedStyle(el).borderTopWidth) * 2;
+    const needed = el.scrollHeight + border; // border-box target
+    const max =
+      oneLineH > 0 ? oneLineH + MAX_EXTRA_LINES * lineH : needed;
+    const capped = needed > max + 0.5;
+    el.style.height = `${capped ? max : needed}px`;
+    el.style.overflowY = capped ? "auto" : "hidden";
+  }
+
+  function onFieldKeydown(e: KeyboardEvent) {
+    if (e.key !== "Enter" || e.isComposing) return;
+    if (e.shiftKey) return; // Shift+Enter = newline, never sends
+    e.preventDefault(); // Enter / ⌘↩ / Ctrl+↩ = send, no newline
+    sendLine();
+  }
+
+  $effect(() => {
+    draft; // grow on every keystroke / talk fill / send-clear
+    growField();
+  });
+
+  onMount(() => {
+    measureField();
+    // Tile open/close widens the window → rewrap → re-grow without
+    // waiting for the next keystroke. RO fires only on real size
+    // deltas, so the grow writes above do not loop it.
+    const ro = new ResizeObserver(() => growField());
+    if (fieldEl) ro.observe(fieldEl);
+    return () => ro.disconnect();
   });
 </script>
 
@@ -413,16 +483,17 @@
     }}
   >
     <div class="fieldwrap" class:talking>
-      <input
+      <textarea
         class="field"
-        type="text"
+        rows="1"
         bind:this={fieldEl}
         bind:value={draft}
+        onkeydown={onFieldKeydown}
         placeholder="type…"
         aria-label="Message your companion"
         autocomplete="off"
         spellcheck="false"
-      />
+      ></textarea>
       <span class="talkslot">
         {#if talking}
           <button
@@ -793,9 +864,16 @@
     padding: 8px 10px 10px;
   }
 
+  /* COMPOSER-WRAP: same box as the 0224c1f input — padding, font,
+     border, radius untouched. box-sizing declared (the input rode the
+     UA form-control border-box) so the wrap math is deterministic;
+     resize off, vertical scrollbar only past the 6-line cap (inline
+     overflow-y from growField). rows=1 + height auto = the idle
+     one-line height, pixel-matched to the old input. */
   .field {
     flex: 1;
     min-width: 0;
+    box-sizing: border-box;
     padding: 7px 10px;
     font: inherit;
     font-size: 0.82rem;
@@ -804,6 +882,8 @@
     border: 1px solid var(--edge);
     border-radius: 9px;
     outline: none;
+    resize: none;
+    overflow-y: hidden;
   }
 
   .field:focus {

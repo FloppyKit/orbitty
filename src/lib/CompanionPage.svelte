@@ -478,7 +478,7 @@
   // Never auto-send, never always-on, never a wake word.
   let talking = $state(false);
   let talkBase = "";
-  let fieldEl: HTMLInputElement | null = null;
+  let fieldEl: HTMLTextAreaElement | null = null;
   // Up-arrow path: send as soon as the final text lands. System speech
   // emits talk:ended synchronously inside talk_stop; Handy never emits
   // it, so a short fallback sends whatever is already in the field.
