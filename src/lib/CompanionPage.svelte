@@ -211,13 +211,16 @@
   // drop once the grow has landed; tileLeave plays the reverse and only
   // when the CSS ends does the native side restore the idle rect.
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
-  // TILE-YAW leftover (Matt): the drop is a DROP-PUSH — from above and
-  // clearly small (translateY(-18%) + scale(0.88) + opacity 0) easing
-  // out to rest ON the base. Never past rest, never a rebound — the
-  // chop is dead (see the orbitty-tile-drop-in keyframes). Reduced
-  // motion: enter fades (no translate/scale), leave is a snap (0 wait).
-  const TILE_ENTER_MS = 300;
-  const TILE_LEAVE_MS = 200;
+  // TILE-YAW leftover (Matt): the drop is a SEED DROP — the tile starts
+  // as a singular pixel at the TOP of the hosted frame, slightly left
+  // of center (transform-origin pins that seed), and falls top →
+  // bottom into the well while scaling up to full size. A seed → a
+  // card. Never past rest, never a rebound — the chop is dead (see the
+  // orbitty-tile-drop-in keyframes). Spark eases aside on the same
+  // clock. Reduced motion: enter fades (no scale), leave is a snap
+  // (0 wait).
+  const TILE_ENTER_MS = 450;
+  const TILE_LEAVE_MS = 300;
   let tilePre = $state(false);
   let tileEnter = $state(false);
   let tileLeave = $state(false);
@@ -1619,20 +1622,43 @@
     display: flex;
   }
 
-  /* GO-ORBITTY-TILE-DROP: the drop verb — a DROP-PUSH (TILE-YAW
+  /* GO-ORBITTY-TILE-DROP: the drop verb — a SEED DROP (TILE-YAW
      leftover, Matt: the chop is dead). The native grow stays instant
      (keep-bottom); this CSS animates INSIDE the grown frame and never
-     fights the dock pinning. Enter: the card drops from above AND
-     clearly small — translateY(-18%) + scale(0.88) + opacity 0 — and
-     eases out to rest ON the base (translateY(0) scale(1)). Never past
-     rest, never a rebound. The Spark column eases in from a bit toward
-     center on the same clock. Leave: the exact reverse, and only when
-     it ends does dismissHost invoke the native off. .tile-pre holds
-     the from-state at mount so the rested card never flashes while
+     fights the dock pinning. Enter: the card starts as a singular
+     pixel at the TOP of the hosted frame, slightly left of its center
+     — transform-origin pins that seed — and falls top → bottom into
+     the well while scaling up to full size. A seed → a card, easing
+     out to rest ON the base (scale(1)). Never past rest, never a
+     rebound. The Spark column eases aside — out of the tile's way —
+     on the same clock. Leave: the exact reverse (the card shrinks
+     back up into the seed, Spark comes back), and only when it ends
+     does dismissHost invoke the native off. .tile-pre holds the
+     from-state at mount so the rested card never flashes while
      set_companion_host is in flight. */
+  .companion.tile-pre .wellpane,
+  .companion.tile-enter .wellpane,
+  .companion.tile-leave .wellpane {
+    /* The seed: top edge of the hosted frame, slightly left of the
+       frame's center. The pane is the left ~2/3 of the well, so the
+       frame center sits ~76% across the pane — 70% lands the seed a
+       touch left of it; -10px puts it on the frame's top edge (the
+       pane starts 10px down, .hostwell padding). */
+    transform-origin: 70% -10px;
+  }
+
+  /* SPRITE-OFF hosted: the pane takes the full well width, so the
+     frame center is the pane's own center — 46% keeps the seed
+     slightly left of it. */
+  .companion.tile-pre .wellpane.fullwell,
+  .companion.tile-enter .wellpane.fullwell,
+  .companion.tile-leave .wellpane.fullwell {
+    transform-origin: 46% -10px;
+  }
+
   .companion.tile-pre .wellpane {
     opacity: 0;
-    transform: translateY(-18%) scale(0.88);
+    transform: scale(0.002);
   }
 
   .companion.tile-pre .wellhead {
@@ -1641,32 +1667,37 @@
   }
 
   .companion.tile-enter .wellpane {
-    animation: orbitty-tile-drop-in 300ms ease-out both;
+    animation: orbitty-tile-drop-in 450ms ease-out both;
   }
 
   .companion.tile-enter .wellhead {
-    animation: orbitty-tile-aside-in 300ms ease-out both;
+    animation: orbitty-tile-aside-in 450ms ease-out both;
   }
 
   .companion.tile-leave .wellpane {
-    animation: orbitty-tile-drop-out 200ms ease-in both;
+    animation: orbitty-tile-drop-out 300ms ease-in both;
   }
 
   .companion.tile-leave .wellhead {
-    animation: orbitty-tile-aside-out 200ms ease-in both;
+    animation: orbitty-tile-aside-out 300ms ease-in both;
   }
 
-  /* The drop-push: one ease-out run from above + clearly small to
-     rest. Opacity rides the same clock so the card materializes as it
-     settles onto the base — no overshoot keyframe anywhere. */
+  /* The seed drop: from a ~1px point at the seed to full size at rest.
+     Scaling about the pinned origin pulls every point of the card from
+     the seed down to its rest slot, so the card reads as falling top →
+     bottom while it grows. Opacity snaps in early so the seed pixel
+     reads before the swell. No overshoot keyframe anywhere. */
   @keyframes orbitty-tile-drop-in {
     0% {
       opacity: 0;
-      transform: translateY(-18%) scale(0.88);
+      transform: scale(0.002);
+    }
+    16% {
+      opacity: 1;
     }
     100% {
       opacity: 1;
-      transform: translateY(0) scale(1);
+      transform: scale(1);
     }
   }
 
@@ -1681,14 +1712,20 @@
     }
   }
 
+  /* Leave = the exact reverse: the card shrinks back up into the seed
+     (the origin stays pinned, so the collapse travels bottom → top)
+     and winks out at the pixel. */
   @keyframes orbitty-tile-drop-out {
     0% {
       opacity: 1;
-      transform: translateY(0) scale(1);
+      transform: scale(1);
+    }
+    84% {
+      opacity: 1;
     }
     100% {
       opacity: 0;
-      transform: translateY(-18%) scale(0.88);
+      transform: scale(0.002);
     }
   }
 
