@@ -40,6 +40,7 @@
     onAgentChange,
     togglePrompts,
     toggleDest,
+    onNewPlanet,
     toggleSpeak,
     toggleSprite,
     toggleView,
@@ -68,6 +69,7 @@
     onAgentChange: () => void;
     togglePrompts: () => void;
     toggleDest: (mode: "launchpad" | "stars" | "inspector") => void;
+    onNewPlanet: () => void;
     toggleSpeak: () => void;
     toggleSprite: (e: MouseEvent) => void;
     toggleView: () => void;
@@ -154,9 +156,14 @@
         class="dest iconbtn planetsdest"
         class:on={hosted === "inspector"}
         onclick={() => toggleDest("inspector")}
-        aria-label="Planets"
+        oncontextmenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onNewPlanet();
+        }}
+        aria-label="Planets, or right-click for New planet"
         data-chip="Planets"
-        title="Planets in the well — click again to dismiss"
+        title="Planets in the well — click again to dismiss. Right-click: New planet"
       >
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <circle cx="12" cy="12" r="5" />

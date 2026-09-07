@@ -644,6 +644,15 @@
     else await enterHost(mode);
   }
 
+  // PLANETS-SHEET leftover: dest right-click mints a planet. Click still
+  // toggles the well. Same createProject door as the hosted + Planet row.
+  let createPlanetTick = $state(0);
+  async function requestNewPlanet() {
+    if (hosted !== "inspector") await enterHost("inspector");
+    if (hosted !== "inspector") return;
+    createPlanetTick += 1;
+  }
+
   // Launchpad-only pop-out (the embedded banner button): the real kanban
   // window becomes the popped Launchpad beside the restored idle
   // companion. Never parks — the two sit side by side.
@@ -1144,7 +1153,12 @@
           {:else if hosted === "stars"}
             <StarsPage embedded onClose={dismissHost} />
           {:else if hosted === "inspector"}
-            <RailPage embedded onClose={dismissHost} onPopout={popoutInspector} />
+            <RailPage
+              embedded
+              onClose={dismissHost}
+              onPopout={popoutInspector}
+              {createPlanetTick}
+            />
           {/if}
         </div>
         {#if sprite}
@@ -1254,6 +1268,7 @@
     {onAgentChange}
     {togglePrompts}
     {toggleDest}
+    onNewPlanet={requestNewPlanet}
     {toggleSpeak}
     {toggleSprite}
     {toggleView}

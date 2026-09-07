@@ -41,10 +41,12 @@
     embedded = false,
     onClose,
     onPopout,
+    createPlanetTick = 0,
   }: {
     embedded?: boolean;
     onClose?: () => void;
     onPopout?: () => void;
+    createPlanetTick?: number;
   } = $props();
 
   interface AxStatus {
@@ -370,8 +372,8 @@
 
   // GO-ORBITTY-PLANETS-SHEET: the hosted well (embedded) is one sheet, two
   // sections — Unclaimed on top, On planets below. Windows only: no Agents
-  // lane, +Project, tags, +To-do, Actions, or being editor in the well (the
-  // pop-out rail keeps the full inspector).
+  // lane, tags, +To-do, Actions, or being editor in the well (the pop-out
+  // rail keeps the full inspector). + Planet is the one mint in this sheet.
   //
   // The focused planet paints expanded, the rest collapsed. Focused = the
   // frontmost window's claim; when Orbitty itself (or an unclaimed app) is
@@ -418,8 +420,19 @@
 
   // Unclaimed row → claim ▸ opens the planet picker for that window; the
   // pick lands through the exclusive claim() door (CLAIM-ONE). New planets
-  // are made in Settings or by Spark — never in this sheet.
+  // mint through createProjectOnly — sheet footer and dest right-click
+  // (createPlanetTick) are the same door.
   let claimPickerFor = $state<string | null>(null);
+  let sheetNameEl: HTMLInputElement | null = $state(null);
+
+  $effect(() => {
+    if (embedded && createPlanetTick > 0) creatingProject = true;
+  });
+  $effect(() => {
+    if (embedded && creatingProject) {
+      queueMicrotask(() => sheetNameEl?.focus());
+    }
+  });
 
   function sheetClaim(windowId: string, projectId: string) {
     claimPickerFor = null;
@@ -1525,10 +1538,13 @@
 
   function createProjectOnly() {
     if (!newProjectName.trim()) return;
-    createProject(newProjectName);
+    const p = createProject(newProjectName);
     newProjectName = "";
     creatingProject = false;
     persist();
+    if (embedded) {
+      sheetOpenOverride = { ...sheetOpenOverride, [p.id]: true };
+    }
   }
 
   function onDragStart(e: DragEvent, w: WindowInfo) {
@@ -2187,7 +2203,9 @@
           {#if claimPickerFor === w.id}
             <li class="claim-picker">
               {#if projects.length === 0}
-                <span class="sheet-empty">No planets yet — make one in Settings.</span>
+                <button class="mini" onclick={() => (creatingProject = true)}
+                  >No planets yet — add one below</button
+                >
               {:else}
                 {#each projects as p (p.id)}
                   <button
@@ -2267,6 +2285,25 @@
         {/each}
       </ul>
     {/if}
+    <div class="sheet-add">
+      {#if creatingProject}
+        <span class="newproj">
+          <input
+            bind:this={sheetNameEl}
+            bind:value={newProjectName}
+            placeholder="Planet name"
+            onkeydown={(e) => {
+              if (e.key === "Enter") createProjectOnly();
+              if (e.key === "Escape") creatingProject = false;
+            }}
+          />
+          <button class="mini" onclick={createProjectOnly}>Add</button>
+          <button class="mini ghost" onclick={() => (creatingProject = false)}>×</button>
+        </span>
+      {:else}
+        <button class="mini" onclick={() => (creatingProject = true)}>+ Planet</button>
+      {/if}
+    </div>
   </section>
 {/snippet}
 
@@ -3402,6 +3439,14 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
+  }
+
+  .sheet-add {
+    margin: 8px 4px 2px;
+  }
+
+  .sheet-add .newproj {
+    margin-left: 0;
   }
 
   /* Lane tabs on the list-head — the active lane gets the --focus edge. */
