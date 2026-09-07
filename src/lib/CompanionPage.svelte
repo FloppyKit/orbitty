@@ -1166,7 +1166,7 @@
     <div class="wellwrap">
       <div class="hostwell">
         <!-- SPRITE-OFF: no .wellhead when the sprite is hidden — the
-             pane takes the full well (no right border). -->
+             pane takes the full well (the card keeps its ring). -->
         <div class="wellpane" class:fullwell={!sprite}>
           {#if hosted === "launchpad"}
             <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
@@ -1346,6 +1346,16 @@
     background: transparent;
   }
 
+  /* GO-ORBITTY-TILE-PAINT: hosted, the slab fill goes transparent so the
+     desk shows in the gap around the glass card — same family as the
+     ghost dock. Hits are untouched: the hosted slab never consults the
+     ghost hit list native-side, so the gap still drags (GRAB-LAW) and
+     click-through of the hosted gap stays a leftover. Idle .ghost paint
+     is unchanged. */
+  .companion.hosting {
+    background: transparent;
+  }
+
   :global(.low-fill) .companion {
     text-shadow: 0 1px 2px var(--bg-solid, transparent);
   }
@@ -1402,8 +1412,17 @@
     min-width: 0;
     display: flex;
     flex-direction: row;
+    gap: 10px;
+    padding: 10px;
   }
 
+  /* GO-ORBITTY-TILE-PAINT: the .wellpane wrap IS the glass card — same
+     family as the ghost dock. The 10px ring inside .hostwell lets the
+     desk show around it; radius 12 (same as .ghostdock), --bg-fill,
+     1px --edge all around. The hard border-right divider is dead: the
+     gap to the Spark column is air. Embedded Kanban / Stars / Rail keep
+     their square inner chrome — the wrap is the card, not each page's
+     banner. One tile at a time; no motion in this phrase. */
   .wellpane {
     flex: 1 1 66%;
     min-width: 0;
@@ -1411,7 +1430,9 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-right: 1px solid var(--edge);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 12px;
   }
 
   .wellhead {
@@ -1421,11 +1442,9 @@
     display: flex;
   }
 
-  /* SPRITE-OFF hosted: no .wellhead — the pane takes the full well and
-     drops the divider. */
-  .wellpane.fullwell {
-    border-right: none;
-  }
+  /* SPRITE-OFF hosted: no .wellhead — the pane takes the full well. The
+     card keeps its full ring (the old divider drop died with the
+     divider). */
 
   /* SPRITE-HUG: the old spriteoff ::before flex spacer is dead — the
      native hug shrinks the idle collapsed frame to the CC+dock bar
