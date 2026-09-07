@@ -97,6 +97,13 @@ fn locate_walker(app: tauri::AppHandle, entry_id: String) -> Result<(), String> 
     habitat::locate_walker(app, entry_id)
 }
 
+/// Dest-menu find: glow that planet ~1.4s (marble saturn ring / expanded
+/// rim + center name). Glow only — `bring_planet_front` is a separate raise.
+#[tauri::command]
+fn locate_planet(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    habitat::locate_planet(app, id)
+}
+
 /// Frontend pushes the claimed-project snapshot; native side owns the panels.
 #[tauri::command]
 fn sync_habitat(app: tauri::AppHandle, snapshot: habitat::HabitatSnapshot) -> Result<(), String> {
@@ -414,6 +421,7 @@ pub fn run() {
             close_window,
             locate_window,
             locate_walker,
+            locate_planet,
             sync_habitat,
             accessibility_status,
             open_accessibility_settings,

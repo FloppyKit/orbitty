@@ -659,6 +659,7 @@
   }
   function planetClick(id: string) {
     invoke("bring_planet_front", { id }).catch(() => {});
+    invoke("locate_planet", { id }).catch(() => {});
   }
   function planetDblClick(id: string) {
     const collapsed = collapsedSectionIds.includes(id);

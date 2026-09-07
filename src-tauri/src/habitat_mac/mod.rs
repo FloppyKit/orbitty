@@ -856,6 +856,9 @@ pub(crate) struct Habitat {
     /// Drawn as a ~500ms ring around the walker's frame; cursor_tick
     /// expires it (10Hz, so Reduce Motion can't pin it on).
     locate: Option<(String, Instant)>,
+    /// Dest-menu find: (project id, armed at). Marble = diagonal saturn
+    /// ring; expanded = rim glow + center name fade.
+    locate_planet: Option<(String, Instant)>,
     /// Armed by the Place menu items; the next empty-disc click drops it.
     placement: Option<Placement>,
     bob_phase: f64,
@@ -1891,6 +1894,10 @@ const CAPTION_TTL: Duration = Duration::from_secs(2);
 /// and walker left-click both glow ~500ms, then the ring draws out.
 const LOCATE_TTL: Duration = Duration::from_millis(500);
 
+/// Planet find glow (dest-menu click). Longer than walker locate so the
+/// expanded name can flash and fade.
+const PLANET_LOCATE_TTL: Duration = Duration::from_millis(1400);
+
 
 fn plant_cap(first_seen: f64, now: f64) -> usize {
     let extra = ((now - first_seen).max(0.0) / 172_800.0).floor() as usize;
@@ -2918,6 +2925,24 @@ pub fn locate_walker(app: AppHandle, entry_id: String) -> Result<(), String> {
                     let view = p.view as *mut Object;
                     let _: () = msg_send![view, setNeedsDisplay: true];
                 }
+            }
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Dest-menu find: glow that planet ~1.4s. Raises nothing — caller may
+/// also `bring_planet_front`. Marble = diagonal ring; expanded = rim + name.
+pub fn locate_planet(app: AppHandle, project_id: String) -> Result<(), String> {
+    let app = app.clone();
+    app.run_on_main_thread(move || {
+        let mut h = lock();
+        h.locate_planet = Some((project_id.clone(), Instant::now()));
+        if let Some(p) = h.planets.get(&project_id) {
+            unsafe {
+                let view = p.view as *mut Object;
+                let _: () = msg_send![view, setNeedsDisplay: true];
             }
         }
     })

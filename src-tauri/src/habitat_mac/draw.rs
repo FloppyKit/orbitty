@@ -11,8 +11,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use super::{
     card_color, fill_oval, lock, now_epoch, ns_color, ns_string, panic_msg, radius_y, set_fill,
     station_anchor, walker_fit, walker_hidden, CGSize, DecorKind, Habitat, NSPoint, NSRect,
-    Pose, Projection, CAPTION_TTL, LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE,
-    VIEW_PADDING,
+    Pose, Projection, CAPTION_TTL, LOCATE_TTL, PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD,
+    STATION_HOUSE, VIEW_PADDING,
 };
 
 /// Planet board columns (todo / doing / done), view-local, same math as
@@ -296,6 +296,8 @@ struct DrawData {
     /// GO-ORBITTY-WORLD-TOWN: board ticks per column (todo/doing/done),
     /// colors pre-hashed from card ids. Empty on marbles (no town).
     board: [Vec<(f64, f64, f64)>; 3],
+    /// Dest-menu find: 0 just armed, 1 expired. None = no glow.
+    locate_t: Option<f64>,
 }
 
 pub(crate) extern "C" fn draw_rect(this: &Object, _cmd: Sel, _dirty: NSRect) {
@@ -311,7 +313,7 @@ fn draw_rect_guarded(this: &Object) {
     let data = {
         let h = lock();
         let now = now_epoch();
-        h.planets.values().find(|p| p.view == view_ptr).map(|p| {
+        h.planets.iter().find(|(_, p)| p.view == view_ptr).map(|(pid, p)| {
             let walkers = p
                 .walkers
                 .iter()
@@ -471,6 +473,17 @@ fn draw_rect_guarded(this: &Object) {
                 hover_name: p.hover_name,
                 decor,
                 board,
+                locate_t: h.locate_planet.as_ref().and_then(|(id, at)| {
+                    if id == pid && at.elapsed() < PLANET_LOCATE_TTL {
+                        Some(
+                            (at.elapsed().as_secs_f64()
+                                / PLANET_LOCATE_TTL.as_secs_f64())
+                            .min(1.0),
+                        )
+                    } else {
+                        None
+                    }
+                }),
             }
         })
     };
@@ -850,6 +863,110 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     if !d.is_marble {
         draw_under_label(center, ry, &d.name);
     }
+
+    draw_planet_locate(d, center, r, ry, rect);
+}
+
+/// Dest-menu find glow. Marble: a slightly diagonal saturn ring (same
+/// lean as the Planets dest logo). Expanded: brighter rim + name in the
+/// disc center that fades out.
+unsafe fn draw_planet_locate(
+    d: &DrawData,
+    center: NSPoint,
+    r: f64,
+    _ry: f64,
+    rect: NSRect,
+) {
+    let Some(t) = d.locate_t else { return };
+    let fade = (1.0 - t).clamp(0.0, 1.0);
+    if fade <= 0.02 {
+        return;
+    }
+    let white: *mut Object = msg_send![class!(NSColor), whiteColor];
+    let base = d.color;
+    if d.is_marble {
+        let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+        let tf: *mut Object = msg_send![class!(NSAffineTransform), transform];
+        let _: () = msg_send![tf, translateXBy: center.x yBy: center.y];
+        let _: () = msg_send![tf, rotateByDegrees: -20.0f64];
+        let _: () = msg_send![tf, translateXBy: -center.x yBy: -center.y];
+        let _: () = msg_send![tf, concat];
+        let rw = r * 2.35;
+        let rh = r * 0.78;
+        let ring_rect = NSRect::new(center.x - rw / 2.0, center.y - rh / 2.0, rw, rh);
+        let glow: *mut Object = msg_send![white, colorWithAlphaComponent: 0.35f64 * fade];
+        let _: () = msg_send![glow, setStroke];
+        let outer: *mut Object =
+            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect];
+        let _: () = msg_send![outer, setLineWidth: 5.0f64];
+        let _: () = msg_send![outer, stroke];
+        let ink: *mut Object =
+            msg_send![white, colorWithAlphaComponent: 0.92f64 * fade];
+        let _: () = msg_send![ink, setStroke];
+        let inner: *mut Object =
+            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect];
+        let _: () = msg_send![inner, setLineWidth: 2.2f64];
+        let _: () = msg_send![inner, stroke];
+        let tint = ns_color(base.0, base.1, base.2, 0.55 * fade);
+        let _: () = msg_send![tint, setStroke];
+        let color_ring: *mut Object =
+            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: ring_rect.inset(1.5)];
+        let _: () = msg_send![color_ring, setLineWidth: 1.4f64];
+        let _: () = msg_send![color_ring, stroke];
+        let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
+    } else {
+        let glow: *mut Object = msg_send![white, colorWithAlphaComponent: 0.5f64 * fade];
+        let _: () = msg_send![glow, setStroke];
+        let outer: *mut Object =
+            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect.inset(-3.5)];
+        let _: () = msg_send![outer, setLineWidth: 5.5f64];
+        let _: () = msg_send![outer, stroke];
+        let ink: *mut Object =
+            msg_send![white, colorWithAlphaComponent: 0.95f64 * fade];
+        let _: () = msg_send![ink, setStroke];
+        let rim: *mut Object =
+            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect.inset(-0.5)];
+        let _: () = msg_send![rim, setLineWidth: 2.6f64];
+        let _: () = msg_send![rim, stroke];
+        let tint = ns_color(base.0, base.1, base.2, 0.7 * fade);
+        let _: () = msg_send![tint, setStroke];
+        let color_ring: *mut Object =
+            msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
+        let _: () = msg_send![color_ring, setLineWidth: 1.8f64];
+        let _: () = msg_send![color_ring, stroke];
+        draw_center_flash(center, &d.name, fade);
+    }
+}
+
+unsafe fn draw_center_flash(center: NSPoint, text: &str, fade: f64) {
+    let ns_text = ns_string(text);
+    let font: *mut Object = msg_send![class!(NSFont), boldSystemFontOfSize: 15.0f64];
+    let white: *mut Object = msg_send![class!(NSColor), whiteColor];
+    let ink: *mut Object = msg_send![white, colorWithAlphaComponent: fade];
+    let shadow: *mut Object = msg_send![class!(NSShadow), alloc];
+    let shadow: *mut Object = msg_send![shadow, init];
+    let _: () = msg_send![shadow, setShadowOffset: CGSize { width: 0.0, height: -1.0 }];
+    let _: () = msg_send![shadow, setShadowBlurRadius: 4.0f64];
+    let black: *mut Object = msg_send![class!(NSColor), blackColor];
+    let shadow_color: *mut Object =
+        msg_send![black, colorWithAlphaComponent: 0.75f64 * fade];
+    let _: () = msg_send![shadow, setShadowColor: shadow_color];
+    let keys = [ns_string("NSFont"), ns_string("NSColor"), ns_string("NSShadow")];
+    let vals = [font, ink, shadow];
+    let attrs: *mut Object = msg_send![class!(NSDictionary),
+        dictionaryWithObjects: vals.as_ptr()
+        forKeys: keys.as_ptr()
+        count: 3usize];
+    if attrs.is_null() {
+        return;
+    }
+    let size: CGSize = msg_send![ns_text, sizeWithAttributes: attrs];
+    let _: () = msg_send![ns_text,
+        drawAtPoint: NSPoint {
+            x: center.x - size.width / 2.0,
+            y: center.y - size.height / 2.0,
+        }
+        withAttributes: attrs];
 }
 
 /// Expanded-planet under-label: the planet name in 11pt white, centered

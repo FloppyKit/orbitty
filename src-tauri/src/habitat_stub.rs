@@ -18,6 +18,10 @@ pub fn locate_walker(_app: tauri::AppHandle, _entry_id: String) -> Result<(), St
     Err("habitat is macOS-only for now".into())
 }
 
+pub fn locate_planet(_app: tauri::AppHandle, _project_id: String) -> Result<(), String> {
+    Err("habitat is macOS-only for now".into())
+}
+
 pub fn reload_pack_frames() {}
 
 /// Being-editor preview is rendered with AppKit on macOS; elsewhere the

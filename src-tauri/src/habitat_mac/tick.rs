@@ -24,6 +24,7 @@ use super::{
     BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
     DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
     HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
+    PLANET_LOCATE_TTL,
     TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING,
 };
 
@@ -587,7 +588,8 @@ fn anim_tick() {
     // all-sleeper / empty planet paints nothing per tick; sleepers never
     // keep the view dirty. Marbles already `continue`.
     let locate = h.locate.clone();
-    for planet in h.planets.values_mut() {
+    let locate_planet = h.locate_planet.clone();
+    for (pid, planet) in h.planets.iter_mut() {
         if planet.is_marble {
             continue; // marbles are bare and still
         }
@@ -927,6 +929,8 @@ fn anim_tick() {
             // in between so the ring/pill never half-draws.
             dirty = locate.as_ref().is_some_and(|(id, at)| {
                 at.elapsed() < LOCATE_TTL && planet.walkers.iter().any(|b| &b.entry_id == id)
+            }) || locate_planet.as_ref().is_some_and(|(id, at)| {
+                id == pid && at.elapsed() < PLANET_LOCATE_TTL
             }) || planet
                 .caption
                 .as_ref()
@@ -1584,6 +1588,24 @@ fn cursor_tick() {
         let id = h.locate.take().map(|(id, _)| id).unwrap_or_default();
         for p in h.planets.values() {
             if p.walkers.iter().any(|b| b.entry_id == id) {
+                unsafe {
+                    let view = p.view as *mut Object;
+                    let _: () = msg_send![view, setNeedsDisplay: true];
+                }
+            }
+        }
+    }
+    if let Some((id, at)) = h.locate_planet.clone() {
+        if at.elapsed() < PLANET_LOCATE_TTL {
+            if let Some(p) = h.planets.get(&id) {
+                unsafe {
+                    let view = p.view as *mut Object;
+                    let _: () = msg_send![view, setNeedsDisplay: true];
+                }
+            }
+        } else {
+            h.locate_planet = None;
+            if let Some(p) = h.planets.get(&id) {
                 unsafe {
                     let view = p.view as *mut Object;
                     let _: () = msg_send![view, setNeedsDisplay: true];
