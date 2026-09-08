@@ -1,0 +1,73 @@
+//! GO-ORBITTY-TILE-CHORDS — global chords for the dest tiles, riding the
+//! same `tauri_plugin_global_shortcut` as the ⌘⇧O summon and the action
+//! combos. These are NOT user `actionShortcuts` — reserved like summon
+//! (actions.rs `is_reserved` refuses them for action rows, so a
+//! collision marks the action `conflict` and the tile chord wins).
+//!
+//!   ⌘⌥1 / ⌘⌥2 / ⌘⌥3   Launchpad / STARS / Planets — the same move as
+//!                     the dest chips: drop from idle, yaw from a hosted
+//!                     sibling, dismiss when that dest is already up.
+//!                     The page owns `hosted`, so the toggle lives there.
+//!   ⌘⌥← / ⌘⌥→         While hosted: yaw the ring (Launchpad → STARS →
+//!                     Planets → Launchpad). Idle: no-op — never summon.
+//!
+//! ⌘Space stays Spotlight; Super-only Mac menu chords stay refused
+//! (actions.rs reserved list); ⌘⌥+letter stays the action lane — dests
+//! are never registered as letters.
+
+use tauri::Emitter;
+use tauri_plugin_global_shortcut::{
+    Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+};
+
+const DESTS: [(Code, &str); 3] = [
+    (Code::Digit1, "launchpad"),
+    (Code::Digit2, "stars"),
+    (Code::Digit3, "inspector"),
+];
+const YAWS: [(Code, &str); 2] = [
+    (Code::ArrowLeft, "prev"),
+    (Code::ArrowRight, "next"),
+];
+
+/// Register the five tile chords. Best-effort per chord (same philosophy
+/// as actions.rs — an OS/other-app collision is logged, never a crash):
+/// a chord that fails to register simply stays dead.
+#[cfg(target_os = "macos")]
+pub fn register(app: &tauri::AppHandle) {
+    let gs = app.global_shortcut();
+    for (code, mode) in DESTS {
+        let chord = Shortcut::new(Some(Modifiers::SUPER | Modifiers::ALT), code);
+        let handle = app.clone();
+        if let Err(e) = gs.on_shortcut(chord, move |_app, _s, ev| {
+            if ev.state() != ShortcutState::Pressed {
+                return;
+            }
+            // A global chord must work from a hidden companion: raise it
+            // native-side first (same as the tray dest items), then ask
+            // the page to toggle — enterHost / dismissHost own the host
+            // frame from there (drop, yaw, or dismiss-when-same).
+            let _ = crate::panes::show_companion(&handle);
+            let _ = handle.emit_to("companion", "orbitty:toggle-host", mode);
+        }) {
+            eprintln!("tile-chords: ⌘⌥{mode} register failed: {e}");
+        }
+    }
+    for (code, dir) in YAWS {
+        let chord = Shortcut::new(Some(Modifiers::SUPER | Modifiers::ALT), code);
+        let handle = app.clone();
+        if let Err(e) = gs.on_shortcut(chord, move |_app, _s, ev| {
+            if ev.state() != ShortcutState::Pressed {
+                return;
+            }
+            // No show_companion here — idle is a no-op, never a summon.
+            // The page no-ops when nothing is hosted.
+            let _ = handle.emit_to("companion", "orbitty:yaw-host", dir);
+        }) {
+            eprintln!("tile-chords: ⌘⌥{dir} register failed: {e}");
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn register(_app: &tauri::AppHandle) {}

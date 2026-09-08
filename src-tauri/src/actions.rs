@@ -7,7 +7,8 @@
 //! Registrations re-sync on load and on every persist of
 //! `actionShortcuts` (the `save_state` command and the `action.*` control
 //! tools all call `sync_combos`). Reserved chords (⌘⇧O summon, ⌘Space
-//! Spotlight) are refused; an OS/other-app collision skips registration
+//! Spotlight, the ⌘⌥1/2/3 + ⌘⌥←/→ tile chords) are refused; an
+//! OS/other-app collision skips registration
 //! and marks the row `conflict` in the list — never a crash. Empty combo
 //! = Spirit-only (chat intercept or a Settings name click).
 
@@ -41,10 +42,20 @@ fn parse_combo(combo: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, St
 /// are Mac menu equivalents (Hide, Minimize, Quit, Close, …): Carbon
 /// RegisterEventHotKey succeeds, then the menu swallows the press while
 /// Orbitty is frontmost, so the action looks dead. ⌘⌥+letter is fine.
+/// GO-ORBITTY-TILE-CHORDS: ⌘⌥1/2/3 = dest tiles, ⌘⌥←/→ = ring yaw — the
+/// tile chord wins, so a row carrying one shows `conflict`.
 #[cfg(target_os = "macos")]
 fn is_reserved(s: &tauri_plugin_global_shortcut::Shortcut) -> bool {
     use tauri_plugin_global_shortcut::{Code, Modifiers};
     if s.mods == Modifiers::SUPER | Modifiers::SHIFT && s.key == Code::KeyO {
+        return true;
+    }
+    if s.mods == Modifiers::SUPER | Modifiers::ALT
+        && matches!(
+            s.key,
+            Code::Digit1 | Code::Digit2 | Code::Digit3 | Code::ArrowLeft | Code::ArrowRight
+        )
+    {
         return true;
     }
     if s.mods == Modifiers::SUPER && matches!(s.key, Code::Space | Code::Tab | Code::Backquote) {

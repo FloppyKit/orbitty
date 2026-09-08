@@ -1223,6 +1223,8 @@
   let unlistenVis: (() => void) | undefined;
   let unlistenSummon: (() => void) | undefined;
   let unlistenEnterHost: (() => void) | undefined;
+  let unlistenToggleHost: (() => void) | undefined;
+  let unlistenYawHost: (() => void) | undefined;
   let unlistenTalk: (() => void)[] = [];
   let hitsObserver: ResizeObserver | undefined;
   onMount(async () => {
@@ -1273,6 +1275,22 @@
       const m = e.payload;
       if (m === "launchpad" || m === "stars" || m === "inspector") void enterHost(m);
     });
+    // GO-ORBITTY-TILE-CHORDS: ⌘⌥1/2/3 are the dest chips — toggleDest,
+    // so the same chord while that dest is hosted dismisses (the page
+    // owns `hosted`; the native side only raises the pane). ⌘⌥←/→ yaw
+    // the DEST_RING while hosted; idle is a no-op, never a summon (the
+    // native side doesn't even raise the pane on the arrows).
+    unlistenToggleHost = await listen<string>("orbitty:toggle-host", (e) => {
+      const m = e.payload;
+      if (m === "launchpad" || m === "stars" || m === "inspector") void toggleDest(m);
+    });
+    unlistenYawHost = await listen<string>("orbitty:yaw-host", (e) => {
+      if (hosted === "off") return;
+      const from = DEST_RING.indexOf(hosted);
+      const step = e.payload === "prev" ? DEST_RING.length - 1 : 1;
+      const next = DEST_RING[(from + step) % DEST_RING.length];
+      if (next !== "off") void enterHost(next);
+    });
     unlistenTalk.push(
       await listen<string>("talk:partial", (e) => {
         applyTalkText(e.payload ?? "");
@@ -1306,6 +1324,8 @@
     unlistenVis?.();
     unlistenSummon?.();
     unlistenEnterHost?.();
+    unlistenToggleHost?.();
+    unlistenYawHost?.();
     for (const u of unlistenTalk) u();
     invoke("talk_stop").catch(() => {});
   });

@@ -15,6 +15,7 @@ mod habitat;
 mod packs;
 mod state;
 mod talk;
+mod tilechords;
 mod windows;
 
 use tauri::{
@@ -544,6 +545,12 @@ pub fn run() {
                         let _ = handle.emit_to("companion", "orbitty:companion-summon", ());
                     })?;
             }
+
+            // GO-ORBITTY-TILE-CHORDS: ⌘⌥1/2/3 = the dest chips (drop /
+            // yaw / dismiss toggle), ⌘⌥←/→ yaw the ring while hosted.
+            // Registered before action combos so a colliding user combo
+            // loses (actions.rs also refuses these as reserved).
+            tilechords::register(app.handle());
 
             // GO-ORBITTY-ACTION-FILE: register persisted action combos on
             // load (same plugin as the summon above). Every later persist

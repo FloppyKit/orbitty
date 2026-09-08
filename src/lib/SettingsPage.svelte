@@ -774,6 +774,11 @@
           quit / close. ⌘⌥ plus a letter is the lane (physical key, so
           Option+G is G not ©). ⌘⇧O and ⌘Space stay reserved.
         </p>
+        <p class="help">
+          Tiles: ⌘⌥1 Launchpad · ⌘⌥2 STARS · ⌘⌥3 Planets — the same move
+          as the dest chips (press again to dismiss). ⌘⌥← / ⌘⌥→ yaw
+          between them while one is up. Those chords are reserved too.
+        </p>
       </section>
     {:else}
       <section class="panel">
