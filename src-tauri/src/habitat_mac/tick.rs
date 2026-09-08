@@ -17,12 +17,12 @@ use tauri::{AppHandle, Emitter};
 use super::audio;
 use super::input::{boombox_click, contains_interactive, over_disc, BOOMBOX_CLICK_SLOP};
 use super::{
-    app_handle, app_handle_cell, ball_hop_secs, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings,
-    layout_decor, lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
-    set_caption, station_target, view_to_disc, visible_frames, yard_clamp, yard_contains,
+    app_handle, app_handle_cell, ball_arc_heads, ball_hop_secs, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings,
+    layout_decor, lock, now_epoch, pack_still_aspect, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
+    set_caption, station_target, view_to_disc, visible_frames, walker_head_view, yard_clamp, yard_contains,
     yard_dwell_ms, yard_pick, yard_pick_sailing, yard_seed, BallState, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
-    BALL_HEAD, BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
+    BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
     DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
     HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
     PLANET_LOCATE_TTL,
@@ -663,6 +663,14 @@ fn anim_tick() {
         }) => Some((project_id.clone(), entry_id.clone())),
         _ => None,
     };
+    // WORLD-YARD leftover (ball in view space): per-pack still-frame
+    // aspects for the keep-up head math, snapshotted before the planet
+    // loop (0.0 = no decoded frames → the generated person's height).
+    let pack_aspects: Vec<f64> = h
+        .pack_frames
+        .iter()
+        .map(|(_, pf)| pack_still_aspect(pf))
+        .collect();
     for (pid, planet) in h.planets.iter_mut() {
         if planet.is_marble {
             continue; // marbles are bare and still
@@ -981,8 +989,9 @@ fn anim_tick() {
                         }
                     }
                     if dist >= 0.025 {
-                        // Ball OFF: half pace on the grass amble
-                        // (0.075·dt). Ball ON: the dart keeps the full
+                        // Ball OFF: slow amble on the grass (0.045·dt —
+                        // ball-in-the-air leftover: 0.075 still read
+                        // brisk). Ball ON: the dart keeps the full
                         // 0.16·dt on the green — the keep-up footwork.
                         // Either way the off-grass walk-IN (from the
                         // igloo / board lip / a hand drop) keeps the old
@@ -991,7 +1000,7 @@ fn anim_tick() {
                             && !keep_up
                             && yard_contains(roam.x, roam.y)
                         {
-                            0.075
+                            0.045
                         } else {
                             0.16
                         };
@@ -1161,55 +1170,55 @@ fn anim_tick() {
                 dirty = true;
             }
         }
-        // GO-ORBITTY-WORLD-YARD leftover (keep-up cadence): beach-ball
+        // GO-ORBITTY-WORLD-YARD leftover (ball in view space): beach-ball
         // keep-up. The per-planet toggle (right-click menu, persisted
         // next to the boombox) plus ≥ 2 awake Doing walkers → the ball
-        // hops head to head — TOUCH walker A's head, pop up, arc, drop,
-        // TOUCH walker B's LIVE head (a darting walker still gets
-        // tagged) — one hop per 0.6–0.9s, then immediately the next hop
-        // (no rest on the ground), round-robin through the Doing set
-        // (never the same pair back-to-back when 3+). One or zero Doing
-        // → hidden. The ball is NOT a third wanderer: it lands on
-        // bodies, never on a random grass pixel, and the walkers' dart
-        // IS the keep-up footwork. In flight it moves every tick → the
-        // view stays dirty.
+        // hops head to head IN VIEW PIXELS — TOUCH walker A's head, pop
+        // straight up the screen, arc, drop, TOUCH walker B's LIVE head
+        // (a darting walker still gets tagged) — one hop per 0.6–0.9s,
+        // then immediately the next hop (no rest on the ground),
+        // round-robin through the Doing set (never the same pair
+        // back-to-back when 3+). One or zero Doing → hidden. The ball is
+        // NOT a third wanderer: it lands on bodies, never on a random
+        // grass pixel, and the walkers' dart IS the keep-up footwork.
+        // Heads come from walker_head_view — the same blit math draw.rs
+        // uses — so a touch overlaps the drawn sprite exactly. In flight
+        // the ball moves every tick → the view stays dirty.
         if planet.beach_ball {
-            let doing: Vec<(String, f64, f64)> = planet
+            let doing: Vec<(String, (f64, f64, f64))> = planet
                 .walkers
                 .iter()
                 .filter(|b| !b.asleep && b.pose == Pose::Work)
                 .filter_map(|b| {
-                    planet
-                        .roam
-                        .get(&b.entry_id)
-                        .map(|r| (b.entry_id.clone(), r.x, r.y))
+                    walker_head_view(&pack_aspects, planet, &b.entry_id)
+                        .map(|head| (b.entry_id.clone(), head))
                 })
                 .collect();
             if doing.len() >= 2 {
                 let hop_done = match &planet.ball {
                     Some(ball) => {
-                        !doing.iter().any(|(id, _, _)| id == &ball.to_id)
+                        !doing.iter().any(|(id, _)| id == &ball.to_id)
                             || now_i.duration_since(ball.at).as_secs_f64() >= ball.dur
                     }
                     None => true,
                 };
                 if hop_done {
-                    // `from` = the HEAD of the last lander, snapshotted
-                    // NOW: the previous hop ended on that head (f = 1),
-                    // so the new hop leaves from the touch point — never
-                    // from the feet, never a grass pixel.
+                    // `from` = the VIEW-PIXEL head of the last lander,
+                    // snapshotted NOW: the previous hop ended on that
+                    // head (f = 1), so the new hop leaves from the touch
+                    // point — never from the feet, never a grass pixel.
                     let (from, mut stream, last_to) = match &planet.ball {
                         Some(ball) => (
                             doing
                                 .iter()
-                                .find(|(id, _, _)| id == &ball.to_id)
-                                .map(|(_, x, y)| (*x, *y - BALL_HEAD))
+                                .find(|(id, _)| id == &ball.to_id)
+                                .map(|(_, (hx, hy, _))| (*hx, *hy))
                                 .unwrap_or(ball.from),
                             ball.stream,
                             Some(ball.to_id.clone()),
                         ),
                         None => (
-                            (doing[0].1, doing[0].2 - BALL_HEAD),
+                            (doing[0].1 .0, doing[0].1 .1),
                             yard_seed(&doing[0].0),
                             None,
                         ),
@@ -1219,15 +1228,20 @@ fn anim_tick() {
                     // alternates; 3+ never repeats a pair back-to-back).
                     let next = last_to
                         .as_ref()
-                        .and_then(|lt| doing.iter().position(|(id, _, _)| id == lt))
+                        .and_then(|lt| doing.iter().position(|(id, _)| id == lt))
                         .map(|i| (i + 1) % doing.len())
                         .unwrap_or(1);
                     let dur = ball_hop_secs(&mut stream);
+                    // The lift is SCREEN-space: 1.2–1.8 × the target's
+                    // drawn sprite height — clearly off the grass at
+                    // mid-hop, never a bulge along the oval.
+                    let arc = ball_arc_heads(&mut stream) * doing[next].1 .2;
                     planet.ball = Some(BallState {
                         from,
                         to_id: doing[next].0.clone(),
                         at: now_i,
                         dur,
+                        arc,
                         stream,
                     });
                 }
@@ -1240,15 +1254,18 @@ fn anim_tick() {
         }
         // Optional glance: the keep-up target faces the incoming ball in
         // the last stretch of the hop (cheap; the walk facing resumes the
-        // tick after it lands).
+        // tick after it lands). Both x's are VIEW px (the head helper) —
+        // never a view/disc mix.
         if let Some(ball) = &planet.ball {
             let f = (now_i.duration_since(ball.at).as_secs_f64() / ball.dur).min(1.0);
             if f > 0.45 {
                 let from_x = ball.from.0;
                 let to_id = ball.to_id.clone();
-                if let Some(r) = planet.roam.get_mut(&to_id) {
-                    let ball_x = from_x + (r.x - from_x) * f;
-                    r.facing_left = ball_x < r.x;
+                if let Some((hx, _, _)) = walker_head_view(&pack_aspects, planet, &to_id) {
+                    let ball_x = from_x + (hx - from_x) * f;
+                    if let Some(r) = planet.roam.get_mut(&to_id) {
+                        r.facing_left = ball_x < hx;
+                    }
                 }
             }
         }

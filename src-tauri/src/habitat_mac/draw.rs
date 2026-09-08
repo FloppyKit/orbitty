@@ -10,8 +10,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
 use super::{
-    ball_pos, card_color, disc_to_view, ensure_town_art, fill_oval, lock, now_epoch, ns_color,
-    ns_string, panic_msg, radius_y, set_fill, station_anchor, walker_fit, walker_hidden, CGSize,
+    ball_pos, card_color, ensure_town_art, fill_oval, lock, now_epoch, ns_color,
+    ns_string, pack_still_aspect, panic_msg, radius_y, set_fill, station_anchor, walker_fit, walker_hidden, CGSize,
     DecorKind, Habitat, NSPoint, NSRect, Pose, Projection, CAPTION_TTL, LOCATE_TTL,
     PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE, VIEW_PADDING, YARD_HALF,
 };
@@ -437,6 +437,13 @@ fn draw_rect_guarded(this: &Object) {
         let town_igloo = h.town_igloo;
         let town_sign = h.town_sign;
         let now = now_epoch();
+        // WORLD-YARD leftover (ball in view space): per-pack still-frame
+        // aspects for the keep-up head math (0.0 = generated person).
+        let pack_aspects: Vec<f64> = h
+            .pack_frames
+            .iter()
+            .map(|(_, pf)| pack_still_aspect(pf))
+            .collect();
         h.planets.iter().find(|(_, p)| p.view == view_ptr).map(|(pid, p)| {
             let walkers = p
                 .walkers
@@ -578,20 +585,15 @@ fn draw_rect_guarded(this: &Object) {
                     board[col].push(card_color(&c.id));
                 }
             }
-            // GO-ORBITTY-WORLD-YARD leftover: the keep-up ball's view
-            // point this frame (ball_pos gates: toggle off / < 2 Doing /
-            // marble → None → hidden).
+            // GO-ORBITTY-WORLD-YARD leftover (ball in view space): the
+            // keep-up ball's view-pixel point this frame. ball_pos returns
+            // it ready to blit — heads come from the blit's own math
+            // (walker_head_view), so there is NO second projection here.
+            // Gates: toggle off / < 2 Doing / marble → None → hidden.
             let ball = if p.is_marble {
                 None
             } else {
-                let side = (p.radius + VIEW_PADDING) * 2.0;
-                let vc = NSPoint {
-                    x: side / 2.0,
-                    y: side / 2.0,
-                };
-                ball_pos(p, Instant::now())
-                    .map(|(bx, by)| disc_to_view(vc, p.radius, p.projection, bx, by))
-                    .map(|pt| (pt.x, pt.y))
+                ball_pos(&pack_aspects, p, Instant::now())
             };
             DrawData {
                 radius: p.radius,
