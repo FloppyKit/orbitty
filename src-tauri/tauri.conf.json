@@ -49,6 +49,8 @@
     "resources": {
       "../brand/imagine-walkers/packs": "imagine-walkers/packs",
       "../brand/bitty-crew/packs": "bitty-crew/packs",
+      "../brand/town/igloo.png": "town/igloo.png",
+      "../brand/town/sign.png": "town/sign.png",
       "../brand/companion/spirit/ghost.png": "companion/spirit/ghost.png",
       "../brand/companion/spirit/idle_0.png": "companion/spirit/idle_0.png",
       "../brand/companion/spirit/idle_1.png": "companion/spirit/idle_1.png",

@@ -239,7 +239,7 @@
 
   function clampSpriteScale(n: number) {
     if (!Number.isFinite(n)) return 1;
-    return Math.min(2.5, Math.max(0.4, n));
+    return Math.min(1.25, Math.max(0.5, n));
   }
 
   function normalizeTalk(raw: string | undefined): "system" | "hotkey" {
@@ -603,9 +603,9 @@
           <input
             id="sprite-scale"
             type="range"
-            min="0.4"
-            max="2.5"
-            step="0.1"
+            min="0.5"
+            max="1.25"
+            step="0.05"
             bind:value={spriteScale}
             oninput={onSpriteScaleInput}
             onchange={onSpriteScaleCommit}

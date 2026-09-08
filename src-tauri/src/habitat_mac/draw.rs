@@ -9,19 +9,41 @@ use objc::{class, msg_send, sel, sel_impl};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use super::{
-    card_color, fill_oval, lock, now_epoch, ns_color, ns_string, panic_msg, radius_y, set_fill,
-    station_anchor, walker_fit, walker_hidden, CGSize, DecorKind, Habitat, NSPoint, NSRect,
-    Pose, Projection, CAPTION_TTL, LOCATE_TTL, PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD,
-    STATION_HOUSE, VIEW_PADDING,
+    card_color, ensure_town_art, fill_oval, lock, now_epoch, ns_color, ns_string, panic_msg,
+    radius_y, set_fill, station_anchor, walker_fit, walker_hidden, CGSize, DecorKind, Habitat,
+    NSPoint, NSRect, Pose, Projection, CAPTION_TTL, LOCATE_TTL, PLANET_LOCATE_TTL, STATION_BOARD,
+    STATION_FIELD, STATION_HOUSE, VIEW_PADDING, YARD_HALF,
 };
 
-/// Planet board columns (todo / doing / done), view-local, same math as
-/// the blit. `None` if marble. Done is column 2.
-pub(crate) fn board_column_rects(
-    radius: f64,
-    projection: Projection,
-    marble_scale: f64,
-) -> [NSRect; 3] {
+// GO-ORBITTY-WORLD-PROPS: the sign's blank face inside the punched PNG
+// (brand/town/sign.png), measured as fractions of the cropped sprite.
+// The blit is bottom-pinned at STATION_BOARD and scaled so the face is
+// SIGN_FACE_W disc units wide; the three tick columns live on the face.
+const SIGN_IMG_W: f64 = 1037.0;
+const SIGN_IMG_H: f64 = 1277.0;
+const SIGN_FACE_X0: f64 = 0.1456;
+const SIGN_FACE_X1: f64 = 0.8534;
+const SIGN_FACE_Y0: f64 = 0.2161;
+const SIGN_FACE_Y1: f64 = 0.6727;
+/// Face width in disc units — the blit scale is driven by it.
+const SIGN_FACE_W: f64 = 0.33;
+
+// GO-ORBITTY-WORLD-PROPS: the punched igloo (brand/town/igloo.png,
+// flipped so the door faces east). IGLOO_DOOR is the door-base point as
+// a fraction of the sprite; the doorstep pins to STATION_HOUSE (spawn /
+// home is the door, not the centroid). Footprint law 0.32 × 0.24 disc,
+// grown until the drawn height is ≥ 1.6× the tallest walker at this
+// radius (walkers never outgrow the igloo), capped so the building
+// stays on the west side.
+const IGLOO_IMG_W: f64 = 768.0;
+const IGLOO_IMG_H: f64 = 435.0;
+const IGLOO_DOOR: (f64, f64) = (0.78, 0.92);
+const IGLOO_FOOT_W: f64 = 0.32;
+const IGLOO_MAX_W: f64 = 1.10;
+
+/// The sign's blit rect in view coords: bottom-pinned at STATION_BOARD,
+/// face centered on the station's x.
+fn sign_blit_rect(radius: f64, projection: Projection, marble_scale: f64) -> NSRect {
     let side = (radius + VIEW_PADDING) * 2.0;
     let center = NSPoint {
         x: side / 2.0,
@@ -29,32 +51,69 @@ pub(crate) fn board_column_rects(
     };
     let r = radius * marble_scale;
     let ry = radius_y(r, projection);
-    let town = (r / 72.0).clamp(0.7, 2.0);
-    let bx = center.x + STATION_BOARD.0 * r;
-    let by = center.y + STATION_BOARD.1 * ry;
-    let col_w = 9.0 * town;
-    let col_h = 30.0 * town;
-    let col_gap = 3.0 * town;
-    let board_left = bx - (col_w * 3.0 + col_gap * 2.0) / 2.0;
-    let board_top = by - col_h;
+    let face_w = SIGN_FACE_W * r;
+    let blit_w = face_w / (SIGN_FACE_X1 - SIGN_FACE_X0);
+    let blit_h = blit_w * SIGN_IMG_H / SIGN_IMG_W;
+    let base_y = center.y + STATION_BOARD.1 * ry;
+    NSRect::new(
+        center.x + STATION_BOARD.0 * r - (SIGN_FACE_X0 + SIGN_FACE_X1) * 0.5 * blit_w,
+        base_y - blit_h,
+        blit_w,
+        blit_h,
+    )
+}
+
+/// The sign's blank face in view coords — the tick area.
+fn sign_face_rect(radius: f64, projection: Projection, marble_scale: f64) -> NSRect {
+    let blit = sign_blit_rect(radius, projection, marble_scale);
+    NSRect::new(
+        blit.origin.x + SIGN_FACE_X0 * blit.size.width,
+        blit.origin.y + SIGN_FACE_Y0 * blit.size.height,
+        (SIGN_FACE_X1 - SIGN_FACE_X0) * blit.size.width,
+        (SIGN_FACE_Y1 - SIGN_FACE_Y0) * blit.size.height,
+    )
+}
+
+/// Planet board columns (todo / doing / done), view-local, same math as
+/// the blit. `None` if marble. Done is column 2.
+///
+/// GO-ORBITTY-WORLD-PROPS: the columns live on the sign's painted face
+/// (recomputed from the face rect, not the old 9×30 glyph).
+pub(crate) fn board_column_rects(
+    radius: f64,
+    projection: Projection,
+    marble_scale: f64,
+) -> [NSRect; 3] {
+    let face = sign_face_rect(radius, projection, marble_scale);
+    let inset_x = face.size.width * 0.06;
+    let gap = face.size.width * 0.05;
+    let col_w = (face.size.width - inset_x * 2.0 - gap * 2.0) / 3.0;
+    let inset_y = face.size.height * 0.08;
+    let col_h = face.size.height - inset_y * 2.0;
     [
-        NSRect::new(board_left, board_top, col_w, col_h),
-        NSRect::new(board_left + col_w + col_gap, board_top, col_w, col_h),
+        NSRect::new(face.origin.x + inset_x, face.origin.y + inset_y, col_w, col_h),
         NSRect::new(
-            board_left + 2.0 * (col_w + col_gap),
-            board_top,
+            face.origin.x + inset_x + col_w + gap,
+            face.origin.y + inset_y,
+            col_w,
+            col_h,
+        ),
+        NSRect::new(
+            face.origin.x + inset_x + 2.0 * (col_w + gap),
+            face.origin.y + inset_y,
             col_w,
             col_h,
         ),
     ]
 }
 
-/// Disc-local south / near lip of the three rails — the edge a Done
-/// walker walks up to. Same rects as the Done-column hit-test.
+/// Disc-local south / near lip of the three tick columns on the sign
+/// face — the edge a Done walker walks up to. Same rects as the
+/// Done-column hit-test.
 ///
 /// Flipped view: larger y is front/south. `STATION_BOARD` is the back
-/// anchor the blit is bottom-pinned to (the rails extend north of it);
-/// the lip is the south edge of those rails, not that station point.
+/// anchor the blit is bottom-pinned to (the face extends north of it);
+/// the lip is the south edge of the face columns, not that station point.
 pub(crate) fn board_near_lip(
     radius: f64,
     projection: Projection,
@@ -136,6 +195,8 @@ const BOOMBOX: [&str; 7] = [
 // GO-ORBITTY-WORLD-TOWN: the town blits — cheap pixel glyphs on the same
 // painter as the plants, never sprite packs. I ice, D door. The igloo is
 // the home station (spawn / Done's door), NOT the user HOUSE shack.
+// WORLD-PROPS: the bundled PNG is the igloo now — this glyph is the
+// fallback only when `town/igloo.png` failed to load.
 const IGLOO: [&str; 8] = [
     "....IIII....",
     "..IIIIIIII..",
@@ -147,15 +208,18 @@ const IGLOO: [&str; 8] = [
     "IIIIDDDDDIII",
 ];
 
-// Fence post: W wood. 4–6 posts ring the field, south side open toward
-// the front rim (FENCE_POSTS angles skip the front arc).
-const FENCE_POST: [&str; 4] = ["WWW", ".W.", ".W.", ".W."];
-
-/// Fence ring around STATION_FIELD: disc-local radius and post angles
-/// (degrees, disc coords: 0° = east, 90° = front/south). The 30°–165°
-/// front arc stays open toward the Needed rim.
-const FENCE_RADIUS: f64 = 0.30;
-const FENCE_ANGLES: [f64; 6] = [165.0, 210.0, 255.0, 300.0, 345.0, 30.0];
+/// GO-ORBITTY-WORLD-PROPS: cheap grass tufts on the paddock — disc-local
+/// offsets inside the YARD_HALF inset around STATION_FIELD.
+const GRASS_TUFTS: [(f64, f64); 8] = [
+    (-0.18, -0.12),
+    (0.05, -0.17),
+    (0.19, -0.06),
+    (-0.07, 0.01),
+    (0.13, 0.10),
+    (-0.20, 0.15),
+    (0.02, 0.22),
+    (0.21, 0.24),
+];
 
 /// Decor growth window: planted → fully grown.
 const GROW_SECS: f64 = 7.0 * 86400.0;
@@ -296,6 +360,10 @@ struct DrawData {
     /// GO-ORBITTY-WORLD-TOWN: board ticks per column (todo/doing/done),
     /// colors pre-hashed from card ids. Empty on marbles (no town).
     board: [Vec<(f64, f64, f64)>; 3],
+    /// GO-ORBITTY-WORLD-PROPS: retained town NSImages (0 = missing →
+    /// glyph fallback). Loaded once per session by ensure_town_art.
+    town_igloo: usize,
+    town_sign: usize,
     /// Dest-menu find: 0 just armed, 1 expired. None = no glow.
     locate_t: Option<f64>,
 }
@@ -311,7 +379,10 @@ pub(crate) extern "C" fn draw_rect(this: &Object, _cmd: Sel, _dirty: NSRect) {
 fn draw_rect_guarded(this: &Object) {
     let view_ptr = this as *const Object as usize;
     let data = {
-        let h = lock();
+        let mut h = lock();
+        ensure_town_art(&mut h);
+        let town_igloo = h.town_igloo;
+        let town_sign = h.town_sign;
         let now = now_epoch();
         h.planets.iter().find(|(_, p)| p.view == view_ptr).map(|(pid, p)| {
             let walkers = p
@@ -473,6 +544,8 @@ fn draw_rect_guarded(this: &Object) {
                 hover_name: p.hover_name,
                 decor,
                 board,
+                town_igloo,
+                town_sign,
                 locate_t: h.locate_planet.as_ref().and_then(|(id, at)| {
                     if id == pid && at.elapsed() < PLANET_LOCATE_TTL {
                         Some(
@@ -580,6 +653,42 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
         ry * 0.34,
     ));
 
+    // GO-ORBITTY-WORLD-PROPS: the paddock is a grass patch, never fence
+    // posts — a soft green rounded rect on the field with a darker rim
+    // and cheap tuft pixels. West side open toward the igloo, south open
+    // toward the Needed rim. Painted under the decor so plants sit on it.
+    if !d.is_marble {
+        let gx = center.x + (STATION_FIELD.0 - YARD_HALF) * r;
+        let gy = center.y + (STATION_FIELD.1 - YARD_HALF) * ry;
+        let gw = YARD_HALF * 2.0 * r;
+        let gh = YARD_HALF * 2.0 * ry;
+        let corner = 0.10 * r;
+        let rim_path: *mut Object = msg_send![class!(NSBezierPath),
+            bezierPathWithRoundedRect: NSRect::new(gx, gy, gw, gh)
+            xRadius: corner
+            yRadius: corner];
+        set_fill(ns_color(0.24, 0.46, 0.25, 0.95));
+        let _: () = msg_send![rim_path, fill];
+        let inset = (0.035 * r).max(2.0);
+        let inner: *mut Object = msg_send![class!(NSBezierPath),
+            bezierPathWithRoundedRect: NSRect::new(gx + inset, gy + inset, gw - inset * 2.0, gh - inset * 2.0)
+            xRadius: (corner - inset).max(1.0)
+            yRadius: (corner - inset).max(1.0)];
+        set_fill(ns_color(0.36, 0.62, 0.34, 0.95));
+        let _: () = msg_send![inner, fill];
+        let tuft = (0.028 * r).clamp(1.5, 3.0);
+        set_fill(ns_color(0.27, 0.52, 0.27, 0.9));
+        for &(tx, ty) in &GRASS_TUFTS {
+            let _: () = msg_send![class!(NSBezierPath),
+                fillRect: NSRect::new(
+                    center.x + (STATION_FIELD.0 + tx) * r - tuft / 2.0,
+                    center.y + (STATION_FIELD.1 + ty) * ry - tuft / 2.0,
+                    tuft,
+                    tuft,
+                )];
+        }
+    }
+
     // Placed decor on the surface (expanded planets only): plants grow
     // sprout → tree, mushrooms 1 cap → cluster, boombox sits and plays.
     for decor in &d.decor {
@@ -652,78 +761,6 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
         }
     }
 
-    // GO-ORBITTY-WORLD-TOWN: static landmarks on the same cheap painter —
-    // igloo left (home/spawn), fence posts around the field (south open
-    // toward the front rim), three-column board at the back. Marbles skip
-    // all of it (board is empty there). Scales follow the disc radius so
-    // scroll-zoom keeps the town proportional to the walkers.
-    if !d.is_marble {
-        let town = (r / 72.0).clamp(0.7, 2.0);
-        // Board (todo/doing/done) at the back station: three faint rails
-        // so empty columns still read; ticks stacked from the top, color
-        // hashed per card id. No titles.
-        let cols = board_column_rects(d.radius, d.projection, d.marble_scale);
-        let rail_tints = [
-            (1.0, 1.0, 1.0, 0.16),    // todo — faint white
-            (1.0, 0.75, 0.35, 0.22),  // doing — faint amber
-            (0.45, 0.85, 0.50, 0.20), // done — faint green
-        ];
-        let tick = 4.0 * town;
-        let tick_step = tick + 1.5 * town;
-        let col_h = cols[0].size.height;
-        let max_ticks = (((col_h - 2.0 * town + 1.5 * town) / tick_step).floor() as usize).max(1);
-        for (ci, ticks) in d.board.iter().enumerate() {
-            let col = cols[ci];
-            let cx0 = col.origin.x;
-            let board_top = col.origin.y;
-            let col_w = col.size.width;
-            let (tr, tg, tb, ta) = rail_tints[ci];
-            set_fill(ns_color(tr, tg, tb, ta));
-            let rail: *mut Object = msg_send![class!(NSBezierPath),
-                bezierPathWithRoundedRect: NSRect::new(cx0, board_top, col_w, col_h)
-                xRadius: 2.0f64
-                yRadius: 2.0f64];
-            let _: () = msg_send![rail, fill];
-            for (ti, &(cr, cg, cb)) in ticks.iter().take(max_ticks).enumerate() {
-                set_fill(ns_color(cr, cg, cb, 0.95));
-                let t: *mut Object = msg_send![class!(NSBezierPath),
-                    bezierPathWithRoundedRect: NSRect::new(
-                        cx0 + (col_w - tick) / 2.0,
-                        board_top + 2.0 * town + ti as f64 * tick_step,
-                        tick,
-                        tick,
-                    )
-                    xRadius: 1.0f64
-                    yRadius: 1.0f64];
-                let _: () = msg_send![t, fill];
-            }
-        }
-        // Fence around the field — posts only, front arc open.
-        for &deg in &FENCE_ANGLES {
-            let a = deg.to_radians();
-            let fx = center.x + (STATION_FIELD.0 + FENCE_RADIUS * a.cos()) * r;
-            let fy = center.y + (STATION_FIELD.1 + FENCE_RADIUS * a.sin()) * ry;
-            draw_pixel_art(
-                fx,
-                fy,
-                &FENCE_POST[..],
-                1.5 * town,
-                &[(b'W', (0.42, 0.28, 0.14))],
-                1.0,
-            );
-        }
-        // Igloo at the house station — the door the walkers come out of.
-        let ix = center.x + STATION_HOUSE.0 * r;
-        let iy = center.y + STATION_HOUSE.1 * ry;
-        draw_pixel_art(
-            ix,
-            iy + 4.0 * town,
-            &IGLOO[..],
-            2.8 * town,
-            &[(b'I', (0.88, 0.93, 0.97)), (b'D', (0.20, 0.24, 0.30))],
-            1.0,
-        );
-    }
     let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
 
     // Rim stroke.
@@ -733,6 +770,96 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
         msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect.inset(0.75)];
     let _: () = msg_send![ring, setLineWidth: if d.is_marble { 1.0 } else { 1.5 }];
     let _: () = msg_send![ring, stroke];
+
+    // GO-ORBITTY-WORLD-PROPS: the town at real scale — bundled PNGs
+    // drawn UNCLIPPED like the walkers (buildings stand on the disc
+    // stage: the sign rises past the back rim, the igloo's tree hangs
+    // off the west rim). Marbles skip town blits. The cheap glyphs
+    // remain as fallbacks only when a PNG failed to load.
+    if !d.is_marble {
+        // Sign (billboard) at the back station, bottom-pinned, no
+        // titles — three tick columns on the blank face, same
+        // todo/doing/done tints as the old rails.
+        let blit = sign_blit_rect(d.radius, d.projection, d.marble_scale);
+        if d.town_sign != 0 {
+            draw_nsimage(d.town_sign as *mut Object, blit, 1.0);
+        }
+        let cols = board_column_rects(d.radius, d.projection, d.marble_scale);
+        let rail_tints = [
+            (1.0, 1.0, 1.0, 0.16),    // todo — faint white
+            (1.0, 0.75, 0.35, 0.22),  // doing — faint amber
+            (0.45, 0.85, 0.50, 0.20), // done — faint green
+        ];
+        let col_w = cols[0].size.width;
+        let col_h = cols[0].size.height;
+        let tick = (col_w * 0.55).clamp(2.0, 6.0);
+        let tick_step = tick * 1.4;
+        let max_ticks =
+            (((col_h - tick * 0.7) / tick_step).floor() as usize).max(1);
+        for (ci, ticks) in d.board.iter().enumerate() {
+            let col = cols[ci];
+            let (tr, tg, tb, ta) = rail_tints[ci];
+            set_fill(ns_color(tr, tg, tb, ta));
+            let rail: *mut Object = msg_send![class!(NSBezierPath),
+                bezierPathWithRoundedRect: col
+                xRadius: 2.0f64
+                yRadius: 2.0f64];
+            let _: () = msg_send![rail, fill];
+            for (ti, &(cr, cg, cb)) in ticks.iter().take(max_ticks).enumerate() {
+                set_fill(ns_color(cr, cg, cb, 0.95));
+                let t: *mut Object = msg_send![class!(NSBezierPath),
+                    bezierPathWithRoundedRect: NSRect::new(
+                        col.origin.x + (col_w - tick) / 2.0,
+                        col.origin.y + tick * 0.35 + ti as f64 * tick_step,
+                        tick,
+                        tick,
+                    )
+                    xRadius: 1.0f64
+                    yRadius: 1.0f64];
+                let _: () = msg_send![t, fill];
+            }
+        }
+        // Igloo at the house station — the door the walkers come out of.
+        // Footprint 0.32 disc wide, grown until ≥ 1.6× the tallest
+        // walker at this radius, doorstep pinned to the station.
+        if d.town_igloo != 0 {
+            let mut blit_w = IGLOO_FOOT_W * r;
+            let mut blit_h = blit_w * IGLOO_IMG_H / IGLOO_IMG_W;
+            let min_h = 1.6 * walker_fit(d.radius, 1.25);
+            if blit_h < min_h {
+                blit_h = min_h;
+                blit_w = blit_h * IGLOO_IMG_W / IGLOO_IMG_H;
+                if blit_w > IGLOO_MAX_W * r {
+                    blit_w = IGLOO_MAX_W * r;
+                    blit_h = blit_w * IGLOO_IMG_H / IGLOO_IMG_W;
+                }
+            }
+            let door_x = center.x + STATION_HOUSE.0 * r;
+            let door_y = center.y + STATION_HOUSE.1 * ry;
+            draw_nsimage(
+                d.town_igloo as *mut Object,
+                NSRect::new(
+                    door_x - IGLOO_DOOR.0 * blit_w,
+                    door_y - IGLOO_DOOR.1 * blit_h,
+                    blit_w,
+                    blit_h,
+                ),
+                1.0,
+            );
+        } else {
+            let town = (r / 72.0).clamp(0.7, 2.0);
+            let ix = center.x + STATION_HOUSE.0 * r;
+            let iy = center.y + STATION_HOUSE.1 * ry;
+            draw_pixel_art(
+                ix,
+                iy + 4.0 * town,
+                &IGLOO[..],
+                2.8 * town,
+                &[(b'I', (0.88, 0.93, 0.97)), (b'D', (0.20, 0.24, 0.30))],
+                1.0,
+            );
+        }
+    }
 
     // Occupancy dots: white ring + project-color core.
     for frame in &d.dots {

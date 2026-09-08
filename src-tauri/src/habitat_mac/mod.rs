@@ -251,6 +251,12 @@ pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.58); // Todo — far/back 
 // read as rim-strolling; the rim is Needed's now).
 pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05);
 pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/south rim
+/// GO-ORBITTY-WORLD-PROPS: the grass paddock around STATION_FIELD —
+/// half-extent in disc units (x ∈ [-0.28, 0.28], y ∈ [-0.23, 0.33]). A
+/// painted grass patch, never fence posts; west open toward the igloo,
+/// south open toward the Needed rim. WORLD-YARD wanders it; PROPS only
+/// paints it.
+pub(crate) const YARD_HALF: f64 = 0.28;
 // Done — home: past the LEFT rim onto the panel (GO-ORBITTY-WORLD-TOWN,
 // replacing CADENCE-EXIT's north exit). Hide sits clearly past the
 // visual rim (LEFTOVER: no 1–2px curtain) so the walker is seen
@@ -445,13 +451,16 @@ pub(crate) fn max_radius() -> f64 {
     (w.min(h) * 1.35 / 2.0).max(MAX_RADIUS_FLOOR)
 }
 
+/// GO-ORBITTY-WORLD-PROPS: town at real scale — the walker shrinks so
+/// 10–12 fit on a planet and never outgrow the igloo (the igloo blit
+/// floors its drawn height at 1.6× this cap).
 fn walker_fit(radius: f64, user_scale: f64) -> f64 {
     let scale = if user_scale <= 0.0 {
         1.0
     } else {
-        user_scale.clamp(0.4, 2.5)
+        user_scale.clamp(0.5, 1.25)
     };
-    (radius * 0.45).clamp(72.0, 240.0) * scale
+    (radius * 0.18).clamp(40.0, 80.0) * scale
 }
 
 /// Disc-local unit coords (-1..1) → view-local point.
@@ -876,7 +885,7 @@ pub(crate) struct Habitat {
     /// walker cadence. bob_phase stays the walker clock.
     drift_phase: f64,
     last_drift: Option<Instant>,
-    /// Gear walker-size slider (0.4–2.5). 0 = treat as 1.0.
+    /// Gear walker-size slider (0.5–1.25, WORLD-PROPS cap). 0 = treat as 1.0.
     sprite_scale: f64,
     /// GO-ORBITTY-WALKER-CONTEXT: named destinations for Assign to planet.
     planet_names: Vec<(String, String)>,
@@ -889,6 +898,12 @@ pub(crate) struct Habitat {
     /// until an expanded planet wears the pack (GO-ORBITTY-PLANET-BUDGET).
     pack_frames: Vec<(String, PackFrames)>,
     packs_loaded: bool,
+    /// GO-ORBITTY-WORLD-PROPS: bundled town art (Resources/town/*),
+    /// loaded once into retained NSImages on the first world draw.
+    /// 0 = missing → the cheap glyph fallback draws instead.
+    town_igloo: usize,
+    town_sign: usize,
+    town_art_loaded: bool,
     /// Global walk-cycle counter, +1 per anim tick (20Hz); walkers advance
     /// pack frames at half that rate.
     anim_frame: u64,
@@ -1082,6 +1097,34 @@ extern "C" {
 /// Called by pack import/remove (any thread): the next sync reloads.
 pub fn reload_pack_frames() {
     lock().packs_loaded = false;
+}
+
+/// GO-ORBITTY-WORLD-PROPS: load the bundled town PNGs (Resources/town/*)
+/// once into retained NSImages — same bundle mapping as the spirit, but
+/// drawn by the habitat painter, not the webview. A missing file stays 0
+/// so the glyph fallback draws instead of re-reading disk every frame.
+/// Runs on the main thread inside drawRect (all AppKit stays main-thread).
+pub(crate) fn ensure_town_art(h: &mut Habitat) {
+    if h.town_art_loaded {
+        return;
+    }
+    let Some(app) = app_handle() else {
+        return;
+    };
+    let Ok(dir) = app.path().resource_dir() else {
+        return;
+    };
+    h.town_art_loaded = true;
+    let dir = dir.join("town");
+    for (name, slot) in [
+        ("igloo.png", &mut h.town_igloo),
+        ("sign.png", &mut h.town_sign),
+    ] {
+        if let Ok(bytes) = std::fs::read(dir.join(name)) {
+            let img = unsafe { ns_image_from_bytes(&bytes) };
+            *slot = img as usize;
+        }
+    }
 }
 
 /// Release any decoded pack images and re-enumerate the roster from
@@ -2191,7 +2234,7 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
     let user_scale = if entry.sprite_scale <= 0.0 {
         1.0
     } else {
-        entry.sprite_scale.clamp(0.4, 2.5)
+        entry.sprite_scale.clamp(0.5, 1.25)
     };
     // Rail Done AX-closes the window, so the walker is asleep during
     // WalkOff. Sleeper dim (0.45) is for a closed window standing still —
@@ -2288,7 +2331,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
     let scale = if snapshot.sprite_scale <= 0.0 {
         1.0
     } else {
-        snapshot.sprite_scale.clamp(0.4, 2.5)
+        snapshot.sprite_scale.clamp(0.5, 1.25)
     };
     h.sprite_scale = scale;
     // A drift toggle flip persists live marble x/y at once — the orbit
