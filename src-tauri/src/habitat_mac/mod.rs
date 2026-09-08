@@ -501,10 +501,13 @@ struct BallState {
     stream: u64,
 }
 
-/// Hop duration: 0.6–0.9s off the ball's own stream (advanced per hop).
+/// Hop duration: 1.0–1.45s off the ball's own stream (advanced per
+/// hop). Outer-space keep-up leftover: slower than the 0.6–0.9s yard
+/// hop — the same screen-up parabola, just unhurried. Walkers are NOT
+/// slowed to match (dart stays 0.16·dt, ball-off amble 0.045·dt).
 pub(crate) fn ball_hop_secs(stream: &mut u64) -> f64 {
     *stream = yard_step(*stream);
-    0.6 + (((*stream >> 33) & 0xffff) as f64 / 65535.0) * 0.3
+    1.0 + (((*stream >> 33) & 0xffff) as f64 / 65535.0) * 0.45
 }
 
 /// Arc lift multiplier: BALL_ARC_HEADS_MIN–MAX × the target's sprite
@@ -536,10 +539,13 @@ pub(crate) fn pack_still_aspect(pf: &PackFrames) -> f64 {
 /// `base_y` (frame.max_y() − 2 + bob; the hit box carries NO 2.5D
 /// emphasis, the sprite fit does — same split as the blit) → sprite
 /// height `dh` from `walker_fit` (pack aspect, else the generated
-/// person's pixel grid) → head = top-center `(cx, base_y − dh)`.
-/// `pack_aspects` is per-pack `pack_still_aspect` output (0.0 = the
-/// generated person draws). Returns `(head_x, head_y, dh)`; None when
-/// the walker or its roam is gone.
+/// person's pixel grid) → head = top-center `(cx, base_y − dh)`,
+/// nudged +3 px (flipped view: +y is down). Pack PNGs carry
+/// transparent padding above the hair, so the raw box top reads as
+/// 2–3 px of air; the nudge puts f = 0 / f = 1 ON the hair, not the
+/// padding. `pack_aspects` is per-pack `pack_still_aspect` output
+/// (0.0 = the generated person draws). Returns `(head_x, head_y,
+/// dh)`; None when the walker or its roam is gone.
 pub(crate) fn walker_head_view(
     pack_aspects: &[f64],
     planet: &Planet,
@@ -570,7 +576,7 @@ pub(crate) fn walker_head_view(
     } else {
         crate::chars::H as f64 * (fit / crate::chars::H as f64).clamp(1.5, 8.0)
     };
-    Some((pt.x, base_y - dh, dh))
+    Some((pt.x, base_y - dh + 3.0, dh))
 }
 
 /// The ball's VIEW-PIXEL position right now (draw blits it as returned —

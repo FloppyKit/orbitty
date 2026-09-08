@@ -1032,11 +1032,15 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     // GO-ORBITTY-WORLD-YARD leftover: the beach ball, drawn with the
     // walkers above the grass — cheap pixel art (orange/white panels),
     // never a photo texture. Marbles never carry one (ball_pos gates).
+    // Head-kiss leftover: bottom-anchored ON the head point (the +3 px
+    // nudge in walker_head_view) — the ball's lower third / bottom taps
+    // the crown, a keep-up tap, never the ball's center hovering on the
+    // sprite-box top (transparent pack padding read as air).
     if let Some((bx, by)) = d.ball {
         let scale = (0.022 * d.radius).clamp(1.5, 3.0);
         draw_pixel_art(
             bx,
-            by + (BALL.len() as f64 * scale) / 2.0,
+            by,
             &BALL[..],
             scale,
             &[(b'O', (0.95, 0.52, 0.14)), (b'W', (0.96, 0.95, 0.90))],

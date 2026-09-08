@@ -1175,7 +1175,7 @@ fn anim_tick() {
         // next to the boombox) plus ≥ 2 awake Doing walkers → the ball
         // hops head to head IN VIEW PIXELS — TOUCH walker A's head, pop
         // straight up the screen, arc, drop, TOUCH walker B's LIVE head
-        // (a darting walker still gets tagged) — one hop per 0.6–0.9s,
+        // (a darting walker still gets tagged) — one hop per 1.0–1.45s,
         // then immediately the next hop (no rest on the ground),
         // round-robin through the Doing set (never the same pair
         // back-to-back when 3+). One or zero Doing → hidden. The ball is
