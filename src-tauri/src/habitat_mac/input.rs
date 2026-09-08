@@ -641,7 +641,7 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         boombox_context_menu(this, event, &project_id);
         return;
     }
-    let (plant_left, mush_left, build_left, has_box, volume) = {
+    let (plant_left, mush_left, build_left, has_box, volume, beach_ball) = {
         let h = lock();
         let now = now_epoch();
         h.worlds
@@ -653,9 +653,10 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
                     building_cap(w.first_seen, now).saturating_sub(w.buildings.len()),
                     w.boombox_pos.is_some(),
                     w.boombox_volume,
+                    w.beach_ball,
                 )
             })
-            .unwrap_or((3, 3, 1, false, 1.0))
+            .unwrap_or((3, 3, 1, false, 1.0, false))
     };
     // Lock dropped: popUpContextMenu runs modally and the target's actions
     // re-lock on selection.
@@ -733,6 +734,18 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         &project_id,
         None,
         true,
+    );
+    // GO-ORBITTY-WORLD-YARD leftover: per-planet beach-ball keep-up — a
+    // checkable toggle persisted on the world slice next to the boombox.
+    // Marbles have no walkers: no ball.
+    add_menu_item(
+        menu,
+        "Beach ball",
+        sel!(planetToggleBeachBall:),
+        target,
+        &project_id,
+        Some(beach_ball),
+        !is_marble,
     );
     add_separator(menu);
     add_volume_items(menu, target, &project_id, volume);
@@ -1118,6 +1131,36 @@ pub(crate) extern "C" fn menu_toggle_boombox(_this: &Object, _cmd: Sel, sender: 
             if let Some(planet) = h.planets.get_mut(&id) {
                 set_caption(planet, "click to place the boombox".into());
             }
+        }
+    }));
+}
+
+/// GO-ORBITTY-WORLD-YARD leftover: the planet menu's checkable beach-ball
+/// toggle. Persisted on the world slice (the same worlds_dirty →
+/// cursor_tick save door as the boombox); the live planet mirrors it and
+/// a toggle-off hides the ball at once. Planet menu only — never
+/// Settings, never the rail.
+pub(crate) extern "C" fn menu_toggle_beach_ball(_this: &Object, _cmd: Sel, sender: *mut Object) {
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+        let Some(id) = sender_project_id(sender) else {
+            return;
+        };
+        let mut h = lock();
+        let on = {
+            let world = world_entry(&mut h, &id);
+            world.beach_ball = !world.beach_ball;
+            world.beach_ball
+        };
+        h.worlds_dirty = true;
+        if let Some(planet) = h.planets.get_mut(&id) {
+            planet.beach_ball = on;
+            if !on {
+                planet.ball = None;
+            }
+            set_caption(
+                planet,
+                if on { "Beach ball on".into() } else { "Beach ball off".into() },
+            );
         }
     }));
 }

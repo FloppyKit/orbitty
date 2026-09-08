@@ -7,12 +7,13 @@
 use objc::runtime::{Object, Sel};
 use objc::{class, msg_send, sel, sel_impl};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::time::Instant;
 
 use super::{
-    card_color, ensure_town_art, fill_oval, lock, now_epoch, ns_color, ns_string, panic_msg,
-    radius_y, set_fill, station_anchor, walker_fit, walker_hidden, CGSize, DecorKind, Habitat,
-    NSPoint, NSRect, Pose, Projection, CAPTION_TTL, LOCATE_TTL, PLANET_LOCATE_TTL, STATION_BOARD,
-    STATION_FIELD, STATION_HOUSE, VIEW_PADDING, YARD_HALF,
+    ball_pos, card_color, disc_to_view, ensure_town_art, fill_oval, lock, now_epoch, ns_color,
+    ns_string, panic_msg, radius_y, set_fill, station_anchor, walker_fit, walker_hidden, CGSize,
+    DecorKind, Habitat, NSPoint, NSRect, Pose, Projection, CAPTION_TTL, LOCATE_TTL,
+    PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE, VIEW_PADDING, YARD_HALF,
 };
 
 // GO-ORBITTY-WORLD-PROPS: the sign's blank face inside the punched PNG
@@ -204,6 +205,19 @@ const BOOMBOX: [&str; 7] = [
     "BKWBBWKB",
     "BKKBBKKB",
     "BBBBBBBB",
+];
+
+// GO-ORBITTY-WORLD-YARD leftover: the beach ball — orange/white panels
+// on the same cheap pixel painter as the decor, never a PNG hunt.
+// O orange panel, W white panel.
+const BALL: [&str; 7] = [
+    "..OOO..",
+    ".OWWWO.",
+    "OOWWWOO",
+    "OOWWWOO",
+    "OOWWWOO",
+    ".OWWWO.",
+    "..OOO..",
 ];
 
 // GO-ORBITTY-WORLD-TOWN: the town blits — cheap pixel glyphs on the same
@@ -402,6 +416,9 @@ struct DrawData {
     town_sign: usize,
     /// Dest-menu find: 0 just armed, 1 expired. None = no glow.
     locate_t: Option<f64>,
+    /// GO-ORBITTY-WORLD-YARD leftover: the beach ball's view-local center
+    /// this frame. None = hidden (toggle off / < 2 Doing / marble).
+    ball: Option<(f64, f64)>,
 }
 
 pub(crate) extern "C" fn draw_rect(this: &Object, _cmd: Sel, _dirty: NSRect) {
@@ -561,6 +578,21 @@ fn draw_rect_guarded(this: &Object) {
                     board[col].push(card_color(&c.id));
                 }
             }
+            // GO-ORBITTY-WORLD-YARD leftover: the keep-up ball's view
+            // point this frame (ball_pos gates: toggle off / < 2 Doing /
+            // marble → None → hidden).
+            let ball = if p.is_marble {
+                None
+            } else {
+                let side = (p.radius + VIEW_PADDING) * 2.0;
+                let vc = NSPoint {
+                    x: side / 2.0,
+                    y: side / 2.0,
+                };
+                ball_pos(p, Instant::now())
+                    .map(|(bx, by)| disc_to_view(vc, p.radius, p.projection, bx, by))
+                    .map(|pt| (pt.x, pt.y))
+            };
             DrawData {
                 radius: p.radius,
                 sprite_scale: p.sprite_scale,
@@ -571,6 +603,7 @@ fn draw_rect_guarded(this: &Object) {
                 projection: p.projection,
                 walkers,
                 dots: p.dots.iter().map(|b| b.frame).collect::<Vec<_>>(),
+                ball,
                 caption: p
                     .caption
                     .as_ref()
@@ -992,6 +1025,21 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
             let _: () = msg_send![ring, setLineWidth: 2.5f64];
             let _: () = msg_send![ring, stroke];
         }
+    }
+
+    // GO-ORBITTY-WORLD-YARD leftover: the beach ball, drawn with the
+    // walkers above the grass — cheap pixel art (orange/white panels),
+    // never a photo texture. Marbles never carry one (ball_pos gates).
+    if let Some((bx, by)) = d.ball {
+        let scale = (0.022 * d.radius).clamp(1.5, 3.0);
+        draw_pixel_art(
+            bx,
+            by + (BALL.len() as f64 * scale) / 2.0,
+            &BALL[..],
+            scale,
+            &[(b'O', (0.95, 0.52, 0.14)), (b'W', (0.96, 0.95, 0.90))],
+            1.0,
+        );
     }
 
     // Click caption: a small pill above the disc, drawn last so it sits over
