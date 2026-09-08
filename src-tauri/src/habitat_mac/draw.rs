@@ -28,7 +28,14 @@ const SIGN_FACE_Y1: f64 = 0.6727;
 /// Face width in disc units — the blit scale is driven by it.
 /// PROPS leftover: ~half the PROPS face (0.33 → 0.16); the smaller blit
 /// still sits on the disc, so STATION_BOARD did not move.
-const SIGN_FACE_W: f64 = 0.16;
+/// Leftover #2: another 10% off (0.16 → 0.144).
+const SIGN_FACE_W: f64 = 0.144;
+/// The long vertical wood post under the board, measured in the punched
+/// PNG: the pole runs x ∈ [102, 231] px → center fraction ≈ 0.1606 (the
+/// board hangs RIGHT of it). Leftover #2: the blit pins THIS x to
+/// STATION_BOARD.0 — planet center sits on the post, not the face
+/// midpoint.
+const SIGN_POST_X: f64 = 0.1606;
 
 // GO-ORBITTY-WORLD-PROPS: the punched igloo (brand/town/igloo.png,
 // flipped so the door faces east). IGLOO_DOOR is the door-base point as
@@ -41,10 +48,15 @@ const IGLOO_IMG_W: f64 = 768.0;
 const IGLOO_IMG_H: f64 = 435.0;
 const IGLOO_DOOR: (f64, f64) = (0.78, 0.92);
 /// Drawn blit width in disc units (oval radius = 1).
-const IGLOO_W: f64 = 0.57;
+/// PROPS leftover #2: 25% smaller (0.57 → 0.4275) with the WEST EDGE
+/// HELD at ≈ -0.9446 — the door (and STATION_HOUSE with it) moved west
+/// to ≈ -0.611; the left rim never drifted.
+const IGLOO_W: f64 = 0.4275;
 
 /// The sign's blit rect in view coords: bottom-pinned at STATION_BOARD,
-/// face centered on the station's x.
+/// the wood post (SIGN_POST_X) pinned to the station's x — the board
+/// hangs right of the post, so the white face sits just east of disc
+/// center.
 fn sign_blit_rect(radius: f64, projection: Projection, marble_scale: f64) -> NSRect {
     let side = (radius + VIEW_PADDING) * 2.0;
     let center = NSPoint {
@@ -58,7 +70,7 @@ fn sign_blit_rect(radius: f64, projection: Projection, marble_scale: f64) -> NSR
     let blit_h = blit_w * SIGN_IMG_H / SIGN_IMG_W;
     let base_y = center.y + STATION_BOARD.1 * ry;
     NSRect::new(
-        center.x + STATION_BOARD.0 * r - (SIGN_FACE_X0 + SIGN_FACE_X1) * 0.5 * blit_w,
+        center.x + STATION_BOARD.0 * r - SIGN_POST_X * blit_w,
         base_y - blit_h,
         blit_w,
         blit_h,
@@ -224,24 +236,25 @@ const TUFT_GREENS: [(u8, (f64, f64, f64)); 3] = [
 
 /// Tuft scatter — disc-local offsets inside the paddock AABB (inset
 /// ~0.04 so the art stays on the green). Even indices draw TUFT, odd
-/// draw TUFT_SMALL.
+/// draw TUFT_SMALL. Leftover #2: offsets × 1.3 with YARD_HALF 0.28 →
+/// 0.364, so the same blades still fill the bigger pad.
 const GRASS_TUFTS: [(f64, f64); 16] = [
-    (-0.22, -0.16),
-    (-0.08, -0.19),
-    (0.07, -0.15),
-    (0.21, -0.18),
-    (-0.17, -0.05),
-    (0.00, -0.08),
-    (0.16, -0.03),
-    (0.24, -0.11),
-    (-0.23, 0.06),
-    (-0.10, 0.04),
-    (0.05, 0.07),
-    (0.19, 0.09),
-    (-0.16, 0.18),
-    (0.02, 0.23),
-    (0.15, 0.21),
-    (-0.04, 0.14),
+    (-0.286, -0.208),
+    (-0.104, -0.247),
+    (0.091, -0.195),
+    (0.273, -0.234),
+    (-0.221, -0.065),
+    (0.00, -0.104),
+    (0.208, -0.039),
+    (0.312, -0.143),
+    (-0.299, 0.078),
+    (-0.13, 0.052),
+    (0.065, 0.091),
+    (0.247, 0.117),
+    (-0.208, 0.234),
+    (0.026, 0.299),
+    (0.195, 0.273),
+    (-0.052, 0.182),
 ];
 
 /// Decor growth window: planted → fully grown.

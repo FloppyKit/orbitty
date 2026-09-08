@@ -246,8 +246,14 @@ const BARY_PREFIX: &str = "b\n";
 // igloo blit sits fully on the disc (west edge ≈ -0.94); spawn/home is
 // still the DOOR, walkers exit on-planet. Matches the yard law "never
 // enter the igloo (x ≤ -0.50)".
-pub(crate) const STATION_HOUSE: (f64, f64) = (-0.50, 0.05); // igloo — left interior
-pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.58); // Todo — far/back board
+// Leftover #2: the igloo shrank 25% with the WEST EDGE HELD at
+// ≈ -0.9446, so the door/station moved west (-0.50 → -0.611); east
+// edge ≈ -0.52, still clear of the x > -0.35 fan.
+pub(crate) const STATION_HOUSE: (f64, f64) = (-0.611, 0.05); // igloo — left interior
+// Leftover #2: -0.58 → -0.72 — the blit rides up until the whiteboard
+// top sits ~3px past the back rim (r = 72); the post base stays planted
+// on-disc, and x = 0 pins the wood post (SIGN_POST_X), not the face.
+pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.72); // Todo — far/back board
 // Doing — the open interior field, off the front lip (the fanned target
 // keeps |y| < 0.22 and x > -0.35, so the fan never enters the igloo):
 // the walk cycle keeps running here after arrival (CADENCE-PATH stilled
@@ -256,11 +262,12 @@ pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.58); // Todo — far/back 
 pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05);
 pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/south rim
 /// GO-ORBITTY-WORLD-PROPS: the grass paddock around STATION_FIELD —
-/// half-extent in disc units (x ∈ [-0.28, 0.28], y ∈ [-0.23, 0.33]). A
-/// painted grass patch, never fence posts; west open toward the igloo,
-/// south open toward the Needed rim. WORLD-YARD wanders it; PROPS only
-/// paints it.
-pub(crate) const YARD_HALF: f64 = 0.28;
+/// half-extent in disc units (x ∈ [-0.364, 0.364], y ∈ [-0.314, 0.414]).
+/// A painted grass patch, never fence posts; west open toward the igloo
+/// (leftover #2: 0.28 → 0.364, +30%; west edge ≈ -0.364 keeps a gap to
+/// the igloo's east edge ≈ -0.52), south open toward the Needed rim.
+/// WORLD-YARD wanders it; PROPS only paints it.
+pub(crate) const YARD_HALF: f64 = 0.364;
 // Done — home: past the LEFT rim onto the panel (GO-ORBITTY-WORLD-TOWN,
 // replacing CADENCE-EXIT's north exit). Hide sits clearly past the
 // visual rim (LEFTOVER: no 1–2px curtain) so the walker is seen
