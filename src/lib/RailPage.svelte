@@ -2097,21 +2097,12 @@
       }
     });
     osMedia.addEventListener("change", onOsThemeChange);
-    // Worlds first: last-known discs + walking from the igloo, then
-    // the companion spirit pops. AX status is not on this path — the
-    // 800ms tick hydrates live windows. Companion show is delayed so
-    // the boot beat is "watch walkers" not dead air (native setup no
-    // longer opens the companion first).
+    // Last-known discs + walking fire immediately (do not await — that
+    // wait was a 6–8s empty desk). Companion already showed from
+    // native setup. AX status fills in beside the tick.
     void (async () => {
       if (!embedded) {
-        try {
-          await syncHabitatLastKnown();
-        } catch {
-          /* the tick below retries */
-        }
-        if (companionState.visible !== false) {
-          invoke("open_companion").catch(() => {});
-        }
+        void syncHabitatLastKnown();
         invoke<AxStatus>("accessibility_status")
           .then((s) => {
             status = s;

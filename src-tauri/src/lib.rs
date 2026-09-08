@@ -606,28 +606,16 @@ pub fn run() {
                 drawers::park_warm_drawer(app.handle(), label);
             }
 
-            // Companion boot is delayed until the rail's last-known world
-            // blit (walkers leaving the igloo). Rail calls open_companion
-            // after that. Fallback: if the rail never hydrates, still pop
-            // the companion so a hidden-rail desk is not companion-less.
+            // GO-LS-TAURI-AVATAR-LARGE S2.1: the companion launches with the
+            // app — show when `visible` is true OR missing (state.rs defaults
+            // a missing key to true, so first run opens it). After that the
+            // native hide/show handlers persist the last choice. Bounds come
+            // along inside show_companion.
+            if state::load_state(app.handle())
+                .map(|s| s.companion.visible)
+                .unwrap_or(false)
             {
-                let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(2500));
-                    let h = handle.clone();
-                    let _ = handle.run_on_main_thread(move || {
-                        let want = state::load_state(&h)
-                            .map(|s| s.companion.visible)
-                            .unwrap_or(true);
-                        let shown = h
-                            .get_webview_window("companion")
-                            .map(|w| w.is_visible().unwrap_or(false))
-                            .unwrap_or(false);
-                        if want && !shown {
-                            let _ = panes::show_companion(&h);
-                        }
-                    });
-                });
+                let _ = panes::show_companion(app.handle());
             }
 
             // GO-ORBITTY-TRAY-REMOTE: the tray is a remote for the
