@@ -215,19 +215,15 @@
   // native side restore the idle rect.
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
   // TILE-YAW leftover (APPROACH LOCK D — steeper dive, Matt): ONE
-  // RIGID 3D CUBE dives in from far back, HIGH and LEFT — almost off
-  // the companion window's top-left. World launch is a FRACTION of the
-  // well itself (translate3d -200% / -280% / -2200px, rotateX 12 /
-  // rotateY -16) so landscape and portrait keep the same dive; the
-  // 4be7734 leftover copied sketch pixels (-240,-170,-1280) and read
-  // as a polite nudge. Perspective-origin is the WELL pane center
-  // (~34% 50% of .hostwell — 50% 50% is the well+Spark midpoint and
-  // bloomed toward Spark). transform-origin: center. No scale().
-  // Spirit translate-aside starts with the dive (the cube is far and
-  // small, so Spark still reads first). Dock never transforms.
-  // Reduced motion: enter fades, leave snaps.
-  const TILE_ENTER_MS = 480;
-  const TILE_LEAVE_MS = 280;
+  // RIGID 3D CUBE dives in from far back, HIGH and LEFT. Launch is a
+  // fraction of the well so the speck sits IN the window's UL (a bit
+  // of top clip) — -200/-280/-2200 threw it above the frame, so the
+  // eye only saw the last jerky fill. One 620ms ease, no mid-keyframe
+  // kink. Dest pages stay unmounted until the lock so load_state /
+  // Rail boot cannot hitch the flight. Perspective-origin = well pane
+  // center (~34% 50%). transform-origin: center. No scale().
+  const TILE_ENTER_MS = 620;
+  const TILE_LEAVE_MS = 320;
   let tilePre = $state(false);
   let tileEnter = $state(false);
   let tileLeave = $state(false);
@@ -786,26 +782,18 @@
       mainEl.style.removeProperty("--spir-dx");
       mainEl.style.removeProperty("--spir-dy");
     }
-    // TILE-DROP: the drop plays on the next frame INSIDE the grown
-    // frame — spirit aside and the dive both start at 0ms (the cube is
-    // far/small, so Spark still reads first). The leftover's 100ms
-    // delay + opacity-0 seed was the "animation takes forever to
-    // start" hitch once the native grow had already landed. Dock never
-    // transforms. The enter class comes back off once the CSS has
-    // finished so a later .wellpane remount doesn't replay the drop.
+    // Dive starts in this turn — no extra rAF after the grow. Dest
+    // pages are still unmounted (tileEnter), so tick above was cheap.
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    requestAnimationFrame(() => {
-      if (gen !== tileGen) return;
-      tilePre = false;
-      tileEnter = true;
-      setTimeout(
-        () => {
-          if (gen !== tileGen) return;
-          tileEnter = false;
-        },
-        (reduce ? 140 : TILE_ENTER_MS) + 80,
-      );
-    });
+    tilePre = false;
+    tileEnter = true;
+    setTimeout(
+      () => {
+        if (gen !== tileGen) return;
+        tileEnter = false;
+      },
+      (reduce ? 140 : TILE_ENTER_MS) + 80,
+    );
     // Force collapsed on enter (the existing persisted expanded flag).
     if (expanded) {
       expanded = false;
@@ -1417,17 +1405,19 @@
             class:face-in={swapPrev !== null}
             class:face-back={swapPrev !== null && swapDir === -1}
           >
-            {#if hosted === "launchpad"}
-              <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
-            {:else if hosted === "stars"}
-              <StarsPage embedded onClose={dismissHost} />
-            {:else if hosted === "inspector"}
-              <RailPage
-                embedded
-                onClose={dismissHost}
-                onPopout={popoutInspector}
-                {createPlanetTick}
-              />
+            {#if !tilePre && !tileEnter}
+              {#if hosted === "launchpad"}
+                <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
+              {:else if hosted === "stars"}
+                <StarsPage embedded onClose={dismissHost} />
+              {:else if hosted === "inspector"}
+                <RailPage
+                  embedded
+                  onClose={dismissHost}
+                  onPopout={popoutInspector}
+                  {createPlanetTick}
+                />
+              {/if}
             {/if}
           </div>
         </div>
@@ -1711,11 +1701,12 @@
   .companion.tile-pre .wellpane,
   .companion.tile-enter .wellpane,
   .companion.tile-leave .wellpane {
-    --dive: translate3d(-200%, -280%, -2200px) rotateX(12deg) rotateY(-16deg);
-    --dive-mid: translate3d(-18%, -24%, -260px) rotateX(4deg) rotateY(-6deg);
+    /* Speck in the window UL (slight top clip), not above the frame. */
+    --dive: translate3d(-130%, -155%, -1600px) rotateX(12deg) rotateY(-16deg);
     transform-origin: center;
     transform-style: preserve-3d;
     overflow: visible;
+    will-change: transform;
   }
 
   /* While the box flies, the page content keeps its rounded-card clip
@@ -1830,27 +1821,19 @@
   }
 
   .companion.tile-enter .wellpane {
-    animation: orbitty-tile-drop-in 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: orbitty-tile-drop-in 620ms cubic-bezier(0.22, 0.82, 0.2, 1) both;
   }
 
   .companion.tile-leave .wellpane {
-    animation: orbitty-tile-drop-out 280ms cubic-bezier(0.5, 0, 0.75, 0) both;
+    animation: orbitty-tile-drop-out 320ms cubic-bezier(0.4, 0, 0.7, 0.2) both;
   }
 
-  /* D dive: --dive is far/high/left (~0.22× through 620px perspective).
-     Fast Z rush, XY offsets collapse as it fills, tilt settles, soft
-     lock at identity. No overshoot, no scale(), not C's shallow glide. */
+  /* One span, one curve — the 55% kink was the on-screen jerk. */
   @keyframes orbitty-tile-drop-in {
     0% {
       opacity: 1;
-      transform: translate3d(-200%, -280%, -2200px) rotateX(12deg)
+      transform: translate3d(-130%, -155%, -1600px) rotateX(12deg)
         rotateY(-16deg);
-      animation-timing-function: cubic-bezier(0.25, 0.6, 0.3, 1);
-    }
-    55% {
-      opacity: 1;
-      transform: translate3d(-18%, -24%, -260px) rotateX(4deg) rotateY(-6deg);
-      animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1);
     }
     100% {
       opacity: 1;
@@ -1862,25 +1845,18 @@
     0% {
       opacity: 1;
       transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg);
-      animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
     }
-    45% {
-      opacity: 1;
-      transform: translate3d(-20%, -26%, -280px) rotateX(4deg) rotateY(-6deg);
-      animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
-    }
-    92% {
+    88% {
       opacity: 1;
     }
     100% {
       opacity: 0;
-      transform: translate3d(-200%, -280%, -2200px) rotateX(12deg)
+      transform: translate3d(-130%, -155%, -1600px) rotateX(12deg)
         rotateY(-16deg);
     }
   }
 
-  /* Spirit aside: translate only, 320ms, starts with the dive. The cube
-     is far/small so Spark still reads first. No FLIP scale. */
+  /* Spirit aside: translate only, starts with the dive. */
   .spirshift {
     flex: 1;
     min-width: 0;
@@ -1893,7 +1869,7 @@
   }
 
   .companion.tile-enter .spirshift {
-    animation: orbitty-spirit-aside 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: orbitty-spirit-aside 420ms cubic-bezier(0.22, 0.82, 0.2, 1) both;
   }
 
   @keyframes orbitty-spirit-aside {
