@@ -222,17 +222,20 @@
   // tile has entered does the hosted column become the spirit's rest
   // state (Full/Head pref read, never written, on host).
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
-  // TILE-YAW leftover (Matt): the drop is a SEED DROP — the tile starts
-  // as a singular pixel ONE INCH IN FROM THE COMPANION WINDOW'S
-  // UPPER-LEFT CORNER (a pixel transform-origin pins that seed — never
-  // a pane percentage) and falls into the well while scaling up to full
-  // size. A seed → a card. Never past rest, never a rebound — the chop
-  // is dead (see the orbitty-tile-drop-in keyframes). Spark is already
-  // at hosted rest in the right column and the dock never transforms —
-  // only the tile moves. Reduced motion: enter fades (no scale), leave
-  // is a snap (0 wait).
-  const TILE_ENTER_MS = 450;
-  const TILE_LEAVE_MS = 300;
+  // TILE-YAW leftover (Matt): the drop is a CUBE RUSH — the tile starts
+  // far back on Z with a readable cube-ish tilt (a face coming at the
+  // camera — not a 2D scale-up, not the prism's dest yaw) and barrels
+  // at the camera, braking to a HARD stop at rest identity on the base.
+  // Never past rest, never a rebound — the chop is dead (see the
+  // orbitty-tile-drop-in keyframes). The corner seed is untouched: a
+  // pixel transform-origin ONE INCH IN FROM THE COMPANION WINDOW'S
+  // UPPER-LEFT CORNER still pins the launch point (never a pane
+  // percentage). Perspective sits on .hostwell — the well, not the
+  // window. Spark is already at hosted rest in the right column and the
+  // dock never transforms — only the tile moves. Reduced motion: enter
+  // fades (no 3D), leave is a snap (0 wait).
+  const TILE_ENTER_MS = 340;
+  const TILE_LEAVE_MS = 280;
   let tilePre = $state(false);
   let tileEnter = $state(false);
   let tileLeave = $state(false);
@@ -1704,21 +1707,27 @@
     display: flex;
   }
 
-  /* GO-ORBITTY-TILE-DROP: the drop verb — a SEED DROP (TILE-YAW
-     leftover, Matt: the chop is dead). The native grow stays instant
-     (keep-bottom); this CSS animates INSIDE the grown frame and never
-     fights the dock pinning. Enter: the card starts as a singular
-     pixel ONE INCH IN FROM THE COMPANION WINDOW'S UPPER-LEFT CORNER —
-     a pixel origin, never a pane percentage (the old 61% / 40% was
-     center-seeking) — and falls into the well while scaling up to
-     full size. A seed → a card, easing out to rest ON the base
-     (scale(1)). Never past rest, never a rebound. The Spark column is
-     already at hosted rest (right column) — nothing animates it
+  /* GO-ORBITTY-TILE-DROP: the drop verb — a CUBE RUSH (TILE-YAW
+     leftover, Matt: a 3D cube barreling at the camera that stops just
+     in time — not a gentle 2D scale-in; the chop stays dead). The
+     native grow stays instant (keep-bottom); this CSS animates INSIDE
+     the grown frame and never fights the dock pinning. Enter: the card
+     starts far back on Z with a readable cube-ish tilt — a face coming
+     at the camera, not a 90° dest-yaw cube, not a 2D scale-up — and
+     barrels in, braking to a HARD stop at rest identity ON the base
+     (translateZ(0), rotation 0). Barrel then brake: the ease arrives
+     with inertia, then stops — never past rest, never a rebound. The
+     launch point is still the corner seed: a pixel origin ONE INCH IN
+     FROM THE COMPANION WINDOW'S UPPER-LEFT CORNER (never a pane
+     percentage — the old 61% / 40% was center-seeking). Perspective
+     sits on .hostwell — the well, not the window — and only while a
+     drop phase runs, so the prism turn keeps its own. The Spark column
+     is already at hosted rest (right column) — nothing animates it
      aside — and the dock never transforms: ONLY the tile drops.
-     Leave: the exact reverse (the card shrinks back into the corner
-     seed), and only when it ends does dismissHost invoke the native
-     off. .tile-pre holds the from-state at mount — the well mounts
-     only after set_companion_host has landed, never in the idle-sized
+     Leave: the reverse (the cube recedes, accelerating away down Z),
+     and only when it ends does dismissHost invoke the native off.
+     .tile-pre holds the from-state at mount — the well mounts only
+     after set_companion_host has landed, never in the idle-sized
      frame. */
   .companion.tile-pre .wellpane,
   .companion.tile-enter .wellpane,
@@ -1775,53 +1784,71 @@
     display: flex;
   }
 
+  /* Cube-rush perspective: on the WELL (.hostwell is the .wellpane's
+     direct parent), never the window — and only while a drop phase
+     runs, so the hosted rest state and the prism turn (its own 1400px
+     on .wellpane.turning) are untouched. 1000px: tight enough that the
+     far card reads small and foreshortened, wide enough that it never
+     warps. */
+  .companion.tile-pre .hostwell,
+  .companion.tile-enter .hostwell,
+  .companion.tile-leave .hostwell {
+    perspective: 1000px;
+  }
+
   .companion.tile-pre .wellpane {
     opacity: 0;
-    transform: scale(0.002);
+    transform: translateZ(-1600px) rotateX(24deg) rotateY(-28deg);
   }
 
   .companion.tile-enter .wellpane {
-    animation: orbitty-tile-drop-in 450ms ease-out both;
+    animation: orbitty-tile-drop-in 340ms cubic-bezier(0.22, 0.9, 0.32, 1) both;
   }
 
   .companion.tile-leave .wellpane {
-    animation: orbitty-tile-drop-out 300ms ease-in both;
+    animation: orbitty-tile-drop-out 280ms cubic-bezier(0.5, 0, 0.75, 0) both;
   }
 
-  /* The seed drop: from a ~1px point at the corner seed to full size at
-     rest. Scaling about the pinned origin pulls every point of the card
-     from the seed out to its rest slot, so the card reads as falling
-     out of that upper-left inch while it grows. Opacity snaps in early
-     so the seed pixel reads before the swell. No overshoot keyframe
-     anywhere. */
+  /* The cube rush: from a far-back, tilted face to rest identity on the
+     base. translateZ does the barrel — apparent size ~0.38 → 1 through
+     the well's 1000px perspective — and the mixed X+Y tilt flattens in
+     lockstep so the face reads 3D the whole way (a face coming at the
+     camera, never the prism's pure-Y dest yaw). The pinned 62px corner
+     origin keeps the rush launched from that upper-left inch. The ease
+     (a near-vertical head decaying to zero) covers ~90% of the rush in
+     the first half, then brakes HARD into a dead stop just in time —
+     no overshoot keyframe anywhere, never past rest. Opacity snaps in
+     early so the far face reads before the rush. */
   @keyframes orbitty-tile-drop-in {
     0% {
       opacity: 0;
-      transform: scale(0.002);
+      transform: translateZ(-1600px) rotateX(24deg) rotateY(-28deg);
     }
-    16% {
+    10% {
       opacity: 1;
     }
     100% {
       opacity: 1;
-      transform: scale(1);
+      transform: translateZ(0) rotateX(0deg) rotateY(0deg);
     }
   }
 
-  /* Leave = the exact reverse: the card shrinks back into the corner
-     seed (the origin stays pinned, so the collapse travels back toward
-     that upper-left inch) and winks out at the pixel. */
+  /* Leave = the reverse: the cube recedes. Starts at rest identity,
+     accelerates away down Z (ease-in, exits at speed), re-tilts onto
+     the launch pose, and winks out only once it's far. The origin
+     stays pinned, so the retreat travels back toward that upper-left
+     inch. */
   @keyframes orbitty-tile-drop-out {
     0% {
       opacity: 1;
-      transform: scale(1);
+      transform: translateZ(0) rotateX(0deg) rotateY(0deg);
     }
-    84% {
+    88% {
       opacity: 1;
     }
     100% {
       opacity: 0;
-      transform: scale(0.002);
+      transform: translateZ(-1600px) rotateX(24deg) rotateY(-28deg);
     }
   }
 
