@@ -10,6 +10,9 @@
 //!                     The page owns `hosted`, so the toggle lives there.
 //!   ⌘⌥← / ⌘⌥→         While hosted: yaw the ring (Launchpad → STARS →
 //!                     Planets → Launchpad). Idle: no-op — never summon.
+//!   ⌘⌥↓               Dismiss whichever dest is hosted (Launchpad,
+//!                     STARS, or Planets). Idle: no-op — never summon,
+//!                     same as the yaws.
 //!
 //! ⌘Space stays Spotlight; Super-only Mac menu chords stay refused
 //! (actions.rs reserved list); ⌘⌥+letter stays the action lane — dests
@@ -30,7 +33,7 @@ const YAWS: [(Code, &str); 2] = [
     (Code::ArrowRight, "next"),
 ];
 
-/// Register the five tile chords. Best-effort per chord (same philosophy
+/// Register the six tile chords. Best-effort per chord (same philosophy
 /// as actions.rs — an OS/other-app collision is logged, never a crash):
 /// a chord that fails to register simply stays dead.
 #[cfg(target_os = "macos")]
@@ -66,6 +69,19 @@ pub fn register(app: &tauri::AppHandle) {
         }) {
             eprintln!("tile-chords: ⌘⌥{dir} register failed: {e}");
         }
+    }
+    // ⌘⌥↓ dismisses whichever dest is hosted. Same posture as the yaws:
+    // no show_companion — idle is a no-op, never a summon. The page
+    // no-ops when nothing is hosted.
+    let chord = Shortcut::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::ArrowDown);
+    let handle = app.clone();
+    if let Err(e) = gs.on_shortcut(chord, move |_app, _s, ev| {
+        if ev.state() != ShortcutState::Pressed {
+            return;
+        }
+        let _ = handle.emit_to("companion", "orbitty:dismiss-host", ());
+    }) {
+        eprintln!("tile-chords: ⌘⌥↓ register failed: {e}");
     }
 }
 

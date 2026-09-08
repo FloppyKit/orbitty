@@ -1225,6 +1225,7 @@
   let unlistenEnterHost: (() => void) | undefined;
   let unlistenToggleHost: (() => void) | undefined;
   let unlistenYawHost: (() => void) | undefined;
+  let unlistenDismissHost: (() => void) | undefined;
   let unlistenTalk: (() => void)[] = [];
   let hitsObserver: ResizeObserver | undefined;
   onMount(async () => {
@@ -1279,7 +1280,8 @@
     // so the same chord while that dest is hosted dismisses (the page
     // owns `hosted`; the native side only raises the pane). ⌘⌥←/→ yaw
     // the DEST_RING while hosted; idle is a no-op, never a summon (the
-    // native side doesn't even raise the pane on the arrows).
+    // native side doesn't even raise the pane on the arrows). ⌘⌥↓ is
+    // the same no-summon posture: dismiss whatever is hosted, no-op idle.
     unlistenToggleHost = await listen<string>("orbitty:toggle-host", (e) => {
       const m = e.payload;
       if (m === "launchpad" || m === "stars" || m === "inspector") void toggleDest(m);
@@ -1290,6 +1292,10 @@
       const step = e.payload === "prev" ? DEST_RING.length - 1 : 1;
       const next = DEST_RING[(from + step) % DEST_RING.length];
       if (next !== "off") void enterHost(next);
+    });
+    unlistenDismissHost = await listen("orbitty:dismiss-host", () => {
+      if (hosted === "off") return;
+      void dismissHost();
     });
     unlistenTalk.push(
       await listen<string>("talk:partial", (e) => {
@@ -1326,6 +1332,7 @@
     unlistenEnterHost?.();
     unlistenToggleHost?.();
     unlistenYawHost?.();
+    unlistenDismissHost?.();
     for (const u of unlistenTalk) u();
     invoke("talk_stop").catch(() => {});
   });

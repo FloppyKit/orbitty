@@ -42,8 +42,9 @@ fn parse_combo(combo: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, St
 /// are Mac menu equivalents (Hide, Minimize, Quit, Close, …): Carbon
 /// RegisterEventHotKey succeeds, then the menu swallows the press while
 /// Orbitty is frontmost, so the action looks dead. ⌘⌥+letter is fine.
-/// GO-ORBITTY-TILE-CHORDS: ⌘⌥1/2/3 = dest tiles, ⌘⌥←/→ = ring yaw — the
-/// tile chord wins, so a row carrying one shows `conflict`.
+/// GO-ORBITTY-TILE-CHORDS: ⌘⌥1/2/3 = dest tiles, ⌘⌥←/→ = ring yaw,
+/// ⌘⌥↓ = dismiss the hosted tile — the tile chord wins, so a row
+/// carrying one shows `conflict`.
 #[cfg(target_os = "macos")]
 fn is_reserved(s: &tauri_plugin_global_shortcut::Shortcut) -> bool {
     use tauri_plugin_global_shortcut::{Code, Modifiers};
@@ -53,7 +54,12 @@ fn is_reserved(s: &tauri_plugin_global_shortcut::Shortcut) -> bool {
     if s.mods == Modifiers::SUPER | Modifiers::ALT
         && matches!(
             s.key,
-            Code::Digit1 | Code::Digit2 | Code::Digit3 | Code::ArrowLeft | Code::ArrowRight
+            Code::Digit1
+                | Code::Digit2
+                | Code::Digit3
+                | Code::ArrowLeft
+                | Code::ArrowRight
+                | Code::ArrowDown
         )
     {
         return true;
