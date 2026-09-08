@@ -749,11 +749,12 @@
     unlistenFocus = await listen<string>("orbitty:focus-card", (e) => {
       onFocusCard(e.payload);
     });
-    await refreshWindows();
-    // HOST-SPLIT embedded: the host companion window stays visible — no
-    // AX poll timer and no kanban pane-vis gating in the well
-    // (state:changed keeps the cards fresh).
+    // HOST-SPLIT embedded: skip AX list_windows on first well mount —
+    // that wait was the Launchpad-enter hitch on a cold app (RailPage
+    // already refuses it). Overlay Launchpad still refreshes windows.
+    // state:changed keeps the cards fresh; no pane-vis gating in the well.
     if (embedded) return;
+    await refreshWindows();
     startRefreshTimer();
     // HITCH-DRAW: the window keeps warm on hide, so document.hidden never
     // flips — gate the 1500ms AX poll on the native event instead. Show
