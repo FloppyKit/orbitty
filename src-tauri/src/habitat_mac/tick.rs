@@ -439,7 +439,7 @@ fn drag_tick() {
                             }
                         }
                         if let Some(app) = app_handle() {
-                            let _ = app.emit_to("main", "habitat:board-todo", entry_id);
+                            let _ = app.emit("habitat:board-todo", entry_id);
                         }
                     }
                     // Doing column: the board touch by hand — emit the
@@ -457,8 +457,7 @@ fn drag_tick() {
                     // Done column: today's complete door, unchanged.
                     Some(2) => {
                         if let Some(app) = app_handle() {
-                            let _ =
-                                app.emit_to("main", "habitat:board-done", project_id.clone());
+                            let _ = app.emit("habitat:board-done", project_id.clone());
                         }
                     }
                     _ => {}
@@ -730,6 +729,7 @@ fn anim_tick() {
                         via_board: false,
                         via_home: false,
                         via_checkin: false,
+                        checkin_emit_at: None,
                     }
                 }
                 Pose::Sit => {
@@ -745,6 +745,7 @@ fn anim_tick() {
                         via_board: false,
                         via_home: false,
                         via_checkin: false,
+                        checkin_emit_at: None,
                     }
                 }
                 Pose::WalkOff => RoamState {
@@ -758,6 +759,7 @@ fn anim_tick() {
                     via_board: false,
                     via_home: false,
                     via_checkin: false,
+                    checkin_emit_at: None,
                 },
                 Pose::Roam => RoamState {
                     x: house.0,
@@ -770,6 +772,7 @@ fn anim_tick() {
                     via_board: false,
                     via_home: false,
                     via_checkin: false,
+                    checkin_emit_at: None,
                 },
             });
             // A walker that left WalkOff (re-claimed) re-arms its emit so
@@ -844,17 +847,31 @@ fn anim_tick() {
                     let dx = roam.tx - roam.x;
                     let dy = roam.ty - roam.y;
                     let dist = (dx * dx + dy * dy).sqrt();
-                    // GO-ORBITTY-WORLD-CHECKIN: a Stand (Todo) walker
-                    // arriving at the near lip of the board checks in
-                    // ONCE — the rail flips that window's card
+                    // GO-ORBITTY-WORLD-CHECKIN (+ PROPS leftover retry): a
+                    // Stand (Todo) walker at the near lip of the board
+                    // checks in — the rail flips that window's card
                     // todo→doing and the next sync walks it to the field
-                    // as Work. The board touch is the punch; the walker
-                    // never parks idle waiting for a human drag. Sticky
-                    // after the flip: a manual drag back to Todo stays
-                    // Todo (no second emit on this roam entry).
+                    // as Work. The emit is fire-and-forget, so while the
+                    // snapshot STILL says todo it re-fires on a ~0.5s
+                    // throttle: a missed rail (or an AX-untrusted no-op
+                    // sync) used to park the walker at the lip forever.
+                    // via_checkin is NOT set on this auto path — it stays
+                    // the "user dropped on Todo, don't auto-flip" flag
+                    // (only the drag-drop column paths set it). The rail's
+                    // listener is idempotent (todo→doing only), so the
+                    // repeats are safe.
                     if pose == Pose::Stand && !roam.via_checkin && dist < 0.05 {
-                        roam.via_checkin = true;
-                        emit_board_checkin(id);
+                        let still_todo = planet
+                            .walker_entries
+                            .iter()
+                            .any(|e| &e.id == id && e.card_status == "todo");
+                        let due = roam
+                            .checkin_emit_at
+                            .is_none_or(|t| t.elapsed() >= Duration::from_millis(500));
+                        if still_todo && due {
+                            roam.checkin_emit_at = Some(now_i);
+                            emit_board_checkin(id);
+                        }
                     }
                     if dist >= 0.025 {
                         let step = (0.16 * dt).min(dist);

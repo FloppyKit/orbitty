@@ -6,7 +6,8 @@
 # Codesign" identity (kept on purpose: the macOS Accessibility grant is
 # path+sign, so the new path needs one re-grant, then survives rebuilds),
 # and installs to ~/Applications/Orbitty.app — the ONLY path to dogfood.
-# Falls back to ad-hoc signing (with a loud warning) if the identity is gone.
+# HARD FAILS if the identity is missing — never ad-hoc: an ad-hoc CDHash
+# changes every rebuild, which is how the AX grant died on every install.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -19,6 +20,24 @@ SRC="src-tauri/target/release/bundle/macos/$APP_NAME"
 DEST="$HOME/Applications/$APP_NAME"
 IDENTITY="LiveSprite Local Codesign"
 
+# The stable identity is non-negotiable — check BEFORE the long build.
+# `-p codesigning` (not `-p basic`): the codesigning policy is what finds
+# this identity from agent shells. Capture-then-grep: a `| grep -q` pipe
+# races SIGPIPE under `set -o pipefail` (grep exits on match, security
+# dies 141) and false-fails the check.
+IDS="$(security find-identity -v -p codesigning)" || true
+if ! grep -q "$IDENTITY" <<< "$IDS"; then
+  echo "============================================================" >&2
+  echo "ERROR: \"$IDENTITY\" not found by:" >&2
+  echo "  security find-identity -v -p codesigning" >&2
+  echo "Refusing to install — an ad-hoc fallback is how the" >&2
+  echo "Accessibility grant broke on every install (an ad-hoc CDHash" >&2
+  echo "changes every rebuild). Nest must re-sign: restore the" >&2
+  echo "identity in the login keychain, then re-run install-stable." >&2
+  echo "============================================================" >&2
+  exit 1
+fi
+
 echo "==> Building release bundle"
 # The dmg step may fail (hdiutil quirks); the .app is what we install, so a
 # dmg failure is not fatal as long as the .app bundle exists.
@@ -29,24 +48,40 @@ if [[ ! -d "$SRC" ]]; then
   exit 1
 fi
 
-SIGN="-"
-if security find-identity -v -p basic | grep -q "$IDENTITY"; then
-  echo "==> Signing with \"$IDENTITY\""
-  SIGN="$IDENTITY"
-else
-  echo "WARNING: \"$IDENTITY\" not in keychain — falling back to ad-hoc." >&2
-  echo "         Accessibility permission will break on every rebuild." >&2
-fi
-codesign --force --deep --sign "$SIGN" --timestamp=none "$SRC"
+echo "==> Signing build-tree bundle with \"$IDENTITY\""
+codesign --force --deep --sign "$IDENTITY" --timestamp=none "$SRC"
 
-echo "==> Verifying signature"
+echo "==> Verifying build-tree signature"
 codesign --verify --deep --strict --verbose=2 "$SRC"
-codesign -dv "$SRC" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier)' || true
+# -dvv: plain -dv no longer prints the Authority= line (macOS 26).
+codesign -dvv "$SRC" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier)' || true
 
 echo "==> Installing to $DEST"
 mkdir -p "$HOME/Applications"
-rm -rf "$DEST"
-cp -R "$SRC" "$DEST"
+# Replace IN PLACE (ditto merge), never rm -rf + cp -R: TCC's grant is
+# path + stable identity, and keeping the same .app node is what lets one
+# human Accessibility grant survive every rebuild.
+ditto "$SRC" "$DEST"
+
+# Sign the INSTALLED app — the blessed path is what TCC sees, so it must
+# carry the stable identity itself, not just the build-tree bundle.
+echo "==> Signing installed $DEST with \"$IDENTITY\""
+codesign --force --deep --sign "$IDENTITY" --timestamp=none "$DEST"
+
+echo "==> Verifying installed signature"
+codesign --verify --deep --strict --verbose=2 "$DEST"
+# -dvv: plain -dv no longer prints the Authority= line (macOS 26).
+codesign -dvv "$DEST" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier)' || true
+DEST_SIG="$(codesign -dvv "$DEST" 2>&1)" || true
+if ! grep -q "^Authority=$IDENTITY$" <<< "$DEST_SIG"; then
+  echo "============================================================" >&2
+  echo "ERROR: installed app is NOT signed by \"$IDENTITY\"" >&2
+  echo "(an ad-hoc Signature= would break Accessibility on the next" >&2
+  echo "rebuild). Nest must re-sign: fix the keychain identity and" >&2
+  echo "re-run install-stable." >&2
+  echo "============================================================" >&2
+  exit 1
+fi
 
 # Cutover: park any leftover LiveSprite.app so there is exactly one obvious
 # app to open. Never deletes — just moves aside once.
@@ -68,7 +103,7 @@ if [[ ! -x "$CTL_SRC" ]]; then
   echo "error: expected orbittyctl at $CTL_SRC" >&2
   exit 1
 fi
-codesign --force --sign "$SIGN" --timestamp=none "$CTL_SRC"
+codesign --force --sign "$IDENTITY" --timestamp=none "$CTL_SRC"
 echo "==> Installing orbittyctl to $CTL_DIR"
 mkdir -p "$CTL_DIR"
 cp "$CTL_SRC" "$CTL_DIR/orbittyctl"
@@ -81,7 +116,7 @@ if [[ ! -x "$MCP_SRC" ]]; then
   echo "error: expected orbitty-mcp at $MCP_SRC" >&2
   exit 1
 fi
-codesign --force --sign "$SIGN" --timestamp=none "$MCP_SRC"
+codesign --force --sign "$IDENTITY" --timestamp=none "$MCP_SRC"
 echo "==> Installing orbitty-mcp to $CTL_DIR"
 cp "$MCP_SRC" "$CTL_DIR/orbitty-mcp"
 
@@ -94,8 +129,9 @@ Done. Dogfood rules:
   1. Quit any running LiveSprite/Orbitty (tray icon → Quit).
   2. Open ONLY: $DEST
        open "$DEST"
-  3. Grant/verify Accessibility for THAT path — the rename means ONE
-     re-grant (System Settings → Privacy & Security → Accessibility).
+  3. Grant/verify Accessibility for THAT path — ONE human grant now
+     survives rebuilds (stable identity + same path is what TCC
+     remembers). System Settings → Privacy & Security → Accessibility.
   4. First launch migrates your data:
      ~/Library/Application Support/app.livesprite.mac → space.orbitty.mac
   5. Do not run target/ binaries or \`tauri dev\` for daily use.

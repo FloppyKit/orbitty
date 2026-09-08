@@ -421,13 +421,15 @@ pub(crate) fn emit_walked_off(entry_id: &str) {
 
 /// GO-ORBITTY-WORLD-CHECKIN: a Todo walker touched the near lip of the
 /// board — the rail's listener flips that window's card todo→doing
-/// (only if still todo; a human drag always wins). Fire-and-forget,
-/// once per claim journey (anim_tick's via_checkin), same shape as
-/// emit_walked_off. Not a WalkOff path — via_board/via_home stay
-/// Done-only.
+/// (only if still todo; a human drag always wins). Fire-and-forget;
+/// PROPS leftover: anim_tick re-fires on a ~0.5s throttle while the
+/// snapshot still says todo (the listener is idempotent), so a missed
+/// emit heals instead of parking the walker at the lip. Broadcast to
+/// ALL webviews (app.emit), not only main. Not a WalkOff path —
+/// via_board/via_home stay Done-only.
 pub(crate) fn emit_board_checkin(entry_id: &str) {
     if let Some(app) = app_handle() {
-        let _ = app.emit_to("main", "habitat:board-checkin", entry_id.to_string());
+        let _ = app.emit("habitat:board-checkin", entry_id.to_string());
     }
 }
 
@@ -715,13 +717,20 @@ struct RoamState {
     /// Emit only after this. Reset whenever the pose leaves WalkOff.
     /// Never a left-rim curtain (`HOME_OFF` stays dead).
     via_home: bool,
-    /// GO-ORBITTY-WORLD-CHECKIN: a Stand (Todo) walker has touched the
-    /// board and the check-in emit fired — the rail flips that window's
-    /// card todo→doing and the next sync walks it to the field as Work.
-    /// Sticky for the roam entry's life (a manual drag back to Todo
-    /// stays Todo); re-arms only on a fresh claim journey — a new roam
-    /// entry, or the return-from-hide teleport in anim_tick.
+    /// GO-ORBITTY-WORLD-CHECKIN: "user dropped on the board, don't
+    /// auto-flip" — set ONLY by the drag-drop column paths (a drop on
+    /// Todo parks the walker at the lip with no auto re-check-in; a drop
+    /// on Doing spends the manual check-in). The walked auto check-in
+    /// never sets it (PROPS leftover: it retries on a throttle instead).
+    /// Re-arms on a fresh claim journey — a new roam entry, or the
+    /// return-from-hide teleport in anim_tick.
     via_checkin: bool,
+    /// PROPS leftover (check-in retry): when the walked auto check-in
+    /// last fired. A Stand walker at the board lip re-fires
+    /// habitat:board-checkin every ~0.5s while the snapshot still says
+    /// todo — a missed rail (or AX-untrusted no-op sync) used to park
+    /// the walker at the lip forever. None = not fired yet this roam.
+    checkin_emit_at: Option<Instant>,
 }
 
 /// GO-ORBITTY-MARBLE-SOLAR: a marble's in-memory track membership.
@@ -2121,6 +2130,7 @@ fn layout_beings(planet: &mut Planet) {
                         via_board: false,
                         via_home: false,
                         via_checkin: false,
+                        checkin_emit_at: None,
                     }
                 }
                 Pose::Sit => {
@@ -2136,6 +2146,7 @@ fn layout_beings(planet: &mut Planet) {
                         via_board: false,
                         via_home: false,
                         via_checkin: false,
+                        checkin_emit_at: None,
                     }
                 }
                 Pose::WalkOff => RoamState {
@@ -2149,6 +2160,7 @@ fn layout_beings(planet: &mut Planet) {
                     via_board: false,
                     via_home: false,
                     via_checkin: false,
+                    checkin_emit_at: None,
                 },
                 Pose::Roam => {
                     let a = i as f64 * 2.3;
@@ -2164,6 +2176,7 @@ fn layout_beings(planet: &mut Planet) {
                         via_board: false,
                         via_home: false,
                         via_checkin: false,
+                        checkin_emit_at: None,
                     }
                 }
             }

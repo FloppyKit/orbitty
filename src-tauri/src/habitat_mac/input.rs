@@ -299,7 +299,7 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                 drop(h);
                 if still {
                     if let Some(app) = app_handle() {
-                        let _ = app.emit_to("main", "habitat:board-done", pid);
+                        let _ = app.emit("habitat:board-done", pid);
                     }
                 }
                 return;
