@@ -254,11 +254,11 @@ pub(crate) const STATION_HOUSE: (f64, f64) = (-0.611, 0.05); // igloo — left i
 // top sits ~3px past the back rim (r = 72); the post base stays planted
 // on-disc, and x = 0 pins the wood post (SIGN_POST_X), not the face.
 pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.72); // Todo — far/back board
-// Doing — the open interior field, off the front lip (the fanned target
-// keeps |y| < 0.22 and x > -0.35, so the fan never enters the igloo):
-// the walk cycle keeps running here after arrival (CADENCE-PATH stilled
-// it only because the old workbench station sat on the front rim and
-// read as rim-strolling; the rim is Needed's now).
+// Doing — the grass paddock CENTER (YARD_HALF around it), not a
+// stand-still pin: WORLD-YARD deleted the in-place march — Doing walkers
+// wander random points in the inset yard AABB (the yard_* fns below),
+// dwell, re-pick. The old fan's |y| < 0.22 / x > -0.35 igloo guard is
+// superseded by the box: never the igloo (x <= -0.50), never the sign.
 pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05);
 pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/south rim
 /// GO-ORBITTY-WORLD-PROPS: the grass paddock around STATION_FIELD —
@@ -268,6 +268,19 @@ pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/sout
 /// the igloo's east edge ≈ -0.52), south open toward the Needed rim.
 /// WORLD-YARD wanders it; PROPS only paints it.
 pub(crate) const YARD_HALF: f64 = 0.364;
+/// GO-ORBITTY-WORLD-YARD: interior inset so sprites stay on the green —
+/// the wander AABB is the pad shrunk by this on every side around
+/// STATION_FIELD: x ∈ [-0.324, 0.324], y ∈ [-0.274, 0.374]. The box
+/// never reaches the igloo (x ≤ -0.50) or the sign footprint (the face
+/// sits at y ≈ -0.8), so an in-box target can never walk a body there.
+pub(crate) const YARD_INSET: f64 = 0.04;
+/// Arrival: a Doing walker within this of its grass point dwells, then
+/// picks a new one.
+pub(crate) const YARD_ARRIVE: f64 = 0.04;
+/// Dwell range on a reached grass point (ms), hashed off the walker's
+/// stream.
+pub(crate) const YARD_DWELL_MIN_MS: u64 = 600;
+pub(crate) const YARD_DWELL_MAX_MS: u64 = 1400;
 // Done — home: past the LEFT rim onto the panel (GO-ORBITTY-WORLD-TOWN,
 // replacing CADENCE-EXIT's north exit). Hide sits clearly past the
 // visual rim (LEFTOVER: no 1–2px curtain) so the walker is seen
@@ -289,9 +302,10 @@ pub(crate) enum Pose {
     /// Todo: stand at the west board (walk from the house, then idle
     /// frame 0, bob 0).
     Stand,
-    /// Doing: work the open interior field — walk from the house, then
-    /// KEEP the walk cycle after arrival (WORLD-PLACES; CADENCE-PATH's
-    /// idle-in-place was only because the station sat on the front rim).
+    /// Doing: wander the grass paddock — walk from the house / board lip
+    /// onto the green, then random points in the inset yard AABB with a
+    /// hashed dwell on each (WORLD-YARD; the WORLD-PLACES in-place march
+    /// is deleted — the walk cycle runs while WALKING, never parked).
     Work,
     /// Needed (open/later): sit at the front rim — bad news skips the
     /// queue (snap, never a scenic route). Idle frame 0, no bob, FULL
@@ -358,6 +372,62 @@ fn hash_str(s: &str) -> u64 {
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     h
+}
+
+/// GO-ORBITTY-WORLD-YARD: per-walker wander stream seed — FNV-1a over
+/// the entry id, never 0 (0 is the roam entry's "not armed yet"
+/// sentinel). Two Doing bodies get different streams: no shared pixel,
+/// no conga line.
+pub(crate) fn yard_seed(entry_id: &str) -> u64 {
+    let h = hash_str(entry_id);
+    if h == 0 { 0x9e37_79b9_7f4a_7c15 } else { h }
+}
+
+/// xorshift64* step — the stream advances on every pick so points and
+/// dwells never repeat in lockstep.
+fn yard_step(s: u64) -> u64 {
+    let mut x = s;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    x.wrapping_mul(0x2545_f491_4f6c_dd1d)
+}
+
+/// A random point in the inset yard AABB off the walker's stream
+/// (advances it). Always on the green, never the igloo or the sign.
+pub(crate) fn yard_pick(seed: &mut u64) -> (f64, f64) {
+    *seed = yard_step(*seed);
+    let h = YARD_HALF - YARD_INSET;
+    let fx = ((*seed >> 11) & 0xffff) as f64 / 65535.0;
+    let fy = ((*seed >> 37) & 0xffff) as f64 / 65535.0;
+    (
+        STATION_FIELD.0 + (fx * 2.0 - 1.0) * h,
+        STATION_FIELD.1 + (fy * 2.0 - 1.0) * h,
+    )
+}
+
+/// The dwell on a reached point: 600–1400 ms off the same stream
+/// (advances it).
+pub(crate) fn yard_dwell_ms(seed: &mut u64) -> u64 {
+    *seed = yard_step(*seed);
+    YARD_DWELL_MIN_MS + (*seed % (YARD_DWELL_MAX_MS - YARD_DWELL_MIN_MS + 1))
+}
+
+/// Inside the inset yard AABB?
+pub(crate) fn yard_contains(x: f64, y: f64) -> bool {
+    let h = YARD_HALF - YARD_INSET;
+    (x - STATION_FIELD.0).abs() <= h && (y - STATION_FIELD.1).abs() <= h
+}
+
+/// Hard wall (law 6): clamp a position to the inset yard AABB — a Doing
+/// walker on the grass never leaves it; the igloo and the sign footprint
+/// stay unreachable.
+pub(crate) fn yard_clamp(x: f64, y: f64) -> (f64, f64) {
+    let h = YARD_HALF - YARD_INSET;
+    (
+        x.clamp(STATION_FIELD.0 - h, STATION_FIELD.0 + h),
+        y.clamp(STATION_FIELD.1 - h, STATION_FIELD.1 + h),
+    )
 }
 
 /// GO-ORBITTY-WORLD-TOWN: where a board-bound walker comes FROM — the
@@ -731,6 +801,11 @@ struct RoamState {
     /// todo — a missed rail (or AX-untrusted no-op sync) used to park
     /// the walker at the lip forever. None = not fired yet this roam.
     checkin_emit_at: Option<Instant>,
+    /// GO-ORBITTY-WORLD-YARD: the Doing wander stream — 0 = not armed
+    /// (never Doing yet this roam); seeded from the entry id on the
+    /// first Doing tick, advanced on every grass-point / dwell pick so
+    /// two Doing bodies never conga. Kept across pose flips.
+    wander_seed: u64,
 }
 
 /// GO-ORBITTY-MARBLE-SOLAR: a marble's in-memory track membership.
@@ -2131,6 +2206,7 @@ fn layout_beings(planet: &mut Planet) {
                         via_home: false,
                         via_checkin: false,
                         checkin_emit_at: None,
+                        wander_seed: 0,
                     }
                 }
                 Pose::Sit => {
@@ -2147,6 +2223,7 @@ fn layout_beings(planet: &mut Planet) {
                         via_home: false,
                         via_checkin: false,
                         checkin_emit_at: None,
+                        wander_seed: 0,
                     }
                 }
                 Pose::WalkOff => RoamState {
@@ -2161,6 +2238,7 @@ fn layout_beings(planet: &mut Planet) {
                     via_home: false,
                     via_checkin: false,
                     checkin_emit_at: None,
+                    wander_seed: 0,
                 },
                 Pose::Roam => {
                     let a = i as f64 * 2.3;
@@ -2177,6 +2255,7 @@ fn layout_beings(planet: &mut Planet) {
                         via_home: false,
                         via_checkin: false,
                         checkin_emit_at: None,
+                        wander_seed: 0,
                     }
                 }
             }

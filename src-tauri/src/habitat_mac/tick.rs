@@ -19,13 +19,14 @@ use super::input::{boombox_click, contains_interactive, over_disc, BOOMBOX_CLICK
 use super::{
     app_handle, app_handle_cell, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings,
     layout_decor, lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
-    set_caption, station_target, view_to_disc, visible_frames, ClusterState,
+    set_caption, station_target, view_to_disc, visible_frames, yard_clamp, yard_contains,
+    yard_dwell_ms, yard_pick, yard_seed, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
     BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
     DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
     HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
     PLANET_LOCATE_TTL,
-    TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING,
+    TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING, YARD_ARRIVE,
 };
 
 // ---------- CVDisplayLink motion clock (GO-ORBITTY-MARBLE-RIM; post-and-return GO-ORBITTY-MARBLE-HITCH) ----------
@@ -667,21 +668,24 @@ fn anim_tick() {
             continue; // marbles are bare and still
         }
         let mut dirty = false;
-        // WORLD-PLACES leftover: layout_beings reruns ONLY when a roam
-        // x/y actually changed this tick — an arrived Work walker steps
-        // in place forever, and re-laying out every tick held the
-        // habitat lock on the AppKit thread (menu beach-ball). Bob alone
-        // still dirties the display below.
+        // WORLD-PLACES leftover / WORLD-YARD: layout_beings reruns ONLY
+        // when a roam x/y actually changed this tick — re-laying out
+        // every tick held the habitat lock on the AppKit thread (menu
+        // beach-ball). YARD undid the in-place forbid for the Doing
+        // wander ONLY: a walking Work body moves every tick (layout
+        // reruns, law 4); a DWELLING Work body stands — no move, no
+        // layout, the beach-ball guard lives on. Bob alone still
+        // dirties the display below.
         let mut moved = false;
         let now_i = Instant::now();
         let ids: Vec<String> = planet.walkers.iter().map(|b| b.entry_id.clone()).collect();
         // GO-ORBITTY-IDLE-STILL: bob only on a tick the walker actually
         // steps (pause_end None and dist >= 0.025). Paused and asleep
         // walkers stand at bob 0; sleepers never enter the step branch.
-        // GO-ORBITTY-WORLD-PLACES: an arrived Doing walker KEEPS stepping
-        // in the open field — the walk cycle IS the work (CADENCE-PATH's
-        // idle-in-place was only because that station sat on the front
-        // rim; the rim is Needed's now). Stand/Sit still park idle.
+        // GO-ORBITTY-WORLD-YARD: a Doing walker bobs while WALKING the
+        // grass and stands through each hashed dwell — the in-place
+        // march (WORLD-PLACES "the walk cycle IS the work") is deleted.
+        // Stand/Sit still park idle.
         let mut stepping = vec![false; ids.len()];
         // Ambient random roam dies the moment any walker on this planet
         // works or sits — the board, not the clock, drives motion. Sleepers
@@ -730,6 +734,7 @@ fn anim_tick() {
                         via_home: false,
                         via_checkin: false,
                         checkin_emit_at: None,
+                        wander_seed: 0,
                     }
                 }
                 Pose::Sit => {
@@ -746,6 +751,7 @@ fn anim_tick() {
                         via_home: false,
                         via_checkin: false,
                         checkin_emit_at: None,
+                        wander_seed: 0,
                     }
                 }
                 Pose::WalkOff => RoamState {
@@ -760,6 +766,7 @@ fn anim_tick() {
                     via_home: false,
                     via_checkin: false,
                     checkin_emit_at: None,
+                    wander_seed: 0,
                 },
                 Pose::Roam => RoamState {
                     x: house.0,
@@ -773,6 +780,7 @@ fn anim_tick() {
                     via_home: false,
                     via_checkin: false,
                     checkin_emit_at: None,
+                    wander_seed: 0,
                 },
             });
             // A walker that left WalkOff (re-claimed) re-arms its emit so
@@ -811,27 +819,18 @@ fn anim_tick() {
                     roam.ty = ty;
                     roam.pause_end = None;
                 }
-                // Todo/Doing: the target is never a random rad. Todo
-                // walks to the south lip of the white board — the same
-                // point WalkOff touches (PROPS leftover, town usable) —
-                // never STATION_BOARD: the post foot sits inside/behind
-                // the sign PNG, so the walker read as hidden in the
-                // house / vanished into the sign and the 0.05 check-in
-                // never read as a board touch. Doing fans out onto the
-                // grass. Stand parks on arrival — idle frame 0, bob 0.
-                // Work KEEPS the walk cycle in the open field
-                // (WORLD-PLACES: CADENCE-PATH stilled it only because
-                // the old station sat on the front rim; the rim is
-                // Needed's now); no re-park.
+                // Todo/Doing: Todo walks to the south lip of the white
+                // board — the same point WalkOff touches (PROPS leftover,
+                // town usable) — never STATION_BOARD: the post foot sits
+                // inside/behind the sign PNG, so the walker read as
+                // hidden in the house / vanished into the sign and the
+                // 0.05 check-in never read as a board touch. Stand parks
+                // on arrival — idle frame 0, bob 0. WORLD-YARD: Doing
+                // wanders the grass paddock — random points in the inset
+                // yard AABB off a per-walker stream, a hashed dwell on
+                // each reached point, then a new point. Never the whole
+                // oval, never moonwalking on one pixel.
                 Pose::Stand | Pose::Work => {
-                    let (tx, ty) = if pose == Pose::Stand {
-                        lip
-                    } else {
-                        station_target(pose, id)
-                    };
-                    roam.tx = tx;
-                    roam.ty = ty;
-                    roam.pause_end = None;
                     // Back from off the left rim (re-claim after Done):
                     // the walker was invisible, so re-enter AT THE IGLOO
                     // and walk the return — never a snap onto the station.
@@ -844,9 +843,36 @@ fn anim_tick() {
                         roam.via_checkin = false;
                         moved = true;
                     }
-                    let dx = roam.tx - roam.x;
-                    let dy = roam.ty - roam.y;
-                    let dist = (dx * dx + dy * dy).sqrt();
+                    if pose == Pose::Stand {
+                        roam.tx = lip.0;
+                        roam.ty = lip.1;
+                        roam.pause_end = None;
+                    } else {
+                        // GO-ORBITTY-WORLD-YARD: Doing wanders the grass.
+                        // The first Doing tick arms the per-walker stream
+                        // — seeded from the entry id, so two Doing bodies
+                        // never land on one pixel and never conga — and
+                        // picks the first random point in the inset yard
+                        // AABB. A target left OFF the grass (the Stand
+                        // lip handoff on a todo→doing flip, a hand drop)
+                        // re-picks the same way: every wander target
+                        // lives in the box.
+                        if roam.wander_seed == 0 {
+                            roam.wander_seed = yard_seed(id);
+                            let (tx, ty) = yard_pick(&mut roam.wander_seed);
+                            roam.tx = tx;
+                            roam.ty = ty;
+                            roam.pause_end = None;
+                        } else if !yard_contains(roam.tx, roam.ty) {
+                            let (tx, ty) = yard_pick(&mut roam.wander_seed);
+                            roam.tx = tx;
+                            roam.ty = ty;
+                            roam.pause_end = None;
+                        }
+                    }
+                    let mut dx = roam.tx - roam.x;
+                    let mut dy = roam.ty - roam.y;
+                    let mut dist = (dx * dx + dy * dy).sqrt();
                     // GO-ORBITTY-WORLD-CHECKIN (+ PROPS leftover retry): a
                     // Stand (Todo) walker at the near lip of the board
                     // checks in — the rail flips that window's card
@@ -873,22 +899,61 @@ fn anim_tick() {
                             emit_board_checkin(id);
                         }
                     }
+                    if pose == Pose::Work {
+                        // WORLD-YARD law 2: on the grass point (dist <
+                        // YARD_ARRIVE) dwell 600–1400 ms (hashed off the
+                        // stream) STANDING — the dwell is the pause, no
+                        // step, no bob — then pick a NEW random point in
+                        // the box and walk on.
+                        if dist < YARD_ARRIVE && roam.pause_end.is_none() {
+                            // Arrival slop (<= YARD_ARRIVE) snaps onto the
+                            // green — the one clamp that can move a body,
+                            // sub-0.04, invisible.
+                            let (cx, cy) = yard_clamp(roam.x, roam.y);
+                            roam.x = cx;
+                            roam.y = cy;
+                            let dwell = yard_dwell_ms(&mut roam.wander_seed);
+                            roam.pause_end =
+                                Some(now_i + Duration::from_millis(dwell));
+                            dirty = true; // point reached — the walk cycle parks
+                        }
+                        if let Some(end) = roam.pause_end {
+                            if now_i < end {
+                                continue; // dwelling on the point
+                            }
+                            roam.pause_end = None;
+                            let (tx, ty) = yard_pick(&mut roam.wander_seed);
+                            roam.tx = tx;
+                            roam.ty = ty;
+                            dx = roam.tx - roam.x;
+                            dy = roam.ty - roam.y;
+                            dist = (dx * dx + dy * dy).sqrt();
+                            dirty = true; // new point — the walk cycle resumes
+                        }
+                    }
                     if dist >= 0.025 {
                         let step = (0.16 * dt).min(dist);
                         roam.x += dx / dist * step;
                         roam.y += dy / dist * step;
                         roam.facing_left = dx < -0.002;
                         stepping[i] = true;
-                        moved = true; // walking to the station
-                    } else if pose == Pose::Work {
-                        // Arrived at the field: keep stepping in place —
-                        // the walk cycle IS the work. The target stays
-                        // hashed around STATION_FIELD, never |y| >= 0.22
-                        // or x <= -0.35 (the fan never enters the igloo).
-                        // LEFTOVER: no dirty/layout here — the position
-                        // didn't change, so layout_beings must not rerun;
-                        // the bob sweep below still dirties the DISPLAY.
-                        stepping[i] = true;
+                        moved = true; // walking (to the lip / across the grass)
+                    }
+                    // WORLD-YARD law 6: a Doing walker ON the grass never
+                    // leaves it — hard clamp to the inset AABB (a no-op on
+                    // the convex walk between two in-box points; the wall
+                    // against drift/bugs — never the igloo x <= -0.50,
+                    // never the sign footprint). The walk-IN from the
+                    // igloo / board lip / a hand drop stays a visible
+                    // approach: its target is in the box and converges —
+                    // clamping THAT leg would pop the body onto the edge.
+                    if pose == Pose::Work && yard_contains(roam.x, roam.y) {
+                        let (cx, cy) = yard_clamp(roam.x, roam.y);
+                        if (cx - roam.x).abs() > 1e-12 || (cy - roam.y).abs() > 1e-12 {
+                            roam.x = cx;
+                            roam.y = cy;
+                            moved = true;
+                        }
                     }
                 }
                 // Done: walk to the near lip of the board, blit flips,
@@ -1012,10 +1077,12 @@ fn anim_tick() {
                 }
             }
         }
-        // WORLD-PLACES leftover: full layout ONLY on a real roam position
-        // change — an arrived Work walker steps in place forever, and
-        // re-laying out every tick held the habitat lock on the AppKit
-        // thread (menu beach-ball). A move implies a display refresh.
+        // WORLD-PLACES leftover / WORLD-YARD: full layout ONLY on a real
+        // roam position change — re-laying out every tick held the
+        // habitat lock on the AppKit thread (menu beach-ball). The Doing
+        // wander moves every walking tick (layout reruns there, law 4)
+        // and stands while dwelling (no layout). A move implies a
+        // display refresh.
         if moved {
             layout_beings(planet);
             dirty = true;
