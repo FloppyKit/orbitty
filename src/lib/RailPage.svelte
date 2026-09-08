@@ -638,8 +638,15 @@
   // kanban (Needed cards never land), capped ~12: oldest open first,
   // then recent done. Ids + columns only; titles never ride.
   function boardCardsFor(p: Project) {
+    // ORPHAN-CARDS: a kind:"window" card ticks only while a live claim
+    // carries its windowId — an orphan can't be opened from anywhere, so
+    // it must not paint the sign. Loose todos still tick.
     const mine = kanbanCards.filter(
-      (k) => (k.projectId ?? "") === p.id && k.kind !== "needed",
+      (k) =>
+        (k.projectId ?? "") === p.id &&
+        k.kind !== "needed" &&
+        (k.kind !== "window" ||
+          (!!k.windowId && liveClaims.some((c) => c.windowId === k.windowId))),
     );
     const open = mine
       .filter((k) => k.status !== "done")
@@ -1671,11 +1678,15 @@
       if (s.trusted && !dragWindowId) {
         windows = await invoke<WindowInfo[]>("list_windows");
         refreshedAt = new Date().toLocaleTimeString();
+        windowsPolled = true;
         // INSPECTOR-HOST: habitat sync / rematch stay on the main rail
         // instance so two mounts don't double-write. Embedded still lists
         // windows so the well stays live.
         if (embedded) return;
         rematchClaims();
+        // ORPHAN-CARDS: heal right after rematch — windows is fresh, so
+        // live orphans re-claim and dead ones demote on this same pass.
+        if (healOrphanWindowCards()) persist();
         // Frontmost tick: a claimed window the human is actively in counts as
         // touched (throttled persist inside), so zombies self-heal by use.
         const front = windows.find((w) => w.isFrontmost);
@@ -1775,6 +1786,46 @@
       o.windowId === oldId ? { ...o, windowId: w.id } : o,
     );
     nudgeSuppressed = nudgeSuppressed.map((id) => (id === oldId ? w.id : id));
+  }
+
+  // GO-ORBITTY-WORLD-PROPS leftover: orphan window-card heal. An open
+  // kind:"window" card with a windowId but no live claim is invisible
+  // everywhere except the billboard tick — todosFor skips windowId cards,
+  // Launchpad hides kind:"window", the habitat only draws claims. Heal:
+  // a LIVE window gets its claim re-minted onto the card's project through
+  // claim() (the one door — it adopts the existing card, never mints a
+  // second; the walker appears on the planet and Unclaimed loses the row);
+  // a GONE window demotes the card to a loose todo so the rail lists it
+  // and it stays completable. Demotion waits for the first real window
+  // poll — at load_state time every window looks gone.
+  let windowsPolled = false;
+
+  function healOrphanWindowCards(): boolean {
+    if (!stateLoaded) return false;
+    let changed = false;
+    const orphans = kanbanCards.filter(
+      (k) =>
+        k.kind === "window" &&
+        k.status !== "done" &&
+        !!k.windowId &&
+        !liveClaims.some((c) => c.windowId === k.windowId),
+    );
+    for (const card of orphans) {
+      const w = windows.find((x) => x.id === card.windowId);
+      if (w && projects.some((p) => p.id === card.projectId)) {
+        claim(w.id, card.projectId); // the one door; persists itself
+        changed = true;
+      } else if (!w && windowsPolled) {
+        const now = nowEpoch();
+        kanbanCards = kanbanCards.map((k) =>
+          k.id === card.id
+            ? { ...k, kind: "todo" as const, windowId: null, lastTouchedAt: now }
+            : k,
+        );
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   // Claim-first nudge: an OS minimize (yellow / ⌘M / Dock) of an unmapped
@@ -1948,6 +1999,10 @@
       themeId = defaultThemeId();
     }
     stateLoaded = true;
+    // ORPHAN-CARDS: pre-heal saves may carry orphan window-cards. This
+    // run is a safe no-op for demotion (windowsPolled is false until the
+    // first tick) — the tick below re-claims the live ones.
+    if (!embedded && healOrphanWindowCards()) persist();
     refreshPacks();
     // Marble click on a planet expands the matching rail section; the
     // planet's right-click Minimize collapses it back.
@@ -2099,11 +2154,26 @@
         marbleDrift = s.marbleDrift ?? marbleDrift;
         refreshPacks();
         const diskClaims = s.claims ?? [];
-        claims = liveClaims.filter((c) =>
-          diskClaims.some(
-            (d) => d.windowId === c.windowId && d.projectId === c.projectId,
-          ),
+        // ORPHAN-CARDS: never strand an open window-card — a local claim
+        // stays while its card still exists on disk for the same project.
+        // A claim drops only when disk has neither the claim nor the card
+        // (a real delete, not an orphan-making write).
+        claims = liveClaims.filter(
+          (c) =>
+            diskClaims.some(
+              (d) => d.windowId === c.windowId && d.projectId === c.projectId,
+            ) ||
+            kanbanCards.some(
+              (k) =>
+                k.kind === "window" &&
+                k.status !== "done" &&
+                k.windowId === c.windowId &&
+                (k.projectId ?? "") === c.projectId,
+            ),
         );
+        // Adopting disk can reveal (or create) orphans — run the same
+        // heal. Main rail only: the embedded sheet never writes claims.
+        if (!embedded && healOrphanWindowCards()) persist();
         // CADENCE-FIX: sig-gated, not a blind lastHabitatSig nuke — a
         // loose-card move (no window, no claim) recomputes to the same
         // signature and skips the invoke entirely, so it can't stall the
@@ -2218,6 +2288,7 @@
           {/if}
           <span class="wtitle">{titleFor(w)}</span>
           {#if sleeping}<span class="tag sleeptag">asleep</span>{/if}
+          {#if !sleeping && w.isMinimized}<span class="tag stowtag">stowed</span>{/if}
           {#each tagsFor(w.id) as t (t.id)}
             <span class="tag wtag" title="Tag: {t.name}">{t.name}</span>
           {/each}
@@ -3744,8 +3815,12 @@
     outline: none;
   }
 
+  /* GO-ORBITTY-WORLD-PROPS leftover: a minimized window is stowed, not
+     asleep — the walker still walks its planet, so the row stays readable
+     (0.85), never a ghost. Zombie age classes (.rowwrap.zpark/.zgone)
+     still dim harder, and true sleepers keep .row.sleeping's 0.6. */
   .row.min {
-    opacity: 0.55;
+    opacity: 0.85;
   }
 
   .app-icon {
@@ -3836,6 +3911,12 @@
   .sleeptag {
     border-style: dashed;
     font-style: normal;
+  }
+
+  /* Stowed (minimized, still claimed): quiet solid pill, full-ink text —
+     distinct from the dashed asleep tag it must never be read as. */
+  .stowtag {
+    color: var(--ink);
   }
 
   /* S4.6 todo rows: loose project todos listed under the project's windows,
