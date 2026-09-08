@@ -26,20 +26,22 @@ const SIGN_FACE_X1: f64 = 0.8534;
 const SIGN_FACE_Y0: f64 = 0.2161;
 const SIGN_FACE_Y1: f64 = 0.6727;
 /// Face width in disc units — the blit scale is driven by it.
-const SIGN_FACE_W: f64 = 0.33;
+/// PROPS leftover: ~half the PROPS face (0.33 → 0.16); the smaller blit
+/// still sits on the disc, so STATION_BOARD did not move.
+const SIGN_FACE_W: f64 = 0.16;
 
 // GO-ORBITTY-WORLD-PROPS: the punched igloo (brand/town/igloo.png,
 // flipped so the door faces east). IGLOO_DOOR is the door-base point as
 // a fraction of the sprite; the doorstep pins to STATION_HOUSE (spawn /
-// home is the door, not the centroid). Footprint law 0.32 × 0.24 disc,
-// grown until the drawn height is ≥ 1.6× the tallest walker at this
-// radius (walkers never outgrow the igloo), capped so the building
-// stays on the west side.
+// home is the door, not the centroid). PROPS leftover: fixed width
+// IGLOO_W, ~10% under the PROPS on-screen blit — the old 1.6×-walker
+// grow + MAX_W cap shoved it off the west rim; on-disc wins over
+// "igloo ≥ 1.6× walker", and the station moved east to fit.
 const IGLOO_IMG_W: f64 = 768.0;
 const IGLOO_IMG_H: f64 = 435.0;
 const IGLOO_DOOR: (f64, f64) = (0.78, 0.92);
-const IGLOO_FOOT_W: f64 = 0.32;
-const IGLOO_MAX_W: f64 = 1.10;
+/// Drawn blit width in disc units (oval radius = 1).
+const IGLOO_W: f64 = 0.57;
 
 /// The sign's blit rect in view coords: bottom-pinned at STATION_BOARD,
 /// face centered on the station's x.
@@ -208,17 +210,38 @@ const IGLOO: [&str; 8] = [
     "IIIIDDDDDIII",
 ];
 
-/// GO-ORBITTY-WORLD-PROPS: cheap grass tufts on the paddock — disc-local
-/// offsets inside the YARD_HALF inset around STATION_FIELD.
-const GRASS_TUFTS: [(f64, f64); 8] = [
-    (-0.18, -0.12),
-    (0.05, -0.17),
-    (0.19, -0.06),
-    (-0.07, 0.01),
-    (0.13, 0.10),
-    (-0.20, 0.15),
-    (0.02, 0.22),
-    (0.21, 0.24),
+// GO-ORBITTY-WORLD-PROPS leftover: the paddock reads as GRASS — NES-ish
+// blade tufts (same painter as the plant glyphs) scattered across the
+// YARD_HALF inset around STATION_FIELD, over a faint darker dirt
+// underlay. g dark blade, m mid, G light.
+const TUFT: [&str; 4] = ["g...G", "g.m.G", "ggmGG", "gmGGg"];
+const TUFT_SMALL: [&str; 3] = ["G.g", "mGg", "gmG"];
+const TUFT_GREENS: [(u8, (f64, f64, f64)); 3] = [
+    (b'g', (0.22, 0.48, 0.24)),
+    (b'm', (0.31, 0.59, 0.30)),
+    (b'G', (0.40, 0.70, 0.36)),
+];
+
+/// Tuft scatter — disc-local offsets inside the paddock AABB (inset
+/// ~0.04 so the art stays on the green). Even indices draw TUFT, odd
+/// draw TUFT_SMALL.
+const GRASS_TUFTS: [(f64, f64); 16] = [
+    (-0.22, -0.16),
+    (-0.08, -0.19),
+    (0.07, -0.15),
+    (0.21, -0.18),
+    (-0.17, -0.05),
+    (0.00, -0.08),
+    (0.16, -0.03),
+    (0.24, -0.11),
+    (-0.23, 0.06),
+    (-0.10, 0.04),
+    (0.05, 0.07),
+    (0.19, 0.09),
+    (-0.16, 0.18),
+    (0.02, 0.23),
+    (0.15, 0.21),
+    (-0.04, 0.14),
 ];
 
 /// Decor growth window: planted → fully grown.
@@ -654,38 +677,34 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     ));
 
     // GO-ORBITTY-WORLD-PROPS: the paddock is a grass patch, never fence
-    // posts — a soft green rounded rect on the field with a darker rim
-    // and cheap tuft pixels. West side open toward the igloo, south open
-    // toward the Needed rim. Painted under the decor so plants sit on it.
+    // posts. Leftover: no more filled-green blotch — a faint darker dirt
+    // underlay in the same AABB, then blade-tuft pixel art scattered
+    // across it so the read is grass. West side open toward the igloo,
+    // south open toward the Needed rim. Painted under the decor so
+    // plants sit on it.
     if !d.is_marble {
         let gx = center.x + (STATION_FIELD.0 - YARD_HALF) * r;
         let gy = center.y + (STATION_FIELD.1 - YARD_HALF) * ry;
         let gw = YARD_HALF * 2.0 * r;
         let gh = YARD_HALF * 2.0 * ry;
         let corner = 0.10 * r;
-        let rim_path: *mut Object = msg_send![class!(NSBezierPath),
+        let dirt: *mut Object = msg_send![class!(NSBezierPath),
             bezierPathWithRoundedRect: NSRect::new(gx, gy, gw, gh)
             xRadius: corner
             yRadius: corner];
-        set_fill(ns_color(0.24, 0.46, 0.25, 0.95));
-        let _: () = msg_send![rim_path, fill];
-        let inset = (0.035 * r).max(2.0);
-        let inner: *mut Object = msg_send![class!(NSBezierPath),
-            bezierPathWithRoundedRect: NSRect::new(gx + inset, gy + inset, gw - inset * 2.0, gh - inset * 2.0)
-            xRadius: (corner - inset).max(1.0)
-            yRadius: (corner - inset).max(1.0)];
-        set_fill(ns_color(0.36, 0.62, 0.34, 0.95));
-        let _: () = msg_send![inner, fill];
-        let tuft = (0.028 * r).clamp(1.5, 3.0);
-        set_fill(ns_color(0.27, 0.52, 0.27, 0.9));
-        for &(tx, ty) in &GRASS_TUFTS {
-            let _: () = msg_send![class!(NSBezierPath),
-                fillRect: NSRect::new(
-                    center.x + (STATION_FIELD.0 + tx) * r - tuft / 2.0,
-                    center.y + (STATION_FIELD.1 + ty) * ry - tuft / 2.0,
-                    tuft,
-                    tuft,
-                )];
+        set_fill(ns_color(0.24, 0.36, 0.20, 0.45));
+        let _: () = msg_send![dirt, fill];
+        let tuft_scale = (0.012 * r).clamp(1.5, 4.0);
+        for (i, &(tx, ty)) in GRASS_TUFTS.iter().enumerate() {
+            let art = if i % 2 == 0 { &TUFT[..] } else { &TUFT_SMALL[..] };
+            draw_pixel_art(
+                center.x + (STATION_FIELD.0 + tx) * r,
+                center.y + (STATION_FIELD.1 + ty) * ry,
+                art,
+                tuft_scale,
+                &TUFT_GREENS[..],
+                0.95,
+            );
         }
     }
 
@@ -773,9 +792,9 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
 
     // GO-ORBITTY-WORLD-PROPS: the town at real scale — bundled PNGs
     // drawn UNCLIPPED like the walkers (buildings stand on the disc
-    // stage: the sign rises past the back rim, the igloo's tree hangs
-    // off the west rim). Marbles skip town blits. The cheap glyphs
-    // remain as fallbacks only when a PNG failed to load.
+    // stage: the sign rises past the back rim; the igloo sits fully
+    // on-disc since the leftover). Marbles skip town blits. The cheap
+    // glyphs remain as fallbacks only when a PNG failed to load.
     if !d.is_marble {
         // Sign (billboard) at the back station, bottom-pinned, no
         // titles — three tick columns on the blank face, same
@@ -820,20 +839,11 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
             }
         }
         // Igloo at the house station — the door the walkers come out of.
-        // Footprint 0.32 disc wide, grown until ≥ 1.6× the tallest
-        // walker at this radius, doorstep pinned to the station.
+        // Fixed width (IGLOO_W), doorstep pinned to the station; the
+        // station sits far enough east that the whole blit is on-disc.
         if d.town_igloo != 0 {
-            let mut blit_w = IGLOO_FOOT_W * r;
-            let mut blit_h = blit_w * IGLOO_IMG_H / IGLOO_IMG_W;
-            let min_h = 1.6 * walker_fit(d.radius, 1.25);
-            if blit_h < min_h {
-                blit_h = min_h;
-                blit_w = blit_h * IGLOO_IMG_W / IGLOO_IMG_H;
-                if blit_w > IGLOO_MAX_W * r {
-                    blit_w = IGLOO_MAX_W * r;
-                    blit_h = blit_w * IGLOO_IMG_H / IGLOO_IMG_W;
-                }
-            }
+            let blit_w = IGLOO_W * r;
+            let blit_h = blit_w * IGLOO_IMG_H / IGLOO_IMG_W;
             let door_x = center.x + STATION_HOUSE.0 * r;
             let door_y = center.y + STATION_HOUSE.1 * ry;
             draw_nsimage(

@@ -242,7 +242,11 @@ const BARY_PREFIX: &str = "b\n";
 /// of the board, dwells, walks home to the igloo, then unclaims —
 /// never past the left rim into a hide curtain (the last walker lets
 /// the planet shrink).
-pub(crate) const STATION_HOUSE: (f64, f64) = (-0.78, 0.05); // igloo — left interior
+// WORLD-PROPS leftover: nudged east (-0.78 → -0.50) so the fixed-width
+// igloo blit sits fully on the disc (west edge ≈ -0.94); spawn/home is
+// still the DOOR, walkers exit on-planet. Matches the yard law "never
+// enter the igloo (x ≤ -0.50)".
+pub(crate) const STATION_HOUSE: (f64, f64) = (-0.50, 0.05); // igloo — left interior
 pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.58); // Todo — far/back board
 // Doing — the open interior field, off the front lip (the fanned target
 // keeps |y| < 0.22 and x > -0.35, so the fan never enters the igloo):
@@ -452,8 +456,8 @@ pub(crate) fn max_radius() -> f64 {
 }
 
 /// GO-ORBITTY-WORLD-PROPS: town at real scale — the walker shrinks so
-/// 10–12 fit on a planet and never outgrow the igloo (the igloo blit
-/// floors its drawn height at 1.6× this cap).
+/// 10–12 fit on a planet. (PROPS leftover: the igloo dropped the 1.6×
+/// grow off this cap — a fixed disc-relative width keeps it on-disc.)
 fn walker_fit(radius: f64, user_scale: f64) -> f64 {
     let scale = if user_scale <= 0.0 {
         1.0
