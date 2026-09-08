@@ -789,23 +789,21 @@
     }
   }
 
-  // GO-ORBITTY-WORLD-FIRST-PAINT: launch paints the last-known planet
-  // discs BEFORE the first AX enumeration — every claim rides as a
-  // sleeper row (dim, still, no icon), so the first sync_habitat blit
-  // never waits on list_windows (that AX wait was the load beach-ball).
-  // The native side reuses its persisted world geometry, so the discs
-  // land where they were last seen; the 800ms tick's live snapshot then
-  // wakes what AX finds. lastHabitatSig is untouched here, so that
-  // first live sync always lands. Main rail only — the embedded sheet
-  // never syncs (the tick guards it too).
+  // Last-known boot: same as a sleeper row but AWAKE so walkers leave
+  // the igloo on first blit — not dim/still until AX. Discs still skip
+  // list_windows. lastHabitatSig stays untouched so the live tick syncs.
+  function lastKnownRowFor(c: Claim): WindowInfo {
+    return { ...sleeperRowFor(c), sleeping: false };
+  }
+
   async function syncHabitatLastKnown() {
-    if (!stateLoaded || !status?.trusted || embedded) return;
+    if (!stateLoaded || embedded) return;
     const planets = projects
       .map((p) => ({
         p,
         rows: liveClaims
           .filter((c) => occupancyOf(c) === p.id)
-          .map(sleeperRowFor),
+          .map(lastKnownRowFor),
       }))
       .filter(({ rows }) => rows.length > 0)
       .map(({ p, rows }) => habitatPlanetFor(p, rows));
@@ -2099,19 +2097,26 @@
       }
     });
     osMedia.addEventListener("change", onOsThemeChange);
-    // GO-ORBITTY-WORLD-FIRST-PAINT: cheap last-known discs first — the
-    // one cheap AX trust check gates them, then the normal tick
-    // (list_windows → live sync) catches up. First paint never blocks
-    // on the AX enumeration.
+    // Worlds first: last-known discs + walking from the igloo, then
+    // the companion spirit pops. AX status is not on this path — the
+    // 800ms tick hydrates live windows. Companion show is delayed so
+    // the boot beat is "watch walkers" not dead air (native setup no
+    // longer opens the companion first).
     void (async () => {
       if (!embedded) {
         try {
-          const s = await invoke<AxStatus>("accessibility_status");
-          status = s;
           await syncHabitatLastKnown();
         } catch {
           /* the tick below retries */
         }
+        if (companionState.visible !== false) {
+          invoke("open_companion").catch(() => {});
+        }
+        invoke<AxStatus>("accessibility_status")
+          .then((s) => {
+            status = s;
+          })
+          .catch(() => {});
       }
       tick();
     })();
