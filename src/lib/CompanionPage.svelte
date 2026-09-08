@@ -754,12 +754,11 @@
       spiritHold = true;
     }
     tilePre = true;
-    await tick();
+    // Hold class + native grow in parallel — sequential tick-then-invoke
+    // was the empty pause before the sprite moved.
+    const grow = invoke("set_companion_host", { mode });
     try {
-      // COMPANION-RAISE: native host-on lands BEFORE the collapse —
-      // HOSTED=true (slab, poll idle) must be set before
-      // expanded_changed(false) can arm the ghost poll.
-      await invoke("set_companion_host", { mode });
+      await Promise.all([tick(), grow]);
     } catch (e) {
       tileReset();
       spiritHold = false;
@@ -793,9 +792,7 @@
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     tilePre = false;
     tileEnter = true;
-    requestAnimationFrame(() => {
-      if (gen === tileGen) spiritHold = false;
-    });
+    spiritHold = false;
     setTimeout(
       () => {
         if (gen !== tileGen) return;

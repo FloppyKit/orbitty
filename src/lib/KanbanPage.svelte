@@ -743,17 +743,19 @@
   }
 
   onMount(async () => {
-    invoke("ensure_glass").catch(() => {});
-    await loadState();
+    if (!embedded) invoke("ensure_glass").catch(() => {});
     unlisten = await listen("state:changed", loadState);
     unlistenFocus = await listen<string>("orbitty:focus-card", (e) => {
       onFocusCard(e.payload);
     });
-    // HOST-SPLIT embedded: skip AX list_windows on first well mount —
-    // that wait was the Launchpad-enter hitch on a cold app (RailPage
-    // already refuses it). Overlay Launchpad still refreshes windows.
-    // state:changed keeps the cards fresh; no pane-vis gating in the well.
-    if (embedded) return;
+    // HOST-SPLIT embedded: do not await load_state / AX on first well
+    // mount — that IPC return was painting cards mid-rise and lagging
+    // the sprite aside. Overlay Launchpad still hydrates in-line.
+    if (embedded) {
+      void loadState();
+      return;
+    }
+    await loadState();
     await refreshWindows();
     startRefreshTimer();
     // HITCH-DRAW: the window keeps warm on hide, so document.hidden never

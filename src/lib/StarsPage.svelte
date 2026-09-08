@@ -315,17 +315,18 @@
   let unlisten: (() => void) | undefined;
   let unlistenVis: (() => void) | undefined;
   onMount(async () => {
-    invoke("ensure_glass").catch(() => {});
+    if (!embedded) invoke("ensure_glass").catch(() => {});
+    unlisten = await listen("state:changed", loadState);
+    if (embedded) {
+      void loadState().then(() => syncStarsDraft());
+      document.addEventListener("visibilitychange", onVisibility);
+      return;
+    }
     await loadState();
     syncStarsDraft();
-    unlisten = await listen("state:changed", loadState);
-    // HOST-SPLIT: embedded in the companion well there is no host-pane
-    // vis channel to gate on — state:changed keeps the slice fresh.
-    if (!embedded) {
-      unlistenVis = await listenPaneVis(hideLabel, (visible) => {
-        if (visible) onReshow();
-      });
-    }
+    unlistenVis = await listenPaneVis(hideLabel, (visible) => {
+      if (visible) onReshow();
+    });
     document.addEventListener("visibilitychange", onVisibility);
   });
   onDestroy(() => {
