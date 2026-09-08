@@ -214,12 +214,10 @@
   // tileLeave plays the reverse and only when the CSS ends does the
   // native side restore the idle rect.
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
-  // TILE-YAW leftover (APPROACH LOCK D): rigid box. XY eases in
-  // faster than Z so a SMALL cube travels from the window UL toward
-  // the well, then fills — not a zoom-along-a-ray (same-t XY+Z). Tilt
-  // holds until late so edges read; dest pages mount at lock.
-  const TILE_ENTER_MS = 720;
-  const TILE_LEAVE_MS = 360;
+  // TILE-DROP: card rises from the dock (2D). Face is mounted the
+  // whole flight. No 3D.
+  const TILE_ENTER_MS = 280;
+  const TILE_LEAVE_MS = 200;
   let tilePre = $state(false);
   let tileEnter = $state(false);
   let tileLeave = $state(false);
@@ -1387,10 +1385,6 @@
           style:--prism-r="{prismR}px"
           bind:this={wellpaneEl}
         >
-          {#if tilePre || tileEnter || tileLeave}
-            <div class="cubeface cubeface-left"></div>
-            <div class="cubeface cubeface-top"></div>
-          {/if}
           <!-- TILE-YAW leftover (triangular prism): on a hosted dest swap
                the outgoing page mounts as a second face (swapPrev) and
                both faces ride a ±120deg rotateY around the card's
@@ -1422,19 +1416,17 @@
             class:face-in={swapPrev !== null}
             class:face-back={swapPrev !== null && swapDir === -1}
           >
-            {#if !tilePre && !tileEnter}
-              {#if hosted === "launchpad"}
-                <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
-              {:else if hosted === "stars"}
-                <StarsPage embedded onClose={dismissHost} />
-              {:else if hosted === "inspector"}
-                <RailPage
-                  embedded
-                  onClose={dismissHost}
-                  onPopout={popoutInspector}
-                  {createPlanetTick}
-                />
-              {/if}
+            {#if hosted === "launchpad"}
+              <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
+            {:else if hosted === "stars"}
+              <StarsPage embedded onClose={dismissHost} />
+            {:else if hosted === "inspector"}
+              <RailPage
+                embedded
+                onClose={dismissHost}
+                onPopout={popoutInspector}
+                {createPlanetTick}
+              />
             {/if}
           </div>
         </div>
@@ -1705,73 +1697,7 @@
     display: flex;
   }
 
-  /* APPROACH LOCK D: rigid box. Keyframes bake XY-faster-than-Z so a
-     small cube travels from the window UL, then fills. Tilt holds. */
-  .companion.tile-pre .wellpane,
-  .companion.tile-enter .wellpane,
-  .companion.tile-leave .wellpane {
-    --dive: translate3d(-145%, -85%, -2000px) rotateX(-14deg) rotateY(-18deg);
-    --cube-d: 56px;
-    transform-origin: center;
-    transform-style: preserve-3d;
-    overflow: visible;
-    will-change: transform;
-  }
-
-  .companion.tile-pre .wellpage,
-  .companion.tile-enter .wellpage,
-  .companion.tile-leave .wellpage {
-    position: relative;
-    z-index: 1;
-    overflow: hidden;
-    border-radius: 12px;
-    transform: translateZ(1px);
-  }
-
-  /* Real faces (pseudos flattened in WK). Extend BACK in -Z so the
-     front stays the card — rotateY(90deg) toward the camera was the
-     "blinded then revealed" flash. */
-  .cubeface {
-    position: absolute;
-    box-sizing: border-box;
-    pointer-events: none;
-    border: 1px solid var(--edge);
-  }
-
-  .cubeface-left {
-    top: 0;
-    left: 0;
-    width: var(--cube-d, 56px);
-    height: 100%;
-    background: color-mix(in srgb, var(--bg-fill, var(--bg)) 62%, black);
-    border-radius: 8px 0 0 8px;
-    transform-origin: left center;
-    transform: rotateY(-90deg);
-  }
-
-  .cubeface-top {
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: var(--cube-d, 56px);
-    background: color-mix(in srgb, var(--bg-fill, var(--bg)) 88%, white);
-    border-radius: 8px 8px 0 0;
-    transform-origin: center top;
-    transform: rotateX(90deg);
-  }
-
-  /* Drop seed + still chrome: while the native grow lands (tile-pre,
-     still idle — .hosting comes with the well mount after), every
-     idle-ghost child but the dock is display:none'd, so the stretched
-     ghost / CC never lay out or paint into the grown frame (that
-     stretch-then-swap was the dock hitch). The dock rides the grow,
-     held on the bottom edge the keep-bottom native place preserves —
-     flex-end keeps it there with the flex:1 stage gone. TILE-YAW
-     leftover: the idle spirit hides for the grow beat too — NO hold
-     overlay (a parked full figure over the growing frame was the
-     push-in glitch); it reappears translated onto its exact idle box
-     the moment the well mounts (the .spirshift translate below) and
-     eases aside from there. */
+  /* TILE-DROP: card rises from the dock. Face stays painted. No 3D. */
   .companion.tile-pre:not(.hosting) {
     justify-content: flex-end;
   }
@@ -1793,87 +1719,42 @@
     min-height: 0;
   }
 
-  /* Perspective on .hostwell only during the dive. Origin is the WELL
-     pane center (~34% — the 66% card), not 50% (that's well+Spark and
-     bloomed toward Spark) and not the 72px corner pin (shot A inflate).
-     :has(.fullwell) covers sprite-off. Overflow visible so the far cube
-     can peek in from the window's UL; .companion still clips the frame. */
   .companion.tile-pre .wellwrap,
   .companion.tile-enter .wellwrap,
   .companion.tile-leave .wellwrap {
-    overflow: visible;
+    overflow: hidden;
   }
 
-  .companion.tile-pre .hostwell,
-  .companion.tile-enter .hostwell,
-  .companion.tile-leave .hostwell {
-    overflow: visible;
-    perspective: 720px;
-    perspective-origin: 34% 50%;
-  }
-
-  .companion.tile-pre:has(.fullwell) .hostwell,
-  .companion.tile-enter:has(.fullwell) .hostwell,
-  .companion.tile-leave:has(.fullwell) .hostwell {
-    perspective-origin: 50% 50%;
-  }
-
-  /* Seed = 0% keyframe, already visible — a tiny far cube, not an
-     opacity-0 hold. The leftover's fade-in-from-nothing felt like the
-     dive started late. */
   .companion.tile-pre .wellpane {
     opacity: 1;
-    transform: var(--dive);
+    transform: translateY(28%);
   }
 
   .companion.tile-enter .wellpane {
-    animation: orbitty-tile-drop-in 720ms linear both;
+    animation: orbitty-tile-drop-in 280ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
   }
 
   .companion.tile-leave .wellpane {
-    animation: orbitty-tile-drop-out 360ms linear both;
+    animation: orbitty-tile-drop-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
   }
 
-  /* Linear + authored stops: XY uses a quint-like arrive (small cube
-     TRAVELS), Z uses a slower cubic (then it fills). Tilt holds until
-     the last beat so it never reads as a 2D zoom. */
   @keyframes orbitty-tile-drop-in {
     0% {
-      transform: translate3d(-145%, -85%, -2000px) rotateX(-14deg)
-        rotateY(-18deg);
-    }
-    25% {
-      transform: translate3d(-35%, -20%, -840px) rotateX(-13deg)
-        rotateY(-17deg);
-    }
-    45% {
-      transform: translate3d(-8%, -5%, -340px) rotateX(-12deg) rotateY(-16deg);
-    }
-    70% {
-      transform: translate3d(-1%, -1%, -50px) rotateX(-8deg) rotateY(-10deg);
+      transform: translateY(28%);
     }
     100% {
-      transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg);
+      transform: translateY(0);
     }
   }
 
   @keyframes orbitty-tile-drop-out {
     0% {
-      opacity: 1;
-      transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg);
-    }
-    30% {
-      opacity: 1;
-      transform: translate3d(-8%, -5%, -340px) rotateX(-12deg) rotateY(-16deg);
+      transform: translateY(0);
     }
     100% {
-      opacity: 0;
-      transform: translate3d(-145%, -85%, -2000px) rotateX(-14deg)
-        rotateY(-18deg);
+      transform: translateY(24%);
     }
   }
-
-  /* Spirit aside: translate only, starts with the dive. */
   .spirshift {
     flex: 1;
     min-width: 0;
@@ -1893,7 +1774,7 @@
   }
 
   .companion.tile-enter :global(.wellhead .floatwrap) {
-    animation: orbitty-spirit-aside 420ms cubic-bezier(0.22, 0.82, 0.2, 1) both;
+    animation: orbitty-spirit-aside 280ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
   }
 
   @keyframes orbitty-spirit-aside {
