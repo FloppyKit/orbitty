@@ -20,13 +20,13 @@ use super::{
     app_handle, app_handle_cell, ball_hop_secs, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings,
     layout_decor, lock, now_epoch, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
     set_caption, station_target, view_to_disc, visible_frames, yard_clamp, yard_contains,
-    yard_pick, yard_pick_sailing, yard_seed, BallState, ClusterState,
+    yard_dwell_ms, yard_pick, yard_pick_sailing, yard_seed, BallState, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
-    BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
+    BALL_HEAD, BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
     DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
     HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
     PLANET_LOCATE_TTL,
-    TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING, YARD_ARRIVE,
+    TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING, YARD_ARRIVE, YARD_SAIL,
 };
 
 // ---------- CVDisplayLink motion clock (GO-ORBITTY-MARBLE-RIM; post-and-return GO-ORBITTY-MARBLE-HITCH) ----------
@@ -673,9 +673,10 @@ fn anim_tick() {
         // every tick held the habitat lock on the AppKit thread (menu
         // beach-ball). YARD undid the in-place forbid for the Doing
         // wander ONLY: a walking Work body moves every tick (layout
-        // reruns, law 4). YARD leftover: the Doing dwell is deleted —
-        // the amble never parks, so a Doing body moves (and re-lays
-        // out) every tick. Bob alone still dirties the display below.
+        // reruns, law 4). YARD leftover: ball OFF the amble never parks
+        // (a Doing body re-lays out every tick); ball ON the dart parks
+        // for each dwell and re-lays out on the darts. Bob alone still
+        // dirties the display below.
         let mut moved = false;
         let now_i = Instant::now();
         let ids: Vec<String> = planet.walkers.iter().map(|b| b.entry_id.clone()).collect();
@@ -683,9 +684,10 @@ fn anim_tick() {
         // steps (pause_end None and dist >= 0.025). Paused and asleep
         // walkers stand at bob 0; sleepers never enter the step branch.
         // GO-ORBITTY-WORLD-YARD leftover: a Doing walker bobs while
-        // WALKING the grass — the smooth amble never parks, so the bob
-        // never stands on the green (the in-place march and the hashed
-        // dwell are both deleted). Stand/Sit still park idle.
+        // WALKING the grass. Ball OFF the smooth amble never parks, so
+        // the bob never stands on the green; ball ON the dart dwell
+        // (600–1400 ms) stands at bob 0 between darts — the keep-up
+        // ready stance. Stand/Sit still park idle.
         let mut stepping = vec![false; ids.len()];
         // Ambient random roam dies the moment any walker on this planet
         // works or sits — the board, not the clock, drives motion. Sleepers
@@ -695,6 +697,11 @@ fn anim_tick() {
             .walkers
             .iter()
             .any(|b| !b.asleep && matches!(b.pose, Pose::Work | Pose::Sit));
+        // GO-ORBITTY-WORLD-YARD leftover (keep-up cadence): the beach
+        // ball flips the Doing footwork — OFF keeps the smooth amble,
+        // ON restores the exact pre-amble dart (the dwell-and-dart IS
+        // the keep-up footwork). Captured once per planet per tick.
+        let keep_up = planet.beach_ball;
         // WORLD-STOP: Done walks to the south/near lip of the painted
         // rails, not STATION_BOARD (back of the blit). Same rects as the
         // Done-column hit-test.
@@ -826,10 +833,12 @@ fn anim_tick() {
                 // hidden in the house / vanished into the sign and the
                 // 0.05 check-in never read as a board touch. Stand parks
                 // on arrival — idle frame 0, bob 0. WORLD-YARD leftover:
-                // Doing AMBLES the grass paddock — random points in the
-                // inset yard AABB off a per-walker stream, the next point
-                // picked BEFORE arrival (no dwell, no about-face), half
-                // pace on the green. Never the whole oval, never
+                // Doing works the grass paddock — random points in the
+                // inset yard AABB off a per-walker stream; ball OFF a
+                // continuous half-pace amble (the next point picked
+                // BEFORE arrival, no about-face), ball ON the exact
+                // pre-amble dart (0.16·dt, arrive, dwell standing
+                // 600–1400 ms, pick, dart). Never the whole oval, never
                 // moonwalking on one pixel.
                 Pose::Stand | Pose::Work => {
                     // Back from off the left rim (re-claim after Done):
@@ -849,30 +858,41 @@ fn anim_tick() {
                         roam.ty = lip.1;
                         roam.pause_end = None;
                     } else {
-                        // GO-ORBITTY-WORLD-YARD leftover (smooth wander):
-                        // Doing AMBLES the grass — continuous, slower,
-                        // never parked; the dwell-and-dart is deleted.
-                        // The first Doing tick arms the per-walker stream
-                        // — seeded from the entry id, so two Doing bodies
-                        // never land on one pixel and never conga — and
-                        // picks the first random point in the inset yard
-                        // AABB. A target left OFF the grass (the Stand
-                        // lip handoff on a todo→doing flip, a hand drop)
-                        // re-picks the same way: every wander target
-                        // lives in the box. Doing never dwells — no
-                        // standing park on a grass pixel.
+                        // GO-ORBITTY-WORLD-YARD leftover (keep-up
+                        // cadence): Doing works the grass two ways by
+                        // the beach-ball toggle. Ball OFF — the smooth
+                        // wander stays: continuous, slower, never
+                        // parked. Ball ON — the exact pre-amble dart
+                        // returns: 0.16·dt to a grass point, arrive,
+                        // dwell 600–1400 ms STANDING, pick, dart; that
+                        // darting IS the keep-up footwork. Either way
+                        // the first Doing tick arms the per-walker
+                        // stream — seeded from the entry id, so two
+                        // Doing bodies never land on one pixel and
+                        // never conga — and picks the first random
+                        // point in the inset yard AABB. A target left
+                        // OFF the grass (the Stand lip handoff on a
+                        // todo→doing flip, a hand drop) re-picks the
+                        // same way: every wander target lives in the
+                        // box.
                         if roam.wander_seed == 0 {
                             roam.wander_seed = yard_seed(id);
                             let (tx, ty) = yard_pick(&mut roam.wander_seed);
                             roam.tx = tx;
                             roam.ty = ty;
-                        }
-                        if !yard_contains(roam.tx, roam.ty) {
+                            roam.pause_end = None;
+                        } else if !yard_contains(roam.tx, roam.ty) {
                             let (tx, ty) = yard_pick(&mut roam.wander_seed);
                             roam.tx = tx;
                             roam.ty = ty;
+                            roam.pause_end = None;
                         }
-                        roam.pause_end = None;
+                        if !keep_up {
+                            // Ball off: the amble never dwells — a pause
+                            // left by a mid-dwell toggle-off dies now,
+                            // never a standing park on the green.
+                            roam.pause_end = None;
+                        }
                     }
                     let mut dx = roam.tx - roam.x;
                     let mut dy = roam.ty - roam.y;
@@ -904,14 +924,47 @@ fn anim_tick() {
                         }
                     }
                     if pose == Pose::Work {
-                        // Smooth wander: BEFORE arriving (dist <
-                        // YARD_ARRIVE, 0.12) the NEXT point is already
-                        // picked — no pause, no snap-turn. The pick
-                        // prefers a heading that is not a reverse of the
-                        // current dx,dy (an about-face is skipped up to 3
-                        // stream steps), so the body curves onto the next
-                        // leg instead of darting back.
-                        if dist < YARD_ARRIVE {
+                        if keep_up {
+                            // Ball ON — the exact pre-amble dart: on the
+                            // grass point (dist < YARD_ARRIVE, 0.04)
+                            // dwell 600–1400 ms (hashed off the stream)
+                            // STANDING — the dwell is the pause, no step,
+                            // no bob — then pick a NEW random point in
+                            // the box and dart on.
+                            if dist < YARD_ARRIVE && roam.pause_end.is_none() {
+                                // Arrival slop (<= YARD_ARRIVE) snaps onto
+                                // the green — the one clamp that can move
+                                // a body, sub-0.04, invisible.
+                                let (cx, cy) = yard_clamp(roam.x, roam.y);
+                                roam.x = cx;
+                                roam.y = cy;
+                                let dwell = yard_dwell_ms(&mut roam.wander_seed);
+                                roam.pause_end =
+                                    Some(now_i + Duration::from_millis(dwell));
+                                dirty = true; // point reached — the walk cycle parks
+                            }
+                            if let Some(end) = roam.pause_end {
+                                if now_i < end {
+                                    continue; // dwelling on the point
+                                }
+                                roam.pause_end = None;
+                                let (tx, ty) = yard_pick(&mut roam.wander_seed);
+                                roam.tx = tx;
+                                roam.ty = ty;
+                                dx = roam.tx - roam.x;
+                                dy = roam.ty - roam.y;
+                                dist = (dx * dx + dy * dy).sqrt();
+                                dirty = true; // new point — the walk cycle resumes
+                            }
+                        } else if dist < YARD_SAIL {
+                            // Ball OFF — smooth wander: BEFORE arriving
+                            // (dist < YARD_SAIL, 0.12) the NEXT point is
+                            // already picked — no pause, no snap-turn.
+                            // The pick prefers a heading that is not a
+                            // reverse of the current dx,dy (an about-face
+                            // is skipped up to 3 stream steps), so the
+                            // body curves onto the next leg instead of
+                            // darting back.
                             let (tx, ty) = yard_pick_sailing(
                                 &mut roam.wander_seed,
                                 roam.x,
@@ -928,11 +981,16 @@ fn anim_tick() {
                         }
                     }
                     if dist >= 0.025 {
-                        // Half pace on the grass amble (0.075·dt); the
-                        // off-grass walk-IN (from the igloo / board lip /
-                        // a hand drop) keeps the old 0.16·dt — the
-                        // visible approach is unchanged, then the amble.
-                        let speed = if pose == Pose::Work && yard_contains(roam.x, roam.y) {
+                        // Ball OFF: half pace on the grass amble
+                        // (0.075·dt). Ball ON: the dart keeps the full
+                        // 0.16·dt on the green — the keep-up footwork.
+                        // Either way the off-grass walk-IN (from the
+                        // igloo / board lip / a hand drop) keeps the old
+                        // 0.16·dt — the visible approach is unchanged.
+                        let speed = if pose == Pose::Work
+                            && !keep_up
+                            && yard_contains(roam.x, roam.y)
+                        {
                             0.075
                         } else {
                             0.16
@@ -1085,8 +1143,9 @@ fn anim_tick() {
         // WORLD-PLACES leftover / WORLD-YARD: full layout ONLY on a real
         // roam position change — re-laying out every tick held the
         // habitat lock on the AppKit thread (menu beach-ball). The Doing
-        // amble moves every tick (layout reruns there, law 4 — the dwell
-        // standstill is deleted). A move implies a display refresh.
+        // amble moves every tick (layout reruns there, law 4); the
+        // ball-on dart moves only between dwells. A move implies a
+        // display refresh.
         if moved {
             layout_beings(planet);
             dirty = true;
@@ -1102,13 +1161,18 @@ fn anim_tick() {
                 dirty = true;
             }
         }
-        // GO-ORBITTY-WORLD-YARD leftover: beach-ball keep-up. The
-        // per-planet toggle (right-click menu, persisted next to the
-        // boombox) plus ≥ 2 awake Doing walkers → the ball arcs head to
-        // head, one hop per 0.5–0.9s, round-robin through the Doing set
+        // GO-ORBITTY-WORLD-YARD leftover (keep-up cadence): beach-ball
+        // keep-up. The per-planet toggle (right-click menu, persisted
+        // next to the boombox) plus ≥ 2 awake Doing walkers → the ball
+        // hops head to head — TOUCH walker A's head, pop up, arc, drop,
+        // TOUCH walker B's LIVE head (a darting walker still gets
+        // tagged) — one hop per 0.6–0.9s, then immediately the next hop
+        // (no rest on the ground), round-robin through the Doing set
         // (never the same pair back-to-back when 3+). One or zero Doing
-        // → hidden. Walkers keep the smooth amble — nobody sprints to
-        // the ball. In flight it moves every tick → the view stays dirty.
+        // → hidden. The ball is NOT a third wanderer: it lands on
+        // bodies, never on a random grass pixel, and the walkers' dart
+        // IS the keep-up footwork. In flight it moves every tick → the
+        // view stays dirty.
         if planet.beach_ball {
             let doing: Vec<(String, f64, f64)> = planet
                 .walkers
@@ -1130,17 +1194,25 @@ fn anim_tick() {
                     None => true,
                 };
                 if hop_done {
+                    // `from` = the HEAD of the last lander, snapshotted
+                    // NOW: the previous hop ended on that head (f = 1),
+                    // so the new hop leaves from the touch point — never
+                    // from the feet, never a grass pixel.
                     let (from, mut stream, last_to) = match &planet.ball {
                         Some(ball) => (
                             doing
                                 .iter()
                                 .find(|(id, _, _)| id == &ball.to_id)
-                                .map(|(_, x, y)| (*x, *y))
+                                .map(|(_, x, y)| (*x, *y - BALL_HEAD))
                                 .unwrap_or(ball.from),
                             ball.stream,
                             Some(ball.to_id.clone()),
                         ),
-                        None => ((doing[0].1, doing[0].2), yard_seed(&doing[0].0), None),
+                        None => (
+                            (doing[0].1, doing[0].2 - BALL_HEAD),
+                            yard_seed(&doing[0].0),
+                            None,
+                        ),
                     };
                     // Round-robin: land on the NEXT Doing body after the
                     // last target — cycles the set (with exactly 2 it

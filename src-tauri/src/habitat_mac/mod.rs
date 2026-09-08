@@ -275,11 +275,19 @@ pub(crate) const YARD_HALF: f64 = 0.364;
 /// never reaches the igloo (x ≤ -0.50) or the sign footprint (the face
 /// sits at y ≈ -0.8), so an in-box target can never walk a body there.
 pub(crate) const YARD_INSET: f64 = 0.04;
-/// Smooth wander (WORLD-YARD leftover): a Doing walker within this of its
-/// grass point has ALREADY picked the next one — the pre-arrive handoff
-/// distance. No dwell, no snap-turn (the 0.04 arrive-then-dwell-600–1400ms
-/// law is deleted with the dwell).
-pub(crate) const YARD_ARRIVE: f64 = 0.12;
+/// Keep-up cadence (WORLD-YARD leftover): with the beach ball ON a Doing
+/// walker DARTS — this is the arrive radius on a grass point (the exact
+/// pre-amble 0.04): arrive → dwell standing → pick a new point → dart.
+/// Ball OFF the smooth amble keeps its own wider handoff (YARD_SAIL).
+pub(crate) const YARD_ARRIVE: f64 = 0.04;
+/// Dwell range on a reached grass point (ms), hashed off the walker's
+/// stream — the ball-on dart cadence only.
+pub(crate) const YARD_DWELL_MIN_MS: u64 = 600;
+pub(crate) const YARD_DWELL_MAX_MS: u64 = 1400;
+/// Smooth wander (WORLD-YARD leftover, ball OFF): a Doing walker within
+/// this of its grass point has ALREADY picked the next one — the
+/// pre-arrive handoff distance. No dwell, no snap-turn.
+pub(crate) const YARD_SAIL: f64 = 0.12;
 // Done — home: past the LEFT rim onto the panel (GO-ORBITTY-WORLD-TOWN,
 // replacing CADENCE-EXIT's north exit). Hide sits clearly past the
 // visual rim (LEFTOVER: no 1–2px curtain) so the walker is seen
@@ -302,10 +310,13 @@ pub(crate) enum Pose {
     /// frame 0, bob 0).
     Stand,
     /// Doing: amble the grass paddock — walk from the house / board lip
-    /// onto the green, then a CONTINUOUS slow wander of random points in
-    /// the inset yard AABB (WORLD-YARD leftover: the dwell-and-dart is
-    /// deleted — the next point is picked BEFORE arrival, never a
-    /// reverse heading, the walk cycle never parks on the green).
+    /// onto the green, then random points in the inset yard AABB. Ball
+    /// OFF (WORLD-YARD leftover): a CONTINUOUS slow wander — the next
+    /// point is picked BEFORE arrival, never a reverse heading, the walk
+    /// cycle never parks on the green. Ball ON (keep-up cadence): the
+    /// exact pre-amble dart returns — 0.16·dt to the point, arrive
+    /// (YARD_ARRIVE), dwell 600–1400 ms STANDING, pick, dart. That
+    /// darting IS the keep-up footwork.
     Work,
     /// Needed (open/later): sit at the front rim — bad news skips the
     /// queue (snap, never a scenic route). Idle frame 0, no bob, FULL
@@ -431,6 +442,14 @@ pub(crate) fn yard_pick_sailing(seed: &mut u64, x: f64, y: f64, dx: f64, dy: f64
     pick
 }
 
+/// Dwell on a reached grass point (ball-on dart cadence): 600–1400 ms
+/// STANDING, hashed off the walker's stream so two bodies never park in
+/// lockstep.
+pub(crate) fn yard_dwell_ms(seed: &mut u64) -> u64 {
+    *seed = yard_step(*seed);
+    YARD_DWELL_MIN_MS + (*seed % (YARD_DWELL_MAX_MS - YARD_DWELL_MIN_MS + 1))
+}
+
 /// Inside the inset yard AABB?
 pub(crate) fn yard_contains(x: f64, y: f64) -> bool {
     let h = YARD_HALF - YARD_INSET;
@@ -453,14 +472,18 @@ pub(crate) fn yard_clamp(x: f64, y: f64) -> (f64, f64) {
 /// The ball rides between HEAD points — this far above the walker's
 /// feet-anchor (disc units; the walker sprite is ≈ 0.55 tall at r = 72).
 pub(crate) const BALL_HEAD: f64 = 0.42;
-/// Mid-hop arc bulge on top of the head line (up = −y in disc coords).
-pub(crate) const BALL_ARC: f64 = 0.16;
+/// Mid-hop arc bulge on top of the head-to-head line (up = −y in disc
+/// coords). Keep-up cadence: 0.16 read as a lost marble — the pop must
+/// read as up-in-the-air, clearly above BOTH heads at mid-hop (≈ 4/5 of
+/// a head height over the head line).
+pub(crate) const BALL_ARC: f64 = 0.34;
 
 /// Live beach-ball keep-up flight (in-memory only — never persisted).
-/// The ball arcs from the last landing (`from`, a walker's feet anchor)
-/// to the current target's LIVE position over `dur` secs, then hops to
-/// the next Doing body round-robin. `stream` feeds the per-hop duration
-/// hash.
+/// `from` is the HEAD of the last lander, snapshotted at hop start
+/// (f = 0 touches it); the ball arcs to the current target's LIVE head
+/// (f = 1 touches it — a darting walker still gets tagged) over `dur`
+/// secs, then hops to the next Doing body round-robin with no rest on
+/// the ground. `stream` feeds the per-hop duration hash.
 #[derive(Clone, Debug)]
 struct BallState {
     from: (f64, f64),
@@ -470,30 +493,30 @@ struct BallState {
     stream: u64,
 }
 
-/// Hop duration: 0.5–0.9s off the ball's own stream (advanced per hop).
+/// Hop duration: 0.6–0.9s off the ball's own stream (advanced per hop).
 pub(crate) fn ball_hop_secs(stream: &mut u64) -> f64 {
     *stream = yard_step(*stream);
-    0.5 + (((*stream >> 33) & 0xffff) as f64 / 65535.0) * 0.4
+    0.6 + (((*stream >> 33) & 0xffff) as f64 / 65535.0) * 0.3
 }
 
-/// The ball's disc-local position right now: feet-line lerp from the
-/// last landing to the target's LIVE position (it tracks the walker's
-/// head), lifted to head height plus the mid-hop arc. A target that
-/// vanished mid-hop holds at the launch point until the next hop
-/// re-targets. None = hidden (toggle off / fewer than 2 Doing).
+/// The ball's disc-local position right now: head-to-head lerp — `from`
+/// (the last lander's head at hop start) to the target's LIVE head (it
+/// tracks a darting walker) — plus the mid-hop arc. f = 0 and f = 1 are
+/// TOUCHES (ball on a head); sin(πf) lifts the middle clearly above both
+/// heads. A target that vanished mid-hop holds at the launch point until
+/// the next hop re-targets. None = hidden (toggle off / fewer than 2
+/// Doing).
 pub(crate) fn ball_pos(planet: &Planet, now: Instant) -> Option<(f64, f64)> {
     let ball = planet.ball.as_ref()?;
     let to = planet
         .roam
         .get(&ball.to_id)
-        .map(|r| (r.x, r.y))
+        .map(|r| (r.x, r.y - BALL_HEAD))
         .unwrap_or(ball.from);
     let f = (now.duration_since(ball.at).as_secs_f64() / ball.dur).min(1.0);
     Some((
         ball.from.0 + (to.0 - ball.from.0) * f,
-        ball.from.1 + (to.1 - ball.from.1) * f
-            - BALL_HEAD
-            - BALL_ARC * (std::f64::consts::PI * f).sin(),
+        ball.from.1 + (to.1 - ball.from.1) * f - BALL_ARC * (std::f64::consts::PI * f).sin(),
     ))
 }
 
