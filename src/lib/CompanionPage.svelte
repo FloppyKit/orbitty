@@ -214,30 +214,30 @@
   // tileLeave plays the reverse and only when the CSS ends does the
   // native side restore the idle rect.
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
-  // TILE-YAW leftover (3D lead + spirit first, Matt): the drop is an
-  // ANGLED CUBE RUSH WITH A SOFT LANDING that reads 3D THE WHOLE WAY
-  // IN — the tile starts far back on Z tilted so its LEFT and TOP
-  // faces read (real side faces ride the pane via preserve-3d — a lone
-  // rotateX/rotateY on a flat pane still reads as a 2D rectangle) and
-  // TRAVELS in from the window's upper-left inch: the drop-phase
-  // perspective-origin on .hostwell is pinned to that corner inch (the
-  // old 50%/50% default was the bloom-from-the-well's-middle Matt
-  // called out — the vanishing point, not the pane origin, decides
-  // where a far card sits) and an explicit translate walks the far
-  // card in from the corner. Z and the translate arrive early; the
-  // TILT IS HELD and only settles to 0 in the last beat (flattening in
-  // lockstep with Z was the 2D-zoom read). The corner seed is
-  // untouched: a pixel transform-origin ONE INCH IN FROM THE
-  // COMPANION WINDOW'S UPPER-LEFT CORNER still pins the launch point
-  // (never a pane percentage). Perspective sits on .hostwell — the
-  // well, not the window. And the SPIRIT LEADS: NO hold overlay
-  // (pinning the idle full figure over the growing frame, then cutting
-  // to the hosted column, was the push-in + snap-right glitch) — the
-  // idle box is measured pre-grow, the hosted spirit reappears on that
-  // exact box at mount and glides into the right column STARTING
-  // IMMEDIATELY on its own shorter clock, mostly aside while the cube
-  // is still far and small; the tile waits out a 100ms delay and fills
-  // slower so it never completes ahead of the spirit. They work
+  // TILE-YAW leftover (COMET LOCK, Matt): the drop is ONE RIGID 3D
+  // CUBE coming in from the upper-left like a comet — a constant box
+  // (preserve-3d, thin LEFT + TOP edge faces of fixed depth — never
+  // the 120px shear slabs that stretched into a long card) that starts
+  // SMALL at the window's upper-left inch and travels to rest as a
+  // rigid body: translateZ through the well's corner-pinned
+  // perspective plus a SLIGHT tilt that settles — NEVER an XY
+  // translate (that diagonal walk was the failure), never a scale
+  // morph, never a stretch. The corner pin is the drop-phase
+  // perspective-origin on .hostwell (72px,72px — the vanishing point
+  // decides where a far card sits, so the small cube rides the
+  // upper-left inch with zero XY walk; the old 50%/50% default was
+  // the bloom-from-the-well's-middle Matt called out) plus the pane's
+  // pixel transform-origin one inch in. It SLOWS — a fast approach
+  // decaying into a gentle settle — and LOCKS at exact identity: soft
+  // stop, no overshoot keyframe, no bounce; the edge faces are
+  // edge-on invisible at rest, so the lock needs no face fade. And
+  // the SPIRIT LEADS with a SMOOTH TRANSLATE ONLY (no FLIP scale
+  // about the feet — that was the unsmooth run): the idle box is
+  // measured pre-grow, the hosted spirit reappears translated onto
+  // that box at mount and glides into the right column STARTING
+  // IMMEDIATELY on its own shorter clock, mostly aside while the comet
+  // is still far and small; the tile waits out a 100ms delay and
+  // fills slower so it never completes ahead of the spirit. They work
   // together; the dock never transforms. Reduced motion: enter fades
   // (no 3D, no aside), leave is a snap (0 wait).
   // TILE_ENTER_MS covers the WHOLE enter: the tile's 100ms delay + its
@@ -281,11 +281,10 @@
     tileEnter = false;
     tileLeave = false;
     swapPrev = null;
-    // Drop any stale spirit-aside FLIP vars (they only apply under
+    // Drop any stale spirit-aside translate vars (they only apply under
     // tile-pre/tile-enter; a fresh enter re-measures anyway).
     mainEl?.style.removeProperty("--spir-dx");
     mainEl?.style.removeProperty("--spir-dy");
-    mainEl?.style.removeProperty("--spir-s");
   }
 
   let mainEl: HTMLElement | null = null;
@@ -749,12 +748,12 @@
     // hosted column, was the push-in + snap-right glitch. Measure the
     // idle spirit box NOW (window-local; the keep-bottom grow preserves
     // the bottom offset, pin_bottom_center preserves the center-x) so
-    // the hosted spirit can reappear on that exact box at mount and
-    // EASE ASIDE into the right column AHEAD of the tile — the aside
-    // starts the instant the enter lands, on its own shorter clock,
-    // while the cube waits out its 100ms delay far back at the corner.
-    // Works for the 3D bodies too — .stage .floatwrap is their box as
-    // well.
+    // the hosted spirit can reappear TRANSLATED onto that box at mount
+    // and EASE ASIDE into the right column AHEAD of the tile — a smooth
+    // translate only, never a scale about the feet. The aside starts
+    // the instant the enter lands, on its own shorter clock, while the
+    // comet waits out its 100ms delay far back at the corner. Works
+    // for the 3D bodies too — .stage .floatwrap is their box as well.
     const idleSpirit =
       !expanded && sprite
         ? (mainEl
@@ -775,46 +774,41 @@
     }
     hosted = mode;
     // The grow has landed — the well mounts held at the seed. Set the
-    // spirit-aside FLIP vars in this same task as the mount (no paint
-    // in between): .spirshift starts exactly on the measured idle box —
-    // translate + scale about the wrapper's own bottom-center, so the
-    // feet stay planted — then the enter animation eases it to rest.
-    // No measure (expanded enter, sprite-off, missing art) = no vars =
-    // the spirit simply rests in the column.
+    // spirit-aside translate vars in this same task as the mount (no
+    // paint in between): .spirshift starts with the hosted spirit's
+    // bottom-center translated onto the measured idle box's
+    // bottom-center — a SMOOTH TRANSLATE ONLY, no scale (the FLIP
+    // scale about the feet was the unsmooth run) — then the enter
+    // animation eases it to rest in the column. No measure (expanded
+    // enter, sprite-off, missing art) = no vars = the spirit simply
+    // rests in the column.
     await tick();
-    let flipped = false;
+    let shifted = false;
     if (idleSpirit && mainEl && idleSpirit.width >= 2) {
       const wrap = mainEl.querySelector(".wellhead .spirshift");
       const art =
         wrap?.querySelector(".floatwrap") ?? wrap?.firstElementChild ?? null;
       const rest = art?.getBoundingClientRect();
-      const wrapR = wrap?.getBoundingClientRect();
-      if (rest && wrapR && rest.width >= 2 && wrapR.height >= 2) {
-        const s = Math.min(Math.max(idleSpirit.width / rest.width, 0.2), 5);
-        const ox = wrapR.left + wrapR.width / 2;
-        const oy = wrapR.bottom;
+      if (rest && rest.width >= 2 && rest.height >= 2) {
         const dx =
-          idleSpirit.left + idleSpirit.width / 2 - ox -
-          (rest.left + rest.width / 2 - ox) * s;
-        const dy = idleSpirit.bottom - oy - (rest.bottom - oy) * s;
+          idleSpirit.left + idleSpirit.width / 2 - (rest.left + rest.width / 2);
+        const dy = idleSpirit.bottom - rest.bottom;
         mainEl.style.setProperty("--spir-dx", `${dx.toFixed(1)}px`);
         mainEl.style.setProperty("--spir-dy", `${dy.toFixed(1)}px`);
-        mainEl.style.setProperty("--spir-s", s.toFixed(4));
-        flipped = true;
+        shifted = true;
       }
     }
-    if (!flipped && mainEl) {
+    if (!shifted && mainEl) {
       mainEl.style.removeProperty("--spir-dx");
       mainEl.style.removeProperty("--spir-dy");
-      mainEl.style.removeProperty("--spir-s");
     }
     // TILE-DROP: the drop plays on the next frame INSIDE the grown
     // frame — the spirit glides aside FIRST (its aside starts at 0ms)
-    // while the cube, delayed 100ms, fades in at the corner inch and
-    // rushes in behind it; the dock never transforms. The enter class
-    // comes back off once the CSS has finished (TILE_ENTER_MS covers
-    // the delay + flight) so a later .wellpane remount doesn't replay
-    // the drop.
+    // while the comet, delayed 100ms, fades in small at the corner
+    // inch and flies in behind it; the dock never transforms. The
+    // enter class comes back off once the CSS has finished
+    // (TILE_ENTER_MS covers the delay + flight) so a later .wellpane
+    // remount doesn't replay the drop.
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     requestAnimationFrame(() => {
       if (gen !== tileGen) return;
@@ -1456,12 +1450,13 @@
         {#if sprite}
           <!-- TILE-YAW leftover (spirit first): the spirit column mounts
                WITH the well — no hold overlay, no post-enter takeover.
-               .spirshift carries the aside FLIP: it starts on the
-               measured idle box (--spir-* set at enter, same task as
-               the mount) and eases into the column IMMEDIATELY on its
-               own shorter clock — mostly aside while the delayed cube
-               is still far and small at the corner, making room before
-               the landing. -->
+               .spirshift carries the aside: it starts TRANSLATED onto
+               the measured idle box (--spir-dx/--spir-dy set at enter,
+               same task as the mount — translate only, never a scale)
+               and eases into the column IMMEDIATELY on its own shorter
+               clock — mostly aside while the delayed comet is still
+               far and small at the corner, making room before the
+               lock. -->
           <div class="wellhead">
             {#if !expanded}
               <div class="spirshift">
@@ -1725,37 +1720,39 @@
     display: flex;
   }
 
-  /* GO-ORBITTY-TILE-DROP: the drop verb — an ANGLED CUBE RUSH WITH A
-     SOFT LANDING (TILE-YAW leftover, Matt: a readable 3D box coming at
-     us from the upper-left inch, landing perfectly softly — no chop
-     bounce, no hard slam). The native grow stays instant (keep-bottom);
+  /* GO-ORBITTY-TILE-DROP: the drop verb — a COMET LOCK (TILE-YAW
+     leftover, Matt): ONE RIGID 3D CUBE comes in from the upper-left
+     inch like a comet, SLOWS, and LOCKS into position — soft stop, no
+     bounce, no stretch. The native grow stays instant (keep-bottom);
      this CSS animates INSIDE the grown frame and never fights the dock
-     pinning. Enter: the card starts far back on Z, tilted so its LEFT
-     and TOP faces read — real side faces ride the pane via
-     preserve-3d, because a lone rotateX/rotateY on a flat pane still
-     reads as a 2D rectangle — and TRAVELS in from the corner: the
-     drop-phase perspective-origin on .hostwell is pinned to the
-     upper-left inch (the 50%/50% default projected the far card toward
-     the well's MIDDLE — that, not the pane origin, was the
-     bloom-from-center Matt saw) and an explicit translate walks the
-     path in. Z and the translate arrive early on a fast curve; the
-     TILT IS HELD past their arrival and only settles to 0 in the last
-     beat — flattening in lockstep with Z was the 2D-zoom read, so the
-     box keeps a visible edge/side until it is close. Feather-soft, no
-     overshoot keyframe anywhere, never past rest. The launch point is
-     still the corner seed: a pixel origin ONE INCH IN FROM THE
-     COMPANION WINDOW'S UPPER-LEFT CORNER (never a pane percentage —
-     the old 61% / 40% was center-seeking). Perspective sits on
-     .hostwell — the well, not the window — and only while a drop
-     phase runs, so the prism turn keeps its own. The SPIRIT LEADS
-     (see .spirshift below): its aside starts at 0ms on its own shorter
-     clock and is mostly done while the cube — delayed 100ms, filling
-     slower — is still far and small. The dock never transforms.
-     Leave: the reverse (the cube re-tilts first, then recedes
-     accelerating away down Z toward the corner), and only when it ends
-     does dismissHost invoke the native off. .tile-pre holds the
-     from-state at mount — the well mounts only after
-     set_companion_host has landed, never in the idle-sized frame. */
+     pinning. Enter: the card is a constant box — thin LEFT and TOP
+     edge faces of fixed depth ride the pane via preserve-3d (a lone
+     rotateX/rotateY on a flat pane reads as a 2D rectangle; the old
+     120px faces sheared into a long card) — starting SMALL and far
+     back on Z with a SLIGHT tilt so a real edge reads. It travels as
+     a rigid body: translateZ only, NEVER an XY translate (the diagonal
+     walk was the failure), never a scale morph. The drop-phase
+     perspective-origin on .hostwell is pinned to the upper-left inch —
+     the vanishing point decides where a far card sits, so the small
+     cube rides that corner with zero XY walk (the 50%/50% default
+     projected the far card toward the well's MIDDLE — the
+     bloom-from-center Matt saw). The flight decelerates: a fast
+     approach, then a decaying settle as the slight tilt eases to 0 —
+     locking at exact identity, no overshoot keyframe anywhere, never
+     past rest. The launch point is the corner seed: a pixel origin
+     ONE INCH IN FROM THE COMPANION WINDOW'S UPPER-LEFT CORNER (never
+     a pane percentage — the old 61% / 40% was center-seeking).
+     Perspective sits on .hostwell — the well, not the window — and
+     only while a drop phase runs, so the prism turn keeps its own.
+     The SPIRIT LEADS (see .spirshift below): its aside is a smooth
+     translate only, starting at 0ms on its own shorter clock, mostly
+     done while the comet — delayed 100ms — is still far and small.
+     The dock never transforms. Leave: the reverse (the cube re-tilts
+     slightly, then recedes accelerating away down Z toward the
+     corner), and only when it ends does dismissHost invoke the native
+     off. .tile-pre holds the from-state at mount — the well mounts
+     only after set_companion_host has landed, never in the
+     idle-sized frame. */
   .companion.tile-pre .wellpane,
   .companion.tile-enter .wellpane,
   .companion.tile-leave .wellpane {
@@ -1786,17 +1783,18 @@
     border-radius: 12px;
   }
 
-  /* The readable box: LEFT and TOP faces, 120px deep (the old 64px
-     sliver never read), hinged on the pane's edges and extending back
-     in -Z. With the launch tilt (rotateX 32 / rotateY -36 from the
-     upper-left) those are exactly the two faces a cube coming at us
-     from that corner would show — and because the tilt is HELD until
-     the last beat of the flight, the faces stay on screen for the
-     whole rush instead of flattening away with the Z. Darker side /
+  /* The rigid box's real edge: LEFT and TOP faces, a CONSTANT 32px
+     deep — a comet's edge, never the 120px slabs that sheared into a
+     long card across the walk. Hinged on the pane's edges and
+     extending back in -Z, they are the same box for the whole flight
+     (nothing about them animates — only the pane's Z/tilt moves).
+     With the slight launch tilt (rotateX 10 / rotateY -12) and the
+     corner-pinned vanishing point, those are exactly the two faces a
+     cube coming at us from the upper-left would show. Darker side /
      lit top sells the depth; both faces are edge-on invisible at rest
-     identity, so the soft landing needs no face fade-out. The pane's
+     identity, so the soft lock needs no face fade-out. The pane's
      brief opacity snap-in flattens them for the first frames only
-     (opacity < 1 groups preserve-3d) — they join while the cube is
+     (opacity < 1 groups preserve-3d) — they join while the comet is
      still far and small. */
   .companion.tile-pre .wellpane::before,
   .companion.tile-enter .wellpane::before,
@@ -1805,7 +1803,7 @@
     position: absolute;
     top: 0;
     left: 0;
-    width: 120px;
+    width: 32px;
     height: 100%;
     box-sizing: border-box;
     background: color-mix(in srgb, var(--bg-fill, var(--bg)) 70%, black);
@@ -1824,7 +1822,7 @@
     top: 0;
     left: 0;
     width: 100%;
-    height: 120px;
+    height: 32px;
     box-sizing: border-box;
     background: color-mix(in srgb, var(--bg-fill, var(--bg)) 90%, white);
     border: 1px solid var(--edge);
@@ -1843,9 +1841,9 @@
      flex-end keeps it there with the flex:1 stage gone. TILE-YAW
      leftover: the idle spirit hides for the grow beat too — NO hold
      overlay (a parked full figure over the growing frame was the
-     push-in glitch); it reappears on its exact idle box the moment the
-     well mounts (the .spirshift FLIP below) and eases aside from
-     there. */
+     push-in glitch); it reappears translated onto its exact idle box
+     the moment the well mounts (the .spirshift translate below) and
+     eases aside from there. */
   .companion.tile-pre:not(.hosting) {
     justify-content: flex-end;
   }
@@ -1854,19 +1852,18 @@
     display: none;
   }
 
-  /* Cube-rush perspective: on the WELL (.hostwell is the .wellpane's
+  /* Comet perspective: on the WELL (.hostwell is the .wellpane's
      direct parent), never the window — and only while a drop phase
      runs, so the hosted rest state and the prism turn (its own 1400px
-     on .wellpane.turning) are untouched. 620px (down from 760):
-     stronger foreshortening so the tilted box and its 120px faces
-     read, wide enough that it never warps. The perspective-origin is
-     pinned to the UPPER-LEFT INCH (72px, 72px — the same window
-     corner spot as the pane's 62px seed origin, hostwell-local): the
-     vanishing point decides where a far-back card SITS, and the
-     default 50%/50% was pulling the small card into the well's middle
-     — the bloom-from-center Matt called out. Pinned to the corner,
-     the far card shrinks INTO the upper-left inch and travels out of
-     it as Z arrives. */
+     on .wellpane.turning) are untouched. 620px: strong foreshortening
+     so the far cube reads SMALL (a -2200px launch sits at ~0.22×),
+     wide enough that it never warps. The perspective-origin is pinned
+     to the UPPER-LEFT INCH (72px, 72px — the same window corner spot
+     as the pane's 62px seed origin, hostwell-local): the vanishing
+     point decides where a far-back card SITS, so the small comet
+     rides the corner inch and travels out of it as Z arrives — with
+     ZERO XY translate. The default 50%/50% was pulling the small card
+     into the well's middle — the bloom-from-center Matt called out. */
   .companion.tile-pre .hostwell,
   .companion.tile-enter .hostwell,
   .companion.tile-leave .hostwell {
@@ -1879,14 +1876,13 @@
      delay) never pops. */
   .companion.tile-pre .wellpane {
     opacity: 0;
-    transform: translate(-120px, -88px) translateZ(-2400px) rotateX(32deg)
-      rotateY(-36deg);
+    transform: translateZ(-2200px) rotateX(10deg) rotateY(-12deg);
   }
 
   /* The enter runs BEHIND the spirit: a 100ms delay (backwards fill
      holds the invisible corner seed through it — the spirit is already
-     gliding) then a 480ms flight, slower than the old 340ms rush so
-     the tile never completes ahead of the aside. */
+     gliding) then a 480ms flight, so the tile never completes ahead
+     of the aside. */
   .companion.tile-enter .wellpane {
     animation: orbitty-tile-drop-in 480ms cubic-bezier(0.16, 1, 0.3, 1) 100ms
       both;
@@ -1896,32 +1892,29 @@
     animation: orbitty-tile-drop-out 280ms cubic-bezier(0.5, 0, 0.75, 0) both;
   }
 
-  /* The cube rush, SOFT landing, 3D THE WHOLE WAY IN: from a far-back,
-     tilted box at the corner inch to rest identity on the base.
-     translateZ does the barrel — apparent size ~0.21 → 1 through the
-     well's 620px perspective — and the explicit translate walks the
-     card in from the upper-left inch (the corner-pinned
-     perspective-origin keeps the far card AT that corner; the
-     translate extends the path so it travels, never blooms). The
-     mixed X+Y tilt does NOT flatten in lockstep with Z: by 55% the Z
-     and translate are ~89% arrived while the tilt is barely a third
-     settled (20deg / -22deg still showing both side faces), and only
-     the last beat eases the rotation to 0 — an angled cube coming at
-     the camera, never the prism's pure-Y dest yaw, never a 2D
-     scale-up. The pinned 62px corner origin keeps the rush launched
-     from that upper-left inch. Per-segment curves: a fast rush for
-     the approach, a gentler settle for the last beat — decaying into
-     a feather-soft arrival at exactly rest, no overshoot keyframe
-     anywhere, never past rest, no slam. Opacity snaps in early so the
-     far box reads before the rush. */
+  /* The comet lock: ONE RIGID CUBE from the upper-left inch to rest
+     identity on the base. translateZ does the whole approach —
+     apparent size ~0.22 → 1 through the well's 620px perspective with
+     the vanishing point pinned to the corner, so the small cube rides
+     the upper-left inch and travels out of it as Z arrives. NO XY
+     translate anywhere (the diagonal walk was the failure), no scale
+     morph — the box is constant; only its distance and slight tilt
+     change. The tilt is SLIGHT (10deg / -12deg — enough to keep the
+     32px edge faces reading) and settles a touch behind the Z: by 55%
+     the Z is ~89% arrived while a 4deg / -5deg edge still shows, and
+     the last beat eases both to exactly 0. Per-segment curves: a fast
+     approach, then a decaying settle — the comet SLOWS and LOCKS at
+     exact identity, no overshoot keyframe anywhere, never past rest,
+     no bounce, no slam. Never the prism's pure-Y dest yaw, never a 2D
+     scale-up. Opacity snaps in early so the far comet reads before
+     the flight. */
   @keyframes orbitty-tile-drop-in {
     0% {
       opacity: 0;
-      transform: translate(-120px, -88px) translateZ(-2400px) rotateX(32deg)
-        rotateY(-36deg);
+      transform: translateZ(-2200px) rotateX(10deg) rotateY(-12deg);
       animation-timing-function: cubic-bezier(0.25, 0.6, 0.3, 1);
     }
-    6% {
+    8% {
       opacity: 1;
       /* Keep the approach curve across the whole 0→55 segment (an
          undeclared segment would fall back to the shorthand's
@@ -1930,35 +1923,31 @@
     }
     55% {
       opacity: 1;
-      transform: translate(-14px, -10px) translateZ(-260px) rotateX(20deg)
-        rotateY(-22deg);
+      transform: translateZ(-240px) rotateX(4deg) rotateY(-5deg);
       animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1);
     }
     100% {
       opacity: 1;
-      transform: translate(0px, 0px) translateZ(0px) rotateX(0deg)
-        rotateY(0deg);
+      transform: translateZ(0px) rotateX(0deg) rotateY(0deg);
     }
   }
 
-  /* Leave = the reverse: the cube recedes. Starts at rest identity,
-     RE-TILTS FIRST (the side faces come back while the card has barely
-     moved — the mirror of the held-tilt arrival), then accelerates
-     away down Z (ease-in, exits at speed) back onto the launch pose,
-     and winks out only once it's far. The corner-pinned
+  /* Leave = the reverse: the comet recedes. Starts at rest identity,
+     the slight tilt comes back first (the edge faces return while the
+     card has barely moved — the mirror of the arrival), then it
+     accelerates away down Z (ease-in, exits at speed) back onto the
+     launch pose, and winks out only once it's far. The corner-pinned
      perspective-origin and origin keep the retreat traveling back
-     toward that upper-left inch. */
+     toward that upper-left inch — still zero XY translate. */
   @keyframes orbitty-tile-drop-out {
     0% {
       opacity: 1;
-      transform: translate(0px, 0px) translateZ(0px) rotateX(0deg)
-        rotateY(0deg);
+      transform: translateZ(0px) rotateX(0deg) rotateY(0deg);
       animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
     }
     45% {
       opacity: 1;
-      transform: translate(-16px, -11px) translateZ(-240px) rotateX(20deg)
-        rotateY(-22deg);
+      transform: translateZ(-260px) rotateX(4deg) rotateY(-5deg);
       animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
     }
     92% {
@@ -1966,37 +1955,35 @@
     }
     100% {
       opacity: 0;
-      transform: translate(-120px, -88px) translateZ(-2400px) rotateX(32deg)
-        rotateY(-36deg);
+      transform: translateZ(-2200px) rotateX(10deg) rotateY(-12deg);
     }
   }
 
   /* TILE-YAW leftover (spirit first): the hosted right column's spirit
-     rides .spirshift. During the enter it starts on the FLIP vars —
-     the exact idle spirit box measured before the grow (translate +
-     scale about the wrapper's bottom-center, so the feet stay planted)
-     — then eases aside into the column on its OWN SHORTER CLOCK,
-     starting at 0ms with no delay: 320ms easeOutQuint-style, mostly
-     done while the cube (delayed 100ms, flying 480ms) is still far
-     and small at the corner. The spirit makes room BEFORE the
-     landing; the tile never completes ahead of it (the old same-clock
-     easeOutExpo pair filled the tile in the first frames and left the
-     spirit straggling — a photo finish after the card was in). No
-     parked overlay, no snap-right cut. No vars (expanded enter,
-     sprite-off, a missed measure) = identity — the spirit simply
-     rests in the column. Leave keeps the column static; the idle
-     spirit returns with the native restore. */
+     rides .spirshift. During the enter it starts on the translate
+     vars — the hosted spirit's bottom-center shifted onto the exact
+     idle spirit box measured before the grow — then eases aside into
+     the column on its OWN SHORTER CLOCK, starting at 0ms with no
+     delay: 320ms easeOutQuint-style, mostly done while the comet
+     (delayed 100ms, flying 480ms) is still far and small at the
+     corner. SMOOTH TRANSLATE ONLY — never a scale about the feet
+     (that FLIP scale was the unsmooth run). The spirit makes room
+     BEFORE the lock; the tile never completes ahead of it (the old
+     same-clock easeOutExpo pair filled the tile in the first frames
+     and left the spirit straggling — a photo finish after the card
+     was in). No parked overlay, no snap-right cut. No vars (expanded
+     enter, sprite-off, a missed measure) = identity — the spirit
+     simply rests in the column. Leave keeps the column static; the
+     idle spirit returns with the native restore. */
   .spirshift {
     flex: 1;
     min-width: 0;
     min-height: 0;
     display: flex;
-    transform-origin: 50% 100%;
   }
 
   .companion.tile-pre .spirshift {
-    transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px))
-      scale(var(--spir-s, 1));
+    transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px));
   }
 
   .companion.tile-enter .spirshift {
@@ -2005,11 +1992,10 @@
 
   @keyframes orbitty-spirit-aside {
     0% {
-      transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px))
-        scale(var(--spir-s, 1));
+      transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px));
     }
     100% {
-      transform: translate(0px, 0px) scale(1);
+      transform: translate(0px, 0px);
     }
   }
 
