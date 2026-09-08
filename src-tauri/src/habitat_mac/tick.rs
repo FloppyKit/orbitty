@@ -343,16 +343,24 @@ fn drag_tick() {
     unsafe {
         let buttons: usize = msg_send![class!(NSEvent), pressedMouseButtons];
         if buttons & 1 == 0 {
-            let (project_id, moved, kind) = match d {
-                Drag::Panel { project_id, moved, .. } => (project_id.clone(), *moved, 0u8),
+            let (project_id, moved, kind, entry_id) = match d {
+                Drag::Panel { project_id, moved, .. } => {
+                    (project_id.clone(), *moved, 0u8, String::new())
+                }
                 // Boombox decor gets its own code: a press-release that
                 // never moved is a click (play/pause), not a placement.
                 Drag::Decor { project_id, decor, moved, .. } => (
                     project_id.clone(),
                     *moved,
                     if decor.kind == DecorKind::Boombox { 3u8 } else { 1u8 },
+                    String::new(),
                 ),
-                Drag::Walker { project_id, moved, .. } => (project_id.clone(), *moved, 2u8),
+                Drag::Walker {
+                    project_id,
+                    entry_id,
+                    moved,
+                    ..
+                } => (project_id.clone(), *moved, 2u8, entry_id.clone()),
             };
             h.drag = None;
             // GO-ORBITTY-MARBLE-HOST: drift paused while this drag held
@@ -401,7 +409,60 @@ fn drag_tick() {
                     h.worlds_dirty = true;
                 }
             } else if moved >= 4.0 {
+                // kind == 2 (walker): a real drag, not a click — the
+                // pending click dies. PROPS leftover (town usable): the
+                // drop point hit-tests the board columns — a drop on the
+                // billboard is a STATUS MOVE, never a failed park. A
+                // drop on grass/disc with no column just resumes the
+                // pose walk next anim tick.
                 h.pending_click = None;
+                let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+                let col = h.planets.get(&project_id).and_then(|planet| {
+                    let panel = planet.panel as *mut Object;
+                    let frame: NSRect = msg_send![panel, frame];
+                    let local = NSPoint {
+                        x: mouse.x - frame.origin.x,
+                        y: frame.origin.y + frame.size.height - mouse.y,
+                    };
+                    super::draw::hit_board_column(planet, local)
+                });
+                match col {
+                    // Todo column: the card stays/returns todo. Spending
+                    // this roam's check-in is what makes "stays todo"
+                    // hold — the walker parks at the board lip instead
+                    // of re-checking-in a beat later. The rail flips
+                    // doing→todo (a todo card no-ops there).
+                    Some(0) => {
+                        if let Some(planet) = h.planets.get_mut(&project_id) {
+                            if let Some(r) = planet.roam.get_mut(&entry_id) {
+                                r.via_checkin = true;
+                            }
+                        }
+                        if let Some(app) = app_handle() {
+                            let _ = app.emit_to("main", "habitat:board-todo", entry_id);
+                        }
+                    }
+                    // Doing column: the board touch by hand — emit the
+                    // check-in (rail flips todo→doing) and mark it spent
+                    // on this roam entry, so a drag back to Todo STAYS
+                    // Todo (same stickiness as the walked check-in).
+                    Some(1) => {
+                        if let Some(planet) = h.planets.get_mut(&project_id) {
+                            if let Some(r) = planet.roam.get_mut(&entry_id) {
+                                r.via_checkin = true;
+                            }
+                        }
+                        emit_board_checkin(&entry_id);
+                    }
+                    // Done column: today's complete door, unchanged.
+                    Some(2) => {
+                        if let Some(app) = app_handle() {
+                            let _ =
+                                app.emit_to("main", "habitat:board-done", project_id.clone());
+                        }
+                    }
+                    _ => {}
+                }
             }
             return;
         }
@@ -589,6 +650,19 @@ fn anim_tick() {
     // keep the view dirty. Marbles already `continue`.
     let locate = h.locate.clone();
     let locate_planet = h.locate_planet.clone();
+    // PROPS leftover (town usable): a walker mid-drag is owned by
+    // drag_tick — the pose branches below must NOT retarget it back to
+    // the station on the same press (that fight was "drag moves roam
+    // for a frame; next tick retargets"). The drop itself is handled in
+    // drag_tick's release (a column drop is a status move).
+    let drag_walker = match &h.drag {
+        Some(Drag::Walker {
+            project_id,
+            entry_id,
+            ..
+        }) => Some((project_id.clone(), entry_id.clone())),
+        _ => None,
+    };
     for (pid, planet) in h.planets.iter_mut() {
         if planet.is_marble {
             continue; // marbles are bare and still
@@ -706,6 +780,14 @@ fn anim_tick() {
                 roam.via_board = false;
                 roam.via_home = false;
             }
+            // Mid-drag: drag_tick owns this walker's x/y/tx/ty for the
+            // press — no station retarget, no step, no bob here.
+            if drag_walker
+                .as_ref()
+                .is_some_and(|(dpid, deid)| dpid == pid && deid == id)
+            {
+                continue;
+            }
             // Sleepers stand still where they were laid out — no roam. A
             // Done card still walks a sleeper off: the complete ritual
             // closes the window, and the walk-off narrates the eviction.
@@ -726,14 +808,24 @@ fn anim_tick() {
                     roam.ty = ty;
                     roam.pause_end = None;
                 }
-                // Todo/Doing: the target is the station (west board /
-                // interior field), never a random rad. Stand parks on
-                // arrival — idle frame 0, bob 0. Work KEEPS the walk
-                // cycle in the open field (WORLD-PLACES: CADENCE-PATH
-                // stilled it only because the old station sat on the
-                // front rim; the rim is Needed's now); no re-park.
+                // Todo/Doing: the target is never a random rad. Todo
+                // walks to the south lip of the white board — the same
+                // point WalkOff touches (PROPS leftover, town usable) —
+                // never STATION_BOARD: the post foot sits inside/behind
+                // the sign PNG, so the walker read as hidden in the
+                // house / vanished into the sign and the 0.05 check-in
+                // never read as a board touch. Doing fans out onto the
+                // grass. Stand parks on arrival — idle frame 0, bob 0.
+                // Work KEEPS the walk cycle in the open field
+                // (WORLD-PLACES: CADENCE-PATH stilled it only because
+                // the old station sat on the front rim; the rim is
+                // Needed's now); no re-park.
                 Pose::Stand | Pose::Work => {
-                    let (tx, ty) = station_target(pose, id);
+                    let (tx, ty) = if pose == Pose::Stand {
+                        lip
+                    } else {
+                        station_target(pose, id)
+                    };
                     roam.tx = tx;
                     roam.ty = ty;
                     roam.pause_end = None;

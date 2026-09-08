@@ -365,8 +365,13 @@ fn hash_str(s: &str) -> u64 {
 /// décor and are never a spawn. Stand/Work roams (and returns from
 /// hide) start here and walk to the station; Sit never spawns here
 /// (bad news snaps to the front rim).
+/// PROPS leftover (town usable): the doorstep is IN FRONT of the east
+/// door, just outside the igloo blit (door x + 0.12; the blit's east
+/// edge is ≈ -0.517) — a claimed walker appears on open disc,
+/// clickable (right-click menu / locate) the moment it spawns, never
+/// inside the PNG. Same y as the door.
 pub(crate) fn house_spawn(_planet: &Planet, _entry_id: &str) -> (f64, f64) {
-    STATION_HOUSE
+    (STATION_HOUSE.0 + 0.12, STATION_HOUSE.1)
 }
 
 /// A walk-off in flight never flickers back to Roam on a blank snapshot
@@ -2867,7 +2872,15 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             let mut snapped = false;
             for (id, pose) in posed {
                 let Some((tx, ty)) = (match pose {
-                    Pose::WalkOff | Pose::Stand | Pose::Work | Pose::Sit => {
+                    // PROPS leftover (town usable): Stand snaps to the
+                    // board's south lip too — never the post foot
+                    // (STATION_BOARD sits behind the sign PNG).
+                    Pose::Stand => Some(draw::board_near_lip(
+                        planet.radius,
+                        planet.projection,
+                        planet.marble_scale,
+                    )),
+                    Pose::WalkOff | Pose::Work | Pose::Sit => {
                         Some(station_target(pose, &id))
                     }
                     Pose::Roam => None,

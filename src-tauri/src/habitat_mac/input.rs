@@ -174,10 +174,14 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
             }
             return;
         }
-        // WORLD-TOUCH leftover: Done column is the complete door on the
-        // planet board. Do not start a panel drag from that rail.
-        if board_col == Some(2) {
-            h.pending_board_done = Some(pid);
+        // WORLD-TOUCH leftover (town usable): the billboard is a BOARD —
+        // all three tick columns eat the mouse, never a panel-drag start
+        // from the sign. Done keeps today's complete door
+        // (pending_board_done → mouse-up emits habitat:board-done);
+        // Todo/Doing plain clicks no-op — their status move is
+        // drop-walker (drag_tick's release hit-tests the columns).
+        if let Some(col) = board_col {
+            h.pending_board_done = if col == 2 { Some(pid) } else { None };
             return;
         }
         h.pending_board_done = None;

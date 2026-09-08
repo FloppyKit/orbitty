@@ -1880,6 +1880,7 @@
   let unlistenWalkerAssign: (() => void) | undefined;
   let unlistenWalkedOff: (() => void) | undefined;
   let unlistenBoardDone: (() => void) | undefined;
+  let unlistenBoardTodo: (() => void) | undefined;
   let unlistenCheckin: (() => void) | undefined;
   let unlistenState: (() => void) | undefined;
 
@@ -2047,6 +2048,23 @@
       );
       persist();
     });
+    // GO-ORBITTY-WORLD-PROPS leftover (town usable): a walker dropped on
+    // the Todo column returns its card to todo — the drop on the board
+    // IS the status move. doing→todo only: a todo card stays (no-op), a
+    // done card's walk-off ritual owns it. The native side already spent
+    // this roam's check-in, so the walker stays parked at the board lip.
+    unlistenBoardTodo = await listen<string>("habitat:board-todo", (e) => {
+      const windowId = e.payload;
+      const card = kanbanCards.find(
+        (c) => c.windowId === windowId && c.status === "doing",
+      );
+      if (!card) return;
+      const now = nowEpoch();
+      kanbanCards = kanbanCards.map((c) =>
+        c.id === card.id ? { ...c, status: "todo", lastTouchedAt: now } : c,
+      );
+      persist();
+    });
     // The Lists window writes state.json too (todos, checkbox completes).
     // Adopt its card/ledger writes and any claims it removed; rail-owned
     // slices (projects, tags, UI state) stay local. Echoes of our own saves
@@ -2122,6 +2140,7 @@
     unlistenWalkerAssign?.();
     unlistenWalkedOff?.();
     unlistenBoardDone?.();
+    unlistenBoardTodo?.();
     unlistenCheckin?.();
     unlistenState?.();
     osMedia.removeEventListener("change", onOsThemeChange);
