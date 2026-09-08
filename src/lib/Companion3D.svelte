@@ -539,6 +539,7 @@
     flex: 1;
     width: auto;
     min-height: 0;
+    container-type: size;
   }
 
   .stage .floatwrap {
@@ -549,11 +550,13 @@
     justify-content: center;
   }
 
-  :global(.ghost) .stage {
+  :global(.ghost) .stage,
+  :global(.wellhead) .stage {
     container-type: size;
   }
 
-  :global(.ghost) .stage .floatwrap {
+  :global(.ghost) .stage .floatwrap,
+  :global(.wellhead) .stage .floatwrap {
     width: min(100cqw, 100cqh);
     height: min(100cqw, 100cqh);
   }

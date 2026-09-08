@@ -228,6 +228,9 @@
   let tileEnter = $state(false);
   let tileLeave = $state(false);
   let tileGen = 0;
+  // Pin the idle figure through native grow so it never vanishes, then
+  // FLIP (translate + scale) into the column — full body the whole way.
+  let spiritHold = $state(false);
 
   // GO-ORBITTY-TILE-YAW leftover: the hosted dest swap is a TRIANGULAR
   // PRISM turn (Matt: not a recipe-card deal, not a book, not an X).
@@ -257,6 +260,7 @@
   let prismR = $state(0);
 
   function tileReset() {
+    spiritHold = false;
     tilePre = false;
     tileEnter = false;
     tileLeave = false;
@@ -265,6 +269,7 @@
     // tile-pre/tile-enter; a fresh enter re-measures anyway).
     mainEl?.style.removeProperty("--spir-dx");
     mainEl?.style.removeProperty("--spir-dy");
+    mainEl?.style.removeProperty("--spir-s");
   }
 
   let mainEl: HTMLElement | null = null;
@@ -740,6 +745,20 @@
             ?.querySelector(".stage .floatwrap")
             ?.getBoundingClientRect() ?? null)
         : null;
+    if (idleSpirit && mainEl && idleSpirit.width >= 2) {
+      const win = mainEl.getBoundingClientRect();
+      mainEl.style.setProperty(
+        "--hold-x",
+        `${(idleSpirit.left - win.left).toFixed(1)}px`,
+      );
+      mainEl.style.setProperty(
+        "--hold-b",
+        `${(win.bottom - idleSpirit.bottom).toFixed(1)}px`,
+      );
+      mainEl.style.setProperty("--hold-w", `${idleSpirit.width.toFixed(1)}px`);
+      mainEl.style.setProperty("--hold-h", `${idleSpirit.height.toFixed(1)}px`);
+      spiritHold = true;
+    }
     tilePre = true;
     await tick();
     try {
@@ -749,44 +768,40 @@
       await invoke("set_companion_host", { mode });
     } catch (e) {
       tileReset();
+      spiritHold = false;
       sendNote = `${e}`;
       return;
     }
     hosted = mode;
-    // The grow has landed — the well mounts held at the seed. Set the
-    // spirit-aside translate vars in this same task as the mount (no
-    // paint in between): .spirshift starts with the hosted spirit's
-    // bottom-center translated onto the measured idle box's
-    // bottom-center — a SMOOTH TRANSLATE ONLY, no scale (the FLIP
-    // scale about the feet was the unsmooth run) — then the enter
-    // animation eases it to rest in the column. No measure (expanded
-    // enter, sprite-off, missing art) = no vars = the spirit simply
-    // rests in the column.
     await tick();
     let shifted = false;
     if (idleSpirit && mainEl && idleSpirit.width >= 2) {
-      const wrap = mainEl.querySelector(".wellhead .spirshift");
       const art =
-        wrap?.querySelector(".floatwrap") ?? wrap?.firstElementChild ?? null;
+        mainEl.querySelector(".wellhead .floatwrap") ??
+        mainEl.querySelector(".wellhead .spirshift");
       const rest = art?.getBoundingClientRect();
       if (rest && rest.width >= 2 && rest.height >= 2) {
         const dx =
           idleSpirit.left + idleSpirit.width / 2 - (rest.left + rest.width / 2);
         const dy = idleSpirit.bottom - rest.bottom;
+        const s = idleSpirit.width / rest.width;
         mainEl.style.setProperty("--spir-dx", `${dx.toFixed(1)}px`);
         mainEl.style.setProperty("--spir-dy", `${dy.toFixed(1)}px`);
+        mainEl.style.setProperty("--spir-s", Number.isFinite(s) ? s.toFixed(3) : "1");
         shifted = true;
       }
     }
     if (!shifted && mainEl) {
       mainEl.style.removeProperty("--spir-dx");
       mainEl.style.removeProperty("--spir-dy");
+      mainEl.style.removeProperty("--spir-s");
     }
-    // Dive starts in this turn — no extra rAF after the grow. Dest
-    // pages are still unmounted (tileEnter), so tick above was cheap.
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     tilePre = false;
     tileEnter = true;
+    requestAnimationFrame(() => {
+      if (gen === tileGen) spiritHold = false;
+    });
     setTimeout(
       () => {
         if (gen !== tileGen) return;
@@ -806,6 +821,7 @@
     const gen = ++tileGen;
     tilePre = false;
     tileEnter = false;
+    spiritHold = false;
     // A mid-drop dismiss supersedes the enter timeout; the spirit is
     // already in the hosted column (no hold overlay to release).
     swapPrev = null; // a mid-turn dismiss drops the outgoing face
@@ -1327,6 +1343,7 @@
   class:tile-pre={tilePre}
   class:tile-enter={tileEnter}
   class:tile-leave={tileLeave}
+  class:spirit-hold={spiritHold}
   onmousedown={onPaneMouseDown}
   onmousedowncapture={onHitMouseDown}
   bind:this={mainEl}
@@ -1422,21 +1439,15 @@
           </div>
         </div>
         {#if sprite}
-          <!-- TILE-YAW leftover (spirit first): the spirit column mounts
-               WITH the well — no hold overlay, no post-enter takeover.
-               .spirshift carries the aside: it starts TRANSLATED onto
-               the measured idle box (--spir-dx/--spir-dy set at enter,
-               same task as the mount — translate only, never a scale)
-               and eases into the column IMMEDIATELY on its own shorter
-               clock — Spark reads first because the cube is still far
-               and small, high and left. -->
+          <!-- Idle figure is held through native grow, then this column
+               FLIPs (translate + scale, full body, never Head). -->
           <div class="wellhead">
             {#if !expanded}
               <div class="spirshift">
                 {#if is3D && !glbFailed}
                   {#key bodyId}
                     <Companion3D
-                      {headShowing}
+                      headShowing={tilePre || tileEnter ? false : headShowing}
                       {bodyId}
                       thinking={sending}
                       onDrag={onDragMouseDown}
@@ -1445,9 +1456,9 @@
                   {/key}
                 {:else}
                   <SpiritStage
-                    {headShowing}
+                    headShowing={tilePre || tileEnter ? false : headShowing}
                     {missing}
-                    frames={drawFrames}
+                    frames={tilePre || tileEnter ? activeFullFrames : drawFrames}
                     {frameIdx}
                     thinking={sending}
                     smooth={artSmooth}
@@ -1465,7 +1476,8 @@
     </div>
   {:else if expanded}
     {@render caption(true, false)}
-  {:else if sprite}
+  {/if}
+  {#if sprite && !expanded && (hosted === "off" || spiritHold)}
     {#if is3D && !glbFailed}
       {#key bodyId}
         <Companion3D
@@ -1701,8 +1713,8 @@
   .companion.tile-pre .wellpane,
   .companion.tile-enter .wellpane,
   .companion.tile-leave .wellpane {
-    /* Speck in the window UL (slight top clip), not above the frame. */
-    --dive: translate3d(-130%, -155%, -1600px) rotateX(12deg) rotateY(-16deg);
+    /* From the window UL, not from the sky — shallower Y and tilt. */
+    --dive: translate3d(-90%, -50%, -1400px) rotateX(5deg) rotateY(-10deg);
     transform-origin: center;
     transform-style: preserve-3d;
     overflow: visible;
@@ -1783,8 +1795,21 @@
     justify-content: flex-end;
   }
 
-  .companion.tile-pre:not(.hosting) > *:not(.ghostdock):not(.winx) {
+  .companion.tile-pre:not(.hosting) > *:not(.ghostdock):not(.winx):not(.stage) {
     display: none;
+  }
+
+  /* Idle figure pinned through the grow — keep-bottom, so it does not
+     vanish or stretch. Hands off to the column FLIP on the next frame. */
+  .companion.spirit-hold > :global(.stage) {
+    position: absolute;
+    left: var(--hold-x);
+    bottom: var(--hold-b);
+    width: var(--hold-w);
+    height: var(--hold-h);
+    z-index: 5;
+    flex: none;
+    min-height: 0;
   }
 
   /* Perspective on .hostwell only during the dive. Origin is the WELL
@@ -1832,8 +1857,7 @@
   @keyframes orbitty-tile-drop-in {
     0% {
       opacity: 1;
-      transform: translate3d(-130%, -155%, -1600px) rotateX(12deg)
-        rotateY(-16deg);
+      transform: translate3d(-90%, -50%, -1400px) rotateX(5deg) rotateY(-10deg);
     }
     100% {
       opacity: 1;
@@ -1851,8 +1875,7 @@
     }
     100% {
       opacity: 0;
-      transform: translate3d(-130%, -155%, -1600px) rotateX(12deg)
-        rotateY(-16deg);
+      transform: translate3d(-90%, -50%, -1400px) rotateX(5deg) rotateY(-10deg);
     }
   }
 
@@ -1864,20 +1887,28 @@
     display: flex;
   }
 
-  .companion.tile-pre .spirshift {
-    transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px));
+  .companion.tile-pre :global(.wellhead .floatwrap),
+  .companion.tile-enter :global(.wellhead .floatwrap) {
+    transform-origin: bottom center;
+    will-change: transform;
   }
 
-  .companion.tile-enter .spirshift {
+  .companion.tile-pre :global(.wellhead .floatwrap) {
+    transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px))
+      scale(var(--spir-s, 1));
+  }
+
+  .companion.tile-enter :global(.wellhead .floatwrap) {
     animation: orbitty-spirit-aside 420ms cubic-bezier(0.22, 0.82, 0.2, 1) both;
   }
 
   @keyframes orbitty-spirit-aside {
     0% {
-      transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px));
+      transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px))
+        scale(var(--spir-s, 1));
     }
     100% {
-      transform: translate(0px, 0px);
+      transform: translate(0px, 0px) scale(1);
     }
   }
 
@@ -2029,10 +2060,9 @@
     .companion.tile-enter .wellpane {
       animation: orbitty-tile-fade 140ms ease-out both;
     }
-    .companion.tile-pre .spirshift {
+    .companion.tile-pre :global(.wellhead .floatwrap),
+    .companion.tile-enter :global(.wellhead .floatwrap) {
       transform: none;
-    }
-    .companion.tile-enter .spirshift {
       animation: none;
     }
     .wellpane.turning .prismface.face-out {
