@@ -13,6 +13,10 @@
 //!   ⌘⌥↓               Dismiss whichever dest is hosted (Launchpad,
 //!                     STARS, or Planets). Idle: no-op — never summon,
 //!                     same as the yaws.
+//!   ⌘⌥↑               Raise the last dest that was lowered (Launchpad
+//!                     if none this session). This one DOES summon from
+//!                     idle — same posture as ⌘⌥1/2/3 — but no-ops while
+//!                     a dest is already up (a menu is already up).
 //!
 //! ⌘Space stays Spotlight; Super-only Mac menu chords stay refused
 //! (actions.rs reserved list); ⌘⌥+letter stays the action lane — dests
@@ -33,7 +37,7 @@ const YAWS: [(Code, &str); 2] = [
     (Code::ArrowRight, "next"),
 ];
 
-/// Register the six tile chords. Best-effort per chord (same philosophy
+/// Register the seven tile chords. Best-effort per chord (same philosophy
 /// as actions.rs — an OS/other-app collision is logged, never a crash):
 /// a chord that fails to register simply stays dead.
 #[cfg(target_os = "macos")]
@@ -82,6 +86,21 @@ pub fn register(app: &tauri::AppHandle) {
         let _ = handle.emit_to("companion", "orbitty:dismiss-host", ());
     }) {
         eprintln!("tile-chords: ⌘⌥↓ register failed: {e}");
+    }
+    // ⌘⌥↑ raises the last lowered dest (the page remembers; Launchpad if
+    // none). Opposite posture from ↓: this one DOES show_companion first
+    // — same as the ⌘⌥1/2/3 dest chords — because idle must work. The
+    // page no-ops while a dest is already hosted.
+    let chord = Shortcut::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::ArrowUp);
+    let handle = app.clone();
+    if let Err(e) = gs.on_shortcut(chord, move |_app, _s, ev| {
+        if ev.state() != ShortcutState::Pressed {
+            return;
+        }
+        let _ = crate::panes::show_companion(&handle);
+        let _ = handle.emit_to("companion", "orbitty:raise-last-host", ());
+    }) {
+        eprintln!("tile-chords: ⌘⌥↑ register failed: {e}");
     }
 }
 

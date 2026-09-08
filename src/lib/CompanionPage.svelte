@@ -202,6 +202,10 @@
   // "inspector" = RailPage embedded (pop-out to the rail window).
   type HostMode = "off" | "launchpad" | "stars" | "inspector";
   let hosted = $state<HostMode>("off");
+  // TILE-CHORDS leftover (⌘⌥↑): the last dest lowered through dismissHost
+  // (dest-chip toggle, well ×, Escape, ⌘⌥↓ all land there). Session memory
+  // only — never state.json; null = none lowered yet → ⌘⌥↑ opens Launchpad.
+  let lastDest = $state<"launchpad" | "stars" | "inspector" | null>(null);
 
   // GO-ORBITTY-TILE-DROP: the card drops in INSIDE the natively-grown
   // frame — the grow itself stays instant (keep-bottom), never a
@@ -809,6 +813,10 @@
 
   async function dismissHost() {
     if (hosted === "off" || tileLeave) return;
+    // ⌘⌥↑ leftover: remember what is being lowered (written just before
+    // `hosted = "off"` below; a superseded leave never completes the
+    // lower, so it never writes).
+    const lowered = hosted;
     const gen = ++tileGen;
     tilePre = false;
     tileEnter = false;
@@ -827,6 +835,7 @@
       if (gen !== tileGen) return; // a fresh enter/swap superseded us
       tileLeave = false;
     }
+    lastDest = lowered;
     hosted = "off";
     try {
       await invoke("set_companion_host", { mode: "off" });
@@ -1226,6 +1235,7 @@
   let unlistenToggleHost: (() => void) | undefined;
   let unlistenYawHost: (() => void) | undefined;
   let unlistenDismissHost: (() => void) | undefined;
+  let unlistenRaiseLastHost: (() => void) | undefined;
   let unlistenTalk: (() => void)[] = [];
   let hitsObserver: ResizeObserver | undefined;
   onMount(async () => {
@@ -1282,6 +1292,8 @@
     // the DEST_RING while hosted; idle is a no-op, never a summon (the
     // native side doesn't even raise the pane on the arrows). ⌘⌥↓ is
     // the same no-summon posture: dismiss whatever is hosted, no-op idle.
+    // ⌘⌥↑ is the raise posture of ⌘⌥1/2/3 (the native side shows the
+    // pane first, so idle works): re-host the last lowered dest.
     unlistenToggleHost = await listen<string>("orbitty:toggle-host", (e) => {
       const m = e.payload;
       if (m === "launchpad" || m === "stars" || m === "inspector") void toggleDest(m);
@@ -1296,6 +1308,12 @@
     unlistenDismissHost = await listen("orbitty:dismiss-host", () => {
       if (hosted === "off") return;
       void dismissHost();
+    });
+    // ⌘⌥↑: raise the last lowered dest (Launchpad when none this
+    // session). Already hosted = a menu is up — no-op.
+    unlistenRaiseLastHost = await listen("orbitty:raise-last-host", () => {
+      if (hosted !== "off") return;
+      void enterHost(lastDest ?? "launchpad");
     });
     unlistenTalk.push(
       await listen<string>("talk:partial", (e) => {
@@ -1333,6 +1351,7 @@
     unlistenToggleHost?.();
     unlistenYawHost?.();
     unlistenDismissHost?.();
+    unlistenRaiseLastHost?.();
     for (const u of unlistenTalk) u();
     invoke("talk_stop").catch(() => {});
   });

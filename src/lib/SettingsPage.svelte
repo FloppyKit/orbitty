@@ -777,7 +777,8 @@
         <p class="help">
           Tiles: ⌘⌥1 Launchpad · ⌘⌥2 STARS · ⌘⌥3 Planets — the same move
           as the dest chips (press again to dismiss). ⌘⌥← / ⌘⌥→ yaw
-          between them while one is up; ⌘⌥↓ dismisses the hosted tile.
+          between them while one is up; ⌘⌥↓ dismisses the hosted tile;
+          ⌘⌥↑ raises the last one lowered (Launchpad if none yet).
           Those chords are reserved too.
         </p>
       </section>
