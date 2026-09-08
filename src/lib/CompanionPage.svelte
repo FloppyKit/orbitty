@@ -214,16 +214,12 @@
   // tileLeave plays the reverse and only when the CSS ends does the
   // native side restore the idle rect.
   // tileGen lets a fresh enter/swap supersede a mid-flight leave.
-  // TILE-YAW leftover (APPROACH LOCK D — steeper dive, Matt): ONE
-  // RIGID 3D CUBE dives in from far back, HIGH and LEFT. Launch is a
-  // fraction of the well so the speck sits IN the window's UL (a bit
-  // of top clip) — -200/-280/-2200 threw it above the frame, so the
-  // eye only saw the last jerky fill. One 620ms ease, no mid-keyframe
-  // kink. Dest pages stay unmounted until the lock so load_state /
-  // Rail boot cannot hitch the flight. Perspective-origin = well pane
-  // center (~34% 50%). transform-origin: center. No scale().
-  const TILE_ENTER_MS = 620;
-  const TILE_LEAVE_MS = 320;
+  // TILE-YAW leftover (APPROACH LOCK D): rigid box. XY eases in
+  // faster than Z so a SMALL cube travels from the window UL toward
+  // the well, then fills — not a zoom-along-a-ray (same-t XY+Z). Tilt
+  // holds until late so edges read; dest pages mount at lock.
+  const TILE_ENTER_MS = 720;
+  const TILE_LEAVE_MS = 360;
   let tilePre = $state(false);
   let tileEnter = $state(false);
   let tileLeave = $state(false);
@@ -1391,6 +1387,10 @@
           style:--prism-r="{prismR}px"
           bind:this={wellpaneEl}
         >
+          {#if tilePre || tileEnter || tileLeave}
+            <div class="cubeface cubeface-left"></div>
+            <div class="cubeface cubeface-top"></div>
+          {/if}
           <!-- TILE-YAW leftover (triangular prism): on a hosted dest swap
                the outgoing page mounts as a second face (swapPrev) and
                both faces ride a ±120deg rotateY around the card's
@@ -1705,78 +1705,59 @@
     display: flex;
   }
 
-  /* GO-ORBITTY-TILE-DROP: APPROACH LOCK D — steeper dive. ONE RIGID
-     3D cube, already rest-sized, launched far / high / left as a
-     fraction of the well (not sketch pixels) so it reads as a small
-     cube almost off the companion window's top-left, then dives at
-     the camera and soft-locks. Native grow stays instant. */
+  /* APPROACH LOCK D: rigid box. Keyframes bake XY-faster-than-Z so a
+     small cube travels from the window UL, then fills. Tilt holds. */
   .companion.tile-pre .wellpane,
   .companion.tile-enter .wellpane,
   .companion.tile-leave .wellpane {
-    /* From the window UL, not from the sky — shallower Y and tilt. */
-    --dive: translate3d(-90%, -50%, -1400px) rotateX(5deg) rotateY(-10deg);
+    --dive: translate3d(-145%, -85%, -2000px) rotateX(-14deg) rotateY(-18deg);
+    --cube-d: 56px;
     transform-origin: center;
     transform-style: preserve-3d;
     overflow: visible;
     will-change: transform;
   }
 
-  /* While the box flies, the page content keeps its rounded-card clip
-     on .wellpage (the pane's own overflow is visible for preserve-3d).
-     Same 12px family as the card; the 1px inset difference is invisible
-     across a 340ms flight. */
   .companion.tile-pre .wellpage,
   .companion.tile-enter .wellpage,
   .companion.tile-leave .wellpage {
+    position: relative;
+    z-index: 1;
     overflow: hidden;
     border-radius: 12px;
+    transform: translateZ(1px);
   }
 
-  /* The rigid box's real edge: LEFT and TOP faces, a CONSTANT 32px
-     deep — a comet's edge, never the 120px slabs that sheared into a
-     long card across the walk. Hinged on the pane's edges and
-     extending back in -Z, they are the same box for the whole flight
-     (nothing about them animates — only the pane's Z/tilt moves).
-     With the launch tilt (rotateX 12 / rotateY -16) and the well-pane
-     vanishing point, those are the two faces a cube diving from
-     high-left would show. Darker side /
-     lit top sells the depth; both faces are edge-on invisible at rest
-     identity, so the soft lock needs no face fade-out. Opacity stays 1
-     for the flight so preserve-3d is not flattened. */
-  .companion.tile-pre .wellpane::before,
-  .companion.tile-enter .wellpane::before,
-  .companion.tile-leave .wellpane::before {
-    content: "";
+  /* Real faces (pseudos flattened in WK). Extend BACK in -Z so the
+     front stays the card — rotateY(90deg) toward the camera was the
+     "blinded then revealed" flash. */
+  .cubeface {
     position: absolute;
+    box-sizing: border-box;
+    pointer-events: none;
+    border: 1px solid var(--edge);
+  }
+
+  .cubeface-left {
     top: 0;
     left: 0;
-    width: 32px;
+    width: var(--cube-d, 56px);
     height: 100%;
-    box-sizing: border-box;
-    background: color-mix(in srgb, var(--bg-fill, var(--bg)) 70%, black);
-    border: 1px solid var(--edge);
-    border-radius: 12px 0 0 12px;
+    background: color-mix(in srgb, var(--bg-fill, var(--bg)) 62%, black);
+    border-radius: 8px 0 0 8px;
     transform-origin: left center;
-    transform: rotateY(90deg);
-    pointer-events: none;
+    transform: rotateY(-90deg);
   }
 
-  .companion.tile-pre .wellpane::after,
-  .companion.tile-enter .wellpane::after,
-  .companion.tile-leave .wellpane::after {
-    content: "";
-    position: absolute;
+  .cubeface-top {
     top: 0;
     left: 0;
     width: 100%;
-    height: 32px;
-    box-sizing: border-box;
-    background: color-mix(in srgb, var(--bg-fill, var(--bg)) 90%, white);
-    border: 1px solid var(--edge);
-    border-radius: 12px 12px 0 0;
+    height: var(--cube-d, 56px);
+    background: color-mix(in srgb, var(--bg-fill, var(--bg)) 88%, white);
+    border-radius: 8px 8px 0 0;
     transform-origin: center top;
-    transform: rotateX(-90deg);
-    pointer-events: none;
+    transform: rotateX(90deg);
   }
 
   /* Drop seed + still chrome: while the native grow lands (tile-pre,
@@ -1827,7 +1808,7 @@
   .companion.tile-enter .hostwell,
   .companion.tile-leave .hostwell {
     overflow: visible;
-    perspective: 620px;
+    perspective: 720px;
     perspective-origin: 34% 50%;
   }
 
@@ -1846,21 +1827,32 @@
   }
 
   .companion.tile-enter .wellpane {
-    animation: orbitty-tile-drop-in 620ms cubic-bezier(0.22, 0.82, 0.2, 1) both;
+    animation: orbitty-tile-drop-in 720ms linear both;
   }
 
   .companion.tile-leave .wellpane {
-    animation: orbitty-tile-drop-out 320ms cubic-bezier(0.4, 0, 0.7, 0.2) both;
+    animation: orbitty-tile-drop-out 360ms linear both;
   }
 
-  /* One span, one curve — the 55% kink was the on-screen jerk. */
+  /* Linear + authored stops: XY uses a quint-like arrive (small cube
+     TRAVELS), Z uses a slower cubic (then it fills). Tilt holds until
+     the last beat so it never reads as a 2D zoom. */
   @keyframes orbitty-tile-drop-in {
     0% {
-      opacity: 1;
-      transform: translate3d(-90%, -50%, -1400px) rotateX(5deg) rotateY(-10deg);
+      transform: translate3d(-145%, -85%, -2000px) rotateX(-14deg)
+        rotateY(-18deg);
+    }
+    25% {
+      transform: translate3d(-35%, -20%, -840px) rotateX(-13deg)
+        rotateY(-17deg);
+    }
+    45% {
+      transform: translate3d(-8%, -5%, -340px) rotateX(-12deg) rotateY(-16deg);
+    }
+    70% {
+      transform: translate3d(-1%, -1%, -50px) rotateX(-8deg) rotateY(-10deg);
     }
     100% {
-      opacity: 1;
       transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg);
     }
   }
@@ -1870,12 +1862,14 @@
       opacity: 1;
       transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg);
     }
-    88% {
+    30% {
       opacity: 1;
+      transform: translate3d(-8%, -5%, -340px) rotateX(-12deg) rotateY(-16deg);
     }
     100% {
       opacity: 0;
-      transform: translate3d(-90%, -50%, -1400px) rotateX(5deg) rotateY(-10deg);
+      transform: translate3d(-145%, -85%, -2000px) rotateX(-14deg)
+        rotateY(-18deg);
     }
   }
 
