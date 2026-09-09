@@ -1605,18 +1605,47 @@
     }
   }
 
-  // GO-ORBITTY-PROJECT-ADD leftover (inspector rm): the × on a planet row.
-  // The native command is the one save door (same as ctl) — cards keep
-  // their projectId, walkers vanish with the disc on the next habitat
-  // sync. The local list only mirrors that disk write; no persist() here.
+  // GO-ORBITTY-PROJECT-ADD leftover (inspector rm click): the × on a planet
+  // row arms an in-sheet confirm — WKWebView JS dialogs (confirm/alert) do
+  // not surface on the companion overlay window, so window.confirm swallowed
+  // the press and window.alert had the same hole (S4.6 law: the confirm
+  // lives in the webview). First × arms "Remove …?" with Yes / No; Yes
+  // invokes, No or a click away disarms. One planet armed at a time. The
+  // native command is the one save door (same as ctl) — cards keep their
+  // projectId, walkers vanish with the disc on the next habitat sync. The
+  // local list only mirrors that disk write; no persist() here. An invoke
+  // error stays in-sheet on that row and the row stays.
+  let rmArmedFor = $state<string | null>(null);
+  let rmErrorFor = $state<{ id: string; msg: string } | null>(null);
+
+  function armRemove(id: string) {
+    rmArmedFor = id;
+    rmErrorFor = null;
+  }
+
+  // Click-away disarm: capture on document so a row's stopPropagation can't
+  // hide the press; a press inside the armed chip IS the confirm, not away.
+  $effect(() => {
+    if (!rmArmedFor) return;
+    const onDocDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest(".planet-rm-confirm")) return;
+      rmArmedFor = null;
+    };
+    document.addEventListener("pointerdown", onDocDown, true);
+    return () => document.removeEventListener("pointerdown", onDocDown, true);
+  });
+
   async function removeProject(p: Project) {
-    if (!window.confirm(`Remove planet "${p.name}"?`)) return;
     try {
       await invoke("project_rm", { id: p.id });
     } catch (e) {
-      window.alert(`${e}`);
+      rmArmedFor = null;
+      rmErrorFor = { id: p.id, msg: `${e}` };
       return;
     }
+    rmArmedFor = null;
+    rmErrorFor = null;
     projects = projects.filter((x) => x.id !== p.id);
     syncHabitat();
   }
@@ -2338,6 +2367,46 @@
   </li>
 {/snippet}
 
+<!-- GO-ORBITTY-PROJECT-ADD leftover (inspector rm click): the × arms an
+     in-sheet confirm chip (no window.confirm — JS dialogs don't surface on
+     the companion overlay). stopPropagation on mousedown AND click so the
+     companion pane-drag and the section-head collapse toggle can't steal
+     the press. Shared by the Inspector On planets rows and the rail list. -->
+{#snippet planetRm(p: Project)}
+  {#if rmArmedFor === p.id}
+    <span class="planet-rm-confirm" aria-label="Remove planet {p.name}?">
+      <span class="rm-q">Remove "{p.name}"?</span>
+      <button
+        class="mini rm-yes"
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={(e) => {
+          e.stopPropagation();
+          removeProject(p);
+        }}>Yes</button
+      >
+      <button
+        class="mini ghost"
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={(e) => {
+          e.stopPropagation();
+          rmArmedFor = null;
+        }}>No</button
+      >
+    </span>
+  {:else}
+    <button
+      class="mini ghost planet-rm"
+      onmousedown={(e) => e.stopPropagation()}
+      onclick={(e) => {
+        e.stopPropagation();
+        armRemove(p.id);
+      }}
+      title="Remove planet — cards keep their project, walkers vanish with the disc"
+      aria-label="Remove planet {p.name}">×</button
+    >
+  {/if}
+{/snippet}
+
 <!-- GO-ORBITTY-PLANETS-SHEET: hosted well body — one sheet, two sections.
      Unclaimed on top (icon + title + claim-to-planet through claim());
      On planets grouped by project (color + name + count, focused planet
@@ -2443,12 +2512,11 @@
                 <span class="section-name">{p.name}</span>
                 <span class="section-count">{rows.length}</span>
               </button>
-              <button
-                class="mini ghost planet-rm"
-                onclick={() => removeProject(p)}
-                title="Remove planet — cards keep their project, walkers vanish with the disc"
-                aria-label="Remove planet {p.name}">×</button>
+              {@render planetRm(p)}
             </div>
+            {#if rmErrorFor?.id === p.id}
+              <p class="rm-err" role="alert">{rmErrorFor.msg}</p>
+            {/if}
             {#if sheetIsOpen(p.id)}
               <ul class="wins">
                 {#each rows as w (w.id)}
@@ -2756,12 +2824,11 @@
                   <span class="section-name">{p.name}</span>
                   <span class="section-count">{visibleRows(rows).length + todosFor(p.id).length}</span>
                 </button>
-                <button
-                  class="mini ghost planet-rm"
-                  onclick={() => removeProject(p)}
-                  title="Remove planet — cards keep their project, walkers vanish with the disc"
-                  aria-label="Remove planet {p.name}">×</button>
+                {@render planetRm(p)}
               </div>
+              {#if rmErrorFor?.id === p.id}
+                <p class="rm-err" role="alert">{rmErrorFor.msg}</p>
+              {/if}
               {#if !isCollapsed(p.id)}
                 <ul class="wins">
                   {#each visibleRows(rows) as w (w.id)}
@@ -3531,6 +3598,42 @@
   .planet-rm {
     flex-shrink: 0;
     padding: 1px 6px;
+  }
+
+  /* The armed state: the × becomes an in-sheet confirm chip on the row —
+     WKWebView JS dialogs don't surface on the companion overlay, so the
+     confirm lives in the webview (S4.6 law). */
+  .planet-rm-confirm {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    min-width: 0;
+    font-size: 0.68rem;
+    color: var(--ink);
+  }
+
+  .planet-rm-confirm .rm-q {
+    color: var(--dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
+  }
+
+  .planet-rm-confirm .rm-yes {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Invoke failure stays in-sheet under the row's head — the row stays. */
+  .rm-err {
+    margin: 2px 2px 4px;
+    font-size: 0.68rem;
+    line-height: 1.45;
+    color: var(--accent);
+    word-break: break-all;
   }
 
   .chev {
