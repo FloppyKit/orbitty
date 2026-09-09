@@ -359,6 +359,34 @@ fn apply_on_main(app: &tauri::AppHandle) {
     ghost_apply(app);
 }
 
+/// GO-ORBITTY-PLUG-APP leftover (composer hitch): is the companion the
+/// key window — i.e. someone is typing in the composer? One objc read on
+/// the main thread (ghost_apply only ever runs there). The poll must
+/// never punch click-through under a live field.
+#[cfg(target_os = "macos")]
+fn window_is_key(w: &tauri::WebviewWindow) -> bool {
+    use objc::runtime::Object;
+    use objc::{msg_send, sel, sel_impl};
+    let Ok(raw) = w.ns_window() else {
+        return false;
+    };
+    if raw.is_null() {
+        return false;
+    }
+    unsafe {
+        let nsw = raw as *mut Object;
+        let key: bool = msg_send![nsw, isKeyWindow];
+        key
+    }
+}
+
+/// Off macOS the ghost never click-throughs (cursor_where is always
+/// OverHit), so the key read is unused there.
+#[cfg(not(target_os = "macos"))]
+fn window_is_key(_w: &tauri::WebviewWindow) -> bool {
+    false
+}
+
 /// Main-thread ghost turn. Self-healing: a stale gate or a mode flip
 /// since the post is re-checked here, so the poll can only ever apply
 /// mouse-off to a shown ghost.
@@ -374,6 +402,18 @@ fn ghost_apply(app: &tauri::AppHandle) {
         HOLD_SEEN_INSIDE.store(false, Ordering::SeqCst);
         let _ = w.set_ignore_cursor_events(false);
         return;
+    }
+    // GO-ORBITTY-PLUG-APP leftover (composer hitch): a KEY ghost is being
+    // typed in — the composer keeps the mouse. Re-arm the summon hold
+    // (leave-to-spend) on every poll while key, so a stale hit list can
+    // never punch the field click-through mid-keystroke: the field
+    // auto-grows on draft (CSS-only — a keystroke never re-reports hits),
+    // so the reported dock rect lags the live composer and the grown
+    // strip tested as empty air, eating the field for seconds at a time.
+    // Air click-through resumes on cursor-leave / focus loss — the same
+    // law as a summon.
+    if window_is_key(&w) {
+        SUMMON_HOLD.store(true, Ordering::SeqCst);
     }
     match cursor_where(&w) {
         // Fail-open: never strand the spirit unclickable.
