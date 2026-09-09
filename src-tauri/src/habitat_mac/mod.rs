@@ -273,15 +273,18 @@ pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/sout
 /// landmark, never live `planet.buildings` at runtime); NORTH pulled
 /// back -0.60 → -0.52 to the top of the northern tuft cluster (ty
 /// -0.568 → disc y ≈ -0.518); SOUTH stays 0.49 toward the Needed rim.
-/// A painted grass patch, never fence posts. WORLD-YARD wanders it;
-/// PROPS only paints it.
+/// touch+pad-inset-y leftover: Y shrunk by ONE beach-ball height off
+/// BOTH edges (ball blit 7 rows × scale clamp 3 = 21 px ≈ 0.07 disc-y
+/// at radius_y = 0.55·r): NORTH -0.52 → -0.45, SOUTH 0.49 → 0.42;
+/// WEST/EAST width unchanged. A painted grass patch, never fence
+/// posts. WORLD-YARD wanders it; PROPS only paints it.
 pub(crate) const YARD_WEST: f64 = -0.364; // PINNED — never moves
 pub(crate) const YARD_EAST: f64 = 0.54; // the shack's LEFT wall (HOUSE cx ≈ 0.55)
-pub(crate) const YARD_NORTH: f64 = -0.52; // top of the northern tufts
-pub(crate) const YARD_SOUTH: f64 = 0.49; // PINNED — never moves
+pub(crate) const YARD_NORTH: f64 = -0.45; // one beach-ball (0.07) in off the old top
+pub(crate) const YARD_SOUTH: f64 = 0.42; // one beach-ball (0.07) in off the old bottom
 /// GO-ORBITTY-WORLD-YARD: interior inset so sprites stay on the green —
 /// the wander AABB is the pad shrunk by this inward on every edge:
-/// x ∈ [-0.324, 0.50], y ∈ [-0.48, 0.45]. The box never reaches the
+/// x ∈ [-0.324, 0.50], y ∈ [-0.41, 0.38]. The box never reaches the
 /// igloo (x ≤ -0.50) or the sign footprint (the face sits at
 /// y ≈ -0.8), so an in-box target can never walk a body there.
 pub(crate) const YARD_INSET: f64 = 0.04;
@@ -554,12 +557,15 @@ pub(crate) fn pack_still_aspect(pf: &PackFrames) -> f64 {
 /// emphasis, the sprite fit does — same split as the blit) → sprite
 /// height `dh` from `walker_fit` (pack aspect, else the generated
 /// person's pixel grid) → kiss = top-center `(cx, base_y − dh)` plus a
-/// flat 6 px DOWN (flipped view: +y is down; NOT a fraction of dh — +3
-/// floated 2–3 px of air, 0.18·dh buried the crown). Pack PNGs carry
-/// transparent padding above the hair, so the raw box top reads as air
-/// — the +6 px drop puts ≈1–2 px of hair/crown UNDER the
-/// bottom-anchored ball at f = 0 / f = 1 (a 2px kiss: not hover, not a
-/// burial; cheap — no opaque-pixel scan). `pack_aspects` is per-pack
+/// flat 12 px DOWN (flipped view: +y is down; NOT a fraction of dh —
+/// +3 floated 2–3 px of air, +6 still floated on the thicker pack
+/// padding, 0.18·dh buried the crown). Pack PNGs carry transparent
+/// padding above the hair, so the raw box top reads as air — the
+/// +12 px drop lands past the padding with a few px of hair/crown
+/// UNDER the bottom-anchored ball at f = 0 / f = 1 (a real touch: not
+/// hover, not a burial; cheap — no opaque-pixel scan; still no contact
+/// hold — hop_done at elapsed >= dur, linear f). `pack_aspects` is
+/// per-pack
 /// `pack_still_aspect` output (0.0 = the generated person draws).
 /// Returns `(head_x, head_y, dh)`; None when the walker or its roam is
 /// gone.
@@ -593,7 +599,7 @@ pub(crate) fn walker_head_view(
     } else {
         crate::chars::H as f64 * (fit / crate::chars::H as f64).clamp(1.5, 8.0)
     };
-    Some((pt.x, base_y - dh + 6.0, dh))
+    Some((pt.x, base_y - dh + 12.0, dh))
 }
 
 /// The ball's VIEW-PIXEL position right now (draw blits it as returned —

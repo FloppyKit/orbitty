@@ -251,28 +251,29 @@ const TUFT_GREENS: [(u8, (f64, f64, f64)); 3] = [
 
 /// Tuft scatter — disc-local offsets from STATION_FIELD inside the
 /// paddock AABB (inset ~0.04 so the art stays on the green). Even
-/// indices draw TUFT, odd draw TUFT_SMALL. 2px-kiss leftover (pad to
-/// shack): the same 16 blades rescaled bbox→bbox into the pulled-back
-/// box — northern tufts sit on the new north edge (-0.52), east tufts
-/// stop at the shack's LEFT wall (inset east 0.50), west/south edges
-/// stay — the box is never bald.
+/// indices draw TUFT, odd draw TUFT_SMALL. touch+pad-inset-y leftover:
+/// the same 16 blades rescaled bbox→bbox on Y ONLY into the shortened
+/// box (y bbox [-0.53, 0.40] → [-0.45, 0.42]) — northern tufts sit on
+/// the new north edge (-0.45), southern tufts on the new south edge
+/// (0.42); x untouched — east tufts still stop at the shack's LEFT
+/// wall (inset east 0.50), west stays — the box is never bald.
 const GRASS_TUFTS: [(f64, f64); 16] = [
-    (-0.307, -0.463),
-    (-0.061, -0.530),
-    (0.202, -0.441),
-    (0.447, -0.508),
-    (-0.219, -0.220),
-    (0.079, -0.286),
-    (0.360, -0.176),
-    (0.500, -0.353),
-    (-0.324, 0.024),
-    (-0.096, -0.021),
-    (0.167, 0.046),
-    (0.413, 0.090),
-    (-0.201, 0.290),
-    (0.115, 0.400),
-    (0.343, 0.356),
-    (0.009, 0.201),
+    (-0.307, -0.387),
+    (-0.061, -0.450),
+    (0.202, -0.367),
+    (0.447, -0.429),
+    (-0.219, -0.160),
+    (0.079, -0.222),
+    (0.360, -0.119),
+    (0.500, -0.284),
+    (-0.324, 0.068),
+    (-0.096, 0.026),
+    (0.167, 0.089),
+    (0.413, 0.130),
+    (-0.201, 0.317),
+    (0.115, 0.420),
+    (0.343, 0.379),
+    (0.009, 0.234),
 ];
 
 /// Decor growth window: planted → fully grown.
