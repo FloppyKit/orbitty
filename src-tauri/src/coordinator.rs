@@ -491,6 +491,9 @@ fn save_plug(plug: &PlugState) {
 /// Soul text for the goose/grok mouth: the picked agent's md
 /// (`~/.agents/agents/{agent_profile or spark}.md`), capped ~4k chars so
 /// argv stays sane. Missing file → a one-line floor, never an empty flag.
+/// YAML frontmatter is stripped (clap reads a leading-dash value as
+/// another flag — Matt's spark.md ping died on `---`), and the body
+/// never starts with `-`.
 fn companion_soul_text(app: &tauri::AppHandle) -> String {
     const SOUL_CAP: usize = 4096;
     let persisted = crate::state::load_state(app)
@@ -499,18 +502,43 @@ fn companion_soul_text(app: &tauri::AppHandle) -> String {
     let stems = berd_agent_stems();
     let stem = resolve_agent_prefer(&persisted, &stems, "spark");
     let text = std::fs::read_to_string(berd_agents_dir().join(format!("{stem}.md")))
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let soul = if text.is_empty() {
+        .unwrap_or_default();
+    let body = strip_frontmatter(&text);
+    let soul = if body.is_empty() {
         "You are Spark, a warm, brief desk companion.".to_string()
     } else {
-        text
+        body
+    };
+    // Belt-and-suspenders next to the `--flag=value` argv form: a value
+    // that starts with `-` is a flag to clap.
+    let soul = if soul.starts_with('-') {
+        format!("Spark:\n{soul}")
+    } else {
+        soul
     };
     if soul.chars().count() > SOUL_CAP {
         soul.chars().take(SOUL_CAP).collect::<String>()
     } else {
         soul
+    }
+}
+
+/// Drop a leading YAML frontmatter block (`---` fence … closing `---`
+/// line), keeping the markdown body. No closing fence → not frontmatter,
+/// returned unchanged (the leading-`-` guard above still applies).
+fn strip_frontmatter(md: &str) -> String {
+    let t = md.trim();
+    let mut lines = t.lines();
+    let Some(first) = lines.next() else {
+        return String::new();
+    };
+    if first.trim() != "---" {
+        return t.to_string();
+    }
+    let rest: Vec<&str> = lines.collect();
+    match rest.iter().position(|l| l.trim() == "---") {
+        Some(close) => rest[close + 1..].join("\n").trim().to_string(),
+        None => t.to_string(),
     }
 }
 
@@ -1261,8 +1289,9 @@ fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Resu
             args.push(GOOSE_SESSION_NAME.into());
         }
     }
-    args.push("--system".into());
-    args.push(soul.to_string());
+    // Equals form, one argv: clap takes everything after `=` literally,
+    // even a value that starts with `-`.
+    args.push(format!("--system={soul}"));
     args.push("-t".into());
     args.push(line.to_string());
 
@@ -1336,8 +1365,9 @@ fn grok_args(sid: &str, minted: bool, soul: &str, line: &str) -> Vec<String> {
         "--always-approve".into(),
         "--no-subagents".into(),
         "--disable-web-search".into(),
-        "--rules".into(),
-        soul.to_string(),
+        // Grok's clap is the same: equals form keeps a dash-leading
+        // soul a value, one argv.
+        format!("--rules={soul}"),
     ]);
     args
 }
