@@ -105,6 +105,22 @@ fn locate_planet(app: tauri::AppHandle, id: String) -> Result<(), String> {
     habitat::locate_planet(app, id)
 }
 
+/// GO-ORBITTY-PROJECT-ADD leftover (inspector rm): the rail/sheet × door —
+/// the SAME save door as ctl (`board::project_rm`): atomic save, claim
+/// diff, `state:changed` emit. Cards keep their projectId; walkers vanish
+/// with the disc on the next habitat sync. Unknown id = honest error.
+#[cfg(unix)]
+#[tauri::command]
+fn project_rm(app: tauri::AppHandle, id: String) -> Result<state::Project, String> {
+    board::project_rm(&app, &id)
+}
+
+#[cfg(not(unix))]
+#[tauri::command]
+fn project_rm(_app: tauri::AppHandle, _id: String) -> Result<state::Project, String> {
+    Err("project.rm: unix only".into())
+}
+
 /// Frontend pushes the claimed-project snapshot; native side owns the panels.
 #[tauri::command]
 fn sync_habitat(app: tauri::AppHandle, snapshot: habitat::HabitatSnapshot) -> Result<(), String> {
@@ -423,6 +439,7 @@ pub fn run() {
             locate_window,
             locate_walker,
             locate_planet,
+            project_rm,
             sync_habitat,
             accessibility_status,
             open_accessibility_settings,

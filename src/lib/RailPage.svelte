@@ -1605,6 +1605,22 @@
     }
   }
 
+  // GO-ORBITTY-PROJECT-ADD leftover (inspector rm): the × on a planet row.
+  // The native command is the one save door (same as ctl) — cards keep
+  // their projectId, walkers vanish with the disc on the next habitat
+  // sync. The local list only mirrors that disk write; no persist() here.
+  async function removeProject(p: Project) {
+    if (!window.confirm(`Remove planet "${p.name}"?`)) return;
+    try {
+      await invoke("project_rm", { id: p.id });
+    } catch (e) {
+      window.alert(`${e}`);
+      return;
+    }
+    projects = projects.filter((x) => x.id !== p.id);
+    syncHabitat();
+  }
+
   function onDragStart(e: DragEvent, w: WindowInfo) {
     dragWindowId = w.id;
     dragStartedAt = Date.now();
@@ -2410,22 +2426,29 @@
         {#each projects as p (p.id)}
           {@const rows = sheetRowsFor(p.id)}
           <li class="section">
-            <button
-              class="section-head"
-              onclick={() => sheetToggle(p.id)}
-              aria-expanded={sheetIsOpen(p.id)}
-              title={sheetIsOpen(p.id) ? "Collapse" : "Expand"}
-            >
-              <span class="chev" class:open={sheetIsOpen(p.id)} aria-hidden="true">▸</span>
-              <span
-                class="planet-chip"
-                style="background: {planetCss(p.id)}"
-                title={p.name}
-                aria-hidden="true"
-              ></span>
-              <span class="section-name">{p.name}</span>
-              <span class="section-count">{rows.length}</span>
-            </button>
+            <div class="head-row">
+              <button
+                class="section-head"
+                onclick={() => sheetToggle(p.id)}
+                aria-expanded={sheetIsOpen(p.id)}
+                title={sheetIsOpen(p.id) ? "Collapse" : "Expand"}
+              >
+                <span class="chev" class:open={sheetIsOpen(p.id)} aria-hidden="true">▸</span>
+                <span
+                  class="planet-chip"
+                  style="background: {planetCss(p.id)}"
+                  title={p.name}
+                  aria-hidden="true"
+                ></span>
+                <span class="section-name">{p.name}</span>
+                <span class="section-count">{rows.length}</span>
+              </button>
+              <button
+                class="mini ghost planet-rm"
+                onclick={() => removeProject(p)}
+                title="Remove planet — cards keep their project, walkers vanish with the disc"
+                aria-label="Remove planet {p.name}">×</button>
+            </div>
             {#if sheetIsOpen(p.id)}
               <ul class="wins">
                 {#each rows as w (w.id)}
@@ -2714,24 +2737,31 @@
               ondragleave={(e) => onSectionDragLeave(e, p.id)}
               ondrop={(e) => onSectionDrop(e, p.id)}
             >
-              <button
-                class="section-head"
-                onclick={() => toggleCollapse(p.id)}
-                aria-expanded={!isCollapsed(p.id)}
-                title={isCollapsed(p.id)
-                  ? "Expand — you can also drop a window on this header"
-                  : "Collapse"}
-              >
-                <span class="chev" class:open={!isCollapsed(p.id)} aria-hidden="true">▸</span>
-                <span
-                  class="planet-chip"
-                  style="background: {planetCss(p.id)}"
-                  title={p.name}
-                  aria-hidden="true"
-                ></span>
-                <span class="section-name">{p.name}</span>
-                <span class="section-count">{visibleRows(rows).length + todosFor(p.id).length}</span>
-              </button>
+              <div class="head-row">
+                <button
+                  class="section-head"
+                  onclick={() => toggleCollapse(p.id)}
+                  aria-expanded={!isCollapsed(p.id)}
+                  title={isCollapsed(p.id)
+                    ? "Expand — you can also drop a window on this header"
+                    : "Collapse"}
+                >
+                  <span class="chev" class:open={!isCollapsed(p.id)} aria-hidden="true">▸</span>
+                  <span
+                    class="planet-chip"
+                    style="background: {planetCss(p.id)}"
+                    title={p.name}
+                    aria-hidden="true"
+                  ></span>
+                  <span class="section-name">{p.name}</span>
+                  <span class="section-count">{visibleRows(rows).length + todosFor(p.id).length}</span>
+                </button>
+                <button
+                  class="mini ghost planet-rm"
+                  onclick={() => removeProject(p)}
+                  title="Remove planet — cards keep their project, walkers vanish with the disc"
+                  aria-label="Remove planet {p.name}">×</button>
+              </div>
               {#if !isCollapsed(p.id)}
                 <ul class="wins">
                   {#each visibleRows(rows) as w (w.id)}
@@ -3482,6 +3512,25 @@
   .section-head:focus-visible {
     outline: 2px solid var(--focus, #6e4db0);
     outline-offset: 1px;
+  }
+
+  /* GO-ORBITTY-PROJECT-ADD leftover (inspector rm): head + × share one
+     row — the head keeps the flex, the × stays out of the collapse
+     toggle so a remove can never misclick-expand. */
+  .head-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .head-row .section-head {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .planet-rm {
+    flex-shrink: 0;
+    padding: 1px 6px;
   }
 
   .chev {
