@@ -10,6 +10,8 @@
 //! kanban.move / needed.open / log.append) alongside the v0 read/open
 //! surface — same one Unix round-trip per tools/call, same control.json
 //! ACL (writes: full / named custom only).
+//! GO-ORBITTY-PROJECT-ADD lists the planet control plane (project.add /
+//! project.rm / project.rename) next to the kanban writes — same ACL.
 
 #[cfg(unix)]
 mod imp {
@@ -28,7 +30,8 @@ struct ToolDef {
     description: &'static str,
     /// "none" | "id" | "line" | "profile" | "clip" | "kanban_add" |
     /// "kanban_move" | "needed_open" | "log_append" | "action_add" |
-    /// "action_run" | "action_rm"
+    /// "action_run" | "action_rm" | "project_add" | "project_rm" |
+    /// "project_rename"
     args: &'static str,
 }
 
@@ -56,6 +59,12 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
+    // GO-ORBITTY-PROJECT-ADD: the planet control plane, next to the kanban
+    // writes. Same ACL (full / named custom only). rm keeps cards'
+    // projectId and live claims; duplicate display names are allowed.
+    ToolDef { name: "project.add", description: "Mint a project planet (empty name refused; duplicate names allowed, ids unique)", args: "project_add" },
+    ToolDef { name: "project.rm", description: "Remove a project planet by id; cards keep their projectId and live claims stay (walkers vanish on next habitat sync)", args: "project_rm" },
+    ToolDef { name: "project.rename", description: "Rename a project planet, keeping its id (empty name refused)", args: "project_rename" },
     // GO-ORBITTY-ACTION-FILE: the action recipe file. list is read-safe;
     // add / run ride the companion profile (Spark mints + runs named
     // recipes, never a raw shell); rm needs full / named custom ("action.*").
@@ -162,6 +171,28 @@ fn input_schema(kind: &str) -> Value {
                 "id": { "type": "string", "description": "Action id" }
             },
             "required": ["id"]
+        }),
+        "project_add" => json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Planet name (empty refused; duplicates allowed)" }
+            },
+            "required": ["name"]
+        }),
+        "project_rm" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Project id (unknown id errors)" }
+            },
+            "required": ["id"]
+        }),
+        "project_rename" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Project id" },
+                "name": { "type": "string", "description": "New planet name (empty refused)" }
+            },
+            "required": ["id", "name"]
         }),
         _ => json!({ "type": "object", "properties": {} }),
     }

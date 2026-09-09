@@ -32,6 +32,9 @@ commands:
   kanban open
   kanban add --title \"t\" [--project P] [--status todo|doing]
   kanban move --id <id> --status todo|doing|done
+  project add --name N
+  project rm --id <id>
+  project rename --id <id> --name <new>
   action list
   action add --name N --cmd \"C\" [--cwd D] [--combo cmd+alt+m]
   action run --id <id> | --name <name>
@@ -53,6 +56,12 @@ GO-ORBITTY-MCP-WRITE: the four write verbs (kanban add/move, needed open,
 log append) mutate through the app's one save door — the UI live-updates.
 ACL: control.json profile full, or a named custom allowlist entry; read /
 companion are denied (exit 4).
+
+GO-ORBITTY-PROJECT-ADD: project add / rm / rename mint, kill, and rename
+planets through the same save door (habitat paints whatever projects[]
+holds). Empty --name refused; duplicate display names allowed (ids are
+unique). project rm keeps cards' projectId and live claims — walkers
+vanish with the disc on the next habitat sync. Same ACL as kanban.add.
 
 GO-ORBITTY-ACTION-FILE: action list is read-safe; the companion profile
 may action add / action run (Spark mints named recipes — never a raw
@@ -228,6 +237,17 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["kanban", "move"] => Ok((
             "kanban.move",
             json!({ "id": need_id(o)?, "status": need_flag(&o.status, "--status")? }),
+        )),
+        // GO-ORBITTY-PROJECT-ADD: planet control plane. need_flag trims and
+        // refuses an empty --name; the server owns unknown-id errors.
+        ["project", "add"] => Ok((
+            "project.add",
+            json!({ "name": need_flag(&o.name, "--name")? }),
+        )),
+        ["project", "rm"] => Ok(("project.rm", json!({ "id": need_id(o)? }))),
+        ["project", "rename"] => Ok((
+            "project.rename",
+            json!({ "id": need_id(o)?, "name": need_flag(&o.name, "--name")? }),
         )),
         // GO-ORBITTY-ACTION-FILE: the action recipe file. The server owns
         // validation (parse, reserved chords, unknown ids) and the ACL.
@@ -427,6 +447,21 @@ fn print_human(tool: &str, data: &Value) {
             "{} → {}",
             data["id"].as_str().unwrap_or("?"),
             data["status"].as_str().unwrap_or("?")
+        ),
+        "project.add" => println!(
+            "added {} — {}",
+            data["id"].as_str().unwrap_or("?"),
+            data["name"].as_str().unwrap_or("")
+        ),
+        "project.rm" => println!(
+            "removed {} — {}",
+            data["id"].as_str().unwrap_or("?"),
+            data["name"].as_str().unwrap_or("")
+        ),
+        "project.rename" => println!(
+            "renamed {} — {}",
+            data["id"].as_str().unwrap_or("?"),
+            data["name"].as_str().unwrap_or("")
         ),
         "action.list" => {
             let Some(arr) = data.as_array() else {

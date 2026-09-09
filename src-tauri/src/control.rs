@@ -23,6 +23,11 @@
 //! safe; the companion profile (Spark) may `action.run` + `action.add` —
 //! it mints and runs named recipes, never a raw shell; `action.rm` needs
 //! `full` or a custom allowlist naming the tool or the `action.*` prefix.
+//!
+//! GO-ORBITTY-PROJECT-ADD adds the planet control plane (project.add /
+//! project.rm / project.rename). Same ACL class as the kanban writes:
+//! never in READ_TOOLS, never companion.* — `full` or a named `custom`
+//! entry only; `read` / `companion` deny (4).
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -214,7 +219,8 @@ fn load_acl(dir: &Path) -> Result<Acl, String> {
 // GO-ORBITTY-MCP-WRITE: the write tools (kanban.add / kanban.move /
 // needed.open / log.append) are deliberately NOT here and not companion.* —
 // `read` and `companion` profiles deny them (4); only `full` or a named
-// `custom` entry allows a write.
+// `custom` entry allows a write. GO-ORBITTY-PROJECT-ADD: project.add /
+// project.rm / project.rename ride the same rule.
 const READ_TOOLS: &[&str] = &[
     "app.status",
     "app.accessibility_status",
@@ -445,6 +451,29 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let project = arg_opt(args, "projectId").unwrap_or_default();
             let why = arg_opt(args, "why");
             crate::board::needed_open(app, &title, &project, why.as_deref())
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // GO-ORBITTY-PROJECT-ADD: mint / kill / rename planets. Same one
+        // save door as the kanban writes (state:changed emit), so the
+        // habitat paints the new projects[] on the next sync. ACL: full /
+        // named custom only (not in READ_TOOLS, never companion.*).
+        "project.add" => {
+            let name = arg_str(args, "name")?;
+            crate::board::project_add(app, &name)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        "project.rm" => {
+            let id = arg_str(args, "id")?;
+            crate::board::project_rm(app, &id)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        "project.rename" => {
+            let id = arg_str(args, "id")?;
+            let name = arg_str(args, "name")?;
+            crate::board::project_rename(app, &id, &name)
                 .map(to_data)
                 .map_err(tool_err)
         }

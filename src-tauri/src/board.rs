@@ -6,12 +6,15 @@
 //! exactly as on a UI write. No claim/unclaim tools here: a done-move keeps
 //! the claim so the walk-off still narrates (the rail's habitat:walked-off
 //! handler unclaims, same as the checkbox).
+//! GO-ORBITTY-PROJECT-ADD adds the planet control plane (`project.add` /
+//! `project.rm` / `project.rename`) — same one save door; habitat paints
+//! whatever `projects[]` holds, no tick/draw changes here.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 
 use crate::event_log;
-use crate::state::{KanbanCard, PersistedState, PointsEntry};
+use crate::state::{KanbanCard, PersistedState, PointsEntry, Project};
 
 /// Same daily points cap as the board (KanbanPage DAILY_CAP).
 const DAILY_CAP: u32 = 12;
@@ -252,6 +255,91 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
         &serde_json::json!({ "from": from, "to": target, "cardId": id }),
     );
     Ok(after.kanban_cards[idx].clone())
+}
+
+/// GO-ORBITTY-PROJECT-ADD: `project.add` — mint a planet row
+/// `{ id: new_id("p"), name }` (the rail's createProject id shape). Empty
+/// name refused; duplicate display names are allowed (ids are unique).
+/// Logs `project-add`.
+pub fn project_add(app: &tauri::AppHandle, name: &str) -> Result<Project, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("project.add: empty name".into());
+    }
+    let before = crate::state::load_state(app)?;
+    let project = Project {
+        id: new_id("p"),
+        name: name.to_string(),
+    };
+    let mut after = before.clone();
+    after.projects.push(project.clone());
+    save_with_events(app, &before, &after)?;
+    event_log::append_best(
+        app,
+        "project-add",
+        None,
+        Some(&project.id),
+        Some("agent"),
+        true,
+        &serde_json::json!({ "projectId": project.id, "name": project.name }),
+    );
+    Ok(project)
+}
+
+/// GO-ORBITTY-PROJECT-ADD: `project.rm` — drop the row from `projects`.
+/// Cards keep their `projectId`; live claims stay (walkers vanish with
+/// the disc on the next habitat sync). Never auto-minted, never
+/// auto-killed — ctl is the door. Unknown id = honest error. Logs
+/// `project-rm`.
+pub fn project_rm(app: &tauri::AppHandle, id: &str) -> Result<Project, String> {
+    let before = crate::state::load_state(app)?;
+    let idx = before
+        .projects
+        .iter()
+        .position(|p| p.id == id)
+        .ok_or_else(|| format!("project.rm: unknown project id {id:?}"))?;
+    let gone = before.projects[idx].clone();
+    let mut after = before.clone();
+    after.projects.remove(idx);
+    save_with_events(app, &before, &after)?;
+    event_log::append_best(
+        app,
+        "project-rm",
+        None,
+        Some(&gone.id),
+        Some("agent"),
+        true,
+        &serde_json::json!({ "projectId": gone.id, "name": gone.name }),
+    );
+    Ok(gone)
+}
+
+/// GO-ORBITTY-PROJECT-ADD: `project.rename` — change `name`, keep `id`.
+/// Empty name = error; unknown id = honest error. Logs `project-rename`.
+pub fn project_rename(app: &tauri::AppHandle, id: &str, name: &str) -> Result<Project, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("project.rename: empty name".into());
+    }
+    let before = crate::state::load_state(app)?;
+    let idx = before
+        .projects
+        .iter()
+        .position(|p| p.id == id)
+        .ok_or_else(|| format!("project.rename: unknown project id {id:?}"))?;
+    let mut after = before.clone();
+    after.projects[idx].name = name.to_string();
+    save_with_events(app, &before, &after)?;
+    event_log::append_best(
+        app,
+        "project-rename",
+        None,
+        Some(id),
+        Some("agent"),
+        true,
+        &serde_json::json!({ "projectId": id, "name": name }),
+    );
+    Ok(after.projects[idx].clone())
 }
 
 /// `needed.open` — mint `kind: "needed"`, `neededState: "open"`,
