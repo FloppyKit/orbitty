@@ -266,19 +266,22 @@ pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/sout
 /// GO-ORBITTY-WORLD-PROPS: the grass paddock — four disc-unit edges,
 /// NOT a centered square (a centered YARD_HALF bump would move the west
 /// edge). WORLD-YARD leftover (pad grow, ~+50%): WEST PINNED at -0.364
-/// (keeps the gap to the igloo's east edge ≈ -0.52); ALL extra width
-/// goes east (0.364 → 0.728; width 0.728 → 1.092); most extra height
-/// goes north toward the sign (-0.314 → -0.60, keeping a ≥ 0.12 gap to
-/// STATION_BOARD y = -0.72); least extra south toward the Needed rim
-/// (0.414 → 0.49; height 0.728 → 1.09). A painted grass patch, never
-/// fence posts. WORLD-YARD wanders it; PROPS only paints it.
+/// (keeps the gap to the igloo's east edge ≈ -0.52). 2px-kiss leftover
+/// (pad to shack): EAST pulled back 0.728 → 0.54 so the dirt's right
+/// edge kisses the user-placed HOUSE shack's LEFT wall (glyph cx ≈
+/// 0.55, 8-wide blit — a sliver of overlap is fine; locked from that
+/// landmark, never live `planet.buildings` at runtime); NORTH pulled
+/// back -0.60 → -0.52 to the top of the northern tuft cluster (ty
+/// -0.568 → disc y ≈ -0.518); SOUTH stays 0.49 toward the Needed rim.
+/// A painted grass patch, never fence posts. WORLD-YARD wanders it;
+/// PROPS only paints it.
 pub(crate) const YARD_WEST: f64 = -0.364; // PINNED — never moves
-pub(crate) const YARD_EAST: f64 = 0.728;
-pub(crate) const YARD_NORTH: f64 = -0.60;
-pub(crate) const YARD_SOUTH: f64 = 0.49;
+pub(crate) const YARD_EAST: f64 = 0.54; // the shack's LEFT wall (HOUSE cx ≈ 0.55)
+pub(crate) const YARD_NORTH: f64 = -0.52; // top of the northern tufts
+pub(crate) const YARD_SOUTH: f64 = 0.49; // PINNED — never moves
 /// GO-ORBITTY-WORLD-YARD: interior inset so sprites stay on the green —
 /// the wander AABB is the pad shrunk by this inward on every edge:
-/// x ∈ [-0.324, 0.688], y ∈ [-0.56, 0.45]. The box never reaches the
+/// x ∈ [-0.324, 0.50], y ∈ [-0.48, 0.45]. The box never reaches the
 /// igloo (x ≤ -0.50) or the sign footprint (the face sits at
 /// y ≈ -0.8), so an in-box target can never walk a body there.
 pub(crate) const YARD_INSET: f64 = 0.04;
@@ -491,22 +494,16 @@ pub(crate) fn yard_clamp(x: f64, y: f64) -> (f64, f64) {
 pub(crate) const BALL_ARC_HEADS_MIN: f64 = 1.2;
 pub(crate) const BALL_ARC_HEADS_MAX: f64 = 1.8;
 
-/// Contact hold (cover-the-hair leftover): after f = 1 the ball LINGERS
-/// on the target's LIVE head this long before the next hop — a fraction
-/// of a second of overlap so the keep-up actually TOUCHES (retargeting
-/// at f = 1 made contact one frame). On the head, never a rest on the
-/// grass; the hop cadence itself stays 1.0–1.45s.
-pub(crate) const BALL_CONTACT_HOLD: f64 = 0.15;
-
 /// Live beach-ball keep-up flight (in-memory only — never persisted).
 /// `from` is the VIEW-PIXEL head of the last lander, snapshotted at hop
 /// start (f = 0 touches it); the ball arcs to the current target's LIVE
 /// view-pixel head (f = 1 touches it — a darting walker still gets
-/// tagged) over `dur` secs, LINGERS BALL_CONTACT_HOLD on that live head
-/// (the kiss reads as a touch, never one frame), then hops to the next
-/// Doing body round-robin with no rest on the ground. `arc` is the
-/// mid-hop screen lift in px, snapshotted at hop start (≈1.2–1.8 × the
-/// target's sprite height). `stream` feeds the per-hop duration/arc
+/// tagged) over `dur` secs, then hops to the next Doing body
+/// round-robin with no rest on the ground. 2px-kiss leftover: NO
+/// contact hold — the hop is done at elapsed >= dur, linear f, constant
+/// speed; touch → pop → next hop, never a linger on the head. `arc` is
+/// the mid-hop screen lift in px, snapshotted at hop start (≈1.2–1.8 ×
+/// the target's sprite height). `stream` feeds the per-hop duration/arc
 /// hashes.
 #[derive(Clone, Debug)]
 struct BallState {
@@ -556,12 +553,13 @@ pub(crate) fn pack_still_aspect(pf: &PackFrames) -> f64 {
 /// `base_y` (frame.max_y() − 2 + bob; the hit box carries NO 2.5D
 /// emphasis, the sprite fit does — same split as the blit) → sprite
 /// height `dh` from `walker_fit` (pack aspect, else the generated
-/// person's pixel grid) → kiss = top-center `(cx, base_y − dh)` plus
-/// 0.18·dh DOWN (flipped view: +y is down; ≈ 8–14 px at typical walker
-/// size). Pack PNGs carry transparent padding above the hair, so the
-/// raw box top reads as air — the 0.18·dh drop puts a few pixels of
-/// hair/crown UNDER the bottom-anchored ball at f = 0 / f = 1 (cover,
-/// not hover; cheap — no opaque-pixel scan). `pack_aspects` is per-pack
+/// person's pixel grid) → kiss = top-center `(cx, base_y − dh)` plus a
+/// flat 6 px DOWN (flipped view: +y is down; NOT a fraction of dh — +3
+/// floated 2–3 px of air, 0.18·dh buried the crown). Pack PNGs carry
+/// transparent padding above the hair, so the raw box top reads as air
+/// — the +6 px drop puts ≈1–2 px of hair/crown UNDER the
+/// bottom-anchored ball at f = 0 / f = 1 (a 2px kiss: not hover, not a
+/// burial; cheap — no opaque-pixel scan). `pack_aspects` is per-pack
 /// `pack_still_aspect` output (0.0 = the generated person draws).
 /// Returns `(head_x, head_y, dh)`; None when the walker or its roam is
 /// gone.
@@ -595,7 +593,7 @@ pub(crate) fn walker_head_view(
     } else {
         crate::chars::H as f64 * (fit / crate::chars::H as f64).clamp(1.5, 8.0)
     };
-    Some((pt.x, base_y - dh + 0.18 * dh, dh))
+    Some((pt.x, base_y - dh + 6.0, dh))
 }
 
 /// The ball's VIEW-PIXEL position right now (draw blits it as returned —
@@ -604,11 +602,12 @@ pub(crate) fn walker_head_view(
 /// tracks a darting walker) — plus the mid-hop lift straight up the
 /// screen (−y in the flipped view). f = 0 and f = 1 are TOUCHES (ball
 /// overlapping a head); sin(πf)·arc lifts the middle clearly off the
-/// grass above BOTH heads. Past f = 1 (the BALL_CONTACT_HOLD linger) f
-/// stays clamped at 1, so the ball rides the target's LIVE head until
-/// the next hop. A target that vanished mid-hop holds at the launch
-/// point until the next hop re-targets. None = hidden (toggle
-/// off / fewer than 2 Doing).
+/// grass above BOTH heads. Linear f, constant speed — no ease, no
+/// dwell, no slowdown in the last stretch; the next hop starts at
+/// elapsed >= dur (f clamps at 1 only for the tick in between). A
+/// target that vanished mid-hop holds at the launch point until the
+/// next hop re-targets. None = hidden (toggle off / fewer than 2
+/// Doing).
 pub(crate) fn ball_pos(
     pack_aspects: &[f64],
     planet: &Planet,

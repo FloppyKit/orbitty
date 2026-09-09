@@ -251,26 +251,28 @@ const TUFT_GREENS: [(u8, (f64, f64, f64)); 3] = [
 
 /// Tuft scatter — disc-local offsets from STATION_FIELD inside the
 /// paddock AABB (inset ~0.04 so the art stays on the green). Even
-/// indices draw TUFT, odd draw TUFT_SMALL. Pad-grow leftover: the same
-/// 16 blades rescaled into the grown four-edge box (west edge pinned,
-/// stretched east and mostly north) — the new east/north is never bald.
+/// indices draw TUFT, odd draw TUFT_SMALL. 2px-kiss leftover (pad to
+/// shack): the same 16 blades rescaled bbox→bbox into the pulled-back
+/// box — northern tufts sit on the new north edge (-0.52), east tufts
+/// stop at the shack's LEFT wall (inset east 0.50), west/south edges
+/// stay — the box is never bald.
 const GRASS_TUFTS: [(f64, f64); 16] = [
-    (-0.265, -0.507),
-    (0.020, -0.568),
-    (0.324, -0.487),
-    (0.608, -0.548),
-    (-0.163, -0.284),
-    (0.182, -0.345),
-    (0.507, -0.244),
-    (0.669, -0.406),
-    (-0.285, -0.061),
-    (-0.021, -0.102),
-    (0.284, -0.041),
-    (0.568, -0.001),
-    (-0.143, 0.182),
-    (0.223, 0.283),
-    (0.487, 0.243),
-    (0.101, 0.101),
+    (-0.307, -0.463),
+    (-0.061, -0.530),
+    (0.202, -0.441),
+    (0.447, -0.508),
+    (-0.219, -0.220),
+    (0.079, -0.286),
+    (0.360, -0.176),
+    (0.500, -0.353),
+    (-0.324, 0.024),
+    (-0.096, -0.021),
+    (0.167, 0.046),
+    (0.413, 0.090),
+    (-0.201, 0.290),
+    (0.115, 0.400),
+    (0.343, 0.356),
+    (0.009, 0.201),
 ];
 
 /// Decor growth window: planted → fully grown.
@@ -728,9 +730,9 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
 
     // GO-ORBITTY-WORLD-PROPS: the paddock is a grass patch, never fence
     // posts. Leftover: no more filled-green blotch — a faint darker dirt
-    // underlay in the same four-edge AABB (west edge PINNED at
-    // YARD_WEST; the pad-grow extra goes east, mostly north, least
-    // south), then blade-tuft pixel art scattered across it so the read
+    // underlay in the same four-edge AABB (west/south edges PINNED;
+    // east pulled back to the shack's LEFT wall, north to the tuft
+    // tops), then blade-tuft pixel art scattered across it so the read
     // is grass. West side open toward the igloo, south open toward the
     // Needed rim. Painted under the decor so plants sit on it.
     if !d.is_marble {
@@ -1036,10 +1038,10 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     // walkers above the grass — cheap pixel art (orange/white panels),
     // never a photo texture. Marbles never carry one (ball_pos gates).
     // Head-kiss leftover: bottom-anchored ON the kiss point (sprite top
-    // + 0.18·dh down in walker_head_view) — the ball's lower third /
-    // bottom sits IN the hair, a keep-up touch that covers the crown,
-    // never the ball's center hovering on the sprite-box top
-    // (transparent pack padding read as air).
+    // + a flat 6 px down in walker_head_view) — ≈1–2 px of hair under
+    // the ball's bottom, a keep-up touch, never the ball's center
+    // hovering on the sprite-box top (transparent pack padding read as
+    // air) and never the crown buried.
     if let Some((bx, by)) = d.ball {
         let scale = (0.022 * d.radius).clamp(1.5, 3.0);
         draw_pixel_art(
