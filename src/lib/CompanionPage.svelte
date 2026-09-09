@@ -8,10 +8,11 @@
   // menu, never a loop) and hold-to-talk — nothing is ever drawn on the
   // spirit itself.
   // S2.4 / GO-COMPANION-BERD: REAL send via native companion_send.
-  // Default backend = Berd (bound Orbitty Companion session + berdctl).
-  // Escape: ORBITTY_COMPANION_BACKEND=hermes → legacy hermes path.
+  // GO-ORBITTY-PLUG-APP: the mouth is a plug map — default backend is
+  // Goose (`goose run`, plug.json session); ORBITTY_COMPANION_BACKEND
+  // picks grok | hermes (compat) | berd (hidden escape). Never Cursor.
   // Async — Send disables while in flight. Never hosts a model here.
-  // Agent picker lists ~/.agents/agents stems (Berd) by default.
+  // Agent picker lists ~/.agents/agents stems (four-cast) by default.
   // S2.5: OPTIMISTIC you — the bubble lands on Send (before the agent
   // answers), the field clears, the transcript pins to the bottom, and a
   // pending them bubble holds until the reply; a failed send keeps

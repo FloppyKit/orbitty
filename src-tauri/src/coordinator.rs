@@ -144,16 +144,25 @@ pub fn launch_coordinator(
     route_to_hermes(&ctx, &query)
 }
 
-// ---------- S2.4 companion: Berd/Goose primary (GO-COMPANION-BERD) ----------
-// Default backend is Berd (`berdctl` + ~/.agents/companions/orbitty-primary).
-// Escape hatch: ORBITTY_COMPANION_BACKEND=hermes restores the old Hermes path.
+// ---------- S2.4 companion: plug map (GO-ORBITTY-PLUG-APP) ----------
+// The mouth is a plug map now — off the Berd/Goose combo. Default mouth is
+// **Goose** (`goose run` + plug.json session); `grok` is a mouth; `hermes`
+// is compat; `berd` (`berdctl` + ~/.agents/companions/orbitty-primary) is
+// the hidden escape only. Never Cursor / OpenCode / ocx / Claude / Codex /
+// Pi. ORBITTY_COMPANION_BACKEND picks; an unknown value is an honest
+// error at send — never a silent Berd fallback.
 
-/// `berd` (default) or `hermes`.
+/// Plug map: unset/empty/`goose` → `goose` (default mouth); `grok`;
+/// `hermes` (compat); `berd` (hidden escape). Anything else is returned
+/// raw so the send path can fail on it honestly.
 fn companion_backend() -> String {
-    std::env::var("ORBITTY_COMPANION_BACKEND")
-        .unwrap_or_else(|_| "berd".into())
-        .trim()
-        .to_ascii_lowercase()
+    let raw = std::env::var("ORBITTY_COMPANION_BACKEND").unwrap_or_default();
+    let b = raw.trim().to_ascii_lowercase();
+    if b.is_empty() {
+        "goose".into()
+    } else {
+        b
+    }
 }
 
 fn companions_root() -> PathBuf {
@@ -433,6 +442,167 @@ fn update_soul_pointer(agent_stem: &str) {
     let _ = std::fs::write(p, serde_json::to_string_pretty(&v).unwrap_or_default() + "\n");
 }
 
+// ---------- GO-ORBITTY-PLUG-APP: goose/grok mouths + plug.json sessions ----------
+
+/// Persisted plug sessions: `companions/orbitty-primary/plug.json`.
+/// Product sessions only — NEVER the Berd `session.json` id (`20260825_2`)
+/// and never the orbitty-plug probe ids; those stay in the cascade's own
+/// state.json. This file is the only plug state Orbitty writes.
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+struct PlugState {
+    /// Goose `YYYYMMDD_N`, captured from `goose session list` after the
+    /// first `--name orbitty-companion` send (`--name` is not a unique
+    /// resume key — resume needs `--session-id ID --resume`).
+    #[serde(default)]
+    goose_session_id: Option<String>,
+    /// Grok UUID, minted on first use. First send `-s UUID`; later sends
+    /// `--resume UUID` (re-passing `-s` on a live id fails).
+    #[serde(default)]
+    grok_session_id: Option<String>,
+    #[serde(default)]
+    grok_session_minted: bool,
+}
+
+fn plug_path() -> PathBuf {
+    companions_root().join("plug.json")
+}
+
+fn load_plug() -> PlugState {
+    let Ok(raw) = std::fs::read_to_string(plug_path()) else {
+        return PlugState::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+/// Atomic-ish (tmp + rename), best-effort — a lost write just means the
+/// next send re-learns the session id.
+fn save_plug(plug: &PlugState) {
+    let p = plug_path();
+    let _ = std::fs::create_dir_all(companions_root());
+    let Ok(body) = serde_json::to_string_pretty(plug) else {
+        return;
+    };
+    let tmp = p.with_extension("json.tmp");
+    if std::fs::write(&tmp, body + "\n").is_ok() {
+        let _ = std::fs::rename(&tmp, &p);
+    }
+}
+
+/// Soul text for the goose/grok mouth: the picked agent's md
+/// (`~/.agents/agents/{agent_profile or spark}.md`), capped ~4k chars so
+/// argv stays sane. Missing file → a one-line floor, never an empty flag.
+fn companion_soul_text(app: &tauri::AppHandle) -> String {
+    const SOUL_CAP: usize = 4096;
+    let persisted = crate::state::load_state(app)
+        .map(|s| s.companion.agent_profile)
+        .unwrap_or_default();
+    let stems = berd_agent_stems();
+    let stem = resolve_agent_prefer(&persisted, &stems, "spark");
+    let text = std::fs::read_to_string(berd_agents_dir().join(format!("{stem}.md")))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let soul = if text.is_empty() {
+        "You are Spark, a warm, brief desk companion.".to_string()
+    } else {
+        text
+    };
+    if soul.chars().count() > SOUL_CAP {
+        soul.chars().take(SOUL_CAP).collect::<String>()
+    } else {
+        soul
+    }
+}
+
+/// Grok bin: PATH + the usual fallback dirs, then `~/.grok/bin/grok` —
+/// Orbitty.app often has a thin PATH.
+fn find_grok() -> Option<PathBuf> {
+    if let Some(p) = find_on_path("grok") {
+        return Some(p);
+    }
+    let home = std::env::var("HOME").ok()?;
+    let p = PathBuf::from(home).join(".grok").join("bin").join("grok");
+    p.is_file().then_some(p)
+}
+
+fn is_uuid(s: &str) -> bool {
+    let lens = [8usize, 4, 4, 4, 12];
+    let parts: Vec<&str> = s.split('-').collect();
+    parts.len() == 5
+        && parts
+            .iter()
+            .zip(lens)
+            .all(|(p, n)| p.len() == n && p.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// v4 UUID via macOS `uuidgen` (always present on the dogfood target).
+fn mint_uuid() -> Result<String, String> {
+    let out = Command::new("uuidgen")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| format!("launch uuidgen: {e}"))?;
+    if !out.status.success() {
+        return Err("uuidgen failed — cannot mint a grok session id.".into());
+    }
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_ascii_lowercase();
+    if !is_uuid(&id) {
+        return Err("uuidgen returned a bad id.".into());
+    }
+    Ok(id)
+}
+
+/// Goose session ids look like `20260909_2` (YYYYMMDD_N).
+fn is_goose_session_id(s: &str) -> bool {
+    let mut parts = s.split('_');
+    let (Some(d), Some(n), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    d.len() == 8
+        && d.chars().all(|c| c.is_ascii_digit())
+        && !n.is_empty()
+        && n.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Spawn a mouth CLI, poll with a timeout, kill the child on expiry.
+/// stdout on exit 0; one honest stderr line otherwise. No desktop lock is
+/// ever set here — BERDCTL_LOCK belongs to the berd escape path only.
+fn run_mouth_cli(tool: &str, bin: &Path, args: &[String], timeout_secs: u64) -> Result<String, String> {
+    let mut child = Command::new(bin)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("launch {}: {e}", bin.display()))?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let out = child
+                    .wait_with_output()
+                    .map_err(|e| format!("collect {tool} output: {e}"))?;
+                if !out.status.success() {
+                    return Err(tool_error_line(tool, &out.stderr, &out.stdout, out.status.code()));
+                }
+                return Ok(String::from_utf8_lossy(&out.stdout).trim().to_string());
+            }
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "{tool} took longer than {timeout_secs}s — killed. Try again."
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(format!("wait on {}: {e}", tool.to_ascii_lowercase())),
+        }
+    }
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompanionAgents {
@@ -442,25 +612,35 @@ pub struct CompanionAgents {
     pub selected: String,
 }
 
-/// Agent picker roster for the companion window.
+/// Agent picker roster for the companion window. goose/grok/berd share
+/// the four-cast stems; hermes keeps its profile dirs; an unknown backend
+/// is an honest error (the page degrades to a single "default" row).
 #[tauri::command]
 pub fn companion_agents(app: tauri::AppHandle) -> Result<CompanionAgents, String> {
     let backend = companion_backend();
-    let (agents, selected) = if backend == "hermes" {
-        let mut a = vec!["default".to_string()];
-        a.extend(hermes_profile_dirs());
-        let persisted = crate::state::load_state(&app)
-            .map(|s| s.companion.agent_profile)
-            .unwrap_or_default();
-        let selected = resolve_agent(&persisted, &a);
-        (a, selected)
-    } else {
-        let (agents, prefer) = berd_companion_stems();
-        let persisted = crate::state::load_state(&app)
-            .map(|s| s.companion.agent_profile)
-            .unwrap_or_default();
-        let selected = resolve_agent_prefer(&persisted, &agents, &prefer);
-        (agents, selected)
+    let (agents, selected) = match backend.as_str() {
+        "hermes" => {
+            let mut a = vec!["default".to_string()];
+            a.extend(hermes_profile_dirs());
+            let persisted = crate::state::load_state(&app)
+                .map(|s| s.companion.agent_profile)
+                .unwrap_or_default();
+            let selected = resolve_agent(&persisted, &a);
+            (a, selected)
+        }
+        "goose" | "grok" | "berd" => {
+            let (agents, prefer) = berd_companion_stems();
+            let persisted = crate::state::load_state(&app)
+                .map(|s| s.companion.agent_profile)
+                .unwrap_or_default();
+            let selected = resolve_agent_prefer(&persisted, &agents, &prefer);
+            (agents, selected)
+        }
+        other => {
+            return Err(format!(
+                "Unknown ORBITTY_COMPANION_BACKEND {other:?} — goose, grok, hermes, or berd."
+            ))
+        }
     };
     Ok(CompanionAgents { agents, selected })
 }
@@ -492,28 +672,37 @@ pub fn set_companion_pack(app: tauri::AppHandle, pack_id: String) -> Result<Opti
 }
 
 /// Persist the companion's agent pick (soul voice label).
-/// Berd path: one bound session (orbitty-primary); soul pointer updates.
+/// goose/grok/berd: the four-cast stems; the soul pointer updates like
+/// Berd (goose/grok read that md as --system/--rules on the next send).
 /// Hermes path: next send continues that profile's orbitty-companion thread.
 #[tauri::command]
 pub fn set_companion_agent(app: tauri::AppHandle, profile: String) -> Result<String, String> {
     let backend = companion_backend();
     let p = profile.trim().to_string();
-    if backend == "hermes" {
-        let dirs = hermes_profile_dirs();
-        if p != "default" && !dirs.iter().any(|d| d == &p) {
-            return Err(format!("No Hermes profile named {p:?}."));
-        }
-    } else {
-        let stems = berd_agent_stems();
-        if !stems.iter().any(|d| d == &p) {
-            return Err(format!("No Berd agent named {p:?} under ~/.agents/agents."));
-        }
-        if let Some(al) = load_companion_allowlist() {
-            if !al.personas.iter().any(|d| d == &p) {
-                return Err(format!("{p} is not on the Orbitty four-cast."));
+    match backend.as_str() {
+        "hermes" => {
+            let dirs = hermes_profile_dirs();
+            if p != "default" && !dirs.iter().any(|d| d == &p) {
+                return Err(format!("No Hermes profile named {p:?}."));
             }
         }
-        update_soul_pointer(&p);
+        "goose" | "grok" | "berd" => {
+            let stems = berd_agent_stems();
+            if !stems.iter().any(|d| d == &p) {
+                return Err(format!("No agent named {p:?} under ~/.agents/agents."));
+            }
+            if let Some(al) = load_companion_allowlist() {
+                if !al.personas.iter().any(|d| d == &p) {
+                    return Err(format!("{p} is not on the Orbitty four-cast."));
+                }
+            }
+            update_soul_pointer(&p);
+        }
+        other => {
+            return Err(format!(
+                "Unknown ORBITTY_COMPANION_BACKEND {other:?} — goose, grok, hermes, or berd."
+            ))
+        }
     }
     let mut st = crate::state::load_state(&app)?;
     st.companion.agent_profile = p.clone();
@@ -817,7 +1006,8 @@ struct LeftoverItem {
     tag: String,
 }
 
-/// Prepend the leftover pocket to the outbound prompt (Berd + Hermes).
+/// Prepend the leftover pocket to the outbound prompt (every mouth:
+/// goose, grok, hermes, berd).
 /// Fail OPEN: missing file / bad JSON / no usable items → the user line
 /// unchanged; a ping is never blocked. The wrap is what the model sees
 /// only — transcript, captions, and the event log keep the raw line.
@@ -883,10 +1073,10 @@ fn wrap_with_pocket(line: &str) -> String {
     format!("{header}{}{footer}{line}", lines.concat())
 }
 
-/// GO-COMPANION-BERD — companion composer send path.
-/// Default: Berd session from `~/.agents/companions/orbitty-primary/session.json`
-/// via `berdctl session send` + poll `session get` for the assistant reply.
-/// Fallback: `ORBITTY_COMPANION_BACKEND=hermes` → legacy hermes chat -Q path.
+/// GO-COMPANION-BERD / GO-ORBITTY-PLUG-APP — companion composer send path.
+/// Default: Goose mouth (`goose run`, plug.json session). `grok` mouth;
+/// `hermes` compat; `berd` hidden escape (bound session from
+/// `~/.agents/companions/orbitty-primary/session.json` via `berdctl`).
 /// Never hosts a model inside Orbitty. Async; UI disables Send in flight.
 /// GO-ORBITTY-EVENT-LOG: appends `companion-send` / `companion-reply`
 /// (best-effort) — content is `{ "n": <chars> }` only, never the line.
@@ -969,13 +1159,21 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
 
     let backend = companion_backend();
     // GO-MH-2-APP: pocket inject AFTER action-intercept (Actions above ran
-    // on the raw line). berdctl --prompt / Hermes companion-query.txt get
-    // the wrapped prompt; persist + event log below keep the raw `line`.
+    // on the raw line). Every mouth gets the wrapped prompt; persist +
+    // event log below keep the raw `line`.
     let prompt = wrap_with_pocket(&line);
-    let reply = if backend == "hermes" {
-        companion_send_hermes(&app, &prompt).await?
-    } else {
-        companion_send_berd(&prompt).await?
+    // GO-ORBITTY-PLUG-APP plug map — unknown backend is an honest error,
+    // never a silent Berd fallback.
+    let reply = match backend.as_str() {
+        "goose" => companion_send_goose(&app, &prompt).await?,
+        "grok" => companion_send_grok(&app, &prompt).await?,
+        "hermes" => companion_send_hermes(&app, &prompt).await?,
+        "berd" => companion_send_berd(&prompt).await?,
+        other => {
+            return Err(format!(
+                "Unknown ORBITTY_COMPANION_BACKEND {other:?} — goose, grok, hermes, or berd."
+            ))
+        }
     };
 
     // Both turns persist only once the reply actually landed — a failed
@@ -1023,6 +1221,180 @@ async fn companion_send_berd(line: &str) -> Result<String, String> {
         .map_err(|e| format!("send task: {e}"))?
 }
 
+/// GO-ORBITTY-PLUG-APP: default mouth. `goose run -q --no-profile` with
+/// the soul as --system. First send names the session `orbitty-companion`,
+/// then the real `YYYYMMDD_N` id is captured from `goose session list`
+/// and persisted in plug.json; later sends resume by
+/// `--session-id ID --resume` (`--name` is not a unique resume key).
+/// Honest error when goose is missing — no silent Berd fallback.
+async fn companion_send_goose(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
+    let bin = find_on_path("goose").ok_or(
+        "`goose` not found — install the Goose CLI or put it on PATH (Orbitty.app checks PATH + ~/.local/bin).",
+    )?;
+    let soul = companion_soul_text(app);
+    let plug = load_plug();
+    let line = line.to_string();
+    tauri::async_runtime::spawn_blocking(move || run_goose_reply(&bin, &soul, &plug, &line))
+        .await
+        .map_err(|e| format!("send task: {e}"))?
+}
+
+/// Product goose session name (never the probe's `orbitty-plug-goose`).
+const GOOSE_SESSION_NAME: &str = "orbitty-companion";
+
+fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Result<String, String> {
+    let mut args: Vec<String> = vec!["run".into(), "-q".into(), "--no-profile".into()];
+    let resume_id = plug
+        .goose_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| is_goose_session_id(s));
+    let first_send = resume_id.is_none();
+    match resume_id {
+        Some(id) => {
+            args.push("--session-id".into());
+            args.push(id.to_string());
+            args.push("--resume".into());
+        }
+        None => {
+            args.push("--name".into());
+            args.push(GOOSE_SESSION_NAME.into());
+        }
+    }
+    args.push("--system".into());
+    args.push(soul.to_string());
+    args.push("-t".into());
+    args.push(line.to_string());
+
+    let reply = run_mouth_cli("Goose", bin, &args, 180)?;
+    if reply.is_empty() {
+        return Err("Goose sent back an empty reply.".into());
+    }
+    if first_send {
+        capture_goose_session(bin);
+    }
+    Ok(reply)
+}
+
+/// After the first `--name` send, learn the real session id from
+/// `goose session list` (newest-first, first match wins) and persist it.
+/// Best-effort: a miss just means the next send is `--name` again.
+fn capture_goose_session(bin: &Path) {
+    let out = Command::new(bin)
+        .args(["session", "list"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+    let Ok(out) = out else { return };
+    if !out.status.success() {
+        return;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    for line in text.lines() {
+        if !line.contains(GOOSE_SESSION_NAME) {
+            continue;
+        }
+        let id = line.split_whitespace().next().unwrap_or("");
+        if is_goose_session_id(id) {
+            let mut plug = load_plug();
+            plug.goose_session_id = Some(id.to_string());
+            save_plug(&plug);
+            return;
+        }
+    }
+}
+
+/// GO-ORBITTY-PLUG-APP: grok mouth. `grok -p <prompt>` with the soul as
+/// --rules, JSON out. Session UUID lives in plug.json: first send
+/// `-s UUID`, later `--resume UUID` (re-passing `-s` on a live id fails —
+/// a failed create is retried once as a resume to self-heal that race).
+/// Honest error when grok is missing — no silent Berd fallback.
+async fn companion_send_grok(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
+    let bin = find_grok().ok_or(
+        "`grok` not found — install the Grok CLI or put it on PATH (also checks ~/.grok/bin/grok).",
+    )?;
+    let soul = companion_soul_text(app);
+    let plug = load_plug();
+    let line = line.to_string();
+    tauri::async_runtime::spawn_blocking(move || run_grok_reply(&bin, &soul, plug, &line))
+        .await
+        .map_err(|e| format!("send task: {e}"))?
+}
+
+fn grok_args(sid: &str, minted: bool, soul: &str, line: &str) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-p".into(), line.to_string()];
+    if minted {
+        args.push("--resume".into());
+    } else {
+        args.push("-s".into());
+    }
+    args.push(sid.to_string());
+    args.extend([
+        "--output-format".into(),
+        "json".into(),
+        "--always-approve".into(),
+        "--no-subagents".into(),
+        "--disable-web-search".into(),
+        "--rules".into(),
+        soul.to_string(),
+    ]);
+    args
+}
+
+fn run_grok_reply(
+    bin: &Path,
+    soul: &str,
+    mut plug: PlugState,
+    line: &str,
+) -> Result<String, String> {
+    // Mint a fresh product UUID — never the probe's, never Berd's.
+    let has_id = plug
+        .grok_session_id
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| is_uuid(s));
+    if !has_id {
+        plug.grok_session_id = Some(mint_uuid()?);
+        plug.grok_session_minted = false;
+        save_plug(&plug);
+    }
+    let sid = plug.grok_session_id.clone().unwrap_or_default();
+
+    let args = grok_args(&sid, plug.grok_session_minted, soul, line);
+    let raw = match run_mouth_cli("Grok", bin, &args, 180) {
+        Ok(r) => r,
+        Err(e) if !plug.grok_session_minted && e.to_ascii_lowercase().contains("session") => {
+            // The `-s` create may have landed server-side despite the
+            // error — heal: mark minted and retry once as a resume.
+            plug.grok_session_minted = true;
+            save_plug(&plug);
+            let retry = grok_args(&sid, true, soul, line);
+            run_mouth_cli("Grok", bin, &retry, 180)?
+        }
+        Err(e) => return Err(e),
+    };
+
+    // --output-format json: the assistant text is the top-level "text"
+    // field. Never dump the whole JSON blob into the bubble.
+    let v: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("Grok: bad JSON reply ({e})"))?;
+    let text = v
+        .get("text")
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        return Err("Grok sent back an empty reply.".into());
+    }
+    if !plug.grok_session_minted {
+        plug.grok_session_minted = true;
+        save_plug(&plug);
+    }
+    Ok(text)
+}
+
 async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
     let bin = find_on_path("hermes")
         .ok_or("`hermes` not found — install Hermes or put it on PATH.")?;
@@ -1051,14 +1423,36 @@ async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<Str
         "--continue".into(),
         "orbitty-companion".into(),
         "--create-if-missing".into(),
+        // GO-ORBITTY-PLUG-APP: hermes stays the compat mouth — `--safe-mode`
+        // (probe 05 green on this bin). A bin that rejects the flag gets
+        // one retry without it, then the honest error.
+        "--safe-mode".into(),
         "-Q".into(),
         "--source".into(),
         "orbitty".into(),
     ]);
 
-    tauri::async_runtime::spawn_blocking(move || run_hermes_reply(&bin, &args))
-        .await
-        .map_err(|e| format!("send task: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        match run_hermes_reply(&bin, &args) {
+            Err(e) if hermes_rejects_safe_mode(&e) => {
+                let plain: Vec<String> =
+                    args.iter().filter(|a| a.as_str() != "--safe-mode").cloned().collect();
+                run_hermes_reply(&bin, &plain)
+            }
+            r => r,
+        }
+    })
+    .await
+    .map_err(|e| format!("send task: {e}"))?
+}
+
+/// True when the failure reads like the bin not knowing `--safe-mode`.
+fn hermes_rejects_safe_mode(e: &str) -> bool {
+    let l = e.to_ascii_lowercase();
+    l.contains("safe-mode")
+        || l.contains("unexpected argument")
+        || l.contains("unrecognized")
+        || l.contains("unknown option")
 }
 
 /// berdctl send (fire-and-forget) then poll session get until a new assistant
