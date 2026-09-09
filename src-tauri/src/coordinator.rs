@@ -596,9 +596,16 @@ fn is_goose_session_id(s: &str) -> bool {
 /// Spawn a mouth CLI, poll with a timeout, kill the child on expiry.
 /// stdout on exit 0; one honest stderr line otherwise. No desktop lock is
 /// ever set here — BERDCTL_LOCK belongs to the berd escape path only.
-fn run_mouth_cli(tool: &str, bin: &Path, args: &[String], timeout_secs: u64) -> Result<String, String> {
+fn run_mouth_cli(
+    tool: &str,
+    bin: &Path,
+    args: &[String],
+    envs: &[(&str, &str)],
+    timeout_secs: u64,
+) -> Result<String, String> {
     let mut child = Command::new(bin)
         .args(args)
+        .envs(envs.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1249,8 +1256,10 @@ async fn companion_send_berd(line: &str) -> Result<String, String> {
         .map_err(|e| format!("send task: {e}"))?
 }
 
-/// GO-ORBITTY-PLUG-APP: default mouth. `goose run -q --no-profile` with
-/// the soul as --system. First send names the session `orbitty-companion`,
+/// GO-ORBITTY-PLUG-APP: default mouth. `goose run -q` with the default
+/// profile (full Goose tools — BLOCK-MH-4) and the soul as --system,
+/// spawned with GOOSE_MODE=always_allow (no yes/no UI in the bubble).
+/// First send names the session `orbitty-companion`,
 /// then the real `YYYYMMDD_N` id is captured from `goose session list`
 /// and persisted in plug.json; later sends resume by
 /// `--session-id ID --resume` (`--name` is not a unique resume key).
@@ -1271,7 +1280,10 @@ async fn companion_send_goose(app: &tauri::AppHandle, line: &str) -> Result<Stri
 const GOOSE_SESSION_NAME: &str = "orbitty-companion";
 
 fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Result<String, String> {
-    let mut args: Vec<String> = vec!["run".into(), "-q".into(), "--no-profile".into()];
+    // BLOCK-MH-4 `accept_full_goose_tools_v0`: no `--no-profile` — Matt's
+    // default Goose profile loads (developer/shell, computercontroller,
+    // skills, memory, …) so Spark can actually act, not just talk.
+    let mut args: Vec<String> = vec!["run".into(), "-q".into()];
     let resume_id = plug
         .goose_session_id
         .as_deref()
@@ -1295,7 +1307,9 @@ fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Resu
     args.push("-t".into());
     args.push(line.to_string());
 
-    let reply = run_mouth_cli("Goose", bin, &args, 180)?;
+    // Config is `smart_approve` and the bubble has no yes/no UI — without
+    // always_allow, tool calls would hang or be denied.
+    let reply = run_mouth_cli("Goose", bin, &args, &[("GOOSE_MODE", "always_allow")], 180)?;
     if reply.is_empty() {
         return Err("Goose sent back an empty reply.".into());
     }
@@ -1392,7 +1406,7 @@ fn run_grok_reply(
     let sid = plug.grok_session_id.clone().unwrap_or_default();
 
     let args = grok_args(&sid, plug.grok_session_minted, soul, line);
-    let raw = match run_mouth_cli("Grok", bin, &args, 180) {
+    let raw = match run_mouth_cli("Grok", bin, &args, &[], 180) {
         Ok(r) => r,
         Err(e) if !plug.grok_session_minted && e.to_ascii_lowercase().contains("session") => {
             // The `-s` create may have landed server-side despite the
@@ -1400,7 +1414,7 @@ fn run_grok_reply(
             plug.grok_session_minted = true;
             save_plug(&plug);
             let retry = grok_args(&sid, true, soul, line);
-            run_mouth_cli("Grok", bin, &retry, 180)?
+            run_mouth_cli("Grok", bin, &retry, &[], 180)?
         }
         Err(e) => return Err(e),
     };
