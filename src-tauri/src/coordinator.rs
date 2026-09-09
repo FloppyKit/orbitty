@@ -799,6 +799,90 @@ fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &st
     }
 }
 
+// ---------- GO-MH-2-APP: leftover map inject (read-only, fail open) ----------
+
+/// Tiny structs with serde defaults — a hand-edited map with extra or
+/// missing keys still parses. Schema: leftover_item.schema.json.
+#[derive(serde::Deserialize)]
+struct LeftoverMap {
+    #[serde(default)]
+    items: Vec<LeftoverItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct LeftoverItem {
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    tag: String,
+}
+
+/// Prepend the leftover pocket to the outbound prompt (Berd + Hermes).
+/// Fail OPEN: missing file / bad JSON / no usable items → the user line
+/// unchanged; a ping is never blocked. The wrap is what the model sees
+/// only — transcript, captions, and the event log keep the raw line.
+fn wrap_with_pocket(line: &str) -> String {
+    const PREPEND_CAP: usize = 2048; // chars, whole prepend block
+    const MAX_ITEMS: usize = 12;
+    const ITEM_TEXT_CAP: usize = 240; // schema maxLength
+
+    let raw = match std::fs::read_to_string(companions_root().join("leftovers.json")) {
+        Ok(s) => s,
+        Err(_) => return line.to_string(),
+    };
+    let map: LeftoverMap = match serde_json::from_str(&raw) {
+        Ok(m) => m,
+        Err(_) => return line.to_string(),
+    };
+
+    let mut items: Vec<&LeftoverItem> = map
+        .items
+        .iter()
+        .filter(|it| {
+            let text = it.text.trim();
+            !text.is_empty() && !text.eq_ignore_ascii_case("desk test")
+        })
+        .filter(|it| !it.tag.trim().eq_ignore_ascii_case("let-go"))
+        .collect();
+    // keep before open; stable within a tag (file order preserved).
+    items.sort_by_key(|it| {
+        if it.tag.trim().eq_ignore_ascii_case("keep") {
+            0
+        } else {
+            1
+        }
+    });
+    items.truncate(MAX_ITEMS);
+    if items.is_empty() {
+        return line.to_string();
+    }
+
+    // Budget the whole prepend ("[pocket]\n- …\n\nUSER:\n") ≤ 2048 chars.
+    // Items give way first (dropped from the end); the USER line never
+    // shrinks.
+    let header = "[pocket]\n";
+    let footer = "\n\nUSER:\n";
+    let mut budget = PREPEND_CAP.saturating_sub(header.chars().count() + footer.chars().count());
+    let mut lines: Vec<String> = Vec::new();
+    for it in items {
+        let mut text = it.text.trim().replace('\n', " ");
+        if text.chars().count() > ITEM_TEXT_CAP {
+            text = text.chars().take(ITEM_TEXT_CAP - 1).collect::<String>() + "…";
+        }
+        let item_line = format!("- {text}\n");
+        let n = item_line.chars().count();
+        if n > budget {
+            break;
+        }
+        budget -= n;
+        lines.push(item_line);
+    }
+    if lines.is_empty() {
+        return line.to_string();
+    }
+    format!("{header}{}{footer}{line}", lines.concat())
+}
+
 /// GO-COMPANION-BERD — companion composer send path.
 /// Default: Berd session from `~/.agents/companions/orbitty-primary/session.json`
 /// via `berdctl session send` + poll `session get` for the assistant reply.
@@ -884,10 +968,14 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
     }
 
     let backend = companion_backend();
+    // GO-MH-2-APP: pocket inject AFTER action-intercept (Actions above ran
+    // on the raw line). berdctl --prompt / Hermes companion-query.txt get
+    // the wrapped prompt; persist + event log below keep the raw `line`.
+    let prompt = wrap_with_pocket(&line);
     let reply = if backend == "hermes" {
-        companion_send_hermes(&app, &line).await?
+        companion_send_hermes(&app, &prompt).await?
     } else {
-        companion_send_berd(&line).await?
+        companion_send_berd(&prompt).await?
     };
 
     // Both turns persist only once the reply actually landed — a failed
