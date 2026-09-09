@@ -214,6 +214,13 @@ export interface PersistedState {
   hideAppIcons: boolean;
   spriteScale: number;
   marbleDrift: boolean;
+  // GO-ORBITTY-YARD-WARN: Herding Cats confirm source radio — only
+  // "windows" exists until Tabbity lands. No yardCats: cats never persist.
+  // Native always writes this (serde default heals a missing key back to
+  // "windows" on every save); optional in TS so whole-state writers that
+  // predate the field (the rail's persist) keep type-checking. Becomes
+  // required when the yard lands.
+  yardSource?: string;
   actionShortcuts: ActionShortcut[];
   agentShortcuts: AgentShortcut[];
   companion: CompanionSlice;

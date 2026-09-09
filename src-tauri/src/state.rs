@@ -102,6 +102,10 @@ pub struct PersistedState {
     /// GO-ORBITTY-MARBLE-DRIFT: Settings → Appearance toggle. Default OFF —
     /// collapsed marbles sit where they were left until opted in.
     pub marble_drift: bool,
+    /// GO-ORBITTY-YARD-WARN: the Herding Cats confirm's source radio. Only
+    /// "windows" exists — "tabs" / "both" stay disabled in the pane until
+    /// Tabbity lands. No yardCats array: cats never persist.
+    pub yard_source: String,
     /// GO-LS-TAURI-AVATAR-LARGE: the large companion window (S2). All fields
     /// default — old saves load, and other windows round-trip the slice.
     pub companion: CompanionState,
@@ -205,6 +209,7 @@ impl Default for PersistedState {
             agent_shortcuts: Vec::new(),
             sprite_scale: 1.0,
             marble_drift: false,
+            yard_source: "windows".to_string(),
             companion: CompanionState::default(),
             stars: StarsState::default(),
             sky: SkyState::default(),

@@ -53,6 +53,10 @@ pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(
         // GO-ORBITTY-PANE-404: no "stars" spec — Board+STARS share the one
         // `kanban` overlay, so nothing may ever spawn/pin a `stars` pane.
         "settings" | "sky" => Some(("", 420.0, 560.0, None)),
+        // GO-ORBITTY-YARD-WARN: the Herding Cats confirm is its own small
+        // window (like Settings) so ⌘⇧Y works with Settings closed. Plain
+        // pane, not a drawer — a confirm never docks on the rail.
+        "yard-warn" => Some(("", 400.0, 330.0, None)),
         _ => None,
     }
 }
@@ -136,7 +140,11 @@ pub(crate) fn ensure_window(
     // titlebar blink that moved the screen). The JS dock grip + spirit
     // drag stay the one handle; the grow itself stays instant
     // keep-bottom, never an animated NSWindow bounds.
-    if crate::state::DRAWER_LABELS.contains(&label) || label == "sky" || label == "companion" {
+    if crate::state::DRAWER_LABELS.contains(&label)
+        || label == "sky"
+        || label == "companion"
+        || label == "yard-warn"
+    {
         config.decorations = false;
         config.maximizable = false;
         config.minimizable = false;

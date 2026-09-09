@@ -38,7 +38,8 @@ fn parse_combo(combo: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, St
 }
 
 /// Never register these — a row carrying one shows `conflict`.
-/// ⌘⇧O = companion summon. ⌘Space = Spotlight. Super-only letters below
+/// ⌘⇧O = companion summon. ⌘⇧Y = Herding Cats confirm (GO-ORBITTY-YARD-WARN).
+/// ⌘Space = Spotlight. Super-only letters below
 /// are Mac menu equivalents (Hide, Minimize, Quit, Close, …): Carbon
 /// RegisterEventHotKey succeeds, then the menu swallows the press while
 /// Orbitty is frontmost, so the action looks dead. ⌘⌥+letter is fine.
@@ -48,7 +49,7 @@ fn parse_combo(combo: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, St
 #[cfg(target_os = "macos")]
 fn is_reserved(s: &tauri_plugin_global_shortcut::Shortcut) -> bool {
     use tauri_plugin_global_shortcut::{Code, Modifiers};
-    if s.mods == Modifiers::SUPER | Modifiers::SHIFT && s.key == Code::KeyO {
+    if s.mods == Modifiers::SUPER | Modifiers::SHIFT && matches!(s.key, Code::KeyO | Code::KeyY) {
         return true;
     }
     if s.mods == Modifiers::SUPER | Modifiers::ALT

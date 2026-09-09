@@ -258,6 +258,15 @@ fn open_sky_window(app: tauri::AppHandle) -> Result<(), String> {
     panes::show_labeled(&app, "sky")
 }
 
+/// GO-ORBITTY-YARD-WARN: Settings → Appearance → Herding Cats… pops the
+/// confirm into its own small window (same trick as Settings), so ⌘⇧Y
+/// works with Settings closed. Close / × / Esc hides, never destroys.
+/// Confirm only — no cats, no overlay; Drop stays disabled until #2.
+#[tauri::command]
+fn open_yard_warn_window(app: tauri::AppHandle) -> Result<(), String> {
+    panes::show_labeled(&app, "yard-warn")
+}
+
 /// Run `f` on the main thread and BLOCK until it finishes. Inline when
 /// already on the main thread (dispatch_sync of the main queue from the
 /// main thread deadlocks). A panic inside `f` is swallowed — a native
@@ -453,6 +462,7 @@ pub fn run() {
             open_stars,
             open_settings_window,
             open_sky_window,
+            open_yard_warn_window,
             drawers::retether_drawer,
             drawers::retether_all_drawers,
             companion::companion_frames,
@@ -560,6 +570,31 @@ pub fn run() {
                         }
                         let _ = panes::show_companion(&handle);
                         let _ = handle.emit_to("companion", "orbitty:companion-summon", ());
+                    })?;
+
+                // GO-ORBITTY-YARD-WARN: ⌘⇧Y opens the Herding Cats confirm
+                // (its own small window — works with Settings closed). The
+                // yard stays OFF until phrase #2, so a press while the
+                // confirm is up scoops it (hide = Cancel; no overlay to
+                // tear down). Once the yard exists, ⌘⇧Y-while-on scoops
+                // the cats with no second warning. ⌘⇧O stays summon —
+                // never touched; actions.rs reserves both chords.
+                let yard_warn = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyY);
+                let yard_handle = app.handle().clone();
+                app.global_shortcut()
+                    .on_shortcut(yard_warn, move |_app, _shortcut, event| {
+                        if event.state() != ShortcutState::Pressed {
+                            return;
+                        }
+                        let up = yard_handle
+                            .get_webview_window("yard-warn")
+                            .map(|w| w.is_visible().unwrap_or(false))
+                            .unwrap_or(false);
+                        if up {
+                            let _ = panes::hide_window(yard_handle.clone(), "yard-warn".to_string());
+                        } else {
+                            let _ = panes::show_labeled(&yard_handle, "yard-warn");
+                        }
                     })?;
             }
 

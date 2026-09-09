@@ -516,6 +516,13 @@
     window.removeEventListener("keydown", onRecordKeydown, true);
   });
 
+  // GO-ORBITTY-YARD-WARN: quiet Appearance-footer button — the same
+  // confirm ⌘⇧Y opens, in its own small window (works with Settings
+  // closed). Confirm only; no cats until phrase #2.
+  function openYardWarn() {
+    invoke("open_yard_warn_window").catch(() => {});
+  }
+
   function onBannerMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     const t = e.target as HTMLElement | null;
@@ -702,6 +709,13 @@
           {drawerDocked("kanban") ? "docked" : "plucked"} · Settings
           {drawerDocked("settings") ? "docked" : "plucked"}.
         </p>
+        <div class="yard-foot">
+          <button
+            class="mini ghost"
+            onclick={openYardWarn}
+            title="Open the Herding Cats confirm — ⌘⇧Y works too, even with Settings closed"
+          >Herding Cats…</button>
+        </div>
       </section>
     {:else if section === "talk"}
       <section class="panel">
@@ -1215,5 +1229,14 @@
   .help code {
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 0.62rem;
+  }
+  /* GO-ORBITTY-YARD-WARN: quiet footer of the Appearance tab — not a
+     section, not on launch. */
+  .yard-foot {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--edge);
+    display: flex;
+    justify-content: flex-end;
   }
 </style>
