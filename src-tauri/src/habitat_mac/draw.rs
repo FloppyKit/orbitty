@@ -13,7 +13,8 @@ use super::{
     ball_pos, card_color, ensure_town_art, fill_oval, lock, now_epoch, ns_color,
     ns_string, pack_still_aspect, panic_msg, radius_y, set_fill, station_anchor, walker_fit, walker_hidden, CGSize,
     DecorKind, Habitat, NSPoint, NSRect, Pose, Projection, CAPTION_TTL, LOCATE_TTL,
-    PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE, VIEW_PADDING, YARD_HALF,
+    PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE, VIEW_PADDING, YARD_EAST,
+    YARD_NORTH, YARD_SOUTH, YARD_WEST,
 };
 
 // GO-ORBITTY-WORLD-PROPS: the sign's blank face inside the punched PNG
@@ -238,8 +239,8 @@ const IGLOO: [&str; 8] = [
 
 // GO-ORBITTY-WORLD-PROPS leftover: the paddock reads as GRASS — NES-ish
 // blade tufts (same painter as the plant glyphs) scattered across the
-// YARD_HALF inset around STATION_FIELD, over a faint darker dirt
-// underlay. g dark blade, m mid, G light.
+// four-edge yard AABB (offsets from STATION_FIELD), over a faint darker
+// dirt underlay. g dark blade, m mid, G light.
 const TUFT: [&str; 4] = ["g...G", "g.m.G", "ggmGG", "gmGGg"];
 const TUFT_SMALL: [&str; 3] = ["G.g", "mGg", "gmG"];
 const TUFT_GREENS: [(u8, (f64, f64, f64)); 3] = [
@@ -248,27 +249,28 @@ const TUFT_GREENS: [(u8, (f64, f64, f64)); 3] = [
     (b'G', (0.40, 0.70, 0.36)),
 ];
 
-/// Tuft scatter — disc-local offsets inside the paddock AABB (inset
-/// ~0.04 so the art stays on the green). Even indices draw TUFT, odd
-/// draw TUFT_SMALL. Leftover #2: offsets × 1.3 with YARD_HALF 0.28 →
-/// 0.364, so the same blades still fill the bigger pad.
+/// Tuft scatter — disc-local offsets from STATION_FIELD inside the
+/// paddock AABB (inset ~0.04 so the art stays on the green). Even
+/// indices draw TUFT, odd draw TUFT_SMALL. Pad-grow leftover: the same
+/// 16 blades rescaled into the grown four-edge box (west edge pinned,
+/// stretched east and mostly north) — the new east/north is never bald.
 const GRASS_TUFTS: [(f64, f64); 16] = [
-    (-0.286, -0.208),
-    (-0.104, -0.247),
-    (0.091, -0.195),
-    (0.273, -0.234),
-    (-0.221, -0.065),
-    (0.00, -0.104),
-    (0.208, -0.039),
-    (0.312, -0.143),
-    (-0.299, 0.078),
-    (-0.13, 0.052),
-    (0.065, 0.091),
-    (0.247, 0.117),
-    (-0.208, 0.234),
-    (0.026, 0.299),
-    (0.195, 0.273),
-    (-0.052, 0.182),
+    (-0.265, -0.507),
+    (0.020, -0.568),
+    (0.324, -0.487),
+    (0.608, -0.548),
+    (-0.163, -0.284),
+    (0.182, -0.345),
+    (0.507, -0.244),
+    (0.669, -0.406),
+    (-0.285, -0.061),
+    (-0.021, -0.102),
+    (0.284, -0.041),
+    (0.568, -0.001),
+    (-0.143, 0.182),
+    (0.223, 0.283),
+    (0.487, 0.243),
+    (0.101, 0.101),
 ];
 
 /// Decor growth window: planted → fully grown.
@@ -726,15 +728,16 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
 
     // GO-ORBITTY-WORLD-PROPS: the paddock is a grass patch, never fence
     // posts. Leftover: no more filled-green blotch — a faint darker dirt
-    // underlay in the same AABB, then blade-tuft pixel art scattered
-    // across it so the read is grass. West side open toward the igloo,
-    // south open toward the Needed rim. Painted under the decor so
-    // plants sit on it.
+    // underlay in the same four-edge AABB (west edge PINNED at
+    // YARD_WEST; the pad-grow extra goes east, mostly north, least
+    // south), then blade-tuft pixel art scattered across it so the read
+    // is grass. West side open toward the igloo, south open toward the
+    // Needed rim. Painted under the decor so plants sit on it.
     if !d.is_marble {
-        let gx = center.x + (STATION_FIELD.0 - YARD_HALF) * r;
-        let gy = center.y + (STATION_FIELD.1 - YARD_HALF) * ry;
-        let gw = YARD_HALF * 2.0 * r;
-        let gh = YARD_HALF * 2.0 * ry;
+        let gx = center.x + YARD_WEST * r;
+        let gy = center.y + YARD_NORTH * ry;
+        let gw = (YARD_EAST - YARD_WEST) * r;
+        let gh = (YARD_SOUTH - YARD_NORTH) * ry;
         let corner = 0.10 * r;
         let dirt: *mut Object = msg_send![class!(NSBezierPath),
             bezierPathWithRoundedRect: NSRect::new(gx, gy, gw, gh)
@@ -1032,10 +1035,11 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     // GO-ORBITTY-WORLD-YARD leftover: the beach ball, drawn with the
     // walkers above the grass — cheap pixel art (orange/white panels),
     // never a photo texture. Marbles never carry one (ball_pos gates).
-    // Head-kiss leftover: bottom-anchored ON the head point (the +3 px
-    // nudge in walker_head_view) — the ball's lower third / bottom taps
-    // the crown, a keep-up tap, never the ball's center hovering on the
-    // sprite-box top (transparent pack padding read as air).
+    // Head-kiss leftover: bottom-anchored ON the kiss point (sprite top
+    // + 0.18·dh down in walker_head_view) — the ball's lower third /
+    // bottom sits IN the hair, a keep-up touch that covers the crown,
+    // never the ball's center hovering on the sprite-box top
+    // (transparent pack padding read as air).
     if let Some((bx, by)) = d.ball {
         let scale = (0.022 * d.radius).clamp(1.5, 3.0);
         draw_pixel_art(

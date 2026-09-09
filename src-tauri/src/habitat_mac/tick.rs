@@ -22,7 +22,7 @@ use super::{
     set_caption, station_target, view_to_disc, visible_frames, walker_head_view, yard_clamp, yard_contains,
     yard_dwell_ms, yard_pick, yard_pick_sailing, yard_seed, BallState, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
-    BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
+    BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, BALL_CONTACT_HOLD, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
     DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
     HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, LOCATE_TTL, MARBLE_RADIUS, OVAL_RATIO,
     PLANET_LOCATE_TTL,
@@ -1176,9 +1176,10 @@ fn anim_tick() {
         // hops head to head IN VIEW PIXELS — TOUCH walker A's head, pop
         // straight up the screen, arc, drop, TOUCH walker B's LIVE head
         // (a darting walker still gets tagged) — one hop per 1.0–1.45s,
-        // then immediately the next hop (no rest on the ground),
-        // round-robin through the Doing set (never the same pair
-        // back-to-back when 3+). One or zero Doing → hidden. The ball is
+        // then LINGER BALL_CONTACT_HOLD (~0.15s) on the lander's live
+        // head so the kiss reads as a touch, then the next hop (no rest
+        // on the ground), round-robin through the Doing set (never the
+        // same pair back-to-back when 3+). One or zero Doing → hidden. The ball is
         // NOT a third wanderer: it lands on bodies, never on a random
         // grass pixel, and the walkers' dart IS the keep-up footwork.
         // Heads come from walker_head_view — the same blit math draw.rs
@@ -1195,10 +1196,17 @@ fn anim_tick() {
                 })
                 .collect();
             if doing.len() >= 2 {
+                // Cover-the-hair leftover: the hop is done only after
+                // dur + BALL_CONTACT_HOLD — after f = 1 the ball lingers
+                // ~0.15s on the lander's LIVE head (ball_pos clamps f at
+                // 1 and tracks it), so the kiss is a fraction of a
+                // second of overlap, never one frame. Never a rest on
+                // the grass.
                 let hop_done = match &planet.ball {
                     Some(ball) => {
                         !doing.iter().any(|(id, _)| id == &ball.to_id)
-                            || now_i.duration_since(ball.at).as_secs_f64() >= ball.dur
+                            || now_i.duration_since(ball.at).as_secs_f64()
+                                >= ball.dur + BALL_CONTACT_HOLD
                     }
                     None => true,
                 };

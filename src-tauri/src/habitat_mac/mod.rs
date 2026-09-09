@@ -254,26 +254,33 @@ pub(crate) const STATION_HOUSE: (f64, f64) = (-0.611, 0.05); // igloo — left i
 // top sits ~3px past the back rim (r = 72); the post base stays planted
 // on-disc, and x = 0 pins the wood post (SIGN_POST_X), not the face.
 pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.72); // Todo — far/back board
-// Doing — the grass paddock CENTER (YARD_HALF around it), not a
-// stand-still pin: WORLD-YARD deleted the in-place march, the YARD
-// leftover deleted the dwell-and-dart — Doing walkers AMBLE random
-// points in the inset yard AABB continuously (the yard_* fns below).
-// The old fan's |y| < 0.22 / x > -0.35 igloo guard is superseded by the
-// box: never the igloo (x <= -0.50), never the sign.
+// Doing — the grass paddock's named station (the four-edge yard AABB
+// below grows around it, NOT a centered half-extent), not a stand-still
+// pin: WORLD-YARD deleted the in-place march, the YARD leftover deleted
+// the dwell-and-dart — Doing walkers AMBLE random points in the inset
+// yard AABB continuously (the yard_* fns below). The old fan's
+// |y| < 0.22 / x > -0.35 igloo guard is superseded by the box: never
+// the igloo (x <= -0.50), never the sign.
 pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05);
 pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/south rim
-/// GO-ORBITTY-WORLD-PROPS: the grass paddock around STATION_FIELD —
-/// half-extent in disc units (x ∈ [-0.364, 0.364], y ∈ [-0.314, 0.414]).
-/// A painted grass patch, never fence posts; west open toward the igloo
-/// (leftover #2: 0.28 → 0.364, +30%; west edge ≈ -0.364 keeps a gap to
-/// the igloo's east edge ≈ -0.52), south open toward the Needed rim.
-/// WORLD-YARD wanders it; PROPS only paints it.
-pub(crate) const YARD_HALF: f64 = 0.364;
+/// GO-ORBITTY-WORLD-PROPS: the grass paddock — four disc-unit edges,
+/// NOT a centered square (a centered YARD_HALF bump would move the west
+/// edge). WORLD-YARD leftover (pad grow, ~+50%): WEST PINNED at -0.364
+/// (keeps the gap to the igloo's east edge ≈ -0.52); ALL extra width
+/// goes east (0.364 → 0.728; width 0.728 → 1.092); most extra height
+/// goes north toward the sign (-0.314 → -0.60, keeping a ≥ 0.12 gap to
+/// STATION_BOARD y = -0.72); least extra south toward the Needed rim
+/// (0.414 → 0.49; height 0.728 → 1.09). A painted grass patch, never
+/// fence posts. WORLD-YARD wanders it; PROPS only paints it.
+pub(crate) const YARD_WEST: f64 = -0.364; // PINNED — never moves
+pub(crate) const YARD_EAST: f64 = 0.728;
+pub(crate) const YARD_NORTH: f64 = -0.60;
+pub(crate) const YARD_SOUTH: f64 = 0.49;
 /// GO-ORBITTY-WORLD-YARD: interior inset so sprites stay on the green —
-/// the wander AABB is the pad shrunk by this on every side around
-/// STATION_FIELD: x ∈ [-0.324, 0.324], y ∈ [-0.274, 0.374]. The box
-/// never reaches the igloo (x ≤ -0.50) or the sign footprint (the face
-/// sits at y ≈ -0.8), so an in-box target can never walk a body there.
+/// the wander AABB is the pad shrunk by this inward on every edge:
+/// x ∈ [-0.324, 0.688], y ∈ [-0.56, 0.45]. The box never reaches the
+/// igloo (x ≤ -0.50) or the sign footprint (the face sits at
+/// y ≈ -0.8), so an in-box target can never walk a body there.
 pub(crate) const YARD_INSET: f64 = 0.04;
 /// Keep-up cadence (WORLD-YARD leftover): with the beach ball ON a Doing
 /// walker DARTS — this is the arrive radius on a grass point (the exact
@@ -408,12 +415,11 @@ fn yard_step(s: u64) -> u64 {
 /// (advances it). Always on the green, never the igloo or the sign.
 pub(crate) fn yard_pick(seed: &mut u64) -> (f64, f64) {
     *seed = yard_step(*seed);
-    let h = YARD_HALF - YARD_INSET;
     let fx = ((*seed >> 11) & 0xffff) as f64 / 65535.0;
     let fy = ((*seed >> 37) & 0xffff) as f64 / 65535.0;
     (
-        STATION_FIELD.0 + (fx * 2.0 - 1.0) * h,
-        STATION_FIELD.1 + (fy * 2.0 - 1.0) * h,
+        YARD_WEST + YARD_INSET + fx * (YARD_EAST - YARD_WEST - 2.0 * YARD_INSET),
+        YARD_NORTH + YARD_INSET + fy * (YARD_SOUTH - YARD_NORTH - 2.0 * YARD_INSET),
     )
 }
 
@@ -450,20 +456,22 @@ pub(crate) fn yard_dwell_ms(seed: &mut u64) -> u64 {
     YARD_DWELL_MIN_MS + (*seed % (YARD_DWELL_MAX_MS - YARD_DWELL_MIN_MS + 1))
 }
 
-/// Inside the inset yard AABB?
+/// Inside the inset yard AABB? (Four edges, inset inward on every side —
+/// the west edge stays pinned at YARD_WEST.)
 pub(crate) fn yard_contains(x: f64, y: f64) -> bool {
-    let h = YARD_HALF - YARD_INSET;
-    (x - STATION_FIELD.0).abs() <= h && (y - STATION_FIELD.1).abs() <= h
+    x >= YARD_WEST + YARD_INSET
+        && x <= YARD_EAST - YARD_INSET
+        && y >= YARD_NORTH + YARD_INSET
+        && y <= YARD_SOUTH - YARD_INSET
 }
 
 /// Hard wall (law 6): clamp a position to the inset yard AABB — a Doing
 /// walker on the grass never leaves it; the igloo and the sign footprint
 /// stay unreachable.
 pub(crate) fn yard_clamp(x: f64, y: f64) -> (f64, f64) {
-    let h = YARD_HALF - YARD_INSET;
     (
-        x.clamp(STATION_FIELD.0 - h, STATION_FIELD.0 + h),
-        y.clamp(STATION_FIELD.1 - h, STATION_FIELD.1 + h),
+        x.clamp(YARD_WEST + YARD_INSET, YARD_EAST - YARD_INSET),
+        y.clamp(YARD_NORTH + YARD_INSET, YARD_SOUTH - YARD_INSET),
     )
 }
 
@@ -483,14 +491,23 @@ pub(crate) fn yard_clamp(x: f64, y: f64) -> (f64, f64) {
 pub(crate) const BALL_ARC_HEADS_MIN: f64 = 1.2;
 pub(crate) const BALL_ARC_HEADS_MAX: f64 = 1.8;
 
+/// Contact hold (cover-the-hair leftover): after f = 1 the ball LINGERS
+/// on the target's LIVE head this long before the next hop — a fraction
+/// of a second of overlap so the keep-up actually TOUCHES (retargeting
+/// at f = 1 made contact one frame). On the head, never a rest on the
+/// grass; the hop cadence itself stays 1.0–1.45s.
+pub(crate) const BALL_CONTACT_HOLD: f64 = 0.15;
+
 /// Live beach-ball keep-up flight (in-memory only — never persisted).
 /// `from` is the VIEW-PIXEL head of the last lander, snapshotted at hop
 /// start (f = 0 touches it); the ball arcs to the current target's LIVE
 /// view-pixel head (f = 1 touches it — a darting walker still gets
-/// tagged) over `dur` secs, then hops to the next Doing body round-robin
-/// with no rest on the ground. `arc` is the mid-hop screen lift in px,
-/// snapshotted at hop start (≈1.2–1.8 × the target's sprite height).
-/// `stream` feeds the per-hop duration/arc hashes.
+/// tagged) over `dur` secs, LINGERS BALL_CONTACT_HOLD on that live head
+/// (the kiss reads as a touch, never one frame), then hops to the next
+/// Doing body round-robin with no rest on the ground. `arc` is the
+/// mid-hop screen lift in px, snapshotted at hop start (≈1.2–1.8 × the
+/// target's sprite height). `stream` feeds the per-hop duration/arc
+/// hashes.
 #[derive(Clone, Debug)]
 struct BallState {
     from: (f64, f64),
@@ -539,13 +556,15 @@ pub(crate) fn pack_still_aspect(pf: &PackFrames) -> f64 {
 /// `base_y` (frame.max_y() − 2 + bob; the hit box carries NO 2.5D
 /// emphasis, the sprite fit does — same split as the blit) → sprite
 /// height `dh` from `walker_fit` (pack aspect, else the generated
-/// person's pixel grid) → head = top-center `(cx, base_y − dh)`,
-/// nudged +3 px (flipped view: +y is down). Pack PNGs carry
-/// transparent padding above the hair, so the raw box top reads as
-/// 2–3 px of air; the nudge puts f = 0 / f = 1 ON the hair, not the
-/// padding. `pack_aspects` is per-pack `pack_still_aspect` output
-/// (0.0 = the generated person draws). Returns `(head_x, head_y,
-/// dh)`; None when the walker or its roam is gone.
+/// person's pixel grid) → kiss = top-center `(cx, base_y − dh)` plus
+/// 0.18·dh DOWN (flipped view: +y is down; ≈ 8–14 px at typical walker
+/// size). Pack PNGs carry transparent padding above the hair, so the
+/// raw box top reads as air — the 0.18·dh drop puts a few pixels of
+/// hair/crown UNDER the bottom-anchored ball at f = 0 / f = 1 (cover,
+/// not hover; cheap — no opaque-pixel scan). `pack_aspects` is per-pack
+/// `pack_still_aspect` output (0.0 = the generated person draws).
+/// Returns `(head_x, head_y, dh)`; None when the walker or its roam is
+/// gone.
 pub(crate) fn walker_head_view(
     pack_aspects: &[f64],
     planet: &Planet,
@@ -576,7 +595,7 @@ pub(crate) fn walker_head_view(
     } else {
         crate::chars::H as f64 * (fit / crate::chars::H as f64).clamp(1.5, 8.0)
     };
-    Some((pt.x, base_y - dh + 3.0, dh))
+    Some((pt.x, base_y - dh + 0.18 * dh, dh))
 }
 
 /// The ball's VIEW-PIXEL position right now (draw blits it as returned —
@@ -585,8 +604,10 @@ pub(crate) fn walker_head_view(
 /// tracks a darting walker) — plus the mid-hop lift straight up the
 /// screen (−y in the flipped view). f = 0 and f = 1 are TOUCHES (ball
 /// overlapping a head); sin(πf)·arc lifts the middle clearly off the
-/// grass above BOTH heads. A target that vanished mid-hop holds at the
-/// launch point until the next hop re-targets. None = hidden (toggle
+/// grass above BOTH heads. Past f = 1 (the BALL_CONTACT_HOLD linger) f
+/// stays clamped at 1, so the ball rides the target's LIVE head until
+/// the next hop. A target that vanished mid-hop holds at the launch
+/// point until the next hop re-targets. None = hidden (toggle
 /// off / fewer than 2 Doing).
 pub(crate) fn ball_pos(
     pack_aspects: &[f64],
