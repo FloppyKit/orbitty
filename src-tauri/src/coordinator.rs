@@ -1283,7 +1283,14 @@ fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Resu
     // BLOCK-MH-4 `accept_full_goose_tools_v0`: no `--no-profile` — Matt's
     // default Goose profile loads (developer/shell, computercontroller,
     // skills, memory, …) so Spark can actually act, not just talk.
-    let mut args: Vec<String> = vec!["run".into(), "-q".into()];
+    // PROJECT-ADD leftover: `goose run -q` may still skip the profile, so
+    // the builtins are named explicitly — shell/files are guaranteed even
+    // when the profile load is bypassed.
+    let mut args: Vec<String> = vec![
+        "run".into(),
+        "-q".into(),
+        "--with-builtin=developer,computercontroller".into(),
+    ];
     let resume_id = plug
         .goose_session_id
         .as_deref()
@@ -1309,7 +1316,9 @@ fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Resu
 
     // Config is `smart_approve` and the bubble has no yes/no UI — without
     // always_allow, tool calls would hang or be denied.
-    let reply = run_mouth_cli("Goose", bin, &args, &[("GOOSE_MODE", "always_allow")], 180)?;
+    // PROJECT-ADD leftover: 300s (berd's 5 min) — with extensions actually
+    // loaded, 180s killed real tool runs mid-reply. Grok/Hermes keep 180.
+    let reply = run_mouth_cli("Goose", bin, &args, &[("GOOSE_MODE", "always_allow")], 300)?;
     if reply.is_empty() {
         return Err("Goose sent back an empty reply.".into());
     }

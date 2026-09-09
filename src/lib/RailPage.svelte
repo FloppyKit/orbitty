@@ -757,7 +757,10 @@
             .map(sleeperRowFor),
         ],
       }))
-      .filter(({ rows }) => rows.length > 0)
+      // GO-ORBITTY-PROJECT-ADD leftover: NO empty-planet filter — a mint
+      // with zero claims still rides the snapshot (entries: []) so the
+      // native side gives it a disc (empty town / marble). Filtering here
+      // tore the panel down and the name "vanished" on the dest click.
       .map(({ p, rows }) => habitatPlanetFor(p, rows));
     // Pack ids join the signature: an import/remove changes the frame pool
     // the habitat draws from, so it must re-sync even when no window moved.
@@ -812,7 +815,8 @@
           .filter((c) => occupancyOf(c) === p.id)
           .map(lastKnownRowFor),
       }))
-      .filter(({ rows }) => rows.length > 0)
+      // PROJECT-ADD leftover: empty planets boot as discs too — same
+      // no-filter rule as syncHabitat, so a fresh mint survives restart.
       .map(({ p, rows }) => habitatPlanetFor(p, rows));
     if (planets.length === 0) return;
     try {
