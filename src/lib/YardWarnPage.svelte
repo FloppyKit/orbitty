@@ -34,10 +34,15 @@
   // exists. null = still counting.
   let unclaimed = $state<number | null>(null);
   let listErr = $state(false);
-  // The radio persists as yardSource = "windows" only; tabs/both stay
-  // disabled until Tabbity. No yard-on flag flips here — the yard is
-  // never on in this phrase.
-  let yardSource = $state("windows");
+  // Two independent checkboxes persist as yardWindows / yardTabs; tabs
+  // stay disabled until Tabbity. The old yardSource radio key is healed
+  // away on load. No yard-on flag flips here — the yard is never on in
+  // this phrase.
+  let yardWindows = $state(true);
+  let yardTabs = $state(false);
+  // Drop arms only when at least one source is on (phrase #2 wires it);
+  // today it stays disabled either way, but the hint stays honest.
+  const noneOn = $derived(!yardWindows && !yardTabs);
 
   $effect(() => {
     if (!themeId) return;
@@ -55,12 +60,15 @@
       const s = await invoke<PersistedState>("load_state");
       if (THEME_IDS.has(s.themeId)) themeId = s.themeId;
       windowOpacity = s.windowOpacity;
-      // Persist the radio as "windows" only — a stray value heals here.
-      if (s.yardSource !== "windows") {
-        s.yardSource = "windows";
+      // Heal pre-checkbox saves: missing bools (from the yardSource
+      // radio era) mean windows on / tabs off; write the heal back once.
+      if (s.yardWindows === undefined || s.yardTabs === undefined) {
+        s.yardWindows = s.yardWindows ?? true;
+        s.yardTabs = s.yardTabs ?? false;
         invoke("save_state", { state: s }).catch(() => {});
       }
-      yardSource = "windows";
+      yardWindows = s.yardWindows ?? true;
+      yardTabs = s.yardTabs ?? false;
       const windows = await invoke<WindowInfo[]>("list_windows");
       const liveClaims = (s.claims ?? []).filter((c) =>
         (s.projects ?? []).some((p) => p.id === c.projectId),
@@ -76,12 +84,14 @@
     }
   }
 
-  function persistSource() {
-    // Only "windows" can ever be selected (tabs/both are disabled); write
-    // it anyway so the settings field is the one honest record.
+  function persistSources() {
+    // Checkboxes are independent; write both bools so the settings fields
+    // are the one honest record. Tabs can't flip yet (disabled), but its
+    // persisted false is still the truth.
     invoke<PersistedState>("load_state")
       .then((s) => {
-        s.yardSource = "windows";
+        s.yardWindows = yardWindows;
+        s.yardTabs = yardTabs;
         return invoke("save_state", { state: s });
       })
       .catch(() => {});
@@ -165,35 +175,17 @@
 
       <fieldset class="source">
         <legend class="block-label">Herd from</legend>
-        <label class="radio">
+        <label class="check">
           <input
-            type="radio"
-            name="yard-source"
-            value="windows"
-            bind:group={yardSource}
-            onchange={persistSource}
+            type="checkbox"
+            bind:checked={yardWindows}
+            onchange={persistSources}
           />
           Unclaimed windows
         </label>
-        <label class="radio off" title="needs Tabbity">
-          <input
-            type="radio"
-            name="yard-source"
-            value="tabs"
-            disabled
-            bind:group={yardSource}
-          />
+        <label class="check off" title="needs Tabbity">
+          <input type="checkbox" disabled bind:checked={yardTabs} />
           Unclaimed browser tabs
-        </label>
-        <label class="radio off" title="needs Tabbity">
-          <input
-            type="radio"
-            name="yard-source"
-            value="both"
-            disabled
-            bind:group={yardSource}
-          />
-          Both
         </label>
       </fieldset>
 
@@ -203,7 +195,9 @@
         >
         <button class="mini" onclick={cancel}>Cancel</button>
       </div>
-      <p class="help">cats land on the next GO</p>
+      <p class="help"
+        >{noneOn ? "pick windows or tabs" : "cats land on the next GO"}</p
+      >
     </section>
   </div>
 </main>
@@ -301,13 +295,13 @@
   .source legend {
     padding: 0;
   }
-  .radio {
+  .check {
     display: flex;
     align-items: center;
     gap: 6px;
     font-size: 0.72rem;
   }
-  .radio.off {
+  .check.off {
     color: var(--dim);
   }
   .buttons {

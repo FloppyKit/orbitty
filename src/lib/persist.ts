@@ -214,13 +214,15 @@ export interface PersistedState {
   hideAppIcons: boolean;
   spriteScale: number;
   marbleDrift: boolean;
-  // GO-ORBITTY-YARD-WARN: Herding Cats confirm source radio — only
-  // "windows" exists until Tabbity lands. No yardCats: cats never persist.
-  // Native always writes this (serde default heals a missing key back to
-  // "windows" on every save); optional in TS so whole-state writers that
-  // predate the field (the rail's persist) keep type-checking. Becomes
-  // required when the yard lands.
-  yardSource?: string;
+  // GO-ORBITTY-YARD-WARN leftover: Herding Cats confirm source checkboxes
+  // — independent bools, at least one on before Drop can arm. Tabs stay
+  // disabled until Tabbity lands. The old `yardSource` radio key is no
+  // longer written; a save that predates the bools heals to windows on /
+  // tabs off via the native serde default. No yardCats: cats never
+  // persist. Optional in TS so whole-state writers that predate the
+  // fields (the rail's persist) keep type-checking.
+  yardWindows?: boolean;
+  yardTabs?: boolean;
   actionShortcuts: ActionShortcut[];
   agentShortcuts: AgentShortcut[];
   companion: CompanionSlice;
