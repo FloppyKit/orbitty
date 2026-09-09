@@ -61,8 +61,8 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
     // GO-ORBITTY-PROJECT-ADD: the planet control plane, next to the kanban
     // writes. Same ACL (full / named custom only). rm keeps cards'
-    // projectId and live claims; duplicate display names are allowed.
-    ToolDef { name: "project.add", description: "Mint a project planet (empty name refused; duplicate names allowed, ids unique)", args: "project_add" },
+    // projectId and live claims; add dedups same-name rows (newest id).
+    ToolDef { name: "project.add", description: "Mint a project planet, or reuse + front the existing one on a same-name add (trim, case-insensitive; empty name refused)", args: "project_add" },
     ToolDef { name: "project.rm", description: "Remove a project planet by id; cards keep their projectId and live claims stay (walkers vanish on next habitat sync)", args: "project_rm" },
     ToolDef { name: "project.rename", description: "Rename a project planet, keeping its id (empty name refused)", args: "project_rename" },
     // GO-ORBITTY-ACTION-FILE: the action recipe file. list is read-safe;

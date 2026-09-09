@@ -259,14 +259,31 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
 
 /// GO-ORBITTY-PROJECT-ADD: `project.add` — mint a planet row
 /// `{ id: new_id("p"), name }` (the rail's createProject id shape). Empty
-/// name refused; duplicate display names are allowed (ids are unique).
-/// Logs `project-add`.
+/// name refused. Leftover: a same-name row (trim, case-insensitive) is
+/// reused, never twinned — newest id wins if several — and either way the
+/// disc is fronted + locate-glowed (a mint must surface through covering
+/// windows). Logs `project-add` on a real mint only.
 pub fn project_add(app: &tauri::AppHandle, name: &str) -> Result<Project, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("project.add: empty name".into());
     }
     let before = crate::state::load_state(app)?;
+    // Dedup: the display name (trim, case-insensitive) already has a
+    // planet — return it instead of minting a twin. Newest id wins (ids
+    // are `p-<base36 millis>-<rand>`, so max id = latest mint). Nothing
+    // is saved; the existing disc still fronts + glows.
+    if let Some(existing) = before
+        .projects
+        .iter()
+        .filter(|p| p.name.trim().eq_ignore_ascii_case(name))
+        .max_by(|a, b| a.id.cmp(&b.id))
+    {
+        let project = existing.clone();
+        crate::habitat::bring_planet_front(&project.id);
+        let _ = crate::habitat::locate_planet(app.clone(), project.id.clone());
+        return Ok(project);
+    }
     let project = Project {
         id: new_id("p"),
         name: name.to_string(),
@@ -283,6 +300,12 @@ pub fn project_add(app: &tauri::AppHandle, name: &str) -> Result<Project, String
         true,
         &serde_json::json!({ "projectId": project.id, "name": project.name }),
     );
+    // Front + locate-glow the new disc. The panel may not exist until the
+    // next habitat sync — bring is then a no-op and this arm only catches
+    // a sync inside the TTL, so do_sync's new-panel path arms the glow
+    // again on insert (first-blit guarantee).
+    crate::habitat::bring_planet_front(&project.id);
+    let _ = crate::habitat::locate_planet(app.clone(), project.id.clone());
     Ok(project)
 }
 

@@ -3152,6 +3152,11 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 audio::start_audio(&mut planet, &state.music, live);
             }
             h.planets.insert(project_id.clone(), planet);
+            // GO-ORBITTY-PROJECT-ADD leftover: a fresh panel must not
+            // debut behind the user's windows — orderFrontRegardless ran
+            // above; arm the locate glow so the first blits ring the disc
+            // (project_add arms pre-sync too; this is the guarantee).
+            h.locate_planet = Some((project_id.clone(), Instant::now()));
             if collapsed_eff {
                 marble_panels += 1;
             }
