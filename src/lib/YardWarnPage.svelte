@@ -2,7 +2,8 @@
   // GO-ORBITTY-YARD-WARN + GO-ORBITTY-HERDING-CATS: the Herding Cats
   // confirm. ⌘⇧Y or Settings → Appearance → Herding Cats… opens this own
   // small window (so the shortcut works with Settings closed). Esc / ⌘⇧Y /
-  // Cancel / × all scoop = hide. Drop the cats (phrase #2) starts the
+  // Cancel / × all scoop = stop the yard if it is on, then hide. Drop the
+  // cats (phrase #2) starts the
   // yard: unclaimed windows rain onto the desktop as bitty cats until
   // claimed, closed, or scooped — session only, planets stay empty of
   // unmapped sprites. window.confirm is dead on the companion overlay;
@@ -99,7 +100,10 @@
   }
 
   function cancel() {
-    // Scoop = Cancel: hide only, never destroy; no overlay to tear down.
+    // Scoop = Cancel: if the clowder is out, scoop it first — yard_stop
+    // is an idempotent no-op when the yard is off. Post-Drop the pane is
+    // already hidden, but a still-up pane must never leave cats running.
+    invoke("yard_stop").catch(() => {});
     invoke("hide_window", { label: "yard-warn" }).catch(() => {});
   }
 

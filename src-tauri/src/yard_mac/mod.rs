@@ -17,9 +17,10 @@
 //! path); right-click opens the cat menu — Assign to planet (emits
 //! `yard:assign`; the rail's claim() is the one claim writer), Close
 //! window (AX close press, never a pid kill), Scoop this cat (hidden, the
-//! window stays). Esc (global monitor), ⌘⇧Y, and the Settings row while
-//! on all scoop all. Last cat gone = overlay gone, mode off. Drop on an
-//! already-on yard is a no-op (never double-spawn).
+//! window stays). Esc (global monitor for other apps key, local monitor
+//! for Orbitty key), ⌘⇧Y, and the Settings row while on all scoop all.
+//! Last cat gone = overlay gone, mode off. Drop on an already-on yard is
+//! a no-op (never double-spawn).
 //!
 //! Threading mirrors the habitat: ONE worker thread (33ms) does the
 //! off-main work (AX window poll + state.json read) and POSTS a coalesced
@@ -213,6 +214,10 @@ struct Yard {
     meow: meow::Meow,
     /// NSEvent global Esc monitor (retained), 0 = not installed.
     esc_monitor: usize,
+    /// NSEvent local Esc monitor (retained), 0 = not installed. Global
+    /// monitors never see our own app's keys, so this is what scoops
+    /// while Orbitty is key.
+    esc_local_monitor: usize,
 }
 
 impl Default for Yard {
@@ -230,6 +235,7 @@ impl Default for Yard {
             hop_count: 0,
             meow: meow::Meow::default(),
             esc_monitor: 0,
+            esc_local_monitor: 0,
         }
     }
 }
@@ -693,7 +699,22 @@ unsafe fn sync_panels(y: &mut Yard) {
         let _: () = msg_send![panel, setContentView: view];
         let _: () = msg_send![view, release];
         let _: () = msg_send![panel, setFrame: *frame display: false];
+        // Invisible-cats punch (the habitat's marble-swap lesson):
+        // setContentView into the 10×10 panel shrank the view to the
+        // content rect, and the default autoresizing mask (not sizable)
+        // kept it ~10×10 in a corner after the panel took the display
+        // frame — cats rained in full-display coords and drew outside
+        // the view. Pin the view to the real size with a sizable mask,
+        // then flush the first blit NOW so the rain lands inside the
+        // stagger, never a long pause then an all-at-once pop.
+        let _: () = msg_send![view,
+            setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
+        // NSViewWidthSizable (2) | NSViewHeightSizable (16) — a later
+        // panel setFrame: keeps the view filling the display.
+        let _: () = msg_send![view, setAutoresizingMask: 18usize];
         let _: () = msg_send![panel, orderFrontRegardless];
+        let _: () = msg_send![view, setNeedsDisplay: true];
+        let _: () = msg_send![view, displayIfNeeded];
         y.panels.push(YardPanel {
             screen_id: id.clone(),
             panel: panel as usize,
@@ -1416,29 +1437,87 @@ extern "C" fn esc_invoke(_block: *const EscBlock, event: *mut Object) {
     }));
 }
 
+/// Local-monitor twin of EscBlock: the handler MUST return the event
+/// (returning nil would eat the key). Same layout, pointer return.
+#[repr(C)]
+struct EscLocalBlock {
+    isa: *const c_void,
+    flags: i32,
+    reserved: i32,
+    invoke: extern "C" fn(*const EscLocalBlock, *mut Object) -> *mut Object,
+    descriptor: *const EscBlockDescriptor,
+}
+
+fn esc_local_block() -> *const EscLocalBlock {
+    static BLOCK: OnceLock<usize> = OnceLock::new();
+    *BLOCK.get_or_init(|| {
+        Box::into_raw(Box::new(EscLocalBlock {
+            // SAFETY: referencing the libSystem global-block class.
+            isa: unsafe { &NS_CONCRETE_GLOBAL_BLOCK as *const c_void },
+            flags: BLOCK_IS_GLOBAL,
+            reserved: 0,
+            invoke: esc_local_invoke,
+            descriptor: &ESC_BLOCK_DESCRIPTOR,
+        })) as usize
+    }) as *const EscLocalBlock
+}
+
+extern "C" fn esc_local_invoke(_block: *const EscLocalBlock, event: *mut Object) -> *mut Object {
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+        if event.is_null() {
+            return;
+        }
+        // kVK_Escape while ORBITTY is key — the global monitor never sees
+        // our own app's keys, so without this Esc did nothing after Drop
+        // (the warn pane hides and Orbitty stays key). Scoop, then hand
+        // the event back: this is the product Esc, but typing in other
+        // fields is never eaten.
+        let key: u16 = msg_send![event, keyCode];
+        if key == 53 {
+            let _ = stop();
+        }
+    }));
+    event
+}
+
 unsafe fn install_esc_monitor(y: &mut Yard) {
-    if y.esc_monitor != 0 {
-        return;
+    // NSEventMaskKeyDown. The global monitor needs the same AX trust the
+    // whole app already requires; a null return just leaves ⌘⇧Y as the
+    // scoop. Each monitor guards itself so a retry after a null never
+    // double-installs the other.
+    if y.esc_monitor == 0 {
+        let monitor: *mut Object = msg_send![class!(NSEvent),
+            addGlobalMonitorForEventsMatchingMask: 1024u64
+            handler: esc_block()];
+        if !monitor.is_null() {
+            let _: *mut Object = msg_send![monitor, retain];
+            y.esc_monitor = monitor as usize;
+        }
     }
-    // NSEventMaskKeyDown. The monitor needs the same AX trust the whole
-    // app already requires; a null return just leaves ⌘⇧Y as the scoop.
-    let monitor: *mut Object = msg_send![class!(NSEvent),
-        addGlobalMonitorForEventsMatchingMask: 1024u64
-        handler: esc_block()];
-    if !monitor.is_null() {
-        let _: *mut Object = msg_send![monitor, retain];
-        y.esc_monitor = monitor as usize;
+    if y.esc_local_monitor == 0 {
+        let monitor: *mut Object = msg_send![class!(NSEvent),
+            addLocalMonitorForEventsMatchingMask: 1024u64
+            handler: esc_local_block()];
+        if !monitor.is_null() {
+            let _: *mut Object = msg_send![monitor, retain];
+            y.esc_local_monitor = monitor as usize;
+        }
     }
 }
 
 unsafe fn remove_esc_monitor(y: &mut Yard) {
-    if y.esc_monitor == 0 {
-        return;
+    if y.esc_monitor != 0 {
+        let monitor = y.esc_monitor as *mut Object;
+        let _: () = msg_send![class!(NSEvent), removeMonitor: monitor];
+        let _: () = msg_send![monitor, release];
+        y.esc_monitor = 0;
     }
-    let monitor = y.esc_monitor as *mut Object;
-    let _: () = msg_send![class!(NSEvent), removeMonitor: monitor];
-    let _: () = msg_send![monitor, release];
-    y.esc_monitor = 0;
+    if y.esc_local_monitor != 0 {
+        let monitor = y.esc_local_monitor as *mut Object;
+        let _: () = msg_send![class!(NSEvent), removeMonitor: monitor];
+        let _: () = msg_send![monitor, release];
+        y.esc_local_monitor = 0;
+    }
 }
 
 // ---------- public door ----------
@@ -1458,7 +1537,13 @@ pub fn start(app: AppHandle) -> Result<(), String> {
         let _ = catch_unwind(AssertUnwindSafe(|| unsafe { start_on_main() }))
             .map_err(|p| eprintln!("yard: start panicked: {}", panic_msg(&*p)));
     });
-    Ok(())
+    // Honesty: start_on_main no-ops when no cat art decodes or the view
+    // class fails — Drop must not pretend the yard is on.
+    if active() {
+        Ok(())
+    } else {
+        Err("yard stayed off (no cat art decoded, or view class failed)".to_string())
+    }
 }
 
 /// Main thread. Builds the panels, decodes the cat colorways, arms the
