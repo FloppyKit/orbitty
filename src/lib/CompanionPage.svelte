@@ -662,25 +662,22 @@
   async function onAgentChange() {
     try {
       agent = await invoke<string>("set_companion_agent", { profile: agent });
+      // Dropdown is the only chrome. Stem → thread: spark/Work/Chat/Hold.
+      const next =
+        agent === "grok"
+          ? "work"
+          : agent === "chaos-gremlin"
+            ? "chat"
+            : agent === "fkt-homie"
+              ? "hold"
+              : "spark";
+      if (next !== mode) {
+        mode = next;
+        await invoke("set_companion_mode", { mode: next });
+      }
     } catch (e) {
       sendNote = `${e}`;
       await loadAgents(); // snap back to the persisted pick
-    }
-  }
-
-  // GO-ORBITTY-MODE-SPLIT: chip click switches the mode native-side —
-  // set_companion_mode parks the current turns under the old mode and
-  // loads the new mode's thread, then state:changed → loadState swaps
-  // the transcript in. Optimistic chip flip; an error snaps back.
-  async function onModeChange(next: string) {
-    if (next === mode) return;
-    const prev = mode;
-    mode = next;
-    try {
-      await invoke("set_companion_mode", { mode: next });
-    } catch (e) {
-      mode = prev;
-      sendNote = `${e}`;
     }
   }
 
@@ -1606,7 +1603,6 @@
   <CompanionDock
     {agents}
     bind:agent
-    {mode}
     {sending}
     {prompts}
     {hosted}
@@ -1621,7 +1617,6 @@
     bind:draft
     bind:fieldEl
     {onAgentChange}
-    {onModeChange}
     {togglePrompts}
     {toggleDest}
     {nextCount}
