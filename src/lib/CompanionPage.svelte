@@ -105,6 +105,7 @@
   import Companion3D from "./Companion3D.svelte";
   import CaptionPane from "./CaptionPane.svelte";
   import CompanionDock from "./CompanionDock.svelte";
+  import NextCard from "./NextCard.svelte";
 
   import type {
     CompanionSlice,
@@ -355,7 +356,7 @@
     if (!dock) return null;
     const dockR = dock.getBoundingClientRect();
     let top = dockR.top;
-    mainEl.querySelectorAll(".ccrow, .note, .starstrip").forEach((el) => {
+    mainEl.querySelectorAll(".ccrow, .note, .starstrip, .nextcard").forEach((el) => {
       const r = el.getBoundingClientRect();
       if (r.height >= 2 && r.top < top) top = r.top;
     });
@@ -1106,7 +1107,7 @@
     if (t?.closest("input, textarea, select, option, .field")) return;
     if (
       !t?.closest(
-        ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .winx, .gear, .note"
+        ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .nextcard, .winx, .gear, .note"
       )
     )
       return;
@@ -1159,6 +1160,7 @@
     mainEl.querySelectorAll(".cc").forEach((el) => push(el));
     push(mainEl.querySelector(".ccrow .wait"));
     push(mainEl.querySelector(".starstrip"));
+    push(mainEl.querySelector(".nextcard"));
     // DOCK-GRIP: flush dock hit — paint stays inset, hits are not paint.
     const dock = mainEl.querySelector(".ghostdock");
     if (dock) {
@@ -1191,6 +1193,7 @@
       sending,
       sendNote,
       showPromptStrip,
+      cards,
       missing,
       drawFrames,
     ];
@@ -1563,6 +1566,10 @@
       <button class="starstrip-x" onclick={ackStrip} aria-label="Dismiss">×</button>
     </div>
   {/if}
+
+  <!-- GO-ORBITTY-NEXT-CARD: one glass card above the dock. Dest chips
+       switch the pile; dest off still shows Launchpad Needed. -->
+  <NextCard {hosted} hidden={expanded} />
 
   <!-- GO-ORBITTY-CLEAN-COMPANION-DOCK: agentrow + dests + Speak +
        sprite/view + Expand + ⚙ + composer live in CompanionDock.svelte.
