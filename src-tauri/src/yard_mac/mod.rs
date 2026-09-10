@@ -27,10 +27,19 @@
 //! ONLY. Off-main AX returns a partial window list, and a partial list
 //! used to retain-kill the clowder. So the ONE worker thread (33ms) is a
 //! bare metronome — it sleeps and POSTS a coalesced hop; the unmapped
-//! poll (list_windows + state.json) runs inside the hop on main at the
-//! ~1s cadence, next to every AppKit / AVAudioPlayer touch. Raw ObjC
+//! poll (list_windows_light + state.json) runs inside the hop on main at
+//! the ~1s cadence, next to every AppKit / AVAudioPlayer touch. Raw ObjC
 //! pointers are usize inside the mutex and only dereferenced on the main
 //! thread.
+//!
+//! Two 2026-09-10 dogfood lessons on top: (1) the poll NEVER runs under
+//! the yard lock — a stall inside it froze drawRect/clicks/scoop behind
+//! the mutex, and Drop looked dead; (2) the poll uses the LIGHT list —
+//! the full list PNG-encodes every running app's icon on a cold cache
+//! (10–20s on main), and by the time it returned the queued hops had
+//! applied enough capped dt to finish the rain off-screen. HOP_PENDING
+//! clears at the END of a hop: one hop in flight, a stall drops beats
+//! instead of queueing rain steps.
 
 // objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
 // rustc flags; harmless upstream noise (same allowance as habitat_mac).
@@ -927,14 +936,16 @@ fn motion_step(y: &mut Yard, dt: f64) {
 
 // ---------- the unmapped poll (MAIN thread only — AX + NSScreen) ----------
 
-/// The inspector's Unclaimed set, native side: `list_windows` (already
-/// drops Orbitty/LiveSprite) minus claims whose project still exists —
-/// the same formula RailPage and the warn pane compute in JS. MAIN
-/// THREAD ONLY: off-main AX returns a partial list (the 5-of-18
-/// dogfood), and a partial list must never drive the clowder. None on a
-/// read hiccup: a skipped beat never invents or kills a cat.
+/// The inspector's Unclaimed set, native side: `list_windows_light`
+/// (already drops Orbitty/LiveSprite) minus claims whose project still
+/// exists — the same formula RailPage and the warn pane compute in JS.
+/// MAIN THREAD ONLY: off-main AX returns a partial list (the 5-of-18
+/// dogfood), and a partial list must never drive the clowder. LIGHT
+/// LIST: titles + ids + frames, never the icon PNG encode — a cold icon
+/// cache was the 10–20s Drop stall. Called WITHOUT the yard lock held.
+/// None on a read hiccup: a skipped beat never invents or kills a cat.
 fn poll_unmapped(app: &AppHandle) -> Option<Vec<crate::windows::WindowInfo>> {
-    let wins = crate::windows::list_windows().ok()?;
+    let wins = crate::windows::list_windows_light().ok()?;
     let st = crate::state::load_state(app).ok()?;
     let live: HashSet<&str> = st
         .claims
@@ -1020,24 +1031,37 @@ fn spawn_worker() {
             // Metronome ONLY — this thread never touches AX, NSScreen, or
             // AppKit. The main hop does the unmapped poll and the draw.
             // Post-and-return, coalesced — a stalled main drops a beat
-            // instead of piling up late hops.
+            // instead of piling up late hops. HOP_PENDING clears at the
+            // END of the hop (see hop()), so one hop is ever queued or
+            // running: a long poll can never stack hops that each apply a
+            // capped dt and finish the rain off-screen.
             if HOP_PENDING
                 .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
             {
-                crate::main_thread_async(|| {
-                    let _ = catch_unwind(AssertUnwindSafe(hop));
-                });
+                crate::main_thread_async(hop);
             }
             std::thread::sleep(Duration::from_millis(TICK_MS));
         }
     });
 }
 
-/// The main-thread turn: motion, spawn, panels, cursor ghost, meow, draw.
+/// Posted entry: run the hop, then release the flag — at the END, never
+/// the start, and on a panic too, so a dead hop can never wedge the
+/// metronome (flag stuck true) nor a slow one invite a queue behind it.
 fn hop() {
+    let r = catch_unwind(AssertUnwindSafe(hop_inner));
     HOP_PENDING.store(false, Ordering::SeqCst);
+    if let Err(p) = r {
+        eprintln!("yard: hop panicked: {}", panic_msg(&*p));
+    }
+}
+
+/// The main-thread turn: motion, spawn, panels, cursor ghost, meow, draw
+/// under the lock; then the ~1s unmapped poll AFTER the lock is dropped.
+fn hop_inner() {
     let mut stop_after = false;
+    let poll_due;
     {
         let mut y = lock();
         if !y.on {
@@ -1050,18 +1074,14 @@ fn hop() {
             .unwrap_or(0.033);
         y.last_hop = Some(now);
         y.hop_count = y.hop_count.wrapping_add(1);
+        poll_due = y.hop_count % POLL_EVERY == 0;
         if !y.packs.is_empty() {
             motion_step(&mut y, dt);
         }
-        // ~1s cadence block, ALL on main: the unmapped poll (AX window
-        // list + state.json — the full list, same N as the warn pane)
-        // and display hotplug / rearrange.
-        if y.hop_count % POLL_EVERY == 0 {
-            if let Some(app) = app_handle() {
-                if let Some(unmapped) = poll_unmapped(app) {
-                    apply_unmapped(&mut y, unmapped);
-                }
-            }
+        // Display hotplug / rearrange stays under the lock — NSScreen is
+        // cheap and main-only, no AX. The AX poll below is NOT under the
+        // lock.
+        if poll_due {
             unsafe { sync_panels(&mut y) };
         }
         cursor_ghost(&mut y);
@@ -1089,6 +1109,23 @@ fn hop() {
     }
     if stop_after {
         stop_on_main();
+        return;
+    }
+    // The unmapped poll: AX + state.json on MAIN (off-main AX reads a
+    // partial list), but NEVER under the yard lock — drawRect, clicks,
+    // and Esc/⌘⇧Y scoop keep moving while it reads, so a slow AX beat
+    // hitches nothing but this hop. Light list: no icon PNG encode.
+    if poll_due {
+        if let Some(app) = app_handle() {
+            if let Some(unmapped) = poll_unmapped(app) {
+                let mut y = lock();
+                // A scoop-all / Esc during the poll already tore the yard
+                // down — never queue cats into an off yard.
+                if y.on {
+                    apply_unmapped(&mut y, unmapped);
+                }
+            }
+        }
     }
 }
 

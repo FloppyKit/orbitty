@@ -448,8 +448,19 @@ unsafe fn app_icon_png_base64(app: *mut Object) -> Option<String> {
     out
 }
 
+/// What an enumeration pass collects. The full inspector list wants all
+/// of it; the yard's ~1s poll takes titles + ids + frames ONLY — a cold
+/// icon cache PNG-encodes every running app's icon on the caller's
+/// thread (the 10–20s Drop stall), and the yard never shows an icon.
+#[derive(Clone, Copy)]
+struct EnumOpts {
+    icons: bool,
+    documents: bool,
+    frontmost: bool,
+}
+
 /// Regular, non-terminated apps, excluding ourselves (port of WindowCatalog's filter).
-unsafe fn running_apps() -> Vec<RunningApp> {
+unsafe fn running_apps(icons: bool) -> Vec<RunningApp> {
     let self_pid = std::process::id() as i32;
     let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
     let apps: *mut Object = msg_send![workspace, runningApplications];
@@ -477,8 +488,14 @@ unsafe fn running_apps() -> Vec<RunningApp> {
         ) {
             continue;
         }
-        let cache_key = bundle_id.clone().unwrap_or_else(|| format!("pid:{pid}"));
-        let icon_base64 = cached_icon(app, &cache_key);
+        // Icons only when the caller asked: cached_icon PNG-encodes on a
+        // cold cache and must never run on the yard's poll path.
+        let icon_base64 = if icons {
+            let cache_key = bundle_id.clone().unwrap_or_else(|| format!("pid:{pid}"));
+            cached_icon(app, &cache_key)
+        } else {
+            None
+        };
         out.push(RunningApp {
             pid,
             name: ns_to_string(name).unwrap_or_else(|| "App".into()),
@@ -504,9 +521,9 @@ unsafe fn activate(app: *mut Object) {
 
 // ---------- enumeration (port of WindowCatalog) ----------
 
-unsafe fn enumerate() -> Vec<WindowInfo> {
+unsafe fn enumerate(opts: &EnumOpts) -> Vec<WindowInfo> {
     let mut result = Vec::new();
-    for app in running_apps() {
+    for app in running_apps(opts.icons) {
         let ax_app = AXUIElementCreateApplication(app.pid);
         if ax_app.is_null() {
             continue;
@@ -544,8 +561,13 @@ unsafe fn enumerate() -> Vec<WindowInfo> {
                 let title = ax_string(ax_win, ax_names().title).unwrap_or_default();
                 let minimized = ax_bool(ax_win, ax_names().minimized).unwrap_or(false);
                 // Sleeper wake stamp: the document this window has open, when
-                // the app exposes one and the file still exists.
-                let document_path = ax_document_path(ax_win);
+                // the app exposes one and the file still exists. Skipped on
+                // the light path — one AX read + stat the yard never uses.
+                let document_path = if opts.documents {
+                    ax_document_path(ax_win)
+                } else {
+                    None
+                };
                 let id = match ax_window_id(ax_win) {
                     Some(cg_id) => format!("{}:{}", app.pid, cg_id),
                     None => {
@@ -623,12 +645,35 @@ unsafe fn mark_frontmost(list: &mut [WindowInfo]) {
 }
 
 pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
+    list_with(EnumOpts {
+        icons: true,
+        documents: true,
+        frontmost: true,
+    })
+}
+
+/// GO-ORBITTY-HERDING-CATS leftover (rain now): the yard poll's list.
+/// Same AX window enumeration as `list_windows` — titles + ids + frames,
+/// same Orbitty/LiveSprite drop — but NEVER icon PNG-encoding, sleeper
+/// document stamps, or frontmost marking. The warn pane / inspector keep
+/// the full `list_windows`.
+pub fn list_windows_light() -> Result<Vec<WindowInfo>, String> {
+    list_with(EnumOpts {
+        icons: false,
+        documents: false,
+        frontmost: false,
+    })
+}
+
+fn list_with(opts: EnumOpts) -> Result<Vec<WindowInfo>, String> {
     if !unsafe { AXIsProcessTrusted() } {
         return Err("accessibility not granted".into());
     }
     unsafe {
-        let mut windows = enumerate();
-        mark_frontmost(&mut windows);
+        let mut windows = enumerate(&opts);
+        if opts.frontmost {
+            mark_frontmost(&mut windows);
+        }
         windows.sort_by(|a, b| {
             b.is_frontmost
                 .cmp(&a.is_frontmost)
