@@ -807,6 +807,34 @@ pub fn companion_note(
     Ok(target)
 }
 
+/// GO-ORBITTY-DOCK-HACK: the ctl-lit half of the dock LED. Any harness
+/// opts in (`orbittyctl companion hack -- on [--who cursor]`); off
+/// clears the who. Persisted on the companion slice (a flag, never a
+/// transcript); state:changed re-paints the dock. Off when every source
+/// is idle — a stuck on-light is a leftover, not a feature.
+#[tauri::command]
+pub fn set_companion_hack(
+    app: tauri::AppHandle,
+    live: bool,
+    who: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut st = crate::state::load_state(&app)?;
+    st.companion.hack_live = live;
+    st.companion.hack_who = if live {
+        who.map(|w| w.trim().to_string())
+            .filter(|w| !w.is_empty())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    crate::state::save_state(&app, &st)?;
+    let _ = app.emit("state:changed", ());
+    Ok(serde_json::json!({
+        "live": st.companion.hack_live,
+        "who": st.companion.hack_who,
+    }))
+}
+
 /// GO-ORBITTY-SETTINGS-WIN: persist Talk source (`system` | `hotkey`).
 #[tauri::command]
 pub fn set_companion_talk_source(app: tauri::AppHandle, source: String) -> Result<String, String> {

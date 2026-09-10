@@ -358,6 +358,14 @@ pub struct CompanionState {
     /// copied under "spark" (first run lands the old chat on Spark).
     #[serde(default)]
     pub threads: std::collections::BTreeMap<String, Vec<CompanionTurn>>,
+    /// GO-ORBITTY-DOCK-HACK: ctl-lit "agent working" flag for the dock
+    /// LED (`orbittyctl companion hack -- on [--who cursor]`). Any
+    /// harness opts in; Spark's own `sending` lights the same LED
+    /// without ctl. A flag, never a transcript. Default false.
+    pub hack_live: bool,
+    /// GO-ORBITTY-DOCK-HACK: names the live source for the LED title
+    /// ("cursor", "goose", …). "" = unknown; cleared on off.
+    pub hack_who: String,
 }
 
 /// S2.4: one saved companion turn. role: "you" | "them".
@@ -494,6 +502,8 @@ impl Default for CompanionState {
             sprite: true,
             mode: companion_mode_default(),
             threads: std::collections::BTreeMap::new(),
+            hack_live: false,
+            hack_who: String::new(),
         }
     }
 }

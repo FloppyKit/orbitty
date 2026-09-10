@@ -88,6 +88,9 @@
   // CompanionDock.svelte — paint + presses only. All state, sends (the
   // field still calls companion_send), the well, and the × corner stay
   // here.
+  // GO-ORBITTY-DOCK-HACK: companion.hackLive/hackWho ride loadState down
+  // to the dock LED (lit when ctl-live OR sending); the write door is
+  // set_companion_hack via orbittyctl, never this page.
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { emitTo, listen } from "@tauri-apps/api/event";
@@ -184,6 +187,12 @@
   );
   let agents = $state<string[]>(["default"]);
   let agent = $state("default");
+  // GO-ORBITTY-DOCK-HACK: the ctl-lit half of the dock LED — a harness
+  // sets companion.hackLive (+ optional hackWho) via
+  // `orbittyctl companion hack -- on [--who cursor]`; the dock lights the
+  // LED when this OR `sending` is true. Persisted flag, not a transcript.
+  let hackLive = $state(false);
+  let hackWho = $state("");
   // The Body picker lives in Settings → Appearance (Companion body); this
   // window only follows the persisted pack (state:changed → loadState).
   let bodyId = $state("spirit");
@@ -1077,6 +1086,9 @@
       viewExpanded = s.companion?.viewExpanded === "full" ? "full" : "head";
       // SPRITE-OFF: missing key (old saves) = true.
       sprite = s.companion?.sprite ?? true;
+      // DOCK-HACK: missing keys (old saves) = dark LED, unknown source.
+      hackLive = s.companion?.hackLive ?? false;
+      hackWho = s.companion?.hackWho ?? "";
       const pack = s.companion?.imagePackId ?? null;
       const nextBody = pack && pack.length > 0 ? pack : "spirit";
       if (nextBody !== bodyId) {
@@ -1603,6 +1615,8 @@
     {agents}
     bind:agent
     {sending}
+    {hackLive}
+    {hackWho}
     {prompts}
     {hosted}
     {speak}

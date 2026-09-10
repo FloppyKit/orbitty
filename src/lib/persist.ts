@@ -175,6 +175,11 @@ export interface CompanionSlice {
   // native heal parks a pre-split transcript under spark on load.
   mode?: CompanionMode;
   threads?: Partial<Record<CompanionMode, CompanionTurn[]>>;
+  // GO-ORBITTY-DOCK-HACK: ctl-lit "agent working" flag for the dock LED
+  // (`orbittyctl companion hack -- on [--who cursor]`). hackWho names the
+  // live source for the LED title. A flag, never a transcript.
+  hackLive?: boolean;
+  hackWho?: string;
 }
 
 export interface StarsCheckin {

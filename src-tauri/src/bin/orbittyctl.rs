@@ -31,6 +31,7 @@ commands:
   companion play -- <clip>         idle · think · nod · look-left · look-right
   companion mode -- spark|chat|work|hold
   companion note [--mode spark|chat|work|hold] -- \"line\"
+  companion hack -- on|off [--who cursor]
   kanban open
   kanban add --title \"t\" [--project P] [--status todo|doing]
   kanban move --id <id> --status todo|doing|done
@@ -89,6 +90,7 @@ struct Opts {
     cwd: Option<String>,
     combo: Option<String>,
     mode: Option<String>,
+    who: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
 }
@@ -110,6 +112,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         cwd: None,
         combo: None,
         mode: None,
+        who: None,
         words: Vec::new(),
         tail: Vec::new(),
     };
@@ -147,6 +150,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.combo = Some(it.next().ok_or("--combo needs a value")?.clone())
             }
             "--mode" => o.mode = Some(it.next().ok_or("--mode needs a value")?.clone()),
+            "--who" => o.who = Some(it.next().ok_or("--who needs a value")?.clone()),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 exit(0);
@@ -169,6 +173,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.combo = Some(s["--combo=".len()..].to_string())
             }
             s if s.starts_with("--mode=") => o.mode = Some(s["--mode=".len()..].to_string()),
+            s if s.starts_with("--who=") => o.who = Some(s["--who=".len()..].to_string()),
             s if s.starts_with('-') && s.len() > 1 => {
                 return Err(format!("unknown flag {s:?}\n\n{USAGE}"))
             }
@@ -254,6 +259,35 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                 }
             }
             Ok(("companion.note", a))
+        }
+        // GO-ORBITTY-DOCK-HACK: the dock LED flag. Fail CLOSED on an
+        // unknown verb — a typo never leaves a stuck light. `--who` may
+        // ride either side of `--` (after it, it's tail text we parse).
+        ["companion", "hack", ..] => {
+            let p = payload(o)?;
+            let mut toks = p.split_whitespace();
+            let live = match toks.next().unwrap_or("") {
+                "on" => true,
+                "off" => false,
+                other => return Err(format!("unknown hack state {other:?} — on | off")),
+            };
+            let mut who = opt(&o.who);
+            let mut rest = toks;
+            while let Some(t) = rest.next() {
+                if t == "--who" {
+                    who = rest
+                        .next()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty());
+                } else if let Some(v) = t.strip_prefix("--who=") {
+                    who = Some(v.trim().to_string()).filter(|s| !s.is_empty());
+                }
+            }
+            let mut a = json!({ "live": live });
+            if let Some(w) = who {
+                a["who"] = json!(w);
+            }
+            Ok(("companion.hack", a))
         }
         ["kanban", "open"] => Ok(("kanban.open", json!({}))),
         // GO-ORBITTY-MCP-WRITE: write verbs. The server validates values
@@ -454,6 +488,15 @@ fn print_human(tool: &str, data: &Value) {
         "companion.play" => println!("playing: {}", data["played"].as_str().unwrap_or("")),
         "companion.mode" => println!("mode: {}", data.as_str().unwrap_or("")),
         "companion.note" => println!("noted ({})", data.as_str().unwrap_or("")),
+        "companion.hack" => {
+            let live = data["live"].as_bool().unwrap_or(false);
+            let who = data["who"].as_str().unwrap_or("");
+            match (live, who.is_empty()) {
+                (true, false) => println!("hack: on ({who})"),
+                (true, true) => println!("hack: on"),
+                _ => println!("hack: off"),
+            }
+        }
         "packs.list" => {
             let Some(arr) = data.as_array() else {
                 return;

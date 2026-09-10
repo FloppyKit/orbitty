@@ -28,6 +28,11 @@
 //! project.rm / project.rename). Same ACL class as the kanban writes:
 //! never in READ_TOOLS, never companion.* — `full` or a named `custom`
 //! entry only; `read` / `companion` deny (4).
+//!
+//! GO-ORBITTY-DOCK-HACK adds companion.hack — the ctl-lit "agent
+//! working" flag behind the dock LED. companion.* ACL like play/send;
+//! `live` must be a real bool, so a malformed request fails closed and
+//! never leaves a stuck light.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -400,6 +405,20 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         "companion.note" => {
             let line = arg_str(args, "line")?;
             crate::coordinator::companion_note(app.clone(), line, arg_opt(args, "mode"))
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // GO-ORBITTY-DOCK-HACK: the dock LED flag — companion.* ACL like
+        // play/send. `live` must be a real bool (fail closed); `who` is
+        // an optional source label ("cursor", "goose", …) for the title.
+        "companion.hack" => {
+            let live = args
+                .get("live")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| {
+                    (ERR_OTHER, "companion.hack: need bool arg \"live\"".to_string())
+                })?;
+            crate::coordinator::set_companion_hack(app.clone(), live, arg_opt(args, "who"))
                 .map(to_data)
                 .map_err(tool_err)
         }

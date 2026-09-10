@@ -6,6 +6,8 @@
   // sends (the field still calls companion_send), and the well. Planets
   // dest L-click = toggleDest("inspector"). R-click = planet menu
   // (Add + live names) — not a dest toggle. × stays a CompanionPage corner.
+  // GO-ORBITTY-DOCK-HACK: the live LED sits immediately left of the agent
+  // pick (sending || hackLive); the pick hugs its labels (46% cap dead).
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { planetCss } from "./planetColor";
@@ -22,12 +24,24 @@
   };
   const agentLabel = (id: string) => AGENT_LABELS[id] ?? id;
 
+  // GO-ORBITTY-DOCK-HACK: one 7px LED immediately left of the agent pick
+  // — lit while ANY agent is working: the Spark mouth (sending) or the
+  // ctl hack flag (companion.hackLive; a harness opts in). Off = not in
+  // the DOM, never a dim grey. Not a button, not a count.
+  const HACK_WHO_TITLES: Record<string, string> = {
+    cursor: "Cursor leftover",
+    goose: "Goose",
+    spark: "Spark mouth",
+  };
+
   type HostMode = "off" | "launchpad" | "stars" | "inspector";
 
   let {
     agents,
     agent = $bindable(),
     sending,
+    hackLive,
+    hackWho,
     prompts,
     hosted,
     speak,
@@ -62,6 +76,8 @@
     agents: string[];
     agent: string;
     sending: boolean;
+    hackLive: boolean;
+    hackWho: string;
     prompts: boolean;
     hosted: HostMode;
     speak: boolean;
@@ -93,6 +109,19 @@
     talkStopSend: () => void;
     onDockMouseDown: (e: MouseEvent) => void;
   } = $props();
+
+  // DOCK-HACK: the LED is live when either source is — the Spark mouth
+  // turn (sending) or the ctl flag (hackLive). Title names the live
+  // source when known: the explicit who wins, else the mouth.
+  const hackOn = $derived(sending || hackLive);
+  const hackTitle = $derived.by(() => {
+    if (hackLive) {
+      const w = hackWho.trim();
+      if (w) return HACK_WHO_TITLES[w.toLowerCase()] ?? w;
+    }
+    if (sending) return "Spark mouth";
+    return "Agent working";
+  });
 
   let planetsMenuOpen = $state(false);
   let skipDestClick = false;
@@ -221,6 +250,17 @@
        View, Expand/Collapse). The Body picker lives in Settings →
        Appearance. Icons are inline SVG, currentColor, 16px. -->
   <div class="agentrow">
+    <!-- GO-ORBITTY-DOCK-HACK: the live light — immediately left of the
+         agent pick, never after dests. Off = not in the DOM. Not a
+         button: it drags with the dock chrome like any gap. -->
+    {#if hackOn}
+      <span
+        class="hackled"
+        role="img"
+        aria-label="agent working"
+        title={hackTitle}
+      ></span>
+    {/if}
     <select
       id="companion-agent"
       class="agentpick"
@@ -627,9 +667,13 @@
     padding: 6px 10px 0;
   }
 
+  /* GO-ORBITTY-DOCK-HACK: the 46% max-width was artificially wide — the
+     pick now hugs the labels (Spark / Work / Chat / Hold), making room
+     for the hack LED on its left. Dests still give first at the 280px
+     hug; the icon hit targets are never stolen. */
   .agentpick {
     flex: none;
-    max-width: 46%;
+    width: max-content;
     padding: 3px 6px;
     font: inherit;
     font-size: 0.78rem;
@@ -638,6 +682,37 @@
     border: 1px solid var(--edge);
     border-radius: 8px;
     outline: none;
+  }
+
+  /* GO-ORBITTY-DOCK-HACK: one 7px round LED immediately left of the
+     agent pick — accent fill with a small glow, soft 1.2s pulse while
+     any agent is live (Spark mouth sending, or the ctl hack flag).
+     Off = not in the DOM (the {#if} above), never a dim grey. */
+  .hackled {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px 1px var(--accent);
+    animation: orbitty-hack-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes orbitty-hack-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  /* Reduce Motion: the light holds steady — never a pulse. */
+  @media (prefers-reduced-motion: reduce) {
+    .hackled {
+      animation: none;
+    }
   }
 
   .agentpick:focus {
