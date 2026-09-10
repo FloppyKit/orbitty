@@ -10,6 +10,7 @@ mod coordinator;
 mod drawers;
 mod event_log;
 mod glass;
+mod nextcard;
 mod panes;
 mod habitat;
 mod packs;
@@ -543,6 +544,7 @@ pub fn run() {
             // GO-ORBITTY-COMPANION-CLEAR: ghost click-through poll for the
             // idle collapsed companion (10Hz, idles while hidden/slab).
             companion_clear::start(app.handle().clone());
+            nextcard::bind(app.handle().clone());
 
             // S4.3: pin both webview windows to a fully transparent native
             // background so the JS rgba chrome fills (not an opaque NSColor)

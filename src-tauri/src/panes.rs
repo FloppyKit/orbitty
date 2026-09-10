@@ -31,6 +31,7 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
         crate::drawers::persist_shown_place(&app, &label);
     }
     if label == "next-card" {
+        crate::nextcard::watching(false);
         let _ = w.set_always_on_top(false);
     }
     w.hide().map_err(|e| e.to_string())?;
@@ -271,6 +272,7 @@ pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), St
     w.show().map_err(|e| e.to_string())?;
     if label == "next-card" {
         let _ = w.set_always_on_top(true);
+        crate::nextcard::watching(true);
     }
     w.set_focus().map_err(|e| e.to_string())?;
     crate::drawers::appkit_order_front(app, &w);

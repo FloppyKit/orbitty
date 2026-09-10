@@ -215,17 +215,6 @@
     answerDraft = "";
   }
 
-  function skipNeeded(card: KanbanCard) {
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? { ...c, neededState: "skipped" as const, lastTouchedAt: nowSecs() }
-          : c,
-      );
-    });
-    logEvent("needed-skip", { cardId: card.id }, card.projectId);
-  }
-
   function laterNeeded(card: KanbanCard) {
     const now = nowSecs();
     mutate((s) => {
@@ -385,19 +374,13 @@
   });
 
   let unlisten: (() => void) | null = null;
-  let unfocus: (() => void) | null = null;
   onMount(() => {
     void load();
     listen("state:changed", load).then((u) => {
       unlisten = u;
     });
-    getCurrentWindow()
-      .onFocusChanged((ev) => {
-        if (!ev.payload) hide();
-      })
-      .then((u) => {
-        unfocus = u;
-      });
+    // Click-off is native (nextcard.rs). Tauri focus events do not fire
+    // on this always-on-top pane.
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
@@ -408,7 +391,6 @@
   });
   onDestroy(() => {
     unlisten?.();
-    unfocus?.();
   });
 </script>
 
@@ -461,15 +443,10 @@
             }}
           />
         </div>
-        <div class="nc-acts">
-          <button class="mini ghost" onclick={() => skipNeeded(neededCard)}>Skip</button>
-          <button class="mini ghost" onclick={() => laterNeeded(neededCard)}>Later</button>
-        </div>
+        <button class="nc-defer" onclick={() => laterNeeded(neededCard)}>Not now</button>
       {:else if todoCard}
         <p class="nc-title">{todoCard.title}</p>
-        <div class="nc-acts">
-          <button class="mini" onclick={() => completeTodo(todoCard)}>Done</button>
-        </div>
+        <button class="nc-defer" onclick={() => completeTodo(todoCard)}>Done</button>
       {:else}
         <p class="nc-why">No Needed or todos.</p>
       {/if}
@@ -612,11 +589,28 @@
     flex: 1;
     min-width: 0;
     font: inherit;
-    font-size: 0.82rem;
-    padding: 4px 8px;
-    border-radius: 8px;
-    border: 1px solid var(--edge);
+    font-size: 0.92rem;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--ink);
     background: var(--panel-fill, var(--panel));
     color: var(--ink);
+  }
+  .nc-defer {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--ink);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .nc-defer:hover {
+    background: var(--bg-fill, var(--panel));
   }
 </style>
