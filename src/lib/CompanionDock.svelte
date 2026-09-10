@@ -115,6 +115,7 @@
   // source when known: the explicit who wins, else the mouth.
   const hackOn = $derived(sending || hackLive);
   const hackTitle = $derived.by(() => {
+    if (!hackOn) return "idle";
     if (hackLive) {
       const w = hackWho.trim();
       if (w) return HACK_WHO_TITLES[w.toLowerCase()] ?? w;
@@ -250,17 +251,16 @@
        View, Expand/Collapse). The Body picker lives in Settings →
        Appearance. Icons are inline SVG, currentColor, 16px. -->
   <div class="agentrow">
-    <!-- GO-ORBITTY-DOCK-HACK: the live light — immediately left of the
-         agent pick, never after dests. Off = not in the DOM. Not a
-         button: it drags with the dock chrome like any gap. -->
-    {#if hackOn}
-      <span
-        class="hackled"
-        role="img"
-        aria-label="agent working"
-        title={hackTitle}
-      ></span>
-    {/if}
+    <!-- GO-ORBITTY-DOCK-HACK leftover: always-on purple well left of
+         the agent pick. Glow/pulse only while sending or hackLive.
+         Not a button: it drags with the dock chrome like any gap. -->
+    <span
+      class="hackled"
+      class:on={hackOn}
+      role="img"
+      aria-label={hackOn ? "agent working" : "agent idle"}
+      title={hackTitle}
+    ></span>
     <select
       id="companion-agent"
       class="agentpick"
@@ -684,17 +684,22 @@
     outline: none;
   }
 
-  /* GO-ORBITTY-DOCK-HACK: one 7px round LED immediately left of the
-     agent pick — accent fill with a small glow, soft 1.2s pulse while
-     any agent is live (Spark mouth sending, or the ctl hack flag).
-     Off = not in the DOM (the {#if} above), never a dim grey. */
+  /* GO-ORBITTY-DOCK-HACK leftover: always-on 7px well, dock focus
+     purple (#6e4db0) not theme teal. Dim when idle; glow+pulse when
+     sending or companion.hackLive. */
   .hackled {
     flex: none;
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 6px 1px var(--accent);
+    background: #6e4db0;
+    opacity: 0.38;
+    box-shadow: none;
+  }
+
+  .hackled.on {
+    opacity: 1;
+    box-shadow: 0 0 7px 1px #6e4db0;
     animation: orbitty-hack-pulse 1.2s ease-in-out infinite;
   }
 
@@ -708,9 +713,8 @@
     }
   }
 
-  /* Reduce Motion: the light holds steady — never a pulse. */
   @media (prefers-reduced-motion: reduce) {
-    .hackled {
+    .hackled.on {
       animation: none;
     }
   }

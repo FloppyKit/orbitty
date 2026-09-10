@@ -1497,19 +1497,30 @@ fn run_grok_reply(
             let retry = grok_args(&sid, true, soul, line);
             run_mouth_cli("Grok", bin, &retry, &[], 180)?
         }
+        Err(e) if plug.grok_session_minted && grok_session_dead(&e) => {
+            // Resume of a dead/thin Grok session hangs then 180s-kills.
+            // Mint a fresh id and `-s` once. Pocket (MH-2) still wraps
+            // the prompt. We do not yet detect "thin" from the dock.
+            remint_grok_session(&mut plug)?;
+            let sid = plug.grok_session_id.clone().unwrap_or_default();
+            let retry = grok_args(&sid, false, soul, line);
+            run_mouth_cli("Grok", bin, &retry, &[], 180)?
+        }
         Err(e) => return Err(e),
     };
 
     // --output-format json: the assistant text is the top-level "text"
     // field. Never dump the whole JSON blob into the bubble.
-    let v: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("Grok: bad JSON reply ({e})"))?;
-    let text = v
-        .get("text")
-        .and_then(|t| t.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    let text = grok_reply_text(&raw);
+    let text = if text.is_empty() && plug.grok_session_minted {
+        remint_grok_session(&mut plug)?;
+        let sid = plug.grok_session_id.clone().unwrap_or_default();
+        let retry = grok_args(&sid, false, soul, line);
+        let raw2 = run_mouth_cli("Grok", bin, &retry, &[], 180)?;
+        grok_reply_text(&raw2)
+    } else {
+        text
+    };
     if text.is_empty() {
         return Err("Grok sent back an empty reply.".into());
     }
@@ -1518,6 +1529,30 @@ fn run_grok_reply(
         save_plug(&plug);
     }
     Ok(text)
+}
+
+fn grok_session_dead(err: &str) -> bool {
+    let e = err.to_ascii_lowercase();
+    e.contains("took longer") || e.contains("session") || e.contains("killed")
+}
+
+fn remint_grok_session(plug: &mut PlugState) -> Result<(), String> {
+    plug.grok_session_id = Some(mint_uuid()?);
+    plug.grok_session_minted = false;
+    save_plug(plug);
+    Ok(())
+}
+
+fn grok_reply_text(raw: &str) -> String {
+    let v: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return String::new(),
+    };
+    v.get("text")
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string()
 }
 
 async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
