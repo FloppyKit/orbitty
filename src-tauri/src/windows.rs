@@ -4,17 +4,6 @@
 
 use serde::Serialize;
 
-/// AX frame of a window: top-left origin, y-down, points, relative to the
-/// primary display's top-left (raw AXPosition/AXSize). The yard converts
-/// to Cocoa bottom-left when it picks the display a cat rains on.
-#[derive(Serialize, Clone, Copy, Debug)]
-pub struct WindowFrame {
-    pub x: f64,
-    pub y: f64,
-    pub w: f64,
-    pub h: f64,
-}
-
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowInfo {
@@ -37,10 +26,6 @@ pub struct WindowInfo {
     /// file:// URLs only, and only when the path exists at poll time.
     /// Titles-only rule kept: never the file's contents.
     pub document_path: Option<String>,
-    /// GO-ORBITTY-HERDING-CATS spread: AX position+size when both read
-    /// clean (minimized / AX-hiccup windows may have none). Placement
-    /// only — the yard picks the display whose frame holds the center.
-    pub frame: Option<WindowFrame>,
 }
 
 #[derive(Serialize, Clone, Debug)]

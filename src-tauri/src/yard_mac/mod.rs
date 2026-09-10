@@ -22,15 +22,11 @@
 //! Last cat gone = overlay gone, mode off. Drop on an already-on yard is
 //! a no-op (never double-spawn).
 //!
-//! Threading mirrors the habitat, with one hard rule learned the
-//! expensive way (the 5-of-18 dogfood): AX and NSScreen are MAIN-THREAD
-//! ONLY. Off-main AX returns a partial window list, and a partial list
-//! used to retain-kill the clowder. So the ONE worker thread (33ms) is a
-//! bare metronome — it sleeps and POSTS a coalesced hop; the unmapped
-//! poll (list_windows + state.json) runs inside the hop on main at the
-//! ~1s cadence, next to every AppKit / AVAudioPlayer touch. Raw ObjC
-//! pointers are usize inside the mutex and only dereferenced on the main
-//! thread.
+//! Threading mirrors the habitat: ONE worker thread (33ms) does the
+//! off-main work (AX window poll + state.json read) and POSTS a coalesced
+//! hop to the main queue; every AppKit / AVAudioPlayer touch happens on
+//! the main thread inside the hop. Raw ObjC pointers are usize inside the
+//! mutex and only dereferenced on the main thread.
 
 // objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
 // rustc flags; harmless upstream noise (same allowance as habitat_mac).
@@ -42,7 +38,7 @@ use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Sel};
 use objc::{class, msg_send, sel, sel_impl};
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -116,6 +112,12 @@ unsafe impl objc::Encode for NSRect {
     }
 }
 
+unsafe impl objc::Encode for CGSize {
+    fn encode() -> objc::Encoding {
+        unsafe { objc::Encoding::from_str("{CGSize=dd}") }
+    }
+}
+
 // ---------- tuning ----------
 
 /// Bitty cat frames are 32×32; drawn at 2× on the desktop (Neko size).
@@ -180,9 +182,6 @@ struct PendingCat {
     window_id: String,
     app_name: String,
     title: String,
-    /// AX frame at poll time — picks the display this cat rains on.
-    /// None (minimized / AX hiccup) falls back to the hash spread.
-    frame: Option<crate::windows::WindowFrame>,
     at: Instant,
 }
 
@@ -216,11 +215,6 @@ struct Yard {
     /// First successful poll landed — the auto-off ("last cat gone") only
     /// arms after this, so the start-up beat never insta-stops.
     poll_done: bool,
-    /// Consecutive polls each cat/queued id has been missing from the
-    /// unmapped set. One short AX beat must not wipe the clowder: a cat
-    /// leaves only after TWO consecutive polls without its window. An id
-    /// back in the fresh set drops out of this map (the count resets).
-    misses: HashMap<String, u8>,
     last_hop: Option<Instant>,
     hop_count: u32,
     meow: meow::Meow,
@@ -243,7 +237,6 @@ impl Default for Yard {
             packs: Vec::new(),
             spawn_count: 0,
             poll_done: false,
-            misses: HashMap::new(),
             last_hop: None,
             hop_count: 0,
             meow: meow::Meow::default(),
@@ -389,6 +382,33 @@ unsafe fn ns_image_from_bytes(bytes: &[u8]) -> *mut Object {
     }
     let img: *mut Object = msg_send![class!(NSImage), alloc];
     let img: *mut Object = msg_send![img, initWithData: data];
+    if img.is_null() {
+        return std::ptr::null_mut();
+    }
+    // initWithData can leave NSSizeZero until a rep is queried; drawInRect
+    // of a zero-size image is a silent no-op (meows, no cats).
+    let size: CGSize = msg_send![img, size];
+    if size.width < 1.0 || size.height < 1.0 {
+        let reps: *mut Object = msg_send![img, representations];
+        let n: usize = if reps.is_null() {
+            0
+        } else {
+            msg_send![reps, count]
+        };
+        if n > 0 {
+            let rep: *mut Object = msg_send![reps, objectAtIndex: 0usize];
+            if !rep.is_null() {
+                let w: isize = msg_send![rep, pixelsWide];
+                let h: isize = msg_send![rep, pixelsHigh];
+                if w > 0 && h > 0 {
+                    let _: () = msg_send![img, setSize: CGSize {
+                        width: w as f64,
+                        height: h as f64,
+                    }];
+                }
+            }
+        }
+    }
     img
 }
 
@@ -548,6 +568,7 @@ unsafe fn register_yard_view_class() -> Option<&'static Class> {
         right_mouse_down as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(sel!(isFlipped), is_flipped as extern "C" fn(&Object, Sel) -> bool);
+    decl.add_method(sel!(isOpaque), is_opaque as extern "C" fn(&Object, Sel) -> bool);
     decl.add_method(
         sel!(acceptsFirstMouse:),
         accepts_first_mouse as extern "C" fn(&Object, Sel, *mut Object) -> bool,
@@ -557,6 +578,10 @@ unsafe fn register_yard_view_class() -> Option<&'static Class> {
 
 extern "C" fn is_flipped(_this: &Object, _cmd: Sel) -> bool {
     true
+}
+
+extern "C" fn is_opaque(_this: &Object, _cmd: Sel) -> bool {
+    false
 }
 
 extern "C" fn accepts_first_mouse(_this: &Object, _cmd: Sel, _event: *mut Object) -> bool {
@@ -616,11 +641,13 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
 /// One fullscreen click-through panel. Same recipe as the habitat's
 /// make_panel, but floating (Neko/Shimeji visibility: cats walk OVER
 /// chrome, planet discs included) and sized to a whole display.
-unsafe fn make_yard_panel() -> *mut Object {
+unsafe fn make_yard_panel(frame: NSRect) -> *mut Object {
     let panel: *mut Object = msg_send![class!(NSPanel), alloc];
     // NSWindowStyleMaskBorderless (0) | NSWindowStyleMaskNonactivatingPanel (1<<7)
+    // Init at the REAL display frame — a 10×10 seed left a postage-stamp
+    // backing store (meows, no cats) even after later setFrame calls.
     let panel: *mut Object = msg_send![panel,
-        initWithContentRect: NSRect::new(0.0, 0.0, 10.0, 10.0)
+        initWithContentRect: frame
         styleMask: 128usize
         backing: 2usize // NSBackingStoreBuffered
         defer: false];
@@ -641,6 +668,20 @@ unsafe fn make_yard_panel() -> *mut Object {
     let _: () = msg_send![panel, setCanHide: false];
     let _: () = msg_send![panel, setBecomesKeyOnlyIfNeeded: true];
     panel
+}
+
+unsafe fn prepare_yard_view(view: *mut Object) {
+    let _: () = msg_send![view, setWantsLayer: true];
+    let layer: *mut Object = msg_send![view, layer];
+    if layer.is_null() {
+        return;
+    }
+    let _: () = msg_send![layer, setOpaque: false];
+    let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+    let cg: *mut c_void = msg_send![clear, CGColor];
+    if !cg.is_null() {
+        let _: () = msg_send![layer, setBackgroundColor: cg];
+    }
 }
 
 /// One panel per display, kept in step with `screens()` (display
@@ -687,12 +728,9 @@ unsafe fn sync_panels(y: &mut Yard) {
                 || (p.frame.size.height - frame.size.height).abs() > 0.5
             {
                 let panel = p.panel as *mut Object;
-                // display:YES — force the blit at the new glass, never a
-                // panel that moved but kept a stale (or no) framebuffer.
-                let _: () = msg_send![panel, setFrame: *frame display: true];
+                let _: () = msg_send![panel, setFrame: *frame display: false];
                 let view = p.view as *mut Object;
                 let _: () = msg_send![view, setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
-                let _: () = msg_send![panel, orderFrontRegardless];
                 p.frame = *frame;
                 p.walk = walk;
             }
@@ -707,41 +745,26 @@ unsafe fn sync_panels(y: &mut Yard) {
         if view.is_null() {
             continue;
         }
-        let panel = make_yard_panel();
+        let panel = make_yard_panel(*frame);
         if panel.is_null() {
             let _: () = msg_send![view, release];
             continue;
         }
         let _: () = msg_send![panel, setContentView: view];
         let _: () = msg_send![view, release];
-        // Invisible-cats punch (the habitat's marble-swap lesson):
-        // setContentView into the 10×10 panel shrank the view to the
-        // content rect, and the default autoresizing mask (not sizable)
-        // kept it ~10×10 in a corner after the panel took the display
-        // frame — cats rained in full-display coords and drew outside
-        // the view. Pin the view to the real size with a sizable mask
-        // BEFORE the panel takes the display frame, so the resize drags
-        // the view along to fill.
         // NSViewWidthSizable (2) | NSViewHeightSizable (16).
         let _: () = msg_send![view, setAutoresizingMask: 18usize];
-        // Put the panel on ITS glass: the screen's global frame (negative
-        // x for a display left of the menu-bar screen is correct), and
-        // display:YES so the first blit happens at that frame — the
-        // all-cats-on-R dogfood was a panel that never really painted
-        // off the primary. Then orderFrontRegardless actually shows it.
-        let _: () = msg_send![panel, setFrame: *frame display: true];
-        // Belt-and-braces: the sizable mask should have kept the view
-        // filling; assert the exact size once anyway.
         let _: () = msg_send![view,
             setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
+        prepare_yard_view(view);
         let _: () = msg_send![panel, orderFrontRegardless];
-        // Flush the first blit NOW so the rain lands inside the stagger,
-        // never a long pause then an all-at-once pop.
         let _: () = msg_send![view, setNeedsDisplay: true];
-        let _: () = msg_send![view, displayIfNeeded];
+        // Do not displayIfNeeded here: drawRect locks the yard mutex
+        // (non-reentrant) and this call still holds it. First blit is
+        // flush_yard_views after the lock drops.
         eprintln!(
-            "yard: overlay up on screen {id} at ({:.0},{:.0}) {:.0}x{:.0}",
-            frame.origin.x, frame.origin.y, frame.size.width, frame.size.height
+            "yard: overlay up on screen {id} {:.0}x{:.0} at {:.0},{:.0}",
+            frame.size.width, frame.size.height, frame.origin.x, frame.origin.y
         );
         y.panels.push(YardPanel {
             screen_id: id.clone(),
@@ -772,35 +795,11 @@ fn clamp_cat(cat: &mut Cat, walk: &NSRect) {
 
 // ---------- spawn / motion ----------
 
-/// The cat rains on the display its window is actually on: the panel
-/// whose global frame contains the window's center. AX frames are
-/// top-left origin / y-down against the primary display; panel frames
-/// are Cocoa bottom-left / y-up, and the primary's frame origin is
-/// (0,0) by definition — so `cocoa_y = primary_height - ax_y`. The old
-/// id byte-sum hash is the fallback only, for a window whose frame
-/// didn't read (minimized, AX hiccup) or whose center sits in a gap.
-fn screen_for(
-    panels: &[YardPanel],
-    window_id: &str,
-    frame: Option<crate::windows::WindowFrame>,
-) -> Option<String> {
+/// Hash-stable display pick: the clowder spreads across every display
+/// instead of piling on the primary.
+fn screen_for(panels: &[YardPanel], window_id: &str) -> Option<String> {
     if panels.is_empty() {
         return None;
-    }
-    if let Some(f) = frame {
-        let primary_h = panels
-            .iter()
-            .find(|p| p.frame.origin.x == 0.0 && p.frame.origin.y == 0.0)
-            .map(|p| p.frame.size.height);
-        if let Some(primary_h) = primary_h {
-            let center = NSPoint {
-                x: f.x + f.w / 2.0,
-                y: primary_h - (f.y + f.h / 2.0),
-            };
-            if let Some(p) = panels.iter().find(|p| p.frame.contains(center)) {
-                return Some(p.screen_id.clone());
-            }
-        }
     }
     let sum: usize = window_id.bytes().map(|b| b as usize).sum();
     Some(panels[sum % panels.len()].screen_id.clone())
@@ -818,7 +817,7 @@ fn motion_step(y: &mut Yard, dt: f64) {
             continue;
         }
         let pending = y.queue.remove(i);
-        let Some(screen_id) = screen_for(&y.panels, &pending.window_id, pending.frame) else {
+        let Some(screen_id) = screen_for(&y.panels, &pending.window_id) else {
             continue;
         };
         let Some(panel) = y.panels.iter().find(|p| p.screen_id == screen_id) else {
@@ -830,8 +829,8 @@ fn motion_step(y: &mut Yard, dt: f64) {
         let x = rand_range(walk.origin.x, (walk.max_x() - CAT).max(walk.origin.x));
         let floor_y = (walk.max_y() - CAT - rand_range(0.0, 6.0)).max(walk.origin.y);
         eprintln!(
-            "yard: cat for {} ({}) rains on screen {screen_id}",
-            pending.window_id, pending.app_name
+            "yard: cat for {} rains on screen {}",
+            pending.window_id, screen_id
         );
         y.cats.push(Cat {
             window_id: pending.window_id,
@@ -925,13 +924,11 @@ fn motion_step(y: &mut Yard, dt: f64) {
     }
 }
 
-// ---------- the unmapped poll (MAIN thread only — AX + NSScreen) ----------
+// ---------- the unmapped poll (worker thread; no AppKit here) ----------
 
 /// The inspector's Unclaimed set, native side: `list_windows` (already
 /// drops Orbitty/LiveSprite) minus claims whose project still exists —
-/// the same formula RailPage and the warn pane compute in JS. MAIN
-/// THREAD ONLY: off-main AX returns a partial list (the 5-of-18
-/// dogfood), and a partial list must never drive the clowder. None on a
+/// the same formula RailPage and the warn pane compute in JS. None on a
 /// read hiccup: a skipped beat never invents or kills a cat.
 fn poll_unmapped(app: &AppHandle) -> Option<Vec<crate::windows::WindowInfo>> {
     let wins = crate::windows::list_windows().ok()?;
@@ -949,41 +946,14 @@ fn poll_unmapped(app: &AppHandle) -> Option<Vec<crate::windows::WindowInfo>> {
     )
 }
 
-/// Diff the fresh unmapped set against the clowder. Pure data, called
-/// from the main hop under the lock. New windows queue for staggered
-/// rain; claimed/closed windows' cats poof — but only after TWO
-/// consecutive polls without the id, so one short AX beat never wipes
-/// the clowder; scooped ids stay suppressed.
+/// Diff the fresh unmapped set against the clowder. Pure data — safe on
+/// the worker under the lock. New windows queue for staggered rain;
+/// claimed/closed windows' cats poof; scooped ids stay suppressed.
 fn apply_unmapped(y: &mut Yard, unmapped: Vec<crate::windows::WindowInfo>) {
     y.poll_done = true;
     let fresh: HashSet<&str> = unmapped.iter().map(|w| w.id.as_str()).collect();
-    // Miss bookkeeping: rebuild the map from the ids still missing in
-    // THIS poll — an id back in the fresh set resets to zero, so the
-    // count is always consecutive misses.
-    let mut misses: HashMap<String, u8> = HashMap::new();
-    for id in y
-        .cats
-        .iter()
-        .map(|c| &c.window_id)
-        .chain(y.queue.iter().map(|c| &c.window_id))
-    {
-        if !fresh.contains(id.as_str()) {
-            misses.insert(id.clone(), y.misses.get(id).copied().unwrap_or(0) + 1);
-        }
-    }
-    y.misses = misses;
-    let gone: HashSet<String> = y
-        .misses
-        .iter()
-        .filter(|(_, n)| **n >= 2)
-        .map(|(id, _)| id.clone())
-        .collect();
-    if !gone.is_empty() {
-        y.cats.retain(|c| !gone.contains(&c.window_id));
-        y.queue.retain(|c| !gone.contains(&c.window_id));
-        // A re-appeared window starts its own miss count from zero.
-        y.misses.retain(|id, _| !gone.contains(id));
-    }
+    y.cats.retain(|c| fresh.contains(c.window_id.as_str()));
+    y.queue.retain(|c| fresh.contains(c.window_id.as_str()));
     let have: HashSet<String> = y
         .cats
         .iter()
@@ -1003,7 +973,6 @@ fn apply_unmapped(y: &mut Yard, unmapped: Vec<crate::windows::WindowInfo>) {
             window_id: w.id,
             app_name: w.app_name,
             title: w.title,
-            frame: w.frame,
             at: Instant::now() + delay,
         });
     }
@@ -1013,12 +982,23 @@ fn apply_unmapped(y: &mut Yard, unmapped: Vec<crate::windows::WindowInfo>) {
 
 fn spawn_worker() {
     std::thread::spawn(|| {
+        let mut n = 0u32;
         loop {
             if !active() {
                 return;
             }
-            // Metronome ONLY — this thread never touches AX, NSScreen, or
-            // AppKit. The main hop does the unmapped poll and the draw.
+            // Off-main poll: AX + state.json, then a pure-data diff.
+            if n % POLL_EVERY == 0 {
+                if let Some(app) = app_handle() {
+                    if let Some(unmapped) = poll_unmapped(app) {
+                        let mut y = lock();
+                        if y.on {
+                            apply_unmapped(&mut y, unmapped);
+                        }
+                    }
+                }
+            }
+            n = n.wrapping_add(1);
             // Post-and-return, coalesced — a stalled main drops a beat
             // instead of piling up late hops.
             if HOP_PENDING
@@ -1038,6 +1018,7 @@ fn spawn_worker() {
 fn hop() {
     HOP_PENDING.store(false, Ordering::SeqCst);
     let mut stop_after = false;
+    let mut cats_out = false;
     {
         let mut y = lock();
         if !y.on {
@@ -1053,19 +1034,12 @@ fn hop() {
         if !y.packs.is_empty() {
             motion_step(&mut y, dt);
         }
-        // ~1s cadence block, ALL on main: the unmapped poll (AX window
-        // list + state.json — the full list, same N as the warn pane)
-        // and display hotplug / rearrange.
+        // Display hotplug / rearrange, ~1s cadence (cheap on main).
         if y.hop_count % POLL_EVERY == 0 {
-            if let Some(app) = app_handle() {
-                if let Some(unmapped) = poll_unmapped(app) {
-                    apply_unmapped(&mut y, unmapped);
-                }
-            }
             unsafe { sync_panels(&mut y) };
         }
         cursor_ghost(&mut y);
-        let cats_out = !y.cats.is_empty();
+        cats_out = !y.cats.is_empty();
         meow::tick(&mut y.meow, cats_out);
         // Redraw only panels with cats (plus one clearing frame after the
         // last cat leaves a display).
@@ -1089,6 +1063,14 @@ fn hop() {
     }
     if stop_after {
         stop_on_main();
+        return;
+    }
+    // Paint AFTER the lock: drawRect takes this mutex. Under the lock a
+    // sync blit deadlocks; without a post-lock blit, meows fire and the
+    // glass stays empty. Do not orderFront here — that restack ate the
+    // companion dock (2542c9d).
+    if cats_out {
+        unsafe { flush_yard_views() };
     }
 }
 
@@ -1142,6 +1124,10 @@ unsafe fn draw_inner(this: &Object) {
     let Some(panel) = y.panels.iter().find(|p| p.view == view_ptr) else {
         return;
     };
+    let bounds: NSRect = msg_send![this, bounds];
+    let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+    let _: () = msg_send![clear, set];
+    let _: () = msg_send![class!(NSBezierPath), fillRect: bounds];
     let screen_id = panel.screen_id.clone();
     for (i, cat) in y.cats.iter().enumerate() {
         if cat.screen_id != screen_id {
@@ -1384,7 +1370,6 @@ fn remove_cat(window_id: &str) -> bool {
     let mut y = lock();
     y.cats.retain(|c| c.window_id != window_id);
     y.queue.retain(|c| c.window_id != window_id);
-    y.misses.remove(window_id);
     let empty = y.cats.is_empty() && y.queue.is_empty();
     for p in y.panels.iter() {
         unsafe {
@@ -1650,20 +1635,33 @@ unsafe fn start_on_main() {
     y.on = true;
     y.poll_done = false;
     y.scooped.clear();
-    y.misses.clear();
     y.spawn_count = 0;
     y.last_hop = None;
-    // One shy of the cadence: the hop increments first, so the FIRST hop
-    // (~33ms after Drop) already polls — the rain starts inside the
-    // stagger, never a dead ~1s beat before anything falls.
-    y.hop_count = POLL_EVERY - 1;
+    y.hop_count = 0;
     HOP_PENDING.store(false, Ordering::SeqCst);
     y.packs = packs;
     y.meow = meow::Meow::armed();
     sync_panels(&mut y);
     install_esc_monitor(&mut y);
     drop(y);
+    flush_yard_views();
     spawn_worker();
+}
+
+/// displayIfNeeded with the yard lock released so drawRect can take it.
+/// Panels are born at the display frame — do not setFrame here (that was
+/// the 10×10 / deadlock path). Do not orderFrontRegardless (that restack
+/// hid the companion dock).
+unsafe fn flush_yard_views() {
+    let snaps: Vec<usize> = lock().panels.iter().map(|p| p.view).collect();
+    for view in snaps {
+        let view = view as *mut Object;
+        if view.is_null() {
+            continue;
+        }
+        let _: () = msg_send![view, setNeedsDisplay: true];
+        let _: () = msg_send![view, displayIfNeeded];
+    }
 }
 
 /// Scoop all: windows unchanged, overlay gone, meow killed. Idempotent;
@@ -1704,5 +1702,4 @@ fn stop_on_main() {
     y.cats.clear();
     y.queue.clear();
     y.scooped.clear();
-    y.misses.clear();
 }
