@@ -248,18 +248,17 @@ pub(crate) fn raise_now(app: &tauri::AppHandle) {
     }
 }
 
-/// Planet mouseDown just orderFront'd a disc at the same level. If we
-/// are still the frontmost app, lift the companion back above it —
-/// no activate (that beach-balls the click). Safari-front: leave it.
-pub(crate) fn keep_front_if_ours(app: &tauri::AppHandle) {
+/// Lift z-order only. No setFrame, no activate, no makeKey. Hit-mousedown
+/// and planet restack both use this — a drag starts on the same down, and
+/// raise_now's clamp + makeKey yanks the pane off the cursor (the dock
+/// "running away"). Lost-window rescue stays on raise_now (⌘⇧O / tray /
+/// Reopen).
+fn lift_z(app: &tauri::AppHandle) {
     let handle = app.clone();
     #[cfg(target_os = "macos")]
     crate::main_thread_sync(move || {
         use objc::runtime::Object;
         use objc::{msg_send, sel, sel_impl};
-        if !orbitty_is_frontmost() {
-            return;
-        }
         let Some(w) = handle.get_webview_window("companion") else {
             return;
         };
@@ -282,12 +281,23 @@ pub(crate) fn keep_front_if_ours(app: &tauri::AppHandle) {
     let _ = handle;
 }
 
-/// GO-ORBITTY-FRONT-HOLD law 5: a mousedown on any ghost hit (dock /
-/// spirit / bubble / × ⚙) heavy-raises the companion so no planet
-/// restack can steal the window mid-click. CompanionPage fires this on
-/// those mousedowns; a hidden companion is a no-op. Native menus
-/// (select / planet context) never call this — activate+makeKey during
-/// a tracking loop beach-balls.
+/// Planet mouseDown just orderFront'd a disc at the same level. If we
+/// are still the frontmost app, lift the companion back above it —
+/// no activate (that beach-balls the click). Safari-front: leave it.
+pub(crate) fn keep_front_if_ours(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    if !orbitty_is_frontmost() {
+        return;
+    }
+    lift_z(app);
+}
+
+/// GO-ORBITTY-FRONT-HOLD law 2: mousedown on a ghost hit (dock / spirit /
+/// bubble / × ⚙) lifts z-order so a planet tick cannot bury the pane
+/// mid-click. Must not move the frame and must not activate/makeKey —
+/// those share the down with startDragging and the window jumps away
+/// from the cursor. Native menus (select / planet context) never call
+/// this. Hidden companion is a no-op.
 #[tauri::command]
 pub fn companion_front(app: tauri::AppHandle) -> Result<(), String> {
     let Some(w) = app.get_webview_window("companion") else {
@@ -296,7 +306,7 @@ pub fn companion_front(app: tauri::AppHandle) -> Result<(), String> {
     if !w.is_visible().unwrap_or(false) {
         return Ok(());
     }
-    raise_now(&app);
+    lift_z(&app);
     Ok(())
 }
 
