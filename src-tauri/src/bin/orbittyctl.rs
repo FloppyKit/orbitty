@@ -29,6 +29,8 @@ commands:
   companion agents
   companion set-agent -- <profile>
   companion play -- <clip>         idle · think · nod · look-left · look-right
+  companion mode -- spark|chat|work|hold
+  companion note [--mode spark|chat|work|hold] -- \"line\"
   kanban open
   kanban add --title \"t\" [--project P] [--status todo|doing]
   kanban move --id <id> --status todo|doing|done
@@ -86,6 +88,7 @@ struct Opts {
     cmd: Option<String>,
     cwd: Option<String>,
     combo: Option<String>,
+    mode: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
 }
@@ -106,6 +109,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         cmd: None,
         cwd: None,
         combo: None,
+        mode: None,
         words: Vec::new(),
         tail: Vec::new(),
     };
@@ -142,6 +146,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--combo" => {
                 o.combo = Some(it.next().ok_or("--combo needs a value")?.clone())
             }
+            "--mode" => o.mode = Some(it.next().ok_or("--mode needs a value")?.clone()),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 exit(0);
@@ -163,6 +168,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             s if s.starts_with("--combo=") => {
                 o.combo = Some(s["--combo=".len()..].to_string())
             }
+            s if s.starts_with("--mode=") => o.mode = Some(s["--mode=".len()..].to_string()),
             s if s.starts_with('-') && s.len() > 1 => {
                 return Err(format!("unknown flag {s:?}\n\n{USAGE}"))
             }
@@ -221,6 +227,34 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         }
         // `companion play nod` and `companion play -- nod` both land here.
         ["companion", "play", ..] => Ok(("companion.play", json!({ "clip": payload(o)? }))),
+        // GO-ORBITTY-MODE-SPLIT: the bus verbs. Fail CLOSED on an unknown
+        // mode client-side — a typo never reaches the app as a silent
+        // spark. The server re-validates anyway.
+        ["companion", "mode"] => {
+            let m = payload(o)?;
+            match m.as_str() {
+                "spark" | "chat" | "work" | "hold" => {
+                    Ok(("companion.mode", json!({ "mode": m })))
+                }
+                other => Err(format!(
+                    "unknown mode {other:?} — spark | chat | work | hold"
+                )),
+            }
+        }
+        ["companion", "note"] => {
+            let mut a = json!({ "line": payload(o)? });
+            if let Some(m) = opt(&o.mode) {
+                match m.as_str() {
+                    "spark" | "chat" | "work" | "hold" => a["mode"] = json!(m),
+                    other => {
+                        return Err(format!(
+                            "unknown mode {other:?} — spark | chat | work | hold"
+                        ))
+                    }
+                }
+            }
+            Ok(("companion.note", a))
+        }
         ["kanban", "open"] => Ok(("kanban.open", json!({}))),
         // GO-ORBITTY-MCP-WRITE: write verbs. The server validates values
         // (status enums, unknown ids) and owns the honest errors.
@@ -418,6 +452,8 @@ fn print_human(tool: &str, data: &Value) {
         }
         "companion.set_agent" => println!("agent: {}", data.as_str().unwrap_or("")),
         "companion.play" => println!("playing: {}", data["played"].as_str().unwrap_or("")),
+        "companion.mode" => println!("mode: {}", data.as_str().unwrap_or("")),
+        "companion.note" => println!("noted ({})", data.as_str().unwrap_or("")),
         "packs.list" => {
             let Some(arr) = data.as_array() else {
                 return;

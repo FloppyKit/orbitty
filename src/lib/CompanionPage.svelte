@@ -653,9 +653,28 @@
     }
   }
 
+  // GO-ORBITTY-MODE-SPLIT leftover: the ONE agent dropdown also picks the
+  // thread — four-cast stem → mode. Labels stay Spark / Command / Riff /
+  // Witness; stems are never recast, and ctl `companion mode` can move
+  // the thread without touching this pick. An unlisted stem (a fail-open
+  // roster) leaves the mode where it is. No pills, no second select.
+  const AGENT_MODE: Record<string, string> = {
+    spark: "spark",
+    grok: "work",
+    "chaos-gremlin": "chat",
+    "fkt-homie": "hold",
+  };
+
   async function onAgentChange() {
     try {
       agent = await invoke<string>("set_companion_agent", { profile: agent });
+      // Same flip switches the thread: set_companion_mode parks the
+      // current turns under the old mode and loads the new mode's
+      // thread, then state:changed → loadState swaps the transcript in.
+      const nextMode = AGENT_MODE[agent];
+      if (nextMode) {
+        await invoke("set_companion_mode", { mode: nextMode });
+      }
     } catch (e) {
       sendNote = `${e}`;
       await loadAgents(); // snap back to the persisted pick

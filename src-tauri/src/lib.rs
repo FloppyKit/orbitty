@@ -536,6 +536,8 @@ pub fn run() {
             coordinator::companion_send,
             coordinator::companion_agents,
             coordinator::set_companion_agent,
+            coordinator::set_companion_mode,
+            coordinator::companion_note,
             coordinator::set_companion_pack,
             coordinator::set_companion_expanded,
             coordinator::set_companion_view,
