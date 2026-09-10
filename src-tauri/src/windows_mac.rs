@@ -652,16 +652,160 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
     })
 }
 
-/// GO-ORBITTY-HERDING-CATS leftover (rain now): the yard poll's list.
-/// Same AX window enumeration as `list_windows` — titles + ids + frames,
-/// same Orbitty/LiveSprite drop — but NEVER icon PNG-encoding, sleeper
-/// document stamps, or frontmost marking. The warn pane / inspector keep
-/// the full `list_windows`.
+/// GO-ORBITTY-HERDING-CATS leftover (drop hitch): yard + warn-pane list.
+/// CGWindowList, not AX — a hung Chrome/Electron AXWindows read is the
+/// 10s "nothing then meows" stall. Ids stay `pid:cgWindowID` so claims
+/// still match. Inspector keeps the full AX `list_windows` (icons).
 pub fn list_windows_light() -> Result<Vec<WindowInfo>, String> {
-    list_with(EnumOpts {
-        icons: false,
-        documents: false,
-        frontmost: false,
+    if !unsafe { AXIsProcessTrusted() } {
+        return Err("accessibility not granted".into());
+    }
+    unsafe {
+        let mut windows = enumerate_cg_light();
+        if windows.is_empty() {
+            windows = enumerate(&EnumOpts {
+                icons: false,
+                documents: false,
+                frontmost: false,
+            });
+        }
+        stamp_stable_keys(&mut windows);
+        Ok(windows)
+    }
+}
+
+/// On-screen normal windows via CoreGraphics. No AX, no icon PNG.
+unsafe fn enumerate_cg_light() -> Vec<WindowInfo> {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *mut c_void;
+    }
+    // kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements
+    const OPTIONS: u32 = 1 | 16;
+    let list = CGWindowListCopyWindowInfo(OPTIONS, 0);
+    if list.is_null() {
+        return Vec::new();
+    }
+    let arr = list as *mut Object;
+    let count: usize = msg_send![arr, count];
+    let self_pid = std::process::id() as i32;
+    let key_num = ns_cg_key("kCGWindowNumber");
+    let key_pid = ns_cg_key("kCGWindowOwnerPID");
+    let key_name = ns_cg_key("kCGWindowName");
+    let key_owner = ns_cg_key("kCGWindowOwnerName");
+    let key_bounds = ns_cg_key("kCGWindowBounds");
+    let key_layer = ns_cg_key("kCGWindowLayer");
+    let key_x = ns_cg_key("X");
+    let key_y = ns_cg_key("Y");
+    let key_w = ns_cg_key("Width");
+    let key_h = ns_cg_key("Height");
+    let mut result = Vec::new();
+    for i in 0..count {
+        let d: *mut Object = msg_send![arr, objectAtIndex: i];
+        if d.is_null() {
+            continue;
+        }
+        let layer = ns_dict_i64(d, key_layer).unwrap_or(0);
+        if layer != 0 {
+            continue;
+        }
+        let pid = ns_dict_i64(d, key_pid).unwrap_or(0) as i32;
+        if pid == self_pid || pid <= 0 {
+            continue;
+        }
+        let Some(cg_id) = ns_dict_i64(d, key_num) else {
+            continue;
+        };
+        if cg_id <= 0 {
+            continue;
+        }
+        let bounds: *mut Object = msg_send![d, objectForKey: key_bounds];
+        let frame = if bounds.is_null() {
+            None
+        } else {
+            let w = ns_dict_f64(bounds, key_w).unwrap_or(0.0);
+            let h = ns_dict_f64(bounds, key_h).unwrap_or(0.0);
+            if w < 40.0 || h < 40.0 {
+                continue;
+            }
+            Some(super::WindowFrame {
+                x: ns_dict_f64(bounds, key_x).unwrap_or(0.0),
+                y: ns_dict_f64(bounds, key_y).unwrap_or(0.0),
+                w,
+                h,
+            })
+        };
+        let app = running_app_for_pid(pid);
+        if let Some(bid) = app.as_ref().and_then(|a| a.bundle_id.as_deref()) {
+            if matches!(bid, "space.orbitty.mac" | "app.livesprite.mac") {
+                continue;
+            }
+        }
+        let title = ns_dict_string(d, key_name).unwrap_or_default();
+        let app_name = app
+            .as_ref()
+            .map(|a| a.name.clone())
+            .or_else(|| ns_dict_string(d, key_owner))
+            .unwrap_or_else(|| "App".into());
+        result.push(WindowInfo {
+            id: format!("{pid}:{cg_id}"),
+            pid,
+            app_name,
+            title,
+            bundle_id: app.and_then(|a| a.bundle_id),
+            stable_key: String::new(),
+            icon_base64: None,
+            is_frontmost: false,
+            is_minimized: false,
+            document_path: None,
+            frame,
+        });
+    }
+    CFRelease(list as CFRef);
+    result
+}
+
+unsafe fn ns_cg_key(s: &str) -> *mut Object {
+    let c = std::ffi::CString::new(s).expect("cg key");
+    msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()]
+}
+
+unsafe fn ns_dict_i64(d: *mut Object, key: *mut Object) -> Option<i64> {
+    let v: *mut Object = msg_send![d, objectForKey: key];
+    if v.is_null() {
+        None
+    } else {
+        Some(msg_send![v, longLongValue])
+    }
+}
+
+unsafe fn ns_dict_f64(d: *mut Object, key: *mut Object) -> Option<f64> {
+    let v: *mut Object = msg_send![d, objectForKey: key];
+    if v.is_null() {
+        None
+    } else {
+        Some(msg_send![v, doubleValue])
+    }
+}
+
+unsafe fn ns_dict_string(d: *mut Object, key: *mut Object) -> Option<String> {
+    let v: *mut Object = msg_send![d, objectForKey: key];
+    ns_to_string(v)
+}
+
+unsafe fn running_app_for_pid(pid: i32) -> Option<RunningApp> {
+    let app: *mut Object =
+        msg_send![class!(NSRunningApplication), runningApplicationWithProcessIdentifier: pid];
+    if app.is_null() {
+        return None;
+    }
+    let name: *mut Object = msg_send![app, localizedName];
+    let bundle: *mut Object = msg_send![app, bundleIdentifier];
+    Some(RunningApp {
+        pid,
+        name: ns_to_string(name).unwrap_or_else(|| "App".into()),
+        bundle_id: ns_to_string(bundle),
+        icon_base64: None,
     })
 }
 

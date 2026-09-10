@@ -935,12 +935,8 @@ fn motion_step(y: &mut Yard, dt: f64) {
 // ---------- the unmapped poll (MAIN thread only — AX + NSScreen) ----------
 
 /// The inspector's Unclaimed set, native side: `list_windows_light`
-/// (already drops Orbitty/LiveSprite) minus claims whose project still
-/// exists — the same formula RailPage and the warn pane compute in JS.
-/// MAIN THREAD ONLY: off-main AX returns a partial list (the 5-of-18
-/// dogfood), and a partial list must never drive the clowder. LIGHT
-/// LIST: titles + ids + frames, never the icon PNG encode — a cold icon
-/// cache was the 10–20s Drop stall. Called WITHOUT the yard lock held.
+/// (CG on-screen list, already drops Orbitty/LiveSprite) minus claims
+/// whose project still exists. Called WITHOUT the yard lock held.
 /// None on a read hiccup: a skipped beat never invents or kills a cat.
 fn poll_unmapped(app: &AppHandle) -> Option<Vec<crate::windows::WindowInfo>> {
     let wins = crate::windows::list_windows_light().ok()?;
@@ -1109,10 +1105,15 @@ fn hop_inner() {
         stop_on_main();
         return;
     }
-    // The unmapped poll: AX + state.json on MAIN (off-main AX reads a
-    // partial list), but NEVER under the yard lock — drawRect, clicks,
-    // and Esc/⌘⇧Y scoop keep moving while it reads, so a slow AX beat
-    // hitches nothing but this hop. Light list: no icon PNG encode.
+    // Backing-store flush AFTER the lock: setFrame:display:YES calls
+    // drawRect, which takes this mutex. Under the lock it deadlocks
+    // (rain-now) or leaves a 10×10 framebuffer (drop-hitch) — meows
+    // with no visible cats.
+    if poll_due {
+        unsafe { flush_yard_views() };
+    }
+    // Light list is CGWindowList (no AX). AX enumerate of a hung app
+    // was the 10s silence-then-meow. Never under the yard lock.
     if poll_due {
         if let Some(app) = app_handle() {
             if let Some(unmapped) = poll_unmapped(app) {
@@ -1703,15 +1704,24 @@ unsafe fn start_on_main() {
     spawn_worker();
 }
 
-/// Sync displayIfNeeded with the yard lock released, so drawRect can take it.
+/// Resize each overlay's backing store with the yard lock released.
+/// setFrame:display:YES + displayIfNeeded call drawRect, which locks.
 unsafe fn flush_yard_views() {
-    let views: Vec<usize> = lock().panels.iter().map(|p| p.view).collect();
-    for v in views {
-        let view = v as *mut Object;
-        if view.is_null() {
+    let snaps: Vec<(usize, usize, NSRect)> = lock()
+        .panels
+        .iter()
+        .map(|p| (p.panel, p.view, p.frame))
+        .collect();
+    for (panel, view, frame) in snaps {
+        let panel = panel as *mut Object;
+        let view = view as *mut Object;
+        if panel.is_null() || view.is_null() {
             continue;
         }
-        let _: () = msg_send![view, setNeedsDisplay: true];
+        let _: () = msg_send![panel, setFrame: frame display: true];
+        let _: () = msg_send![view,
+            setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
+        let _: () = msg_send![panel, orderFrontRegardless];
         let _: () = msg_send![view, displayIfNeeded];
     }
 }
