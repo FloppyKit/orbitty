@@ -125,6 +125,12 @@ unsafe impl objc::Encode for NSRect {
     }
 }
 
+unsafe impl objc::Encode for CGSize {
+    fn encode() -> objc::Encoding {
+        unsafe { objc::Encoding::from_str("{CGSize=dd}") }
+    }
+}
+
 // ---------- tuning ----------
 
 /// Bitty cat frames are 32×32; drawn at 2× on the desktop (Neko size).
@@ -398,6 +404,33 @@ unsafe fn ns_image_from_bytes(bytes: &[u8]) -> *mut Object {
     }
     let img: *mut Object = msg_send![class!(NSImage), alloc];
     let img: *mut Object = msg_send![img, initWithData: data];
+    if img.is_null() {
+        return std::ptr::null_mut();
+    }
+    // initWithData can leave NSSizeZero until a rep is queried; drawInRect
+    // of a zero-size image is a silent no-op (meows, no cats).
+    let size: CGSize = msg_send![img, size];
+    if size.width < 1.0 || size.height < 1.0 {
+        let reps: *mut Object = msg_send![img, representations];
+        let n: usize = if reps.is_null() {
+            0
+        } else {
+            msg_send![reps, count]
+        };
+        if n > 0 {
+            let rep: *mut Object = msg_send![reps, objectAtIndex: 0usize];
+            if !rep.is_null() {
+                let w: isize = msg_send![rep, pixelsWide];
+                let h: isize = msg_send![rep, pixelsHigh];
+                if w > 0 && h > 0 {
+                    let _: () = msg_send![img, setSize: CGSize {
+                        width: w as f64,
+                        height: h as f64,
+                    }];
+                }
+            }
+        }
+    }
     img
 }
 
@@ -557,6 +590,7 @@ unsafe fn register_yard_view_class() -> Option<&'static Class> {
         right_mouse_down as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(sel!(isFlipped), is_flipped as extern "C" fn(&Object, Sel) -> bool);
+    decl.add_method(sel!(isOpaque), is_opaque as extern "C" fn(&Object, Sel) -> bool);
     decl.add_method(
         sel!(acceptsFirstMouse:),
         accepts_first_mouse as extern "C" fn(&Object, Sel, *mut Object) -> bool,
@@ -566,6 +600,10 @@ unsafe fn register_yard_view_class() -> Option<&'static Class> {
 
 extern "C" fn is_flipped(_this: &Object, _cmd: Sel) -> bool {
     true
+}
+
+extern "C" fn is_opaque(_this: &Object, _cmd: Sel) -> bool {
+    false
 }
 
 extern "C" fn accepts_first_mouse(_this: &Object, _cmd: Sel, _event: *mut Object) -> bool {
@@ -625,11 +663,13 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
 /// One fullscreen click-through panel. Same recipe as the habitat's
 /// make_panel, but floating (Neko/Shimeji visibility: cats walk OVER
 /// chrome, planet discs included) and sized to a whole display.
-unsafe fn make_yard_panel() -> *mut Object {
+unsafe fn make_yard_panel(frame: NSRect) -> *mut Object {
     let panel: *mut Object = msg_send![class!(NSPanel), alloc];
     // NSWindowStyleMaskBorderless (0) | NSWindowStyleMaskNonactivatingPanel (1<<7)
+    // Init at the REAL display frame — a 10×10 seed left a postage-stamp
+    // backing store (meows, no cats) even after later setFrame calls.
     let panel: *mut Object = msg_send![panel,
-        initWithContentRect: NSRect::new(0.0, 0.0, 10.0, 10.0)
+        initWithContentRect: frame
         styleMask: 128usize
         backing: 2usize // NSBackingStoreBuffered
         defer: false];
@@ -642,6 +682,10 @@ unsafe fn make_yard_panel() -> *mut Object {
     let clear: *mut Object = msg_send![class!(NSColor), clearColor];
     let _: () = msg_send![panel, setBackgroundColor: clear];
     let _: () = msg_send![panel, setHasShadow: false];
+    let _: () = msg_send![panel, setAlphaValue: 1.0f64];
+    // NSWindowSharingReadOnly — default, but be explicit so the compositor
+    // keeps a fully-transparent overlay in the mix.
+    let _: () = msg_send![panel, setSharingType: 1usize];
     // Click-through by default; the hop flips this off only while the
     // pointer is over a cat's hit-rect on THIS display.
     let _: () = msg_send![panel, setIgnoresMouseEvents: true];
@@ -650,6 +694,20 @@ unsafe fn make_yard_panel() -> *mut Object {
     let _: () = msg_send![panel, setCanHide: false];
     let _: () = msg_send![panel, setBecomesKeyOnlyIfNeeded: true];
     panel
+}
+
+unsafe fn prepare_yard_view(view: *mut Object) {
+    let _: () = msg_send![view, setWantsLayer: true];
+    let layer: *mut Object = msg_send![view, layer];
+    if layer.is_null() {
+        return;
+    }
+    let _: () = msg_send![layer, setOpaque: false];
+    let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+    let cg: *mut c_void = msg_send![clear, CGColor];
+    if !cg.is_null() {
+        let _: () = msg_send![layer, setBackgroundColor: cg];
+    }
 }
 
 /// One panel per display, kept in step with `screens()` (display
@@ -717,33 +775,18 @@ unsafe fn sync_panels(y: &mut Yard) {
         if view.is_null() {
             continue;
         }
-        let panel = make_yard_panel();
+        let panel = make_yard_panel(*frame);
         if panel.is_null() {
             let _: () = msg_send![view, release];
             continue;
         }
         let _: () = msg_send![panel, setContentView: view];
         let _: () = msg_send![view, release];
-        // Invisible-cats punch (the habitat's marble-swap lesson):
-        // setContentView into the 10×10 panel shrank the view to the
-        // content rect, and the default autoresizing mask (not sizable)
-        // kept it ~10×10 in a corner after the panel took the display
-        // frame — cats rained in full-display coords and drew outside
-        // the view. Pin the view to the real size with a sizable mask
-        // BEFORE the panel takes the display frame, so the resize drags
-        // the view along to fill.
         // NSViewWidthSizable (2) | NSViewHeightSizable (16).
         let _: () = msg_send![view, setAutoresizingMask: 18usize];
-        // Put the panel on ITS glass: the screen's global frame (negative
-        // x for a display left of the menu-bar screen is correct).
-        // display:NO + setNeedsDisplay only — drawRect locks the yard
-        // mutex (non-reentrant). rain-now's displayIfNeeded here wedged
-        // Drop on main: confirm stayed up, no cats, ever.
-        let _: () = msg_send![panel, setFrame: *frame display: false];
-        // Belt-and-braces: the sizable mask should have kept the view
-        // filling; assert the exact size once anyway.
         let _: () = msg_send![view,
             setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
+        prepare_yard_view(view);
         let _: () = msg_send![panel, orderFrontRegardless];
         let _: () = msg_send![view, setNeedsDisplay: true];
         eprintln!(
@@ -1055,6 +1098,7 @@ fn hop() {
 /// under the lock; then the ~1s unmapped poll AFTER the lock is dropped.
 fn hop_inner() {
     let mut stop_after = false;
+    let mut cats_out = false;
     let poll_due;
     {
         let mut y = lock();
@@ -1079,14 +1123,14 @@ fn hop_inner() {
             unsafe { sync_panels(&mut y) };
         }
         cursor_ghost(&mut y);
-        let cats_out = !y.cats.is_empty();
+        cats_out = !y.cats.is_empty();
         meow::tick(&mut y.meow, cats_out);
-        // Redraw only panels with cats (plus one clearing frame after the
-        // last cat leaves a display).
+        // Dirty every live overlay while cats are out (plus one clearing
+        // frame after the last cat leaves a display).
         let busy: HashSet<String> = y.cats.iter().map(|c| c.screen_id.clone()).collect();
         for p in y.panels.iter_mut() {
             let has = busy.contains(&p.screen_id);
-            if has || p.drawn {
+            if has || p.drawn || cats_out {
                 unsafe {
                     let view = p.view as *mut Object;
                     let _: () = msg_send![view, setNeedsDisplay: true];
@@ -1105,11 +1149,10 @@ fn hop_inner() {
         stop_on_main();
         return;
     }
-    // Backing-store flush AFTER the lock: setFrame:display:YES calls
-    // drawRect, which takes this mutex. Under the lock it deadlocks
-    // (rain-now) or leaves a 10×10 framebuffer (drop-hitch) — meows
-    // with no visible cats.
-    if poll_due {
+    // Paint AFTER the lock: drawRect takes this mutex. Under the lock
+    // a sync blit deadlocks; without a post-lock blit, meows fire and
+    // the glass stays empty.
+    if cats_out || poll_due {
         unsafe { flush_yard_views() };
     }
     // Light list is CGWindowList (no AX). AX enumerate of a hung app
@@ -1178,6 +1221,10 @@ unsafe fn draw_inner(this: &Object) {
     let Some(panel) = y.panels.iter().find(|p| p.view == view_ptr) else {
         return;
     };
+    let bounds: NSRect = msg_send![this, bounds];
+    let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+    let _: () = msg_send![clear, set];
+    let _: () = msg_send![class!(NSBezierPath), fillRect: bounds];
     let screen_id = panel.screen_id.clone();
     for (i, cat) in y.cats.iter().enumerate() {
         if cat.screen_id != screen_id {
@@ -1704,24 +1751,23 @@ unsafe fn start_on_main() {
     spawn_worker();
 }
 
-/// Resize each overlay's backing store with the yard lock released.
-/// setFrame:display:YES + displayIfNeeded call drawRect, which locks.
+/// orderFront + displayIfNeeded with the yard lock released so drawRect
+/// can take it. Panels are born at the display frame — do not setFrame
+/// here (that was the 10×10 / deadlock path).
 unsafe fn flush_yard_views() {
-    let snaps: Vec<(usize, usize, NSRect)> = lock()
+    let snaps: Vec<(usize, usize)> = lock()
         .panels
         .iter()
-        .map(|p| (p.panel, p.view, p.frame))
+        .map(|p| (p.panel, p.view))
         .collect();
-    for (panel, view, frame) in snaps {
+    for (panel, view) in snaps {
         let panel = panel as *mut Object;
         let view = view as *mut Object;
         if panel.is_null() || view.is_null() {
             continue;
         }
-        let _: () = msg_send![panel, setFrame: frame display: true];
-        let _: () = msg_send![view,
-            setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
         let _: () = msg_send![panel, orderFrontRegardless];
+        let _: () = msg_send![view, setNeedsDisplay: true];
         let _: () = msg_send![view, displayIfNeeded];
     }
 }
