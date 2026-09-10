@@ -18,11 +18,13 @@ use super::{
 };
 
 // GO-ORBITTY-WORLD-PROPS: the sign's blank face inside the punched PNG
-// (brand/town/sign.png), measured as fractions of the cropped sprite.
+// (brand/town/sign.png), measured as fractions of the sprite canvas.
+// SPRITE-DIET 2026-09-10: source crushed 1037×1277 → 104×128 indexed;
+// fractions unchanged (no crop).
 // The blit is bottom-pinned at STATION_BOARD and scaled so the face is
 // SIGN_FACE_W disc units wide; the three tick columns live on the face.
-const SIGN_IMG_W: f64 = 1037.0;
-const SIGN_IMG_H: f64 = 1277.0;
+const SIGN_IMG_W: f64 = 104.0;
+const SIGN_IMG_H: f64 = 128.0;
 const SIGN_FACE_X0: f64 = 0.1456;
 const SIGN_FACE_X1: f64 = 0.8534;
 const SIGN_FACE_Y0: f64 = 0.2161;
@@ -40,14 +42,15 @@ const SIGN_FACE_W: f64 = 0.144;
 const SIGN_POST_X: f64 = 0.1606;
 
 // GO-ORBITTY-WORLD-PROPS: the punched igloo (brand/town/igloo.png,
-// flipped so the door faces east). IGLOO_DOOR is the door-base point as
+// flipped so the door faces east). SPRITE-DIET: 768×435 → 128×72 indexed.
+// IGLOO_DOOR is the door-base point as
 // a fraction of the sprite; the doorstep pins to STATION_HOUSE (spawn /
 // home is the door, not the centroid). PROPS leftover: fixed width
 // IGLOO_W, ~10% under the PROPS on-screen blit — the old 1.6×-walker
 // grow + MAX_W cap shoved it off the west rim; on-disc wins over
 // "igloo ≥ 1.6× walker", and the station moved east to fit.
-const IGLOO_IMG_W: f64 = 768.0;
-const IGLOO_IMG_H: f64 = 435.0;
+const IGLOO_IMG_W: f64 = 128.0;
+const IGLOO_IMG_H: f64 = 72.0;
 const IGLOO_DOOR: (f64, f64) = (0.78, 0.92);
 /// Drawn blit width in disc units (oval radius = 1).
 /// PROPS leftover #2: 25% smaller (0.57 → 0.4275) with the WEST EDGE
