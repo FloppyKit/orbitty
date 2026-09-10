@@ -696,12 +696,13 @@ unsafe fn sync_panels(y: &mut Yard) {
                 || (p.frame.size.height - frame.size.height).abs() > 0.5
             {
                 let panel = p.panel as *mut Object;
-                // display:YES — force the blit at the new glass, never a
-                // panel that moved but kept a stale (or no) framebuffer.
-                let _: () = msg_send![panel, setFrame: *frame display: true];
+                // display:NO — drawRect takes the yard mutex. A sync blit
+                // here deadlocks Drop on main (rain-now leftover).
+                let _: () = msg_send![panel, setFrame: *frame display: false];
                 let view = p.view as *mut Object;
                 let _: () = msg_send![view, setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
                 let _: () = msg_send![panel, orderFrontRegardless];
+                let _: () = msg_send![view, setNeedsDisplay: true];
                 p.frame = *frame;
                 p.walk = walk;
             }
@@ -734,20 +735,17 @@ unsafe fn sync_panels(y: &mut Yard) {
         // NSViewWidthSizable (2) | NSViewHeightSizable (16).
         let _: () = msg_send![view, setAutoresizingMask: 18usize];
         // Put the panel on ITS glass: the screen's global frame (negative
-        // x for a display left of the menu-bar screen is correct), and
-        // display:YES so the first blit happens at that frame — the
-        // all-cats-on-R dogfood was a panel that never really painted
-        // off the primary. Then orderFrontRegardless actually shows it.
-        let _: () = msg_send![panel, setFrame: *frame display: true];
+        // x for a display left of the menu-bar screen is correct).
+        // display:NO + setNeedsDisplay only — drawRect locks the yard
+        // mutex (non-reentrant). rain-now's displayIfNeeded here wedged
+        // Drop on main: confirm stayed up, no cats, ever.
+        let _: () = msg_send![panel, setFrame: *frame display: false];
         // Belt-and-braces: the sizable mask should have kept the view
         // filling; assert the exact size once anyway.
         let _: () = msg_send![view,
             setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
         let _: () = msg_send![panel, orderFrontRegardless];
-        // Flush the first blit NOW so the rain lands inside the stagger,
-        // never a long pause then an all-at-once pop.
         let _: () = msg_send![view, setNeedsDisplay: true];
-        let _: () = msg_send![view, displayIfNeeded];
         eprintln!(
             "yard: overlay up on screen {id} at ({:.0},{:.0}) {:.0}x{:.0}",
             frame.origin.x, frame.origin.y, frame.size.width, frame.size.height
@@ -1700,7 +1698,22 @@ unsafe fn start_on_main() {
     sync_panels(&mut y);
     install_esc_monitor(&mut y);
     drop(y);
+    // First blit AFTER the lock is dropped — drawRect takes the same mutex.
+    unsafe { flush_yard_views() };
     spawn_worker();
+}
+
+/// Sync displayIfNeeded with the yard lock released, so drawRect can take it.
+unsafe fn flush_yard_views() {
+    let views: Vec<usize> = lock().panels.iter().map(|p| p.view).collect();
+    for v in views {
+        let view = v as *mut Object;
+        if view.is_null() {
+            continue;
+        }
+        let _: () = msg_send![view, setNeedsDisplay: true];
+        let _: () = msg_send![view, displayIfNeeded];
+    }
 }
 
 /// Scoop all: windows unchanged, overlay gone, meow killed. Idempotent;
