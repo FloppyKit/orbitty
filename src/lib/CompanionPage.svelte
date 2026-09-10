@@ -1126,14 +1126,30 @@
   // DOCK-GRIP + GRAB-LAW: dock chrome (padding around dests / agent
   // pick / composer, never a control) drags on EVERY surface — idle,
   // hugged, expanded, hosted. Controls keep their own presses.
+  // Click ≠ drag: startDragging on the down itself (plus a 1px twitch)
+  // sent the pane flying and the ghost then click-through'd — dock
+  // "runs away or disappears." Wait for a real move.
   function onDockMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     const t = e.target as HTMLElement | null;
     if (t?.closest("input, textarea, select, button, .field")) return;
     e.preventDefault();
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {});
+    const x0 = e.screenX;
+    const y0 = e.screenY;
+    const onMove = (ev: MouseEvent) => {
+      if (Math.hypot(ev.screenX - x0, ev.screenY - y0) < 6) return;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      getCurrentWindow()
+        .startDragging()
+        .catch(() => {});
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }
 
   // FRONT-HOLD: a mousedown on any ghost hit (dock / spirit / bubble /
@@ -1148,6 +1164,13 @@
     // Native <select> / field menus: activate+makeKey on this path was
     // the beach ball while digging the agent picker.
     if (t?.closest("input, textarea, select, option, .field")) return;
+    // Dock chrome starts its own drag after a move. Do not lift-z on
+    // that same down — orderFront during startDragging still jumps.
+    if (
+      t?.closest(".ghostdock") &&
+      !t.closest("input, textarea, select, button, .field")
+    )
+      return;
     if (
       !t?.closest(
         ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .winx, .gear, .note"
