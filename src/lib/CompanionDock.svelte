@@ -22,11 +22,23 @@
   };
   const agentLabel = (id: string) => AGENT_LABELS[id] ?? id;
 
+  // GO-ORBITTY-MODE-SPLIT: the four companion modes — a SECOND axis next
+  // to the four-cast agent pick above (the <select> stays; stems are
+  // never recast). Mode owns the transcript + the bus target; Chat/Hold
+  // never get the GO bus. Active chip = persisted companion.mode.
+  const MODES = [
+    { id: "spark", label: "Spark", title: "Spark mode — desktop / Orbitty itself" },
+    { id: "chat", label: "Chat", title: "Chat mode — talk / brainstorm" },
+    { id: "work", label: "Work", title: "Work mode — project work" },
+    { id: "hold", label: "Hold", title: "Hold mode — body double / check-in" },
+  ] as const;
+
   type HostMode = "off" | "launchpad" | "stars" | "inspector";
 
   let {
     agents,
     agent = $bindable(),
+    mode,
     sending,
     prompts,
     hosted,
@@ -41,6 +53,7 @@
     draft = $bindable(),
     fieldEl = $bindable(),
     onAgentChange,
+    onModeChange,
     togglePrompts,
     toggleDest,
     nextCount = 0,
@@ -61,6 +74,7 @@
   }: {
     agents: string[];
     agent: string;
+    mode: string;
     sending: boolean;
     prompts: boolean;
     hosted: HostMode;
@@ -75,6 +89,7 @@
     draft: string;
     fieldEl: HTMLTextAreaElement | null;
     onAgentChange: () => void;
+    onModeChange: (mode: string) => void;
     togglePrompts: () => void;
     toggleDest: (mode: "launchpad" | "stars" | "inspector") => void;
     nextCount?: number;
@@ -490,6 +505,26 @@
     </button>
   </div>
 
+  <!-- GO-ORBITTY-MODE-SPLIT: the four mode chips — Spark / Chat / Work /
+       Hold. Active chip = persisted companion.mode; a click routes
+       through set_companion_mode (CompanionPage owns the invoke). The
+       four-cast agent <select> above is untouched — mode is the second
+       axis (transcript + bus target), never a stem recast. -->
+  <div class="moderow" role="group" aria-label="Companion mode">
+    {#each MODES as m}
+      <button
+        type="button"
+        class="modechip"
+        class:on={mode === m.id}
+        onclick={() => onModeChange(m.id)}
+        aria-pressed={mode === m.id}
+        title={m.title}
+      >
+        {m.label}
+      </button>
+    {/each}
+  </div>
+
   <form
     class="composer"
     onsubmit={(e) => {
@@ -888,6 +923,43 @@
 
   .gear:hover {
     color: var(--ink);
+  }
+
+  /* GO-ORBITTY-MODE-SPLIT: the mode chips ride their own quiet row
+     between the agent strip and the composer — same pill family as the
+     dest chips, active = accent ink + violet ring (the .dest.on /
+     iconbtn ring rule). Ghost chrome gaps drag (DOCK-GRIP); the chips
+     never do. */
+  .moderow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 4px 10px 0;
+  }
+
+  .modechip {
+    flex: none;
+    padding: 2px 8px;
+    font: inherit;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--dim);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+
+  .modechip:hover {
+    color: var(--ink);
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .modechip.on {
+    color: var(--accent);
+    border-color: var(--focus, #6e4db0);
   }
 
   /* Composer: field with the mic parked inside its right edge + Send

@@ -298,6 +298,10 @@ pub struct StarsCheckin {
 /// GO-ORBITTY-SPRITE-OFF: `sprite` (default true) hides the sprite art on
 /// every surface while chat stays; the Full/Head prefs survive Off
 /// untouched, so turning the sprite back on restores each surface's view.
+/// GO-ORBITTY-MODE-SPLIT adds `mode` ("spark" default | "chat" | "work" |
+/// "hold") + `threads` (mode → capped transcript). `turns` remains the
+/// ACTIVE thread; serde defaults load old saves, `heal_modes` parks a
+/// pre-split transcript under spark.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CompanionState {
@@ -340,6 +344,20 @@ pub struct CompanionState {
     /// collapsed, expanded, and hosted; missing key (old saves) = true.
     #[serde(default = "companion_sprite_default")]
     pub sprite: bool,
+    /// GO-ORBITTY-MODE-SPLIT: the active companion mode — "spark"
+    /// (default) | "chat" | "work" | "hold". A SECOND axis next to the
+    /// four-cast agent pick (spark/grok/chaos-gremlin/fkt-homie stems
+    /// stay): mode owns the transcript + the bus target, never a stem
+    /// recast. Chat/Hold never get the GO bus.
+    #[serde(default = "companion_mode_default")]
+    pub mode: String,
+    /// GO-ORBITTY-MODE-SPLIT: mode → parked transcript (cap 40 each).
+    /// `turns` stays the ACTIVE thread (CaptionPane reads it); a mode
+    /// switch parks turns under the old mode and loads the new mode's
+    /// thread. Healed on load: missing map + a pre-split transcript →
+    /// copied under "spark" (first run lands the old chat on Spark).
+    #[serde(default)]
+    pub threads: std::collections::BTreeMap<String, Vec<CompanionTurn>>,
 }
 
 /// S2.4: one saved companion turn. role: "you" | "them".
@@ -371,6 +389,73 @@ fn companion_view_expanded_default() -> String {
 
 fn companion_sprite_default() -> bool {
     true
+}
+
+pub fn companion_mode_default() -> String {
+    "spark".into()
+}
+
+/// GO-ORBITTY-MODE-SPLIT: the four modes are the whole allowlist —
+/// anything else is None so callers fail closed (never a silent spark).
+pub fn normalize_companion_mode(raw: &str) -> Option<String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "spark" => Some("spark".into()),
+        "chat" => Some("chat".into()),
+        "work" => Some("work".into()),
+        "hold" => Some("hold".into()),
+        _ => None,
+    }
+}
+
+/// One transcript cap (last 40 turns) for the active thread and every
+/// parked mode thread.
+pub const COMPANION_THREAD_CAP: usize = 40;
+
+pub fn cap_companion_turns(turns: &mut Vec<CompanionTurn>) {
+    if turns.len() > COMPANION_THREAD_CAP {
+        let drop = turns.len() - COMPANION_THREAD_CAP;
+        turns.drain(0..drop);
+    }
+}
+
+impl CompanionState {
+    /// GO-ORBITTY-MODE-SPLIT heal, run on every native load: an unknown /
+    /// missing mode snaps to spark, and a pre-split save (no threads map,
+    /// existing turns) parks its transcript under spark so the first run
+    /// shows the old chat on the Spark chip.
+    pub fn heal_modes(&mut self) {
+        if normalize_companion_mode(&self.mode).is_none() {
+            self.mode = companion_mode_default();
+        }
+        if self.threads.is_empty() && !self.turns.is_empty() {
+            self.threads.insert(companion_mode_default(), self.turns.clone());
+        }
+    }
+
+    /// Append one turn to the ACTIVE thread and its parked copy under the
+    /// current mode — the two never drift, so a mode switch mid-thread
+    /// loses nothing. Both capped at 40.
+    pub fn push_turn(&mut self, role: &str, text: &str) {
+        let t = CompanionTurn {
+            role: role.into(),
+            text: text.into(),
+        };
+        self.turns.push(t.clone());
+        cap_companion_turns(&mut self.turns);
+        let thread = self.threads.entry(self.mode.clone()).or_default();
+        thread.push(t);
+        cap_companion_turns(thread);
+    }
+
+    /// Switch the active mode: park the current turns under the old mode,
+    /// load the new mode's thread (empty when never visited). Chat lines
+    /// never leak into Spark — each mode's transcript is its own.
+    pub fn switch_mode(&mut self, new_mode: &str) {
+        let parked = std::mem::take(&mut self.turns);
+        self.threads.insert(self.mode.clone(), parked);
+        self.turns = self.threads.get(new_mode).cloned().unwrap_or_default();
+        self.mode = new_mode.to_string();
+    }
 }
 
 /// GO-ORBITTY-COMPANION-HEADROOM: only "full" / "head" are real; anything
@@ -407,6 +492,8 @@ impl Default for CompanionState {
             view_collapsed: companion_view_collapsed_default(),
             view_expanded: companion_view_expanded_default(),
             sprite: true,
+            mode: companion_mode_default(),
+            threads: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -636,8 +723,14 @@ fn state_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 pub fn load_state(app: &tauri::AppHandle) -> Result<PersistedState, String> {
     let path = state_path(app)?;
     match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text)
-            .map_err(|e| format!("parse {}: {e}", path.display())),
+        Ok(text) => {
+            let mut st: PersistedState = serde_json::from_str(&text)
+                .map_err(|e| format!("parse {}: {e}", path.display()))?;
+            // GO-ORBITTY-MODE-SPLIT: old saves heal here — mode defaults
+            // spark, a pre-split transcript parks under spark.
+            st.companion.heal_modes();
+            Ok(st)
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(PersistedState::default()),
         Err(e) => Err(format!("read {}: {e}", path.display())),
     }

@@ -150,6 +150,11 @@ export interface CompanionTurn {
   text: string;
 }
 
+// GO-ORBITTY-MODE-SPLIT: the four companion modes — a second axis next
+// to the four-cast agent pick (stems stay). Mode owns the transcript +
+// the bus target; Chat/Hold never get the GO bus.
+export type CompanionMode = "spark" | "chat" | "work" | "hold";
+
 export interface CompanionSlice {
   visible: boolean;
   bounds: CompanionBounds | null;
@@ -165,6 +170,11 @@ export interface CompanionSlice {
   viewCollapsed?: string;
   viewExpanded?: string;
   sprite?: boolean;
+  // GO-ORBITTY-MODE-SPLIT: active mode (default spark) + per-mode parked
+  // transcripts (cap 40 each). `turns` stays the ACTIVE thread; the
+  // native heal parks a pre-split transcript under spark on load.
+  mode?: CompanionMode;
+  threads?: Partial<Record<CompanionMode, CompanionTurn[]>>;
 }
 
 export interface StarsCheckin {

@@ -195,6 +195,12 @@
 
   let expanded = $state(false);
   let turns = $state<CompanionTurn[]>([]);
+  // GO-ORBITTY-MODE-SPLIT: the active companion mode (spark default |
+  // chat | work | hold) — second axis next to the four-cast agent pick.
+  // `turns` is always the ACTIVE mode's thread (native switch_mode parks
+  // the old one); loadState reads it after the native heal, so a
+  // pre-split transcript lands on Spark on first run.
+  let mode = $state("spark");
 
   // GO-ORBITTY-HOST-SPLIT: the companion window is the host. Session-only
   // — boot is always the idle spirit and nothing persists `hosted`.
@@ -662,6 +668,22 @@
     }
   }
 
+  // GO-ORBITTY-MODE-SPLIT: chip click switches the mode native-side —
+  // set_companion_mode parks the current turns under the old mode and
+  // loads the new mode's thread, then state:changed → loadState swaps
+  // the transcript in. Optimistic chip flip; an error snaps back.
+  async function onModeChange(next: string) {
+    if (next === mode) return;
+    const prev = mode;
+    mode = next;
+    try {
+      await invoke("set_companion_mode", { mode: next });
+    } catch (e) {
+      mode = prev;
+      sendNote = `${e}`;
+    }
+  }
+
 
 
   function toggleExpanded() {
@@ -1050,6 +1072,7 @@
       userLine = s.companion?.lastUserLine ?? "";
       botLine = s.companion?.lastBotLine ?? "";
       turns = s.companion?.turns ?? [];
+      mode = s.companion?.mode ?? "spark";
       expanded = s.companion?.expanded ?? false;
       speak = s.companion?.speakReplies ?? false;
       // HEADROOM: missing keys land on the defaults (collapsed Full,
@@ -1583,6 +1606,7 @@
   <CompanionDock
     {agents}
     bind:agent
+    {mode}
     {sending}
     {prompts}
     {hosted}
@@ -1597,6 +1621,7 @@
     bind:draft
     bind:fieldEl
     {onAgentChange}
+    {onModeChange}
     {togglePrompts}
     {toggleDest}
     {nextCount}
