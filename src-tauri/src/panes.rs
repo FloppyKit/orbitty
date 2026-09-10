@@ -30,6 +30,9 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
     if crate::state::DRAWER_LABELS.contains(&label.as_str()) {
         crate::drawers::persist_shown_place(&app, &label);
     }
+    if label == "next-card" {
+        let _ = w.set_always_on_top(false);
+    }
     w.hide().map_err(|e| e.to_string())?;
     emit_pane_vis(&app, &label, false);
     if label == "companion" {
@@ -57,6 +60,8 @@ pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(
         // window (like Settings) so ⌘⇧Y works with Settings closed. Plain
         // pane, not a drawer — a confirm never docks on the rail.
         "yard-warn" => Some(("", 400.0, 330.0, None)),
+        // GO-ORBITTY-NEXT-CARD leftover: own small card window, not dock chrome.
+        "next-card" => Some(("", 340.0, 260.0, Some((280.0, 180.0)))),
         _ => None,
     }
 }
@@ -144,6 +149,7 @@ pub(crate) fn ensure_window(
         || label == "sky"
         || label == "companion"
         || label == "yard-warn"
+        || label == "next-card"
     {
         config.decorations = false;
         config.maximizable = false;
@@ -263,6 +269,9 @@ pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), St
     }
     let w = ensure_window(app, label)?;
     w.show().map_err(|e| e.to_string())?;
+    if label == "next-card" {
+        let _ = w.set_always_on_top(true);
+    }
     w.set_focus().map_err(|e| e.to_string())?;
     crate::drawers::appkit_order_front(app, &w);
     if !crate::drawers::pane_appkit_visible(&w) {

@@ -43,6 +43,8 @@
     onAgentChange,
     togglePrompts,
     toggleDest,
+    nextCount = 0,
+    toggleNextCard,
     onNewPlanet,
     planets = [],
     onPlanetClick,
@@ -75,6 +77,8 @@
     onAgentChange: () => void;
     togglePrompts: () => void;
     toggleDest: (mode: "launchpad" | "stars" | "inspector") => void;
+    nextCount?: number;
+    toggleNextCard: () => void;
     onNewPlanet: () => void;
     planets?: Project[];
     onPlanetClick: (id: string) => void;
@@ -335,6 +339,17 @@
         {/if}
       </span>
     </span>
+    {#if nextCount > 0}
+      <button
+        class="nextpip iconbtn"
+        onclick={toggleNextCard}
+        aria-label="Next card — {nextCount} Needed"
+        data-chip="Needed"
+        title="Next card (⌘⇧N)"
+      >
+        <span class="nextpip-n">{nextCount > 9 ? "9+" : nextCount}</span>
+      </button>
+    {/if}
     <button
       class="expandbtn iconbtn speakbtn"
       class:on={speak}
@@ -766,6 +781,27 @@
   /* HOST-SPLIT: the dest whose well is live. */
   .dest.on {
     color: var(--accent);
+  }
+
+  /* NEXT-CARD leftover: quiet ochre pip, not a dest chip, not red. */
+  .nextpip {
+    flex: none;
+    position: relative;
+    min-width: 22px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--edge);
+    background: var(--panel-fill, var(--panel));
+    color: var(--mark, #e59e3d);
+    cursor: pointer;
+  }
+  .nextpip-n {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+  .nextpip:hover {
+    border-color: var(--mark, #e59e3d);
   }
 
   .expandbtn {

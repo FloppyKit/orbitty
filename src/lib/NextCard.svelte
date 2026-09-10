@@ -1,10 +1,16 @@
 <script lang="ts">
-  // GO-ORBITTY-NEXT-CARD: one glass card on the companion. Dest chips
-  // switch the pile; dest off still shows Launchpad (the Needed alert).
-  // Empty pile = no chrome. Not a dest chip. Skip ≠ Done. No points on Needed.
+  // GO-ORBITTY-NEXT-CARD leftover: own small window (not dock chrome).
+  // ⌘⇧N or the dock pip toggles it. Drag the banner. Click-off (blur),
+  // Esc, ×, or the chord again hides. Quiet ochre — no red badge.
   import { invoke } from "@tauri-apps/api/core";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
+  import {
+    applyHostTokens,
+    applyWindowOpacity,
+    clampWindowOpacity,
+  } from "../themes/apply";
   import type {
     AverageWindow,
     Claim,
@@ -16,13 +22,14 @@
     WindowInfo,
   } from "./persist";
 
-  let {
-    hosted,
-    hidden = false,
-  }: {
-    hosted: "off" | "launchpad" | "stars" | "inspector";
-    hidden?: boolean;
-  } = $props();
+  const THEME_IDS = new Set(["systemLight", "systemDark", "terminal"]);
+  function osThemeId(): string {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "systemDark"
+      : "systemLight";
+  }
+  let themeId = $state(osThemeId());
+  let windowOpacity = $state(1.0);
 
   const DAILY_CAP = 12;
   const STARS_SPOKES = [
@@ -46,9 +53,7 @@
   let starsWalk = $state<number | null>(null);
 
   type Pile = "launchpad" | "stars" | "inspector";
-  let pile = $derived<Pile>(
-    hosted === "stars" ? "stars" : hosted === "inspector" ? "inspector" : "launchpad",
-  );
+  let pile = $state<Pile>("launchpad");
 
   function todayKey(): string {
     const d = new Date();
@@ -122,16 +127,23 @@
   );
   let claimWin = $derived(unclaimed[0]);
 
-  let show = $derived.by(() => {
-    if (hidden) return false;
-    if (pile === "stars") return !!nextSpoke || todayCheck != null;
-    if (pile === "inspector") return !!claimWin;
-    return !!neededCard || !!todoCard;
-  });
+  function hide() {
+    invoke("hide_window", { label: "next-card" }).catch(() => {});
+  }
+
+  function onBannerMouseDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest("button, input, a, select, textarea, label")) return;
+    e.preventDefault();
+    getCurrentWindow().startDragging().catch(() => {});
+  }
 
   async function load() {
     try {
       const s = await invoke<PersistedState>("load_state");
+      themeId = THEME_IDS.has(s.themeId) ? s.themeId : osThemeId();
+      windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
       cards = s.kanbanCards ?? [];
       projects = s.projects ?? [];
       claims = s.claims ?? [];
@@ -360,18 +372,65 @@
     newPlanet = "";
   }
 
+  $effect(() => {
+    if (!themeId) return;
+    document.documentElement.dataset.theme = themeId;
+    applyHostTokens(themeId);
+    applyWindowOpacity(windowOpacity);
+  });
+
   let unlisten: (() => void) | null = null;
+  let unfocus: (() => void) | null = null;
   onMount(() => {
     void load();
     listen("state:changed", load).then((u) => {
       unlisten = u;
     });
+    getCurrentWindow()
+      .onFocusChanged((ev) => {
+        if (!ev.payload) hide();
+      })
+      .then((u) => {
+        unfocus = u;
+      });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (answering) {
+        answering = false;
+        return;
+      }
+      hide();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   });
-  onDestroy(() => unlisten?.());
+  onDestroy(() => {
+    unlisten?.();
+    unfocus?.();
+  });
 </script>
 
-{#if show}
-  <section class="nextcard" aria-label="Next card">
+<main class="nextwin">
+  <header class="nc-banner" onmousedown={onBannerMouseDown}>
+    <button
+      class="winx"
+      onmousedown={(e) => e.stopPropagation()}
+      onclick={hide}
+      title="Hide — click off, Esc, or ⌘⇧N"
+      aria-label="Hide next card">×</button
+    >
+    <span class="nc-tabs" role="tablist">
+      <button class="nc-tab" class:on={pile === "launchpad"} onclick={() => (pile = "launchpad")}
+        >Launchpad</button
+      >
+      <button class="nc-tab" class:on={pile === "stars"} onclick={() => (pile = "stars")}>STARS</button>
+      <button class="nc-tab" class:on={pile === "inspector"} onclick={() => (pile = "inspector")}
+        >Planets</button
+      >
+    </span>
+  </header>
+  <div class="nc-body">
     {#if pile === "launchpad"}
       <header class="nc-head">
         <span class="nc-kicker">Launchpad</span>
@@ -423,6 +482,8 @@
         <div class="nc-acts">
           <button class="mini" onclick={() => completeTodo(todoCard)}>Done</button>
         </div>
+      {:else}
+        <p class="nc-why">No Needed or todos.</p>
       {/if}
     {:else if pile === "stars"}
       <header class="nc-head">
@@ -473,20 +534,50 @@
         />
         <button class="mini" onclick={() => addPlanetAndClaim(claimWin.id)}>+</button>
       </div>
+    {:else}
+      <p class="nc-why">Nothing waiting on this pile.</p>
     {/if}
-  </section>
-{/if}
+  </div>
+</main>
 
 <style>
-  .nextcard {
-    flex-shrink: 0;
-    margin: 0 10px 8px;
-    padding: 10px 12px 8px;
-    border-radius: 12px;
-    border: 1px solid var(--edge);
-    background: var(--bg-fill, var(--panel-fill, var(--panel)));
+  .nextwin {
+    height: 100vh;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
     color: var(--ink);
-    pointer-events: auto;
+    background: var(--bg-fill, var(--panel-fill, var(--panel)));
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .nc-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px 6px;
+    cursor: grab;
+  }
+  .winx {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--dim);
+    cursor: pointer;
+    font: inherit;
+  }
+  .winx:hover {
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+  }
+  .nc-body {
+    flex: 1;
+    min-height: 0;
+    padding: 4px 12px 12px;
   }
   .nc-head {
     display: flex;

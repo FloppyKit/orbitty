@@ -267,6 +267,21 @@ fn open_yard_warn_window(app: tauri::AppHandle) -> Result<(), String> {
     panes::show_labeled(&app, "yard-warn")
 }
 
+/// GO-ORBITTY-NEXT-CARD leftover: own small card window. Dock pip and
+/// ⌘⇧N toggle. Click-off / Esc / × hide. Not a dest chip.
+#[tauri::command]
+fn toggle_next_card_window(app: tauri::AppHandle) -> Result<(), String> {
+    let up = app
+        .get_webview_window("next-card")
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false);
+    if up {
+        panes::hide_window(app, "next-card".to_string())
+    } else {
+        panes::show_labeled(&app, "next-card")
+    }
+}
+
 /// Run `f` on the main thread and BLOCK until it finishes. Inline when
 /// already on the main thread (dispatch_sync of the main queue from the
 /// main thread deadlocks). A panic inside `f` is swallowed — a native
@@ -463,6 +478,7 @@ pub fn run() {
             open_settings_window,
             open_sky_window,
             open_yard_warn_window,
+            toggle_next_card_window,
             drawers::retether_drawer,
             drawers::retether_all_drawers,
             companion::companion_frames,
@@ -595,6 +611,18 @@ pub fn run() {
                         } else {
                             let _ = panes::show_labeled(&yard_handle, "yard-warn");
                         }
+                    })?;
+
+                // GO-ORBITTY-NEXT-CARD leftover: ⌘⇧N toggles the next-card
+                // window. Reserved in actions.rs so a user combo cannot steal it.
+                let next_card = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyN);
+                let next_handle = app.handle().clone();
+                app.global_shortcut()
+                    .on_shortcut(next_card, move |_app, _shortcut, event| {
+                        if event.state() != ShortcutState::Pressed {
+                            return;
+                        }
+                        let _ = toggle_next_card_window(next_handle.clone());
                     })?;
             }
 

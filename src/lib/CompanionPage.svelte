@@ -105,7 +105,6 @@
   import Companion3D from "./Companion3D.svelte";
   import CaptionPane from "./CaptionPane.svelte";
   import CompanionDock from "./CompanionDock.svelte";
-  import NextCard from "./NextCard.svelte";
 
   import type {
     CompanionSlice,
@@ -356,7 +355,7 @@
     if (!dock) return null;
     const dockR = dock.getBoundingClientRect();
     let top = dockR.top;
-    mainEl.querySelectorAll(".ccrow, .note, .starstrip, .nextcard").forEach((el) => {
+    mainEl.querySelectorAll(".ccrow, .note, .starstrip").forEach((el) => {
       const r = el.getBoundingClientRect();
       if (r.height >= 2 && r.top < top) top = r.top;
     });
@@ -434,6 +433,19 @@
 
   let stars = $state<StarsSlice>({ promptsOptIn: false, checkins: {} });
   let cards = $state<KanbanCard[]>([]);
+  // GO-ORBITTY-NEXT-CARD leftover: quiet dock pip. Count = open/later-due
+  // Needed only (not todos). Zero hides the pip; ⌘⇧N still toggles.
+  let nextCount = $derived(
+    cards.filter((c) => {
+      if (c.kind !== "needed") return false;
+      if (c.neededState === "open") return true;
+      if (c.neededState === "later") return (c.dueAt ?? 0) <= Date.now() / 1000;
+      return false;
+    }).length,
+  );
+  function toggleNextCard() {
+    invoke("toggle_next_card_window").catch(() => {});
+  }
   // Prompts opt-in (default Off): mirrored with the rail's STARS pane —
   // both write the same key, this window via set_stars_prompts.
   let prompts = $state(false);
@@ -1107,7 +1119,7 @@
     if (t?.closest("input, textarea, select, option, .field")) return;
     if (
       !t?.closest(
-        ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .nextcard, .winx, .gear, .note"
+        ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .winx, .gear, .note"
       )
     )
       return;
@@ -1160,7 +1172,6 @@
     mainEl.querySelectorAll(".cc").forEach((el) => push(el));
     push(mainEl.querySelector(".ccrow .wait"));
     push(mainEl.querySelector(".starstrip"));
-    push(mainEl.querySelector(".nextcard"));
     // DOCK-GRIP: flush dock hit — paint stays inset, hits are not paint.
     const dock = mainEl.querySelector(".ghostdock");
     if (dock) {
@@ -1193,7 +1204,6 @@
       sending,
       sendNote,
       showPromptStrip,
-      cards,
       missing,
       drawFrames,
     ];
@@ -1567,10 +1577,6 @@
     </div>
   {/if}
 
-  <!-- GO-ORBITTY-NEXT-CARD: one glass card above the dock. Dest chips
-       switch the pile; dest off still shows Launchpad Needed. -->
-  <NextCard {hosted} hidden={expanded} />
-
   <!-- GO-ORBITTY-CLEAN-COMPANION-DOCK: agentrow + dests + Speak +
        sprite/view + Expand + ⚙ + composer live in CompanionDock.svelte.
        × stays a floating corner here. -->
@@ -1593,6 +1599,8 @@
     {onAgentChange}
     {togglePrompts}
     {toggleDest}
+    {nextCount}
+    {toggleNextCard}
     onNewPlanet={requestNewPlanet}
     planets={projects}
     onPlanetClick={planetClick}

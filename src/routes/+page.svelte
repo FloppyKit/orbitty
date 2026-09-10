@@ -9,6 +9,7 @@
   import SettingsPage from "$lib/SettingsPage.svelte";
   import SkyPage from "$lib/SkyPage.svelte";
   import YardWarnPage from "$lib/YardWarnPage.svelte";
+  import NextCard from "$lib/NextCard.svelte";
   import RailPage from "$lib/RailPage.svelte";
   import type { PersistedState, SharedPaneMode } from "$lib/persist";
 
@@ -45,6 +46,7 @@
   const isSkyWindow = $derived(windowLabel === "sky");
   // GO-ORBITTY-YARD-WARN: the Herding Cats confirm — own small window.
   const isYardWarnWindow = $derived(windowLabel === "yard-warn");
+  const isNextCardWindow = $derived(windowLabel === "next-card");
   const isRailWindow = $derived(windowLabel === "main");
   // An unrecognized (or not-yet-resolved) label is never treated as the
   // rail — it renders the dark slab at the bottom of the markup.
@@ -55,7 +57,8 @@
       isStarsWindow ||
       isSettingsWindow ||
       isSkyWindow ||
-      isYardWarnWindow,
+      isYardWarnWindow ||
+      isNextCardWindow,
   );
 
   // GO-ORBITTY-PANE-PAINT: chrome drawers are opaque windows, not rail
@@ -65,13 +68,18 @@
   // label resolves late (IPC lagged module init) the effect applies the
   // tag on resolution.
   const isDrawerWindow = $derived(
-    isKanbanWindow || isCompanionWindow || isSettingsWindow || isYardWarnWindow,
+    isKanbanWindow ||
+      isCompanionWindow ||
+      isSettingsWindow ||
+      isYardWarnWindow ||
+      isNextCardWindow,
   );
   if (
     initialLabel === "kanban" ||
     initialLabel === "companion" ||
     initialLabel === "settings" ||
-    initialLabel === "yard-warn"
+    initialLabel === "yard-warn" ||
+    initialLabel === "next-card"
   ) {
     document.documentElement.dataset.drawer = "";
   }
@@ -154,6 +162,8 @@
   <SkyPage />
 {:else if isYardWarnWindow}
   <YardWarnPage />
+{:else if isNextCardWindow}
+  <NextCard />
 {:else}
   <RailPage />
 {/if}
