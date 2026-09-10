@@ -523,11 +523,24 @@ unsafe fn enumerate() -> Vec<WindowInfo> {
                 if ax_string(ax_win, ax_names().role).as_deref() != Some("AXWindow") {
                     continue;
                 }
-                if let Some(size) = ax_size(ax_win, ax_names().size) {
-                    if size.width < 40.0 || size.height < 40.0 {
+                let size = ax_size(ax_win, ax_names().size);
+                if let Some(s) = &size {
+                    if s.width < 40.0 || s.height < 40.0 {
                         continue;
                     }
                 }
+                // The yard rains each cat on the display its window is on;
+                // either AX read may legitimately fail (minimized, hiccup).
+                let position = ax_point(ax_win, ax_names().position);
+                let frame = match (position, size) {
+                    (Some(p), Some(s)) => Some(super::WindowFrame {
+                        x: p.x,
+                        y: p.y,
+                        w: s.width,
+                        h: s.height,
+                    }),
+                    _ => None,
+                };
                 let title = ax_string(ax_win, ax_names().title).unwrap_or_default();
                 let minimized = ax_bool(ax_win, ax_names().minimized).unwrap_or(false);
                 // Sleeper wake stamp: the document this window has open, when
@@ -551,6 +564,7 @@ unsafe fn enumerate() -> Vec<WindowInfo> {
                     is_frontmost: false,
                     is_minimized: minimized,
                     document_path,
+                    frame,
                 });
             }
             CFRelease(windows);
