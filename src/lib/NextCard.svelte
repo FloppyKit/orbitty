@@ -5,7 +5,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { listen } from "@tauri-apps/api/event";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import {
     applyHostTokens,
     applyWindowOpacity,
@@ -48,7 +48,7 @@
   let windows = $state<WindowInfo[]>([]);
   let lpTab = $state<"needed" | "todo">("needed");
   let answerDraft = $state("");
-  let answering = $state(false);
+  let answerEl = $state<HTMLInputElement | null>(null);
   let newPlanet = $state("");
   let starsWalk = $state<number | null>(null);
 
@@ -86,6 +86,14 @@
   $effect(() => {
     if (lpTab === "needed" && !neededCard && todoCard) lpTab = "todo";
     if (lpTab === "todo" && !todoCard && neededCard) lpTab = "needed";
+  });
+
+  $effect(() => {
+    const id = neededCard?.id;
+    void id;
+    answerDraft = "";
+    if (pile !== "launchpad" || lpTab !== "needed" || !neededCard) return;
+    tick().then(() => answerEl?.focus());
   });
 
   let todayCheck = $derived(stars.checkins[todayKey()]);
@@ -205,7 +213,6 @@
     });
     logEvent("needed-answer", { cardId: card.id }, card.projectId);
     answerDraft = "";
-    answering = false;
   }
 
   function skipNeeded(card: KanbanCard) {
@@ -217,7 +224,6 @@
       );
     });
     logEvent("needed-skip", { cardId: card.id }, card.projectId);
-    answering = false;
   }
 
   function laterNeeded(card: KanbanCard) {
@@ -230,7 +236,6 @@
       );
     });
     logEvent("needed-later", { cardId: card.id }, card.projectId);
-    answering = false;
   }
 
   function completeTodo(card: KanbanCard) {
@@ -396,10 +401,6 @@
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
-      if (answering) {
-        answering = false;
-        return;
-      }
       hide();
     };
     window.addEventListener("keydown", onKey, true);
@@ -413,13 +414,6 @@
 
 <main class="nextwin">
   <header class="nc-banner" onmousedown={onBannerMouseDown}>
-    <button
-      class="winx"
-      onmousedown={(e) => e.stopPropagation()}
-      onclick={hide}
-      title="Hide — click off, Esc, or ⌘⇧N"
-      aria-label="Hide next card">×</button
-    >
     <span class="nc-tabs" role="tablist">
       <button class="nc-tab" class:on={pile === "launchpad"} onclick={() => (pile = "launchpad")}
         >Launchpad</button
@@ -456,24 +450,18 @@
         {#if neededCard.neededWhy}
           <p class="nc-why">{neededCard.neededWhy}</p>
         {/if}
-        {#if answering}
-          <div class="nc-answer">
-            <input
-              bind:value={answerDraft}
-              placeholder="Your answer…"
-              aria-label="Your answer"
-              onkeydown={(e) => {
-                if (e.key === "Enter") answerNeeded(neededCard);
-                if (e.key === "Escape") answering = false;
-              }}
-            />
-            <button class="mini" onclick={() => answerNeeded(neededCard)}>Save</button>
-          </div>
-        {/if}
+        <div class="nc-answer">
+          <input
+            bind:this={answerEl}
+            bind:value={answerDraft}
+            placeholder="Your answer…"
+            aria-label="Your answer"
+            onkeydown={(e) => {
+              if (e.key === "Enter") answerNeeded(neededCard);
+            }}
+          />
+        </div>
         <div class="nc-acts">
-          <button class="mini" class:on={answering} onclick={() => (answering = !answering)}
-            >Answer</button
-          >
           <button class="mini ghost" onclick={() => skipNeeded(neededCard)}>Skip</button>
           <button class="mini ghost" onclick={() => laterNeeded(neededCard)}>Later</button>
         </div>
@@ -558,21 +546,6 @@
     gap: 8px;
     padding: 8px 10px 6px;
     cursor: grab;
-  }
-  .winx {
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    border: none;
-    border-radius: 999px;
-    background: transparent;
-    color: var(--dim);
-    cursor: pointer;
-    font: inherit;
-  }
-  .winx:hover {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
   }
   .nc-body {
     flex: 1;
