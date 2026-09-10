@@ -3377,6 +3377,32 @@ pub fn bring_planet_front(project_id: &str) {
     });
 }
 
+// ---------- yard meow gate (GO-ORBITTY-HERDING-CATS) ----------
+
+/// Is any planet's boombox actually playing right now? The yard's meow
+/// loop skips while this is true — voices never stack. Read-only; called
+/// from the yard's main-thread hop (lock order yard → habitat, never the
+/// reverse, so no deadlock).
+pub fn boombox_playing() -> bool {
+    let h = lock();
+    for p in h.planets.values() {
+        let Some(ptr) = p.audio else {
+            continue;
+        };
+        unsafe {
+            let player = ptr as *mut Object;
+            if player.is_null() {
+                continue;
+            }
+            let playing: bool = msg_send![player, isPlaying];
+            if playing {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 // ---------- tray escape hatch ----------
 
 /// Bring back every minimized window that has a home (Swift restoreAll).

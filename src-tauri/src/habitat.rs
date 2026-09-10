@@ -128,6 +128,6 @@ mod habitat_mac;
 mod habitat_mac;
 
 pub use habitat_mac::{
-    bring_all_front, bring_planet_front, char_preview, locate_planet, locate_walker, persist_now,
-    reload_pack_frames, restore_all, start, sync,
+    boombox_playing, bring_all_front, bring_planet_front, char_preview, locate_planet,
+    locate_walker, persist_now, reload_pack_frames, restore_all, start, sync,
 };

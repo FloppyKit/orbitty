@@ -1978,6 +1978,7 @@
   let unlistenBeing: (() => void) | undefined;
   let unlistenWalkerPack: (() => void) | undefined;
   let unlistenWalkerAssign: (() => void) | undefined;
+  let unlistenYardAssign: (() => void) | undefined;
   let unlistenWalkedOff: (() => void) | undefined;
   let unlistenBoardDone: (() => void) | undefined;
   let unlistenBoardTodo: (() => void) | undefined;
@@ -2100,6 +2101,18 @@
       "habitat:walker-assign",
       (e) => {
         claim(e.payload.entryId, e.payload.projectId);
+      },
+    );
+    // GO-ORBITTY-HERDING-CATS: a yard cat's right-click "Assign to planet"
+    // lands here — the SAME claim() door as the walker menu (one windowId,
+    // one planet; persist + habitat sync follow). The yard native side
+    // never writes claims; its cat leaves on the pick and the next yard
+    // poll agrees. The walker the planet then draws is the planet's own
+    // pack/being, never the yard cat.
+    unlistenYardAssign = await listen<{ windowId: string; projectId: string }>(
+      "yard:assign",
+      (e) => {
+        claim(e.payload.windowId, e.payload.projectId);
       },
     );
     // GO-ORBITTY-CADENCE: a Done walker crossed the north rim (or had no
@@ -2257,6 +2270,7 @@
     unlistenBeing?.();
     unlistenWalkerPack?.();
     unlistenWalkerAssign?.();
+    unlistenYardAssign?.();
     unlistenWalkedOff?.();
     unlistenBoardDone?.();
     unlistenBoardTodo?.();

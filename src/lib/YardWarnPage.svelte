@@ -1,11 +1,12 @@
 <script lang="ts">
-  // GO-ORBITTY-YARD-WARN: phrase #1 of Herding Cats — CONFIRM ONLY.
-  // No cats, no overlay, no meow. ⌘⇧Y or Settings → Appearance →
-  // Herding Cats… opens this own small window (so the shortcut works
-  // with Settings closed). Esc / ⌘⇧Y / Cancel / × all scoop = hide.
-  // Drop the cats stays disabled until phrase #2 — never fake rain.
-  // window.confirm is dead on the companion overlay; this is a real
-  // window, never a JS dialog.
+  // GO-ORBITTY-YARD-WARN + GO-ORBITTY-HERDING-CATS: the Herding Cats
+  // confirm. ⌘⇧Y or Settings → Appearance → Herding Cats… opens this own
+  // small window (so the shortcut works with Settings closed). Esc / ⌘⇧Y /
+  // Cancel / × all scoop = hide. Drop the cats (phrase #2) starts the
+  // yard: unclaimed windows rain onto the desktop as bitty cats until
+  // claimed, closed, or scooped — session only, planets stay empty of
+  // unmapped sprites. window.confirm is dead on the companion overlay;
+  // this is a real window, never a JS dialog.
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
@@ -36,13 +37,13 @@
   let listErr = $state(false);
   // Two independent checkboxes persist as yardWindows / yardTabs; tabs
   // stay disabled until Tabbity. The old yardSource radio key is healed
-  // away on load. No yard-on flag flips here — the yard is never on in
-  // this phrase.
+  // away on load. No yard-on flag persists — the yard is session only.
   let yardWindows = $state(true);
   let yardTabs = $state(false);
-  // Drop arms only when at least one source is on (phrase #2 wires it);
-  // today it stays disabled either way, but the hint stays honest.
+  // Drop arms when a source is on AND there is something to herd.
   const noneOn = $derived(!yardWindows && !yardTabs);
+  const dropReady = $derived(!noneOn && !listErr && (unclaimed ?? 0) > 0);
+  let dropping = $state(false);
 
   $effect(() => {
     if (!themeId) return;
@@ -102,6 +103,21 @@
     invoke("hide_window", { label: "yard-warn" }).catch(() => {});
   }
 
+  // GO-ORBITTY-HERDING-CATS: Drop starts the yard native-side (the
+  // current unclaimed set rains in, staggered), then the pane gets out
+  // of the way so the clowder is visible. Drop on an already-on yard is
+  // a native no-op — never a double spawn.
+  async function dropCats() {
+    if (!dropReady || dropping) return;
+    dropping = true;
+    try {
+      await invoke("yard_start");
+      invoke("hide_window", { label: "yard-warn" }).catch(() => {});
+    } catch {
+      dropping = false;
+    }
+  }
+
   function onKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -110,18 +126,25 @@
   }
 
   // Re-count on every re-show — the window is hide-not-destroy, so a
-  // stale N from the last open would lie.
+  // stale N from the last open would lie. While open, N updates live
+  // (2s beat; the same list_windows the rail already polls at 800ms).
   const onVisibility = () => {
     if (!document.hidden) countUnclaimed();
   };
 
+  let countTimer: ReturnType<typeof setInterval> | undefined;
+
   onMount(() => {
     invoke("ensure_glass").catch(() => {});
     countUnclaimed();
+    countTimer = setInterval(() => {
+      if (!document.hidden) countUnclaimed();
+    }, 2000);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("keydown", onKeydown, true);
   });
   onDestroy(() => {
+    if (countTimer) clearInterval(countTimer);
     document.removeEventListener("visibilitychange", onVisibility);
     window.removeEventListener("keydown", onKeydown, true);
   });
@@ -190,13 +213,24 @@
       </fieldset>
 
       <div class="buttons">
-        <button class="mini" disabled title="cats land on the next GO"
-          >Drop the cats</button
+        <button
+          class="mini"
+          disabled={!dropReady || dropping}
+          onclick={dropCats}
+          title={dropReady
+            ? "rain a cat per unclaimed window — Esc or ⌘⇧Y scoops"
+            : noneOn
+              ? "pick windows or tabs"
+              : "nothing to herd"}>Drop the cats</button
         >
         <button class="mini" onclick={cancel}>Cancel</button>
       </div>
       <p class="help"
-        >{noneOn ? "pick windows or tabs" : "cats land on the next GO"}</p
+        >{noneOn
+          ? "pick windows or tabs"
+          : dropReady
+            ? "cats meow until claimed, closed, or scooped"
+            : "nothing to herd"}</p
       >
     </section>
   </div>

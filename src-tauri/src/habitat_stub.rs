@@ -24,6 +24,12 @@ pub fn locate_planet(_app: tauri::AppHandle, _project_id: String) -> Result<(), 
 
 pub fn reload_pack_frames() {}
 
+/// GO-ORBITTY-HERDING-CATS: yard meows skip while a boombox plays.
+/// No habitat off macOS = never playing.
+pub fn boombox_playing() -> bool {
+    false
+}
+
 /// Being-editor preview is rendered with AppKit on macOS; elsewhere the
 /// editor falls back to no preview (the planet still draws the being).
 pub fn char_preview(_look: crate::chars::CharLook, _px: u32) -> Result<String, String> {

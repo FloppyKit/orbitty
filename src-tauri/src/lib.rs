@@ -18,6 +18,7 @@ mod state;
 mod talk;
 mod tilechords;
 mod windows;
+mod yard;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -262,10 +263,35 @@ fn open_sky_window(app: tauri::AppHandle) -> Result<(), String> {
 /// GO-ORBITTY-YARD-WARN: Settings → Appearance → Herding Cats… pops the
 /// confirm into its own small window (same trick as Settings), so ⌘⇧Y
 /// works with Settings closed. Close / × / Esc hides, never destroys.
-/// Confirm only — no cats, no overlay; Drop stays disabled until #2.
+/// GO-ORBITTY-HERDING-CATS: while the clowder is out, the Settings row is
+/// a scoop-all (the exits table: Esc, ⌘⇧Y, Settings while on) — the pane
+/// and the yard never coexist.
 #[tauri::command]
 fn open_yard_warn_window(app: tauri::AppHandle) -> Result<(), String> {
+    if yard::active() {
+        return yard::stop();
+    }
     panes::show_labeled(&app, "yard-warn")
+}
+
+/// GO-ORBITTY-HERDING-CATS: the warn pane's Drop button. Rains the
+/// current unclaimed set as bitty cats (one overlay per display). No-op
+/// on an already-on yard — never double-spawn.
+#[tauri::command]
+fn yard_start(app: tauri::AppHandle) -> Result<(), String> {
+    yard::start(app)
+}
+
+/// Scoop all: windows unchanged, overlay gone, meow killed. Idempotent.
+#[tauri::command]
+fn yard_stop() -> Result<(), String> {
+    yard::stop()
+}
+
+/// Warn-pane / Settings truth: is the clowder out?
+#[tauri::command]
+fn yard_status() -> bool {
+    yard::active()
 }
 
 /// GO-ORBITTY-NEXT-CARD leftover: own small card window. Dock pip and
@@ -479,6 +505,9 @@ pub fn run() {
             open_settings_window,
             open_sky_window,
             open_yard_warn_window,
+            yard_start,
+            yard_stop,
+            yard_status,
             toggle_next_card_window,
             drawers::retether_drawer,
             drawers::retether_all_drawers,
@@ -591,17 +620,21 @@ pub fn run() {
                     })?;
 
                 // GO-ORBITTY-YARD-WARN: ⌘⇧Y opens the Herding Cats confirm
-                // (its own small window — works with Settings closed). The
-                // yard stays OFF until phrase #2, so a press while the
-                // confirm is up scoops it (hide = Cancel; no overlay to
-                // tear down). Once the yard exists, ⌘⇧Y-while-on scoops
-                // the cats with no second warning. ⌘⇧O stays summon —
-                // never touched; actions.rs reserves both chords.
+                // (its own small window — works with Settings closed); a
+                // press while the confirm is up scoops it (hide = Cancel).
+                // GO-ORBITTY-HERDING-CATS: while the clowder is out, ⌘⇧Y
+                // scoops all with no second warning (the exits table) —
+                // the pane toggle resumes once the yard is off. ⌘⇧O stays
+                // summon — never touched; actions.rs reserves both chords.
                 let yard_warn = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyY);
                 let yard_handle = app.handle().clone();
                 app.global_shortcut()
                     .on_shortcut(yard_warn, move |_app, _shortcut, event| {
                         if event.state() != ShortcutState::Pressed {
+                            return;
+                        }
+                        if yard::active() {
+                            let _ = yard::stop();
                             return;
                         }
                         let up = yard_handle
@@ -822,6 +855,9 @@ pub fn run() {
                 }
                 #[cfg(unix)]
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+                    // GO-ORBITTY-HERDING-CATS: kill the meow + tear the
+                    // overlay on quit (boombox-kill law — no orphan audio).
+                    let _ = yard::stop();
                     habitat::persist_now();
                     if drawers::drawer_rt()
                         .lock()
