@@ -746,64 +746,6 @@ pub fn set_companion_agent(app: tauri::AppHandle, profile: String) -> Result<Str
     Ok(p)
 }
 
-/// GO-ORBITTY-MODE-SPLIT: persist the active companion mode (spark |
-/// chat | work | hold) — the second axis next to the four-cast agent
-/// pick. Switching parks the current turns under the old mode and loads
-/// the new mode's thread into `turns` (CaptionPane never changes).
-/// Unknown mode = honest error, fail closed — never a silent spark.
-#[tauri::command]
-pub fn set_companion_mode(app: tauri::AppHandle, mode: String) -> Result<String, String> {
-    let m = crate::state::normalize_companion_mode(&mode).ok_or_else(|| {
-        format!("unknown companion mode {:?} — spark | chat | work | hold", mode.trim())
-    })?;
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.switch_mode(&m);
-    crate::state::save_state(&app, &st)?;
-    let _ = app.emit("state:changed", ());
-    Ok(m)
-}
-
-/// GO-ORBITTY-MODE-SPLIT: drop a them-line into a mode's thread — NO
-/// LLM, no send path. The bus (spark_ack) and ctl humans are the
-/// callers. `mode` targets a parked thread; absent = the active mode.
-/// A note into the active mode also lands on `turns` + `last_bot_line`
-/// so CaptionPane shows it immediately; a note into a parked mode only
-/// parks (no caption hijack). Think-play stays with the caller (the bus
-/// already plays think). Returns the mode the note landed on.
-#[tauri::command]
-pub fn companion_note(
-    app: tauri::AppHandle,
-    line: String,
-    mode: Option<String>,
-) -> Result<String, String> {
-    let line = line.trim().replace('\n', " ");
-    if line.is_empty() {
-        return Err("companion note needs a line.".into());
-    }
-    let mut st = crate::state::load_state(&app)?;
-    // load_state healed the mode, so st.companion.mode is allowlist-clean.
-    let target = match mode.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(raw) => crate::state::normalize_companion_mode(raw).ok_or_else(|| {
-            format!("unknown companion mode {raw:?} — spark | chat | work | hold")
-        })?,
-        None => st.companion.mode.clone(),
-    };
-    if target == st.companion.mode {
-        st.companion.last_bot_line = line.clone();
-        st.companion.push_turn("them", &line);
-    } else {
-        let thread = st.companion.threads.entry(target.clone()).or_default();
-        thread.push(crate::state::CompanionTurn {
-            role: "them".into(),
-            text: line,
-        });
-        crate::state::cap_companion_turns(thread);
-    }
-    crate::state::save_state(&app, &st)?;
-    let _ = app.emit("state:changed", ());
-    Ok(target)
-}
-
 /// GO-ORBITTY-SETTINGS-WIN: persist Talk source (`system` | `hotkey`).
 #[tauri::command]
 pub fn set_companion_talk_source(app: tauri::AppHandle, source: String) -> Result<String, String> {
@@ -1050,9 +992,6 @@ fn match_action_line(
 
 /// Intercept persist: them-line always lands; you-line only when the line
 /// read as chat. Same duplicate-you skip + cap 40 as the normal send path.
-/// GO-ORBITTY-MODE-SPLIT: push_turn lands both on the active `turns` and
-/// the parked `threads[mode]` copy, so the intercept never leaks across
-/// modes either.
 fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) {
     if let Ok(mut st) = crate::state::load_state(app) {
         if let Some(you) = you {
@@ -1063,11 +1002,22 @@ fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &st
                 .last()
                 .is_some_and(|t| t.role == "you" && t.text == you);
             if !you_already_saved {
-                st.companion.push_turn("you", you);
+                st.companion.turns.push(crate::state::CompanionTurn {
+                    role: "you".into(),
+                    text: you.to_string(),
+                });
             }
         }
         st.companion.last_bot_line = them.to_string();
-        st.companion.push_turn("them", them);
+        st.companion.turns.push(crate::state::CompanionTurn {
+            role: "them".into(),
+            text: them.to_string(),
+        });
+        const CAP: usize = 40;
+        if st.companion.turns.len() > CAP {
+            let drop = st.companion.turns.len() - CAP;
+            st.companion.turns.drain(0..drop);
+        }
         let _ = crate::state::save_state(app, &st);
         let _ = app.emit("state:changed", ());
     }
@@ -1266,8 +1216,6 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
     // this `you` line on screen; if the saved transcript's last turn IS
     // this same line, persist only the reply so the you turn never
     // doubles. Old clients (no optimistic append) still get both turns.
-    // GO-ORBITTY-MODE-SPLIT: push_turn writes the active `turns` AND the
-    // parked `threads[mode]` copy — a Chat line never lands on Spark.
     if let Ok(mut st) = crate::state::load_state(&app) {
         st.companion.last_user_line = line.clone();
         st.companion.last_bot_line = reply.clone();
@@ -1277,9 +1225,20 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
             .last()
             .is_some_and(|t| t.role == "you" && t.text == line);
         if !you_already_saved {
-            st.companion.push_turn("you", &line);
+            st.companion.turns.push(crate::state::CompanionTurn {
+                role: "you".into(),
+                text: line,
+            });
         }
-        st.companion.push_turn("them", &reply);
+        st.companion.turns.push(crate::state::CompanionTurn {
+            role: "them".into(),
+            text: reply.clone(),
+        });
+        const CAP: usize = 40;
+        if st.companion.turns.len() > CAP {
+            let drop = st.companion.turns.len() - CAP;
+            st.companion.turns.drain(0..drop);
+        }
         let _ = crate::state::save_state(&app, &st);
         let _ = app.emit("state:changed", ());
     }

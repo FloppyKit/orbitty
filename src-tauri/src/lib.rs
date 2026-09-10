@@ -60,14 +60,6 @@ fn list_windows() -> Result<Vec<windows::WindowInfo>, String> {
     windows::list_windows()
 }
 
-/// GO-ORBITTY-HERDING-CATS leftover: the warn pane's unclaimed count.
-/// Titles + ids + frames, never icon PNG-encode — full `list_windows`
-/// on open was the 10–20s "Herding Cats…" hitch.
-#[tauri::command]
-fn list_windows_light() -> Result<Vec<windows::WindowInfo>, String> {
-    windows::list_windows_light()
-}
-
 #[tauri::command]
 fn focus_window(id: String) -> Result<(), String> {
     windows::focus_window(&id)
@@ -491,7 +483,6 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             list_windows,
-            list_windows_light,
             focus_window,
             minimize_window,
             restore_window,
@@ -545,8 +536,6 @@ pub fn run() {
             coordinator::companion_send,
             coordinator::companion_agents,
             coordinator::set_companion_agent,
-            coordinator::set_companion_mode,
-            coordinator::companion_note,
             coordinator::set_companion_pack,
             coordinator::set_companion_expanded,
             coordinator::set_companion_view,

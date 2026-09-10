@@ -27,19 +27,10 @@
 //! ONLY. Off-main AX returns a partial window list, and a partial list
 //! used to retain-kill the clowder. So the ONE worker thread (33ms) is a
 //! bare metronome — it sleeps and POSTS a coalesced hop; the unmapped
-//! poll (list_windows_light + state.json) runs inside the hop on main at
-//! the ~1s cadence, next to every AppKit / AVAudioPlayer touch. Raw ObjC
+//! poll (list_windows + state.json) runs inside the hop on main at the
+//! ~1s cadence, next to every AppKit / AVAudioPlayer touch. Raw ObjC
 //! pointers are usize inside the mutex and only dereferenced on the main
 //! thread.
-//!
-//! Two 2026-09-10 dogfood lessons on top: (1) the poll NEVER runs under
-//! the yard lock — a stall inside it froze drawRect/clicks/scoop behind
-//! the mutex, and Drop looked dead; (2) the poll uses the LIGHT list —
-//! the full list PNG-encodes every running app's icon on a cold cache
-//! (10–20s on main), and by the time it returned the queued hops had
-//! applied enough capped dt to finish the rain off-screen. HOP_PENDING
-//! clears at the END of a hop: one hop in flight, a stall drops beats
-//! instead of queueing rain steps.
 
 // objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
 // rustc flags; harmless upstream noise (same allowance as habitat_mac).
@@ -122,12 +113,6 @@ impl NSRect {
 unsafe impl objc::Encode for NSRect {
     fn encode() -> objc::Encoding {
         unsafe { objc::Encoding::from_str("{CGRect={CGPoint=dd}{CGSize=dd}}") }
-    }
-}
-
-unsafe impl objc::Encode for CGSize {
-    fn encode() -> objc::Encoding {
-        unsafe { objc::Encoding::from_str("{CGSize=dd}") }
     }
 }
 
@@ -404,33 +389,6 @@ unsafe fn ns_image_from_bytes(bytes: &[u8]) -> *mut Object {
     }
     let img: *mut Object = msg_send![class!(NSImage), alloc];
     let img: *mut Object = msg_send![img, initWithData: data];
-    if img.is_null() {
-        return std::ptr::null_mut();
-    }
-    // initWithData can leave NSSizeZero until a rep is queried; drawInRect
-    // of a zero-size image is a silent no-op (meows, no cats).
-    let size: CGSize = msg_send![img, size];
-    if size.width < 1.0 || size.height < 1.0 {
-        let reps: *mut Object = msg_send![img, representations];
-        let n: usize = if reps.is_null() {
-            0
-        } else {
-            msg_send![reps, count]
-        };
-        if n > 0 {
-            let rep: *mut Object = msg_send![reps, objectAtIndex: 0usize];
-            if !rep.is_null() {
-                let w: isize = msg_send![rep, pixelsWide];
-                let h: isize = msg_send![rep, pixelsHigh];
-                if w > 0 && h > 0 {
-                    let _: () = msg_send![img, setSize: CGSize {
-                        width: w as f64,
-                        height: h as f64,
-                    }];
-                }
-            }
-        }
-    }
     img
 }
 
@@ -590,7 +548,6 @@ unsafe fn register_yard_view_class() -> Option<&'static Class> {
         right_mouse_down as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(sel!(isFlipped), is_flipped as extern "C" fn(&Object, Sel) -> bool);
-    decl.add_method(sel!(isOpaque), is_opaque as extern "C" fn(&Object, Sel) -> bool);
     decl.add_method(
         sel!(acceptsFirstMouse:),
         accepts_first_mouse as extern "C" fn(&Object, Sel, *mut Object) -> bool,
@@ -600,10 +557,6 @@ unsafe fn register_yard_view_class() -> Option<&'static Class> {
 
 extern "C" fn is_flipped(_this: &Object, _cmd: Sel) -> bool {
     true
-}
-
-extern "C" fn is_opaque(_this: &Object, _cmd: Sel) -> bool {
-    false
 }
 
 extern "C" fn accepts_first_mouse(_this: &Object, _cmd: Sel, _event: *mut Object) -> bool {
@@ -663,13 +616,11 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
 /// One fullscreen click-through panel. Same recipe as the habitat's
 /// make_panel, but floating (Neko/Shimeji visibility: cats walk OVER
 /// chrome, planet discs included) and sized to a whole display.
-unsafe fn make_yard_panel(frame: NSRect) -> *mut Object {
+unsafe fn make_yard_panel() -> *mut Object {
     let panel: *mut Object = msg_send![class!(NSPanel), alloc];
     // NSWindowStyleMaskBorderless (0) | NSWindowStyleMaskNonactivatingPanel (1<<7)
-    // Init at the REAL display frame — a 10×10 seed left a postage-stamp
-    // backing store (meows, no cats) even after later setFrame calls.
     let panel: *mut Object = msg_send![panel,
-        initWithContentRect: frame
+        initWithContentRect: NSRect::new(0.0, 0.0, 10.0, 10.0)
         styleMask: 128usize
         backing: 2usize // NSBackingStoreBuffered
         defer: false];
@@ -682,10 +633,6 @@ unsafe fn make_yard_panel(frame: NSRect) -> *mut Object {
     let clear: *mut Object = msg_send![class!(NSColor), clearColor];
     let _: () = msg_send![panel, setBackgroundColor: clear];
     let _: () = msg_send![panel, setHasShadow: false];
-    let _: () = msg_send![panel, setAlphaValue: 1.0f64];
-    // NSWindowSharingReadOnly — default, but be explicit so the compositor
-    // keeps a fully-transparent overlay in the mix.
-    let _: () = msg_send![panel, setSharingType: 1usize];
     // Click-through by default; the hop flips this off only while the
     // pointer is over a cat's hit-rect on THIS display.
     let _: () = msg_send![panel, setIgnoresMouseEvents: true];
@@ -694,20 +641,6 @@ unsafe fn make_yard_panel(frame: NSRect) -> *mut Object {
     let _: () = msg_send![panel, setCanHide: false];
     let _: () = msg_send![panel, setBecomesKeyOnlyIfNeeded: true];
     panel
-}
-
-unsafe fn prepare_yard_view(view: *mut Object) {
-    let _: () = msg_send![view, setWantsLayer: true];
-    let layer: *mut Object = msg_send![view, layer];
-    if layer.is_null() {
-        return;
-    }
-    let _: () = msg_send![layer, setOpaque: false];
-    let clear: *mut Object = msg_send![class!(NSColor), clearColor];
-    let cg: *mut c_void = msg_send![clear, CGColor];
-    if !cg.is_null() {
-        let _: () = msg_send![layer, setBackgroundColor: cg];
-    }
 }
 
 /// One panel per display, kept in step with `screens()` (display
@@ -754,13 +687,12 @@ unsafe fn sync_panels(y: &mut Yard) {
                 || (p.frame.size.height - frame.size.height).abs() > 0.5
             {
                 let panel = p.panel as *mut Object;
-                // display:NO — drawRect takes the yard mutex. A sync blit
-                // here deadlocks Drop on main (rain-now leftover).
-                let _: () = msg_send![panel, setFrame: *frame display: false];
+                // display:YES — force the blit at the new glass, never a
+                // panel that moved but kept a stale (or no) framebuffer.
+                let _: () = msg_send![panel, setFrame: *frame display: true];
                 let view = p.view as *mut Object;
                 let _: () = msg_send![view, setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
                 let _: () = msg_send![panel, orderFrontRegardless];
-                let _: () = msg_send![view, setNeedsDisplay: true];
                 p.frame = *frame;
                 p.walk = walk;
             }
@@ -775,20 +707,38 @@ unsafe fn sync_panels(y: &mut Yard) {
         if view.is_null() {
             continue;
         }
-        let panel = make_yard_panel(*frame);
+        let panel = make_yard_panel();
         if panel.is_null() {
             let _: () = msg_send![view, release];
             continue;
         }
         let _: () = msg_send![panel, setContentView: view];
         let _: () = msg_send![view, release];
+        // Invisible-cats punch (the habitat's marble-swap lesson):
+        // setContentView into the 10×10 panel shrank the view to the
+        // content rect, and the default autoresizing mask (not sizable)
+        // kept it ~10×10 in a corner after the panel took the display
+        // frame — cats rained in full-display coords and drew outside
+        // the view. Pin the view to the real size with a sizable mask
+        // BEFORE the panel takes the display frame, so the resize drags
+        // the view along to fill.
         // NSViewWidthSizable (2) | NSViewHeightSizable (16).
         let _: () = msg_send![view, setAutoresizingMask: 18usize];
+        // Put the panel on ITS glass: the screen's global frame (negative
+        // x for a display left of the menu-bar screen is correct), and
+        // display:YES so the first blit happens at that frame — the
+        // all-cats-on-R dogfood was a panel that never really painted
+        // off the primary. Then orderFrontRegardless actually shows it.
+        let _: () = msg_send![panel, setFrame: *frame display: true];
+        // Belt-and-braces: the sizable mask should have kept the view
+        // filling; assert the exact size once anyway.
         let _: () = msg_send![view,
             setFrame: NSRect::new(0.0, 0.0, frame.size.width, frame.size.height)];
-        prepare_yard_view(view);
         let _: () = msg_send![panel, orderFrontRegardless];
+        // Flush the first blit NOW so the rain lands inside the stagger,
+        // never a long pause then an all-at-once pop.
         let _: () = msg_send![view, setNeedsDisplay: true];
+        let _: () = msg_send![view, displayIfNeeded];
         eprintln!(
             "yard: overlay up on screen {id} at ({:.0},{:.0}) {:.0}x{:.0}",
             frame.origin.x, frame.origin.y, frame.size.width, frame.size.height
@@ -977,12 +927,14 @@ fn motion_step(y: &mut Yard, dt: f64) {
 
 // ---------- the unmapped poll (MAIN thread only — AX + NSScreen) ----------
 
-/// The inspector's Unclaimed set, native side: `list_windows_light`
-/// (CG on-screen list, already drops Orbitty/LiveSprite) minus claims
-/// whose project still exists. Called WITHOUT the yard lock held.
-/// None on a read hiccup: a skipped beat never invents or kills a cat.
+/// The inspector's Unclaimed set, native side: `list_windows` (already
+/// drops Orbitty/LiveSprite) minus claims whose project still exists —
+/// the same formula RailPage and the warn pane compute in JS. MAIN
+/// THREAD ONLY: off-main AX returns a partial list (the 5-of-18
+/// dogfood), and a partial list must never drive the clowder. None on a
+/// read hiccup: a skipped beat never invents or kills a cat.
 fn poll_unmapped(app: &AppHandle) -> Option<Vec<crate::windows::WindowInfo>> {
-    let wins = crate::windows::list_windows_light().ok()?;
+    let wins = crate::windows::list_windows().ok()?;
     let st = crate::state::load_state(app).ok()?;
     let live: HashSet<&str> = st
         .claims
@@ -1068,38 +1020,24 @@ fn spawn_worker() {
             // Metronome ONLY — this thread never touches AX, NSScreen, or
             // AppKit. The main hop does the unmapped poll and the draw.
             // Post-and-return, coalesced — a stalled main drops a beat
-            // instead of piling up late hops. HOP_PENDING clears at the
-            // END of the hop (see hop()), so one hop is ever queued or
-            // running: a long poll can never stack hops that each apply a
-            // capped dt and finish the rain off-screen.
+            // instead of piling up late hops.
             if HOP_PENDING
                 .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
             {
-                crate::main_thread_async(hop);
+                crate::main_thread_async(|| {
+                    let _ = catch_unwind(AssertUnwindSafe(hop));
+                });
             }
             std::thread::sleep(Duration::from_millis(TICK_MS));
         }
     });
 }
 
-/// Posted entry: run the hop, then release the flag — at the END, never
-/// the start, and on a panic too, so a dead hop can never wedge the
-/// metronome (flag stuck true) nor a slow one invite a queue behind it.
+/// The main-thread turn: motion, spawn, panels, cursor ghost, meow, draw.
 fn hop() {
-    let r = catch_unwind(AssertUnwindSafe(hop_inner));
     HOP_PENDING.store(false, Ordering::SeqCst);
-    if let Err(p) = r {
-        eprintln!("yard: hop panicked: {}", panic_msg(&*p));
-    }
-}
-
-/// The main-thread turn: motion, spawn, panels, cursor ghost, meow, draw
-/// under the lock; then the ~1s unmapped poll AFTER the lock is dropped.
-fn hop_inner() {
     let mut stop_after = false;
-    let mut cats_out = false;
-    let poll_due;
     {
         let mut y = lock();
         if !y.on {
@@ -1112,25 +1050,29 @@ fn hop_inner() {
             .unwrap_or(0.033);
         y.last_hop = Some(now);
         y.hop_count = y.hop_count.wrapping_add(1);
-        poll_due = y.hop_count % POLL_EVERY == 0;
         if !y.packs.is_empty() {
             motion_step(&mut y, dt);
         }
-        // Display hotplug / rearrange stays under the lock — NSScreen is
-        // cheap and main-only, no AX. The AX poll below is NOT under the
-        // lock.
-        if poll_due {
+        // ~1s cadence block, ALL on main: the unmapped poll (AX window
+        // list + state.json — the full list, same N as the warn pane)
+        // and display hotplug / rearrange.
+        if y.hop_count % POLL_EVERY == 0 {
+            if let Some(app) = app_handle() {
+                if let Some(unmapped) = poll_unmapped(app) {
+                    apply_unmapped(&mut y, unmapped);
+                }
+            }
             unsafe { sync_panels(&mut y) };
         }
         cursor_ghost(&mut y);
-        cats_out = !y.cats.is_empty();
+        let cats_out = !y.cats.is_empty();
         meow::tick(&mut y.meow, cats_out);
-        // Dirty every live overlay while cats are out (plus one clearing
-        // frame after the last cat leaves a display).
+        // Redraw only panels with cats (plus one clearing frame after the
+        // last cat leaves a display).
         let busy: HashSet<String> = y.cats.iter().map(|c| c.screen_id.clone()).collect();
         for p in y.panels.iter_mut() {
             let has = busy.contains(&p.screen_id);
-            if has || p.drawn || cats_out {
+            if has || p.drawn {
                 unsafe {
                     let view = p.view as *mut Object;
                     let _: () = msg_send![view, setNeedsDisplay: true];
@@ -1147,27 +1089,6 @@ fn hop_inner() {
     }
     if stop_after {
         stop_on_main();
-        return;
-    }
-    // Paint AFTER the lock: drawRect takes this mutex. Under the lock
-    // a sync blit deadlocks; without a post-lock blit, meows fire and
-    // the glass stays empty.
-    if cats_out || poll_due {
-        unsafe { flush_yard_views() };
-    }
-    // Light list is CGWindowList (no AX). AX enumerate of a hung app
-    // was the 10s silence-then-meow. Never under the yard lock.
-    if poll_due {
-        if let Some(app) = app_handle() {
-            if let Some(unmapped) = poll_unmapped(app) {
-                let mut y = lock();
-                // A scoop-all / Esc during the poll already tore the yard
-                // down — never queue cats into an off yard.
-                if y.on {
-                    apply_unmapped(&mut y, unmapped);
-                }
-            }
-        }
     }
 }
 
@@ -1221,10 +1142,6 @@ unsafe fn draw_inner(this: &Object) {
     let Some(panel) = y.panels.iter().find(|p| p.view == view_ptr) else {
         return;
     };
-    let bounds: NSRect = msg_send![this, bounds];
-    let clear: *mut Object = msg_send![class!(NSColor), clearColor];
-    let _: () = msg_send![clear, set];
-    let _: () = msg_send![class!(NSBezierPath), fillRect: bounds];
     let screen_id = panel.screen_id.clone();
     for (i, cat) in y.cats.iter().enumerate() {
         if cat.screen_id != screen_id {
@@ -1746,30 +1663,7 @@ unsafe fn start_on_main() {
     sync_panels(&mut y);
     install_esc_monitor(&mut y);
     drop(y);
-    // First blit AFTER the lock is dropped — drawRect takes the same mutex.
-    unsafe { flush_yard_views() };
     spawn_worker();
-}
-
-/// orderFront + displayIfNeeded with the yard lock released so drawRect
-/// can take it. Panels are born at the display frame — do not setFrame
-/// here (that was the 10×10 / deadlock path).
-unsafe fn flush_yard_views() {
-    let snaps: Vec<(usize, usize)> = lock()
-        .panels
-        .iter()
-        .map(|p| (p.panel, p.view))
-        .collect();
-    for (panel, view) in snaps {
-        let panel = panel as *mut Object;
-        let view = view as *mut Object;
-        if panel.is_null() || view.is_null() {
-            continue;
-        }
-        let _: () = msg_send![panel, orderFrontRegardless];
-        let _: () = msg_send![view, setNeedsDisplay: true];
-        let _: () = msg_send![view, displayIfNeeded];
-    }
 }
 
 /// Scoop all: windows unchanged, overlay gone, meow killed. Idempotent;

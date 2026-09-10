@@ -45,7 +45,6 @@
   const noneOn = $derived(!yardWindows && !yardTabs);
   const dropReady = $derived(!noneOn && !listErr && (unclaimed ?? 0) > 0);
   let dropping = $state(false);
-  let dropErr = $state("");
 
   $effect(() => {
     if (!themeId) return;
@@ -72,7 +71,7 @@
       }
       yardWindows = s.yardWindows ?? true;
       yardTabs = s.yardTabs ?? false;
-      const windows = await invoke<WindowInfo[]>("list_windows_light");
+      const windows = await invoke<WindowInfo[]>("list_windows");
       const liveClaims = (s.claims ?? []).filter((c) =>
         (s.projects ?? []).some((p) => p.id === c.projectId),
       );
@@ -115,13 +114,11 @@
   async function dropCats() {
     if (!dropReady || dropping) return;
     dropping = true;
-    dropErr = "";
     try {
       await invoke("yard_start");
       invoke("hide_window", { label: "yard-warn" }).catch(() => {});
-    } catch (e) {
+    } catch {
       dropping = false;
-      dropErr = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -232,17 +229,13 @@
         >
         <button class="mini" onclick={cancel}>Cancel</button>
       </div>
-      {#if dropErr}
-        <p class="help">{dropErr}</p>
-      {:else}
-        <p class="help"
-          >{noneOn
-            ? "pick windows or tabs"
-            : dropReady
-              ? "cats meow until claimed, closed, or scooped"
-              : "nothing to herd"}</p
-        >
-      {/if}
+      <p class="help"
+        >{noneOn
+          ? "pick windows or tabs"
+          : dropReady
+            ? "cats meow until claimed, closed, or scooped"
+            : "nothing to herd"}</p
+      >
     </section>
   </div>
 </main>

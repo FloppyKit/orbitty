@@ -448,19 +448,8 @@ unsafe fn app_icon_png_base64(app: *mut Object) -> Option<String> {
     out
 }
 
-/// What an enumeration pass collects. The full inspector list wants all
-/// of it; the yard's ~1s poll takes titles + ids + frames ONLY — a cold
-/// icon cache PNG-encodes every running app's icon on the caller's
-/// thread (the 10–20s Drop stall), and the yard never shows an icon.
-#[derive(Clone, Copy)]
-struct EnumOpts {
-    icons: bool,
-    documents: bool,
-    frontmost: bool,
-}
-
 /// Regular, non-terminated apps, excluding ourselves (port of WindowCatalog's filter).
-unsafe fn running_apps(icons: bool) -> Vec<RunningApp> {
+unsafe fn running_apps() -> Vec<RunningApp> {
     let self_pid = std::process::id() as i32;
     let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
     let apps: *mut Object = msg_send![workspace, runningApplications];
@@ -488,14 +477,8 @@ unsafe fn running_apps(icons: bool) -> Vec<RunningApp> {
         ) {
             continue;
         }
-        // Icons only when the caller asked: cached_icon PNG-encodes on a
-        // cold cache and must never run on the yard's poll path.
-        let icon_base64 = if icons {
-            let cache_key = bundle_id.clone().unwrap_or_else(|| format!("pid:{pid}"));
-            cached_icon(app, &cache_key)
-        } else {
-            None
-        };
+        let cache_key = bundle_id.clone().unwrap_or_else(|| format!("pid:{pid}"));
+        let icon_base64 = cached_icon(app, &cache_key);
         out.push(RunningApp {
             pid,
             name: ns_to_string(name).unwrap_or_else(|| "App".into()),
@@ -521,9 +504,9 @@ unsafe fn activate(app: *mut Object) {
 
 // ---------- enumeration (port of WindowCatalog) ----------
 
-unsafe fn enumerate(opts: &EnumOpts) -> Vec<WindowInfo> {
+unsafe fn enumerate() -> Vec<WindowInfo> {
     let mut result = Vec::new();
-    for app in running_apps(opts.icons) {
+    for app in running_apps() {
         let ax_app = AXUIElementCreateApplication(app.pid);
         if ax_app.is_null() {
             continue;
@@ -561,13 +544,8 @@ unsafe fn enumerate(opts: &EnumOpts) -> Vec<WindowInfo> {
                 let title = ax_string(ax_win, ax_names().title).unwrap_or_default();
                 let minimized = ax_bool(ax_win, ax_names().minimized).unwrap_or(false);
                 // Sleeper wake stamp: the document this window has open, when
-                // the app exposes one and the file still exists. Skipped on
-                // the light path — one AX read + stat the yard never uses.
-                let document_path = if opts.documents {
-                    ax_document_path(ax_win)
-                } else {
-                    None
-                };
+                // the app exposes one and the file still exists.
+                let document_path = ax_document_path(ax_win);
                 let id = match ax_window_id(ax_win) {
                     Some(cg_id) => format!("{}:{}", app.pid, cg_id),
                     None => {
@@ -645,179 +623,12 @@ unsafe fn mark_frontmost(list: &mut [WindowInfo]) {
 }
 
 pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
-    list_with(EnumOpts {
-        icons: true,
-        documents: true,
-        frontmost: true,
-    })
-}
-
-/// GO-ORBITTY-HERDING-CATS leftover (drop hitch): yard + warn-pane list.
-/// CGWindowList, not AX — a hung Chrome/Electron AXWindows read is the
-/// 10s "nothing then meows" stall. Ids stay `pid:cgWindowID` so claims
-/// still match. Inspector keeps the full AX `list_windows` (icons).
-pub fn list_windows_light() -> Result<Vec<WindowInfo>, String> {
     if !unsafe { AXIsProcessTrusted() } {
         return Err("accessibility not granted".into());
     }
     unsafe {
-        let mut windows = enumerate_cg_light();
-        if windows.is_empty() {
-            windows = enumerate(&EnumOpts {
-                icons: false,
-                documents: false,
-                frontmost: false,
-            });
-        }
-        stamp_stable_keys(&mut windows);
-        Ok(windows)
-    }
-}
-
-/// On-screen normal windows via CoreGraphics. No AX, no icon PNG.
-unsafe fn enumerate_cg_light() -> Vec<WindowInfo> {
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *mut c_void;
-    }
-    // kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements
-    const OPTIONS: u32 = 1 | 16;
-    let list = CGWindowListCopyWindowInfo(OPTIONS, 0);
-    if list.is_null() {
-        return Vec::new();
-    }
-    let arr = list as *mut Object;
-    let count: usize = msg_send![arr, count];
-    let self_pid = std::process::id() as i32;
-    let key_num = ns_cg_key("kCGWindowNumber");
-    let key_pid = ns_cg_key("kCGWindowOwnerPID");
-    let key_name = ns_cg_key("kCGWindowName");
-    let key_owner = ns_cg_key("kCGWindowOwnerName");
-    let key_bounds = ns_cg_key("kCGWindowBounds");
-    let key_layer = ns_cg_key("kCGWindowLayer");
-    let key_x = ns_cg_key("X");
-    let key_y = ns_cg_key("Y");
-    let key_w = ns_cg_key("Width");
-    let key_h = ns_cg_key("Height");
-    let mut result = Vec::new();
-    for i in 0..count {
-        let d: *mut Object = msg_send![arr, objectAtIndex: i];
-        if d.is_null() {
-            continue;
-        }
-        let layer = ns_dict_i64(d, key_layer).unwrap_or(0);
-        if layer != 0 {
-            continue;
-        }
-        let pid = ns_dict_i64(d, key_pid).unwrap_or(0) as i32;
-        if pid == self_pid || pid <= 0 {
-            continue;
-        }
-        let Some(cg_id) = ns_dict_i64(d, key_num) else {
-            continue;
-        };
-        if cg_id <= 0 {
-            continue;
-        }
-        let bounds: *mut Object = msg_send![d, objectForKey: key_bounds];
-        let frame = if bounds.is_null() {
-            None
-        } else {
-            let w = ns_dict_f64(bounds, key_w).unwrap_or(0.0);
-            let h = ns_dict_f64(bounds, key_h).unwrap_or(0.0);
-            if w < 40.0 || h < 40.0 {
-                continue;
-            }
-            Some(super::WindowFrame {
-                x: ns_dict_f64(bounds, key_x).unwrap_or(0.0),
-                y: ns_dict_f64(bounds, key_y).unwrap_or(0.0),
-                w,
-                h,
-            })
-        };
-        let app = running_app_for_pid(pid);
-        if let Some(bid) = app.as_ref().and_then(|a| a.bundle_id.as_deref()) {
-            if matches!(bid, "space.orbitty.mac" | "app.livesprite.mac") {
-                continue;
-            }
-        }
-        let title = ns_dict_string(d, key_name).unwrap_or_default();
-        let app_name = app
-            .as_ref()
-            .map(|a| a.name.clone())
-            .or_else(|| ns_dict_string(d, key_owner))
-            .unwrap_or_else(|| "App".into());
-        result.push(WindowInfo {
-            id: format!("{pid}:{cg_id}"),
-            pid,
-            app_name,
-            title,
-            bundle_id: app.and_then(|a| a.bundle_id),
-            stable_key: String::new(),
-            icon_base64: None,
-            is_frontmost: false,
-            is_minimized: false,
-            document_path: None,
-            frame,
-        });
-    }
-    CFRelease(list as CFRef);
-    result
-}
-
-unsafe fn ns_cg_key(s: &str) -> *mut Object {
-    let c = std::ffi::CString::new(s).expect("cg key");
-    msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()]
-}
-
-unsafe fn ns_dict_i64(d: *mut Object, key: *mut Object) -> Option<i64> {
-    let v: *mut Object = msg_send![d, objectForKey: key];
-    if v.is_null() {
-        None
-    } else {
-        Some(msg_send![v, longLongValue])
-    }
-}
-
-unsafe fn ns_dict_f64(d: *mut Object, key: *mut Object) -> Option<f64> {
-    let v: *mut Object = msg_send![d, objectForKey: key];
-    if v.is_null() {
-        None
-    } else {
-        Some(msg_send![v, doubleValue])
-    }
-}
-
-unsafe fn ns_dict_string(d: *mut Object, key: *mut Object) -> Option<String> {
-    let v: *mut Object = msg_send![d, objectForKey: key];
-    ns_to_string(v)
-}
-
-unsafe fn running_app_for_pid(pid: i32) -> Option<RunningApp> {
-    let app: *mut Object =
-        msg_send![class!(NSRunningApplication), runningApplicationWithProcessIdentifier: pid];
-    if app.is_null() {
-        return None;
-    }
-    let name: *mut Object = msg_send![app, localizedName];
-    let bundle: *mut Object = msg_send![app, bundleIdentifier];
-    Some(RunningApp {
-        pid,
-        name: ns_to_string(name).unwrap_or_else(|| "App".into()),
-        bundle_id: ns_to_string(bundle),
-        icon_base64: None,
-    })
-}
-
-fn list_with(opts: EnumOpts) -> Result<Vec<WindowInfo>, String> {
-    if !unsafe { AXIsProcessTrusted() } {
-        return Err("accessibility not granted".into());
-    }
-    unsafe {
-        let mut windows = enumerate(&opts);
-        if opts.frontmost {
-            mark_frontmost(&mut windows);
-        }
+        let mut windows = enumerate();
+        mark_frontmost(&mut windows);
         windows.sort_by(|a, b| {
             b.is_frontmost
                 .cmp(&a.is_frontmost)

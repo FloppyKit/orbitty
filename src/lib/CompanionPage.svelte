@@ -195,12 +195,6 @@
 
   let expanded = $state(false);
   let turns = $state<CompanionTurn[]>([]);
-  // GO-ORBITTY-MODE-SPLIT: the active companion mode (spark default |
-  // chat | work | hold) — second axis next to the four-cast agent pick.
-  // `turns` is always the ACTIVE mode's thread (native switch_mode parks
-  // the old one); loadState reads it after the native heal, so a
-  // pre-split transcript lands on Spark on first run.
-  let mode = $state("spark");
 
   // GO-ORBITTY-HOST-SPLIT: the companion window is the host. Session-only
   // — boot is always the idle spirit and nothing persists `hosted`.
@@ -662,19 +656,6 @@
   async function onAgentChange() {
     try {
       agent = await invoke<string>("set_companion_agent", { profile: agent });
-      // Dropdown is the only chrome. Stem → thread: spark/Work/Chat/Hold.
-      const next =
-        agent === "grok"
-          ? "work"
-          : agent === "chaos-gremlin"
-            ? "chat"
-            : agent === "fkt-homie"
-              ? "hold"
-              : "spark";
-      if (next !== mode) {
-        mode = next;
-        await invoke("set_companion_mode", { mode: next });
-      }
     } catch (e) {
       sendNote = `${e}`;
       await loadAgents(); // snap back to the persisted pick
@@ -1069,7 +1050,6 @@
       userLine = s.companion?.lastUserLine ?? "";
       botLine = s.companion?.lastBotLine ?? "";
       turns = s.companion?.turns ?? [];
-      mode = s.companion?.mode ?? "spark";
       expanded = s.companion?.expanded ?? false;
       speak = s.companion?.speakReplies ?? false;
       // HEADROOM: missing keys land on the defaults (collapsed Full,

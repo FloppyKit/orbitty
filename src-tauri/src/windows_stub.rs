@@ -6,10 +6,6 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
     Ok(vec![])
 }
 
-pub fn list_windows_light() -> Result<Vec<WindowInfo>, String> {
-    Ok(vec![])
-}
-
 pub fn focus_window(_id: &str) -> Result<(), String> {
     Err("window corral is macOS-only for now".into())
 }

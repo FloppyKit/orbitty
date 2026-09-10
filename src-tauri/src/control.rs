@@ -389,20 +389,6 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let clip = arg_str(args, "clip")?;
             crate::companion::companion_play(app, &clip).map_err(tool_err)
         }
-        // GO-ORBITTY-MODE-SPLIT: the bus verbs. companion.* ACL like
-        // play/send; unknown modes fail closed at the command.
-        "companion.mode" => {
-            let mode = arg_str(args, "mode")?;
-            crate::coordinator::set_companion_mode(app.clone(), mode)
-                .map(to_data)
-                .map_err(tool_err)
-        }
-        "companion.note" => {
-            let line = arg_str(args, "line")?;
-            crate::coordinator::companion_note(app.clone(), line, arg_opt(args, "mode"))
-                .map(to_data)
-                .map_err(tool_err)
-        }
         "packs.list" => crate::packs::list_packs(app.clone())
             .map(to_data)
             .map_err(tool_err),
