@@ -4,14 +4,13 @@
   // Full/Head sprite toggle, Expand, ⚙ last after Expand (GEAR-DOCK),
   // composer. Paint + presses only: CompanionPage owns all state, the
   // sends (the field still calls companion_send), and the well. Planets
-  // dest L-click = toggleDest("inspector"). R-click = planet menu
-  // (Add + live names) — not a dest toggle. × stays a CompanionPage corner.
+  // dest L-click = toggleDest("inspector"). GO-ORBITTY-PLANETS-STRIP:
+  // no dest right-click menu — planet tabs live in the well / Launchpad.
+  // × stays a CompanionPage corner.
   // GO-ORBITTY-DOCK-HACK: the live LED sits immediately left of the agent
   // pick (sending || hackLive); the pick hugs its labels (46% cap dead).
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { planetCss } from "./planetColor";
-  import type { Project } from "./persist";
 
   // GO-ORBITTY-FOURCAST-RECAST: chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
@@ -44,7 +43,6 @@
     sending,
     hackLive,
     hackWho,
-    hackProjectId = null,
     prompts,
     hosted,
     speak,
@@ -63,10 +61,6 @@
     toggleDest,
     nextCount = 0,
     toggleNextCard,
-    onNewPlanet,
-    planets = [],
-    onPlanetClick,
-    onPlanetDblClick,
     toggleSpeak,
     toggleSprite,
     toggleView,
@@ -82,9 +76,6 @@
     sending: boolean;
     hackLive: boolean;
     hackWho: string;
-    // AGENT-PLANET leftover: the live agent's pinned planet — the planet
-    // menu below glows that one planet while the run is live.
-    hackProjectId?: string | null;
     prompts: boolean;
     hosted: HostMode;
     speak: boolean;
@@ -106,10 +97,6 @@
     toggleDest: (mode: "launchpad" | "stars" | "inspector") => void;
     nextCount?: number;
     toggleNextCard: () => void;
-    onNewPlanet: () => void;
-    planets?: Project[];
-    onPlanetClick: (id: string) => void;
-    onPlanetDblClick: (id: string) => void;
     toggleSpeak: () => void;
     toggleSprite: (e: MouseEvent) => void;
     toggleView: () => void;
@@ -135,54 +122,9 @@
     return "Agent working";
   });
 
-  let planetsMenuOpen = $state(false);
-  let skipDestClick = false;
-  let planetsWrapEl: HTMLSpanElement | null = $state(null);
-
   function onPlanetsClick() {
-    if (skipDestClick) {
-      skipDestClick = false;
-      return;
-    }
-    planetsMenuOpen = false;
     toggleDest("inspector");
   }
-
-  function onPlanetsContext(e: MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    skipDestClick = true;
-    planetsMenuOpen = !planetsMenuOpen;
-    setTimeout(() => {
-      skipDestClick = false;
-    }, 300);
-  }
-
-  function addPlanetFromMenu() {
-    planetsMenuOpen = false;
-    onNewPlanet();
-  }
-
-  $effect(() => {
-    if (!planetsMenuOpen) return;
-    const onDown = (ev: MouseEvent) => {
-      const n = ev.target as Node | null;
-      if (n && planetsWrapEl?.contains(n)) return;
-      planetsMenuOpen = false;
-    };
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") planetsMenuOpen = false;
-    };
-    const t = setTimeout(() => {
-      window.addEventListener("mousedown", onDown, true);
-      window.addEventListener("keydown", onKey, true);
-    }, 0);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener("mousedown", onDown, true);
-      window.removeEventListener("keydown", onKey, true);
-    };
-  });
 
   // COMPOSER-WRAP: the one-line field is a wrapping textarea now (Grok
   // web composer). Enter sends, Shift+Enter newline, ⌘↩/Ctrl+↩ send.
@@ -345,65 +287,29 @@
           <path d="M12 3 L14.1 9.1 L20.6 9.2 L15.4 13.1 L17.3 19.3 L12 15.6 L6.7 19.3 L8.6 13.1 L3.4 9.2 L9.9 9.1 Z" />
         </svg>
       </button>
-      <span class="planetsdest-wrap" bind:this={planetsWrapEl}>
-        <button
-          class="dest iconbtn planetsdest"
-          class:on={hosted === "inspector"}
-          onclick={onPlanetsClick}
-          oncontextmenu={onPlanetsContext}
-          aria-label="Planets. Right-click for Add planet and the live list"
-          data-chip="Planets"
-          title="Planets in the well — click again to dismiss. Right-click: Add planet and names"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <circle cx="12" cy="12" r="5" />
-            <ellipse
-              cx="12"
-              cy="12"
-              rx="9.4"
-              ry="3.3"
-              transform="rotate(-20 12 12)"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.7"
-            />
-          </svg>
-        </button>
-        {#if planetsMenuOpen}
-          <div class="planetspop" role="menu" aria-label="Planets">
-            <button
-              type="button"
-              class="planetsrow"
-              role="menuitem"
-              onclick={addPlanetFromMenu}>+ Planet</button
-            >
-            {#if planets.length === 0}
-              <div class="planetsrow empty">No planets yet</div>
-            {:else}
-              {#each planets as p (p.id)}
-                <button
-                  type="button"
-                  class="planetsrow"
-                  role="menuitem"
-                  onclick={() => onPlanetClick(p.id)}
-                  ondblclick={() => onPlanetDblClick(p.id)}
-                >
-                  <!-- AGENT-PLANET leftover: the planet an agent is
-                       writing on glows a little (its own color); every
-                       other planet stays idle. -->
-                  <span
-                    class="planet-chip"
-                    class:live={hackLive && hackProjectId === p.id}
-                    style="background: {planetCss(p.id)}; --pglow: {planetCss(p.id)}"
-                    aria-hidden="true"
-                  ></span>
-                  {p.name}
-                </button>
-              {/each}
-            {/if}
-          </div>
-        {/if}
-      </span>
+      <button
+        class="dest iconbtn planetsdest"
+        class:on={hosted === "inspector"}
+        onclick={onPlanetsClick}
+        oncontextmenu={(e) => e.preventDefault()}
+        aria-label="Planets"
+        data-chip="Planets"
+        title="Planets in the well — click again to dismiss"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="12" cy="12" r="5" />
+          <ellipse
+            cx="12"
+            cy="12"
+            rx="9.4"
+            ry="3.3"
+            transform="rotate(-20 12 12)"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+          />
+        </svg>
+      </button>
     </span>
     {#if nextCount > 0}
       <button
@@ -740,8 +646,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .hackled.on,
-    .planet-chip.live {
+    .hackled.on {
       animation: none;
     }
   }
@@ -764,86 +669,6 @@
     gap: 3px;
     white-space: nowrap;
     position: relative;
-  }
-
-  /* PLANETS-POP: the name list opens UP from the dest strip, so it
-     overlays the well / stage / CC / transcript and can never slide down
-     over the composer. z-index 6 sits above the well + transcript (the
-     chrome ×/gear are 2). Height-capped so a long world list scrolls
-     inside itself instead of reaching the window top. */
-  .planetsdest-wrap {
-    position: relative;
-    flex: none;
-    display: inline-flex;
-  }
-
-  .planetspop {
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 6;
-    display: flex;
-    flex-direction: column;
-    min-width: 140px;
-    max-width: 220px;
-    max-height: 40vh;
-    overflow-y: auto;
-    padding: 4px;
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 10px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
-  }
-
-  .planetsrow {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
-    font: inherit;
-    font-size: 0.72rem;
-    text-align: left;
-    color: var(--ink);
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .planet-chip {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  /* AGENT-PLANET leftover: a small glow in the planet's own color while
-     its agent is writing (hackLive + that agent's projectId). Menus
-     only — habitat discs and walkers never wear this.
-     AGENT-PLANET planet-pulse leftover: the live chip breathes with the
-     exact dock-LED cadence (orbitty-hack-pulse, 1.2s) — never a static
-     glow. Only that one planet; the class (and the pulse) drops when
-     the pickup source leaves. */
-  .planet-chip.live {
-    box-shadow: 0 0 7px 2px var(--pglow, var(--accent));
-    animation: orbitty-hack-pulse 1.2s ease-in-out infinite;
-  }
-
-  .planetsrow:hover {
-    background: var(--bg-fill, var(--bg));
-  }
-
-  .planetsrow.empty {
-    color: var(--dim);
-    cursor: default;
-  }
-
-  .planetsrow.empty:hover {
-    background: transparent;
   }
 
   /* GO-ORBITTY-DEST-CHROME + DOCK-TWEAK: dests wear the same outlined
@@ -872,9 +697,9 @@
 
   /* DEST-CHROME: CSS hover chip naming the dest (title= never paints on
      the transparent panel). Opens UP from the button — over the stage /
-     CC / well like .planetspop, never down over the composer. Same
-     1px --edge ring + 8px radius as the pill; pointer-events none so it
-     never steals the dest's own hover. */
+     CC / well, never down over the composer. Same 1px --edge ring + 8px
+     radius as the pill; pointer-events none so it never steals the dest's
+     own hover. */
   .dest::after {
     content: attr(data-chip);
     position: absolute;

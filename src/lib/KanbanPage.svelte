@@ -21,7 +21,7 @@
   // across sessions (default list), and add-a-todo still mints kind
   // "todo". The rail claim door is untouched.
   import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
+  import { emitTo, listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
@@ -91,6 +91,9 @@
   let selected = $state("inbox");
   let newTodo = $state("");
   let showCompleted = $state(true);
+  // PLANETS-STRIP: rail-owned marble flag, read-only here — tab double-click
+  // emits to main; the rail persist is the writer.
+  let collapsedSectionIds = $state<string[]>([]);
 
   // S4.4: List | Board toggle + detail drawer. LP-INBOX: the toggle is
   // last-used across sessions (default list); the rest stays session-only.
@@ -112,6 +115,23 @@
   // S5: Hermes launch/focus for the selected project list (titles only).
   let hermesNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
   let selectedProject = $derived(projects.find((p) => p.id === selected));
+
+  function raisePlanet(id: string) {
+    invoke("bring_planet_front", { id }).catch(() => {});
+    invoke("locate_planet", { id }).catch(() => {});
+  }
+
+  function onPlanetTabClick(id: string) {
+    selected = id;
+    raisePlanet(id);
+  }
+
+  function onPlanetTabDblClick(id: string) {
+    const collapsed = collapsedSectionIds.includes(id);
+    emitTo("main", collapsed ? "habitat:expand" : "habitat:collapse", id).catch(
+      () => {},
+    );
+  }
 
   function todayKey(): string {
     const d = new Date();
@@ -305,6 +325,7 @@
       kanbanCards = s.kanbanCards ?? [];
       pointsLedger = s.pointsLedger ?? [];
       titleOverrides = s.titleOverrides ?? [];
+      collapsedSectionIds = s.collapsedSectionIds ?? [];
     } catch {
       // keep last good state; next state:changed retries
     }
@@ -971,6 +992,29 @@
     bind:addingNeeded
   />
 
+  <div class="planet-strip" role="tablist" aria-label="Planets">
+    {#each projects as p (p.id)}
+      <button
+        type="button"
+        class="planet-tab"
+        class:sel={selected === p.id}
+        role="tab"
+        aria-selected={selected === p.id}
+        title={p.name}
+        onclick={() => onPlanetTabClick(p.id)}
+        ondblclick={() => onPlanetTabDblClick(p.id)}
+      >
+        <span
+          class="planet-chip"
+          style="background: {planetCss(p.id)}"
+          aria-hidden="true"
+        ></span>
+        <span class="planet-tab-name">{p.name}</span>
+        <span class="side-count">{sideCount(p.id)}</span>
+      </button>
+    {/each}
+  </div>
+
   <div class="k-body">
     <aside class="k-side" aria-label="Lists">
       <NeededInbox
@@ -1011,22 +1055,6 @@
         <span class="side-name">Inbox</span>
         <span class="side-count">{sideCount("inbox")}</span>
       </button>
-      {#each projects as p (p.id)}
-        <button
-          class="side-row"
-          class:sel={selected === p.id}
-          onclick={() => (selected = p.id)}
-        >
-          <span
-            class="planet-chip"
-            style="background: {planetCss(p.id)}"
-            title={p.name}
-            aria-hidden="true"
-          ></span>
-          <span class="side-name">{p.name}</span>
-          <span class="side-count">{sideCount(p.id)}</span>
-        </button>
-      {/each}
     </aside>
 
     <section class="k-main" aria-label={listTitle}>
@@ -1465,6 +1493,51 @@
     flex: 1;
     min-height: 0;
     display: flex;
+  }
+
+  /* GO-ORBITTY-PLANETS-STRIP: planet orbs across the top of Lists. */
+  .planet-strip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    overflow-x: auto;
+    padding: 4px 12px 8px;
+    scrollbar-width: thin;
+  }
+
+  .planet-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    max-width: 9.5rem;
+    min-height: 26px;
+    padding: 4px 8px;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .planet-tab:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .planet-tab.sel {
+    background: var(--bg-fill, var(--bg));
+    color: var(--accent);
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px var(--focus, #6e4db0);
+  }
+
+  .planet-tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* Overlay scrollbars: zero-width until the scroll area is hovered; never

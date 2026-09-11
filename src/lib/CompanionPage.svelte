@@ -114,7 +114,6 @@
     CompanionTurn,
     KanbanCard,
     PersistedState,
-    Project,
     StarsSlice,
   } from "./persist";
   interface CompanionSheet {
@@ -206,11 +205,8 @@
   // sets companion.hackLive (+ optional hackWho) via
   // `orbittyctl companion hack -- on [--who cursor]`; the dock lights the
   // LED when this OR `sending` is true. Persisted flag, not a transcript.
-  // AGENT-PLANET leftover: hackProjectId is the live agent's pinned
-  // planet — the dock's planet menu glows that one planet while live.
   let hackLive = $state(false);
   let hackWho = $state("");
-  let hackProjectId = $state<string | null>(null);
   // The Body picker lives in Settings → Appearance (Companion body); this
   // window only follows the persisted pack (state:changed → loadState).
   let bodyId = $state("spirit");
@@ -433,6 +429,56 @@
     if (expanded || hosted !== "off" || sprite) return;
     const h = measureHugHeight();
     if (h) invoke("set_companion_sprite", { enabled: false, hugHeight: h }).catch(() => {});
+  }
+
+  // GO-ORBITTY-PLANETS-STRIP: hosted window hugs the well's content
+  // (keep-bottom native). Measure the sheet's intrinsic height, not the
+  // stretched flex box, then add caption + dock sitting under the well.
+  let lastHostHug = 0;
+  function measureWellIntrinsic(): number {
+    const page = wellpaneEl?.querySelector(".wellpage") as HTMLElement | null;
+    if (!page) return 160;
+    const kanban = page.querySelector(".kanban.embedded") as HTMLElement | null;
+    if (kanban) {
+      let h = 0;
+      for (const sel of [".k-banner", ".planet-strip", ".k-needed"]) {
+        const el = kanban.querySelector(sel);
+        if (el instanceof HTMLElement) h += el.offsetHeight;
+      }
+      const kmain = kanban.querySelector(".k-main") as HTMLElement | null;
+      const kside = kanban.querySelector(".k-side") as HTMLElement | null;
+      h += Math.max(kmain?.scrollHeight ?? 0, kside?.scrollHeight ?? 0);
+      return Math.max(h, 160);
+    }
+    const rail = page.querySelector(".rail.embedded") as HTMLElement | null;
+    if (rail) {
+      const chrome = rail.querySelector(".chrome") as HTMLElement | null;
+      const scroll = rail.querySelector(".scroll") as HTMLElement | null;
+      return Math.max(
+        (chrome?.offsetHeight ?? 0) + (scroll?.scrollHeight ?? 0),
+        160,
+      );
+    }
+    return Math.max(page.scrollHeight, 160);
+  }
+  function measureHostHeight(): number | null {
+    if (!mainEl) return null;
+    const dock = mainEl.querySelector(".ghostdock");
+    const well = mainEl.querySelector(".hostwell");
+    if (!dock || !well) return null;
+    const dockR = dock.getBoundingClientRect();
+    const wellR = well.getBoundingClientRect();
+    const below = Math.max(0, dockR.bottom - wellR.bottom);
+    const pad = 20;
+    return Math.round(measureWellIntrinsic() + pad + below);
+  }
+  function reportHostHug() {
+    if (hosted === "off" || expanded || tilePre || tileEnter || swapPrev) return;
+    const h = measureHostHeight();
+    if (!h) return;
+    if (Math.abs(h - lastHostHug) < 4) return;
+    lastHostHug = h;
+    invoke("set_companion_host_hug", { height: h }).catch(() => {});
   }
 
   // GO-ORBITTY-COLLAPSE-CC: sprite-ON collapsed grows the WINDOW down
@@ -970,31 +1016,11 @@
     else await enterHost(mode);
   }
 
-  // PLANETS-SHEET leftover: dest L-click toggles the well. R-click is a
-  // menu — Add planet (same createProject door as the hosted + Planet
-  // row) plus live names. Click a name raises that disc; double-click
-  // expand/collapses it (same habitat:expand / collapse the marble uses).
+  // PLANETS-STRIP: dest L-click toggles the well. Planet tabs in the well
+  // (and Launchpad) raise/locate — the dest right-click menu is gone.
+  // createPlanetTick still opens the sheet + name field if something
+  // bumps it; the strip + is the mint.
   let createPlanetTick = $state(0);
-  let projects = $state<Project[]>([]);
-  let collapsedSectionIds = $state<string[]>([]);
-  async function requestNewPlanet() {
-    if (hosted !== "inspector") await enterHost("inspector");
-    if (hosted !== "inspector") return;
-    createPlanetTick += 1;
-  }
-  function planetClick(id: string) {
-    invoke("bring_planet_front", { id }).catch(() => {});
-    invoke("locate_planet", { id }).catch(() => {});
-  }
-  function planetDblClick(id: string) {
-    const collapsed = collapsedSectionIds.includes(id);
-    emitTo("main", collapsed ? "habitat:expand" : "habitat:collapse", id).catch(
-      () => {},
-    );
-    collapsedSectionIds = collapsed
-      ? collapsedSectionIds.filter((x) => x !== id)
-      : [...collapsedSectionIds, id];
-  }
 
   // Launchpad-only pop-out (the embedded banner button): the real kanban
   // window becomes the popped Launchpad beside the restored idle
@@ -1169,7 +1195,6 @@
       // DOCK-HACK: missing keys (old saves) = dark LED, unknown source.
       hackLive = s.companion?.hackLive ?? false;
       hackWho = s.companion?.hackWho ?? "";
-      hackProjectId = s.companion?.hackProjectId ?? null;
       const pack = s.companion?.imagePackId ?? null;
       const nextBody = pack && pack.length > 0 ? pack : "spirit";
       if (nextBody !== bodyId) {
@@ -1181,8 +1206,6 @@
       stars = s.stars ?? { promptsOptIn: false, checkins: {} };
       prompts = stars.promptsOptIn ?? false;
       cards = s.kanbanCards ?? [];
-      projects = s.projects ?? [];
-      collapsedSectionIds = s.collapsedSectionIds ?? [];
     } catch {
       // keep last good state; next state:changed retries
     } finally {
@@ -1330,7 +1353,7 @@
   }
 
   // Report on every collapsed-layout change (CC rows, wait mark, note,
-  // starstrip, planets popup, art/view swap, sprite off, composer grow).
+  // starstrip, art/view swap, sprite off, composer grow).
   // tick() first so the DOM has the new layout before the measure.
   $effect(() => {
     const watching = [
@@ -1357,6 +1380,26 @@
       reportHits();
       reportHug();
     });
+  });
+
+  // PLANETS-STRIP: after the well paints, hug the host frame to content.
+  $effect(() => {
+    if (hosted === "off" || expanded) {
+      lastHostHug = 0;
+      return;
+    }
+    void tilePre;
+    void tileEnter;
+    void swapPrev;
+    const run = () => {
+      tick().then(() => reportHostHug());
+    };
+    run();
+    const ro = new ResizeObserver(() => run());
+    if (wellpaneEl) ro.observe(wellpaneEl);
+    const inner = wellpaneEl?.querySelector(".scroll, .k-main, .planet-strip");
+    if (inner) ro.observe(inner);
+    return () => ro.disconnect();
   });
 
   $effect(() => {
@@ -1736,7 +1779,6 @@
     {sending}
     {hackLive}
     {hackWho}
-    {hackProjectId}
     {prompts}
     {hosted}
     {speak}
@@ -1755,10 +1797,6 @@
     {toggleDest}
     {nextCount}
     {toggleNextCard}
-    onNewPlanet={requestNewPlanet}
-    planets={projects}
-    onPlanetClick={planetClick}
-    onPlanetDblClick={planetDblClick}
     {toggleSpeak}
     {toggleSprite}
     {toggleView}

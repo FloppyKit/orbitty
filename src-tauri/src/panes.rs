@@ -553,6 +553,40 @@ pub fn set_companion_composer_grow(app: tauri::AppHandle, extra: f64) -> Result<
     Ok(())
 }
 
+/// GO-ORBITTY-PLANETS-STRIP: while hosted, hug the live frame to `height`
+/// (keep-bottom), clamped to [280, host_grown_rect.h]. Never writes
+/// HOST_STASH. No-op when not hosted / hidden / already fit.
+#[tauri::command]
+pub fn set_companion_host_hug(app: tauri::AppHandle, height: f64) -> Result<(), String> {
+    let hosted = host_stash().lock().map(|s| s.is_some()).unwrap_or(false);
+    if !hosted {
+        return Ok(());
+    }
+    let Some(w) = app.get_webview_window("companion") else {
+        return Ok(());
+    };
+    if !w.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
+    let Some(live) = crate::drawers::live_points_rect(&w) else {
+        return Ok(());
+    };
+    let max_h = crate::drawers::host_grown_rect(live).h;
+    let h = height.clamp(280.0, max_h);
+    if (live.h - h).abs() < 2.0 {
+        return Ok(());
+    }
+    let (mw, mh) = pane_spec("companion")
+        .and_then(|(_, _, _, m)| m)
+        .unwrap_or((280.0, 360.0));
+    let _ = w.set_min_size(Some(tauri::LogicalSize::new(mw, 280.0_f64.min(mh))));
+    let pinned = crate::drawers::pin_bottom_center(live, live.w, h);
+    let placed = crate::drawers::clamp_on_displays_keep_bottom(pinned).unwrap_or(pinned);
+    crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
+    crate::drawers::ensure_companion_dock_onscreen(&w);
+    Ok(())
+}
+
 /// GO-ORBITTY-HOST-SPLIT: the ONE native path that resizes the companion
 /// for hosting — the frontend never set_sizes the companion itself.
 ///   "launchpad" | "stars" | "inspector" → stash the live idle rect (once per host
@@ -665,6 +699,7 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
         // survives the unwrap_or) — rescue onto the display.
         crate::drawers::ensure_companion_dock_onscreen(&w);
     } else {
+        companion_min_size(&w, false);
         let stash = host_stash().lock().ok().and_then(|mut s| s.take());
         // GO-ORBITTY-HOST-STAY + HOST-DOCK: dismiss = idle SIZE pinned
         // to the LIVE hosted bottom-center (stash origin is enter-time

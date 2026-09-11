@@ -520,6 +520,7 @@ pub fn run() {
             panes::hide_window,
             panes::set_companion_host,
             panes::set_companion_composer_grow,
+            panes::set_companion_host_hug,
             show_rail,
             companion_clear::set_companion_hits,
             companion_clear::companion_front,

@@ -377,46 +377,13 @@
     persist();
   }
 
-  // GO-ORBITTY-PLANETS-SHEET: the hosted well (embedded) is one sheet, two
-  // sections — Unclaimed on top, On planets below. Windows only: no Agents
-  // lane, tags, +To-do, Actions, or being editor in the well (the pop-out
-  // rail keeps the full inspector). + Planet is the one mint in this sheet.
-  //
-  // The focused planet paints expanded, the rest collapsed. Focused = the
-  // frontmost window's claim; when Orbitty itself (or an unclaimed app) is
-  // front, fall back to the most recently touched claim so the sheet still
-  // opens on a live planet. Header clicks toggle session-only overrides —
-  // nothing here persists collapsedSectionIds.
-  let focusedProjectId = $derived.by(() => {
-    const front = windows.find((w) => w.isFrontmost);
-    const pid = front
-      ? liveClaims.find((c) => c.windowId === front.id)?.projectId
-      : undefined;
-    if (pid) return pid;
-    let best: string | null = null;
-    let bestT = 0;
-    for (const c of liveClaims) {
-      if (c.lastTouchedAt > bestT) {
-        bestT = c.lastTouchedAt;
-        best = c.projectId;
-      }
-    }
-    return best;
-  });
-
-  let sheetOpenOverride = $state<Record<string, boolean>>({});
-
-  function sheetIsOpen(projectId: string): boolean {
-    return sheetOpenOverride[projectId] ?? projectId === focusedProjectId;
-  }
-
-  function sheetToggle(projectId: string) {
-    sheetOpenOverride = {
-      ...sheetOpenOverride,
-      [projectId]: !sheetIsOpen(projectId),
-    };
-  }
-
+  // GO-ORBITTY-PLANETS-STRIP: the hosted well (embedded) is a top strip of
+  // planet tabs (Unclaimed · orbs · +) and one body. Windows only: no
+  // Agents lane, tags, +To-do, Actions, or being editor in the well (the
+  // pop-out rail keeps the full inspector). + Planet is the one mint.
+  // Tab click raises/locates that disc (old dest-menu click). Double-click
+  // emits habitat:expand/collapse to main so the rail-owned collapse flag
+  // turns the disc into a marble. Unclaimed is slot 0.
   // Live windows claimed onto one planet. Sleepers (closed claims) stay on
   // the pop-out inspector — the sheet lists focusable windows only.
   function sheetRowsFor(projectId: string): WindowInfo[] {
@@ -427,10 +394,29 @@
 
   // Unclaimed row → claim ▸ opens the planet picker for that window; the
   // pick lands through the exclusive claim() door (CLAIM-ONE). New planets
-  // mint through createProjectOnly — sheet footer and dest right-click
-  // (createPlanetTick) are the same door.
+  // mint through createProjectOnly — the strip + and createPlanetTick are
+  // the same door.
   let claimPickerFor = $state<string | null>(null);
   let sheetNameEl: HTMLInputElement | null = $state(null);
+  // PLANETS-STRIP: which tab's windows fill the body. Unclaimed first.
+  let sheetSlot = $state<string>("unclaimed");
+
+  function raisePlanet(id: string) {
+    invoke("bring_planet_front", { id }).catch(() => {});
+    invoke("locate_planet", { id }).catch(() => {});
+  }
+
+  function onSheetPlanetClick(id: string) {
+    sheetSlot = id;
+    raisePlanet(id);
+  }
+
+  function onSheetPlanetDblClick(id: string) {
+    const collapsed = isCollapsed(id);
+    emitTo("main", collapsed ? "habitat:expand" : "habitat:collapse", id).catch(
+      () => {},
+    );
+  }
 
   $effect(() => {
     if (embedded && createPlanetTick > 0) creatingProject = true;
@@ -1608,7 +1594,8 @@
     creatingProject = false;
     persist();
     if (embedded) {
-      sheetOpenOverride = { ...sheetOpenOverride, [p.id]: true };
+      sheetSlot = p.id;
+      raisePlanet(p.id);
     }
   }
 
@@ -1654,6 +1641,7 @@
     rmArmedFor = null;
     rmErrorFor = null;
     projects = projects.filter((x) => x.id !== p.id);
+    if (sheetSlot === p.id) sheetSlot = "unclaimed";
     syncHabitat();
   }
 
@@ -2428,14 +2416,43 @@
   {/if}
 {/snippet}
 
-<!-- GO-ORBITTY-PLANETS-SHEET: hosted well body — one sheet, two sections.
-     Unclaimed on top (icon + title + claim-to-planet through claim());
-     On planets grouped by project (color + name + count, focused planet
-     expanded, row click → focus_window). -->
+<!-- GO-ORBITTY-PLANETS-STRIP: hosted well — top orb strip, one body. -->
 {#snippet planetsSheet()}
-  <div class="sheet-add">
+  <div class="planet-strip" role="tablist" aria-label="Planets">
+    <button
+      type="button"
+      class="planet-tab"
+      class:sel={sheetSlot === "unclaimed"}
+      role="tab"
+      aria-selected={sheetSlot === "unclaimed"}
+      onclick={() => (sheetSlot = "unclaimed")}
+    >
+      <span class="planet-tab-name">Unclaimed</span>
+      <span class="section-count">{unmapped.length}</span>
+    </button>
+    {#each projects as p (p.id)}
+      <button
+        type="button"
+        class="planet-tab"
+        class:sel={sheetSlot === p.id}
+        role="tab"
+        aria-selected={sheetSlot === p.id}
+        title={p.name}
+        onclick={() => onSheetPlanetClick(p.id)}
+        ondblclick={() => onSheetPlanetDblClick(p.id)}
+      >
+        <span
+          class="planet-chip"
+          class:live={hackProjectId === p.id}
+          style="background: {planetCss(p.id)}; --pglow: {planetCss(p.id)}"
+          aria-hidden="true"
+        ></span>
+        <span class="planet-tab-name">{p.name}</span>
+        <span class="section-count">{sheetRowsFor(p.id).length}</span>
+      </button>
+    {/each}
     {#if creatingProject}
-      <span class="newproj">
+      <span class="newproj strip-add">
         <input
           bind:this={sheetNameEl}
           bind:value={newProjectName}
@@ -2449,129 +2466,110 @@
         <button class="mini ghost" onclick={() => (creatingProject = false)}>×</button>
       </span>
     {:else}
-      <button class="mini" onclick={() => (creatingProject = true)}>+ Planet</button>
+      <button
+        type="button"
+        class="planet-tab add"
+        onclick={() => (creatingProject = true)}>+ Planet</button
+      >
     {/if}
   </div>
-  <section class="sheet-sec" aria-label="Unclaimed windows">
-    <h2 class="sheet-h">Unclaimed ({unmapped.length})</h2>
-    {#if unmapped.length === 0}
-      <p class="sheet-empty">Every window has a planet.</p>
-    {:else}
-      <ul class="wins">
-        {#each unmapped as w (w.id)}
-          <li class="sheet-row">
-            <span class="app-icon-slot">
-              {#if w.iconBase64}
-                <img class="app-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
-              {:else}
-                <span class="app-icon fallback" aria-hidden="true"
-                  >{w.appName.charAt(0) || "?"}</span
-                >
-              {/if}
-            </span>
-            <span class="wtitle" title="{w.appName} — {w.title}">{titleFor(w)}</span>
-            <button
-              class="mini claim-btn"
-              class:active={claimPickerFor === w.id}
-              aria-expanded={claimPickerFor === w.id}
-              onclick={() =>
-                (claimPickerFor = claimPickerFor === w.id ? null : w.id)}
-              title="Claim to a planet">claim ▸</button
-            >
-          </li>
-          {#if claimPickerFor === w.id}
-            <li class="claim-picker">
-              {#if projects.length === 0}
-                <button class="mini" onclick={() => (creatingProject = true)}
-                  >No planets yet — add one above</button
-                >
-              {:else}
-                {#each projects as p (p.id)}
-                  <button
-                    class="mini claim-pick"
-                    onclick={() => sheetClaim(w.id, p.id)}
-                    title="Claim to {p.name}"
-                    ><span
-                      class="planet-chip"
-                      style="background: {planetCss(p.id)}"
-                      aria-hidden="true"
-                    ></span
-                    >{p.name}</button
-                  >
-                {/each}
-              {/if}
-            </li>
-          {/if}
-        {/each}
-      </ul>
-    {/if}
-  </section>
 
-  <section class="sheet-sec" aria-label="Windows on planets">
-    <h2 class="sheet-h">On planets</h2>
-    {#if projects.length === 0}
-      <p class="sheet-empty">No planets yet.</p>
-    {:else}
-      <ul class="wins">
-        {#each projects as p (p.id)}
-          {@const rows = sheetRowsFor(p.id)}
-          <li class="section">
-            <div class="head-row">
-              <button
-                class="section-head"
-                onclick={() => sheetToggle(p.id)}
-                aria-expanded={sheetIsOpen(p.id)}
-                title={sheetIsOpen(p.id) ? "Collapse" : "Expand"}
-              >
-                <span class="chev" class:open={sheetIsOpen(p.id)} aria-hidden="true">▸</span>
-                <span
-                  class="planet-chip"
-                  class:live={hackProjectId === p.id}
-                  style="background: {planetCss(p.id)}; --pglow: {planetCss(p.id)}"
-                  title={p.name}
-                  aria-hidden="true"
-                ></span>
-                <span class="section-name">{p.name}</span>
-                <span class="section-count">{rows.length}</span>
-              </button>
-              {@render planetRm(p)}
-            </div>
-            {#if rmErrorFor?.id === p.id}
-              <p class="rm-err" role="alert">{rmErrorFor.msg}</p>
-            {/if}
-            {#if sheetIsOpen(p.id)}
-              <ul class="wins">
-                {#each rows as w (w.id)}
-                  <li>
-                    <button
-                      class="row"
-                      class:front={w.isFrontmost}
-                      class:min={w.isMinimized}
-                      onclick={() => sheetFocus(w)}
-                      title="{w.appName} — {w.title} · click to focus"
-                    >
-                      {#if w.iconBase64}
-                        <img class="app-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
-                      {:else}
-                        <span class="app-icon fallback" aria-hidden="true"
-                          >{w.appName.charAt(0) || "?"}</span
-                        >
-                      {/if}
-                      <span class="wtitle">{titleFor(w)}</span>
-                      {#if w.isFrontmost}<span class="tag front-tag">front</span>{/if}
-                    </button>
-                  </li>
-                {/each}
-                {#if rows.length === 0}
-                  <li class="section-empty">No windows on this planet.</li>
+  {#if sheetSlot === "unclaimed"}
+    <section class="sheet-sec" aria-label="Unclaimed windows">
+      {#if unmapped.length === 0}
+        <p class="sheet-empty">Every window has a planet.</p>
+      {:else}
+        <ul class="wins">
+          {#each unmapped as w (w.id)}
+            <li class="sheet-row">
+              <span class="app-icon-slot">
+                {#if w.iconBase64}
+                  <img class="app-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
+                {:else}
+                  <span class="app-icon fallback" aria-hidden="true"
+                    >{w.appName.charAt(0) || "?"}</span
+                  >
                 {/if}
-              </ul>
+              </span>
+              <span class="wtitle" title="{w.appName} — {w.title}">{titleFor(w)}</span>
+              <button
+                class="mini claim-btn"
+                class:active={claimPickerFor === w.id}
+                aria-expanded={claimPickerFor === w.id}
+                onclick={() =>
+                  (claimPickerFor = claimPickerFor === w.id ? null : w.id)}
+                title="Claim to a planet">claim ▸</button
+              >
+            </li>
+            {#if claimPickerFor === w.id}
+              <li class="claim-picker">
+                {#if projects.length === 0}
+                  <button class="mini" onclick={() => (creatingProject = true)}
+                    >No planets yet — add one above</button
+                  >
+                {:else}
+                  {#each projects as p (p.id)}
+                    <button
+                      class="mini claim-pick"
+                      onclick={() => sheetClaim(w.id, p.id)}
+                      title="Claim to {p.name}"
+                      ><span
+                        class="planet-chip"
+                        style="background: {planetCss(p.id)}"
+                        aria-hidden="true"
+                      ></span
+                      >{p.name}</button
+                    >
+                  {/each}
+                {/if}
+              </li>
             {/if}
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </section>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {:else}
+    {@const p = projects.find((x) => x.id === sheetSlot)}
+    {@const rows = p ? sheetRowsFor(p.id) : []}
+    <section class="sheet-sec" aria-label={p ? `Windows on ${p.name}` : "Planet"}>
+      {#if p}
+        <div class="head-row">
+          <h2 class="sheet-h">{p.name}</h2>
+          {@render planetRm(p)}
+        </div>
+        {#if rmErrorFor?.id === p.id}
+          <p class="rm-err" role="alert">{rmErrorFor.msg}</p>
+        {/if}
+      {/if}
+      {#if rows.length === 0}
+        <p class="sheet-empty">No windows on this planet.</p>
+      {:else}
+        <ul class="wins">
+          {#each rows as w (w.id)}
+            <li>
+              <button
+                class="row"
+                class:front={w.isFrontmost}
+                class:min={w.isMinimized}
+                onclick={() => sheetFocus(w)}
+                title="{w.appName} — {w.title} · click to focus"
+              >
+                {#if w.iconBase64}
+                  <img class="app-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
+                {:else}
+                  <span class="app-icon fallback" aria-hidden="true"
+                    >{w.appName.charAt(0) || "?"}</span
+                  >
+                {/if}
+                <span class="wtitle">{titleFor(w)}</span>
+                {#if w.isFrontmost}<span class="tag front-tag">front</span>{/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {/if}
 {/snippet}
 
 <main
@@ -3778,12 +3776,66 @@
     gap: 5px;
   }
 
-  .sheet-add {
-    margin: 2px 4px 8px;
+  /* GO-ORBITTY-PLANETS-STRIP: orbs across the top, one selected body.
+     Sticky so the strip stays while Unclaimed scrolls. */
+  .planet-strip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    overflow-x: auto;
+    padding: 4px 2px 8px;
+    scrollbar-width: thin;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bg-fill, var(--bg));
   }
 
-  .sheet-add .newproj {
-    margin-left: 0;
+  .planet-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    max-width: 9.5rem;
+    min-height: 26px;
+    padding: 4px 8px;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .planet-tab:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .planet-tab.sel {
+    background: var(--panel-fill, var(--panel));
+    color: var(--accent);
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px var(--focus, #6e4db0);
+  }
+
+  .planet-tab.add {
+    color: var(--dim);
+    max-width: none;
+  }
+
+  .planet-tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .planet-strip .newproj.strip-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
   }
 
   /* Lane tabs on the list-head — the active lane gets the --focus edge. */
