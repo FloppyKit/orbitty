@@ -592,9 +592,9 @@ pub fn set_companion_host_hug(app: tauri::AppHandle, height: f64) -> Result<(), 
 ///   "launchpad" | "stars" | "inspector" → stash the live idle rect (once per host
 ///     session — a Launchpad ↔ STARS well swap never re-stashes the grown
 ///     rect), hide the shared `kanban` overlay if it is visible (never
-///     destroy), grow the companion to the display-fit host frame —
-///     1080×620 on a landscape display, 620×1080 on a portrait one —
-///     clamped on the displays.
+///     destroy), grow to the display-fit host WIDTH (1080 landscape /
+///     620 portrait) at the live height (floor 360, cap the display-fit
+///     max). JS grows height up to content — never max-then-shrink.
 ///   "off" → idle size from the stash (spec 520×780 when there is none)
 ///     at the hosted window's LIVE origin, clamped on that one display
 ///     only (GO-ORBITTY-HOST-STAY — never re-centered, never another
@@ -685,12 +685,19 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
             w: 520.0,
             h: 780.0,
         });
-        // GO-ORBITTY-HOST-FIT: size follows the display — 1080×620
-        // landscape, 620×1080 portrait. GO-ORBITTY-HOST-DOCK: pin the
-        // live bottom-center so the dest dock stays under the cursor.
-        // Leftover: clamp/place keep that bottom (top/sides may move).
+        // GO-ORBITTY-HOST-FIT: WIDTH follows the display (1080 landscape,
+        // 620 portrait). GO-ORBITTY-PLANETS-STRIP leftover: HEIGHT does
+        // not jump to the display max — that max-then-hug-down jittered
+        // Launchpad. Enter at the live height (floor 360, cap the max);
+        // JS then grows UP to content via set_companion_host_hug.
+        // GO-ORBITTY-HOST-DOCK: pin the live bottom-center so the dest
+        // dock stays under the cursor.
         let grown = crate::drawers::host_grown_rect(cur);
-        let pinned = crate::drawers::pin_bottom_center(cur, grown.w, grown.h);
+        let live_h = crate::drawers::live_points_rect(&w)
+            .map(|r| r.h)
+            .unwrap_or(cur.h);
+        let enter_h = live_h.clamp(360.0, grown.h);
+        let pinned = crate::drawers::pin_bottom_center(cur, grown.w, enter_h);
         let placed = crate::drawers::clamp_on_displays_keep_bottom(pinned).unwrap_or(pinned);
         crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
         // GO-ORBITTY-TILE-YAW leftover (summon clamp): the keep-bottom

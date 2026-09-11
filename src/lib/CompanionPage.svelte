@@ -431,10 +431,19 @@
     if (h) invoke("set_companion_sprite", { enabled: false, hugHeight: h }).catch(() => {});
   }
 
-  // GO-ORBITTY-PLANETS-STRIP: hosted window hugs the well's content
-  // (keep-bottom native). Measure the sheet's intrinsic height, not the
-  // stretched flex box, then add caption + dock sitting under the well.
+  // GO-ORBITTY-PLANETS-STRIP leftover: grow UP to content, never jump
+  // to the display max then shrink. Sum child offsets (not a stretched
+  // flex scrollHeight) so Launchpad's empty filler does not inflate.
   let lastHostHug = 0;
+  let hugTimer: ReturnType<typeof setTimeout> | undefined;
+  function offsetStack(el: HTMLElement | null): number {
+    if (!el) return 0;
+    let h = 0;
+    for (const kid of el.children) {
+      if (kid instanceof HTMLElement) h += kid.offsetHeight;
+    }
+    return h;
+  }
   function measureWellIntrinsic(): number {
     const page = wellpaneEl?.querySelector(".wellpage") as HTMLElement | null;
     if (!page) return 160;
@@ -445,9 +454,10 @@
         const el = kanban.querySelector(sel);
         if (el instanceof HTMLElement) h += el.offsetHeight;
       }
-      const kmain = kanban.querySelector(".k-main") as HTMLElement | null;
-      const kside = kanban.querySelector(".k-side") as HTMLElement | null;
-      h += Math.max(kmain?.scrollHeight ?? 0, kside?.scrollHeight ?? 0);
+      h += Math.max(
+        offsetStack(kanban.querySelector(".k-main") as HTMLElement | null),
+        offsetStack(kanban.querySelector(".k-side") as HTMLElement | null),
+      );
       return Math.max(h, 160);
     }
     const rail = page.querySelector(".rail.embedded") as HTMLElement | null;
@@ -455,11 +465,11 @@
       const chrome = rail.querySelector(".chrome") as HTMLElement | null;
       const scroll = rail.querySelector(".scroll") as HTMLElement | null;
       return Math.max(
-        (chrome?.offsetHeight ?? 0) + (scroll?.scrollHeight ?? 0),
+        (chrome?.offsetHeight ?? 0) + offsetStack(scroll),
         160,
       );
     }
-    return Math.max(page.scrollHeight, 160);
+    return Math.max(offsetStack(page), 160);
   }
   function measureHostHeight(): number | null {
     if (!mainEl) return null;
@@ -474,11 +484,16 @@
   }
   function reportHostHug() {
     if (hosted === "off" || expanded || tilePre || tileEnter || swapPrev) return;
-    const h = measureHostHeight();
-    if (!h) return;
-    if (Math.abs(h - lastHostHug) < 4) return;
-    lastHostHug = h;
-    invoke("set_companion_host_hug", { height: h }).catch(() => {});
+    if (hugTimer) clearTimeout(hugTimer);
+    hugTimer = setTimeout(() => {
+      hugTimer = undefined;
+      if (hosted === "off" || expanded || tilePre || tileEnter || swapPrev) return;
+      const h = measureHostHeight();
+      if (!h) return;
+      if (Math.abs(h - lastHostHug) < 4) return;
+      lastHostHug = h;
+      invoke("set_companion_host_hug", { height: h }).catch(() => {});
+    }, 100);
   }
 
   // GO-ORBITTY-COLLAPSE-CC: sprite-ON collapsed grows the WINDOW down
@@ -1382,10 +1397,15 @@
     });
   });
 
-  // PLANETS-STRIP: after the well paints, hug the host frame to content.
+  // PLANETS-STRIP leftover: hug after the well settles. Do not observe
+  // .wellpane (it resizes with the window and loops). Watch the lists.
   $effect(() => {
     if (hosted === "off" || expanded) {
       lastHostHug = 0;
+      if (hugTimer) {
+        clearTimeout(hugTimer);
+        hugTimer = undefined;
+      }
       return;
     }
     void tilePre;
@@ -1396,10 +1416,18 @@
     };
     run();
     const ro = new ResizeObserver(() => run());
-    if (wellpaneEl) ro.observe(wellpaneEl);
-    const inner = wellpaneEl?.querySelector(".scroll, .k-main, .planet-strip");
-    if (inner) ro.observe(inner);
-    return () => ro.disconnect();
+    const root = wellpaneEl?.querySelector(".wellpage");
+    const watch = root?.querySelectorAll(
+      ".k-main, .k-side, .scroll, .planet-strip, .k-needed, .wins",
+    );
+    watch?.forEach((el) => ro.observe(el));
+    return () => {
+      ro.disconnect();
+      if (hugTimer) {
+        clearTimeout(hugTimer);
+        hugTimer = undefined;
+      }
+    };
   });
 
   $effect(() => {
