@@ -2416,8 +2416,10 @@
   {/if}
 {/snippet}
 
-<!-- GO-ORBITTY-PLANETS-STRIP: hosted well — top orb strip, one body. -->
+<!-- GO-ORBITTY-PLANETS-STRIP: hosted well — top orb strip, one body.
+     Extra rows scroll inside the selected tab, not the tile. -->
 {#snippet planetsSheet()}
+  <div class="sheet">
   <div class="planet-strip" role="tablist" aria-label="Planets">
     <button
       type="button"
@@ -2474,6 +2476,7 @@
     {/if}
   </div>
 
+  <div class="sheet-body">
   {#if sheetSlot === "unclaimed"}
     <section class="sheet-sec" aria-label="Unclaimed windows">
       {#if unmapped.length === 0}
@@ -2570,6 +2573,8 @@
       {/if}
     </section>
   {/if}
+  </div>
+  </div>
 {/snippet}
 
 <main
@@ -3119,9 +3124,10 @@
   /* GO-ORBITTY-INSPECTOR-HOST: fill the well pane; square corners inside
      the companion's rounded clip. */
   .rail.embedded {
-    height: auto;
+    height: 100%;
     flex: 1;
     min-height: 0;
+    overflow: hidden;
     border-radius: 0;
   }
 
@@ -3175,6 +3181,13 @@
     padding: 8px 12px 0;
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--dim) 45%, transparent) transparent;
+  }
+
+  .rail.embedded .scroll {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
   }
 
   .scroll::-webkit-scrollbar {
@@ -3777,18 +3790,30 @@
   }
 
   /* GO-ORBITTY-PLANETS-STRIP: orbs across the top, one selected body.
-     Sticky so the strip stays while Unclaimed scrolls. */
+     Extra rows scroll in .sheet-body, not the tile. */
+  .sheet {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sheet-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 4px 8px;
+    scrollbar-width: thin;
+  }
+
   .planet-strip {
     display: flex;
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
     overflow-x: auto;
-    padding: 4px 2px 8px;
+    padding: 4px 8px 8px;
     scrollbar-width: thin;
-    position: sticky;
-    top: 0;
-    z-index: 2;
     background: var(--bg-fill, var(--bg));
   }
 

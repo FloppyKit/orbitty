@@ -431,10 +431,11 @@
     if (h) invoke("set_companion_sprite", { enabled: false, hugHeight: h }).catch(() => {});
   }
 
-  // GO-ORBITTY-PLANETS-STRIP leftover: grow UP to content, never jump
-  // to the display max then shrink. Sum child offsets (not a stretched
-  // flex scrollHeight) so Launchpad's empty filler does not inflate.
+  // GO-ORBITTY-PLANETS-STRIP leftover: STARS is the height ruler. Hug
+  // the window to the one-screen STARS layout. Launchpad / Planets keep
+  // that height and scroll inside the tab.
   let lastHostHug = 0;
+  let starsHostH = 0;
   let hugTimer: ReturnType<typeof setTimeout> | undefined;
   function offsetStack(el: HTMLElement | null): number {
     if (!el) return 0;
@@ -447,28 +448,8 @@
   function measureWellIntrinsic(): number {
     const page = wellpaneEl?.querySelector(".wellpage") as HTMLElement | null;
     if (!page) return 160;
-    const kanban = page.querySelector(".kanban.embedded") as HTMLElement | null;
-    if (kanban) {
-      let h = 0;
-      for (const sel of [".k-banner", ".planet-strip", ".k-needed"]) {
-        const el = kanban.querySelector(sel);
-        if (el instanceof HTMLElement) h += el.offsetHeight;
-      }
-      h += Math.max(
-        offsetStack(kanban.querySelector(".k-main") as HTMLElement | null),
-        offsetStack(kanban.querySelector(".k-side") as HTMLElement | null),
-      );
-      return Math.max(h, 160);
-    }
-    const rail = page.querySelector(".rail.embedded") as HTMLElement | null;
-    if (rail) {
-      const chrome = rail.querySelector(".chrome") as HTMLElement | null;
-      const scroll = rail.querySelector(".scroll") as HTMLElement | null;
-      return Math.max(
-        (chrome?.offsetHeight ?? 0) + offsetStack(scroll),
-        160,
-      );
-    }
+    const stars = page.querySelector(".stars.embedded") as HTMLElement | null;
+    if (stars) return Math.max(stars.offsetHeight, 160);
     return Math.max(offsetStack(page), 160);
   }
   function measureHostHeight(): number | null {
@@ -488,7 +469,13 @@
     hugTimer = setTimeout(() => {
       hugTimer = undefined;
       if (hosted === "off" || expanded || tilePre || tileEnter || swapPrev) return;
-      const h = measureHostHeight();
+      let h: number | null = null;
+      if (hosted === "stars") {
+        h = measureHostHeight();
+        if (h) starsHostH = h;
+      } else {
+        h = starsHostH || null;
+      }
       if (!h) return;
       if (Math.abs(h - lastHostHug) < 4) return;
       lastHostHug = h;
@@ -1397,8 +1384,8 @@
     });
   });
 
-  // PLANETS-STRIP leftover: hug after the well settles. Do not observe
-  // .wellpane (it resizes with the window and loops). Watch the lists.
+  // PLANETS-STRIP leftover: hug to the STARS ruler on dest change. Do
+  // not watch Launchpad lists — those scroll inside the tab.
   $effect(() => {
     if (hosted === "off" || expanded) {
       lastHostHug = 0;
@@ -1411,18 +1398,8 @@
     void tilePre;
     void tileEnter;
     void swapPrev;
-    const run = () => {
-      tick().then(() => reportHostHug());
-    };
-    run();
-    const ro = new ResizeObserver(() => run());
-    const root = wellpaneEl?.querySelector(".wellpage");
-    const watch = root?.querySelectorAll(
-      ".k-main, .k-side, .scroll, .planet-strip, .k-needed, .wins",
-    );
-    watch?.forEach((el) => ro.observe(el));
+    tick().then(() => reportHostHug());
     return () => {
-      ro.disconnect();
       if (hugTimer) {
         clearTimeout(hugTimer);
         hugTimer = undefined;

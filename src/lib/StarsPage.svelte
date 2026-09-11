@@ -4,15 +4,11 @@
   // explicit check-in only. GO-ORBITTY-STARS-LOOKBACK: an in-session day
   // cursor pages the saved map — past days are read-only, Save only ever
   // writes today, and the cursor itself is never persisted.
-  // GO-ORBITTY-STARS-AVERAGE: one quiet mean line under the chip strip —
-  // a rolling 7/14/30-day window ending at the day cursor, mean of saved
-  // days only (a saved 0 counts; blanks shrink the denominator, never a
-  // zero-fill). The switcher persists as stars.averageWindow, nothing else.
-  // GO-ORBITTY-RAIL-REVIEW: banner segment Check-in | Review (default
-  // Check-in). Check-in = the day pentagon + 0–4 + Save + Prompts on
-  // --bg-fill. Review = the mean pentagon for averageWindow (the window
-  // chips live here only) with the Cloud word field (.orbit-field) under
-  // it — no 0–4 in Review, no mean pentagon in Check-in.
+  // GO-ORBITTY-STARS-AVERAGE: rolling 7/14/30-day window ending at the
+  // day cursor, mean of saved days only (a saved 0 counts; blanks shrink
+  // the denominator, never a zero-fill). Persists as stars.averageWindow.
+  // GO-ORBITTY-PLANETS-STRIP leftover: one screen — left check-in, right
+  // Cloud. Average pills sit under the day chips. No Check-in | Review.
   // Same state.json discipline as Lists: every
   // write is load → mutate → save of the WHOLE loaded object, so rail-owned
   // slices (hideTitles included) round-trip untouched — this window only
@@ -97,10 +93,6 @@
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
-  // Banner segment (GO-ORBITTY-RAIL-REVIEW): Check-in is the default.
-  // Session-only — a re-show always lands back on Check-in.
-  let mode = $state<"checkin" | "review">("checkin");
-
   // Day cursor: which saved day the radar + spoke rows are showing.
   let cursorDay = $state(todayKey());
   const isToday = $derived(cursorDay === todayKey());
@@ -133,18 +125,6 @@
       .filter((d) => d >= start && d <= cursorDay)
       .map((d) => starsState.checkins[d]);
   });
-  // null = empty window → "No saves in this window", never a zero pentagon.
-  const windowMeanLine = $derived.by(() => {
-    const saves = windowSaves;
-    if (!saves.length) return null;
-    const parts = STARS_SPOKES.map(({ key }, i) => {
-      const sum = saves.reduce((acc, c) => acc + (c[key] ?? 0), 0);
-      return `${SPOKE_LETTERS[i]} ${(sum / saves.length).toFixed(1)}`;
-    });
-    return `${WINDOWS[averageWindow]}-day mean · ${parts.join("  ")}`;
-  });
-  // Review mode draws the mean itself — same window, same saved-days rule
-  // as the line above. null = empty window → grid only, never zero-fill.
   const windowMean = $derived.by<StarsCheckin | null>(() => {
     const saves = windowSaves;
     if (!saves.length) return null;
@@ -277,9 +257,6 @@
   }
   const radarPoints = $derived(radarPointsFor(shown));
   const radarDots = $derived(radarDotsFor(shown));
-  // Review: the mean pentagon — never the day, never a zero-fill.
-  const reviewPoints = $derived(radarPointsFor(windowMean));
-  const reviewDots = $derived(radarDotsFor(windowMean));
 
   $effect(() => {
     if (!themeId) return;
@@ -364,121 +341,26 @@
       aria-label={embedded ? "Dismiss STARS" : "Hide STARS"}>×</button
     >
     <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span> STARS</h1>
-    <span class="seg" role="group" aria-label="STARS mode">
-      <button
-        class="seg-btn"
-        class:active={mode === "checkin"}
-        aria-pressed={mode === "checkin"}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() => (mode = "checkin")}>Check-in</button
-      >
-      <button
-        class="seg-btn"
-        class:active={mode === "review"}
-        aria-pressed={mode === "review"}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() => (mode = "review")}>Review</button
-      >
-    </span>
   </header>
 
-  <div class="s-body" class:review={mode === "review"}>
-    {#if mode === "checkin"}
-      <section class="stars-panel" aria-label="STARS check-in">
-        <h2>STARS — Spiritual / Self is the fifth spoke</h2>
-        <div class="day-nav">
-          <button class="mini" onclick={prevDay} title="Previous day" aria-label="Previous day">‹</button>
-          <span class="day-label">{isToday ? `Today · ${cursorDay}` : cursorDay}</span>
-          <button
-            class="mini"
-            onclick={nextDay}
-            disabled={isToday}
-            title="Next day"
-            aria-label="Next day">›</button>
-        </div>
-        <div class="checkin-grid">
-          <div class="stars-radar">
-            <svg
-              viewBox="-62 -62 124 124"
-              role="img"
-              aria-label={isToday ? "Today's STARS radar" : `STARS radar for ${cursorDay}`}
-            >
-              <polygon class="grid" points={radarRing(4)} />
-              <polygon class="grid inner" points={radarRing(2)} />
-              {#each STARS_SPOKES as _, i (i)}
-                {@const [ax, ay] = radarVertex(i, 4)}
-                <line class="axis" x1="0" y1="0" x2={ax} y2={ay} />
-              {/each}
-              {#if shown}
-                <polygon class="shape" points={radarPoints} />
-                {#each radarDots as d (d.key)}
-                  <circle class="dot" cx={d.x} cy={d.y} r="2.6" />
-                {/each}
-              {/if}
-            </svg>
-          </div>
-          <div class="stars-controls">
-            {#each STARS_SPOKES as spoke (spoke.key)}
-              <div class="spoke-row">
-                <span class="spoke-label">{spoke.label}</span>
-                <span class="spoke-btns" role="group" aria-label="{spoke.label} 0 to 4">
-                  {#each [0, 1, 2, 3, 4] as v (v)}
-                    <button
-                      class="spoke-val"
-                      class:active={shown?.[spoke.key] === v}
-                      aria-pressed={shown?.[spoke.key] === v}
-                      disabled={!isToday}
-                      onclick={() => setSpoke(spoke.key, v)}
-                    >{v}</button>
-                  {/each}
-                </span>
-              </div>
-            {/each}
-          </div>
-        </div>
-        {#if chipDays.length}
-          <div class="saved-strip" aria-label="Days with a saved check-in">
-            {#each chipDays as day (day)}
-              <button
-                class="mini chip"
-                class:active={cursorDay === day}
-                aria-pressed={cursorDay === day}
-                title={day}
-                onclick={() => (cursorDay = day)}
-              >{day.slice(5)}</button>
-            {/each}
-          </div>
-        {/if}
-        <div class="stars-foot">
-          <button class="mini stars-save" disabled={!isToday} onclick={saveStarsToday}>
-            Save today
-          </button>
-          <button
-            class="mini"
-            class:active={starsState.promptsOptIn}
-            aria-pressed={starsState.promptsOptIn}
-            onclick={toggleStarsPrompts}
-            title="Companion prompts — one quiet strip when today's check-in has a thin spoke. Off by default."
-          >Prompts: {starsState.promptsOptIn ? "On" : "Off"}</button>
-          {#if isToday}
-            {#if starsSavedDay}
-              <span class="stars-note">Saved for {starsSavedDay}</span>
-            {/if}
-          {:else if cursorSaved}
-            <span class="stars-note">Saved for {cursorDay}</span>
-          {:else}
-            <span class="stars-note">No save</span>
-          {/if}
-        </div>
-      </section>
-    {:else}
-      <section class="stars-panel" aria-label="STARS review">
-        <h2>STARS — Spiritual / Self is the fifth spoke</h2>
+  <div class="s-body">
+    <section class="stars-panel" aria-label="STARS check-in">
+      <div class="day-nav">
+        <button class="mini" onclick={prevDay} title="Previous day" aria-label="Previous day">‹</button>
+        <span class="day-label">{isToday ? `Today · ${cursorDay}` : cursorDay}</span>
+        <button
+          class="mini"
+          onclick={nextDay}
+          disabled={isToday}
+          title="Next day"
+          aria-label="Next day">›</button>
+      </div>
+      <div class="checkin-grid">
         <div class="stars-radar">
           <svg
             viewBox="-62 -62 124 124"
             role="img"
-            aria-label="Mean STARS radar — {WINDOWS[averageWindow]}-day window ending at the shown day"
+            aria-label={isToday ? "Today's STARS radar" : `STARS radar for ${cursorDay}`}
           >
             <polygon class="grid" points={radarRing(4)} />
             <polygon class="grid inner" points={radarRing(2)} />
@@ -486,35 +368,91 @@
               {@const [ax, ay] = radarVertex(i, 4)}
               <line class="axis" x1="0" y1="0" x2={ax} y2={ay} />
             {/each}
-            {#if windowMean}
-              <polygon class="shape" points={reviewPoints} />
-              {#each reviewDots as d (d.key)}
+            {#if shown}
+              <polygon class="shape" points={radarPoints} />
+              {#each radarDots as d (d.key)}
                 <circle class="dot" cx={d.x} cy={d.y} r="2.6" />
               {/each}
             {/if}
           </svg>
         </div>
-        <div class="avg-row">
-          <span class="avg-line" aria-live="polite">
-            {windowMeanLine ?? "No saves in this window"}
-          </span>
-          <span class="avg-switch" role="group" aria-label="Average window">
-            {#each WINDOW_CHOICES as w (w)}
-              <button
-                class="mini chip avg-chip"
-                class:active={averageWindow === w}
-                aria-pressed={averageWindow === w}
-                title={`Mean over the last ${WINDOWS[w]} days ending at the shown day`}
-                onclick={() => setAverageWindow(w)}
-              >{w}</button>
-            {/each}
-          </span>
+        <div class="stars-controls">
+          {#each STARS_SPOKES as spoke (spoke.key)}
+            <div class="spoke-row">
+              <span class="spoke-label">{spoke.label}</span>
+              <span class="spoke-btns" role="group" aria-label="{spoke.label} 0 to 4">
+                {#each [0, 1, 2, 3, 4] as v (v)}
+                  <button
+                    class="spoke-val"
+                    class:active={shown?.[spoke.key] === v}
+                    aria-pressed={shown?.[spoke.key] === v}
+                    disabled={!isToday}
+                    onclick={() => setSpoke(spoke.key, v)}
+                  >{v}</button>
+                {/each}
+              </span>
+            </div>
+          {/each}
         </div>
-      </section>
-      <div class="review-sky">
-        <SkyField />
       </div>
-    {/if}
+      {#if chipDays.length}
+        <div class="saved-strip" aria-label="Days with a saved check-in">
+          {#each chipDays as day (day)}
+            <button
+              class="mini chip"
+              class:active={cursorDay === day}
+              aria-pressed={cursorDay === day}
+              title={day}
+              onclick={() => (cursorDay = day)}
+            >{day.slice(5)}</button>
+          {/each}
+        </div>
+      {/if}
+      <div class="avg-pills" aria-label="Average window">
+        {#each WINDOW_CHOICES as w (w)}
+          <button
+            class="mini chip avg-chip"
+            class:active={averageWindow === w}
+            aria-pressed={averageWindow === w}
+            title={`Mean over the last ${WINDOWS[w]} days ending at the shown day`}
+            onclick={() => setAverageWindow(w)}
+          >{WINDOWS[w]}</button>
+        {/each}
+        {#if windowMean}
+          {#each STARS_SPOKES as spoke, i (spoke.key)}
+            <span class="avg-pill" title="{spoke.label} mean"
+              >{SPOKE_LETTERS[i]} {windowMean[spoke.key].toFixed(1)}</span
+            >
+          {/each}
+        {:else}
+          <span class="avg-pill dim">No saves</span>
+        {/if}
+      </div>
+      <div class="stars-foot">
+        <button class="mini stars-save" disabled={!isToday} onclick={saveStarsToday}>
+          Save today
+        </button>
+        <button
+          class="mini"
+          class:active={starsState.promptsOptIn}
+          aria-pressed={starsState.promptsOptIn}
+          onclick={toggleStarsPrompts}
+          title="Companion prompts — one quiet strip when today's check-in has a thin spoke. Off by default."
+        >Prompts: {starsState.promptsOptIn ? "On" : "Off"}</button>
+        {#if isToday}
+          {#if starsSavedDay}
+            <span class="stars-note">Saved for {starsSavedDay}</span>
+          {/if}
+        {:else if cursorSaved}
+          <span class="stars-note">Saved for {cursorDay}</span>
+        {:else}
+          <span class="stars-note">No save</span>
+        {/if}
+      </div>
+    </section>
+    <div class="cloud-col" aria-label="Word cloud">
+      <SkyField />
+    </div>
   </div>
 </main>
 
@@ -537,14 +475,14 @@
     text-shadow: 0 1px 2px var(--bg-solid, transparent);
   }
 
-  /* GO-ORBITTY-HOST-SPLIT: embedded in the companion's STARS well — fill
-     the well pane (the host window owns the outer size), square corners
-     inside the companion's rounded clip. */
+  /* GO-ORBITTY-HOST-SPLIT + PLANETS-STRIP leftover: one screen. Height
+     is the stars column; Cloud stretches beside it. The host hugs this. */
   .stars.embedded {
     height: auto;
-    flex: 1;
+    flex: none;
     min-height: 0;
     border-radius: 0;
+    overflow: hidden;
   }
 
   .s-banner {
@@ -623,59 +561,35 @@
     color: var(--accent);
   }
 
-  /* Banner segment (GO-ORBITTY-RAIL-REVIEW): Check-in | Review. */
-  .seg {
-    margin-left: auto;
-    display: inline-flex;
-    gap: 2px;
-    padding: 1px;
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-  }
-
-  .seg-btn {
-    font: inherit;
-    font-size: 0.66rem;
-    padding: 2px 8px;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-
-  .seg-btn:hover {
-    color: var(--ink);
-  }
-
-  .seg-btn.active {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-  }
-
   .s-body {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
-    padding: 10px 14px 14px;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--dim) 45%, transparent) transparent;
+    overflow: hidden;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 12px 12px;
+  }
+
+  .stars.embedded .s-body {
+    flex: none;
   }
 
   /* Chunky radar (teal fill / ochre stroke, the mark's fixed colors) + five
      obvious 0–4 rows. Even polygon = calm; a thin spoke just reads short —
      never a red alarm. */
   .stars-panel {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
     border-radius: 10px;
     padding: 10px 12px 12px;
-  }
-
-  .stars-panel h2 {
-    margin: 0 0 6px;
-    font-size: 0.78rem;
-    color: var(--accent);
   }
 
   .day-nav {
@@ -707,31 +621,36 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Range average (Review only): one quiet line under the mean radar,
-     switcher as three tiny chips beside it — never a new window. */
-  .avg-row {
+  /* Average pills under the day chips — window (7/14/30) then spoke means. */
+  .avg-pills {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    flex-wrap: wrap;
-    gap: 4px 8px;
+    gap: 4px;
     margin-top: 6px;
   }
 
-  .avg-line {
-    font-size: 0.66rem;
-    color: var(--dim);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .avg-switch {
-    display: inline-flex;
-    gap: 3px;
-  }
-
   .avg-chip {
-    padding: 1px 6px;
+    padding: 1px 7px;
     font-size: 0.62rem;
+    border-radius: 999px;
+  }
+
+  .avg-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    font-size: 0.62rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+  }
+
+  .avg-pill.dim {
+    color: var(--dim);
   }
 
   .stars-radar {
@@ -741,8 +660,8 @@
   }
 
   .stars-radar svg {
-    width: 168px;
-    height: 168px;
+    width: 140px;
+    height: 140px;
     display: block;
   }
 
@@ -789,8 +708,8 @@
 
   .spoke-label {
     flex: none;
-    width: 92px;
-    font-size: 0.72rem;
+    width: 72px;
+    font-size: 0.68rem;
     color: var(--ink);
     text-align: right;
   }
@@ -883,65 +802,19 @@
     color: var(--dim);
   }
 
-  /* Review: the Cloud word field under the mean pentagon. A solid pane,
-     so the field inside opts into .orbit-field; this box only gives it
-     height inside the scrolling body. */
-  .review-sky {
+  .cloud-col {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    height: 300px;
-    margin-top: 10px;
   }
 
-  /* GO-ORBITTY-BOARD-STARS: hosted in the shared 780×520 pane — pad, don't
-     squash. The radar stays a square SVG (honest pentagon, just bigger),
-     Check-in puts the 0–4 rows beside it, Review puts the Cloud beside the
-     mean panel, and the column letterboxes inside the extra field. */
-  @media (min-width: 640px) {
-    .s-body {
-      padding: 16px 24px 20px;
-    }
-
-    .stars-panel {
-      max-width: 660px;
-      margin: 0 auto;
-      padding: 12px 18px 14px;
-    }
-
-    .checkin-grid {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 22px;
-    }
-
-    .checkin-grid .stars-radar svg {
-      width: 224px;
-      height: 224px;
-    }
-
-    .s-body.review {
-      display: flex;
-      align-items: stretch;
-      justify-content: center;
-      gap: 14px;
-    }
-
-    .s-body.review .stars-panel {
-      flex: 0 1 360px;
-      margin: 0;
-    }
-
-    .s-body.review .stars-radar svg {
-      width: 200px;
-      height: 200px;
-    }
-
-    .s-body.review .review-sky {
-      flex: 1 1 0;
-      height: auto;
-      min-height: 0;
-      margin-top: 0;
-    }
+  .checkin-grid {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-shrink: 0;
   }
 </style>

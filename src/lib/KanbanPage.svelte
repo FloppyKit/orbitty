@@ -1341,9 +1341,10 @@
      fill the well pane (the host window owns the outer size), square
      corners inside the companion's rounded clip. */
   .kanban.embedded {
-    height: auto;
+    height: 100%;
     flex: 1;
     min-height: 0;
+    overflow: hidden;
     border-radius: 0;
   }
 
