@@ -740,7 +740,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .hackled.on {
+    .hackled.on,
+    .planet-chip.live {
       animation: none;
     }
   }
@@ -822,9 +823,14 @@
 
   /* AGENT-PLANET leftover: a small glow in the planet's own color while
      its agent is writing (hackLive + that agent's projectId). Menus
-     only — habitat discs and walkers never wear this. */
+     only — habitat discs and walkers never wear this.
+     AGENT-PLANET planet-pulse leftover: the live chip breathes with the
+     exact dock-LED cadence (orbitty-hack-pulse, 1.2s) — never a static
+     glow. Only that one planet; the class (and the pulse) drops when
+     the pickup source leaves. */
   .planet-chip.live {
     box-shadow: 0 0 7px 2px var(--pglow, var(--accent));
+    animation: orbitty-hack-pulse 1.2s ease-in-out infinite;
   }
 
   .planetsrow:hover {
