@@ -686,20 +686,21 @@
 
   /* GO-ORBITTY-DOCK-HACK leftover: always-on 7px well, dock focus
      purple (#6e4db0) not theme teal. Dim when idle; glow+pulse when
-     sending or companion.hackLive. */
+     sending or companion.hackLive. 2026-09-11: live glow +40%
+     (pulse floor 0.45→0.63, shadow 7→10px; idle well 0.38→0.53). */
   .hackled {
     flex: none;
     width: 7px;
     height: 7px;
     border-radius: 50%;
     background: #6e4db0;
-    opacity: 0.38;
+    opacity: 0.53;
     box-shadow: none;
   }
 
   .hackled.on {
     opacity: 1;
-    box-shadow: 0 0 7px 1px #6e4db0;
+    box-shadow: 0 0 10px 2px #6e4db0;
     animation: orbitty-hack-pulse 1.2s ease-in-out infinite;
   }
 
@@ -709,7 +710,7 @@
       opacity: 1;
     }
     50% {
-      opacity: 0.45;
+      opacity: 0.63;
     }
   }
 
