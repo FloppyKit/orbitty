@@ -684,33 +684,42 @@
     outline: none;
   }
 
-  /* GO-ORBITTY-DOCK-HACK leftover: always-on 7px well, dock focus
-     purple (#6e4db0) not theme teal. Dim when idle; glow+pulse when
-     sending or companion.hackLive. 2026-09-11: live glow +40%
-     (pulse floor 0.45→0.63, shadow 7→10px; idle well 0.38→0.53). */
+  /* GO-ORBITTY-DOCK-HACK leftover: always-on well, dock-focus purple.
+     Idle = unlit fixture. Live = bright core + bloom (Matt 2026-09-11:
+     7px +40% glow was invisible — crank the lamp, keep the hue). */
   .hackled {
     flex: none;
-    width: 7px;
-    height: 7px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     background: #6e4db0;
-    opacity: 0.53;
+    opacity: 0.55;
     box-shadow: none;
   }
 
   .hackled.on {
     opacity: 1;
-    box-shadow: 0 0 10px 2px #6e4db0;
+    background: #efe7ff;
+    box-shadow:
+      0 0 4px 1px #fff,
+      0 0 10px 3px #c4a8f0,
+      0 0 22px 8px #6e4db0;
     animation: orbitty-hack-pulse 1.2s ease-in-out infinite;
   }
 
   @keyframes orbitty-hack-pulse {
     0%,
     100% {
-      opacity: 1;
+      box-shadow:
+        0 0 4px 1px #fff,
+        0 0 10px 3px #c4a8f0,
+        0 0 22px 8px #6e4db0;
     }
     50% {
-      opacity: 0.63;
+      box-shadow:
+        0 0 6px 2px #fff,
+        0 0 14px 5px #d4c0f8,
+        0 0 28px 10px #6e4db0;
     }
   }
 
