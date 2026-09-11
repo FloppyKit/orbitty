@@ -31,7 +31,7 @@ commands:
   companion play -- <clip>         idle · think · nod · look-left · look-right
   companion mode -- spark|chat|work|hold
   companion note [--mode spark|chat|work|hold] -- \"line\"
-  companion hack -- on|off [--who cursor]
+  companion hack -- on|off [--who cursor] [--project P]
   kanban open
   kanban add --title \"t\" [--project P] [--status todo|doing]
   kanban move --id <id> --status todo|doing|done
@@ -83,8 +83,9 @@ GO-ORBITTY-AGENT-PLANET: agent add mints a row (--harness required —
 cursor|goose|grok|hermes, never a silent default), agent pin sets its
 planet, kanban assign writes the card's assignedAgentId (empty --agent
 unassigns), and agent pickup moves the oldest assigned todo to doing and
-launches the row's harness with that title (cursor also lights the dock
-LED). agent list is read-safe; the rest are writes (full / named custom).
+launches the row's harness with that title (every harness lights the dock
+LED while the run is live). agent list is read-safe; the rest are writes
+(full / named custom).
 
 exit codes: 0 ok · 2 Orbitty not running · 3 auth · 4 denied · 5 AX · 1 other";
 
@@ -311,6 +312,8 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         // GO-ORBITTY-DOCK-HACK: the dock LED flag. Fail CLOSED on an
         // unknown verb — a typo never leaves a stuck light. `--who` may
         // ride either side of `--` (after it, it's tail text we parse).
+        // AGENT-PLANET leftover: `--project` rides the same way — the
+        // live agent's pinned planet, for the dest/planet menu glow.
         ["companion", "hack", ..] => {
             let p = payload(o)?;
             let mut toks = p.split_whitespace();
@@ -320,6 +323,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                 other => return Err(format!("unknown hack state {other:?} — on | off")),
             };
             let mut who = opt(&o.who);
+            let mut project = opt(&o.project);
             let mut rest = toks;
             while let Some(t) = rest.next() {
                 if t == "--who" {
@@ -329,11 +333,21 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                         .filter(|s| !s.is_empty());
                 } else if let Some(v) = t.strip_prefix("--who=") {
                     who = Some(v.trim().to_string()).filter(|s| !s.is_empty());
+                } else if t == "--project" {
+                    project = rest
+                        .next()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty());
+                } else if let Some(v) = t.strip_prefix("--project=") {
+                    project = Some(v.trim().to_string()).filter(|s| !s.is_empty());
                 }
             }
             let mut a = json!({ "live": live });
             if let Some(w) = who {
                 a["who"] = json!(w);
+            }
+            if let Some(p) = project {
+                a["projectId"] = json!(p);
             }
             Ok(("companion.hack", a))
         }

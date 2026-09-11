@@ -371,6 +371,11 @@ pub struct CompanionState {
     /// GO-ORBITTY-DOCK-HACK: names the live source for the LED title
     /// ("cursor", "goose", …). "" = unknown; cleared on off.
     pub hack_who: String,
+    /// GO-ORBITTY-AGENT-PLANET leftover: the live agent's pinned planet
+    /// (pickup writes it) — the dest/planet menus glow that one planet
+    /// while the run is live. None = no pin / not a pickup; cleared on
+    /// off. Never a transcript.
+    pub hack_project_id: Option<String>,
 }
 
 /// S2.4: one saved companion turn. role: "you" | "them".
@@ -509,6 +514,7 @@ impl Default for CompanionState {
             threads: std::collections::BTreeMap::new(),
             hack_live: false,
             hack_who: String::new(),
+            hack_project_id: None,
         }
     }
 }

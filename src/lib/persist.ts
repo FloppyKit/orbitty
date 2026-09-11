@@ -187,6 +187,10 @@ export interface CompanionSlice {
   // live source for the LED title. A flag, never a transcript.
   hackLive?: boolean;
   hackWho?: string;
+  // GO-ORBITTY-AGENT-PLANET leftover: the live agent's pinned planet
+  // (pickup writes it) — the dest/planet menus glow that one planet
+  // while hackLive is on. null/undefined = no pin; cleared on off.
+  hackProjectId?: string | null;
 }
 
 export interface StarsCheckin {

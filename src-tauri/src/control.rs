@@ -419,6 +419,8 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         // GO-ORBITTY-DOCK-HACK: the dock LED flag — companion.* ACL like
         // play/send. `live` must be a real bool (fail closed); `who` is
         // an optional source label ("cursor", "goose", …) for the title.
+        // AGENT-PLANET leftover: optional `projectId` — the live agent's
+        // pinned planet, so the dest/planet menus glow it while live.
         "companion.hack" => {
             let live = args
                 .get("live")
@@ -426,9 +428,14 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .ok_or_else(|| {
                     (ERR_OTHER, "companion.hack: need bool arg \"live\"".to_string())
                 })?;
-            crate::coordinator::set_companion_hack(app.clone(), live, arg_opt(args, "who"))
-                .map(to_data)
-                .map_err(tool_err)
+            crate::coordinator::set_companion_hack(
+                app.clone(),
+                live,
+                arg_opt(args, "who"),
+                arg_opt(args, "projectId"),
+            )
+            .map(to_data)
+            .map_err(tool_err)
         }
         "packs.list" => crate::packs::list_packs(app.clone())
             .map(to_data)

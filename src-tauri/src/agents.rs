@@ -254,9 +254,13 @@ pub fn kanban_assign(app: &tauri::AppHandle, card_id: &str, agent: &str) -> Resu
 /// `agent.pickup` — ONE card: the oldest `kind=todo` / `status=todo` with
 /// this agent's `assignedAgentId` (and the pinned planet, when the row has
 /// one). The card moves `doing` through the board's own door, then the
-/// row's harness launches with `titles = [card.title]`. Harness `cursor`
-/// also lights the dock LED (`companion hack -- on --who cursor`). No
-/// matching card = honest empty, no spawn. Logs `agent-pickup`.
+/// row's harness launches with `titles = [card.title]`.
+/// GO-ORBITTY-AGENT-PLANET leftover (dock LED): EVERY harness lights the
+/// dock LED — `companion hack -- on --who <harness>` (+ the pinned planet
+/// for the menu glow) lands BEFORE the harness is up, the same door as
+/// cursor-go; the launcher owns off-on-exit (coordinator's doors), and a
+/// failed launch turns it back off here. No matching card = honest empty,
+/// no hack on, no spawn. Logs `agent-pickup`.
 pub fn agent_pickup(app: &tauri::AppHandle, id: Option<&str>, name: Option<&str>) -> Result<Value, String> {
     let before = crate::state::load_state(app)?;
     let agent = if let Some(id) = id {
@@ -311,17 +315,31 @@ pub fn agent_pickup(app: &tauri::AppHandle, id: Option<&str>, name: Option<&str>
         .iter()
         .find(|p| p.id == card.project_id)
         .map(|p| p.name.clone());
-    let launch = crate::coordinator::launch_agent(
+    // GO-ORBITTY-AGENT-PLANET leftover (dock LED): light the dock BEFORE
+    // the harness is up — every harness (cursor | goose | grok | hermes),
+    // the same door as cursor-go. The pinned planet rides along so the
+    // dest/planet menus glow it while the run is live. Off lands with the
+    // harness exit (the launcher's own hook — coordinator's doors); a
+    // failed launch turns it straight back off so a bad bin never leaves
+    // a stuck on-light.
+    crate::coordinator::set_companion_hack(
+        app.clone(),
+        true,
+        Some(agent.harness.clone()),
+        agent.project_id.clone(),
+    )?;
+    let launch = match crate::coordinator::launch_agent(
         app.clone(),
         agent.clone(),
         project_name,
         vec![card.title.clone()],
-    )?;
-    // GO-ORBITTY-DOCK-HACK: cursor lights the dock LED through the same
-    // door as cursor-go.
-    if agent.harness == "cursor" {
-        crate::coordinator::set_companion_hack(app.clone(), true, Some("cursor".into()))?;
-    }
+    ) {
+        Ok(l) => l,
+        Err(e) => {
+            let _ = crate::coordinator::set_companion_hack(app.clone(), false, None, None);
+            return Err(e);
+        }
+    };
     crate::event_log::append_best(
         app,
         "agent-pickup",

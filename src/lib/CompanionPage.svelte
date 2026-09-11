@@ -191,8 +191,11 @@
   // sets companion.hackLive (+ optional hackWho) via
   // `orbittyctl companion hack -- on [--who cursor]`; the dock lights the
   // LED when this OR `sending` is true. Persisted flag, not a transcript.
+  // AGENT-PLANET leftover: hackProjectId is the live agent's pinned
+  // planet — the dock's planet menu glows that one planet while live.
   let hackLive = $state(false);
   let hackWho = $state("");
+  let hackProjectId = $state<string | null>(null);
   // The Body picker lives in Settings → Appearance (Companion body); this
   // window only follows the persisted pack (state:changed → loadState).
   let bodyId = $state("spirit");
@@ -1089,6 +1092,7 @@
       // DOCK-HACK: missing keys (old saves) = dark LED, unknown source.
       hackLive = s.companion?.hackLive ?? false;
       hackWho = s.companion?.hackWho ?? "";
+      hackProjectId = s.companion?.hackProjectId ?? null;
       const pack = s.companion?.imagePackId ?? null;
       const nextBody = pack && pack.length > 0 ? pack : "spirit";
       if (nextBody !== bodyId) {
@@ -1640,6 +1644,7 @@
     {sending}
     {hackLive}
     {hackWho}
+    {hackProjectId}
     {prompts}
     {hosted}
     {speak}

@@ -167,6 +167,13 @@
     imagePackId: null,
     state: "idle",
   });
+  // GO-ORBITTY-AGENT-PLANET leftover: the planet an agent is writing on
+  // (companion.hackLive + that agent's pinned projectId) glows a little
+  // in the planet menus — the On planets sheet heads only, never the
+  // habitat discs, never the walkers.
+  const hackProjectId = $derived(
+    companionState?.hackLive ? (companionState?.hackProjectId ?? null) : null,
+  );
 
   // GO-LS-STARS-STATUS / S1.1: the STARS window owns check-ins (Save today)
   // and the Prompts toggle; the companion rides promptsOptIn/promptsAck
@@ -2519,7 +2526,8 @@
                 <span class="chev" class:open={sheetIsOpen(p.id)} aria-hidden="true">▸</span>
                 <span
                   class="planet-chip"
-                  style="background: {planetCss(p.id)}"
+                  class:live={hackProjectId === p.id}
+                  style="background: {planetCss(p.id)}; --pglow: {planetCss(p.id)}"
                   title={p.name}
                   aria-hidden="true"
                 ></span>
@@ -3684,6 +3692,15 @@
     height: 11px;
     border-radius: 50%;
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+
+  /* GO-ORBITTY-AGENT-PLANET leftover: a small glow in the planet's own
+     color while its agent is writing (hackLive + projectId). The inset
+     ring stays; menus only — never the habitat discs. */
+  .planet-chip.live {
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+      0 0 8px 2px var(--pglow, var(--accent));
   }
 
   .section-count {

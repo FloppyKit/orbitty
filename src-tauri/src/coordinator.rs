@@ -812,11 +812,15 @@ pub fn companion_note(
 /// clears the who. Persisted on the companion slice (a flag, never a
 /// transcript); state:changed re-paints the dock. Off when every source
 /// is idle — a stuck on-light is a leftover, not a feature.
+/// GO-ORBITTY-AGENT-PLANET leftover: `project_id` is the live agent's
+/// pinned planet (pickup passes it) so the dest/planet menus glow that
+/// one planet; cleared on off like the who.
 #[tauri::command]
 pub fn set_companion_hack(
     app: tauri::AppHandle,
     live: bool,
     who: Option<String>,
+    project_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let mut st = crate::state::load_state(&app)?;
     st.companion.hack_live = live;
@@ -827,11 +831,19 @@ pub fn set_companion_hack(
     } else {
         String::new()
     };
+    st.companion.hack_project_id = if live {
+        project_id
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+    } else {
+        None
+    };
     crate::state::save_state(&app, &st)?;
     let _ = app.emit("state:changed", ());
     Ok(serde_json::json!({
         "live": st.companion.hack_live,
         "who": st.companion.hack_who,
+        "projectId": st.companion.hack_project_id,
     }))
 }
 
@@ -2251,11 +2263,20 @@ fn write_agent_query(
 /// GO-ORBITTY-AGENT-PLANET: the visible-harness door shared by cursor /
 /// goose / grok — a `.command` launcher next to the query file (loads it
 /// into `$prompt`), opened as a fresh Terminal window. `exec_line` is the
-/// harness's own exec line.
+/// harness's own command line — run as a CHILD, never `exec`: exec would
+/// replace the shell and skip the EXIT trap.
+/// GO-ORBITTY-AGENT-PLANET leftover (dock LED): the trap turns the dock
+/// LED off when the harness exits (the same idea as writer-done-needed —
+/// a stuck on-light is a leftover, not a feature); HUP (Terminal window
+/// closed) exits through the same trap. Silent + best-effort: a missing
+/// ctl never noises up the harness session.
 fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
     let script = query.with_extension("command");
+    let ctl = std::env::var("HOME")
+        .map(|h| format!("{h}/.local/bin/orbittyctl"))
+        .unwrap_or_else(|_| "orbittyctl".into());
     let body = format!(
-        "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\n{exec_line}\n",
+        "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\ntrap 'exit' HUP\ntrap '\"{ctl}\" companion hack -- off >/dev/null 2>&1 || true' EXIT\n{exec_line}\n",
         q = query.display(),
     );
     std::fs::write(&script, &body)
@@ -2279,7 +2300,9 @@ fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
 /// writes the query file and hands off — it never runs the model.
 /// GO-ORBITTY-AGENT-PLANET: the harness is per row (cursor | goose | grok
 /// | hermes) with a named door each — an unknown harness is an honest
-/// error, never a silent hermes dump.
+/// error, never a silent hermes dump. Each door also owns the dock LED
+/// off for the run it launched (pickup lit it): the Terminal `.command`
+/// traps EXIT, the hermes door waits on the child.
 #[tauri::command]
 pub fn launch_agent(
     app: tauri::AppHandle,
@@ -2303,6 +2326,7 @@ pub fn launch_agent(
             };
             // cursor-agent's chat is a TTY TUI: open it in Terminal via a
             // .command launcher with the query file as the initial prompt.
+            // No `exec` — the launcher's EXIT trap owns the LED off.
             let model_arg = shortcut
                 .model
                 .as_deref()
@@ -2312,7 +2336,7 @@ pub fn launch_agent(
                 .unwrap_or_default();
             open_agent_terminal(
                 &query,
-                &format!("exec \"{}\"{model_arg} \"$prompt\"", bin.display()),
+                &format!("\"{}\"{model_arg} \"$prompt\"", bin.display()),
             )?;
             Ok(format!(
                 "Opened cursor-agent in Terminal. Query: {}.{skip_note}",
@@ -2333,7 +2357,7 @@ pub fn launch_agent(
             open_agent_terminal(
                 &query,
                 &format!(
-                    "exec \"{}\" run --with-builtin=developer,computercontroller -t \"$prompt\"",
+                    "\"{}\" run --with-builtin=developer,computercontroller -t \"$prompt\"",
                     bin.display()
                 ),
             )?;
@@ -2349,13 +2373,18 @@ pub fn launch_agent(
                         .to_string(),
                 );
             };
-            open_agent_terminal(&query, &format!("exec \"{}\" -p \"$prompt\"", bin.display()))?;
+            open_agent_terminal(&query, &format!("\"{}\" -p \"$prompt\"", bin.display()))?;
             Ok(format!(
                 "Opened grok in Terminal. Query: {}.{skip_note}",
                 query.display()
             ))
         }
         // Hermes door: hermes -p <profile> chat with the query file.
+        // GO-ORBITTY-AGENT-PLANET leftover (dock LED): no Terminal
+        // launcher here, so a waiter thread owns the off — the dock LED
+        // goes dark when the hermes process exits (the Terminal doors do
+        // it through the .command EXIT trap). Detached stdio, never a
+        // poll.
         "hermes" => {
             let profile = {
                 let p = shortcut.profile.trim();
@@ -2374,17 +2403,28 @@ pub fn launch_agent(
                 args.push("-m".into());
                 args.push(m.to_string());
             }
-            let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            if spawn_detached("hermes", &arg_refs) {
-                Ok(format!(
-                    "Launched hermes -p {profile} chat. Query: {}.{skip_note}",
-                    query.display()
-                ))
-            } else {
-                Err(format!(
+            let spawned = Command::new("hermes")
+                .args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
+            match spawned {
+                Ok(mut child) => {
+                    let app2 = app.clone();
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                        let _ = set_companion_hack(app2, false, None, None);
+                    });
+                    Ok(format!(
+                        "Launched hermes -p {profile} chat. Query: {}.{skip_note}",
+                        query.display()
+                    ))
+                }
+                Err(_) => Err(format!(
                     "`hermes` not on PATH. Query file ready: {}",
                     query.display()
-                ))
+                )),
             }
         }
         other => Err(format!(

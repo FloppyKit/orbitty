@@ -31,6 +31,8 @@
   const HACK_WHO_TITLES: Record<string, string> = {
     cursor: "Cursor leftover",
     goose: "Goose",
+    grok: "Grok",
+    hermes: "Hermes",
     spark: "Spark mouth",
   };
 
@@ -42,6 +44,7 @@
     sending,
     hackLive,
     hackWho,
+    hackProjectId = null,
     prompts,
     hosted,
     speak,
@@ -78,6 +81,9 @@
     sending: boolean;
     hackLive: boolean;
     hackWho: string;
+    // AGENT-PLANET leftover: the live agent's pinned planet — the planet
+    // menu below glows that one planet while the run is live.
+    hackProjectId?: string | null;
     prompts: boolean;
     hosted: HostMode;
     speak: boolean;
@@ -366,9 +372,13 @@
                   onclick={() => onPlanetClick(p.id)}
                   ondblclick={() => onPlanetDblClick(p.id)}
                 >
+                  <!-- AGENT-PLANET leftover: the planet an agent is
+                       writing on glows a little (its own color); every
+                       other planet stays idle. -->
                   <span
                     class="planet-chip"
-                    style="background: {planetCss(p.id)}"
+                    class:live={hackLive && hackProjectId === p.id}
+                    style="background: {planetCss(p.id)}; --pglow: {planetCss(p.id)}"
                     aria-hidden="true"
                   ></span>
                   {p.name}
@@ -792,6 +802,13 @@
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
+  }
+
+  /* AGENT-PLANET leftover: a small glow in the planet's own color while
+     its agent is writing (hackLive + that agent's projectId). Menus
+     only — habitat discs and walkers never wear this. */
+  .planet-chip.live {
+    box-shadow: 0 0 7px 2px var(--pglow, var(--accent));
   }
 
   .planetsrow:hover {
