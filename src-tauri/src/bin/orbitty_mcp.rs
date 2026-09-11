@@ -12,6 +12,9 @@
 //! ACL (writes: full / named custom only).
 //! GO-ORBITTY-PROJECT-ADD lists the planet control plane (project.add /
 //! project.rm / project.rename) next to the kanban writes — same ACL.
+//! GO-ORBITTY-AGENT-PLANET lists the agent roster (agent.list / agent.add /
+//! agent.rm / agent.pin / agent.pickup) plus kanban.assign — agent.list is
+//! read-safe, the rest are writes (full / named custom only).
 
 #[cfg(unix)]
 mod imp {
@@ -29,9 +32,10 @@ struct ToolDef {
     name: &'static str,
     description: &'static str,
     /// "none" | "id" | "line" | "profile" | "clip" | "kanban_add" |
-    /// "kanban_move" | "needed_open" | "log_append" | "action_add" |
-    /// "action_run" | "action_rm" | "project_add" | "project_rm" |
-    /// "project_rename"
+    /// "kanban_move" | "kanban_assign" | "needed_open" | "log_append" |
+    /// "action_add" | "action_run" | "action_rm" | "project_add" |
+    /// "project_rm" | "project_rename" | "agent_add" | "agent_pin" |
+    /// "agent_pickup"
     args: &'static str,
 }
 
@@ -72,6 +76,16 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "action.add", description: "Mint an action shortcut: a named /bin/zsh -lc recipe with an optional global combo like cmd+alt+m", args: "action_add" },
     ToolDef { name: "action.run", description: "Run an action by id or name (the logged 120s /bin/zsh -lc door; output clipped)", args: "action_run" },
     ToolDef { name: "action.rm", description: "Remove an action by id (full / named custom ACL only)", args: "action_rm" },
+    // GO-ORBITTY-AGENT-PLANET: the agent roster + assignment. agent.list
+    // is read-safe; add / rm / pin / pickup / kanban.assign are writes
+    // (full / named custom only). The harness is per row, required on
+    // add — unknown harness errors honestly, never a silent hermes.
+    ToolDef { name: "agent.list", description: "List agent rows (id, name, harness, profile, model, md paths, extra, pinned planet)", args: "none" },
+    ToolDef { name: "agent.add", description: "Mint an agent row: name + harness (cursor|goose|grok|hermes, required) with optional profile / model / mdPaths / extra / projectId pin", args: "agent_add" },
+    ToolDef { name: "agent.rm", description: "Remove an agent row by id; cards keep their assignedAgentId (project.rm law)", args: "id" },
+    ToolDef { name: "agent.pin", description: "Pin an agent row to a planet (project id or unique planet name)", args: "agent_pin" },
+    ToolDef { name: "agent.pickup", description: "Pick the oldest assigned open Todo (the row's planet when pinned), move it doing, and launch the row's harness with the card title; no match = honest empty, no spawn", args: "agent_pickup" },
+    ToolDef { name: "kanban.assign", description: "Assign a card to an agent row (agent id or unique name); empty agent unassigns", args: "kanban_assign" },
 ];
 
 fn known_tool(name: &str) -> bool {
@@ -82,7 +96,7 @@ fn input_schema(kind: &str) -> Value {
     match kind {
         "id" => json!({
             "type": "object",
-            "properties": { "id": { "type": "string", "description": "Window or sleeper id" } },
+            "properties": { "id": { "type": "string", "description": "Row id (window, sleeper, action, agent, …)" } },
             "required": ["id"]
         }),
         "line" => json!({
@@ -193,6 +207,51 @@ fn input_schema(kind: &str) -> Value {
                 "name": { "type": "string", "description": "New planet name (empty refused)" }
             },
             "required": ["id", "name"]
+        }),
+        // GO-ORBITTY-AGENT-PLANET schemas.
+        "agent_add" => json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Agent name (empty refused)" },
+                "harness": {
+                    "type": "string",
+                    "enum": ["cursor", "goose", "grok", "hermes"],
+                    "description": "Launch door on the row — required, never a product default"
+                },
+                "profile": { "type": "string", "description": "Harness profile (session tweak on the row)" },
+                "model": { "type": "string", "description": "Model override (session tweak)" },
+                "mdPaths": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Readable .md files concatenated into the pickup query"
+                },
+                "extra": { "type": "string", "description": "Free-text extra instructions, concatenated into the pickup query after the md paths" },
+                "projectId": { "type": "string", "description": "Planet pin: project id or unique planet name (e.g. orbitty); omitted = unpinned" }
+            },
+            "required": ["name", "harness"]
+        }),
+        "agent_pin" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Agent id (unknown id errors)" },
+                "projectId": { "type": "string", "description": "Project id or unique planet name" }
+            },
+            "required": ["id", "projectId"]
+        }),
+        "agent_pickup" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Agent id" },
+                "name": { "type": "string", "description": "Agent name (exact; unique case-insensitive fallback)" }
+            }
+        }),
+        "kanban_assign" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "agent": { "type": "string", "description": "Agent id or unique name; empty string unassigns" }
+            },
+            "required": ["id", "agent"]
         }),
         _ => json!({ "type": "object", "properties": {} }),
     }

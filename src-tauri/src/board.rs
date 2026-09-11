@@ -98,7 +98,13 @@ fn check_project(state: &PersistedState, project_id: &str) -> Result<(), String>
 /// as a trim / case-insensitive display name (`fkt`, `orbitty`,
 /// `practice_desk`) and must match exactly one planet. Unknown or
 /// ambiguous = honest error, no mint. Returns the id to store.
-fn resolve_project(state: &PersistedState, project_id: &str) -> Result<String, String> {
+/// GO-ORBITTY-AGENT-PLANET: shared with agent.add / agent.pin — `who`
+/// labels the honest error with the calling tool.
+pub(crate) fn resolve_project(
+    state: &PersistedState,
+    project_id: &str,
+    who: &str,
+) -> Result<String, String> {
     let raw = project_id.trim();
     if raw.is_empty() {
         return Ok(String::new());
@@ -113,11 +119,11 @@ fn resolve_project(state: &PersistedState, project_id: &str) -> Result<String, S
         .collect();
     match named.len() {
         0 => Err(format!(
-            "kanban.add: unknown project {raw:?} (need a project id or a unique planet name)"
+            "{who}: unknown project {raw:?} (need a project id or a unique planet name)"
         )),
         1 => Ok(named[0].id.clone()),
         n => Err(format!(
-            "kanban.add: ambiguous project name {raw:?} — {n} planets match; use the id"
+            "{who}: ambiguous project name {raw:?} — {n} planets match; use the id"
         )),
     }
 }
@@ -146,7 +152,7 @@ pub fn kanban_add(
         }
     };
     let before = crate::state::load_state(app)?;
-    let project_id = resolve_project(&before, project_id)?;
+    let project_id = resolve_project(&before, project_id, "kanban.add")?;
     let now = now_secs();
     let card = KanbanCard {
         id: new_id("c"),
@@ -171,6 +177,7 @@ pub fn kanban_add(
         needed_why: None,
         needed_answer: None,
         actor: Some("agent".into()),
+        assigned_agent_id: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
@@ -437,6 +444,7 @@ pub fn needed_open(
             .map(str::to_string),
         needed_answer: None,
         actor: Some("agent".into()),
+        assigned_agent_id: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());

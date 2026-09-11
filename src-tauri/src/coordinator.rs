@@ -2186,8 +2186,11 @@ fn find_on_path(bin: &str) -> Option<PathBuf> {
 }
 
 /// Query file = concatenated readable .md paths (missing ones skipped) +
-/// titles-only planet context when the shortcut is attached to a project.
-/// Overwritten each launch, same honesty rules as the project context file.
+/// the row's free-text `extra` (GO-ORBITTY-AGENT-PLANET) + titles-only
+/// planet context when the shortcut is attached to a project OR the caller
+/// handed titles over (pickup's one assigned todo — a passed title is
+/// never silently dropped). Overwritten each launch, same honesty rules
+/// as the project context file.
 fn write_agent_query(
     app: &tauri::AppHandle,
     shortcut: &crate::state::AgentShortcut,
@@ -2218,7 +2221,17 @@ fn write_agent_query(
             Err(_) => skipped += 1,
         }
     }
-    if shortcut.project_id.is_some() {
+    // GO-ORBITTY-AGENT-PLANET: the row's extra instructions ride the same
+    // query file — after the md paths, before the todo/planet block.
+    if let Some(extra) = shortcut
+        .extra
+        .as_deref()
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+    {
+        body.push_str(&format!("\n\n## Extra instructions\n\n{extra}\n"));
+    }
+    if shortcut.project_id.is_some() || !titles.is_empty() {
         let name = project_name.unwrap_or("Planet");
         body.push_str(&format!(
             "\n\n## Planet context — {name} (titles only, no file contents)\n"
@@ -2235,8 +2248,38 @@ fn write_agent_query(
     Ok((path, skipped))
 }
 
+/// GO-ORBITTY-AGENT-PLANET: the visible-harness door shared by cursor /
+/// goose / grok — a `.command` launcher next to the query file (loads it
+/// into `$prompt`), opened as a fresh Terminal window. `exec_line` is the
+/// harness's own exec line.
+fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
+    let script = query.with_extension("command");
+    let body = format!(
+        "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\n{exec_line}\n",
+        q = query.display(),
+    );
+    std::fs::write(&script, &body)
+        .map_err(|e| format!("write {}: {e}", script.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
+    }
+    if spawn_detached("open", &[script.to_string_lossy().as_ref()]) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Couldn't open Terminal launcher. Query file ready: {}",
+            query.display()
+        ))
+    }
+}
+
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
 /// writes the query file and hands off — it never runs the model.
+/// GO-ORBITTY-AGENT-PLANET: the harness is per row (cursor | goose | grok
+/// | hermes) with a named door each — an unknown harness is an honest
+/// error, never a silent hermes dump.
 #[tauri::command]
 pub fn launch_agent(
     app: tauri::AppHandle,
@@ -2250,17 +2293,16 @@ pub fn launch_agent(
     } else {
         String::new()
     };
-    match shortcut.harness.as_str() {
+    match shortcut.harness.trim().to_ascii_lowercase().as_str() {
         "cursor" => {
             let Some(bin) = find_on_path("cursor-agent") else {
                 return Err(
-                    "cursor-agent not on PATH — install the Cursor CLI or pick hermes."
+                    "cursor-agent not on PATH — install the Cursor CLI or pick another harness."
                         .to_string(),
                 );
             };
             // cursor-agent's chat is a TTY TUI: open it in Terminal via a
             // .command launcher with the query file as the initial prompt.
-            let script = query.with_extension("command");
             let model_arg = shortcut
                 .model
                 .as_deref()
@@ -2268,32 +2310,53 @@ pub fn launch_agent(
                 .filter(|m| !m.is_empty())
                 .map(|m| format!(" --model \"{}\"", m.replace('"', "")))
                 .unwrap_or_default();
-            let body = format!(
-                "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\nexec \"{bin}\"{model_arg} \"$prompt\"\n",
-                q = query.display(),
-                bin = bin.display(),
-            );
-            std::fs::write(&script, &body)
-                .map_err(|e| format!("write {}: {e}", script.display()))?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
-            }
-            if spawn_detached("open", &[script.to_string_lossy().as_ref()]) {
-                Ok(format!(
-                    "Opened cursor-agent in Terminal. Query: {}.{skip_note}",
-                    query.display()
-                ))
-            } else {
-                Err(format!(
-                    "Couldn't open Terminal launcher. Query file ready: {}",
-                    query.display()
-                ))
-            }
+            open_agent_terminal(
+                &query,
+                &format!("exec \"{}\"{model_arg} \"$prompt\"", bin.display()),
+            )?;
+            Ok(format!(
+                "Opened cursor-agent in Terminal. Query: {}.{skip_note}",
+                query.display()
+            ))
         }
-        // Default harness: hermes -p <profile> chat with the query file.
-        _ => {
+        // GO-ORBITTY-AGENT-PLANET: goose and grok are named doors with the
+        // same visible Terminal handoff as cursor — never a silent hermes.
+        "goose" => {
+            let Some(bin) = find_on_path("goose") else {
+                return Err(
+                    "`goose` not on PATH — install the Goose CLI or pick another harness."
+                        .to_string(),
+                );
+            };
+            // Same full-tools builtin set as the companion goose mouth
+            // (BLOCK-MH-4): the agent can act, not just talk.
+            open_agent_terminal(
+                &query,
+                &format!(
+                    "exec \"{}\" run --with-builtin=developer,computercontroller -t \"$prompt\"",
+                    bin.display()
+                ),
+            )?;
+            Ok(format!(
+                "Opened goose run in Terminal. Query: {}.{skip_note}",
+                query.display()
+            ))
+        }
+        "grok" => {
+            let Some(bin) = find_grok() else {
+                return Err(
+                    "`grok` not on PATH — install the Grok CLI or pick another harness."
+                        .to_string(),
+                );
+            };
+            open_agent_terminal(&query, &format!("exec \"{}\" -p \"$prompt\"", bin.display()))?;
+            Ok(format!(
+                "Opened grok in Terminal. Query: {}.{skip_note}",
+                query.display()
+            ))
+        }
+        // Hermes door: hermes -p <profile> chat with the query file.
+        "hermes" => {
             let profile = {
                 let p = shortcut.profile.trim();
                 if p.is_empty() { "grok" } else { p }
@@ -2324,6 +2387,9 @@ pub fn launch_agent(
                 ))
             }
         }
+        other => Err(format!(
+            "unknown harness {other:?} — cursor | goose | grok | hermes (set per agent row; never a silent hermes)"
+        )),
     }
 }
 

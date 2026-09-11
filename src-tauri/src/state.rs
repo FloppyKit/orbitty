@@ -21,7 +21,8 @@
 //! (default false; legacy `showFullTitles` is ignored — old saves load with
 //! titles visible, one line) and the user-authored shortcut lanes:
 //! `actionShortcuts: [{id,name,command,cwd?,combo?}]`,
-//! `agentShortcuts: [{id,name,harness,profile,model?,mdPaths[],projectId?}]`.
+//! `agentShortcuts: [{id,name,harness,profile,model?,mdPaths[],projectId?,
+//! extra?}]`.
 //! S4.4 adds the Habitica-thin detail fields on cards (all optional, all
 //! additive — old saves load, and the rail's saves must not strip them).
 //! Polish slice adds `titleOverrides: [{windowId,title}]` — display-only
@@ -63,6 +64,10 @@
 //! on the Full/Head button hides the companion sprite while chat stays.
 //! One key for collapsed, expanded, and hosted; a missing key (old saves)
 //! loads true.
+//! GO-ORBITTY-AGENT-PLANET adds `agentShortcuts[].extra` (free-text
+//! pickup instructions) and `kanbanCards[].assignedAgentId` (the agent row
+//! a Todo is assigned to) — both optional, both additive; old saves load,
+//! and a removed agent row leaves the id on its cards (project.rm law).
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -538,7 +543,8 @@ pub struct ActionShortcut {
 pub struct AgentShortcut {
     pub id: String,
     pub name: String,
-    /// "hermes" now; "cursor" when cursor-agent is on PATH.
+    /// "cursor" | "goose" | "grok" | "hermes" — per row, picked on
+    /// `agent add` (GO-ORBITTY-AGENT-PLANET; never a product-wide default).
     pub harness: String,
     pub profile: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -547,6 +553,10 @@ pub struct AgentShortcut {
     pub md_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    /// GO-ORBITTY-AGENT-PLANET: free-text extra instructions — pickup
+    /// concatenates them into the query file after the md paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -677,6 +687,12 @@ pub struct KanbanCard {
     // reads missing as "user" (pre-actor history was human).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actor: Option<String>,
+    // GO-ORBITTY-AGENT-PLANET: the agentShortcuts row this Todo is assigned
+    // to. Additive — missing on pre-assign saves; `kanban assign` writes it
+    // (empty agent unassigns); `agent rm` leaves the id on the card, same
+    // as project rm keeping cards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assigned_agent_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -35,6 +35,13 @@ commands:
   kanban open
   kanban add --title \"t\" [--project P] [--status todo|doing]
   kanban move --id <id> --status todo|doing|done
+  kanban assign --id <card> --agent <agent>   empty --agent \"\" unassigns
+  agent list
+  agent add --name N --harness cursor|goose|grok|hermes [--profile P]
+            [--model M] [--md PATH]... [--extra TEXT] [--project P]
+  agent rm --id <id>
+  agent pin --id <id> --project P
+  agent pickup --id <id> | --name <name>
   project add --name N
   project rm --id <id>
   project rename --id <id> --name <new>
@@ -72,6 +79,13 @@ shell); action rm needs full or a custom entry naming it (or \"action.*\").
 Combos register globally on persist; reserved (cmd+shift+o, cmd+space) or
 taken chords show [conflict] in action list.
 
+GO-ORBITTY-AGENT-PLANET: agent add mints a row (--harness required —
+cursor|goose|grok|hermes, never a silent default), agent pin sets its
+planet, kanban assign writes the card's assignedAgentId (empty --agent
+unassigns), and agent pickup moves the oldest assigned todo to doing and
+launches the row's harness with that title (cursor also lights the dock
+LED). agent list is read-safe; the rest are writes (full / named custom).
+
 exit codes: 0 ok · 2 Orbitty not running · 3 auth · 4 denied · 5 AX · 1 other";
 
 struct Opts {
@@ -91,6 +105,13 @@ struct Opts {
     combo: Option<String>,
     mode: Option<String>,
     who: Option<String>,
+    // GO-ORBITTY-AGENT-PLANET: agent roster flags. `md` is repeatable.
+    harness: Option<String>,
+    profile: Option<String>,
+    model: Option<String>,
+    md: Vec<String>,
+    extra: Option<String>,
+    agent: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
 }
@@ -113,6 +134,12 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         combo: None,
         mode: None,
         who: None,
+        harness: None,
+        profile: None,
+        model: None,
+        md: Vec::new(),
+        extra: None,
+        agent: None,
         words: Vec::new(),
         tail: Vec::new(),
     };
@@ -151,6 +178,17 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             }
             "--mode" => o.mode = Some(it.next().ok_or("--mode needs a value")?.clone()),
             "--who" => o.who = Some(it.next().ok_or("--who needs a value")?.clone()),
+            "--harness" => {
+                o.harness = Some(it.next().ok_or("--harness needs a value")?.clone())
+            }
+            "--profile" => {
+                o.profile = Some(it.next().ok_or("--profile needs a value")?.clone())
+            }
+            "--model" => o.model = Some(it.next().ok_or("--model needs a value")?.clone()),
+            "--md" => o.md.push(it.next().ok_or("--md needs a path")?.clone()),
+            "--extra" => o.extra = Some(it.next().ok_or("--extra needs a value")?.clone()),
+            // Kept as Some("") when passed empty — kanban assign unassigns.
+            "--agent" => o.agent = Some(it.next().ok_or("--agent needs a value")?.clone()),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 exit(0);
@@ -174,6 +212,16 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             }
             s if s.starts_with("--mode=") => o.mode = Some(s["--mode=".len()..].to_string()),
             s if s.starts_with("--who=") => o.who = Some(s["--who=".len()..].to_string()),
+            s if s.starts_with("--harness=") => {
+                o.harness = Some(s["--harness=".len()..].to_string())
+            }
+            s if s.starts_with("--profile=") => {
+                o.profile = Some(s["--profile=".len()..].to_string())
+            }
+            s if s.starts_with("--model=") => o.model = Some(s["--model=".len()..].to_string()),
+            s if s.starts_with("--md=") => o.md.push(s["--md=".len()..].to_string()),
+            s if s.starts_with("--extra=") => o.extra = Some(s["--extra=".len()..].to_string()),
+            s if s.starts_with("--agent=") => o.agent = Some(s["--agent=".len()..].to_string()),
             s if s.starts_with('-') && s.len() > 1 => {
                 return Err(format!("unknown flag {s:?}\n\n{USAGE}"))
             }
@@ -306,6 +354,71 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             "kanban.move",
             json!({ "id": need_id(o)?, "status": need_flag(&o.status, "--status")? }),
         )),
+        // GO-ORBITTY-AGENT-PLANET: assign a card to an agent row (id or
+        // name server-side). `--agent ""` unassigns — the flag itself is
+        // required so a bare `kanban assign --id` never silently clears.
+        ["kanban", "assign"] => {
+            let agent = o
+                .agent
+                .clone()
+                .ok_or("missing --agent <agent> (pass --agent \"\" to unassign)".to_string())?;
+            Ok(("kanban.assign", json!({ "id": need_id(o)?, "agent": agent })))
+        }
+        // GO-ORBITTY-AGENT-PLANET: the agent roster. The harness is
+        // required on add and fails CLOSED here — a typo never reaches
+        // the app (the server re-validates anyway).
+        ["agent", "list"] => Ok(("agent.list", json!({}))),
+        ["agent", "add"] => {
+            let h = need_flag(&o.harness, "--harness")?.to_ascii_lowercase();
+            match h.as_str() {
+                "cursor" | "goose" | "grok" | "hermes" => {}
+                other => {
+                    return Err(format!(
+                        "unknown harness {other:?} — cursor | goose | grok | hermes"
+                    ))
+                }
+            }
+            let mut a = json!({
+                "name": need_flag(&o.name, "--name")?,
+                "harness": h,
+            });
+            if let Some(p) = opt(&o.profile) {
+                a["profile"] = json!(p);
+            }
+            if let Some(m) = opt(&o.model) {
+                a["model"] = json!(m);
+            }
+            let mds: Vec<String> = o
+                .md
+                .iter()
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+            if !mds.is_empty() {
+                a["mdPaths"] = json!(mds);
+            }
+            if let Some(x) = opt(&o.extra) {
+                a["extra"] = json!(x);
+            }
+            if let Some(p) = opt(&o.project) {
+                a["projectId"] = json!(p);
+            }
+            Ok(("agent.add", a))
+        }
+        ["agent", "rm"] => Ok(("agent.rm", json!({ "id": need_id(o)? }))),
+        ["agent", "pin"] => Ok((
+            "agent.pin",
+            json!({ "id": need_id(o)?, "projectId": need_flag(&o.project, "--project")? }),
+        )),
+        ["agent", "pickup"] => {
+            if let Some(id) = opt(&o.id) {
+                Ok(("agent.pickup", json!({ "id": id })))
+            } else if let Some(n) = opt(&o.name) {
+                Ok(("agent.pickup", json!({ "name": n })))
+            } else {
+                Err("missing --id <id> or --name <name>".to_string())
+            }
+        }
         // GO-ORBITTY-PROJECT-ADD: planet control plane. need_flag trims and
         // refuses an empty --name; the server owns unknown-id errors.
         ["project", "add"] => Ok((
@@ -527,6 +640,86 @@ fn print_human(tool: &str, data: &Value) {
             data["id"].as_str().unwrap_or("?"),
             data["status"].as_str().unwrap_or("?")
         ),
+        // GO-ORBITTY-AGENT-PLANET printers.
+        "kanban.assign" => {
+            let id = data["id"].as_str().unwrap_or("?");
+            let title = data["title"].as_str().unwrap_or("");
+            match data["agent"].as_str() {
+                Some(a) => println!("assigned {id} — {title} → {a}"),
+                None => println!("unassigned {id} — {title}"),
+            }
+        }
+        "agent.list" => {
+            let Some(arr) = data.as_array() else {
+                return;
+            };
+            if arr.is_empty() {
+                println!("(no agents)");
+            }
+            for a in arr {
+                let id = a["id"].as_str().unwrap_or("?");
+                let name = a["name"].as_str().unwrap_or("?");
+                let harness = a["harness"].as_str().unwrap_or("?");
+                let profile = a["profile"].as_str().unwrap_or("");
+                let project = a["project"]
+                    .as_str()
+                    .or_else(|| a["projectId"].as_str())
+                    .unwrap_or("—");
+                let mut marks = String::new();
+                if let Some(m) = a["model"].as_str().filter(|m| !m.is_empty()) {
+                    marks.push_str(&format!(" model={m}"));
+                }
+                let md_n = a["mdPaths"].as_array().map(|x| x.len()).unwrap_or(0);
+                if md_n > 0 {
+                    marks.push_str(&format!(" md={md_n}"));
+                }
+                if a["extra"].as_str().is_some_and(|x| !x.is_empty()) {
+                    marks.push_str(" +extra");
+                }
+                let prof = if profile.is_empty() {
+                    String::new()
+                } else {
+                    format!("  {profile}")
+                };
+                println!("{id}  {name}  {harness}{prof}  → {project}{marks}");
+            }
+        }
+        "agent.add" => {
+            let id = data["id"].as_str().unwrap_or("?");
+            let name = data["name"].as_str().unwrap_or("");
+            match data["project"].as_str() {
+                Some(p) => println!("added {id} — {name} on {p}"),
+                None => println!("added {id} — {name}"),
+            }
+        }
+        "agent.rm" => println!(
+            "removed {} — {}",
+            data["id"].as_str().unwrap_or("?"),
+            data["name"].as_str().unwrap_or("")
+        ),
+        "agent.pin" => println!(
+            "pinned {} — {} → {}",
+            data["id"].as_str().unwrap_or("?"),
+            data["name"].as_str().unwrap_or(""),
+            data["project"].as_str().unwrap_or("?")
+        ),
+        "agent.pickup" => {
+            if data["picked"].as_bool() == Some(true) {
+                println!(
+                    "picked {} — {} → doing",
+                    data["cardId"].as_str().unwrap_or("?"),
+                    data["title"].as_str().unwrap_or("")
+                );
+                if let Some(l) = data["launch"].as_str() {
+                    println!("{l}");
+                }
+            } else {
+                println!(
+                    "nothing assigned to {} — no spawn",
+                    data["agent"].as_str().unwrap_or("?")
+                );
+            }
+        }
         "project.add" => println!(
             "added {} — {}",
             data["id"].as_str().unwrap_or("?"),

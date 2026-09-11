@@ -91,6 +91,10 @@ export interface KanbanCard {
   neededWhy?: string;
   neededAnswer?: string;
   actor?: Actor;
+  // GO-ORBITTY-AGENT-PLANET: agent row this Todo is assigned to
+  // (agentShortcuts id). Additive — never strip the key; a removed agent
+  // leaves the id on the card (same law as project rm).
+  assignedAgentId?: string | null;
 }
 
 export interface PointsEntry {
@@ -136,6 +140,9 @@ export interface AgentShortcut {
   model?: string | null;
   mdPaths: string[];
   projectId?: string | null;
+  // GO-ORBITTY-AGENT-PLANET: free-text extra instructions — pickup
+  // concatenates them into the query file after the md paths.
+  extra?: string | null;
 }
 
 export interface CompanionBounds {

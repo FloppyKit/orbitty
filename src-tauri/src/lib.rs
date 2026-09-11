@@ -1,5 +1,7 @@
 mod actions;
 #[cfg(unix)]
+mod agents;
+#[cfg(unix)]
 mod board;
 mod chars;
 mod companion;

@@ -33,6 +33,11 @@
 //! working" flag behind the dock LED. companion.* ACL like play/send;
 //! `live` must be a real bool, so a malformed request fails closed and
 //! never leaves a stuck light.
+//!
+//! GO-ORBITTY-AGENT-PLANET adds the agent roster (agent.list / agent.add /
+//! agent.rm / agent.pin / agent.pickup) plus kanban.assign. `agent.list`
+//! rides READ_TOOLS; the rest are writes — full / named custom only,
+//! never companion.* (Spark never spawns a harness).
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -235,6 +240,9 @@ const READ_TOOLS: &[&str] = &[
     "state.get",
     // GO-ORBITTY-ACTION-FILE: the list is the read face of the file.
     "action.list",
+    // GO-ORBITTY-AGENT-PLANET: the roster is the read face; add / rm /
+    // pin / pickup / kanban.assign stay write-class (full / named custom).
+    "agent.list",
 ];
 
 fn allowed(acl: &Acl, tool: &str) -> bool {
@@ -476,6 +484,68 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let id = arg_str(args, "id")?;
             let status = arg_str(args, "status")?;
             crate::board::kanban_move(app, &id, &status)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // GO-ORBITTY-AGENT-PLANET: assign a card to an agent row. `agent`
+        // must be present (id or unique name); an empty string unassigns.
+        "kanban.assign" => {
+            let id = arg_str(args, "id")?;
+            let agent = args.get("agent").and_then(Value::as_str).ok_or_else(|| {
+                (
+                    ERR_OTHER,
+                    "kanban.assign: need string arg \"agent\" (empty unassigns)".to_string(),
+                )
+            })?;
+            crate::agents::kanban_assign(app, &id, agent)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // GO-ORBITTY-AGENT-PLANET: the agent roster. list rides read;
+        // add / rm / pin / pickup are writes (full / named custom only).
+        // Harness is required on add and allowlisted in agents.rs — an
+        // unknown harness is an honest error, never a silent hermes.
+        "agent.list" => crate::agents::agent_list(app).map_err(tool_err),
+        "agent.add" => {
+            let name = arg_str(args, "name")?;
+            let harness = arg_str(args, "harness")?;
+            let md_paths: Vec<String> = args
+                .get("mdPaths")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            crate::agents::agent_add(
+                app,
+                &name,
+                &harness,
+                arg_opt(args, "profile").as_deref(),
+                arg_opt(args, "model").as_deref(),
+                md_paths,
+                arg_opt(args, "extra").as_deref(),
+                arg_opt(args, "projectId").as_deref(),
+            )
+            .map(to_data)
+            .map_err(tool_err)
+        }
+        "agent.rm" => {
+            let id = arg_str(args, "id")?;
+            crate::agents::agent_rm(app, &id).map(to_data).map_err(tool_err)
+        }
+        "agent.pin" => {
+            let id = arg_str(args, "id")?;
+            let project = arg_str(args, "projectId")?;
+            crate::agents::agent_pin(app, &id, &project)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        "agent.pickup" => {
+            let id = arg_opt(args, "id");
+            let name = arg_opt(args, "name");
+            crate::agents::agent_pickup(app, id.as_deref(), name.as_deref())
                 .map(to_data)
                 .map_err(tool_err)
         }
