@@ -222,6 +222,61 @@ mod reg {
     }
 }
 
+/// GO-ORBITTY-ACTIONS-BAKE — first-run seed + toy migration, the one
+/// writer for the baked set. Runs on boot before the first `sync_combos`:
+///   1. drop the dead toys (`calle-next`, `review-prs` — any command);
+///      never restore `orbitty-calle-next`.
+///   2. append the real rows (companion ⌥⌘O / kanban ⌥⌘K / stars ⌥⌘S)
+///      only when no row already carries that name — an existing row's
+///      id/combo/command is the user's and stays; every other row
+///      survives untouched (empty, toy-only, and partial saves all heal).
+/// Persists through the one save door only when the list changed.
+/// Returns the resulting list for the boot combo sync.
+pub fn bake_defaults(app: &tauri::AppHandle) -> Vec<ActionShortcut> {
+    const SEEDS: [(&str, &str, &str); 3] = [
+        ("companion", "cmd+alt+o", "orbittyctl companion open"),
+        ("kanban", "cmd+alt+k", "orbittyctl kanban open"),
+        ("stars", "cmd+alt+s", "orbittyctl stars open"),
+    ];
+    let before = match crate::state::load_state(app) {
+        Ok(st) => st,
+        Err(e) => {
+            eprintln!("actions-bake: load failed, combos unseeded: {e}");
+            return Vec::new();
+        }
+    };
+    let mut after = before.clone();
+    let mut changed = false;
+    let len_before = after.action_shortcuts.len();
+    after
+        .action_shortcuts
+        .retain(|a| a.name != "calle-next" && a.name != "review-prs");
+    if after.action_shortcuts.len() != len_before {
+        changed = true;
+    }
+    for (name, combo, command) in SEEDS {
+        if after.action_shortcuts.iter().any(|a| a.name == name) {
+            continue;
+        }
+        after.action_shortcuts.push(ActionShortcut {
+            id: crate::board::new_id("a"),
+            name: name.to_string(),
+            command: command.to_string(),
+            cwd: None,
+            combo: Some(combo.to_string()),
+        });
+        changed = true;
+    }
+    if changed {
+        if let Err(e) = crate::board::save_with_events(app, &before, &after) {
+            eprintln!("actions-bake: persist failed: {e}");
+        } else {
+            eprintln!("actions-bake: seeded/migrated action shortcuts");
+        }
+    }
+    after.action_shortcuts
+}
+
 /// Re-sync combo registrations with a persisted list. No-op off macOS.
 #[cfg(target_os = "macos")]
 pub fn sync_combos(app: &tauri::AppHandle, shortcuts: &[ActionShortcut]) {

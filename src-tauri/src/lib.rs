@@ -677,9 +677,10 @@ pub fn run() {
             // GO-ORBITTY-ACTION-FILE: register persisted action combos on
             // load (same plugin as the summon above). Every later persist
             // re-syncs via the save_state command / action.* tools.
-            let boot_actions = state::load_state(app.handle())
-                .map(|s| s.action_shortcuts)
-                .unwrap_or_default();
+            // GO-ORBITTY-ACTIONS-BAKE: seed the real first-run set and
+            // drop the TextEdit toys first, so a fresh install boots with
+            // the companion/kanban/stars chords, not empty/toys.
+            let boot_actions = actions::bake_defaults(app.handle());
             actions::sync_combos(app.handle(), &boot_actions);
 
             // All webview windows: any close request (⌘W, menu Close Window,
