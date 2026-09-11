@@ -35,7 +35,11 @@
     onSpeakError?: (msg: string) => void;
     // COLLAPSE-CC: the fixed overlay is a fresh ghost hit — the parent
     // re-reports hit rects on open/close so it never clicks through.
-    onOverlayChange?: (open: boolean) => void;
+    // Popup hug leftover: the second arg is the overlay's wanted WINDOW
+    // height (0 = closed or fits already) — the parent grows the
+    // companion window (hug sprite-off / composer grow sprite-on) so
+    // the reply fits whole instead of inner-scrolling.
+    onOverlayChange?: (open: boolean, wantWin?: number) => void;
   } = $props();
 
   // ---------- GO-ORBITTY-COMPANION-CAPTION-WORDS: collapsed pager ------
@@ -220,17 +224,42 @@
   // GO-ORBITTY-COLLAPSE-CC: the expand overlay is FIXED — out of the
   // caption flow, over the companion window (it may cover the you-row),
   // never the old in-stack pop-down that clipped and sprouted a window
-  // scrollbar. bottom/max-height are measured at open: anchored above
-  // the dock when there is room; the sprite-off bar (no room) is
-  // covered whole. Scrolls inside only when the reply is huge.
+  // scrollbar. Anchored above the dock when there is room; the
+  // sprite-off bar (no room) is covered whole.
+  // COLLAPSE-CC leftover (popup hug): at open the overlay's CONTENT
+  // height is measured and the wanted WINDOW height rides up via
+  // onOverlayChange — the parent grows the companion window (the same
+  // door as the typing composer) until the reply fits whole. No inner
+  // scroll until the ~80%-of-screen cap or the native grow clamp says
+  // absurd. The mode + want LATCH at open (and on a reply swap while
+  // open); a window resize only re-anchors (latch=false), so the grow
+  // the report caused never feeds back into the want.
   let fullBottom = $state(8);
   let fullMaxH = $state(160);
+  let fullMode: "dock" | "full" = "full";
+  let fullWantWin = 0;
+  let overlayReported = false;
 
-  function measureFull() {
+  const fullCap = () => Math.round(window.screen.availHeight * 0.8);
+
+  function measureFull(latch: boolean) {
+    const full = rootEl?.querySelector(".cc-full") as HTMLElement | null;
     const dock = rootEl?.closest("main")?.querySelector(".ghostdock");
     const dockTop = dock?.getBoundingClientRect().top ?? window.innerHeight;
     const avail = dockTop - 14; // 8px top margin + 6px gap over the dock
-    if (avail >= 120) {
+    if (latch) {
+      // Outer px the overlay needs to show the whole reply (scrollHeight
+      // ignores the max-height clip; +2 for the border).
+      const want = full ? Math.min(full.scrollHeight + 2, fullCap()) : 0;
+      fullMode = avail >= 120 ? "dock" : "full";
+      fullWantWin =
+        fullMode === "dock"
+          ? want > avail
+            ? Math.round(window.innerHeight + want - avail)
+            : 0
+          : Math.round(Math.max(window.innerHeight, want + 16));
+    }
+    if (fullMode === "dock" && avail >= 120) {
       fullBottom = Math.round(window.innerHeight - dockTop + 6);
       fullMaxH = Math.round(avail);
     } else {
@@ -239,10 +268,33 @@
     }
   }
 
+  // Open latches the want and reports it up; close zeroes it (the hug /
+  // grow snaps back). A reply swap while open re-latches — the overlay
+  // renders botLine live. overlayReported gates the close report so a
+  // botLine change while closed never double-reports.
   $effect(() => {
-    if (ccOpen) tick().then(measureFull);
-    onOverlayChange?.(ccOpen);
+    botLine;
+    if (!ccOpen) {
+      fullWantWin = 0;
+      if (overlayReported) {
+        overlayReported = false;
+        onOverlayChange?.(false, 0);
+      }
+      return;
+    }
+    tick().then(() => {
+      if (!ccOpen) return; // closed before the measure landed
+      measureFull(true);
+      overlayReported = true;
+      onOverlayChange?.(true, fullWantWin);
+    });
   });
+
+  // The hug/grow resize (or a user resize) lands here: re-anchor the
+  // overlay to the new layout. Never re-latches the want.
+  function onWinResize() {
+    if (ccOpen) measureFull(false);
+  }
 
   // Click the overlay itself closes too (a text selection never does);
   // click-off and Esc are the pane-level handlers above.
@@ -302,12 +354,20 @@
   onMount(() => {
     window.addEventListener("keydown", onPaneKey);
     window.addEventListener("click", onPaneClick);
+    window.addEventListener("resize", onWinResize);
   });
 
   onDestroy(() => {
     clearAuto();
+    // Popup hug: unmounting with the overlay open (expand flip) is a
+    // close — release the parent's grown window.
+    if (overlayReported) {
+      overlayReported = false;
+      onOverlayChange?.(false, 0);
+    }
     window.removeEventListener("keydown", onPaneKey);
     window.removeEventListener("click", onPaneClick);
+    window.removeEventListener("resize", onWinResize);
   });
 </script>
 

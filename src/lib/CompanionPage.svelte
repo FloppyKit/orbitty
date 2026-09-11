@@ -178,6 +178,17 @@
   // (bound up from the dock). Sprite-off rides reportHug; sprite-on grows
   // the window down via set_companion_composer_grow.
   let composerExtra = $state(0);
+  // COLLAPSE-CC leftover (popup hug): the open reply overlay's wanted
+  // WINDOW height (0 = closed or fits already), reported up from
+  // CaptionPane. Sprite-off: measureHugHeight grows the bar to it.
+  // Sprite-on: overlayExtra rides the composer-grow channel, latched
+  // against the open-time window height (overlayBaseH) so the grow the
+  // report causes never feeds back into it. ccSnap keeps the sprite-off
+  // bar bottom-packed until the snap-back resize lands (no dock hop).
+  let overlayWinH = $state(0);
+  let overlayExtra = $state(0);
+  let overlayBaseH = 0;
+  let ccSnap = $state(false);
   let sending = $state(false);
   let sendNote = $state<string | null>(null);
   // Thinking v9 plays only while a reply is in flight; missing thinking
@@ -297,8 +308,30 @@
   // COLLAPSE-CC: the fixed reply overlay opened/closed — re-report ghost
   // hits so it catches (open) / releases (close) its pixels. Lives out
   // here because the caption snippet's `hosted` param shadows HostMode.
-  function onCaptionOverlayChange() {
-    if (!expanded && hosted === "off") tick().then(reportHits);
+  // COLLAPSE-CC leftover (popup hug): wantWin is the overlay's wanted
+  // WINDOW height — the hug (sprite-off) / composer grow (sprite-on)
+  // grows the companion window so the reply fits whole, and the close
+  // snaps it back. overlayBaseH latches on the FIRST report of an open,
+  // so a re-latch (reply swap while open) never double-counts the grow
+  // already applied.
+  function onCaptionOverlayChange(open: boolean, wantWin = 0) {
+    if (open) {
+      if (overlayWinH <= 0) overlayBaseH = window.innerHeight;
+      overlayWinH = wantWin;
+      overlayExtra = Math.max(0, Math.round(wantWin - overlayBaseH));
+    } else {
+      if (overlayWinH > 0) ccSnap = true;
+      overlayWinH = 0;
+      overlayExtra = 0;
+      overlayBaseH = 0;
+    }
+    if (!expanded && hosted === "off") {
+      tick().then(() => {
+        reportHits();
+        reportHug();
+        reportComposerGrow();
+      });
+    }
   }
 
   // HOST-CC: hosted + expanded — Escape collapses the overlay only.
@@ -382,7 +415,13 @@
       const r = el.getBoundingClientRect();
       if (r.height >= 2 && r.top < top) top = r.top;
     });
-    const h = Math.round(dockR.bottom - top + 8);
+    let h = Math.round(dockR.bottom - top + 8);
+    // COLLAPSE-CC leftover (popup hug): the open reply overlay rides the
+    // hug — grow the bar to its wanted window height so the fixed popup
+    // fits whole (it covers the bar), never clipped to the idle bar.
+    // The native side still clamps to the tall idle rect — that clamp is
+    // the absurd line where the overlay keeps its inner scroll.
+    if (overlayWinH > 0) h = Math.max(h, overlayWinH);
     return h < 120 ? 120 : h;
   }
 
@@ -401,12 +440,18 @@
   // native side owns the gate (collapsed + sprite on + not hosted +
   // shown) and the ungrow on expand / host / sprite-off / hide, so this
   // is a plain report of the dock-measured extra.
+  // COLLAPSE-CC leftover (popup hug): the open reply overlay's extra
+  // rides the SAME channel — the window grows down until the popup fits
+  // whole, and snaps back when it closes. (Sprite-off rides reportHug;
+  // the native gate turns this report into a no-op there.)
   function reportComposerGrow() {
-    invoke("set_companion_composer_grow", { extra: composerExtra }).catch(() => {});
+    invoke("set_companion_composer_grow", {
+      extra: composerExtra + overlayExtra,
+    }).catch(() => {});
   }
 
   $effect(() => {
-    const watching = [composerExtra, expanded, hosted, sprite];
+    const watching = [composerExtra, overlayExtra, expanded, hosted, sprite];
     void watching;
     reportComposerGrow();
   });
@@ -1351,6 +1396,10 @@
     // COMPANION-CLEAR: a window resize moves every hit box — re-report.
     if (mainEl && typeof ResizeObserver !== "undefined") {
       hitsObserver = new ResizeObserver(() => {
+        // COLLAPSE-CC leftover (popup hug): a resize after the overlay
+        // closed is the snap-back landing — release the bottom-pack so
+        // the bar owns the column again.
+        if (ccSnap) ccSnap = false;
         if (!expanded && hosted === "off") reportHits();
       });
       hitsObserver.observe(mainEl);
@@ -1491,6 +1540,7 @@
   class:hosting={hosted !== "off"}
   class:ghost={!expanded && hosted === "off"}
   class:spriteoff={!sprite}
+  class:ccopen={overlayWinH > 0 || ccSnap}
   class:tile-pre={tilePre}
   class:tile-enter={tileEnter}
   class:tile-leave={tileLeave}
@@ -1771,6 +1821,16 @@
      is unchanged. */
   .companion.hosting {
     background: transparent;
+  }
+
+  /* COLLAPSE-CC leftover (popup hug): while the reply overlay holds the
+     sprite-off window taller than the bar (the hug grew keep-bottom),
+     bottom-pack the CC + dock so the grow — and the snap-back — never
+     hops the dock. A no-op once the bar refills the window (flex-end ==
+     flex-start when there is no extra space). Sprite-on never needs
+     this: the stage flexes to absorb the grow-down. */
+  .companion.ghost.spriteoff.ccopen {
+    justify-content: flex-end;
   }
 
   :global(.low-fill) .companion {
