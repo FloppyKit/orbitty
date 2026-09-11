@@ -448,19 +448,21 @@ fn update_soul_pointer(agent_stem: &str) {
 /// Product sessions only — NEVER the Berd `session.json` id (`20260825_2`)
 /// and never the orbitty-plug probe ids; those stay in the cascade's own
 /// state.json. This file is the only plug state Orbitty writes.
+/// pub(crate): mouth_roll.rs rolls a dead session onto a fresh id and
+/// saves through this same map.
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
-struct PlugState {
+pub(crate) struct PlugState {
     /// Goose `YYYYMMDD_N`, captured from `goose session list` after the
     /// first `--name orbitty-companion` send (`--name` is not a unique
     /// resume key — resume needs `--session-id ID --resume`).
     #[serde(default)]
-    goose_session_id: Option<String>,
+    pub(crate) goose_session_id: Option<String>,
     /// Grok UUID, minted on first use. First send `-s UUID`; later sends
     /// `--resume UUID` (re-passing `-s` on a live id fails).
     #[serde(default)]
-    grok_session_id: Option<String>,
+    pub(crate) grok_session_id: Option<String>,
     #[serde(default)]
-    grok_session_minted: bool,
+    pub(crate) grok_session_minted: bool,
 }
 
 fn plug_path() -> PathBuf {
@@ -476,7 +478,7 @@ fn load_plug() -> PlugState {
 
 /// Atomic-ish (tmp + rename), best-effort — a lost write just means the
 /// next send re-learns the session id.
-fn save_plug(plug: &PlugState) {
+pub(crate) fn save_plug(plug: &PlugState) {
     let p = plug_path();
     let _ = std::fs::create_dir_all(companions_root());
     let Ok(body) = serde_json::to_string_pretty(plug) else {
@@ -553,7 +555,7 @@ fn find_grok() -> Option<PathBuf> {
     p.is_file().then_some(p)
 }
 
-fn is_uuid(s: &str) -> bool {
+pub(crate) fn is_uuid(s: &str) -> bool {
     let lens = [8usize, 4, 4, 4, 12];
     let parts: Vec<&str> = s.split('-').collect();
     parts.len() == 5
@@ -564,7 +566,7 @@ fn is_uuid(s: &str) -> bool {
 }
 
 /// v4 UUID via macOS `uuidgen` (always present on the dogfood target).
-fn mint_uuid() -> Result<String, String> {
+pub(crate) fn mint_uuid() -> Result<String, String> {
     let out = Command::new("uuidgen")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -596,7 +598,7 @@ fn is_goose_session_id(s: &str) -> bool {
 /// Spawn a mouth CLI, poll with a timeout, kill the child on expiry.
 /// stdout on exit 0; one honest stderr line otherwise. No desktop lock is
 /// ever set here — BERDCTL_LOCK belongs to the berd escape path only.
-fn run_mouth_cli(
+pub(crate) fn run_mouth_cli(
     tool: &str,
     bin: &Path,
     args: &[String],
@@ -1365,15 +1367,21 @@ async fn companion_send_goose(app: &tauri::AppHandle, line: &str) -> Result<Stri
     let soul = companion_soul_text(app);
     let plug = load_plug();
     let line = line.to_string();
-    tauri::async_runtime::spawn_blocking(move || run_goose_reply(&bin, &soul, &plug, &line))
-        .await
-        .map_err(|e| format!("send task: {e}"))?
+    let roll_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        run_goose_reply(&bin, &soul, plug, &line, &roll_app)
+    })
+    .await
+    .map_err(|e| format!("send task: {e}"))?
 }
 
 /// Product goose session name (never the probe's `orbitty-plug-goose`).
-const GOOSE_SESSION_NAME: &str = "orbitty-companion";
+pub(crate) const GOOSE_SESSION_NAME: &str = "orbitty-companion";
 
-fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Result<String, String> {
+/// Goose mouth argv: `run -q` + full-tools builtins, soul as --system,
+/// resume by `--session-id ID --resume` when an id is known, else a fresh
+/// `--name` session. Shared by the send path and mouth_roll's rollover.
+pub(crate) fn goose_args(soul: &str, line: &str, resume_id: Option<&str>) -> Vec<String> {
     // BLOCK-MH-4 `accept_full_goose_tools_v0`: no `--no-profile` — Matt's
     // default Goose profile loads (developer/shell, computercontroller,
     // skills, memory, …) so Spark can actually act, not just talk.
@@ -1385,12 +1393,6 @@ fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Resu
         "-q".into(),
         "--with-builtin=developer,computercontroller".into(),
     ];
-    let resume_id = plug
-        .goose_session_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| is_goose_session_id(s));
-    let first_send = resume_id.is_none();
     match resume_id {
         Some(id) => {
             args.push("--session-id".into());
@@ -1407,13 +1409,45 @@ fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Resu
     args.push(format!("--system={soul}"));
     args.push("-t".into());
     args.push(line.to_string());
+    args
+}
+
+fn run_goose_reply(
+    bin: &Path,
+    soul: &str,
+    mut plug: PlugState,
+    line: &str,
+    app: &tauri::AppHandle,
+) -> Result<String, String> {
+    let resume_id = plug
+        .goose_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| is_goose_session_id(s))
+        .map(str::to_string);
+    let first_send = resume_id.is_none();
+    let args = goose_args(soul, line, resume_id.as_deref());
 
     // Config is `smart_approve` and the bubble has no yes/no UI — without
     // always_allow, tool calls would hang or be denied.
     // PROJECT-ADD leftover: 300s (berd's 5 min) — with extensions actually
     // loaded, 180s killed real tool runs mid-reply. Grok/Hermes keep 180.
-    let reply = run_mouth_cli("Goose", bin, &args, &[("GOOSE_MODE", "always_allow")], 300)?;
+    // GO-ORBITTY-MOUTH-FOREVER: a dead resume rolls the mouth onto a fresh
+    // session with a handoff — the bubble is one thread, never cleared.
+    let reply = match run_mouth_cli("Goose", bin, &args, &[("GOOSE_MODE", "always_allow")], 300) {
+        Ok(r) => r,
+        Err(e) if !first_send && crate::mouth_roll::goose_context_dead(&e) => {
+            let handoff = crate::mouth_roll::handoff_prompt(app, line);
+            return crate::mouth_roll::goose_rollover(bin, soul, &mut plug, &handoff);
+        }
+        Err(e) => return Err(e),
+    };
     if reply.is_empty() {
+        // Empty after a resume = a thin/dead session — same rollover.
+        if !first_send {
+            let handoff = crate::mouth_roll::handoff_prompt(app, line);
+            return crate::mouth_roll::goose_rollover(bin, soul, &mut plug, &handoff);
+        }
         return Err("Goose sent back an empty reply.".into());
     }
     if first_send {
@@ -1425,7 +1459,7 @@ fn run_goose_reply(bin: &Path, soul: &str, plug: &PlugState, line: &str) -> Resu
 /// After the first `--name` send, learn the real session id from
 /// `goose session list` (newest-first, first match wins) and persist it.
 /// Best-effort: a miss just means the next send is `--name` again.
-fn capture_goose_session(bin: &Path) {
+pub(crate) fn capture_goose_session(bin: &Path) {
     let out = Command::new(bin)
         .args(["session", "list"])
         .stdin(Stdio::null())
@@ -1463,12 +1497,15 @@ async fn companion_send_grok(app: &tauri::AppHandle, line: &str) -> Result<Strin
     let soul = companion_soul_text(app);
     let plug = load_plug();
     let line = line.to_string();
-    tauri::async_runtime::spawn_blocking(move || run_grok_reply(&bin, &soul, plug, &line))
-        .await
-        .map_err(|e| format!("send task: {e}"))?
+    let roll_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        run_grok_reply(&bin, &soul, plug, &line, &roll_app)
+    })
+    .await
+    .map_err(|e| format!("send task: {e}"))?
 }
 
-fn grok_args(sid: &str, minted: bool, soul: &str, line: &str) -> Vec<String> {
+pub(crate) fn grok_args(sid: &str, minted: bool, soul: &str, line: &str) -> Vec<String> {
     let mut args: Vec<String> = vec!["-p".into(), line.to_string()];
     if minted {
         args.push("--resume".into());
@@ -1494,6 +1531,7 @@ fn run_grok_reply(
     soul: &str,
     mut plug: PlugState,
     line: &str,
+    app: &tauri::AppHandle,
 ) -> Result<String, String> {
     // Mint a fresh product UUID — never the probe's, never Berd's.
     let has_id = plug
@@ -1519,14 +1557,13 @@ fn run_grok_reply(
             let retry = grok_args(&sid, true, soul, line);
             run_mouth_cli("Grok", bin, &retry, &[], 180)?
         }
-        Err(e) if plug.grok_session_minted && grok_session_dead(&e) => {
-            // Resume of a dead/thin Grok session hangs then 180s-kills.
-            // Mint a fresh id and `-s` once. Pocket (MH-2) still wraps
-            // the prompt. We do not yet detect "thin" from the dock.
-            remint_grok_session(&mut plug)?;
-            let sid = plug.grok_session_id.clone().unwrap_or_default();
-            let retry = grok_args(&sid, false, soul, line);
-            run_mouth_cli("Grok", bin, &retry, &[], 180)?
+        Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_context_dead(&e) => {
+            // GO-ORBITTY-MOUTH-FOREVER: resume of a dead/thin session
+            // hangs then 180s-kills. Roll onto a fresh id (fork when the
+            // old one still resumes) with a handoff — the reply still
+            // lands on the same turns; the bubble is never cleared.
+            let handoff = crate::mouth_roll::handoff_prompt(app, line);
+            return crate::mouth_roll::grok_rollover(bin, soul, &mut plug, &handoff);
         }
         Err(e) => return Err(e),
     };
@@ -1534,15 +1571,11 @@ fn run_grok_reply(
     // --output-format json: the assistant text is the top-level "text"
     // field. Never dump the whole JSON blob into the bubble.
     let text = grok_reply_text(&raw);
-    let text = if text.is_empty() && plug.grok_session_minted {
-        remint_grok_session(&mut plug)?;
-        let sid = plug.grok_session_id.clone().unwrap_or_default();
-        let retry = grok_args(&sid, false, soul, line);
-        let raw2 = run_mouth_cli("Grok", bin, &retry, &[], 180)?;
-        grok_reply_text(&raw2)
-    } else {
-        text
-    };
+    if text.is_empty() && plug.grok_session_minted {
+        // Empty after a resume = a thin/dead session — same rollover.
+        let handoff = crate::mouth_roll::handoff_prompt(app, line);
+        return crate::mouth_roll::grok_rollover(bin, soul, &mut plug, &handoff);
+    }
     if text.is_empty() {
         return Err("Grok sent back an empty reply.".into());
     }
@@ -1553,19 +1586,7 @@ fn run_grok_reply(
     Ok(text)
 }
 
-fn grok_session_dead(err: &str) -> bool {
-    let e = err.to_ascii_lowercase();
-    e.contains("took longer") || e.contains("session") || e.contains("killed")
-}
-
-fn remint_grok_session(plug: &mut PlugState) -> Result<(), String> {
-    plug.grok_session_id = Some(mint_uuid()?);
-    plug.grok_session_minted = false;
-    save_plug(plug);
-    Ok(())
-}
-
-fn grok_reply_text(raw: &str) -> String {
+pub(crate) fn grok_reply_text(raw: &str) -> String {
     let v: serde_json::Value = match serde_json::from_str(raw) {
         Ok(v) => v,
         Err(_) => return String::new(),

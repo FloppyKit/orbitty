@@ -13,6 +13,7 @@ mod coordinator;
 mod drawers;
 mod event_log;
 mod glass;
+mod mouth_roll;
 mod nextcard;
 mod panes;
 mod habitat;
