@@ -4,6 +4,7 @@ mod board;
 mod chars;
 mod companion;
 mod companion_clear;
+mod companion_desk;
 #[cfg(unix)]
 mod control;
 mod coordinator;

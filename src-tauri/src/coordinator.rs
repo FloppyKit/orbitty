@@ -1278,6 +1278,10 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
     // on the raw line). Every mouth gets the wrapped prompt; persist +
     // event log below keep the raw `line`.
     let prompt = wrap_with_pocket(&line);
+    // GO-ORBITTY-MOUTH-TODO: desk wrap next to pocket — the model sees the
+    // live planet list + board law (kanban.add, not graph-sync); the raw
+    // line is still what persists and logs.
+    let prompt = crate::companion_desk::wrap_with_desk(&app, &prompt);
     // GO-ORBITTY-PLUG-APP plug map — unknown backend is an honest error,
     // never a silent Berd fallback.
     let reply = match backend.as_str() {

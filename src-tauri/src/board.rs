@@ -93,9 +93,39 @@ fn check_project(state: &PersistedState, project_id: &str) -> Result<(), String>
     Ok(())
 }
 
+/// GO-ORBITTY-MOUTH-TODO: `kanban.add` projectId resolve — "" is the
+/// inbox; an existing project id passes through; anything else is tried
+/// as a trim / case-insensitive display name (`fkt`, `orbitty`,
+/// `practice_desk`) and must match exactly one planet. Unknown or
+/// ambiguous = honest error, no mint. Returns the id to store.
+fn resolve_project(state: &PersistedState, project_id: &str) -> Result<String, String> {
+    let raw = project_id.trim();
+    if raw.is_empty() {
+        return Ok(String::new());
+    }
+    if state.projects.iter().any(|p| p.id == raw) {
+        return Ok(raw.to_string());
+    }
+    let named: Vec<&Project> = state
+        .projects
+        .iter()
+        .filter(|p| p.name.trim().eq_ignore_ascii_case(raw))
+        .collect();
+    match named.len() {
+        0 => Err(format!(
+            "kanban.add: unknown project {raw:?} (need a project id or a unique planet name)"
+        )),
+        1 => Ok(named[0].id.clone()),
+        n => Err(format!(
+            "kanban.add: ambiguous project name {raw:?} — {n} planets match; use the id"
+        )),
+    }
+}
+
 /// `kanban.add` — mint `kind: "todo"`, `actor: "agent"`. `status` is
 /// `todo` (default) or `doing`; done is never minted (it is earned through
-/// the complete door). Logs `board-add`.
+/// the complete door). `projectId` is an id OR a unique planet name
+/// (GO-ORBITTY-MOUTH-TODO resolve). Logs `board-add`.
 pub fn kanban_add(
     app: &tauri::AppHandle,
     title: &str,
@@ -116,12 +146,12 @@ pub fn kanban_add(
         }
     };
     let before = crate::state::load_state(app)?;
-    check_project(&before, project_id)?;
+    let project_id = resolve_project(&before, project_id)?;
     let now = now_secs();
     let card = KanbanCard {
         id: new_id("c"),
         title: title.to_string(),
-        project_id: project_id.to_string(),
+        project_id: project_id.clone(),
         window_id: None,
         kind: Some("todo".into()),
         status: status.into(),

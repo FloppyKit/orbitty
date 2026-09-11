@@ -108,7 +108,7 @@ fn input_schema(kind: &str) -> Value {
             "type": "object",
             "properties": {
                 "title": { "type": "string", "description": "Card title" },
-                "projectId": { "type": "string", "description": "Project id; omitted/empty = inbox" },
+                "projectId": { "type": "string", "description": "Project id or unique planet name (e.g. fkt, orbitty, practice_desk); omitted/empty = inbox" },
                 "status": {
                     "type": "string",
                     "enum": ["todo", "doing"],
