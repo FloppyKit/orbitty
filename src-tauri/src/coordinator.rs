@@ -870,6 +870,9 @@ pub fn set_companion_expanded(app: tauri::AppHandle, expanded: bool) -> Result<(
     // idle FIRST — the transcript is never a 120px slab.
     if expanded {
         crate::panes::unhug_companion(&app);
+        // GO-ORBITTY-COLLAPSE-CC: nor a composer-grown frame — shed the
+        // sprite-on grow extra with the hug.
+        crate::panes::ungrow_companion_composer(&app);
     }
     // GO-ORBITTY-COMPANION-CLEAR: expand forces the slab (mouse on) NOW,
     // before the JS re-render; collapse reapplies the ghost from kept hits.
@@ -930,6 +933,9 @@ pub fn set_companion_sprite(
     if enabled {
         crate::panes::unhug_companion(&app);
     } else if !st.companion.expanded {
+        // GO-ORBITTY-COLLAPSE-CC: shed any sprite-on composer grow FIRST
+        // — the hug stash must be the true tall idle, never grown.
+        crate::panes::ungrow_companion_composer(&app);
         crate::panes::hug_companion(&app, hug_height);
     }
     Ok(())

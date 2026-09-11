@@ -518,6 +518,7 @@ pub fn run() {
             companion::companion_glb_url,
             panes::hide_window,
             panes::set_companion_host,
+            panes::set_companion_composer_grow,
             show_rail,
             companion_clear::set_companion_hits,
             companion_clear::companion_front,

@@ -21,6 +21,7 @@
     draft = "",
     ready = false,
     onSpeakError,
+    onOverlayChange,
   }: {
     expanded?: boolean;
     hosted?: boolean;
@@ -32,6 +33,9 @@
     draft?: string;
     ready?: boolean;
     onSpeakError?: (msg: string) => void;
+    // COLLAPSE-CC: the fixed overlay is a fresh ghost hit — the parent
+    // re-reports hit rects on open/close so it never clicks through.
+    onOverlayChange?: (open: boolean) => void;
   } = $props();
 
   // ---------- GO-ORBITTY-COMPANION-CAPTION-WORDS: collapsed pager ------
@@ -213,6 +217,42 @@
     if (ccOpen && !t?.closest(".cc.bot, .cc-full")) ccOpen = false;
   }
 
+  // GO-ORBITTY-COLLAPSE-CC: the expand overlay is FIXED — out of the
+  // caption flow, over the companion window (it may cover the you-row),
+  // never the old in-stack pop-down that clipped and sprouted a window
+  // scrollbar. bottom/max-height are measured at open: anchored above
+  // the dock when there is room; the sprite-off bar (no room) is
+  // covered whole. Scrolls inside only when the reply is huge.
+  let fullBottom = $state(8);
+  let fullMaxH = $state(160);
+
+  function measureFull() {
+    const dock = rootEl?.closest("main")?.querySelector(".ghostdock");
+    const dockTop = dock?.getBoundingClientRect().top ?? window.innerHeight;
+    const avail = dockTop - 14; // 8px top margin + 6px gap over the dock
+    if (avail >= 120) {
+      fullBottom = Math.round(window.innerHeight - dockTop + 6);
+      fullMaxH = Math.round(avail);
+    } else {
+      fullBottom = 8;
+      fullMaxH = Math.max(96, Math.round(window.innerHeight - 16));
+    }
+  }
+
+  $effect(() => {
+    if (ccOpen) tick().then(measureFull);
+    onOverlayChange?.(ccOpen);
+  });
+
+  // Click the overlay itself closes too (a text selection never does);
+  // click-off and Esc are the pane-level handlers above.
+  function onFullClick(e: MouseEvent) {
+    if (e.button !== 0) return;
+    if (window.getSelection()?.toString()) return;
+    e.stopPropagation();
+    ccOpen = false;
+  }
+
   // First turns snapshot is history (prime, do not page). Wait until
   // parent loadState has landed — the empty mount snapshot is not a
   // tail, and treating it as one re-paged / spoke the last reply.
@@ -343,7 +383,14 @@
           {/if}
         </div>
         {#if ccOpen}
-          <div class="cc-full">{@html mdLite(botLine)}</div>
+          <div
+            class="cc-full"
+            style:bottom="{fullBottom}px"
+            style:max-height="{fullMaxH}px"
+            onclick={onFullClick}
+          >
+            {@html mdLite(botLine)}
+          </div>
         {/if}
       </div>
     {/if}
@@ -699,13 +746,16 @@
     cursor: pointer;
   }
 
+  /* COLLAPSE-CC: fixed = out of the caption stack, over the companion
+     window (bottom/max-height inline from measureFull). The old
+     absolute pop-down — and its .ghost.spriteoff downward
+     top:calc(100%+4px) clip — is dead: no clipping, no new window
+     scrollbar. GRAB-LAW: selects + copies, never a drag surface. */
   .cc-full {
-    position: absolute;
+    position: fixed;
     left: 10px;
-    bottom: calc(100% + 6px);
+    right: 10px;
     z-index: 7;
-    max-width: min(92%, 28rem);
-    max-height: 40vh;
     overflow-y: auto;
     padding: 8px 10px;
     font-size: 0.72rem;
@@ -714,13 +764,10 @@
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
     border-radius: 12px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
     overflow-wrap: anywhere;
-  }
-
-  :global(.ghost.spriteoff) .cc-full {
-    bottom: auto;
-    top: calc(100% + 4px);
-    max-height: 8rem;
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   .cc :global(ul),

@@ -57,6 +57,7 @@
     talking,
     draft = $bindable(),
     fieldEl = $bindable(),
+    composerExtra = $bindable(0),
     onAgentChange,
     togglePrompts,
     toggleDest,
@@ -96,6 +97,10 @@
     talking: boolean;
     draft: string;
     fieldEl: HTMLTextAreaElement | null;
+    // COLLAPSE-CC: px the composer grew past its one-line idle (collapsed
+    // only — expanded/hosted keep the 6-line cap and report 0).
+    // CompanionPage turns it into the native hug / window grow.
+    composerExtra?: number;
     onAgentChange: () => void;
     togglePrompts: () => void;
     toggleDest: (mode: "launchpad" | "stars" | "inspector") => void;
@@ -181,11 +186,14 @@
 
   // COMPOSER-WRAP: the one-line field is a wrapping textarea now (Grok
   // web composer). Enter sends, Shift+Enter newline, ⌘↩/Ctrl+↩ send.
-  // Auto-grows from scrollHeight (WKWebView-safe — no field-sizing),
-  // caps at 6 visible lines then scrolls inside the box so it never
-  // eats the spirit. Empty clears the inline height entirely, so the
-  // idle box is the exact 0224c1f one-line height (rows=1, same
-  // padding/font/border). No chevron, no extra icon.
+  // Auto-grows from scrollHeight (WKWebView-safe — no field-sizing).
+  // GO-ORBITTY-COLLAPSE-CC: collapsed drops the 6-line cap — never an
+  // inner scroll; the WINDOW grows instead (composerExtra rides up to
+  // CompanionPage's hug / grow-down report). Expanded / hosted keep the
+  // 6-line cap so the field never eats the transcript / well. Empty
+  // clears the inline height entirely, so the idle box is the exact
+  // 0224c1f one-line height (rows=1, same padding/font/border).
+  // No chevron, no extra icon.
   const MAX_EXTRA_LINES = 5; // 1 idle line + 5 = 6 visible lines
 
   let oneLineH = 0; // border-box px of the empty field
@@ -214,16 +222,20 @@
       measureField();
       el.style.height = "";
       el.style.overflowY = "hidden";
+      composerExtra = 0;
       return;
     }
     const border =
       parseFloat(getComputedStyle(el).borderTopWidth) * 2;
     const needed = el.scrollHeight + border; // border-box target
+    const collapsed = !expanded && hosted === "off";
     const max =
       oneLineH > 0 ? oneLineH + MAX_EXTRA_LINES * lineH : needed;
-    const capped = needed > max + 0.5;
+    const capped = !collapsed && needed > max + 0.5;
     el.style.height = `${capped ? max : needed}px`;
     el.style.overflowY = capped ? "auto" : "hidden";
+    composerExtra =
+      collapsed && oneLineH > 0 ? Math.max(0, Math.round(needed - oneLineH)) : 0;
   }
 
   function onFieldKeydown(e: KeyboardEvent) {
@@ -234,7 +246,11 @@
   }
 
   $effect(() => {
-    draft; // grow on every keystroke / talk fill / send-clear
+    // Grow on every keystroke / talk fill / send-clear; a surface flip
+    // re-runs so the 6-line cap re-applies (or releases) in place.
+    draft;
+    expanded;
+    hosted;
     growField();
   });
 

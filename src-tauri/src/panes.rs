@@ -22,10 +22,12 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
     };
     // GO-ORBITTY-HOST-SPLIT: a hide while hosted persists the RESTORED
     // idle rect, never the host frame. SPRITE-HUG: same for the hug bar —
-    // persist the tall idle, never the bar.
+    // persist the tall idle, never the bar. COLLAPSE-CC: and never a
+    // composer-grown frame.
     if label == "companion" {
         unhost_before_persist(&app);
         unhug_before_persist(&app);
+        ungrow_companion_composer(&app);
     }
     if crate::state::DRAWER_LABELS.contains(&label.as_str()) {
         crate::drawers::persist_shown_place(&app, &label);
@@ -246,6 +248,9 @@ pub(crate) fn wire_pane_events(
             if pane_label == "companion" {
                 unhost_before_persist(&handle);
                 unhug_before_persist(&handle);
+                // COLLAPSE-CC: persist the idle rect, never a
+                // composer-grown one.
+                ungrow_companion_composer(&handle);
             }
             if crate::state::DRAWER_LABELS.contains(&pane_label.as_str()) {
                 crate::drawers::persist_shown_place(&handle, &pane_label);
@@ -458,6 +463,96 @@ pub(crate) fn unhug_before_persist(app: &tauri::AppHandle) {
     unhug_companion(app);
 }
 
+/// GO-ORBITTY-COLLAPSE-CC: collapsed sprite-ON composer grow — the window
+/// grows DOWN (keep top) with the wrapping composer instead of squashing
+/// the spirit. COMPOSER_GROW is the last applied px delta, never a rect
+/// stash: a grow adds only the delta from the last report and ungrow
+/// removes exactly what was added, so a user edge-resize mid-type
+/// survives. Session-only — expand / host / sprite-off / hide / close
+/// shed the extra first, so the persisted idle place never includes it.
+static COMPOSER_GROW: std::sync::OnceLock<std::sync::Mutex<f64>> =
+    std::sync::OnceLock::new();
+
+fn composer_grow_slot() -> &'static std::sync::Mutex<f64> {
+    COMPOSER_GROW.get_or_init(|| std::sync::Mutex::new(0.0))
+}
+
+/// Take the outstanding composer extra (0 when none). Host-enter reads
+/// this to strip the extra from its stash base without placing first.
+pub(crate) fn composer_grow_take() -> f64 {
+    composer_grow_slot()
+        .lock()
+        .map(|mut s| std::mem::take(&mut *s))
+        .unwrap_or(0.0)
+}
+
+/// Remove an outstanding composer grow (keep top). No-op at 0.
+pub(crate) fn ungrow_companion_composer(app: &tauri::AppHandle) {
+    let extra = composer_grow_take();
+    if extra <= 0.0 {
+        return;
+    }
+    let Some(w) = app.get_webview_window("companion") else {
+        return;
+    };
+    if !w.is_visible().unwrap_or(false) {
+        return;
+    }
+    let Some(live) = crate::drawers::live_points_rect(&w) else {
+        return;
+    };
+    let r = crate::state::CompanionBounds {
+        x: live.x,
+        y: live.y,
+        w: live.w,
+        h: live.h - extra,
+    };
+    crate::drawers::place_logical_rect(&w, "companion", &r);
+}
+
+/// JS report of the composer's grown-past-one-line px. Only idle
+/// collapsed + sprite-on + not-hosted grows (keep top); every other
+/// surface sheds an outstanding extra and no-ops. A hidden window
+/// no-ops — the hide already ungrew and the show re-reports.
+#[tauri::command]
+pub fn set_companion_composer_grow(app: tauri::AppHandle, extra: f64) -> Result<(), String> {
+    let st = crate::state::load_state(&app)?;
+    let hosted = host_stash().lock().map(|s| s.is_some()).unwrap_or(false);
+    if st.companion.expanded || !st.companion.sprite || hosted || companion_hugged() {
+        ungrow_companion_composer(&app);
+        return Ok(());
+    }
+    let extra = extra.clamp(0.0, 600.0);
+    let prev = composer_grow_slot().lock().map(|s| *s).unwrap_or(0.0);
+    let delta = extra - prev;
+    if delta.abs() < 1.0 {
+        return Ok(());
+    }
+    let Some(w) = app.get_webview_window("companion") else {
+        return Ok(());
+    };
+    if !w.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
+    let Some(live) = crate::drawers::live_points_rect(&w) else {
+        return Ok(());
+    };
+    if let Ok(mut s) = composer_grow_slot().lock() {
+        *s = extra;
+    }
+    let r = crate::state::CompanionBounds {
+        x: live.x,
+        y: live.y,
+        w: live.w,
+        h: live.h + delta,
+    };
+    crate::drawers::place_logical_rect(&w, "companion", &r);
+    // A grow-down can sink the dock below every display — the dock-click
+    // law rescues (the composer never strands off-screen).
+    crate::drawers::ensure_companion_dock_onscreen(&w);
+    Ok(())
+}
+
 /// GO-ORBITTY-HOST-SPLIT: the ONE native path that resizes the companion
 /// for hosting — the frontend never set_sizes the companion itself.
 ///   "launchpad" | "stars" | "inspector" → stash the live idle rect (once per host
@@ -512,6 +607,17 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
             }
             None => crate::drawers::live_points_rect(&w),
         };
+        // GO-ORBITTY-COLLAPSE-CC: a sprite-on composer grow is session
+        // chrome, never the idle rect — strip the outstanding extra from
+        // the stash base (never placed) so the host stash and the
+        // dismiss-time restore keep the idle height. Hugged and grown
+        // are mutually exclusive (sprite off vs on): from_hug bases are
+        // untouched by this.
+        let grow_extra = composer_grow_take();
+        let base = base.map(|mut r| {
+            r.h = (r.h - grow_extra).max(360.0);
+            r
+        });
         if let Some(r) = base {
             if let Ok(mut s) = host_stash().lock() {
                 *s = Some(r);

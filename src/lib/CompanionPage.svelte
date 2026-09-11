@@ -174,6 +174,10 @@
   let userLine = $state("");
   let botLine = $state("");
   let draft = $state("");
+  // GO-ORBITTY-COLLAPSE-CC: px the collapsed composer grew past one line
+  // (bound up from the dock). Sprite-off rides reportHug; sprite-on grows
+  // the window down via set_companion_composer_grow.
+  let composerExtra = $state(0);
   let sending = $state(false);
   let sendNote = $state<string | null>(null);
   // Thinking v9 plays only while a reply is in flight; missing thinking
@@ -290,6 +294,13 @@
     sendNote = msg;
   }
 
+  // COLLAPSE-CC: the fixed reply overlay opened/closed — re-report ghost
+  // hits so it catches (open) / releases (close) its pixels. Lives out
+  // here because the caption snippet's `hosted` param shadows HostMode.
+  function onCaptionOverlayChange() {
+    if (!expanded && hosted === "off") tick().then(reportHits);
+  }
+
   // HOST-CC: hosted + expanded — Escape collapses the overlay only.
   // CaptionPane owns ccOpen Escape and Enter/Space paging.
   // TILE-DROP: hosted + no overlay — Escape dismisses the host (the
@@ -384,6 +395,21 @@
     const h = measureHugHeight();
     if (h) invoke("set_companion_sprite", { enabled: false, hugHeight: h }).catch(() => {});
   }
+
+  // GO-ORBITTY-COLLAPSE-CC: sprite-ON collapsed grows the WINDOW down
+  // with the composer (keep top — the spirit is never squashed). The
+  // native side owns the gate (collapsed + sprite on + not hosted +
+  // shown) and the ungrow on expand / host / sprite-off / hide, so this
+  // is a plain report of the dock-measured extra.
+  function reportComposerGrow() {
+    invoke("set_companion_composer_grow", { extra: composerExtra }).catch(() => {});
+  }
+
+  $effect(() => {
+    const watching = [composerExtra, expanded, hosted, sprite];
+    void watching;
+    reportComposerGrow();
+  });
 
   async function toggleSprite(e: MouseEvent) {
     e.preventDefault();
@@ -1078,7 +1104,13 @@
       const s = await invoke<PersistedState>("load_state");
       themeId = KNOWN_THEMES.has(s.themeId) ? s.themeId : osThemeId();
       windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
-      userLine = s.companion?.lastUserLine ?? "";
+      // GO-ORBITTY-COLLAPSE-CC: sendLine already swapped the you-row to
+      // the line just sent; while sending, a state:changed reload must
+      // not clobber it with the STALE persisted lastUserLine (still the
+      // previous prompt — the native side writes the new one only when
+      // the reply lands). Persisted truth reapplies on the next load
+      // once sending is false.
+      if (!sending) userLine = s.companion?.lastUserLine ?? "";
       botLine = s.companion?.lastBotLine ?? "";
       turns = s.companion?.turns ?? [];
       expanded = s.companion?.expanded ?? false;
@@ -1177,7 +1209,7 @@
       return;
     if (
       !t?.closest(
-        ".floatwrap, .ghostdock, .cc, .wait, .starstrip, .winx, .gear, .note"
+        ".floatwrap, .ghostdock, .cc, .cc-full, .wait, .starstrip, .winx, .gear, .note"
       )
     )
       return;
@@ -1228,6 +1260,9 @@
     };
     push(mainEl.querySelector(".stage .floatwrap"));
     mainEl.querySelectorAll(".cc").forEach((el) => push(el));
+    // COLLAPSE-CC: the fixed reply overlay covers empty ghost air —
+    // report it so it never clicks through to the desk.
+    push(mainEl.querySelector(".cc-full"));
     push(mainEl.querySelector(".ccrow .wait"));
     push(mainEl.querySelector(".starstrip"));
     // DOCK-GRIP: flush dock hit — paint stays inset, hits are not paint.
@@ -1250,8 +1285,8 @@
   }
 
   // Report on every collapsed-layout change (CC rows, wait mark, note,
-  // starstrip, planets popup, art/view swap, sprite off). tick() first
-  // so the DOM has the new layout before the measure.
+  // starstrip, planets popup, art/view swap, sprite off, composer grow).
+  // tick() first so the DOM has the new layout before the measure.
   $effect(() => {
     const watching = [
       expanded,
@@ -1264,6 +1299,7 @@
       showPromptStrip,
       missing,
       drawFrames,
+      composerExtra,
     ];
     void watching;
     if (expanded || hosted !== "off") {
@@ -1340,7 +1376,12 @@
         }
         // SPRITE-HUG: a show while sprite-off (the hide persisted the
         // tall idle) re-hugs the bar — no state change fires the effect.
-        tick().then(reportHug);
+        // COLLAPSE-CC: same for a sprite-on composer grow — the hide
+        // ungrew native-side; re-report the dock's extra.
+        tick().then(() => {
+          reportHug();
+          reportComposerGrow();
+        });
       } else if (timer) {
         clearInterval(timer);
         timer = undefined;
@@ -1441,6 +1482,7 @@
     {draft}
     ready={captionReady}
     onSpeakError={onCaptionSpeakError}
+    onOverlayChange={onCaptionOverlayChange}
   />
 {/snippet}
 
@@ -1657,6 +1699,7 @@
     {talking}
     bind:draft
     bind:fieldEl
+    bind:composerExtra
     {onAgentChange}
     {togglePrompts}
     {toggleDest}
