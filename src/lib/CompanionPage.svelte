@@ -1244,30 +1244,11 @@
       return;
     if (
       !t?.closest(
-        ".floatwrap, .ghostdock, .cc, .cc-full, .wait, .starstrip, .winx, .gear, .note"
+        ".floatwrap, .ghostdock, .ccrow, .cc, .cc-full, .wait, .starstrip, .winx, .gear, .note"
       )
     )
       return;
     invoke("companion_front").catch(() => {});
-  }
-
-  // GRAB-LAW: the slab (expanded / hosted) is a complete window — the
-  // pane drags from the well, transcript padding, chrome, spirit, empty
-  // air. Never from a control (own presses), never from .bubble / .cc
-  // (selection wins), never from a draggable kanban card. The dock,
-  // floatwrap, and embedded banners grip themselves — the pane defers.
-  function onPaneMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    if (!expanded && hosted === "off") return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("input, textarea, select, button, a, .field")) return;
-    if (t?.closest(".bubble, .cc")) return;
-    if (t?.closest('[draggable="true"]')) return;
-    if (t?.closest(".ghostdock, .floatwrap, .k-banner, .s-banner, .banner")) return;
-    e.preventDefault();
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {});
   }
 
   // ---------- GO-ORBITTY-COMPANION-CLEAR: ghost hit reporting ----------
@@ -1294,10 +1275,9 @@
       rects.push({ x: r.x, y: r.y, w: r.width, h: r.height });
     };
     push(mainEl.querySelector(".stage .floatwrap"));
-    mainEl.querySelectorAll(".cc").forEach((el) => push(el));
-    // COLLAPSE-CC: the fixed reply overlay covers empty ghost air —
-    // report it so it never clicks through to the desk.
-    push(mainEl.querySelector(".cc-full"));
+    // Whole caption rows (bubbles + padding) — not just the inner .cc,
+    // so air around a bubble does not punch through to the desk.
+    mainEl.querySelectorAll(".ccrow, .cc, .cc-full").forEach((el) => push(el));
     push(mainEl.querySelector(".ccrow .wait"));
     push(mainEl.querySelector(".starstrip"));
     // DOCK-GRIP: flush dock hit — paint stays inset, hits are not paint.
@@ -1558,7 +1538,6 @@
   class:tile-enter={tileEnter}
   class:tile-leave={tileLeave}
   class:spirit-hold={spiritHold}
-  onmousedown={onPaneMouseDown}
   onmousedowncapture={onHitMouseDown}
   bind:this={mainEl}
 >

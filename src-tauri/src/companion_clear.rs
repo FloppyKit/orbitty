@@ -117,10 +117,9 @@ pub(crate) fn hidden(app: &tauri::AppHandle) {
     set_front_level(app, false);
 }
 
-/// CHROME-Z leftover: `NSApp.isActive` is false while the user is on a
-/// nonactivating planet panel, so the poll treated that as "Safari is
-/// front" and dropped the companion to level 0 under the discs. The
-/// real other-app test is the workspace frontmost pid.
+/// Workspace frontmost pid. raise_now uses this to skip a redundant
+/// activate; planet restack uses it to skip a lift when another app is
+/// front. Shown z-order is always floating — not this test.
 #[cfg(target_os = "macos")]
 fn orbitty_is_frontmost() -> bool {
     use objc::runtime::Object;
@@ -144,10 +143,8 @@ fn orbitty_is_frontmost() -> bool {
     true
 }
 
-/// GO-ORBITTY-CHROME-Z: companion chrome is a normal window vs other
-/// apps. Floating+1 (4) only while shown AND Orbitty is the frontmost
-/// app — that still beats planet discs so Show Companion recovers.
-/// Another app frontmost, or hide → NSNormalWindowLevel (0).
+/// Shown companion stays floating (level 4) — always on top of the desk
+/// and planet discs. Hide → NSNormalWindowLevel (0).
 fn set_front_level(app: &tauri::AppHandle, shown: bool) {
     let handle = app.clone();
     #[cfg(target_os = "macos")]
@@ -171,7 +168,7 @@ fn apply_front_level(handle: &tauri::AppHandle, shown: bool) {
     if raw.is_null() {
         return;
     }
-    let want: i64 = if shown && orbitty_is_frontmost() { 4 } else { 0 };
+    let want: i64 = if shown { 4 } else { 0 };
     unsafe {
         let nsw = raw as *mut Object;
         let cur: i64 = msg_send![nsw, level];
@@ -324,8 +321,6 @@ pub(crate) fn apply_mode(app: &tauri::AppHandle) {
         HOLD_SEEN_INSIDE.store(false, Ordering::SeqCst);
         return;
     }
-    // GO-ORBITTY-CHROME-Z: level follows shown + frontmost app (see
-    // set_front_level). Summon raise_now after this forces 4.
     set_front_level(app, true);
     if slab() {
         GHOST_ACTIVE.store(false, Ordering::SeqCst);
@@ -540,8 +535,8 @@ pub fn start(app: tauri::AppHandle) {
         EXPANDED.store(st.companion.expanded, Ordering::SeqCst);
     }
     std::thread::spawn(move || loop {
-        // GO-ORBITTY-CHROME-Z: hosted Launchpad is a slab (ghost poll
-        // idles). Still re-apply z-order so resign-active drops level 4.
+        // Shown companion stays at level 4 (always on top). Ghost poll
+        // idles while hosted (slab).
         // Nested planet menus: skip — dispatch_sync into a tracking loop
         // was the beach ball while digging into Assign-to-planet.
         if MENU_QUIET.load(Ordering::SeqCst) {
