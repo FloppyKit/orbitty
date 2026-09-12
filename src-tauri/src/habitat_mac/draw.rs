@@ -419,6 +419,8 @@ struct DrawData {
     /// glyph fallback). Loaded once per session by ensure_town_art.
     town_igloo: usize,
     town_sign: usize,
+    town_boombox: usize,
+    town_ball: usize,
     /// Dest-menu find: 0 just armed, 1 expired. None = no glow.
     locate_t: Option<f64>,
     /// GO-ORBITTY-WORLD-YARD leftover: the beach ball's view-local center
@@ -441,6 +443,8 @@ fn draw_rect_guarded(this: &Object) {
         ensure_town_art(&mut h);
         let town_igloo = h.town_igloo;
         let town_sign = h.town_sign;
+        let town_boombox = h.town_boombox;
+        let town_ball = h.town_ball;
         let now = now_epoch();
         // WORLD-YARD leftover (ball in view space): per-pack still-frame
         // aspects for the keep-up head math (0.0 = generated person).
@@ -622,6 +626,8 @@ fn draw_rect_guarded(this: &Object) {
                 board,
                 town_igloo,
                 town_sign,
+                town_boombox,
+                town_ball,
                 locate_t: h.locate_planet.as_ref().and_then(|(id, at)| {
                     if id == pid && at.elapsed() < PLANET_LOCATE_TTL {
                         Some(
@@ -817,19 +823,28 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
                 );
             }
             DecorKind::Boombox => {
-                draw_pixel_art(
-                    cx,
-                    base_y,
-                    &BOOMBOX[..],
-                    BOOMBOX_SCALE,
-                    &[
-                        (b'H', (0.55, 0.55, 0.60)),
-                        (b'B', (0.18, 0.18, 0.22)),
-                        (b'K', (0.05, 0.05, 0.07)),
-                        (b'W', (0.85, 0.85, 0.90)),
-                    ],
-                    if decor.on { 1.0 } else { 0.55 },
-                );
+                let alpha = if decor.on { 1.0 } else { 0.55 };
+                if d.town_boombox != 0 {
+                    draw_nsimage(
+                        d.town_boombox as *mut Object,
+                        decor.frame,
+                        alpha,
+                    );
+                } else {
+                    draw_pixel_art(
+                        cx,
+                        base_y,
+                        &BOOMBOX[..],
+                        BOOMBOX_SCALE,
+                        &[
+                            (b'H', (0.55, 0.55, 0.60)),
+                            (b'B', (0.18, 0.18, 0.22)),
+                            (b'K', (0.05, 0.05, 0.07)),
+                            (b'W', (0.85, 0.85, 0.90)),
+                        ],
+                        alpha,
+                    );
+                }
             }
         }
     }
@@ -1036,23 +1051,32 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     }
 
     // GO-ORBITTY-WORLD-YARD leftover: the beach ball, drawn with the
-    // walkers above the grass — cheap pixel art (orange/white panels),
-    // never a photo texture. Marbles never carry one (ball_pos gates).
+    // walkers above the grass. Bundled PNG when present; cheap orange/
+    // white panels as fallback. Marbles never carry one (ball_pos gates).
     // Head-kiss leftover: bottom-anchored ON the kiss point (sprite top
     // + a flat 6 px down in walker_head_view) — ≈1–2 px of hair under
     // the ball's bottom, a keep-up touch, never the ball's center
     // hovering on the sprite-box top (transparent pack padding read as
     // air) and never the crown buried.
     if let Some((bx, by)) = d.ball {
-        let scale = (0.022 * d.radius).clamp(1.5, 3.0);
-        draw_pixel_art(
-            bx,
-            by,
-            &BALL[..],
-            scale,
-            &[(b'O', (0.95, 0.52, 0.14)), (b'W', (0.96, 0.95, 0.90))],
-            1.0,
-        );
+        if d.town_ball != 0 {
+            let s = (0.028 * d.radius).clamp(16.0, 20.0);
+            draw_nsimage(
+                d.town_ball as *mut Object,
+                NSRect::new(bx - s / 2.0, by - s, s, s),
+                1.0,
+            );
+        } else {
+            let scale = (0.022 * d.radius).clamp(1.5, 3.0);
+            draw_pixel_art(
+                bx,
+                by,
+                &BALL[..],
+                scale,
+                &[(b'O', (0.95, 0.52, 0.14)), (b'W', (0.96, 0.95, 0.90))],
+                1.0,
+            );
+        }
     }
 
     // Click caption: a small pill above the disc, drawn last so it sits over

@@ -1216,6 +1216,8 @@ pub(crate) struct Habitat {
     /// 0 = missing → the cheap glyph fallback draws instead.
     town_igloo: usize,
     town_sign: usize,
+    town_boombox: usize,
+    town_ball: usize,
     town_art_loaded: bool,
     /// Global walk-cycle counter, +1 per anim tick (20Hz); walkers advance
     /// pack frames at half that rate.
@@ -1432,6 +1434,8 @@ pub(crate) fn ensure_town_art(h: &mut Habitat) {
     for (name, slot) in [
         ("igloo.png", &mut h.town_igloo),
         ("sign.png", &mut h.town_sign),
+        ("boombox.png", &mut h.town_boombox),
+        ("beachball.png", &mut h.town_ball),
     ] {
         if let Ok(bytes) = std::fs::read(dir.join(name)) {
             let img = unsafe { ns_image_from_bytes(&bytes) };
@@ -2318,12 +2322,13 @@ fn layout_decor(planet: &mut Planet) {
     }
     if let Some(b) = planet.boombox_pos {
         let p = disc_to_view(center, planet.radius, planet.projection, b.x, b.y);
+        let box_size = (planet.radius * 0.28).clamp(24.0, 32.0);
         planet.decor_frames.push((
             DecorRef {
                 kind: DecorKind::Boombox,
                 index: 0,
             },
-            NSRect::new(p.x - size / 2.0, p.y - size / 2.0, size, size),
+            NSRect::new(p.x - box_size / 2.0, p.y - box_size / 2.0, box_size, box_size),
         ));
     }
 }
