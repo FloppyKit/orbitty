@@ -1,7 +1,9 @@
 <script lang="ts">
-  // GO-ORBITTY-CLEAN-KANBAN-WELLS: Needed pile (not a column). Strip under
-  // the banner + sidebar mint. Parent owns mutate/logEvent so persist
-  // round-trip stays one door.
+  // Needed pile. Launchpad strip is an accordion: one header with a
+  // count, open to a standard card (question / why / Answer·Later·Skip).
+  // Why is mdLite so **bold**, `paths`, and lists read as prose, not
+  // raw markdown. Parent owns mutate/logEvent so persist stays one door.
+  import { mdLite } from "./mdLite";
   import type { KanbanCard, PersistedState } from "./persist";
 
   let {
@@ -27,6 +29,11 @@
   let newNeeded = $state("");
   let answerFor = $state<string | null>(null);
   let answerDraft = $state("");
+  let open = $state(false);
+
+  $effect(() => {
+    if (addingNeeded) open = true;
+  });
 
   let neededNow = $derived(
     cards
@@ -128,24 +135,53 @@
   }
 </script>
 
-{#if variant === "strip" && neededNow.length > 0}
+{#if variant === "strip" && (neededNow.length > 0 || addingNeeded)}
   <section class="k-needed" aria-label="Needed from you">
     <div class="kn-head">
-      <span class="kn-title">Needed from you</span>
+      <button
+        type="button"
+        class="kn-toggle"
+        aria-expanded={open}
+        onclick={() => (open = !open)}
+      >
+        <span class="kn-chev" class:open aria-hidden="true">▸</span>
+        <span class="kn-title">Needed</span>
+        {#if neededNow.length > 0}
+          <span class="kn-count">{neededNow.length}</span>
+        {/if}
+      </button>
       <button
         class="ka-plus"
-        onclick={() => (addingNeeded = true)}
+        onclick={() => {
+          addingNeeded = true;
+          open = true;
+        }}
         title="Add a Needed question"
         aria-label="Add a Needed question">+</button
       >
     </div>
-    <ul class="kn-rows">
-      {#each neededNow as card (card.id)}
-        <li class="kn-row">
-          <div class="kn-main">
-            <span class="kn-q">{card.title}</span>
+    {#if open}
+      {#if addingNeeded}
+        <div class="ka-form">
+          <input
+            bind:value={newNeeded}
+            placeholder="Needed from you…"
+            aria-label="Needed question"
+            onkeydown={(e) => {
+              if (e.key === "Enter") addNeeded();
+              if (e.key === "Escape") addingNeeded = false;
+            }}
+          />
+          <button class="mini" onclick={addNeeded}>Save</button>
+          <button class="mini ghost" onclick={() => (addingNeeded = false)}>Cancel</button>
+        </div>
+      {/if}
+      <ul class="kn-rows">
+        {#each neededNow as card (card.id)}
+          <li class="kn-row">
+            <p class="kn-q">{card.title}</p>
             {#if card.neededWhy}
-              <span class="kn-why">{card.neededWhy}</span>
+              <div class="kn-why">{@html mdLite(card.neededWhy)}</div>
             {/if}
             {#if answerFor === card.id}
               <div class="kn-answer">
@@ -164,26 +200,26 @@
                 <button class="mini" onclick={() => answerNeeded(card)}>Save</button>
               </div>
             {/if}
-          </div>
-          <div class="kn-acts">
-            <button
-              class="mini"
-              class:active={answerFor === card.id}
-              onclick={() => {
-                answerFor = answerFor === card.id ? null : card.id;
-                answerDraft = "";
-              }}>Answer</button
-            >
-            <button class="mini ghost" onclick={() => skipNeeded(card)}>Skip</button>
-            <button
-              class="mini ghost"
-              onclick={() => laterNeeded(card)}
-              title="Ask again tomorrow">Later</button
-            >
-          </div>
-        </li>
-      {/each}
-    </ul>
+            <div class="kn-acts">
+              <button
+                class="mini"
+                class:active={answerFor === card.id}
+                onclick={() => {
+                  answerFor = answerFor === card.id ? null : card.id;
+                  answerDraft = "";
+                }}>Answer</button
+              >
+              <button
+                class="mini ghost"
+                onclick={() => laterNeeded(card)}
+                title="Ask again tomorrow">Later</button
+              >
+              <button class="mini ghost" onclick={() => skipNeeded(card)}>Skip</button>
+            </div>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </section>
 {/if}
 
@@ -216,65 +252,141 @@
 <style>
   .k-needed {
     flex-shrink: 0;
-    padding: 8px 14px 10px;
+    padding: 4px 12px 8px;
     border-bottom: 1px solid var(--edge);
-    background: var(--panel-fill, var(--panel));
   }
 
   .kn-head {
     display: flex;
     align-items: center;
-    padding: 0 0 4px;
+    gap: 4px;
+  }
+
+  .kn-toggle {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 6px 4px;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .kn-toggle:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .kn-chev {
+    flex-shrink: 0;
+    font-size: 0.62rem;
+    color: var(--dim);
+    transition: transform 0.12s;
+  }
+
+  .kn-chev.open {
+    transform: rotate(90deg);
   }
 
   .kn-title {
-    flex: 1;
-    font-size: 0.66rem;
+    font-size: 0.72rem;
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: #e59e3d;
+    letter-spacing: 0.04em;
+    color: var(--ink);
+  }
+
+  .kn-count {
+    font-size: 0.62rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--bg);
+    background: #e59e3d;
+    border-radius: 999px;
+    padding: 0 0.45rem;
+    line-height: 1.5;
   }
 
   .kn-rows {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 4px 0 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 10px;
+    max-height: 42vh;
+    overflow-y: auto;
   }
 
   .kn-row {
     display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 5px 8px;
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    background: var(--bg-fill, var(--bg));
-  }
-
-  .kn-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 8px;
+    padding: 12px 14px 10px;
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    background: var(--panel-fill, var(--panel));
   }
 
   .kn-q {
-    font-size: 0.8rem;
-    line-height: 1.35;
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    line-height: 1.4;
     color: var(--ink);
     overflow-wrap: anywhere;
   }
 
   .kn-why {
-    font-size: 0.68rem;
-    line-height: 1.35;
-    color: var(--dim);
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--ink);
     overflow-wrap: anywhere;
+  }
+
+  .kn-why :global(strong) {
+    font-weight: 700;
+  }
+
+  .kn-why :global(em) {
+    font-style: italic;
+  }
+
+  .kn-why :global(code) {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.78em;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 5px;
+    padding: 0.05em 0.35em;
+  }
+
+  .kn-why :global(p),
+  .kn-why :global(ul),
+  .kn-why :global(ol) {
+    margin: 0 0 0.55em;
+  }
+
+  .kn-why :global(p:last-child),
+  .kn-why :global(ul:last-child),
+  .kn-why :global(ol:last-child) {
+    margin-bottom: 0;
+  }
+
+  .kn-why :global(li) {
+    margin: 0 0 0.2em 1.1em;
+  }
+
+  .kn-why :global(br) {
+    display: block;
+    content: "";
+    margin-top: 0.45em;
   }
 
   .kn-answer {
@@ -302,10 +414,29 @@
   }
 
   .kn-acts {
-    flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    padding-top: 2px;
+  }
+
+  .ka-form {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 4px 8px;
+  }
+
+  .ka-form input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    padding: 6px 10px;
   }
 
   .ka-head {
@@ -338,25 +469,6 @@
   .ka-plus:hover {
     color: var(--accent);
     background: var(--bg-fill, var(--bg));
-  }
-
-  .ka-form {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 2px 0;
-  }
-
-  .ka-form input {
-    width: 100%;
-    box-sizing: border-box;
-    font: inherit;
-    font-size: 0.76rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 5px 8px;
   }
 
   .ka-form input:focus {

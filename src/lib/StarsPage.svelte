@@ -620,7 +620,7 @@
     flex-wrap: nowrap;
     justify-content: flex-start;
     gap: 4px;
-    margin-top: 8px;
+    margin-top: 14px;
     overflow-x: auto;
     scrollbar-width: none;
   }
@@ -672,8 +672,8 @@
   }
 
   .stars-radar svg {
-    width: 176px;
-    height: 176px;
+    width: 210px;
+    height: 210px;
     display: block;
   }
 
@@ -708,24 +708,24 @@
   .stars-controls {
     display: flex;
     flex-direction: column;
-    gap: 5px;
-    margin-top: 0;
+    gap: 8px;
+    margin-top: 12px;
     min-width: 0;
   }
 
   .spoke-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex-wrap: nowrap;
   }
 
   .spoke-label {
     flex: none;
-    width: 72px;
-    font-size: 0.68rem;
+    width: 6.6rem;
+    font-size: 0.78rem;
     color: var(--ink);
-    text-align: right;
+    text-align: left;
   }
 
   .spoke-btns {
@@ -736,9 +736,9 @@
 
   .spoke-val {
     font: inherit;
-    font-size: 0.72rem;
-    width: 26px;
-    height: 24px;
+    font-size: 0.78rem;
+    width: 30px;
+    height: 28px;
     padding: 0;
     color: var(--ink);
     background: var(--bg-fill, var(--bg));
@@ -775,7 +775,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: 10px;
+    margin-top: auto;
+    padding-top: 12px;
   }
 
   .mini {
@@ -827,10 +828,9 @@
 
   .checkin-grid {
     display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 16px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
     flex-shrink: 0;
-    flex-wrap: nowrap;
   }
 </style>
