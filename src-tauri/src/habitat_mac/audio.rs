@@ -7,8 +7,7 @@ use objc::{class, msg_send, sel, sel_impl};
 use std::ffi::{c_void, CStr};
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[link(name = "AVFoundation", kind = "framework")]
 extern "C" {}
@@ -161,115 +160,44 @@ pub(crate) fn stop_audio(planet: &mut Planet) {
 
 // ---------- choose-music picker (GO-ORBITTY-BOOMBOX-KILL) ----------
 
-/// One picker at a time. While up, the DisplayLink callback posts nothing
-/// (motion paused) and cursor_tick skips boombox starts — the old
-/// beachball was runModal from a non-activating app with the vsync clock
-/// churning under it.
+/// While true, DisplayLink posts nothing and cursor_tick skips boombox
+/// starts. The old beachball was runModal *during* vsync setFrameOrigin.
 pub(crate) static MUSIC_PICKER_OPEN: AtomicBool = AtomicBool::new(false);
-/// Panel being shown (retained until the completion handler releases it).
-static MUSIC_PICKER_PANEL: AtomicUsize = AtomicUsize::new(0);
 
-/// Project the open picker belongs to (a capture-less block can't carry
-/// it; the picker is singleton-gated so one slot suffices).
-fn music_picker_project() -> &'static Mutex<Option<String>> {
-    static PROJECT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-    PROJECT.get_or_init(|| Mutex::new(None))
-}
-
-/// Minimal block ABI for `beginWithCompletionHandler:`. Capture-less and
-/// marked BLOCK_IS_GLOBAL, so AppKit's Block_copy is a no-op and the
-/// leaked box from completion_block() stays valid forever.
-#[repr(C)]
-struct CompletionBlock {
-    isa: *const c_void,
-    flags: i32,
-    reserved: i32,
-    invoke: extern "C" fn(*const CompletionBlock, isize),
-    descriptor: *const CompletionBlockDescriptor,
-}
-
-#[repr(C)]
-struct CompletionBlockDescriptor {
-    reserved: std::os::raw::c_ulong,
-    size: std::os::raw::c_ulong,
+struct PickerFlag;
+impl Drop for PickerFlag {
+    fn drop(&mut self) {
+        MUSIC_PICKER_OPEN.store(false, Ordering::SeqCst);
+    }
 }
 
 extern "C" {
-    #[link_name = "_NSConcreteGlobalBlock"]
-    static NS_CONCRETE_GLOBAL_BLOCK: c_void;
+    #[link_name = "_dispatch_main_q"]
+    static DISPATCH_MAIN_Q: c_void;
+    fn dispatch_async_f(
+        queue: *mut c_void,
+        context: *mut c_void,
+        work: extern "C" fn(*mut c_void),
+    );
 }
 
-const BLOCK_IS_GLOBAL: i32 = 1 << 28;
-
-static COMPLETION_BLOCK_DESCRIPTOR: CompletionBlockDescriptor = CompletionBlockDescriptor {
-    reserved: 0,
-    size: std::mem::size_of::<CompletionBlock>() as std::os::raw::c_ulong,
-};
-
-fn completion_block() -> *const CompletionBlock {
-    // Stored as usize — the file's convention for raw pointers in statics.
-    static BLOCK: OnceLock<usize> = OnceLock::new();
-    *BLOCK.get_or_init(|| {
-        Box::into_raw(Box::new(CompletionBlock {
-            // SAFETY: referencing the libSystem global-block class.
-            isa: unsafe { &NS_CONCRETE_GLOBAL_BLOCK as *const c_void },
-            flags: BLOCK_IS_GLOBAL,
-            reserved: 0,
-            invoke: choose_music_done,
-            descriptor: &COMPLETION_BLOCK_DESCRIPTOR,
-        })) as usize
-    }) as *const CompletionBlock
-}
-
-/// NSOpenPanel completion (main thread): resume motion + starts, then
-/// apply the pick. An unplayable file fails silent later in cursor_tick
-/// (player init/play fails → pick cleared, caption "Choose music…").
-extern "C" fn choose_music_done(_block: *const CompletionBlock, response: isize) {
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        MUSIC_PICKER_OPEN.store(false, Ordering::SeqCst);
-        let panel = MUSIC_PICKER_PANEL.swap(0, Ordering::SeqCst) as *mut Object;
-        let id = music_picker_project()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take();
-        let mut picked = String::new();
-        if !panel.is_null() {
-            if response == 1 {
-                // NSModalResponseOK
-                let url: *mut Object = msg_send![panel, URL];
-                if !url.is_null() {
-                    let path_obj: *mut Object = msg_send![url, path];
-                    if !path_obj.is_null() {
-                        let utf8: *const std::os::raw::c_char = msg_send![path_obj, UTF8String];
-                        if !utf8.is_null() {
-                            picked = std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned();
-                        }
-                    }
-                }
-            }
-            let _: () = msg_send![panel, release];
-        }
-        let Some(id) = id else { return };
-        if picked.is_empty() {
-            return;
-        }
-        let mut h = lock();
-        let (boombox, remembered) = {
-            let world = world_entry(&mut h, &id);
-            world.music = picked.clone();
-            (world.boombox, world.boombox_volume)
-        };
-        h.worlds_dirty = true;
-        let reduce = h.reduce_motion;
-        if let Some(planet) = h.planets.get_mut(&id) {
-            if boombox {
-                let live = live_volume(remembered, planet.radius, reduce);
-                start_audio(planet, &picked, live);
-            }
-            let file = picked.rsplit('/').next().unwrap_or(&picked);
-            set_caption(planet, format!("Music: {file}"));
-        }
-    }));
+/// Always hop to the *next* main-queue turn — even if we are already on
+/// main. `main_thread_async` runs inline on main, which is still inside
+/// `popUpContextMenu`'s nested loop; NSOpenPanel never becomes visible
+/// from there (the "Choose music does nothing" bug).
+fn defer_main<F: FnOnce() + Send + 'static>(f: F) {
+    extern "C" fn trampoline<F: FnOnce()>(ctx: *mut c_void) {
+        let f = unsafe { Box::from_raw(ctx as *mut F) };
+        let _ = catch_unwind(AssertUnwindSafe(f));
+    }
+    let ctx = Box::into_raw(Box::new(f)) as *mut c_void;
+    unsafe {
+        dispatch_async_f(
+            std::ptr::addr_of!(DISPATCH_MAIN_Q) as *mut c_void,
+            ctx,
+            trampoline::<F>,
+        );
+    }
 }
 
 pub(crate) extern "C" fn menu_choose_music(_this: &Object, _cmd: Sel, sender: *mut Object) {
@@ -280,41 +208,133 @@ pub(crate) extern "C" fn menu_choose_music(_this: &Object, _cmd: Sel, sender: *m
     }));
 }
 
-/// Open the music picker as a sheet on the planet window when we have
-/// one, otherwise a free-floating panel. Never holds the habitat lock
-/// across the picker.
+/// Open the music picker. Never a sheet on the planet (non-activating
+/// NSPanel — that abort is the right-click crash). Never holds the
+/// habitat lock across the panel. Never presents from inside an NSMenu
+/// tracking loop.
 pub(crate) fn begin_choose_music(id: &str) {
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        if MUSIC_PICKER_OPEN.swap(true, Ordering::SeqCst) {
-            return;
+    MUSIC_PICKER_OPEN.store(true, Ordering::SeqCst);
+    let id = id.to_string();
+    defer_main(move || {
+        let _hold = PickerFlag;
+        present_music_picker(&id);
+    });
+}
+
+fn present_music_picker(id: &str) {
+    {
+        let mut h = lock();
+        if let Some(planet) = h.planets.get_mut(id) {
+            set_caption(planet, "Choose music…".into());
         }
-        let host = {
-            let h = lock();
-            h.planets.get(id).map(|p| p.panel).unwrap_or(0)
-        };
-        let panel: *mut Object = msg_send![class!(NSOpenPanel), openPanel];
-        if panel.is_null() {
-            MUSIC_PICKER_OPEN.store(false, Ordering::SeqCst);
-            return;
+    }
+    let picked = objc_try_open_panel();
+    let Some(picked) = picked else {
+        return;
+    };
+    if picked.is_empty() {
+        return;
+    }
+    let mut h = lock();
+    let (boombox, remembered) = {
+        let world = world_entry(&mut h, id);
+        world.music = picked.clone();
+        (world.boombox, world.boombox_volume)
+    };
+    h.worlds_dirty = true;
+    let reduce = h.reduce_motion;
+    if let Some(planet) = h.planets.get_mut(id) {
+        if boombox {
+            let live = live_volume(remembered, planet.radius, reduce);
+            start_audio(planet, &picked, live);
         }
-        let _: *mut Object = msg_send![panel, retain];
-        let _: () = msg_send![panel, setCanChooseFiles: true];
-        let _: () = msg_send![panel, setCanChooseDirectories: false];
-        let _: () = msg_send![panel, setAllowsMultipleSelection: false];
-        let _: () = msg_send![panel, setTitle: ns_string("Boombox music")];
-        *music_picker_project()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
-        MUSIC_PICKER_PANEL.store(panel as usize, Ordering::SeqCst);
-        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-        let _: () = msg_send![app, activateWithOptions: 2usize];
-        let hostp = host as *mut Object;
-        if !hostp.is_null() && host != 0 {
-            let _: () = msg_send![panel,
-                beginSheetModalForWindow: hostp
-                completionHandler: completion_block()];
-        } else {
-            let _: () = msg_send![panel, beginWithCompletionHandler: completion_block()];
-        }
-    }));
+        let file = picked.rsplit('/').next().unwrap_or(&picked);
+        set_caption(planet, format!("Music: {file}"));
+    }
+}
+
+extern "C" {
+    fn orbitty_objc_try(fn_: extern "C" fn(*mut c_void), ctx: *mut c_void) -> i32;
+}
+
+fn objc_try_open_panel() -> Option<String> {
+    let mut slot: Option<String> = None;
+    extern "C" fn go(ctx: *mut c_void) {
+        let slot = unsafe { &mut *(ctx as *mut Option<String>) };
+        *slot = catch_unwind(AssertUnwindSafe(|| unsafe { run_open_panel() }))
+            .ok()
+            .flatten();
+    }
+    let ok = unsafe { orbitty_objc_try(go, &mut slot as *mut _ as *mut c_void) };
+    if ok != 0 {
+        slot
+    } else {
+        None
+    }
+}
+
+/// macOS 14+ dropped NSApplication.activateWithOptions:. Sending it on
+/// 26 aborts (unrecognized selector) — that was the 16:43 boombox crash.
+unsafe fn activate_orbitty(app: *mut Object) {
+    if app.is_null() {
+        return;
+    }
+    let sel_activate = sel!(activate);
+    let can_activate: bool = msg_send![app, respondsToSelector: sel_activate];
+    if can_activate {
+        let _: () = msg_send![app, activate];
+    }
+    let current: *mut Object = msg_send![class!(NSRunningApplication), currentApplication];
+    if current.is_null() {
+        return;
+    }
+    let sel_from = sel!(activateFromApplication:);
+    let can_from: bool = msg_send![current, respondsToSelector: sel_from];
+    if can_from {
+        let _: bool = msg_send![current, activateFromApplication: current];
+    }
+}
+
+/// Same door as walker "Use my image…" (`packs.rs` runModal), after the
+/// menu has closed and Orbitty is actually the active app.
+unsafe fn run_open_panel() -> Option<String> {
+    let panel: *mut Object = msg_send![class!(NSOpenPanel), openPanel];
+    if panel.is_null() {
+        return None;
+    }
+    // No setAllowedFileTypes: any file; AVAudioPlayer fails silent on
+    // the unplayable. The audio-extension filter was part of the beachball.
+    let _: () = msg_send![panel, setCanChooseFiles: true];
+    let _: () = msg_send![panel, setCanChooseDirectories: false];
+    let _: () = msg_send![panel, setAllowsMultipleSelection: false];
+    let _: () = msg_send![panel, setTitle: ns_string("Boombox music")];
+
+    let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+    let old_policy: i64 = msg_send![app, activationPolicy];
+    // Regular (0): NSOpenPanel cannot become key as Accessory/Prohibited.
+    if old_policy != 0 {
+        let _: bool = msg_send![app, setActivationPolicy: 0i64];
+    }
+    activate_orbitty(app);
+    let _: () = msg_send![panel, center];
+    let response: isize = msg_send![panel, runModal];
+    if old_policy != 0 {
+        let _: bool = msg_send![app, setActivationPolicy: old_policy];
+    }
+    if response != 1 {
+        return None;
+    }
+    let url: *mut Object = msg_send![panel, URL];
+    if url.is_null() {
+        return None;
+    }
+    let path_obj: *mut Object = msg_send![url, path];
+    if path_obj.is_null() {
+        return None;
+    }
+    let utf8: *const c_char = msg_send![path_obj, UTF8String];
+    if utf8.is_null() {
+        return None;
+    }
+    Some(CStr::from_ptr(utf8).to_string_lossy().into_owned())
 }
