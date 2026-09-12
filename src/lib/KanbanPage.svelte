@@ -925,18 +925,6 @@
        borderless — no native Overlay strip competing with the click.
        HOST-SPLIT: embedded, this drags the host companion window. -->
   <header class="k-banner" onmousedown={onBannerMouseDown}>
-    <button
-      class="winx"
-      onmousedown={(e) => e.stopPropagation()}
-      onclick={() =>
-        embedded
-          ? onClose?.()
-          : invoke("hide_window", { label: "kanban" }).catch(() => {})}
-      title={embedded
-        ? "Dismiss the Launchpad well — the companion stays"
-        : "Hide Lists — reopen from the rail or tray"}
-      aria-label={embedded ? "Dismiss Launchpad" : "Hide Lists"}>×</button
-    >
     {#if embedded}
       <h1>Launchpad</h1>
       <!-- HOST-SPLIT: pop-out lives on the embedded Launchpad banner only
@@ -981,6 +969,18 @@
       >
     </div>
     <span class="k-pts" title="Points today / daily cap">{pointsToday()}/{DAILY_CAP}</span>
+    <button
+      class="winx"
+      onmousedown={(e) => e.stopPropagation()}
+      onclick={() =>
+        embedded
+          ? onClose?.()
+          : invoke("hide_window", { label: "kanban" }).catch(() => {})}
+      title={embedded
+        ? "Dismiss the Launchpad well — the companion stays"
+        : "Hide Lists — reopen from the rail or tray"}
+      aria-label={embedded ? "Dismiss Launchpad" : "Hide Lists"}>×</button
+    >
   </header>
 
   <NeededInbox
@@ -992,7 +992,41 @@
     bind:addingNeeded
   />
 
-  <div class="planet-strip" role="tablist" aria-label="Planets">
+  <div class="planet-strip" role="tablist" aria-label="Lists and planets">
+    <button
+      type="button"
+      class="planet-tab"
+      class:sel={selected === "inbox"}
+      role="tab"
+      aria-selected={selected === "inbox"}
+      onclick={() => (selected = "inbox")}
+    >
+      <span class="planet-tab-name">Inbox</span>
+      <span class="side-count">{sideCount("inbox")}</span>
+    </button>
+    <button
+      type="button"
+      class="planet-tab"
+      class:sel={selected === "today"}
+      role="tab"
+      aria-selected={selected === "today"}
+      onclick={() => (selected = "today")}
+    >
+      <span class="planet-tab-name">Today</span>
+      <span class="side-count">{sideCount("today")}</span>
+    </button>
+    <button
+      type="button"
+      class="planet-tab"
+      class:sel={selected === "done"}
+      role="tab"
+      aria-selected={selected === "done"}
+      onclick={() => (selected = "done")}
+    >
+      <span class="planet-tab-name">Done</span>
+      <span class="side-count">{sideCount("done")}</span>
+    </button>
+    <span class="strip-gap" aria-hidden="true"></span>
     {#each projects as p (p.id)}
       <button
         type="button"
@@ -1016,47 +1050,6 @@
   </div>
 
   <div class="k-body">
-    <aside class="k-side" aria-label="Lists">
-      <NeededInbox
-        variant="side"
-        cards={kanbanCards}
-        projectId={selectedProject?.id ?? ""}
-        {mutate}
-        {logEvent}
-        bind:addingNeeded
-      />
-
-      <div class="side-sep" aria-hidden="true"></div>
-
-      <button
-        class="side-row"
-        class:sel={selected === "today"}
-        onclick={() => (selected = "today")}
-      >
-        <span class="side-name">Today</span>
-        <span class="side-count">{sideCount("today")}</span>
-      </button>
-      <button
-        class="side-row"
-        class:sel={selected === "done"}
-        onclick={() => (selected = "done")}
-      >
-        <span class="side-name">Done</span>
-        <span class="side-count">{sideCount("done")}</span>
-      </button>
-
-      <div class="side-sep" aria-hidden="true"></div>
-
-      <button
-        class="side-row"
-        class:sel={selected === "inbox"}
-        onclick={() => (selected = "inbox")}
-      >
-        <span class="side-name">Inbox</span>
-        <span class="side-count">{sideCount("inbox")}</span>
-      </button>
-    </aside>
-
     <section class="k-main" aria-label={listTitle}>
       <div class="k-titlerow">
         {#if selectedProject}
@@ -1539,6 +1532,14 @@
   .planet-tab-name {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .strip-gap {
+    flex: none;
+    width: 1px;
+    align-self: stretch;
+    margin: 2px 6px;
+    background: var(--edge);
   }
 
   /* Overlay scrollbars: zero-width until the scroll area is hovered; never

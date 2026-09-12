@@ -431,56 +431,21 @@
     if (h) invoke("set_companion_sprite", { enabled: false, hugHeight: h }).catch(() => {});
   }
 
-  // GO-ORBITTY-PLANETS-STRIP leftover: STARS is the height ruler. Hug
-  // the window to the one-screen STARS layout. Launchpad / Planets keep
-  // that height and scroll inside the tab.
+  // Hosted well gets a comfortable height (dock stays). Launchpad /
+  // Planets scroll inside; STARS fills the well. Not a content-hug.
+  const HOST_COMFORT_H = 820;
   let lastHostHug = 0;
-  let starsHostH = 0;
   let hugTimer: ReturnType<typeof setTimeout> | undefined;
-  function offsetStack(el: HTMLElement | null): number {
-    if (!el) return 0;
-    let h = 0;
-    for (const kid of el.children) {
-      if (kid instanceof HTMLElement) h += kid.offsetHeight;
-    }
-    return h;
-  }
-  function measureWellIntrinsic(): number {
-    const page = wellpaneEl?.querySelector(".wellpage") as HTMLElement | null;
-    if (!page) return 160;
-    const stars = page.querySelector(".stars.embedded") as HTMLElement | null;
-    if (stars) return Math.max(stars.offsetHeight, 160);
-    return Math.max(offsetStack(page), 160);
-  }
-  function measureHostHeight(): number | null {
-    if (!mainEl) return null;
-    const dock = mainEl.querySelector(".ghostdock");
-    const well = mainEl.querySelector(".hostwell");
-    if (!dock || !well) return null;
-    const dockR = dock.getBoundingClientRect();
-    const wellR = well.getBoundingClientRect();
-    const below = Math.max(0, dockR.bottom - wellR.bottom);
-    const pad = 20;
-    return Math.round(measureWellIntrinsic() + pad + below);
-  }
   function reportHostHug() {
     if (hosted === "off" || expanded || tilePre || tileEnter || swapPrev) return;
     if (hugTimer) clearTimeout(hugTimer);
     hugTimer = setTimeout(() => {
       hugTimer = undefined;
       if (hosted === "off" || expanded || tilePre || tileEnter || swapPrev) return;
-      let h: number | null = null;
-      if (hosted === "stars") {
-        h = measureHostHeight();
-        if (h) starsHostH = h;
-      } else {
-        h = starsHostH || null;
-      }
-      if (!h) return;
-      if (Math.abs(h - lastHostHug) < 4) return;
-      lastHostHug = h;
-      invoke("set_companion_host_hug", { height: h }).catch(() => {});
-    }, 100);
+      if (Math.abs(HOST_COMFORT_H - lastHostHug) < 4) return;
+      lastHostHug = HOST_COMFORT_H;
+      invoke("set_companion_host_hug", { height: HOST_COMFORT_H }).catch(() => {});
+    }, 80);
   }
 
   // GO-ORBITTY-COLLAPSE-CC: sprite-ON collapsed grows the WINDOW down
@@ -1815,6 +1780,7 @@
 
   <button
     class="winx"
+    class:hosted-hide={hosted !== "off"}
     onmousedown={(e) => e.stopPropagation()}
     onclick={async () => {
       // HOST-SPLIT: restore the idle size before the hide so the
@@ -1907,6 +1873,10 @@
   .winx:hover {
     color: var(--ink);
     background: var(--panel-fill, var(--panel));
+  }
+
+  .winx.hosted-hide {
+    display: none;
   }
 
   /* GO-ORBITTY-HOST-CC: the wrap is the overlay's positioning context —

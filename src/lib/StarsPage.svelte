@@ -113,7 +113,7 @@
   const WINDOWS: Record<AverageWindow, number> = { week: 7, "14": 14, month: 30 };
   const WINDOW_CHOICES: AverageWindow[] = ["week", "14", "month"];
   // Spoke initials in radar order — Sleep·Terroir·Athleticism·Relationships·Self.
-  const SPOKE_LETTERS = ["S", "T", "A", "R", "S"] as const;
+  const SPOKE_LETTERS = ["Sl", "Te", "At", "Re", "Sf"] as const;
   const averageWindow = $derived<AverageWindow>(
     starsState.averageWindow === "week" || starsState.averageWindow === "month"
       ? starsState.averageWindow
@@ -328,6 +328,17 @@
        borderless — no native Overlay strip competing with the click.
        HOST-SPLIT: embedded, this drags the host companion window. -->
   <header class="s-banner" onmousedown={onBannerMouseDown}>
+    <h1>STARS</h1>
+    <div class="day-nav">
+      <button class="mini" onclick={prevDay} title="Previous day" aria-label="Previous day">‹</button>
+      <span class="day-label">{isToday ? `Today · ${cursorDay}` : cursorDay}</span>
+      <button
+        class="mini"
+        onclick={nextDay}
+        disabled={isToday}
+        title="Next day"
+        aria-label="Next day">›</button>
+    </div>
     <button
       class="winx"
       onmousedown={(e) => e.stopPropagation()}
@@ -340,21 +351,10 @@
         : "Hide STARS — reopen from the rail"}
       aria-label={embedded ? "Dismiss STARS" : "Hide STARS"}>×</button
     >
-    <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span> STARS</h1>
   </header>
 
   <div class="s-body">
     <section class="stars-panel" aria-label="STARS check-in">
-      <div class="day-nav">
-        <button class="mini" onclick={prevDay} title="Previous day" aria-label="Previous day">‹</button>
-        <span class="day-label">{isToday ? `Today · ${cursorDay}` : cursorDay}</span>
-        <button
-          class="mini"
-          onclick={nextDay}
-          disabled={isToday}
-          title="Next day"
-          aria-label="Next day">›</button>
-      </div>
       <div class="checkin-grid">
         <div class="stars-radar">
           <svg
@@ -475,11 +475,9 @@
     text-shadow: 0 1px 2px var(--bg-solid, transparent);
   }
 
-  /* GO-ORBITTY-HOST-SPLIT + PLANETS-STRIP leftover: one screen. Height
-     is the stars column; Cloud stretches beside it. The host hugs this. */
   .stars.embedded {
-    height: auto;
-    flex: none;
+    height: 100%;
+    flex: 1;
     min-height: 0;
     border-radius: 0;
     overflow: hidden;
@@ -532,6 +530,15 @@
     letter-spacing: 0.02em;
   }
 
+  .s-banner .day-nav {
+    flex: 1;
+    margin: 0;
+  }
+
+  .s-banner .winx {
+    margin-left: 4px;
+  }
+
   /* GO-ORBITTY-WORDMARK: ochre i-dot / ink O / accent ty. */
   .mark {
     text-shadow:
@@ -573,7 +580,7 @@
   }
 
   .stars.embedded .s-body {
-    flex: none;
+    flex: 1;
   }
 
   /* Chunky radar (teal fill / ochre stroke, the mark's fixed colors) + five
@@ -610,10 +617,12 @@
 
   .saved-strip {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
     gap: 4px;
-    margin-top: 2px;
+    margin-top: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 
   .chip {
@@ -624,11 +633,13 @@
   /* Average pills under the day chips — window (7/14/30) then spoke means. */
   .avg-pills {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 4px;
     margin-top: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 
   .avg-chip {
@@ -656,12 +667,13 @@
   .stars-radar {
     display: flex;
     justify-content: center;
+    flex-shrink: 0;
     padding: 4px 0 2px;
   }
 
   .stars-radar svg {
-    width: 140px;
-    height: 140px;
+    width: 176px;
+    height: 176px;
     display: block;
   }
 
@@ -696,14 +708,16 @@
   .stars-controls {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    margin-top: 6px;
+    gap: 5px;
+    margin-top: 0;
+    min-width: 0;
   }
 
   .spoke-row {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: nowrap;
   }
 
   .spoke-label {
@@ -716,6 +730,7 @@
 
   .spoke-btns {
     display: inline-flex;
+    flex-wrap: nowrap;
     gap: 3px;
   }
 
@@ -813,8 +828,9 @@
   .checkin-grid {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 12px;
+    justify-content: flex-start;
+    gap: 16px;
     flex-shrink: 0;
+    flex-wrap: nowrap;
   }
 </style>

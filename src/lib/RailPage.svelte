@@ -2589,18 +2589,6 @@
       class="banner"
       onmousedown={onBannerMouseDown}
     >
-      <button
-        class="winx"
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() =>
-          embedded
-            ? onClose?.()
-            : invoke("hide_window", { label: "main" }).catch(() => {})}
-        title={embedded
-          ? "Dismiss the Planets well — the companion stays"
-          : "Hide Orbitty — quit from the tray icon"}
-        aria-label={embedded ? "Dismiss Planets" : "Hide Orbitty"}>×</button
-      >
       <h1>
         {#if embedded}
           Planets
@@ -2640,6 +2628,18 @@
       {#if status?.trusted && refreshedAt}
         <span class="clock" title="last refresh">{refreshedAt}</span>
       {/if}
+      <button
+        class="winx"
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() =>
+          embedded
+            ? onClose?.()
+            : invoke("hide_window", { label: "main" }).catch(() => {})}
+        title={embedded
+          ? "Dismiss the Planets well — the companion stays"
+          : "Hide Orbitty — quit from the tray icon"}
+        aria-label={embedded ? "Dismiss Planets" : "Hide Orbitty"}>×</button
+      >
     </header>
 
     {#if status?.trusted && stateLoaded && !embedded}
@@ -3246,6 +3246,10 @@
     background: var(--panel-fill, var(--panel));
   }
 
+  .banner .winx {
+    margin-left: auto;
+  }
+
   .banner h1 {
     margin: 0;
     font-size: 0.92rem;
@@ -3748,8 +3752,8 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    padding: 6px 8px;
-    border-radius: 4px;
+    padding: 8px 8px;
+    border-radius: 8px;
   }
 
   .sheet-row:hover {

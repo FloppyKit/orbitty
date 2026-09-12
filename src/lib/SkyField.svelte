@@ -416,15 +416,9 @@
         >
       {/each}
     </div>
-    <p class="hint">
-      {#if selected}
-        Words that showed up alongside “{selected}”. Click it again to let
-        go.
-      {:else}
-        Your done cards and your own lines to the companion. Click a word
-        to see what lands next to it; right-click mutes.
-      {/if}
-    </p>
+    {#if selected}
+      <p class="hint">Alongside “{selected}” — click it again to let go.</p>
+    {/if}
   {:else if muted.length > 0}
     <p class="empty">Every word is muted right now.</p>
   {:else}
