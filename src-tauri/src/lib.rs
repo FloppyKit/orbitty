@@ -8,6 +8,8 @@ mod companion;
 mod companion_clear;
 mod companion_desk;
 #[cfg(unix)]
+mod companion_todo;
+#[cfg(unix)]
 mod control;
 mod coordinator;
 mod drawers;
@@ -131,6 +133,37 @@ fn project_rm(_app: tauri::AppHandle, _id: String) -> Result<state::Project, Str
 #[tauri::command]
 fn sync_habitat(app: tauri::AppHandle, snapshot: habitat::HabitatSnapshot) -> Result<(), String> {
     habitat::sync(&app, snapshot)
+}
+
+/// R-click Planets dest: hide or show every desktop disc.
+#[tauri::command]
+fn set_planets_hidden(app: tauri::AppHandle, hidden: bool) -> Result<(), String> {
+    let mut st = state::load_state(&app)?;
+    st.companion.planets_hidden = hidden;
+    state::save_state(&app, &st)?;
+    habitat::set_planets_hidden(hidden);
+    let _ = app.emit("state:changed", ());
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tauri::command]
+fn needed_answer(
+    app: tauri::AppHandle,
+    id: String,
+    answer: String,
+) -> Result<state::KanbanCard, String> {
+    board::needed_answer(&app, &id, &answer)
+}
+
+#[cfg(not(unix))]
+#[tauri::command]
+fn needed_answer(
+    _app: tauri::AppHandle,
+    _id: String,
+    _answer: String,
+) -> Result<state::KanbanCard, String> {
+    Err("needed.answer: unix only".into())
 }
 
 /// GO-ORBITTY-CHARS — deterministic roll: the Being editor's reroll mints a
@@ -515,6 +548,9 @@ pub fn run() {
             toggle_next_card_window,
             drawers::retether_drawer,
             drawers::retether_all_drawers,
+            drawers::companion_drag_begin,
+            drawers::companion_drag_tick,
+            drawers::companion_drag_end,
             companion::companion_frames,
             companion::companion_glb_url,
             panes::hide_window,
@@ -522,8 +558,8 @@ pub fn run() {
             panes::set_companion_composer_grow,
             panes::set_companion_host_hug,
             show_rail,
-            companion_clear::set_companion_hits,
-            companion_clear::companion_front,
+            set_planets_hidden,
+            needed_answer,
             bring_all_front,
             bring_planet_front,
             ensure_glass,
@@ -550,6 +586,8 @@ pub fn run() {
             coordinator::set_companion_view,
             coordinator::set_companion_sprite,
             coordinator::set_companion_speak,
+            coordinator::set_companion_speak_volume,
+            coordinator::set_companion_captions,
             coordinator::set_companion_talk_source,
             talk::talk_start,
             talk::talk_stop,
@@ -579,8 +617,7 @@ pub fn run() {
 
             habitat::start(app.handle().clone());
 
-            // GO-ORBITTY-COMPANION-CLEAR: ghost click-through poll for the
-            // idle collapsed companion (10Hz, idles while hidden/slab).
+            // Companion z-order poll (10Hz): shown pane stays floating.
             companion_clear::start(app.handle().clone());
             nextcard::bind(app.handle().clone());
 
@@ -762,6 +799,13 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let hide_dock_i = MenuItem::with_id(
+                app,
+                "hide_dock",
+                "Hide Dock",
+                true,
+                None::<&str>,
+            )?;
             let launchpad_i =
                 MenuItem::with_id(app, "launchpad", "Launchpad", true, None::<&str>)?;
             let stars_i = MenuItem::with_id(app, "stars", "STARS", true, None::<&str>)?;
@@ -781,6 +825,7 @@ pub fn run() {
                 app,
                 &[
                     &show_companion_i,
+                    &hide_dock_i,
                     &launchpad_i,
                     &stars_i,
                     &settings_i,
@@ -803,6 +848,9 @@ pub fn run() {
                     "show_companion" => {
                         let _ = panes::show_companion(app);
                         let _ = app.emit_to("companion", "orbitty:companion-summon", ());
+                    }
+                    "hide_dock" => {
+                        let _ = panes::hide_window(app.clone(), "companion".to_string());
                     }
                     // Raise-only: show + grow the frame native-side + ask
                     // the page to flip the well (hosted is page $state).

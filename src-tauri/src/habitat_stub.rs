@@ -12,6 +12,8 @@ pub fn bring_all_front() {}
 
 pub fn bring_planet_front(_project_id: &str) {}
 
+pub fn set_planets_hidden(_hidden: bool) {}
+
 pub fn persist_now() {}
 
 pub fn locate_walker(_app: tauri::AppHandle, _entry_id: String) -> Result<(), String> {

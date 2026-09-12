@@ -1198,6 +1198,8 @@ pub(crate) struct Habitat {
     last_drift: Option<Instant>,
     /// Gear walker-size slider (0.5–1.25, WORLD-PROPS cap). 0 = treat as 1.0.
     sprite_scale: f64,
+    /// R-click Planets dest: hide every disc. In-memory; persist is companion.planetsHidden.
+    planets_hidden: bool,
     /// GO-ORBITTY-WALKER-CONTEXT: named destinations for Assign to planet.
     planet_names: Vec<(String, String)>,
     icon_cache: HashMap<String, usize>, // bundleId/appName → NSImage
@@ -2193,6 +2195,10 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
         sel!(planetBoomboxVolume:),
         input::menu_boombox_volume as extern "C" fn(&Object, Sel, *mut Object),
     );
+    decl.add_method(
+        sel!(planetBoomboxSlider:),
+        input::menu_boombox_slider as extern "C" fn(&Object, Sel, *mut Object),
+    );
     // GO-ORBITTY-WORLD-YARD leftover: per-planet beach-ball toggle.
     decl.add_method(
         sel!(planetToggleBeachBall:),
@@ -3142,7 +3148,11 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 // in window lists / screen-recording prompts.
                 let _: () = msg_send![panel, setTitle: ns_string(&format!("Orbitty — {name}"))];
                 panel_set_frame(panel, panel_frame(&state, side), false);
-                let _: () = msg_send![panel, orderFrontRegardless];
+                if h.planets_hidden {
+                    let _: () = msg_send![panel, orderOut: std::ptr::null::<Object>()];
+                } else {
+                    let _: () = msg_send![panel, orderFrontRegardless];
+                }
                 planet.panel = panel as usize;
                 planet.view = view as usize;
             }
@@ -3350,10 +3360,33 @@ pub fn bring_all_front() {
     let app = app.clone();
     let _ = app.run_on_main_thread(|| {
         let h = lock();
+        if h.planets_hidden {
+            return;
+        }
         for planet in h.planets.values() {
             unsafe {
                 let panel = planet.panel as *mut Object;
                 let _: () = msg_send![panel, orderFrontRegardless];
+            }
+        }
+    });
+}
+
+/// Hide or show every planet disc. Hidden discs orderOut; shown lift front.
+pub fn set_planets_hidden(hidden: bool) {
+    let Some(app) = app_handle() else { return };
+    let app = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let mut h = lock();
+        h.planets_hidden = hidden;
+        for planet in h.planets.values() {
+            unsafe {
+                let panel = planet.panel as *mut Object;
+                if hidden {
+                    let _: () = msg_send![panel, orderOut: std::ptr::null::<Object>()];
+                } else {
+                    let _: () = msg_send![panel, orderFrontRegardless];
+                }
             }
         }
     });
@@ -3368,6 +3401,9 @@ pub fn bring_planet_front(project_id: &str) {
     let id = project_id.to_string();
     let _ = app.run_on_main_thread(move || {
         let h = lock();
+        if h.planets_hidden {
+            return;
+        }
         if let Some(planet) = h.planets.get(&id) {
             unsafe {
                 let panel = planet.panel as *mut Object;

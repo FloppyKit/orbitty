@@ -234,6 +234,9 @@ fn display_link_stop() {
 
 pub fn start(app: AppHandle) {
     let cell = app_handle_cell();
+    if let Ok(st) = crate::state::load_state(&app) {
+        lock().planets_hidden = st.companion.planets_hidden;
+    }
     let _ = cell.set(app);
     display_link_start();
     std::thread::spawn(|| {
@@ -503,7 +506,7 @@ fn drag_tick() {
                 let dref = *decor;
                 let pid = project_id.clone();
                 // Boombox: do not slide the sprite until past click slop.
-                // Under that, mouse-up is play/pause and boombox_pos stays.
+                // Under that, mouse-up is the volume slider and boombox_pos stays.
                 if dref.kind == DecorKind::Boombox && *moved < BOOMBOX_CLICK_SLOP {
                     return;
                 }

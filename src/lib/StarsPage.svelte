@@ -16,10 +16,10 @@
   // same slice via native commands; its toggles land here on state:changed.
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
   import SkyField from "./SkyField.svelte";
   import { listenPaneVis } from "./paneVis";
+  import { startPaneDrag } from "./dragPane";
   import {
     applyHostTokens,
     applyWindowOpacity,
@@ -102,29 +102,39 @@
   const shown = $derived<StarsCheckin | null>(
     isToday ? starsDraft : (cursorSaved ?? null),
   );
-  // Saved-day strip: dates that actually have a check-in, newest last,
-  // capped ~14 chips — anything older is reachable via Prev.
-  const savedDays = $derived(Object.keys(starsState.checkins).sort());
-  const chipDays = $derived(savedDays.slice(-14));
-
-  // Range average (GO-ORBITTY-STARS-AVERAGE): rolling calendar window of
-  // 7/14/30 days ending at the day cursor. Only saved days enter the mean
-  // — an unsaved day shrinks the denominator, a saved 0 still counts.
-  const WINDOWS: Record<AverageWindow, number> = { week: 7, "14": 14, month: 30 };
-  const WINDOW_CHOICES: AverageWindow[] = ["week", "14", "month"];
-  // Spoke initials in radar order — Sleep·Terroir·Athleticism·Relationships·Self.
-  const SPOKE_LETTERS = ["Sl", "Te", "At", "Re", "Sf"] as const;
-  const averageWindow = $derived<AverageWindow>(
-    starsState.averageWindow === "week" || starsState.averageWindow === "month"
-      ? starsState.averageWindow
-      : "14",
-  );
+  // Banner nav: Day (‹ › dates) or an average window. Average windows
+  // persist as stars.averageWindow; Day is session-only.
+  type StarsNav = "day" | "week" | "month" | "year" | "custom";
+  let navView = $state<StarsNav>("day");
+  let editingToday = $state(false);
+  const WINDOWS: Record<Exclude<StarsNav, "day" | "custom">, number> = {
+    week: 7,
+    month: 30,
+    year: 365,
+  };
+  const avgFrom = $derived(starsState.averageFrom || "");
+  const avgTo = $derived(starsState.averageTo || "");
   const windowSaves = $derived.by(() => {
-    const start = shiftDay(cursorDay, -(WINDOWS[averageWindow] - 1));
+    let start: string;
+    let end: string;
+    if (navView === "custom") {
+      start = avgFrom || shiftDay(cursorDay, -29);
+      end = avgTo || cursorDay;
+      if (start > end) [start, end] = [end, start];
+    } else {
+      const key: Exclude<StarsNav, "day" | "custom"> =
+        navView === "year" || navView === "month" ? navView : "week";
+      start = shiftDay(cursorDay, -(WINDOWS[key] - 1));
+      end = cursorDay;
+    }
     return Object.keys(starsState.checkins)
-      .filter((d) => d >= start && d <= cursorDay)
+      .filter((d) => d >= start && d <= end)
       .map((d) => starsState.checkins[d]);
   });
+  const avgMode = $derived(navView !== "day");
+  const dayEditable = $derived(
+    isToday && !avgMode && (!cursorSaved || editingToday || draftDirty),
+  );
   const windowMean = $derived.by<StarsCheckin | null>(() => {
     const saves = windowSaves;
     if (!saves.length) return null;
@@ -194,6 +204,7 @@
       starsState = stars;
       starsSavedDay = day;
       draftDirty = false;
+      editingToday = false;
     } catch {
       // next Save retries; the draft stays put
     }
@@ -201,19 +212,44 @@
 
   // Window switcher: same load → mutate → save-whole discipline as Save
   // today, but it only ever sets stars.averageWindow — checkins untouched.
-  async function setAverageWindow(w: AverageWindow) {
-    if (w === averageWindow) return;
-    starsState = { ...starsState, averageWindow: w };
+  async function setAverageWindow(w: AverageWindow, from?: string, to?: string) {
+    starsState = {
+      ...starsState,
+      averageWindow: w,
+      averageFrom: from ?? starsState.averageFrom,
+      averageTo: to ?? starsState.averageTo,
+    };
     try {
       const s = await invoke<PersistedState>("load_state");
       const stars = s.stars ?? { promptsOptIn: false, checkins: {} };
       stars.averageWindow = w;
+      if (from !== undefined) stars.averageFrom = from;
+      if (to !== undefined) stars.averageTo = to;
       s.stars = stars;
       await invoke("save_state", { state: s });
       starsState = stars;
     } catch {
       // state:changed / next load restores the truth
     }
+  }
+
+  function onNavChange(e: Event) {
+    const v = (e.target as HTMLSelectElement).value as StarsNav;
+    navView = v;
+    if (v === "day") return;
+    if (v === "custom") {
+      const from = avgFrom || shiftDay(cursorDay, -29);
+      const to = avgTo || cursorDay;
+      void setAverageWindow("custom", from, to);
+      return;
+    }
+    void setAverageWindow(v);
+  }
+
+  function onCustomDate(which: "from" | "to", raw: string) {
+    const from = which === "from" ? raw : avgFrom || shiftDay(cursorDay, -29);
+    const to = which === "to" ? raw : avgTo || cursorDay;
+    void setAverageWindow("custom", from, to);
   }
 
   // Prompts opt-in rides the native load-modify-save command (same one the
@@ -255,8 +291,9 @@
         })
       : [];
   }
-  const radarPoints = $derived(radarPointsFor(shown));
-  const radarDots = $derived(radarDotsFor(shown));
+  const radarCheckin = $derived(avgMode ? windowMean : shown);
+  const radarPoints = $derived(radarPointsFor(radarCheckin));
+  const radarDots = $derived(radarDotsFor(radarCheckin));
 
   $effect(() => {
     if (!themeId) return;
@@ -313,13 +350,7 @@
   });
 
   function onBannerMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("button, input, a, select, textarea")) return;
-    e.preventDefault();
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {});
+    startPaneDrag(e);
   }
 </script>
 
@@ -338,6 +369,37 @@
         disabled={isToday}
         title="Next day"
         aria-label="Next day">›</button>
+      <select
+        class="nav-view"
+        value={navView}
+        onchange={onNavChange}
+        aria-label="STARS view"
+      >
+        <option value="day">Day</option>
+        <option value="week">7 days</option>
+        <option value="month">30 days</option>
+        <option value="year">1 year</option>
+        <option value="custom">Custom…</option>
+      </select>
+      {#if navView === "custom"}
+        <input
+          class="nav-date"
+          type="date"
+          value={avgFrom || shiftDay(cursorDay, -29)}
+          max={avgTo || cursorDay}
+          onchange={(e) => onCustomDate("from", (e.currentTarget as HTMLInputElement).value)}
+          aria-label="Average from"
+        />
+        <input
+          class="nav-date"
+          type="date"
+          value={avgTo || cursorDay}
+          min={avgFrom || ""}
+          max={todayKey()}
+          onchange={(e) => onCustomDate("to", (e.currentTarget as HTMLInputElement).value)}
+          aria-label="Average to"
+        />
+      {/if}
     </div>
     <button
       class="winx"
@@ -360,7 +422,11 @@
           <svg
             viewBox="-62 -62 124 124"
             role="img"
-            aria-label={isToday ? "Today's STARS radar" : `STARS radar for ${cursorDay}`}
+            aria-label={avgMode
+              ? "STARS average radar"
+              : isToday
+                ? "Today's STARS radar"
+                : `STARS radar for ${cursorDay}`}
           >
             <polygon class="grid" points={radarRing(4)} />
             <polygon class="grid inner" points={radarRing(2)} />
@@ -368,7 +434,7 @@
               {@const [ax, ay] = radarVertex(i, 4)}
               <line class="axis" x1="0" y1="0" x2={ax} y2={ay} />
             {/each}
-            {#if shown}
+            {#if radarCheckin}
               <polygon class="shape" points={radarPoints} />
               {#each radarDots as d (d.key)}
                 <circle class="dot" cx={d.x} cy={d.y} r="2.6" />
@@ -380,56 +446,42 @@
           {#each STARS_SPOKES as spoke (spoke.key)}
             <div class="spoke-row">
               <span class="spoke-label">{spoke.label}</span>
-              <span class="spoke-btns" role="group" aria-label="{spoke.label} 0 to 4">
-                {#each [0, 1, 2, 3, 4] as v (v)}
-                  <button
-                    class="spoke-val"
-                    class:active={shown?.[spoke.key] === v}
-                    aria-pressed={shown?.[spoke.key] === v}
-                    disabled={!isToday}
-                    onclick={() => setSpoke(spoke.key, v)}
-                  >{v}</button>
-                {/each}
-              </span>
+              {#if avgMode}
+                <span class="spoke-num" title="{spoke.label} mean"
+                  >{windowMean ? windowMean[spoke.key].toFixed(1) : "—"}</span
+                >
+              {:else if dayEditable}
+                <span class="spoke-btns" role="group" aria-label="{spoke.label} 0 to 4">
+                  {#each [0, 1, 2, 3, 4] as v (v)}
+                    <button
+                      class="spoke-val"
+                      class:active={shown?.[spoke.key] === v}
+                      aria-pressed={shown?.[spoke.key] === v}
+                      onclick={() => setSpoke(spoke.key, v)}
+                    >{v}</button>
+                  {/each}
+                </span>
+              {:else}
+                <button
+                  class="spoke-num"
+                  type="button"
+                  disabled={!isToday}
+                  title={isToday ? "Edit today's check-in" : `${spoke.label} saved`}
+                  onclick={() => {
+                    if (isToday) editingToday = true;
+                  }}
+                >{shown ? shown[spoke.key] : "—"}</button>
+              {/if}
             </div>
           {/each}
         </div>
       </div>
-      {#if chipDays.length}
-        <div class="saved-strip" aria-label="Days with a saved check-in">
-          {#each chipDays as day (day)}
-            <button
-              class="mini chip"
-              class:active={cursorDay === day}
-              aria-pressed={cursorDay === day}
-              title={day}
-              onclick={() => (cursorDay = day)}
-            >{day.slice(5)}</button>
-          {/each}
-        </div>
-      {/if}
-      <div class="avg-pills" aria-label="Average window">
-        {#each WINDOW_CHOICES as w (w)}
-          <button
-            class="mini chip avg-chip"
-            class:active={averageWindow === w}
-            aria-pressed={averageWindow === w}
-            title={`Mean over the last ${WINDOWS[w]} days ending at the shown day`}
-            onclick={() => setAverageWindow(w)}
-          >{WINDOWS[w]}</button>
-        {/each}
-        {#if windowMean}
-          {#each STARS_SPOKES as spoke, i (spoke.key)}
-            <span class="avg-pill" title="{spoke.label} mean"
-              >{SPOKE_LETTERS[i]} {windowMean[spoke.key].toFixed(1)}</span
-            >
-          {/each}
-        {:else}
-          <span class="avg-pill dim">No saves</span>
-        {/if}
-      </div>
       <div class="stars-foot">
-        <button class="mini stars-save" disabled={!isToday} onclick={saveStarsToday}>
+        <button
+          class="mini stars-save"
+          disabled={!isToday || avgMode || (!dayEditable && !!cursorSaved)}
+          onclick={saveStarsToday}
+        >
           Save today
         </button>
         <button
@@ -533,6 +585,48 @@
   .s-banner .day-nav {
     flex: 1;
     margin: 0;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  .nav-view {
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 2px 6px;
+    margin-left: 6px;
+  }
+
+  .nav-date {
+    font: inherit;
+    font-size: 0.68rem;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 1px 4px;
+    max-width: 9.2rem;
+  }
+
+  .spoke-num {
+    font: inherit;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+    min-width: 1.6rem;
+    text-align: left;
+  }
+
+  button.spoke-num:not(:disabled) {
+    cursor: pointer;
   }
 
   .s-banner .winx {
@@ -613,55 +707,6 @@
     font-size: 0.72rem;
     color: var(--ink);
     font-variant-numeric: tabular-nums;
-  }
-
-  .saved-strip {
-    display: flex;
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    gap: 4px;
-    margin-top: 14px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .chip {
-    padding: 2px 6px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Average pills under the day chips — window (7/14/30) then spoke means. */
-  .avg-pills {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 4px;
-    margin-top: 6px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .avg-chip {
-    padding: 1px 7px;
-    font-size: 0.62rem;
-    border-radius: 999px;
-  }
-
-  .avg-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 1px 7px;
-    font-size: 0.62rem;
-    font-variant-numeric: tabular-nums;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 999px;
-  }
-
-  .avg-pill.dim {
-    color: var(--dim);
   }
 
   .stars-radar {

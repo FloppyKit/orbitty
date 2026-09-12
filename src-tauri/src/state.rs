@@ -249,9 +249,11 @@ pub struct StarsState {
     /// Local calendar day `YYYY-MM-DD` → that day's five spokes.
     pub checkins: std::collections::BTreeMap<String, StarsCheckin>,
     pub prompts_ack: String,
-    /// GO-ORBITTY-STARS-AVERAGE: "week" | "14" | "month" — rolling window
-    /// for the per-spoke mean line. Default "14"; read-only native side.
+    /// GO-ORBITTY-STARS-AVERAGE: "week" | "14" | "month" | "year" | "custom".
+    /// Default "14" on old saves. Custom uses average_from / average_to.
     pub average_window: String,
+    pub average_from: String,
+    pub average_to: String,
 }
 
 impl Default for StarsState {
@@ -261,6 +263,8 @@ impl Default for StarsState {
             checkins: std::collections::BTreeMap::new(),
             prompts_ack: String::new(),
             average_window: "14".to_string(),
+            average_from: String::new(),
+            average_to: String::new(),
         }
     }
 }
@@ -330,8 +334,20 @@ pub struct CompanionState {
     /// S2.4: capped transcript (last 40 turns) for the expanded view.
     pub turns: Vec<CompanionTurn>,
     /// S2.7: read bot replies aloud via macOS `say` (default system
-    /// voice). Default OFF.
+    /// voice). Default OFF. R-click the speaker mutes this.
     pub speak_replies: bool,
+    /// Companion `say` volume 0.0–1.0. Missing key (old saves) = 1.
+    #[serde(default = "companion_speak_volume_default")]
+    pub speak_volume: f32,
+    /// Draw the CC / transcript. R-click the expand control. Default on.
+    #[serde(default = "companion_captions_default")]
+    pub captions: bool,
+    /// Hide desktop planet discs. R-click the Planets dest. Default off.
+    #[serde(default)]
+    pub planets_hidden: bool,
+    /// Print ⌘? under the composer. Default on.
+    #[serde(default = "companion_cheat_hint_default")]
+    pub cheat_sheet_hint: bool,
     /// GO-ORBITTY-SETTINGS-WIN: companion Talk source. `"system"` (default,
     /// macOS speech — engine is GO-ORBITTY-PTT-DICTATION) or `"hotkey"`
     /// (Handy PTT chord). Unknown values load as system.
@@ -406,6 +422,18 @@ fn companion_view_expanded_default() -> String {
 }
 
 fn companion_sprite_default() -> bool {
+    true
+}
+
+fn companion_speak_volume_default() -> f32 {
+    1.0
+}
+
+fn companion_captions_default() -> bool {
+    true
+}
+
+fn companion_cheat_hint_default() -> bool {
     true
 }
 
@@ -506,6 +534,10 @@ impl Default for CompanionState {
             expanded: false,
             turns: Vec::new(),
             speak_replies: false,
+            speak_volume: companion_speak_volume_default(),
+            captions: true,
+            planets_hidden: false,
+            cheat_sheet_hint: true,
             talk_source: talk_source_default(),
             view_collapsed: companion_view_collapsed_default(),
             view_expanded: companion_view_expanded_default(),

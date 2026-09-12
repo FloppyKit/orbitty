@@ -33,8 +33,7 @@
     draft?: string;
     ready?: boolean;
     onSpeakError?: (msg: string) => void;
-    // COLLAPSE-CC: the fixed overlay is a fresh ghost hit — the parent
-    // re-reports hit rects on open/close so it never clicks through.
+    // COLLAPSE-CC: parent re-hugs on open/close.
     // Popup hug leftover: the second arg is the overlay's wanted WINDOW
     // height (0 = closed or fits already) — the parent grows the
     // companion window (hug sprite-off / composer grow sprite-on) so

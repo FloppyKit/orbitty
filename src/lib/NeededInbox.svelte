@@ -13,6 +13,7 @@
     mutate,
     logEvent,
     addingNeeded = $bindable(false),
+    onNeededFocus,
   }: {
     variant: "strip" | "side";
     cards: KanbanCard[];
@@ -24,11 +25,11 @@
       projectId?: string,
     ) => void;
     addingNeeded?: boolean;
+    onNeededFocus?: (id: string | null, title: string | null) => void;
   } = $props();
 
   let newNeeded = $state("");
-  let answerFor = $state<string | null>(null);
-  let answerDraft = $state("");
+  let selectedId = $state<string | null>(null);
   let open = $state(false);
 
   $effect(() => {
@@ -42,8 +43,34 @@
           c.kind === "needed" &&
           (c.neededState === "open" || c.neededState === "later"),
       )
-      .sort((a, b) => a.createdAt - b.createdAt),
+      .sort((a, b) => {
+        const al = a.neededState === "later" ? 1 : 0;
+        const bl = b.neededState === "later" ? 1 : 0;
+        if (al !== bl) return al - bl;
+        if (al === 1) return (a.lastTouchedAt ?? 0) - (b.lastTouchedAt ?? 0);
+        return a.createdAt - b.createdAt;
+      }),
   );
+
+  function setOpen(v: boolean) {
+    open = v;
+    if (v && neededNow.length > 0) {
+      selectedId = neededNow[0].id;
+    } else if (!v) {
+      selectedId = null;
+    }
+  }
+
+  $effect(() => {
+    if (!open) {
+      onNeededFocus?.(null, null);
+      return;
+    }
+    const alive = neededNow.some((c) => c.id === selectedId);
+    if (!alive) selectedId = neededNow[0]?.id ?? null;
+    const card = neededNow.find((c) => c.id === selectedId) ?? null;
+    onNeededFocus?.(card?.id ?? null, card?.title ?? null);
+  });
 
   function addNeeded() {
     const title = newNeeded.trim();
@@ -76,27 +103,6 @@
     addingNeeded = false;
   }
 
-  function answerNeeded(card: KanbanCard) {
-    const answer = answerDraft.trim();
-    if (!answer) return;
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              neededAnswer: answer,
-              neededState: "answered" as const,
-              lastTouchedAt: now,
-            }
-          : c,
-      );
-    });
-    logEvent("needed-answer", { cardId: card.id }, card.projectId);
-    answerFor = null;
-    answerDraft = "";
-  }
-
   function skipNeeded(card: KanbanCard) {
     const now = Date.now() / 1000;
     mutate((s) => {
@@ -107,10 +113,7 @@
       );
     });
     logEvent("needed-skip", { cardId: card.id }, card.projectId);
-    if (answerFor === card.id) {
-      answerFor = null;
-      answerDraft = "";
-    }
+    if (selectedId === card.id) selectedId = null;
   }
 
   function laterNeeded(card: KanbanCard) {
@@ -121,17 +124,12 @@
           ? {
               ...c,
               neededState: "later" as const,
-              dueAt: now + 86400,
               lastTouchedAt: now,
             }
           : c,
       );
     });
     logEvent("needed-later", { cardId: card.id }, card.projectId);
-    if (answerFor === card.id) {
-      answerFor = null;
-      answerDraft = "";
-    }
   }
 </script>
 
@@ -142,7 +140,7 @@
         type="button"
         class="kn-toggle"
         aria-expanded={open}
-        onclick={() => (open = !open)}
+        onclick={() => setOpen(!open)}
       >
         <span class="kn-chev" class:open aria-hidden="true">▸</span>
         <span class="kn-title">Needed</span>
@@ -154,7 +152,7 @@
         class="ka-plus"
         onclick={() => {
           addingNeeded = true;
-          open = true;
+          setOpen(true);
         }}
         title="Add a Needed question"
         aria-label="Add a Needed question">+</button
@@ -178,43 +176,32 @@
       {/if}
       <ul class="kn-rows">
         {#each neededNow as card (card.id)}
-          <li class="kn-row">
+          <li
+            class="kn-row"
+            class:sel={selectedId === card.id}
+            onclick={() => (selectedId = card.id)}
+          >
             <p class="kn-q">{card.title}</p>
             {#if card.neededWhy}
               <div class="kn-why">{@html mdLite(card.neededWhy)}</div>
             {/if}
-            {#if answerFor === card.id}
-              <div class="kn-answer">
-                <input
-                  bind:value={answerDraft}
-                  placeholder="Your answer…"
-                  aria-label="Your answer"
-                  onkeydown={(e) => {
-                    if (e.key === "Enter") answerNeeded(card);
-                    if (e.key === "Escape") {
-                      answerFor = null;
-                      answerDraft = "";
-                    }
-                  }}
-                />
-                <button class="mini" onclick={() => answerNeeded(card)}>Save</button>
-              </div>
-            {/if}
             <div class="kn-acts">
               <button
-                class="mini"
-                class:active={answerFor === card.id}
-                onclick={() => {
-                  answerFor = answerFor === card.id ? null : card.id;
-                  answerDraft = "";
-                }}>Answer</button
+                class="mini ghost"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  laterNeeded(card);
+                }}
+                title="Drop to the bottom of the stack">Later</button
               >
               <button
                 class="mini ghost"
-                onclick={() => laterNeeded(card)}
-                title="Ask again tomorrow">Later</button
+                onclick={(e) => {
+                  e.stopPropagation();
+                  skipNeeded(card);
+                }}
+                title="Delete this Needed">Skip</button
               >
-              <button class="mini ghost" onclick={() => skipNeeded(card)}>Skip</button>
             </div>
           </li>
         {/each}
@@ -331,6 +318,12 @@
     border: 1px solid var(--edge);
     border-radius: 10px;
     background: var(--panel-fill, var(--panel));
+    cursor: pointer;
+  }
+
+  .kn-row.sel {
+    border-color: var(--focus, #6e4db0);
+    box-shadow: inset 0 0 0 1px var(--focus, #6e4db0);
   }
 
   .kn-q {

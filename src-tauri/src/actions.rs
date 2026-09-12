@@ -51,7 +51,7 @@ fn parse_combo(combo: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, St
 fn is_reserved(s: &tauri_plugin_global_shortcut::Shortcut) -> bool {
     use tauri_plugin_global_shortcut::{Code, Modifiers};
     if s.mods == Modifiers::SUPER | Modifiers::SHIFT
-        && matches!(s.key, Code::KeyO | Code::KeyY | Code::KeyN)
+        && matches!(s.key, Code::KeyO | Code::KeyY | Code::KeyN | Code::Slash)
     {
         return true;
     }

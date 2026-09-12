@@ -52,22 +52,16 @@
   // (no paging). Speak on = fitPages to that small box so say can flip.
   // Click the bot text = transient in-window full overlay. Enter/Space
   // page leftover only while Speak on. User bubbles never page.
-  // GO-ORBITTY-GHOST-DOCK: ghost (idle collapsed, not hosted) gets a
-  // tight spirit + a bottom dock. .ghost .stage .floatwrap shrinks to a
-  // centered square (shorter of stage w/h) so the reported hit box hugs
-  // the figure and empty air clicks through; agentrow + composer ride in
-  // one .ghostdock slab (ghost-only paint: --bg-fill, radius 12, 1px
-  // --edge). Expanded / hosted keep the full-window slab — no
-  // click-through there, no dock paint.
-  // GO-ORBITTY-DOCK-GRIP: the ghost dock's HIT is flush — dock top to
-  // window bottom, full window width; the paint stays inset — so the
-  // borderless frame's edge resize arrows land on the companion, and a
-  // mousedown on dock chrome (not a control) drags like the spirit.
+  // GO-ORBITTY-GHOST-DOCK: idle collapsed gets a tight spirit + a bottom
+  // dock. .ghost .stage .floatwrap shrinks to a centered square; agentrow
+  // + composer ride in one .ghostdock slab (paint: --bg-fill, radius 12,
+  // 1px --edge). The companion is a real window — mouse always on.
+  // GO-ORBITTY-DOCK-GRIP: mousedown on dock chrome (not a control) drags
+  // like the spirit; startPaneDrag waits 6px so a click is not a drag.
   // GO-ORBITTY-SPRITE-OFF: the Full/Head button hides the sprite
   // (persisted companion.sprite, default true — one flag for collapsed,
   // expanded, hosted) while chat stays. Off draws no stage / exphead /
-  // wellhead: the ghost reports no floatwrap hit so empty air above the
-  // dock clicks through, and the hosted well pane takes the full width.
+  // wellhead, and the hosted well pane takes the full width.
   // GO-ORBITTY-DOCK-TWEAK: L-click hides/shows the sprite; R-click is
   // Full ↔ Head. Per-surface view prefs survive Off.
   // GO-ORBITTY-SPRITE-HUG: while !sprite the Full/Head glyph wears the
@@ -92,7 +86,6 @@
   // to the dock LED (lit when ctl-live OR sending); the write door is
   // set_companion_hack via orbittyctl, never this page.
   import { invoke } from "@tauri-apps/api/core";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { emitTo, listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy, tick } from "svelte";
   import {
@@ -108,8 +101,10 @@
   import Companion3D from "./Companion3D.svelte";
   import CaptionPane from "./CaptionPane.svelte";
   import CompanionDock from "./CompanionDock.svelte";
+  import CheatSheet from "./CheatSheet.svelte";
 
   import type {
+    ActionShortcut,
     CompanionSlice,
     CompanionTurn,
     KanbanCard,
@@ -323,7 +318,6 @@
     }
     if (!expanded && hosted === "off") {
       tick().then(() => {
-        reportHits();
         reportHug();
         reportComposerGrow();
       });
@@ -338,6 +332,11 @@
   // open CC overlay still eats its own Escape.
   function onPaneKey(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
+    if (cheatOpen) {
+      cheatOpen = false;
+      e.preventDefault();
+      return;
+    }
     if (hosted !== "off" && expanded) {
       expanded = false;
       invoke("set_companion_expanded", { expanded: false }).catch(() => {});
@@ -348,42 +347,29 @@
     }
   }
 
-  // HEADROOM: per-surface view prefs. Collapsed defaults Full, expanded
-  // defaults Head; the Full/Head control writes the current surface only.
-  let viewCollapsed = $state("full");
-  let viewExpanded = $state("head");
+  // One Full/Head pref for idle, expanded, Launchpad, STARS, Planets.
+  let figureView = $state("full");
   let viewBusy = $state(false);
-  const viewPref = $derived(expanded ? viewExpanded : viewCollapsed);
-  // Head shows only when the body actually has bust art — a missing bust
-  // is a quiet miss on Full (Head disabled), NEVER the 128px crop. A 3D
-  // body always has a Head: the Companion3D camera sits on DEF-HEAD.
   const bustOk = $derived(is3D || restBust.length > 0);
-  // HOST-SPLIT: the hosted right column follows Full/Head like idle —
-  // collapsed reads viewCollapsed, expanded reads viewExpanded (viewPref
-  // already splits the surfaces). No hosted force, never a pref write.
   const headShowing = $derived(
-    viewPref === "head" && bustOk && !missing,
+    figureView === "head" && bustOk && !missing,
   );
   const drawFrames = $derived(headShowing ? activeBustFrames : activeFullFrames);
 
   async function toggleView() {
     if (viewBusy || !bustOk) return;
-    const surface = expanded ? "expanded" : "collapsed";
-    const prev = viewPref;
+    const prev = figureView;
     const next = prev === "head" ? "full" : "head";
-    if (expanded) viewExpanded = next;
-    else viewCollapsed = next;
+    figureView = next;
     viewBusy = true;
     try {
       const written = await invoke<string>("set_companion_view", {
-        surface,
+        surface: "all",
         view: next,
       });
-      if (expanded) viewExpanded = written;
-      else viewCollapsed = written;
+      figureView = written === "head" ? "head" : "full";
     } catch (e) {
-      if (expanded) viewExpanded = prev;
-      else viewCollapsed = prev;
+      figureView = prev;
       sendNote = `${e}`;
     } finally {
       viewBusy = false;
@@ -457,16 +443,31 @@
   // rides the SAME channel — the window grows down until the popup fits
   // whole, and snaps back when it closes. (Sprite-off rides reportHug;
   // the native gate turns this report into a no-op there.)
+  function actionRowExtra(): number {
+    if (!cheatSheetHint || !mainEl) return 0;
+    const row = mainEl.querySelector(".actionrow");
+    if (!row) return 0;
+    const h = row.getBoundingClientRect().height;
+    return h > 2 ? Math.round(h) : 0;
+  }
+
   function reportComposerGrow() {
     invoke("set_companion_composer_grow", {
-      extra: composerExtra + overlayExtra,
+      extra: composerExtra + overlayExtra + actionRowExtra(),
     }).catch(() => {});
   }
 
   $effect(() => {
-    const watching = [composerExtra, overlayExtra, expanded, hosted, sprite];
+    const watching = [
+      composerExtra,
+      overlayExtra,
+      expanded,
+      hosted,
+      sprite,
+      cheatSheetHint,
+    ];
     void watching;
-    reportComposerGrow();
+    tick().then(() => reportComposerGrow());
   });
 
   async function toggleSprite(e: MouseEvent) {
@@ -485,14 +486,53 @@
     }
   }
 
-  // DOCK-TWEAK: L-click hide/show sprite; R-click Full ↔ Head.
   const viewTitle = $derived(
     !sprite
-      ? "Sprite hidden — chat stays. Click: show sprite · Right-click: Full or Head"
-      : (bustOk
-          ? "Click: hide sprite · Right-click: Full figure or Head bust — remembered per surface"
-          : "Click: hide sprite · This body has no bust art — Head needs bust_* frames"),
+      ? "Sprite hidden. Click: Head or full body · Right-click: show sprite"
+      : bustOk
+        ? "Click: Head or full body · Right-click: hide sprite"
+        : "Click: full body (no bust art) · Right-click: hide sprite",
   );
+
+  let captions = $state(true);
+  async function toggleCaptions() {
+    const next = !captions;
+    captions = next;
+    try {
+      await invoke("set_companion_captions", { enabled: next });
+    } catch (e) {
+      captions = !next;
+      sendNote = `${e}`;
+    }
+  }
+
+  let planetsHidden = $state(false);
+  let cheatSheetHint = $state(true);
+  let cheatOpen = $state(false);
+  let actionRows = $state<ActionShortcut[]>([]);
+  async function togglePlanetsHidden() {
+    const next = !planetsHidden;
+    planetsHidden = next;
+    try {
+      await invoke("set_planets_hidden", { hidden: next });
+    } catch (e) {
+      planetsHidden = !next;
+      sendNote = `${e}`;
+    }
+  }
+
+  let speakVolume = $state(1);
+  let volOpen = $state(false);
+  async function setSpeakVolume(v: number) {
+    const vol = Math.max(0, Math.min(1, v));
+    speakVolume = vol;
+    try {
+      await invoke("set_companion_speak_volume", { volume: vol });
+      if (vol > 0 && !speak) await toggleSpeak();
+    } catch (e) {
+      sendNote = `${e}`;
+    }
+  }
 
   // S2.7: Speak toggle (persisted companion.speakReplies, default off).
   // When on, each landed bot reply is read aloud by the native
@@ -534,9 +574,7 @@
   let nextCount = $derived(
     cards.filter((c) => {
       if (c.kind !== "needed") return false;
-      if (c.neededState === "open") return true;
-      if (c.neededState === "later") return (c.dueAt ?? 0) <= Date.now() / 1000;
-      return false;
+      return c.neededState === "open" || c.neededState === "later";
     }).length,
   );
   function toggleNextCard() {
@@ -697,9 +735,32 @@
     fieldEl?.focus();
   }
 
+  let neededFocusId = $state<string | null>(null);
+  let neededFocusTitle = $state<string | null>(null);
+  function onNeededFocus(id: string | null, title: string | null) {
+    neededFocusId = id;
+    neededFocusTitle = title;
+  }
+  $effect(() => {
+    if (hosted !== "launchpad") {
+      neededFocusId = null;
+      neededFocusTitle = null;
+    }
+  });
+
   async function sendLine() {
     const line = draft.trim();
     if (!line || sending) return;
+    if (neededFocusId) {
+      draft = "";
+      try {
+        await invoke("needed_answer", { id: neededFocusId, answer: line });
+      } catch (e) {
+        draft = line;
+        sendNote = `${e}`;
+      }
+      return;
+    }
     sending = true;
     sendNote = null;
     // S2.5 optimistic you: the bubble lands NOW, the field clears, and
@@ -1153,12 +1214,15 @@
       turns = s.companion?.turns ?? [];
       expanded = s.companion?.expanded ?? false;
       speak = s.companion?.speakReplies ?? false;
-      // HEADROOM: missing keys land on the defaults (collapsed Full,
-      // expanded Head); unknown values normalize the same way.
-      viewCollapsed = s.companion?.viewCollapsed === "head" ? "head" : "full";
-      viewExpanded = s.companion?.viewExpanded === "full" ? "full" : "head";
-      // SPRITE-OFF: missing key (old saves) = true.
+      speakVolume = typeof s.companion?.speakVolume === "number"
+        ? Math.max(0, Math.min(1, s.companion.speakVolume))
+        : 1;
+      figureView = s.companion?.viewCollapsed === "head" ? "head" : "full";
       sprite = s.companion?.sprite ?? true;
+      captions = s.companion?.captions ?? true;
+      planetsHidden = s.companion?.planetsHidden ?? false;
+      cheatSheetHint = s.companion?.cheatSheetHint ?? true;
+      actionRows = s.actionShortcuts ?? [];
       // DOCK-HACK: missing keys (old saves) = dark LED, unknown source.
       hackLive = s.companion?.hackLive ?? false;
       hackWho = s.companion?.hackWho ?? "";
@@ -1186,122 +1250,44 @@
   // still grips itself. The × is outside both and stops its own
   // propagation. Drawers are borderless — no native Overlay strip — so
   // this JS drag is the one source, including the top of the pane.
-  function onDragMouseDown(e: MouseEvent) {
+  // AppKit setFrame follows the cursor (grab offset). startDragging
+  // jumps the pane to the click; Tauri setPosition is the wrong space.
+  // Click ≠ drag: wait for a real move, then native follow until mouse up.
+  function startCompanionDrag(e: MouseEvent) {
     if (e.button !== 0) return;
-    e.preventDefault();
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {});
-  }
-
-  // DOCK-GRIP + GRAB-LAW: dock chrome (padding around dests / agent
-  // pick / composer, never a control) drags on EVERY surface — idle,
-  // hugged, expanded, hosted. Controls keep their own presses.
-  // Click ≠ drag: startDragging on the down itself (plus a 1px twitch)
-  // sent the pane flying and the ghost then click-through'd — dock
-  // "runs away or disappears." Wait for a real move.
-  function onDockMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("input, textarea, select, button, .field")) return;
-    e.preventDefault();
     const x0 = e.screenX;
     const y0 = e.screenY;
-    const onMove = (ev: MouseEvent) => {
-      if (Math.hypot(ev.screenX - x0, ev.screenY - y0) < 6) return;
-      window.removeEventListener("mousemove", onMove);
+    const move = (ev: MouseEvent) => {
+      if (Math.hypot(ev.screenX - x0, ev.screenY - y0) < 12) return;
+      window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", onUp);
-      getCurrentWindow()
-        .startDragging()
-        .catch(() => {});
+      invoke("companion_drag_begin").catch(() => {});
     };
     const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", onUp);
     };
-    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", onUp);
   }
 
-  // FRONT-HOLD: a mousedown on any ghost hit (dock / spirit / bubble /
-  // × ⚙ / strips / popups) heavy-raises the companion natively, so no
-  // planet restack can bury it mid-click. Capture phase on <main>: the
-  // × ⚙ buttons stopPropagation on bubble, capture still sees them.
-  // Ghost only — the slab is a complete window with no bury risk.
-  function onHitMouseDown(e: MouseEvent) {
+  function onDragMouseDown(e: MouseEvent) {
+    startCompanionDrag(e);
+  }
+
+  function onDockMouseDown(e: MouseEvent | PointerEvent) {
     if (e.button !== 0) return;
-    if (expanded || hosted !== "off") return;
     const t = e.target as HTMLElement | null;
-    // Native <select> / field menus: activate+makeKey on this path was
-    // the beach ball while digging the agent picker.
-    if (t?.closest("input, textarea, select, option, .field")) return;
-    // Dock chrome starts its own drag after a move. Do not lift-z on
-    // that same down — orderFront during startDragging still jumps.
     if (
-      t?.closest(".ghostdock") &&
-      !t.closest("input, textarea, select, button, .field")
-    )
-      return;
-    if (
-      !t?.closest(
-        ".floatwrap, .ghostdock, .ccrow, .cc, .cc-full, .wait, .starstrip, .winx, .gear, .note"
+      t?.closest(
+        "button, input, a, select, textarea, option, .field, .volpop, .agentbubble, .agentopt",
       )
     )
       return;
-    invoke("companion_front").catch(() => {});
+    startCompanionDrag(e);
   }
 
-  // ---------- GO-ORBITTY-COMPANION-CLEAR: ghost hit reporting ----------
-  // Ghost = shown, collapsed, not hosted: empty pixels click through to
-  // the desk, so the native 10Hz poll needs the coarse boxes that still
-  // hit — window-local CSS points via getBoundingClientRect.
-  // GO-ORBITTY-GHOST-DOCK: the spirit box is the tight ghost floatwrap —
-  // a centered square (shorter of stage w/h), never the 100%×100% wrap
-  // and never the empty .stage — and agentrow + composer report as ONE
-  // .ghostdock slab. Slab (expanded/hosted) never consults the list
-  // native-side; an empty report is a no-op there (kept last hits =
-  // no hole on collapse), so leaving ghost just sends [].
-  // GO-ORBITTY-DOCK-GRIP: the dock slab reports FLUSH, not the painted
-  // inset — x=0, full window width, dock top → window bottom — so the
-  // borderless frame's bottom / side-at-dock / corner resize arrows land
-  // on a hit. Empty air above the dock still click-throughs.
-  function reportHits() {
-    if (!mainEl) return;
-    const rects: { x: number; y: number; w: number; h: number }[] = [];
-    const push = (el: Element | null) => {
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      if (r.width < 2 || r.height < 2) return;
-      rects.push({ x: r.x, y: r.y, w: r.width, h: r.height });
-    };
-    push(mainEl.querySelector(".stage .floatwrap"));
-    // Whole caption rows (bubbles + padding) — not just the inner .cc,
-    // so air around a bubble does not punch through to the desk.
-    mainEl.querySelectorAll(".ccrow, .cc, .cc-full").forEach((el) => push(el));
-    push(mainEl.querySelector(".ccrow .wait"));
-    push(mainEl.querySelector(".starstrip"));
-    // DOCK-GRIP: flush dock hit — paint stays inset, hits are not paint.
-    const dock = mainEl.querySelector(".ghostdock");
-    if (dock) {
-      const dr = dock.getBoundingClientRect();
-      if (dr.width >= 2 && dr.height >= 2) {
-        rects.push({
-          x: 0,
-          y: dr.y,
-          w: window.innerWidth,
-          h: window.innerHeight - dr.y,
-        });
-      }
-    }
-    push(mainEl.querySelector(".winx"));
-    push(mainEl.querySelector(".gear"));
-    push(mainEl.querySelector(".note"));
-    invoke("set_companion_hits", { rects }).catch(() => {});
-  }
-
-  // Report on every collapsed-layout change (CC rows, wait mark, note,
-  // starstrip, art/view swap, sprite off, composer grow).
-  // tick() first so the DOM has the new layout before the measure.
+  // SPRITE-HUG: re-fit the idle bar when CC / wait / strips change.
   $effect(() => {
     const watching = [
       expanded,
@@ -1315,18 +1301,11 @@
       missing,
       drawFrames,
       composerExtra,
+      cheatSheetHint,
     ];
     void watching;
-    if (expanded || hosted !== "off") {
-      invoke("set_companion_hits", { rects: [] }).catch(() => {});
-      return;
-    }
-    // SPRITE-HUG: reportHug rides the same post-tick measure — the bar
-    // re-fits as CC rows / wait mark / strips come and go.
-    tick().then(() => {
-      reportHits();
-      reportHug();
-    });
+    if (expanded || hosted !== "off") return;
+    tick().then(() => reportHug());
   });
 
   // PLANETS-STRIP leftover: hug to the STARS ruler on dest change. Do
@@ -1382,20 +1361,19 @@
   let unlistenYawHost: (() => void) | undefined;
   let unlistenDismissHost: (() => void) | undefined;
   let unlistenRaiseLastHost: (() => void) | undefined;
+  let unlistenCheat: (() => void) | undefined;
   let unlistenTalk: (() => void)[] = [];
-  let hitsObserver: ResizeObserver | undefined;
+  let hugObserver: ResizeObserver | undefined;
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
-    // COMPANION-CLEAR: a window resize moves every hit box — re-report.
     if (mainEl && typeof ResizeObserver !== "undefined") {
-      hitsObserver = new ResizeObserver(() => {
+      hugObserver = new ResizeObserver(() => {
         // COLLAPSE-CC leftover (popup hug): a resize after the overlay
         // closed is the snap-back landing — release the bottom-pack so
         // the bar owns the column again.
         if (ccSnap) ccSnap = false;
-        if (!expanded && hosted === "off") reportHits();
       });
-      hitsObserver.observe(mainEl);
+      hugObserver.observe(mainEl);
     }
     await loadState();
     await loadAgents();
@@ -1470,6 +1448,9 @@
       if (hosted !== "off") return;
       void enterHost(lastDest ?? "launchpad");
     });
+    unlistenCheat = await listen("orbitty:toggle-cheatsheet", () => {
+      cheatOpen = !cheatOpen;
+    });
     unlistenTalk.push(
       await listen<string>("talk:partial", (e) => {
         applyTalkText(e.payload ?? "");
@@ -1497,7 +1478,7 @@
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
-    hitsObserver?.disconnect();
+    hugObserver?.disconnect();
     window.removeEventListener("keydown", onPaneKey);
     unlistenState?.();
     unlistenVis?.();
@@ -1507,6 +1488,7 @@
     unlistenYawHost?.();
     unlistenDismissHost?.();
     unlistenRaiseLastHost?.();
+    unlistenCheat?.();
     for (const u of unlistenTalk) u();
     invoke("talk_stop").catch(() => {});
   });
@@ -1538,7 +1520,7 @@
   class:tile-enter={tileEnter}
   class:tile-leave={tileLeave}
   class:spirit-hold={spiritHold}
-  onmousedowncapture={onHitMouseDown}
+  class:cc-off={!captions}
   bind:this={mainEl}
 >
   {#if expanded && sprite}
@@ -1597,7 +1579,12 @@
           {#if swapPrev !== null}
             <div class="prismface face-out" class:face-back={swapDir === -1}>
               {#if swapPrev === "launchpad"}
-                <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
+                <KanbanPage
+                  embedded
+                  onClose={dismissHost}
+                  onPopout={popoutLaunchpad}
+                  {onNeededFocus}
+                />
               {:else if swapPrev === "stars"}
                 <StarsPage embedded onClose={dismissHost} />
               {:else}
@@ -1616,7 +1603,12 @@
             class:face-back={swapPrev !== null && swapDir === -1}
           >
             {#if hosted === "launchpad"}
-              <KanbanPage embedded onClose={dismissHost} onPopout={popoutLaunchpad} />
+              <KanbanPage
+                embedded
+                onClose={dismissHost}
+                onPopout={popoutLaunchpad}
+                {onNeededFocus}
+              />
             {:else if hosted === "stars"}
               <StarsPage embedded onClose={dismissHost} />
             {:else if hosted === "inspector"}
@@ -1631,14 +1623,14 @@
         </div>
         {#if sprite}
           <!-- Idle figure is held through native grow, then this column
-               FLIPs (translate + scale, full body, never Head). -->
+               FLIPs (translate + scale, same Head/full as idle). -->
           <div class="wellhead">
             {#if !expanded}
               <div class="spirshift">
                 {#if is3D && !glbFailed}
                   {#key bodyId}
                     <Companion3D
-                      headShowing={tilePre || tileEnter ? false : headShowing}
+                      headShowing={headShowing}
                       {bodyId}
                       thinking={sending}
                       onDrag={onDragMouseDown}
@@ -1647,9 +1639,9 @@
                   {/key}
                 {:else}
                   <SpiritStage
-                    headShowing={tilePre || tileEnter ? false : headShowing}
+                    headShowing={headShowing}
                     {missing}
-                    frames={tilePre || tileEnter ? activeFullFrames : drawFrames}
+                    frames={drawFrames}
                     {frameIdx}
                     thinking={sending}
                     smooth={artSmooth}
@@ -1661,11 +1653,11 @@
           </div>
         {/if}
       </div>
-      {#if expanded}
+      {#if expanded && captions}
         {@render caption(true, true)}
       {/if}
     </div>
-  {:else if expanded}
+  {:else if expanded && captions}
     {@render caption(true, false)}
   {/if}
   {#if sprite && !expanded && (hosted === "off" || spiritHold)}
@@ -1692,7 +1684,7 @@
     {/if}
   {/if}
 
-  {#if !expanded}
+  {#if !expanded && captions}
     {@render caption(false, hosted !== "off")}
   {/if}
 
@@ -1731,13 +1723,19 @@
     {prompts}
     {hosted}
     {speak}
+    {speakVolume}
     {headShowing}
     {viewBusy}
     {sprite}
     {bustOk}
     {viewTitle}
     {expanded}
+    {captions}
+    {planetsHidden}
     {talking}
+    neededHint={neededFocusTitle}
+    {cheatSheetHint}
+    onCheatSheet={() => (cheatOpen = !cheatOpen)}
     bind:draft
     bind:fieldEl
     bind:composerExtra
@@ -1747,14 +1745,23 @@
     {nextCount}
     {toggleNextCard}
     {toggleSpeak}
+    {setSpeakVolume}
     {toggleSprite}
     {toggleView}
     {toggleExpanded}
+    {toggleCaptions}
+    {togglePlanetsHidden}
     {sendLine}
     {talkStart}
     {talkStopOnly}
     {talkStopSend}
     {onDockMouseDown}
+  />
+
+  <CheatSheet
+    open={cheatOpen}
+    actions={actionRows}
+    onClose={() => (cheatOpen = false)}
   />
 
   <button
@@ -1803,10 +1810,7 @@
 
   /* GO-ORBITTY-TILE-PAINT: hosted, the slab fill goes transparent so the
      desk shows in the gap around the glass card — same family as the
-     ghost dock. Hits are untouched: the hosted slab never consults the
-     ghost hit list native-side, so the gap still drags (GRAB-LAW) and
-     click-through of the hosted gap stays a leftover. Idle .ghost paint
-     is unchanged. */
+     ghost dock. The window still eats clicks (no click-through). */
   .companion.hosting {
     background: transparent;
   }
@@ -1876,6 +1880,7 @@
      1080×620 native-side; the bottom chrome (CC + agentrow + composer)
      stays full-width under the well. */
   .hostwell {
+    position: relative;
     flex: 1;
     min-height: 120px;
     min-width: 0;
@@ -1905,11 +1910,23 @@
     border-radius: 12px;
   }
 
+  /* Hosted spirit sits in the same 96×96 corner as expanded chat so
+     dest screens share one layout and expand does not jump the figure. */
   .wellhead {
-    flex: 0 1 34%;
-    min-width: 0;
-    min-height: 0;
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    width: 96px;
+    height: 96px;
+    flex: none;
+    z-index: 3;
+    min-width: 96px;
+    min-height: 96px;
     display: flex;
+  }
+
+  .companion:not(.spriteoff) .wellpane:not(.fullwell) {
+    margin-left: 116px;
   }
 
   /* TILE-DROP: card rises from the dock. Face stays painted. No 3D. */

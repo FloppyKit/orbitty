@@ -46,13 +46,17 @@
     prompts,
     hosted,
     speak,
+    speakVolume = 1,
     headShowing,
     viewBusy,
     sprite,
     bustOk,
     viewTitle,
     expanded,
+    captions = true,
+    planetsHidden = false,
     talking,
+    neededHint = null,
     draft = $bindable(),
     fieldEl = $bindable(),
     composerExtra = $bindable(0),
@@ -62,14 +66,19 @@
     nextCount = 0,
     toggleNextCard,
     toggleSpeak,
+    setSpeakVolume,
     toggleSprite,
     toggleView,
     toggleExpanded,
+    toggleCaptions,
+    togglePlanetsHidden,
     sendLine,
     talkStart,
     talkStopOnly,
     talkStopSend,
     onDockMouseDown,
+    cheatSheetHint = true,
+    onCheatSheet,
   }: {
     agents: string[];
     agent: string;
@@ -79,13 +88,17 @@
     prompts: boolean;
     hosted: HostMode;
     speak: boolean;
+    speakVolume?: number;
     headShowing: boolean;
     viewBusy: boolean;
     sprite: boolean;
     bustOk: boolean;
     viewTitle: string;
     expanded: boolean;
+    captions?: boolean;
+    planetsHidden?: boolean;
     talking: boolean;
+    neededHint?: string | null;
     draft: string;
     fieldEl: HTMLTextAreaElement | null;
     // COLLAPSE-CC: px the composer grew past its one-line idle (collapsed
@@ -98,14 +111,19 @@
     nextCount?: number;
     toggleNextCard: () => void;
     toggleSpeak: () => void;
+    setSpeakVolume: (v: number) => void;
     toggleSprite: (e: MouseEvent) => void;
     toggleView: () => void;
     toggleExpanded: () => void;
+    toggleCaptions: () => void;
+    togglePlanetsHidden: () => void;
     sendLine: () => void;
     talkStart: (e: Event) => void;
     talkStopOnly: () => void;
     talkStopSend: () => void;
-    onDockMouseDown: (e: MouseEvent) => void;
+    onDockMouseDown: (e: MouseEvent | PointerEvent) => void;
+    cheatSheetHint?: boolean;
+    onCheatSheet?: () => void;
   } = $props();
 
   // DOCK-HACK: the LED is live when either source is — the Spark mouth
@@ -124,6 +142,30 @@
 
   function onPlanetsClick() {
     toggleDest("inspector");
+  }
+
+  let agentOpen = $state(false);
+  function pickAgent(id: string) {
+    agent = id;
+    agentOpen = false;
+    onAgentChange();
+  }
+
+  let volOpen = $state(false);
+  function onSpeakClick(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    volOpen = !volOpen;
+  }
+  function onSpeakRight(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    volOpen = false;
+    toggleSpeak();
+  }
+  function onVolInput(e: Event) {
+    const v = Number((e.currentTarget as HTMLInputElement).value);
+    setSpeakVolume(v / 100);
   }
 
   // COMPOSER-WRAP: the one-line field is a wrapping textarea now (Grok
@@ -197,13 +239,29 @@
   });
 
   onMount(() => {
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest(".volwrap")) return;
+      volOpen = false;
+    };
+    window.addEventListener("mousedown", onDoc);
+    const onDocAgent = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest(".agentwrap")) return;
+      agentOpen = false;
+    };
+    window.addEventListener("mousedown", onDocAgent);
     measureField();
     // Tile open/close widens the window → rewrap → re-grow without
     // waiting for the next keystroke. RO fires only on real size
     // deltas, so the grow writes above do not loop it.
     const ro = new ResizeObserver(() => growField());
     if (fieldEl) ro.observe(fieldEl);
-    return () => ro.disconnect();
+    return () => {
+      window.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("mousedown", onDocAgent);
+      ro.disconnect();
+    };
   });
 </script>
 
@@ -211,10 +269,20 @@
      ghost's outlined bottom slab. × stays a floating corner; ⚙ is on
      the dock after Expand (GEAR-DOCK). -->
 <div class="ghostdock" onmousedown={onDockMouseDown}>
-  <!-- Agent row: one strip — agent pick + icon toggles (Prompts, Speak,
-       View, Expand/Collapse). The Body picker lives in Settings →
-       Appearance. Icons are inline SVG, currentColor, 16px. -->
+  {#if cheatSheetHint}
+    <div class="actionrow">
+      <button
+        type="button"
+        class="actionhint"
+        onclick={() => onCheatSheet?.()}
+        title="Cheat sheet — ⌘⇧/"
+        aria-label="Open cheat sheet"
+      >Action: ⌘?(⌘⇧/)</button>
+    </div>
+  {/if}
+  <!-- Agent row: left cluster / dests (star at window center) / right. -->
   <div class="agentrow">
+    <div class="agentleft">
     <!-- GO-ORBITTY-DOCK-HACK leftover: always-on purple well left of
          the agent pick. Glow/pulse only while sending or hackLive.
          Not a button: it drags with the dock chrome like any gap. -->
@@ -225,18 +293,37 @@
       aria-label={hackOn ? "agent working" : "agent idle"}
       title={hackTitle}
     ></span>
-    <select
-      id="companion-agent"
-      class="agentpick"
-      bind:value={agent}
-      onchange={onAgentChange}
-      disabled={sending}
-      aria-label="Which agent soul is the companion"
-    >
-      {#each agents as a}
-        <option value={a}>{agentLabel(a)}</option>
-      {/each}
-    </select>
+    <span class="agentwrap">
+      <button
+        id="companion-agent"
+        type="button"
+        class="agentpick"
+        onclick={() => (agentOpen = !agentOpen)}
+        disabled={sending}
+        aria-haspopup="listbox"
+        aria-expanded={agentOpen}
+        aria-label="Which agent soul is the companion"
+      >{agentLabel(agent)}</button>
+      {#if agentOpen}
+        <div
+          class="agentbubble"
+          role="listbox"
+          aria-label="Agents"
+          onpointerdown={(e) => e.stopPropagation()}
+        >
+          {#each agents as a}
+            <button
+              type="button"
+              class="agentopt"
+              class:on={a === agent}
+              role="option"
+              aria-selected={a === agent}
+              onclick={() => pickAgent(a)}
+            >{agentLabel(a)}</button>
+          {/each}
+        </div>
+      {/if}
+    </span>
     <button
       class="expandbtn iconbtn promptsbtn"
       class:on={prompts}
@@ -251,6 +338,18 @@
         <path d="M16.5 3l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z" />
       </svg>
     </button>
+    {#if nextCount > 0}
+      <button
+        class="nextpip iconbtn"
+        onclick={toggleNextCard}
+        aria-label="Next card — {nextCount} Needed"
+        data-chip="Needed"
+        title="Next card (⌘⇧N)"
+      >
+        <span class="nextpip-n">{nextCount > 9 ? "9+" : nextCount}</span>
+      </button>
+    {/if}
+    </div>
     <span class="dests" role="group" aria-label="Destinations">
       <button
         class="dest iconbtn"
@@ -290,11 +389,17 @@
       <button
         class="dest iconbtn planetsdest"
         class:on={hosted === "inspector"}
+        class:muted={planetsHidden}
         onclick={onPlanetsClick}
-        oncontextmenu={(e) => e.preventDefault()}
+        oncontextmenu={(e) => {
+          e.preventDefault();
+          togglePlanetsHidden();
+        }}
         aria-label="Planets"
         data-chip="Planets"
-        title="Planets in the well — click again to dismiss"
+        title={planetsHidden
+          ? "Planets hidden on the desk — right-click to show. Click opens Planets"
+          : "Click: Planets in the well · Right-click: hide planets on the desk"}
       >
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <circle cx="12" cy="12" r="5" />
@@ -311,59 +416,69 @@
         </svg>
       </button>
     </span>
-    {#if nextCount > 0}
+    <div class="agentright">
+    <span class="volwrap">
       <button
-        class="nextpip iconbtn"
-        onclick={toggleNextCard}
-        aria-label="Next card — {nextCount} Needed"
-        data-chip="Needed"
-        title="Next card (⌘⇧N)"
+        class="expandbtn iconbtn speakbtn"
+        class:on={speak && speakVolume > 0}
+        class:muted={!speak || speakVolume <= 0}
+        onclick={onSpeakClick}
+        oncontextmenu={onSpeakRight}
+        aria-pressed={speak && speakVolume > 0}
+        aria-label="Companion volume"
+        title="Click: volume · Right-click: mute"
       >
-        <span class="nextpip-n">{nextCount > 9 ? "9+" : nextCount}</span>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polygon
+            points="11 5 6 9 2.5 9 2.5 15 6 15 11 19 11 5"
+            fill="currentColor"
+            stroke="none"
+          />
+          <path d="M15 9.2a4.2 4.2 0 0 1 0 5.6" />
+          {#if !speak || speakVolume <= 0}
+            <line x1="5.6" y1="18.4" x2="18.4" y2="5.6" />
+          {/if}
+        </svg>
       </button>
-    {/if}
-    <button
-      class="expandbtn iconbtn speakbtn"
-      class:on={speak}
-      onclick={toggleSpeak}
-      aria-pressed={speak}
-      aria-label="Speak replies"
-      title="Read bot replies aloud with the macOS system voice"
-    >
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <polygon
-          points="11 5 6 9 2.5 9 2.5 15 6 15 11 19 11 5"
-          fill="currentColor"
-          stroke="none"
-        />
-        <path d="M15 9.2a4.2 4.2 0 0 1 0 5.6" />
-        {#if !speak}
-          <line x1="5.6" y1="18.4" x2="18.4" y2="5.6" />
-        {/if}
-      </svg>
-    </button>
-    <!-- DOCK-TWEAK: L-click hides/shows the sprite; R-click Full ↔ Head.
-         The button stays ENABLED while the sprite is off — even with
-         no bust art — so L-click can always bring it back. -->
+      {#if volOpen}
+        <div
+          class="volpop"
+          role="dialog"
+          aria-label="Companion volume"
+          onpointerdown={(e) => e.stopPropagation()}
+        >
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value={Math.round(speakVolume * 100)}
+            oninput={onVolInput}
+            aria-label="Volume"
+          />
+        </div>
+      {/if}
+    </span>
     <button
       class="expandbtn iconbtn viewbtn"
       class:on={headShowing}
-      onclick={toggleSprite}
+      class:muted={!sprite}
+      onclick={toggleView}
       oncontextmenu={(e) => {
         e.preventDefault();
-        toggleView();
+        toggleSprite(e);
       }}
-      disabled={viewBusy || (sprite && !bustOk)}
+      disabled={viewBusy}
       aria-pressed={headShowing}
-      aria-label="Hide sprite, or right-click for Head or full body"
+      aria-label="Head or full body, or right-click to hide sprite"
       title={viewTitle}
     >
       {#if headShowing}
@@ -406,9 +521,16 @@
     </button>
     <button
       class="expandbtn iconbtn"
+      class:muted={!captions}
       onclick={toggleExpanded}
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        toggleCaptions();
+      }}
       aria-label={expanded ? "Collapse transcript" : "Expand transcript"}
-      title={expanded ? "Collapse transcript" : "Expand transcript"}
+      title={captions
+        ? "Click: expand or collapse · Right-click: hide conversation"
+        : "Conversation hidden — right-click to show. Click still expands"}
     >
       {#if expanded}
         <svg
@@ -460,6 +582,7 @@
         />
       </svg>
     </button>
+    </div>
   </div>
 
   <form
@@ -476,7 +599,9 @@
         bind:this={fieldEl}
         bind:value={draft}
         onkeydown={onFieldKeydown}
-        placeholder="type…"
+        placeholder={neededHint
+          ? `answer: ${neededHint}`
+          : "type…  ·  todo: buy milk -fkt"}
         aria-label="Message your companion"
         autocomplete="off"
         spellcheck="false"
@@ -579,6 +704,33 @@
     flex-direction: column;
     margin-bottom: 8px;
     border: 1px solid transparent;
+    cursor: grab;
+  }
+
+  .ghostdock :is(button, input, select, textarea, .field, a) {
+    cursor: pointer;
+  }
+
+  .actionrow {
+    display: flex;
+    justify-content: center;
+    padding: 5px 10px 0;
+  }
+
+  .actionhint {
+    margin: 0;
+    padding: 0 8px;
+    border: none;
+    background: transparent;
+    color: var(--dim);
+    font: inherit;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+
+  .actionhint:hover {
+    color: var(--ink);
   }
 
   :global(.ghost) .ghostdock,
@@ -593,20 +745,44 @@
      Speak, View, Expand/Collapse). Ghost chrome gaps drag (DOCK-GRIP);
      the controls never do. */
   .agentrow {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     gap: 6px;
     padding: 6px 10px 0;
+  }
+
+  .agentleft,
+  .agentright {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .agentleft {
+    justify-self: start;
+  }
+
+  .agentright {
+    justify-self: end;
+    justify-content: flex-end;
   }
 
   /* GO-ORBITTY-DOCK-HACK: the 46% max-width was artificially wide — the
      pick now hugs the labels (Spark / Work / Chat / Hold), making room
      for the hack LED on its left. Dests still give first at the 280px
      hug; the icon hit targets are never stolen. */
+  .agentwrap {
+    position: relative;
+    flex: none;
+  }
+
   .agentpick {
     flex: none;
+    min-width: 4.6em;
     width: max-content;
-    padding: 3px 6px;
+    padding: 3px 10px;
     font: inherit;
     font-size: 0.78rem;
     color: var(--ink);
@@ -614,6 +790,43 @@
     border: 1px solid var(--edge);
     border-radius: 8px;
     outline: none;
+    cursor: pointer;
+  }
+
+  .agentbubble {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 6px);
+    z-index: 8;
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    padding: 5px 6px;
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    white-space: nowrap;
+  }
+
+  .agentopt {
+    padding: 3px 8px;
+    font: inherit;
+    font-size: 0.78rem;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .agentopt.on {
+    border-color: var(--focus, #6e4db0);
+    color: var(--accent);
+  }
+
+  .agentopt:hover {
+    border-color: var(--focus, #6e4db0);
   }
 
   /* GO-ORBITTY-DOCK-HACK leftover: always-on 7px well, dock focus
@@ -621,17 +834,17 @@
      sending or companion.hackLive. */
   .hackled {
     flex: none;
-    width: 7px;
-    height: 7px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     background: #6e4db0;
-    opacity: 0.38;
-    box-shadow: none;
+    opacity: 0.85;
+    box-shadow: 0 0 5px 0 #6e4db0;
   }
 
   .hackled.on {
     opacity: 1;
-    box-shadow: 0 0 7px 1px #6e4db0;
+    box-shadow: 0 0 9px 2px #6e4db0;
     animation: orbitty-hack-pulse 1.2s ease-in-out infinite;
   }
 
@@ -661,14 +874,14 @@
      first (type / letter-spacing / gap) — never the icon hit targets,
      never the agentpick. */
   .dests {
-    flex: 1;
-    min-width: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 3px;
     white-space: nowrap;
     position: relative;
+    pointer-events: none;
+    justify-self: center;
   }
 
   /* GO-ORBITTY-DEST-CHROME + DOCK-TWEAK: dests wear the same outlined
@@ -688,6 +901,7 @@
     border: 1px solid var(--edge);
     border-radius: 8px;
     cursor: pointer;
+    pointer-events: auto;
   }
 
   .dest:hover {
@@ -790,9 +1004,42 @@
     border-color: var(--focus, #6e4db0);
   }
 
+  .speakbtn {
+    color: #fff;
+  }
+
   .speakbtn.on {
-    color: var(--focus, #6e4db0);
+    color: #fff;
     border-color: var(--focus, #6e4db0);
+  }
+
+  .iconbtn.muted {
+    opacity: 0.45;
+  }
+
+  .volwrap {
+    position: relative;
+    flex: none;
+    display: inline-flex;
+  }
+
+  .volpop {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    z-index: 8;
+    padding: 8px 10px;
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  .volpop input[type="range"] {
+    width: 92px;
+    margin: 0;
+    accent-color: #fff;
   }
 
   .viewbtn.on {

@@ -273,37 +273,48 @@ extern "C" fn choose_music_done(_block: *const CompletionBlock, response: isize)
 }
 
 pub(crate) extern "C" fn menu_choose_music(_this: &Object, _cmd: Sel, sender: *mut Object) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Some(id) = unsafe { sender_project_id(sender) } {
+            begin_choose_music(&id);
+        }
+    }));
+}
+
+/// Open the music picker as a sheet on the planet window when we have
+/// one, otherwise a free-floating panel. Never holds the habitat lock
+/// across the picker.
+pub(crate) fn begin_choose_music(id: &str) {
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let Some(id) = sender_project_id(sender) else {
-            return;
-        };
-        // One picker at a time — a second click while it's up is a no-op.
         if MUSIC_PICKER_OPEN.swap(true, Ordering::SeqCst) {
             return;
         }
+        let host = {
+            let h = lock();
+            h.planets.get(id).map(|p| p.panel).unwrap_or(0)
+        };
         let panel: *mut Object = msg_send![class!(NSOpenPanel), openPanel];
         if panel.is_null() {
             MUSIC_PICKER_OPEN.store(false, Ordering::SeqCst);
             return;
         }
-        // The panel must outlive this event turn's autorelease pool; the
-        // completion handler releases it.
         let _: *mut Object = msg_send![panel, retain];
-        // No setAllowedFileTypes: any file; AVAudioPlayer fails silent on
-        // the unplayable. The audio-extension filter was part of the beachball.
         let _: () = msg_send![panel, setCanChooseFiles: true];
         let _: () = msg_send![panel, setCanChooseDirectories: false];
         let _: () = msg_send![panel, setAllowsMultipleSelection: false];
         let _: () = msg_send![panel, setTitle: ns_string("Boombox music")];
         *music_picker_project()
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(id);
+            .unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
         MUSIC_PICKER_PANEL.store(panel as usize, Ordering::SeqCst);
-        // Tray app: the panel can't become key until the app is active.
         let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-        let _: () = msg_send![app, activateWithOptions: 2usize]; // NSApplicationActivateIgnoringOtherApps
-        // beginWithCompletionHandler, never runModal: no nested modal loop
-        // (no beachball) and the habitat lock is never held across the panel.
-        let _: () = msg_send![panel, beginWithCompletionHandler: completion_block()];
+        let _: () = msg_send![app, activateWithOptions: 2usize];
+        let hostp = host as *mut Object;
+        if !hostp.is_null() && host != 0 {
+            let _: () = msg_send![panel,
+                beginSheetModalForWindow: hostp
+                completionHandler: completion_block()];
+        } else {
+            let _: () = msg_send![panel, beginWithCompletionHandler: completion_block()];
+        }
     }));
 }

@@ -129,5 +129,5 @@ mod habitat_mac;
 
 pub use habitat_mac::{
     boombox_playing, bring_all_front, bring_planet_front, char_preview, locate_planet,
-    locate_walker, persist_now, reload_pack_frames, restore_all, start, sync,
+    locate_walker, persist_now, reload_pack_frames, restore_all, set_planets_hidden, start, sync,
 };

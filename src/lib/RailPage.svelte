@@ -1,7 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open as shellOpen } from "@tauri-apps/plugin-shell";
   import { onMount, onDestroy } from "svelte";
   import {
@@ -10,6 +9,7 @@
     clampWindowOpacity,
   } from "../themes/apply";
   import { planetCss } from "./planetColor";
+  import { startPaneDrag } from "./dragPane";
   import type {
     ActionShortcut,
     AgentShortcut,
@@ -957,9 +957,7 @@
         if (Math.hypot(ev.screenX - sx, ev.screenY - sy) < 5) return;
         wordmarkDidDrag = true;
         window.removeEventListener("mousemove", onMove);
-        getCurrentWindow()
-          .startDragging()
-          .catch(() => {});
+        startPaneDrag(e);
       };
       const onUp = () => {
         window.removeEventListener("mousemove", onMove);
@@ -970,10 +968,7 @@
       return;
     }
 
-    e.preventDefault();
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {});
+    startPaneDrag(e);
   }
 
   function onWordmarkClick() {

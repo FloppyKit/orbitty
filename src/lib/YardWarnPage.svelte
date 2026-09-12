@@ -9,8 +9,8 @@
   // unmapped sprites. window.confirm is dead on the companion overlay;
   // this is a real window, never a JS dialog.
   import { invoke } from "@tauri-apps/api/core";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
+  import { startPaneDrag } from "./dragPane";
   import {
     applyHostTokens,
     applyWindowOpacity,
@@ -155,13 +155,7 @@
 
   // One drag source: JS startDragging on the banner (borderless pane).
   function onBannerMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("button, input, a, select, textarea, label")) return;
-    e.preventDefault();
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {});
+    startPaneDrag(e);
   }
 </script>
 

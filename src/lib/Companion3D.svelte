@@ -1,8 +1,8 @@
 <script lang="ts">
   // GO-ORBITTY-COMPANION-3D: a bundled 3D body (Tang / Female) living in
   // the exact slots SpiritStage owns — idle stage, hosted wellhead,
-  // 96×96 corner — with the same .stage/.floatwrap markup so ghost hit
-  // reporting (set_companion_hits) and window drag are untouched. three.js
+  // 96×96 corner — with the same .stage/.floatwrap markup so window
+  // drag stays on the figure. three.js
   // is dynamically imported ONLY here, so the rail / kanban / settings
   // first paint never loads it. Plays the glTF `idle` clip looping; a
   // send in flight crossfades to `think` when the file carries it.

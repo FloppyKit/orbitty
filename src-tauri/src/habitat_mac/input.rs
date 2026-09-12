@@ -8,6 +8,7 @@ use objc::runtime::{Object, Sel};
 use objc::{class, msg_send, sel, sel_impl};
 use serde::Serialize;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::Mutex;
 use std::time::Instant;
 use tauri::Emitter;
 
@@ -525,86 +526,6 @@ unsafe fn add_separator(menu: *mut Object) {
     let _: () = msg_send![menu, addItem: sep];
 }
 
-/// GO-ORBITTY-BOOMBOX: the five remembered volume steps — no slider; the
-/// checkmark rides the current step. Off = 0.0 stops the player outright
-/// (never a fake silent player) and is the remembered mute, so a later
-/// zoom-in can't surprise-blast. Shared by the disc menu and the boombox
-/// sprite menu.
-unsafe fn add_volume_items(menu: *mut Object, target: usize, project_id: &str, current: f32) {
-    for (label, step) in [
-        ("Off", 0.0f32),
-        ("Quiet", 0.25),
-        ("Low", 0.5),
-        ("Med", 0.75),
-        ("High", 1.0),
-    ] {
-        add_menu_item(
-            menu,
-            label,
-            sel!(planetBoomboxVolume:),
-            target,
-            &format!("{project_id}\u{1f}{step}"),
-            Some((current - step).abs() < 0.01),
-            true,
-        );
-    }
-}
-
-/// GO-ORBITTY-BOOMBOX: right-click on the placed boombox sprite —
-/// Play/Pause (disabled without a file), Choose music…, Remove, then the
-/// four remembered volume steps.
-unsafe fn boombox_context_menu(this: &Object, event: *mut Object, project_id: &str) {
-    let (playing, has_music, volume) = {
-        let h = lock();
-        h.worlds
-            .get(project_id)
-            .map(|w| (w.boombox, !w.music.is_empty(), w.boombox_volume))
-            .unwrap_or((false, false, 1.0))
-    };
-    // Lock dropped: popUpContextMenu runs modally and the target's actions
-    // re-lock on selection.
-    let Some(target) = menu_target() else {
-        return;
-    };
-    let menu: *mut Object = msg_send![class!(NSMenu), alloc];
-    let menu: *mut Object = msg_send![menu, initWithTitle: ns_string("")];
-    if menu.is_null() {
-        return;
-    }
-    add_menu_item(
-        menu,
-        if playing { "Pause" } else { "Play" },
-        sel!(planetBoomboxPlayPause:),
-        target,
-        project_id,
-        None,
-        has_music,
-    );
-    add_menu_item(
-        menu,
-        "Choose music…",
-        sel!(planetChooseMusic:),
-        target,
-        project_id,
-        None,
-        true,
-    );
-    add_menu_item(
-        menu,
-        "Remove",
-        sel!(planetRemoveBoombox:),
-        target,
-        project_id,
-        None,
-        true,
-    );
-    add_separator(menu);
-    add_volume_items(menu, target, project_id, volume);
-    let view = this as *const Object as *mut Object;
-    pop_context_menu(menu, event, view);
-    let _: () = msg_send![menu, release];
-}
-
 unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
     let loc: NSPoint = msg_send![event, locationInWindow];
     let local: NSPoint = msg_send![this, convertPoint: loc fromView: std::ptr::null::<Object>()];
@@ -635,13 +556,12 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         }
         (project_id.clone(), planet.is_marble)
     };
-    // GO-ORBITTY-BOOMBOX: the placed boombox gets its own menu ahead of
-    // the disc menu.
+    // Boombox right-click: choose music as a sheet on this planet.
     if boombox_hit {
-        boombox_context_menu(this, event, &project_id);
+        super::audio::begin_choose_music(&project_id);
         return;
     }
-    let (plant_left, mush_left, build_left, has_box, volume, beach_ball) = {
+    let (plant_left, mush_left, build_left, has_box, beach_ball) = {
         let h = lock();
         let now = now_epoch();
         h.worlds
@@ -652,11 +572,10 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
                     plant_cap(w.first_seen, now).saturating_sub(w.mushrooms.len()),
                     building_cap(w.first_seen, now).saturating_sub(w.buildings.len()),
                     w.boombox_pos.is_some(),
-                    w.boombox_volume,
                     w.beach_ball,
                 )
             })
-            .unwrap_or((3, 3, 1, false, 1.0, false))
+            .unwrap_or((3, 3, 1, false, false))
     };
     // Lock dropped: popUpContextMenu runs modally and the target's actions
     // re-lock on selection.
@@ -716,20 +635,12 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
     );
     add_separator(menu);
     // GO-ORBITTY-BOOMBOX: live toggle — Place arms the drop-next-click
-    // path, Remove clears the placed box. Always enabled.
+    // path, Remove clears the placed box. Always enabled. Music pick
+    // and volume live on the boombox itself (click / right-click).
     add_menu_item(
         menu,
         if has_box { "Remove boombox" } else { "Place boombox" },
         sel!(planetToggleBoombox:),
-        target,
-        &project_id,
-        None,
-        true,
-    );
-    add_menu_item(
-        menu,
-        "Choose music…",
-        sel!(planetChooseMusic:),
         target,
         &project_id,
         None,
@@ -747,8 +658,6 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         Some(beach_ball),
         !is_marble,
     );
-    add_separator(menu);
-    add_volume_items(menu, target, &project_id, volume);
     let view = this as *const Object as *mut Object;
     pop_context_menu(menu, event, view);
     let _: () = msg_send![menu, release];
@@ -843,27 +752,42 @@ unsafe fn walker_context_menu(this: &Object, event: *mut Object, entry_id: &str)
         true,
     );
     add_separator(menu);
-    // The pack pick rides the represented object as `entryId␟packId`
-    // (unit separator — window titles never carry it).
-    add_menu_item(
-        menu,
-        "Generated",
-        sel!(walkerSetPack:),
-        target,
-        &format!("{entry_id}\u{1f}"),
-        Some(cur_pack.is_empty()),
-        true,
-    );
-    for p in &packs {
+    // Pack list is a submenu — same shape as Assign to planet. The pick
+    // rides the represented object as `entryId␟packId` (unit separator).
+    let look: *mut Object = msg_send![class!(NSMenu), alloc];
+    let look: *mut Object = msg_send![look, initWithTitle: ns_string("")];
+    if !look.is_null() {
         add_menu_item(
-            menu,
-            &p.name,
+            look,
+            "Generated",
             sel!(walkerSetPack:),
             target,
-            &format!("{entry_id}\u{1f}{}", p.id),
-            Some(cur_pack == p.id),
+            &format!("{entry_id}\u{1f}"),
+            Some(cur_pack.is_empty()),
             true,
         );
+        for p in &packs {
+            add_menu_item(
+                look,
+                &p.name,
+                sel!(walkerSetPack:),
+                target,
+                &format!("{entry_id}\u{1f}{}", p.id),
+                Some(cur_pack == p.id),
+                true,
+            );
+        }
+        let item: *mut Object = msg_send![class!(NSMenuItem), alloc];
+        let item: *mut Object = msg_send![item,
+            initWithTitle: ns_string("Look")
+            action: Sel::from_ptr(std::ptr::null())
+            keyEquivalent: ns_string("")];
+        if !item.is_null() {
+            let _: () = msg_send![item, setSubmenu: look];
+            let _: () = msg_send![menu, addItem: item];
+            let _: () = msg_send![item, release];
+        }
+        let _: () = msg_send![look, release];
     }
     add_separator(menu);
     // GO-ORBITTY-CLAIM-ONE: Assign to planet IS the rail claim — the pick
@@ -1055,40 +979,121 @@ pub(crate) extern "C" fn menu_toggle_mushroom(_this: &Object, _cmd: Sel, sender:
     }));
 }
 
-/// GO-ORBITTY-BOOMBOX: left-click on the placed boombox (press-release
-/// without a drag) toggles play/pause. No file picked → caption
-/// "Choose music…" and never fake playing.
+/// Left-click (press-release, no drag) on the placed boombox: volume
+/// slider. No file picked → open choose-music on the planet instead.
 pub(crate) fn boombox_click(h: &mut Habitat, project_id: &str) {
-    let (on, music, remembered) = {
-        let world = world_entry(h, project_id);
-        if world.music.is_empty() {
-            (world.boombox, String::new(), world.boombox_volume)
-        } else {
-            world.boombox = !world.boombox;
-            (world.boombox, world.music.clone(), world.boombox_volume)
-        }
-    };
-    if music.is_empty() {
+    let world = world_entry(h, project_id);
+    let has_music = !world.music.is_empty();
+    let volume = world.boombox_volume;
+    let view = h.planets.get(project_id).map(|p| p.view).unwrap_or(0);
+    let id = project_id.to_string();
+    if !has_music {
         if let Some(planet) = h.planets.get_mut(project_id) {
             set_caption(planet, "Choose music…".into());
         }
+        crate::main_thread_async(move || {
+            super::audio::begin_choose_music(&id);
+        });
         return;
     }
-    h.worlds_dirty = true;
-    let live = match h.planets.get(project_id) {
-        Some(p) => audio::live_volume(remembered, p.radius, h.reduce_motion),
-        None => remembered,
-    };
-    if let Some(planet) = h.planets.get_mut(project_id) {
-        planet.boombox = on;
-        if on {
-            audio::start_audio(planet, &music, live);
-            set_caption(planet, "Boombox on".into());
-        } else {
-            audio::stop_audio(planet);
-            set_caption(planet, "Boombox off".into());
+    crate::main_thread_async(move || {
+        show_boombox_volume_slider(view, id, volume);
+    });
+}
+
+fn slider_project() -> &'static Mutex<Option<String>> {
+    static SLOT: std::sync::OnceLock<Mutex<Option<String>>> = std::sync::OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Tiny slider menu at the cursor. Called on the main thread after the
+/// habitat lock is dropped (tick is a worker).
+fn show_boombox_volume_slider(view: usize, project_id: String, volume: f32) {
+    unsafe {
+        let Some(target) = menu_target() else {
+            return;
+        };
+        if let Ok(mut g) = slider_project().lock() {
+            *g = Some(project_id);
         }
+        let menu: *mut Object = msg_send![class!(NSMenu), alloc];
+        let menu: *mut Object = msg_send![menu, initWithTitle: ns_string("")];
+        if menu.is_null() {
+            return;
+        }
+        let item: *mut Object = msg_send![class!(NSMenuItem), alloc];
+        let item: *mut Object = msg_send![item,
+            initWithTitle: ns_string("")
+            action: Sel::from_ptr(std::ptr::null())
+            keyEquivalent: ns_string("")];
+        if item.is_null() {
+            let _: () = msg_send![menu, release];
+            return;
+        }
+        let slider: *mut Object = msg_send![class!(NSSlider), alloc];
+        let slider: *mut Object = msg_send![slider,
+            initWithFrame: NSRect::new(0.0, 0.0, 132.0, 22.0)];
+        if slider.is_null() {
+            let _: () = msg_send![item, release];
+            let _: () = msg_send![menu, release];
+            return;
+        }
+        let _: () = msg_send![slider, setMinValue: 0.0f64];
+        let _: () = msg_send![slider, setMaxValue: 1.0f64];
+        let _: () = msg_send![slider, setDoubleValue: volume as f64];
+        let _: () = msg_send![slider, setTarget: target as *mut Object];
+        let _: () = msg_send![slider, setAction: sel!(planetBoomboxSlider:)];
+        let _: () = msg_send![item, setView: slider];
+        let _: () = msg_send![menu, addItem: item];
+        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+        let event: *mut Object = msg_send![app, currentEvent];
+        let viewp = if view == 0 { std::ptr::null_mut() } else { view as *mut Object };
+        if !event.is_null() && !viewp.is_null() {
+            pop_context_menu(menu, event, viewp);
+        }
+        let _: () = msg_send![slider, release];
+        let _: () = msg_send![item, release];
+        let _: () = msg_send![menu, release];
     }
+}
+
+pub(crate) extern "C" fn menu_boombox_slider(_this: &Object, _cmd: Sel, sender: *mut Object) {
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+        if sender.is_null() {
+            return;
+        }
+        let step: f64 = msg_send![sender, doubleValue];
+        let step = (step as f32).clamp(0.0, 1.0);
+        let Some(id) = slider_project()
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+        else {
+            return;
+        };
+        let mut h = lock();
+        let (on, music) = {
+            let world = world_entry(&mut h, &id);
+            world.boombox_volume = step;
+            if step <= 0.001 {
+                world.boombox = false;
+            } else if !world.music.is_empty() {
+                world.boombox = true;
+            }
+            (world.boombox, world.music.clone())
+        };
+        h.worlds_dirty = true;
+        let reduce = h.reduce_motion;
+        if let Some(planet) = h.planets.get_mut(&id) {
+            planet.boombox = on;
+            if on && !music.is_empty() {
+                let live = audio::live_volume(step, planet.radius, reduce);
+                audio::start_audio(planet, &music, live);
+            } else {
+                audio::stop_audio(planet);
+            }
+        }
+    }));
 }
 
 /// GO-ORBITTY-BOOMBOX Remove: placement cleared, audio stopped, playing

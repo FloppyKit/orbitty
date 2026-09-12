@@ -3,8 +3,8 @@
   // ⌘⇧N or the dock pip toggles it. Drag the banner. Click-off (blur),
   // Esc, ×, or the chord again hides. Quiet ochre — no red badge.
   import { invoke } from "@tauri-apps/api/core";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { listen } from "@tauri-apps/api/event";
+  import { startPaneDrag } from "./dragPane";
   import { onMount, onDestroy, tick } from "svelte";
   import {
     applyHostTokens,
@@ -104,7 +104,14 @@
   let avgWindow = $derived<AverageWindow>(stars.averageWindow ?? "week");
   let avgMean = $derived.by(() => {
     if (!todayCheck) return null;
-    const days = avgWindow === "week" ? 7 : avgWindow === "14" ? 14 : 30;
+    const days =
+      avgWindow === "week" || avgWindow === "14"
+        ? 7
+        : avgWindow === "year"
+          ? 365
+          : avgWindow === "custom"
+            ? 30
+            : 30;
     const end = new Date();
     const keys: string[] = [];
     for (let i = 0; i < days; i++) {
@@ -140,11 +147,7 @@
   }
 
   function onBannerMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("button, input, a, select, textarea, label")) return;
-    e.preventDefault();
-    getCurrentWindow().startDragging().catch(() => {});
+    startPaneDrag(e);
   }
 
   async function load() {

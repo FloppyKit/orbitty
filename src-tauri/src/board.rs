@@ -138,6 +138,18 @@ pub fn kanban_add(
     project_id: &str,
     status: &str,
 ) -> Result<KanbanCard, String> {
+    kanban_add_as(app, title, project_id, status, "agent")
+}
+
+/// Same door as `kanban.add`; `actor` is who minted ("agent" for MCP/ctl,
+/// "user" for the composer `todo:` intercept).
+pub fn kanban_add_as(
+    app: &tauri::AppHandle,
+    title: &str,
+    project_id: &str,
+    status: &str,
+    actor: &str,
+) -> Result<KanbanCard, String> {
     let title = title.trim();
     if title.is_empty() {
         return Err("kanban.add: empty title".into());
@@ -176,7 +188,7 @@ pub fn kanban_add(
         needed_state: None,
         needed_why: None,
         needed_answer: None,
-        actor: Some("agent".into()),
+        actor: Some(actor.trim().to_string()),
         assigned_agent_id: None,
     };
     let mut after = before.clone();
@@ -187,7 +199,7 @@ pub fn kanban_add(
         "board-add",
         None,
         Some(&card.project_id),
-        Some("agent"),
+        Some(actor.trim()),
         true,
         &serde_json::json!({ "cardId": card.id, "title": card.title }),
     );
@@ -459,4 +471,50 @@ pub fn needed_open(
         &serde_json::json!({ "cardId": card.id, "title": card.title }),
     );
     Ok(card)
+}
+
+/// Answer a Needed from the companion composer. Logs `needed-answer` and
+/// writes a short companion caption so the mouth shows the line without
+/// pinging the model.
+pub fn needed_answer(
+    app: &tauri::AppHandle,
+    id: &str,
+    answer: &str,
+) -> Result<KanbanCard, String> {
+    let answer = answer.trim();
+    if answer.is_empty() {
+        return Err("needed.answer: empty answer".into());
+    }
+    let before = crate::state::load_state(app)?;
+    let idx = before
+        .kanban_cards
+        .iter()
+        .position(|c| c.id == id.trim())
+        .ok_or_else(|| format!("needed.answer: unknown card id {id:?}"))?;
+    if before.kanban_cards[idx].kind.as_deref() != Some("needed") {
+        return Err("needed.answer: that card is not a Needed".into());
+    }
+    let now = now_secs();
+    let mut after = before.clone();
+    {
+        let c = &mut after.kanban_cards[idx];
+        c.needed_answer = Some(answer.to_string());
+        c.needed_state = Some("answered".into());
+        c.last_touched_at = now;
+    }
+    after.companion.last_user_line = answer.to_string();
+    after.companion.last_bot_line = "Needed answered.".into();
+    after.companion.push_turn("you", answer);
+    after.companion.push_turn("them", "Needed answered.");
+    save_with_events(app, &before, &after)?;
+    event_log::append_best(
+        app,
+        "needed-answer",
+        None,
+        Some(&after.kanban_cards[idx].project_id),
+        Some("user"),
+        true,
+        &serde_json::json!({ "cardId": after.kanban_cards[idx].id }),
+    );
+    Ok(after.kanban_cards[idx].clone())
 }

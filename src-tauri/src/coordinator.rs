@@ -904,6 +904,12 @@ pub fn set_companion_view(
             st.companion.view_expanded = v.clone();
             v
         }
+        "all" => {
+            let v = crate::state::normalize_companion_view(&view, "full");
+            st.companion.view_collapsed = v.clone();
+            st.companion.view_expanded = v.clone();
+            v
+        }
         other => return Err(format!("bad companion surface: {other:?}")),
     };
     crate::state::save_state(&app, &st)?;
@@ -978,6 +984,27 @@ pub fn set_companion_speak(app: tauri::AppHandle, enabled: bool) -> Result<(), S
     Ok(())
 }
 
+/// Companion `say` volume 0.0–1.0. Volume 0 mutes the next speak.
+#[tauri::command]
+pub fn set_companion_speak_volume(app: tauri::AppHandle, volume: f32) -> Result<(), String> {
+    let volume = volume.clamp(0.0, 1.0);
+    let mut st = crate::state::load_state(&app)?;
+    st.companion.speak_volume = volume;
+    crate::state::save_state(&app, &st)?;
+    let _ = app.emit("state:changed", ());
+    Ok(())
+}
+
+/// Draw / hide the CC + transcript. Composer stays.
+#[tauri::command]
+pub fn set_companion_captions(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let mut st = crate::state::load_state(&app)?;
+    st.companion.captions = enabled;
+    crate::state::save_state(&app, &st)?;
+    let _ = app.emit("state:changed", ());
+    Ok(())
+}
+
 // ---------- GO-LS-STARS-STATUS: prompts opt-in + strip ack ----------
 // The companion window never writes state.json wholesale; these two
 // load-modify-save commands are its only STARS writes. The rail's STARS
@@ -1009,17 +1036,34 @@ pub fn ack_stars_prompt(app: tauri::AppHandle, ack: String) -> Result<(), String
 /// Read one bot reply aloud with the DEFAULT system voice (`say "<text>"`
 /// — no -v, no voice listing). Kills the previous `say` first, so a new
 /// reply always wins. macOS only; one honest Err line, never a crash.
+/// Volume rides `[[volm 0–1]]` so we don't touch system output volume.
 #[tauri::command]
-pub fn speak_reply(text: String) -> Result<(), String> {
+pub fn speak_reply(app: tauri::AppHandle, text: String) -> Result<(), String> {
     stop_say();
     let text = text.trim().to_string();
     if text.is_empty() {
         return Ok(());
     }
+    let st = crate::state::load_state(&app).ok();
+    if st.as_ref().is_some_and(|s| !s.companion.speak_replies) {
+        return Ok(());
+    }
+    let vol = st
+        .as_ref()
+        .map(|s| s.companion.speak_volume.clamp(0.0, 1.0))
+        .unwrap_or(1.0);
+    if vol <= 0.0 {
+        return Ok(());
+    }
     #[cfg(target_os = "macos")]
     {
+        let spoken = if (vol - 1.0).abs() < 0.01 {
+            text
+        } else {
+            format!("[[volm {vol:.2}]] {text}")
+        };
         let child = Command::new("say")
-            .arg(&text)
+            .arg(&spoken)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1245,6 +1289,18 @@ pub async fn companion_send(app: tauri::AppHandle, line: String) -> Result<Strin
 }
 
 async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<String, String> {
+
+    // Local `todo:` mint — never pings the model. Before Actions so a
+    // shortcut named "todo" cannot steal the intercept.
+    #[cfg(unix)]
+    if let Some(out) = crate::companion_todo::intercept(&app, &line) {
+        let them = match out {
+            Ok(s) => s,
+            Err(e) => e,
+        };
+        persist_action_intercept(&app, Some(line.as_str()), &them);
+        return Ok(them);
+    }
 
     // GO-ORBITTY-ASK-ACTION: a line naming a Launchpad Action runs it
     // locally — Hermes/Berd never sees it. No match → unchanged send.

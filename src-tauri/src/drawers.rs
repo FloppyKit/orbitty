@@ -2085,6 +2085,151 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
     Ok(())
 }
 
+/// Companion window drag. Tauri startDragging() jumps the frame to the
+/// cursor (locationInWindow 0,0). Tauri setPosition is the wrong space
+/// (PANE-STAY). Follow NSEvent mouseLocation with an AppKit setFrame so
+/// a click does not throw the dock into a corner.
+#[derive(Clone, Copy)]
+struct CompanionDragGrab {
+    dx: f64,
+    dy: f64,
+}
+
+fn companion_drag_grab() -> &'static std::sync::Mutex<Option<CompanionDragGrab>> {
+    static S: std::sync::OnceLock<std::sync::Mutex<Option<CompanionDragGrab>>> =
+        std::sync::OnceLock::new();
+    S.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct DragPoint {
+    x: f64,
+    y: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct DragSize {
+    width: f64,
+    height: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct DragRect {
+    origin: DragPoint,
+    size: DragSize,
+}
+
+fn companion_drag_apply(w: &tauri::WebviewWindow) -> bool {
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+    let Ok(raw) = w.ns_window() else {
+        return false;
+    };
+    if raw.is_null() {
+        return false;
+    }
+    unsafe {
+        let nsw = raw as *mut Object;
+        let buttons: usize = msg_send![class!(NSEvent), pressedMouseButtons];
+        if buttons & 1 == 0 {
+            if let Ok(mut g) = companion_drag_grab().lock() {
+                *g = None;
+            }
+            return false;
+        }
+        let grab = match companion_drag_grab().lock() {
+            Ok(g) => *g,
+            Err(_) => return false,
+        };
+        let Some(grab) = grab else {
+            return false;
+        };
+        let frame: DragRect = msg_send![nsw, frame];
+        let mouse: DragPoint = msg_send![class!(NSEvent), mouseLocation];
+        let next = DragRect {
+            origin: DragPoint {
+                x: mouse.x - grab.dx,
+                y: mouse.y - grab.dy,
+            },
+            size: frame.size,
+        };
+        let _: () = msg_send![nsw, setFrame: next display: true];
+    }
+    if let Ok(p) = w.outer_position() {
+        drawer_expect("companion", (p.x, p.y));
+    }
+    true
+}
+
+#[tauri::command]
+pub fn companion_drag_begin(app: tauri::AppHandle) {
+    let Some(w) = app.get_webview_window("companion") else {
+        return;
+    };
+    crate::main_thread_sync({
+        let w = w.clone();
+        move || {
+            use objc::runtime::Object;
+            use objc::{class, msg_send, sel, sel_impl};
+            let Ok(raw) = w.ns_window() else {
+                return;
+            };
+            if raw.is_null() {
+                return;
+            }
+            unsafe {
+                let nsw = raw as *mut Object;
+                let frame: DragRect = msg_send![nsw, frame];
+                let mouse: DragPoint = msg_send![class!(NSEvent), mouseLocation];
+                if let Ok(mut g) = companion_drag_grab().lock() {
+                    *g = Some(CompanionDragGrab {
+                        dx: mouse.x - frame.origin.x,
+                        dy: mouse.y - frame.origin.y,
+                    });
+                }
+            }
+        }
+    });
+    std::thread::spawn(move || {
+        loop {
+            crate::main_thread_sync({
+                let w = w.clone();
+                move || {
+                    let _ = companion_drag_apply(&w);
+                }
+            });
+            let alive = companion_drag_grab()
+                .lock()
+                .ok()
+                .and_then(|g| *g)
+                .is_some();
+            if !alive {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(16));
+        }
+    });
+}
+
+#[tauri::command]
+pub fn companion_drag_tick(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("companion") {
+        crate::main_thread_sync(move || {
+            let _ = companion_drag_apply(&w);
+        });
+    }
+}
+
+#[tauri::command]
+pub fn companion_drag_end() {
+    if let Ok(mut g) = companion_drag_grab().lock() {
+        *g = None;
+    }
+}
+
 /// Park a WARM-created drawer on a real display while it stays hidden.
 /// Same place law as show_drawer. Never show(), never pin; a pane that is
 /// already visible is never parked.

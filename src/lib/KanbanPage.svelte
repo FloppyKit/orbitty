@@ -1,32 +1,17 @@
 <script lang="ts">
-  // S4.4 Lists window — two views of the same cards. List: Wunderlist-ish
-  // sidebar + airy rows showing notes/difficulty/due/sub-count. Board:
-  // Hive-like Todo · Doing · Done columns with drag-between-columns status
-  // moves. Clicking a row/card (not the checkbox) opens a Habitica-thin
-  // detail drawer: title, notes, difficulty (metadata only — the points
-  // formula is untouched), sub-checklist, due date, tags, read-only linked
-  // window. Same state.json discipline as before: every mutation is
-  // load → mutate → save so rail-owned slices are never clobbered, and the
-  // rail adopts card/ledger writes via the backend "state:changed" event.
-  // GO-ORBITTY-LP-ACTOR: `actor` on cards + ledger rows records who
-  // completed a quest. completeCard stamps "user"; Happened splits via the
-  // All / I did / On my behalf chips (missing actor = pre-actor human
-  // history = I did). Needed never enters the complete door.
-  // GO-ORBITTY-LP-INBOX: Launchpad first paint is YOUR work — rows are
-  // kind "todo" (and the Needed strip) only. Kind "window" never paints
-  // here: no "On this planet" split, no window-first sort, sidebar planet
-  // rows filter your todos and never load the window map. The Planets
-  // sheet owns windows later. Every todo row wears a planet color dot
-  // when projectId is a live project, the List|Board toggle sticks
-  // across sessions (default list), and add-a-todo still mints kind
-  // "todo". The rail claim door is untouched.
+  // S4.4 Lists window — board only: Hive-like Todo · Doing · Done columns
+  // with drag-between-columns status moves. Clicking a card opens a
+  // Habitica-thin detail drawer. Same state.json discipline: every
+  // mutation is load → mutate → save so rail-owned slices are never
+  // clobbered. Needed stays its own strip (questions, not quests). Mint
+  // a todo from the companion composer (`todo: … -planet --agent`).
   import { invoke } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
+  import { startPaneDrag } from "./dragPane";
   import NeededInbox from "./NeededInbox.svelte";
   import type {
     Actor,
@@ -50,10 +35,12 @@
     embedded = false,
     onClose,
     onPopout,
+    onNeededFocus,
   }: {
     embedded?: boolean;
     onClose?: () => void;
     onPopout?: () => void;
+    onNeededFocus?: (id: string | null, title: string | null) => void;
   } = $props();
 
   type Status = "todo" | "doing" | "done";
@@ -89,22 +76,10 @@
 
   // Sidebar selection: a smart filter, Inbox, or a project id. Session-only.
   let selected = $state("inbox");
-  let newTodo = $state("");
-  let showCompleted = $state(true);
   // PLANETS-STRIP: rail-owned marble flag, read-only here — tab double-click
   // emits to main; the rail persist is the writer.
   let collapsedSectionIds = $state<string[]>([]);
 
-  // S4.4: List | Board toggle + detail drawer. LP-INBOX: the toggle is
-  // last-used across sessions (default list); the rest stays session-only.
-  const VIEW_KEY = "orbitty.launchpad.view";
-  let view = $state<"list" | "board">(
-    localStorage.getItem(VIEW_KEY) === "board" ? "board" : "list",
-  );
-  function setView(v: "list" | "board") {
-    view = v;
-    localStorage.setItem(VIEW_KEY, v);
-  }
   let detailId = $state<string | null>(null);
   let newSubtask = $state("");
 
@@ -184,22 +159,6 @@
     return doneFilter === "all" || actorSide(c) === doneFilter;
   }
 
-  // Open rows: todos only, oldest first.
-  let visibleOpen = $derived.by(() => {
-    if (selected === "done") return [];
-    const rows =
-      selected === "today"
-        ? openCards.filter((c) => c.createdAt >= startOfToday())
-        : openCards.filter((c) => listOf(c) === selected);
-    return [...rows].sort((a, b) => a.createdAt - b.createdAt);
-  });
-
-  let visibleDone = $derived.by(() => {
-    if (selected === "today") return [];
-    if (selected === "done") return doneCards.filter(inDoneFilter);
-    return doneCards.filter((c) => listOf(c) === selected);
-  });
-
   // LP-INBOX: planet color dot — only when projectId is a LIVE project
   // (a vanished project falls back to Inbox and gets no dot).
   function livePlanetId(card: KanbanCard): string | null {
@@ -239,7 +198,6 @@
     return openCards.filter((c) => listOf(c) === list).length;
   }
 
-  let canAdd = $derived(selected !== "today" && selected !== "done");
   let listTitle = $derived(
     selected === "today"
       ? "Today"
@@ -472,34 +430,6 @@
       );
     });
     logEvent("board-move", { from: card.status, to: target, cardId: card.id }, card.projectId);
-  }
-
-  function addTodo() {
-    const title = newTodo.trim();
-    if (!title || !canAdd) return;
-    const projectId = selected === "inbox" ? "" : selected;
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = [
-        ...s.kanbanCards,
-        {
-          id: `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-          title,
-          projectId,
-          windowId: null,
-          kind: "todo" as const,
-          status: "todo" as const,
-          createdAt: now,
-          lastTouchedAt: now,
-          completedAt: null,
-          goalAligned: true,
-          clinicalOrMaster: false,
-          pointsAwarded: 0,
-          starred: false,
-        },
-      ];
-    });
-    newTodo = "";
   }
 
   // ---- detail drawer mutations (all additive on the card) ----
@@ -801,17 +731,8 @@
     document.removeEventListener("visibilitychange", onVisibility);
   });
 
-  // One drag source: the in-SPA banner. Native Overlay title strip is
-  // off (drawers are borderless). Buttons stop the press so × / tabs
-  // still click.
   function onBannerMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("button, input, a, select, textarea")) return;
-    e.preventDefault();
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {});
+    startPaneDrag(e);
   }
 </script>
 
@@ -857,69 +778,6 @@
   </div>
 {/snippet}
 
-<!-- GO-ORBITTY-LP-INBOX: one row shape, todos only. Every row wears a
-     planet color dot when projectId is a live project. -->
-{#snippet openRow(card: KanbanCard)}
-  {@const pid = livePlanetId(card)}
-  <li class="k-row">
-    <button
-      class="k-check"
-      onclick={() => toggleCard(card)}
-      title="Mark done"
-      aria-label="Mark done"
-    ></button>
-    {#if pid}
-      <span
-        class="planet-chip"
-        style="background: {planetCss(pid)}"
-        title={projectName(pid)}
-        aria-hidden="true"
-      ></span>
-    {/if}
-    <button
-      class="k-name"
-      onclick={() => openDetail(card)}
-      title="{displayTitle(card)} — click for details"
-    >
-      <span class="k-title-text">{displayTitle(card)}</span>
-      {#if card.notes}
-        <span class="k-notes">{notesSnippet(card)}</span>
-      {/if}
-    </button>
-    {@render metaChips(card)}
-  </li>
-{/snippet}
-
-{#snippet doneRow(card: KanbanCard)}
-  {@const chip = doneChip(card)}
-  {@const pid = livePlanetId(card)}
-  <li class="k-row done">
-    <button
-      class="k-check checked"
-      onclick={() => toggleCard(card)}
-      title="Reopen as a to-do"
-      aria-label="Reopen as a to-do">✓</button
-    >
-    {#if pid}
-      <span
-        class="planet-chip"
-        style="background: {planetCss(pid)}"
-        title={projectName(pid)}
-        aria-hidden="true"
-      ></span>
-    {/if}
-    <button
-      class="k-name strike"
-      onclick={() => openDetail(card)}
-      title="{displayTitle(card)} — click for details">{displayTitle(card)}</button
-    >
-    {@render metaChips(card)}
-    {#if chip}
-      <span class="k-chip" class:cap={chip === "cap"}>{chip}</span>
-    {/if}
-  </li>
-{/snippet}
-
 <main class="kanban" class:embedded>
   <!-- One drag source: JS startDragging on this banner. Drawers are
        borderless — no native Overlay strip competing with the click.
@@ -954,20 +812,6 @@
     {:else}
       <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span> Lists</h1>
     {/if}
-    <div class="view-toggle" role="tablist" aria-label="View">
-      <button
-        role="tab"
-        aria-selected={view === "list"}
-        class:active={view === "list"}
-        onclick={() => setView("list")}>List</button
-      >
-      <button
-        role="tab"
-        aria-selected={view === "board"}
-        class:active={view === "board"}
-        onclick={() => setView("board")}>Board</button
-      >
-    </div>
     <span class="k-pts" title="Points today / daily cap">{pointsToday()}/{DAILY_CAP}</span>
     <button
       class="winx"
@@ -990,6 +834,7 @@
     {mutate}
     {logEvent}
     bind:addingNeeded
+    {onNeededFocus}
   />
 
   <div class="planet-strip" role="tablist" aria-label="Lists and planets">
@@ -1079,108 +924,63 @@
         </div>
       {/if}
 
-      {#if view === "board"}
-        <div class="b-cols">
-          {#each COLUMNS as col (col.id)}
-            <section
-              class="b-col"
-              class:drop-ok={dropCol === col.id}
-              aria-label={col.name}
-              ondragover={(e) => onColDragOver(e, col.id)}
-              ondragleave={(e) => onColDragLeave(e, col.id)}
-              ondrop={(e) => onColDrop(e, col.id)}
-            >
-              <header class="b-head">
-                <span class="b-name">{col.name}</span>
-                <span class="b-count">{boardCols[col.id].length}</span>
-                {#if col.id === "done"}
-                  {@render doneActorChips()}
-                {/if}
-              </header>
-              <div class="b-cards">
-                {#each boardCols[col.id] as card (card.id)}
-                  {@const pid = livePlanetId(card)}
-                  <article
-                    class="b-card"
-                    class:dragging={dragCardId === card.id}
-                    class:done={card.status === "done"}
-                    draggable="true"
-                    ondragstart={(e) => onCardDragStart(e, card)}
-                    ondragend={onCardDragEnd}
-                    onclick={() => openDetail(card)}
-                    onkeydown={(e) => e.key === "Enter" && openDetail(card)}
-                    tabindex="0"
-                    role="button"
-                    title="{displayTitle(card)} — click for details, drag to move"
-                  >
-                    <div class="b-card-top">
-                      {#if pid}
-                        <span
-                          class="planet-chip"
-                          style="background: {planetCss(pid)}"
-                          title={projectName(pid)}
-                          aria-hidden="true"
-                        ></span>
-                      {/if}
-                      <span class="b-title" class:strike={card.status === "done"}>{displayTitle(card)}</span>
-                    </div>
-                    {#if card.notes}
-                      <p class="b-notes">{notesSnippet(card)}</p>
-                    {/if}
-                    <div class="b-meta">
-                      {@render metaChips(card)}
-                    </div>
-                  </article>
-                {:else}
-                  <p class="b-empty">{col.hint}</p>
-                {/each}
-              </div>
-            </section>
-          {/each}
-        </div>
-      {:else}
-        <!-- GO-ORBITTY-LP-INBOX: one flat list of your todos — no
-             "On this planet" / window-first split. -->
-        <ul class="k-rows">
-          {#each visibleOpen as card (card.id)}
-            {@render openRow(card)}
-          {:else}
-            <li class="k-empty">
-              {selected === "done"
-                ? "Nothing done yet — check a to-do."
-                : selected === "today"
-                  ? "Nothing new today."
-                  : "All clear. Add a to-do below."}
-            </li>
-          {/each}
-        </ul>
-
-        {#if visibleDone.length > 0}
-          <button
-            class="k-donehead"
-            onclick={() => (showCompleted = !showCompleted)}
-            aria-expanded={showCompleted}
+      <div class="b-cols">
+        {#each COLUMNS as col (col.id)}
+          <section
+            class="b-col"
+            class:drop-ok={dropCol === col.id}
+            aria-label={col.name}
+            ondragover={(e) => onColDragOver(e, col.id)}
+            ondragleave={(e) => onColDragLeave(e, col.id)}
+            ondrop={(e) => onColDrop(e, col.id)}
           >
-            <span class="chev" class:open={showCompleted} aria-hidden="true">▸</span>
-            Completed ({visibleDone.length})
-          </button>
-          {#if showCompleted}
-            <ul class="k-rows done">
-              {#each visibleDone as card (card.id)}
-                {@render doneRow(card)}
+            <header class="b-head">
+              <span class="b-name">{col.name}</span>
+              <span class="b-count">{boardCols[col.id].length}</span>
+              {#if col.id === "done"}
+                {@render doneActorChips()}
+              {/if}
+            </header>
+            <div class="b-cards">
+              {#each boardCols[col.id] as card (card.id)}
+                {@const pid = livePlanetId(card)}
+                <article
+                  class="b-card"
+                  class:dragging={dragCardId === card.id}
+                  class:done={card.status === "done"}
+                  draggable="true"
+                  ondragstart={(e) => onCardDragStart(e, card)}
+                  ondragend={onCardDragEnd}
+                  onclick={() => openDetail(card)}
+                  onkeydown={(e) => e.key === "Enter" && openDetail(card)}
+                  tabindex="0"
+                  role="button"
+                  title="{displayTitle(card)} — click for details, drag to move"
+                >
+                  <div class="b-card-top">
+                    {#if pid}
+                      <span
+                        class="planet-chip"
+                        style="background: {planetCss(pid)}"
+                        title={projectName(pid)}
+                        aria-hidden="true"
+                      ></span>
+                    {/if}
+                    <span class="b-title" class:strike={card.status === "done"}>{displayTitle(card)}</span>
+                  </div>
+                  {#if card.notes}
+                    <p class="b-notes">{notesSnippet(card)}</p>
+                  {/if}
+                  <div class="b-meta">
+                    {@render metaChips(card)}
+                  </div>
+                </article>
+              {:else}
+                <p class="b-empty">{col.hint}</p>
               {/each}
-            </ul>
-          {/if}
-        {/if}
-      {/if}
-
-      <div class="k-add">
-        <input
-          bind:value={newTodo}
-          placeholder={canAdd ? "Add a to-do…" : "Open a list to add to-dos"}
-          disabled={!canAdd}
-          onkeydown={(e) => e.key === "Enter" && addTodo()}
-        />
+            </div>
+          </section>
+        {/each}
       </div>
     </section>
 
@@ -1442,35 +1242,6 @@
 
   .pop {
     color: var(--accent);
-  }
-
-  /* S4.4 List | Board segmented toggle. */
-  .view-toggle {
-    display: inline-flex;
-    margin-left: 10px;
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    overflow: hidden;
-  }
-
-  .view-toggle button {
-    font: inherit;
-    font-size: 0.68rem;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    padding: 3px 10px;
-    cursor: pointer;
-  }
-
-  .view-toggle button + button {
-    border-left: 1px solid var(--edge);
-  }
-
-  .view-toggle button.active {
-    color: var(--accent);
-    font-weight: 700;
-    background: var(--panel-fill, var(--panel));
   }
 
   .k-pts {
@@ -1935,32 +1706,6 @@
 
   .chev.open {
     transform: rotate(90deg);
-  }
-
-  .k-add {
-    margin-top: auto;
-    padding-top: 12px;
-  }
-
-  .k-add input {
-    width: 100%;
-    box-sizing: border-box;
-    font: inherit;
-    font-size: 0.88rem;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 9px;
-    padding: 10px 12px;
-  }
-
-  .k-add input:focus {
-    outline: none;
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .k-add input:disabled {
-    opacity: 0.6;
   }
 
   /* ---- S4.4 Board (Hive-like Todo · Doing · Done) ---- */

@@ -173,10 +173,14 @@ export interface CompanionSlice {
   expanded?: boolean;
   turns?: CompanionTurn[];
   speakReplies?: boolean;
+  speakVolume?: number;
   talkSource?: string;
   viewCollapsed?: string;
   viewExpanded?: string;
   sprite?: boolean;
+  captions?: boolean;
+  planetsHidden?: boolean;
+  cheatSheetHint?: boolean;
   // GO-ORBITTY-MODE-SPLIT: active mode (default spark) + per-mode parked
   // transcripts (cap 40 each). `turns` stays the ACTIVE thread; the
   // native heal parks a pre-split transcript under spark on load.
@@ -201,13 +205,15 @@ export interface StarsCheckin {
   self: number;
 }
 
-export type AverageWindow = "week" | "14" | "month";
+export type AverageWindow = "week" | "14" | "month" | "year" | "custom";
 
 export interface StarsSlice {
   promptsOptIn: boolean;
   checkins: Record<string, StarsCheckin>;
   promptsAck?: string;
   averageWindow?: AverageWindow;
+  averageFrom?: string;
+  averageTo?: string;
 }
 
 export interface SkySlice {

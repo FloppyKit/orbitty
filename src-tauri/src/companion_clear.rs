@@ -1,65 +1,15 @@
-//! GO-ORBITTY-COMPANION-CLEAR: the idle collapsed companion is a ghost —
-//! empty pixels click through to the desk while the spirit image box and
-//! the chrome (CC, starstrip, agentrow, composer, ×, ⚙, note, planets
-//! popup) still hit. Slab (expanded persist OR host stash) is always a
-//! full window and never click-throughs.
+//! Companion z-order + mouse. The pane is a real window: shown → mouse
+//! on, never click-through. The 10Hz poll only holds NSFloatingWindowLevel+1.
 //!
-//! Cannot be JS-only: a fully cursor-ignoring window never sees the
-//! mouseenter that would turn events back on. So CompanionPage reports
-//! coarse window-local CSS-point hit rects (`set_companion_hits`) and
-//! this module runs a ~10Hz native poll (same class as the habitat
-//! discs' cursor_tick — no second DisplayLink) that flips
-//! `set_ignore_cursor_events` by cursor-vs-rects. Coarse boxes only —
-//! never PNG alpha sampling.
+//! raise_now = summon (may clamp the dock on-screen). lift_z = z-order
+//! only — never setFrame / activate / makeKey on a hit-mousedown (that
+//! yank is the dock "running away").
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
 use tauri::Manager;
 
-/// One window-local hit rect in CSS points (top-left origin), reported
-/// by CompanionPage.
-#[derive(Clone, Copy, Debug, serde::Deserialize)]
-pub struct HitRect {
-    pub x: f64,
-    pub y: f64,
-    pub w: f64,
-    pub h: f64,
-}
-
-/// The last reported ghost hit list. Kept across slab periods (law 6):
-/// an expand/host detour never clears it, so collapse-to-ghost reapplies
-/// with the pre-slab rects and there is no click-through hole on the
-/// spirit while the frontend re-measures.
-static HITS: OnceLock<Mutex<Vec<HitRect>>> = OnceLock::new();
-fn hits() -> &'static Mutex<Vec<HitRect>> {
-    HITS.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-/// Mode mirrors so the 10Hz poll never reads the disk. `expanded` is the
-/// persisted flag (seeded at start, mirrored by set_companion_expanded);
-/// `hosted` is the memory-only host stash (mirrored by
-/// set_companion_host — its only writer).
-static EXPANDED: AtomicBool = AtomicBool::new(false);
-static HOSTED: AtomicBool = AtomicBool::new(false);
-/// Poll gate: true only while the companion is shown AND ghost. Hidden
-/// panes eat no clicks, so the poll idles (300ms) until a show re-arms it.
-static GHOST_ACTIVE: AtomicBool = AtomicBool::new(false);
-/// GO-ORBITTY-COMPANION-RAISE summon hold: set on every entry into ghost
-/// (show/summon, collapse, host-off). GO-ORBITTY-FRONT-HOLD flips the
-/// direction: while set, the poll holds mouse-on until the cursor LEAVES
-/// the companion frame — a summon landing over empty air inside the tall
-/// window must not spend the hold and ghost-apply the window back into a
-/// click-through the same tick (that re-buried the raised ghost). The
-/// same hold means a collapse racing host-on never arms a punch-through
-/// poll. Clears on cursor-leave, on slab, on hide.
-static SUMMON_HOLD: AtomicBool = AtomicBool::new(false);
-/// FRONT-HOLD leftover: the leave-frame spend is only real after the
-/// cursor has been *inside* once. ⌘⇧O / tray with the pointer already
-/// outside used to spend this tick, mouse-off the ghost, and let a
-/// planet steal the click so Show Companion looked like a no-op.
-static HOLD_SEEN_INSIDE: AtomicBool = AtomicBool::new(false);
-/// Planet / walker NSMenu is tracking. Poll skips setLevel / ghost hops
-/// so a nested run loop cannot beach-ball behind dispatch_sync.
+/// Planet / walker NSMenu is tracking. Poll skips setLevel hops so a
+/// nested run loop cannot beach-ball behind dispatch_sync.
 static MENU_QUIET: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn set_menu_quiet(on: bool) {
@@ -70,50 +20,18 @@ pub(crate) fn menu_quiet() -> bool {
     MENU_QUIET.load(Ordering::SeqCst)
 }
 
-fn slab() -> bool {
-    EXPANDED.load(Ordering::SeqCst) || HOSTED.load(Ordering::SeqCst)
-}
-
-/// Frontend reports the ghost hit rects (window-local CSS points).
-/// Empty means "leaving ghost" — never stored (a shown ghost always has
-/// chrome: ×/⚙/agentrow/composer), so the kept list survives the slab
-/// detour and collapse has no hole.
-#[tauri::command]
-pub fn set_companion_hits(app: tauri::AppHandle, rects: Vec<HitRect>) -> Result<(), String> {
-    if !rects.is_empty() {
-        if let Ok(mut h) = hits().lock() {
-            *h = rects;
-        }
-    }
-    // Fresh hits land → re-test now (first show, layout shifts) instead
-    // of waiting out the 100ms poll.
-    if GHOST_ACTIVE.load(Ordering::SeqCst) {
-        apply_on_main(&app);
-    }
-    Ok(())
-}
-
-/// coordinator::set_companion_expanded mirror. Law 6: expand forces the
-/// slab (mouse on) NOW, before the JS re-render/re-report.
-pub(crate) fn expanded_changed(app: &tauri::AppHandle, expanded: bool) {
-    EXPANDED.store(expanded, Ordering::SeqCst);
+/// Expand/collapse: mouse on now, before the JS re-render.
+pub(crate) fn expanded_changed(app: &tauri::AppHandle, _expanded: bool) {
     apply_mode(app);
 }
 
-/// panes::set_companion_host mirror. Host on → slab NOW; host off →
-/// ghost re-test against the kept hits (frame is already restored).
-pub(crate) fn host_changed(app: &tauri::AppHandle, on: bool) {
-    HOSTED.store(on, Ordering::SeqCst);
+/// Host on/off: mouse on now. Frame restore is panes' job.
+pub(crate) fn host_changed(app: &tauri::AppHandle, _on: bool) {
     apply_mode(app);
 }
 
-/// Companion hid — the poll idles. Ignore state is left as-is; the next
-/// show forces mouse-on and re-applies the mode. GO-ORBITTY-FRONT-HOLD:
-/// the one-level-up front (apply_mode) ends with the show.
+/// Companion hid — drop the floating level. Next show forces mouse-on.
 pub(crate) fn hidden(app: &tauri::AppHandle) {
-    GHOST_ACTIVE.store(false, Ordering::SeqCst);
-    SUMMON_HOLD.store(false, Ordering::SeqCst);
-    HOLD_SEEN_INSIDE.store(false, Ordering::SeqCst);
     set_front_level(app, false);
 }
 
@@ -289,53 +207,18 @@ pub(crate) fn keep_front_if_ours(app: &tauri::AppHandle) {
     lift_z(app);
 }
 
-/// GO-ORBITTY-FRONT-HOLD law 2: mousedown on a ghost hit (dock / spirit /
-/// bubble / × ⚙) lifts z-order so a planet tick cannot bury the pane
-/// mid-click. Must not move the frame and must not activate/makeKey —
-/// those share the down with startDragging and the window jumps away
-/// from the cursor. Native menus (select / planet context) never call
-/// this. Hidden companion is a no-op.
-#[tauri::command]
-pub fn companion_front(app: tauri::AppHandle) -> Result<(), String> {
-    let Some(w) = app.get_webview_window("companion") else {
-        return Ok(());
-    };
-    if !w.is_visible().unwrap_or(false) {
-        return Ok(());
-    }
-    lift_z(&app);
-    Ok(())
-}
-
-/// Re-apply slab/ghost from the mirrored mode + live visibility. Called
-/// on every companion show (show_drawer forces mouse-on first — a ghost
-/// must not stay stuck there), on expand/collapse, and on host on/off.
+/// Shown companion is a complete window: mouse on, floating level.
+/// Called on every companion show, expand/collapse, and host on/off.
 pub(crate) fn apply_mode(app: &tauri::AppHandle) {
     let shown = app
         .get_webview_window("companion")
         .map(|w| w.is_visible().unwrap_or(false))
         .unwrap_or(false);
     if !shown {
-        GHOST_ACTIVE.store(false, Ordering::SeqCst);
-        SUMMON_HOLD.store(false, Ordering::SeqCst);
-        HOLD_SEEN_INSIDE.store(false, Ordering::SeqCst);
         return;
     }
     set_front_level(app, true);
-    if slab() {
-        GHOST_ACTIVE.store(false, Ordering::SeqCst);
-        SUMMON_HOLD.store(false, Ordering::SeqCst);
-        HOLD_SEEN_INSIDE.store(false, Ordering::SeqCst);
-        force_mouse_on(app);
-        return;
-    }
-    GHOST_ACTIVE.store(true, Ordering::SeqCst);
-    // GO-ORBITTY-FRONT-HOLD: hold mouse-on until the cursor LEAVES the
-    // frame — entering empty air inside it must not spend the hold.
-    SUMMON_HOLD.store(true, Ordering::SeqCst);
-    HOLD_SEEN_INSIDE.store(false, Ordering::SeqCst);
-    // Immediate cursor test — no 100ms hole before the next poll.
-    apply_on_main(app);
+    force_mouse_on(app);
 }
 
 fn force_mouse_on(app: &tauri::AppHandle) {
@@ -352,193 +235,11 @@ fn force_mouse_on(app: &tauri::AppHandle) {
     }
 }
 
-/// Run the ghost cursor test on the main thread (AppKit frame reads +
-/// setIgnoresMouseEvents), inline when already there.
-fn apply_on_main(app: &tauri::AppHandle) {
-    #[cfg(target_os = "macos")]
-    {
-        let handle = app.clone();
-        crate::main_thread_sync(move || ghost_apply(&handle));
-    }
-    #[cfg(not(target_os = "macos"))]
-    ghost_apply(app);
-}
-
-/// GO-ORBITTY-PLUG-APP leftover (composer hitch): is the companion the
-/// key window — i.e. someone is typing in the composer? One objc read on
-/// the main thread (ghost_apply only ever runs there). The poll must
-/// never punch click-through under a live field.
-#[cfg(target_os = "macos")]
-fn window_is_key(w: &tauri::WebviewWindow) -> bool {
-    use objc::runtime::Object;
-    use objc::{msg_send, sel, sel_impl};
-    let Ok(raw) = w.ns_window() else {
-        return false;
-    };
-    if raw.is_null() {
-        return false;
-    }
-    unsafe {
-        let nsw = raw as *mut Object;
-        let key: bool = msg_send![nsw, isKeyWindow];
-        key
-    }
-}
-
-/// Off macOS the ghost never click-throughs (cursor_where is always
-/// OverHit), so the key read is unused there.
-#[cfg(not(target_os = "macos"))]
-fn window_is_key(_w: &tauri::WebviewWindow) -> bool {
-    false
-}
-
-/// Main-thread ghost turn. Self-healing: a stale gate or a mode flip
-/// since the post is re-checked here, so the poll can only ever apply
-/// mouse-off to a shown ghost.
-fn ghost_apply(app: &tauri::AppHandle) {
-    let Some(w) = app.get_webview_window("companion") else {
-        GHOST_ACTIVE.store(false, Ordering::SeqCst);
-        SUMMON_HOLD.store(false, Ordering::SeqCst);
-        return;
-    };
-    if !w.is_visible().unwrap_or(false) || slab() {
-        GHOST_ACTIVE.store(false, Ordering::SeqCst);
-        SUMMON_HOLD.store(false, Ordering::SeqCst);
-        HOLD_SEEN_INSIDE.store(false, Ordering::SeqCst);
-        let _ = w.set_ignore_cursor_events(false);
-        return;
-    }
-    // GO-ORBITTY-PLUG-APP leftover (composer hitch): a KEY ghost is being
-    // typed in — the composer keeps the mouse. Re-arm the summon hold
-    // (leave-to-spend) on every poll while key, so a stale hit list can
-    // never punch the field click-through mid-keystroke: the field
-    // auto-grows on draft (CSS-only — a keystroke never re-reports hits),
-    // so the reported dock rect lags the live composer and the grown
-    // strip tested as empty air, eating the field for seconds at a time.
-    // Air click-through resumes on cursor-leave / focus loss — the same
-    // law as a summon.
-    if window_is_key(&w) {
-        SUMMON_HOLD.store(true, Ordering::SeqCst);
-    }
-    match cursor_where(&w) {
-        // Fail-open: never strand the spirit unclickable.
-        None => {
-            SUMMON_HOLD.store(false, Ordering::SeqCst);
-            HOLD_SEEN_INSIDE.store(false, Ordering::SeqCst);
-            let _ = w.set_ignore_cursor_events(false);
-        }
-        // GO-ORBITTY-FRONT-HOLD: the summon hold spends when the cursor
-        // LEAVES the frame after having been inside — never when it
-        // enters empty air, and never on the first Outside of a ⌘⇧O
-        // that landed with the pointer already off the window.
-        Some(CursorWhere::Outside) => {
-            if HOLD_SEEN_INSIDE.load(Ordering::SeqCst) {
-                SUMMON_HOLD.store(false, Ordering::SeqCst);
-                HOLD_SEEN_INSIDE.store(false, Ordering::SeqCst);
-            }
-            let _ = w.set_ignore_cursor_events(true);
-        }
-        // Cursor inside the frame: an armed summon hold keeps mouse-on
-        // until the leave (a summon landing over empty air stays
-        // clickable). Hold spent, the hit test runs — InsideEmpty really
-        // mouse-offs (air click-throughs, no dead zone), hits don't.
-        Some(where_) => {
-            HOLD_SEEN_INSIDE.store(true, Ordering::SeqCst);
-            if SUMMON_HOLD.load(Ordering::SeqCst) {
-                let _ = w.set_ignore_cursor_events(false);
-            } else {
-                let _ = w.set_ignore_cursor_events(!matches!(where_, CursorWhere::OverHit));
-            }
-        }
-    }
-}
-
-/// Cursor vs the companion frame and the kept hit rects.
-enum CursorWhere {
-    /// Inside the frame and over a reported hit — or any mouse button is
-    /// down (the ghost spirit is the drag handle; a live native drag
-    /// must not lose the window mid-move).
-    OverHit,
-    /// Inside the frame, over empty air.
-    InsideEmpty,
-    /// Outside the frame entirely.
-    Outside,
-}
-
-/// Cursor position in the window's local top-left points, tested against
-/// the frame first, then the kept hit rects. None = the native frame
-/// cannot be read — the caller fails open (mouse-on), never stranding
-/// the spirit unclickable.
-#[cfg(target_os = "macos")]
-fn cursor_where(w: &tauri::WebviewWindow) -> Option<CursorWhere> {
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct NSPoint {
-        x: f64,
-        y: f64,
-    }
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct NSSize {
-        width: f64,
-        height: f64,
-    }
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct NSRect {
-        origin: NSPoint,
-        size: NSSize,
-    }
-    unsafe {
-        let buttons: usize = msg_send![class!(NSEvent), pressedMouseButtons];
-        if buttons != 0 {
-            return Some(CursorWhere::OverHit);
-        }
-        let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
-        let raw = w.ns_window().ok()?;
-        if raw.is_null() {
-            return None;
-        }
-        let nsw = raw as *mut Object;
-        let frame: NSRect = msg_send![nsw, frame];
-        // Window-local, top-left origin (CSS points == AppKit points).
-        let lx = mouse.x - frame.origin.x;
-        let ly = frame.origin.y + frame.size.height - mouse.y;
-        if lx < 0.0 || ly < 0.0 || lx > frame.size.width || ly > frame.size.height {
-            return Some(CursorWhere::Outside);
-        }
-        let list = hits().lock().map(|h| h.clone()).unwrap_or_default();
-        let over = list
-            .iter()
-            .any(|r| lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h);
-        Some(if over {
-            CursorWhere::OverHit
-        } else {
-            CursorWhere::InsideEmpty
-        })
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn cursor_where(_w: &tauri::WebviewWindow) -> Option<CursorWhere> {
-    Some(CursorWhere::OverHit) // ghost never click-throughs off macOS
-}
-
-/// Seed the expanded mirror from persisted state (host is always off at
-/// boot — the stash is memory-only) and run the 10Hz poll. The poll
-/// posts to the main queue and only works while shown-and-ghost; hidden
-/// or slab it idles at 300ms.
+/// Hold the shown companion at floating level. Idles longer while hidden.
+/// Nested planet menus: skip — dispatch_sync into a tracking loop was
+/// the beach ball while digging into Assign-to-planet.
 pub fn start(app: tauri::AppHandle) {
-    if let Ok(st) = crate::state::load_state(&app) {
-        EXPANDED.store(st.companion.expanded, Ordering::SeqCst);
-    }
     std::thread::spawn(move || loop {
-        // Shown companion stays at level 4 (always on top). Ghost poll
-        // idles while hosted (slab).
-        // Nested planet menus: skip — dispatch_sync into a tracking loop
-        // was the beach ball while digging into Assign-to-planet.
         if MENU_QUIET.load(Ordering::SeqCst) {
             std::thread::sleep(std::time::Duration::from_millis(100));
             continue;
@@ -556,17 +257,6 @@ pub fn start(app: tauri::AppHandle) {
             #[cfg(not(target_os = "macos"))]
             set_front_level(&handle, true);
         }
-        if GHOST_ACTIVE.load(Ordering::SeqCst) {
-            #[cfg(target_os = "macos")]
-            {
-                let handle = app.clone();
-                crate::main_thread_async(move || ghost_apply(&handle));
-            }
-            #[cfg(not(target_os = "macos"))]
-            apply_on_main(&app);
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(if shown { 100 } else { 300 }));
-        }
+        std::thread::sleep(std::time::Duration::from_millis(if shown { 100 } else { 300 }));
     });
 }

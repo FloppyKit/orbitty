@@ -7,8 +7,8 @@
   // shared .orbit-field recipe (src/lib/orbit-field.css), never forked.
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
+  import { startPaneDrag } from "./dragPane";
   import SkyField from "./SkyField.svelte";
   import {
     applyHostTokens,
@@ -74,13 +74,7 @@
   });
 
   function onBannerMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("button, input, a, select, textarea")) return;
-    e.preventDefault();
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {});
+    startPaneDrag(e);
   }
 </script>
 
