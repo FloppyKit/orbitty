@@ -1212,9 +1212,9 @@ struct LeftoverItem {
 /// unchanged; a ping is never blocked. The wrap is what the model sees
 /// only — transcript, captions, and the event log keep the raw line.
 fn wrap_with_pocket(line: &str) -> String {
-    const PREPEND_CAP: usize = 2048; // chars, whole prepend block
-    const MAX_ITEMS: usize = 12;
-    const ITEM_TEXT_CAP: usize = 240; // schema maxLength
+    const PREPEND_CAP: usize = 600;
+    const MAX_ITEMS: usize = 3;
+    const ITEM_TEXT_CAP: usize = 120;
 
     let raw = match std::fs::read_to_string(companions_root().join("leftovers.json")) {
         Ok(s) => s,
@@ -1232,16 +1232,8 @@ fn wrap_with_pocket(line: &str) -> String {
             let text = it.text.trim();
             !text.is_empty() && !text.eq_ignore_ascii_case("desk test")
         })
-        .filter(|it| !it.tag.trim().eq_ignore_ascii_case("let-go"))
+        .filter(|it| it.tag.trim().eq_ignore_ascii_case("open"))
         .collect();
-    // keep before open; stable within a tag (file order preserved).
-    items.sort_by_key(|it| {
-        if it.tag.trim().eq_ignore_ascii_case("keep") {
-            0
-        } else {
-            1
-        }
-    });
     items.truncate(MAX_ITEMS);
     if items.is_empty() {
         return line.to_string();
@@ -1322,6 +1314,16 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
         return Ok(them);
     }
 
+    #[cfg(unix)]
+    if let Some(out) = crate::companion_go::intercept(&app, &line) {
+        let them = match out {
+            Ok(s) => s,
+            Err(e) => e,
+        };
+        persist_action_intercept(&app, Some(line.as_str()), &them);
+        return Ok(them);
+    }
+
     // GO-ORBITTY-ASK-ACTION: a line naming a Launchpad Action runs it
     // locally — Hermes/Berd never sees it. No match → unchanged send.
     if let Ok(st) = crate::state::load_state(&app) {
@@ -1375,10 +1377,13 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
     // on the raw line). Every mouth gets the wrapped prompt; persist +
     // event log below keep the raw `line`.
     let prompt = wrap_with_pocket(&line);
-    // GO-ORBITTY-MOUTH-TODO: desk wrap next to pocket — the model sees the
-    // live planet list + board law (kanban.add, not graph-sync); the raw
-    // line is still what persists and logs.
-    let prompt = crate::companion_desk::wrap_with_desk(&app, &prompt);
+    // Desk wrap only when the line looks like a board mint — not every
+    // "hi". Planet ids stay available for todo: intercept without a chew.
+    let prompt = if crate::companion_desk::line_needs_desk(&line) {
+        crate::companion_desk::wrap_with_desk(&app, &prompt)
+    } else {
+        prompt
+    };
     // GO-ORBITTY-PLUG-APP plug map — unknown backend is an honest error,
     // never a silent Berd fallback.
     let reply = match backend.as_str() {

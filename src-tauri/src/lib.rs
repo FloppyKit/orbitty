@@ -10,6 +10,8 @@ mod companion_desk;
 #[cfg(unix)]
 mod companion_todo;
 #[cfg(unix)]
+mod companion_go;
+#[cfg(unix)]
 mod control;
 mod coordinator;
 #[cfg(unix)]

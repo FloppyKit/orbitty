@@ -3,7 +3,7 @@
 //! The bubble is ONE continuous thread (tmux); a backend session may still
 //! die (context-dead / session-dead / empty-after-resume). When it does,
 //! the mouth ROLLS OVER: a fresh session id lands in plug.json and the
-//! first prompt on the new session is a handoff block — the last ~20 turns
+//! first prompt on the new session is a handoff block — the last ~6 turns
 //! of the ACTIVE mode plus the pocket/desk-wrapped user line. The reply
 //! still appends to the same `turns` / `threads[mode]`; the handoff is
 //! never persisted as a you-row and `companion.turns` is never wiped.
@@ -20,20 +20,33 @@ use crate::coordinator::{
     run_mouth_cli, save_plug,
 };
 
+/// True when a grok failure says the resume target is GONE — grok fails
+/// FAST here (~0.5s: `session get failed: 404 Not Found`), never a slow
+/// generate. Fail fast means: mint a fresh id, `-s`, save plug.json —
+/// forking a corpse would 404 too, so the fork path is skipped.
+pub fn grok_session_gone(err: &str) -> bool {
+    let e = err.to_ascii_lowercase();
+    e.contains("not found")
+        || e.contains("no such")
+        || e.contains("404")
+        || e.contains("invalid")
+        || e.contains("expired")
+}
+
 /// True when a grok failure reads as context/session death — never a
 /// normal model error. Consulted ONLY on the resume path (a first-send
-/// failure stays an honest Err). A resumed dead/thin session hangs until
-/// the per-send kill, so the timeout line counts as death here.
+/// failure stays an honest Err). The 180s kill is a SLOW GENERATE, not
+/// death: "took longer" / "killed" never match here, so a live-but-slow
+/// send stays an honest timeout Err instead of rolling over with a fat
+/// handoff, and a first `-s` create that dies at 180s is never treated
+/// as "resume the corpse" on the next send.
 pub fn grok_context_dead(err: &str) -> bool {
     let e = err.to_ascii_lowercase();
-    e.contains("took longer")
-        || e.contains("killed")
-        || e.contains("session")
+    e.contains("session")
         || e.contains("context")
-        || e.contains("max turns")
-        || e.contains("too long")
         || e.contains("not found")
         || e.contains("expired")
+        || e.contains("max turns")
 }
 
 /// True when a goose failure reads as session death. The 300s timeout is
@@ -56,8 +69,8 @@ pub fn goose_context_dead(err: &str) -> bool {
 /// only the raw line + reply, so the handoff never becomes a you-row.
 /// No history yet (a first send that died) → the wrapped line unchanged.
 pub fn handoff_prompt(app: &tauri::AppHandle, wrapped_line: &str) -> String {
-    const HANDOFF_TURNS: usize = 20;
-    const HISTORY_CAP: usize = 6144; // chars; the user line never shrinks
+    const HANDOFF_TURNS: usize = 6;
+    const HISTORY_CAP: usize = 1200;
     let (mode, turns) = crate::state::load_state(app)
         .map(|s| (s.companion.mode.clone(), s.companion.turns.clone()))
         .unwrap_or_else(|_| ("spark".into(), Vec::new()));
@@ -69,8 +82,17 @@ pub fn handoff_prompt(app: &tauri::AppHandle, wrapped_line: &str) -> String {
     let mut lines: Vec<String> = Vec::new();
     let mut used = 0usize;
     for t in turns[start..].iter().rev() {
+        let text = t.text.replace('\n', " ");
+        let low = text.to_ascii_lowercase();
+        if low.starts_with("noted ")
+            || low.starts_with("heard you")
+            || low.contains("companion stays the mouth")
+            || low.starts_with("dogfood ") && low.contains("is in needed")
+        {
+            continue;
+        }
         let who = if t.role == "you" { "you" } else { "them" };
-        let row = format!("{who}: {}", t.text.replace('\n', " "));
+        let row = format!("{who}: {text}");
         let n = row.chars().count();
         if !lines.is_empty() && used + n > HISTORY_CAP {
             break;
