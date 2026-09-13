@@ -401,10 +401,12 @@
   >
     {#each turns as t, i}
       <div class="row" class:you={t.role === "you"} class:them={t.role !== "you"}>
+        <!-- The transcript already shows the whole reply — no title
+             tooltip / hover popup here; the .cc-full overlay is
+             collapsed-only. -->
         <div
           class="bubble"
           class:paged={i === pagedTurnIdx}
-          title={t.text}
         >
           {#if i === pagedTurnIdx && pageViewHtml}
             {@html pageViewHtml}
