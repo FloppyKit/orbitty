@@ -332,6 +332,16 @@
   // open CC overlay still eats its own Escape.
   function onPaneKey(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
+    // GO-ORBITTY-MENU-KEYS lock law: a focused field owns Esc first —
+    // its own handler (if any) already ran at target; blur it here and
+    // never close the well out from under an edit. e.target still names
+    // the field even when the field's own Esc unmounted it mid-dispatch.
+    const t = e.target as HTMLElement | null;
+    if (t?.closest?.("input, textarea, select")) {
+      if (document.activeElement === t) t.blur();
+      e.preventDefault();
+      return;
+    }
     if (cheatOpen) {
       cheatOpen = false;
       e.preventDefault();
@@ -745,6 +755,14 @@
     }
     neededFocusId = id;
     neededFocusTitle = title;
+  }
+
+  // GO-ORBITTY-MENU-KEYS: Enter on a Needed row arms the composer
+  // answer (onNeededFocus already set the hint) — land the caret so the
+  // next typed line answers it. Esc blurs back out (onPaneKey), arrows
+  // resume the ring.
+  function onNeededAnswer() {
+    fieldEl?.focus();
   }
   $effect(() => {
     if (expanded || hosted !== "launchpad") {
@@ -1604,6 +1622,7 @@
                   onClose={dismissHost}
                   onPopout={popoutLaunchpad}
                   {onNeededFocus}
+                  {onNeededAnswer}
                 />
               {:else if swapPrev === "stars"}
                 <StarsPage embedded onClose={dismissHost} />
@@ -1628,6 +1647,7 @@
                 onClose={dismissHost}
                 onPopout={popoutLaunchpad}
                 {onNeededFocus}
+                {onNeededAnswer}
               />
             {:else if hosted === "stars"}
               <StarsPage embedded onClose={dismissHost} />

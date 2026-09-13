@@ -20,6 +20,7 @@
   import SkyField from "./SkyField.svelte";
   import { listenPaneVis } from "./paneVis";
   import { startPaneDrag } from "./dragPane";
+  import { MenuRing, type RingStop } from "./menuKeys.svelte";
   import {
     applyHostTokens,
     applyWindowOpacity,
@@ -252,6 +253,89 @@
     void setAverageWindow("custom", from, to);
   }
 
+  // GO-ORBITTY-MENU-KEYS: the STARS ring — view switcher + five spokes,
+  // per the pad lock: left/right picks a stop, up/down adjusts what's
+  // highlighted (spoke value 0–4, or the view), Enter saves today under
+  // the Save button's own gate, Esc backs out of the well (CompanionPage
+  // owns it — nothing inner to close here). Past days and averages stay
+  // read-only; a first bump on a saved today unlocks editing, same as
+  // clicking the number. STARS-FIVE stays a scale change, not this.
+  const menuRing = new MenuRing();
+  const NAV_ORDER: StarsNav[] = ["day", "week", "month", "year", "custom"];
+
+  function cycleView(delta: number) {
+    const i = NAV_ORDER.indexOf(navView);
+    const next =
+      NAV_ORDER[(i + delta + NAV_ORDER.length) % NAV_ORDER.length];
+    navView = next;
+    if (next === "day") return;
+    if (next === "custom") {
+      void setAverageWindow(
+        "custom",
+        avgFrom || shiftDay(cursorDay, -29),
+        avgTo || cursorDay,
+      );
+      return;
+    }
+    void setAverageWindow(next);
+  }
+
+  function bumpSpoke(key: SpokeKey, delta: number) {
+    if (!isToday || avgMode) return; // past days / averages are read-only
+    if (!dayEditable) {
+      editingToday = true;
+      return;
+    }
+    setSpoke(key, Math.max(0, Math.min(4, (starsDraft[key] ?? 0) + delta)));
+  }
+
+  function saveFromRing() {
+    // The Save today button's enabled gate, mirrored.
+    if (!isToday || avgMode || (!dayEditable && !!cursorSaved)) return;
+    void saveStarsToday();
+  }
+
+  $effect(() => {
+    if (!embedded) return;
+    const stops: RingStop[] = [
+      {
+        id: "stars-nav",
+        confirm: () => cycleView(1),
+        arrow: (dir) => {
+          if (dir === "up") {
+            cycleView(-1);
+            return true;
+          }
+          if (dir === "down") {
+            cycleView(1);
+            return true;
+          }
+          return false; // left/right walk onto the spokes
+        },
+      },
+    ];
+    for (const s of STARS_SPOKES) {
+      stops.push({
+        id: `spoke-${s.key}`,
+        confirm: saveFromRing,
+        arrow: (dir) => {
+          if (dir === "up") {
+            bumpSpoke(s.key, 1);
+            return true;
+          }
+          if (dir === "down") {
+            bumpSpoke(s.key, -1);
+            return true;
+          }
+          return false;
+        },
+      });
+    }
+    menuRing.setStops(stops);
+  });
+
+  let detachMenuKeys: (() => void) | undefined;
+
   // Prompts opt-in rides the native load-modify-save command (same one the
   // companion uses) — never a wholesale state write from here.
   async function toggleStarsPrompts() {
@@ -332,6 +416,7 @@
     if (!embedded) invoke("ensure_glass").catch(() => {});
     unlisten = await listen("state:changed", loadState);
     if (embedded) {
+      detachMenuKeys = menuRing.attach();
       void loadState().then(() => syncStarsDraft());
       document.addEventListener("visibilitychange", onVisibility);
       return;
@@ -346,6 +431,7 @@
   onDestroy(() => {
     unlisten?.();
     unlistenVis?.();
+    detachMenuKeys?.();
     document.removeEventListener("visibilitychange", onVisibility);
   });
 
@@ -371,6 +457,8 @@
         aria-label="Next day">›</button>
       <select
         class="nav-view"
+        class:mkey-sel={menuRing.activeId === "stars-nav"}
+        data-mkey="stars-nav"
         value={navView}
         onchange={onNavChange}
         aria-label="STARS view"
@@ -444,7 +532,11 @@
         </div>
         <div class="stars-controls">
           {#each STARS_SPOKES as spoke (spoke.key)}
-            <div class="spoke-row">
+            <div
+              class="spoke-row"
+              class:mkey-sel={menuRing.activeId === `spoke-${spoke.key}`}
+              data-mkey={`spoke-${spoke.key}`}
+            >
               <span class="spoke-label">{spoke.label}</span>
               {#if avgMode}
                 <span class="spoke-num" title="{spoke.label} mean"

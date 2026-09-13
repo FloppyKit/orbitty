@@ -10,6 +10,7 @@
   } from "../themes/apply";
   import { planetCss } from "./planetColor";
   import { startPaneDrag } from "./dragPane";
+  import { MenuRing, type RingStop } from "./menuKeys.svelte";
   import RailStack from "./RailStack.svelte";
   import type {
     ActionShortcut,
@@ -443,6 +444,96 @@
   function sheetFocus(w: WindowInfo) {
     invoke("focus_window", { id: w.id }).catch(() => {});
   }
+
+  // GO-ORBITTY-MENU-KEYS: the Planets-pop ring — orb tabs across the
+  // top, window rows under the selected tab. Left/right walks the strip,
+  // down drops into the rows, up climbs back to the tab; Enter is the
+  // click (tab = select + raise/locate the disc, row = focus the window,
+  // Unclaimed row = the claim picker, pick = claim). Esc closes the
+  // picker / the + Planet mint first, then the well (CompanionPage's
+  // bubble Esc). Embedded only, and walkers on the disc never see these
+  // keys — the ring lives in the well, not the habitat.
+  const menuRing = new MenuRing();
+
+  function confirmRingTab(id: string) {
+    if (id === "ptab-add") {
+      creatingProject = true;
+      return;
+    }
+    if (id === "ptab-unclaimed") {
+      sheetSlot = "unclaimed";
+      return;
+    }
+    onSheetPlanetClick(id.slice("ptab-".length));
+  }
+
+  $effect(() => {
+    if (!embedded) return;
+    // Rows of the current slot first — the tab arrows drop into them.
+    const rows: { id: string; confirm: () => void }[] = [];
+    if (sheetSlot === "unclaimed") {
+      for (const w of unmapped) {
+        rows.push({
+          id: `prow-${w.id}`,
+          confirm: () => {
+            claimPickerFor = claimPickerFor === w.id ? null : w.id;
+          },
+        });
+        if (claimPickerFor === w.id) {
+          for (const p of projects) {
+            rows.push({
+              id: `pclaim-${w.id}-${p.id}`,
+              confirm: () => sheetClaim(w.id, p.id),
+            });
+          }
+        }
+      }
+    } else {
+      for (const w of sheetRowsFor(sheetSlot)) {
+        rows.push({ id: `prow-${w.id}`, confirm: () => sheetFocus(w) });
+      }
+    }
+    const rowIds = rows.map((r) => r.id);
+    const slotTabId =
+      sheetSlot === "unclaimed" ? "ptab-unclaimed" : `ptab-${sheetSlot}`;
+
+    const stops: RingStop[] = [];
+    const tabIds = [
+      "ptab-unclaimed",
+      ...projects.map((p) => `ptab-${p.id}`),
+      "ptab-add",
+    ];
+    tabIds.forEach((id, i) => {
+      stops.push({
+        id,
+        confirm: () => confirmRingTab(id),
+        arrow: (dir) => {
+          if (dir === "left" || dir === "right") {
+            const n = tabIds.length;
+            menuRing.select(tabIds[(i + (dir === "left" ? -1 : 1) + n) % n]);
+          } else if (dir === "down" && rowIds.length > 0) {
+            menuRing.select(rowIds[0]);
+          }
+          return true; // the strip eats all four — nothing above it
+        },
+      });
+    });
+    rows.forEach((r, i) => {
+      stops.push({
+        id: r.id,
+        confirm: r.confirm,
+        arrow: (dir) => {
+          if (dir === "up") menuRing.select(i > 0 ? rowIds[i - 1] : slotTabId);
+          else if (dir === "down" && i < rowIds.length - 1)
+            menuRing.select(rowIds[i + 1]);
+          return true; // left/right park on a row
+        },
+      });
+    });
+    menuRing.setStops(stops);
+  });
+
+  let detachMenuKeys: (() => void) | undefined;
 
   function toggleTag(windowId: string, tagId: string) {
     const cur =
@@ -2048,6 +2139,19 @@
     if (!themeChosen) themeId = osThemeId();
   };
   onMount(async () => {
+    if (embedded) {
+      detachMenuKeys = menuRing.attach(() => {
+        if (claimPickerFor) {
+          claimPickerFor = null;
+          return true;
+        }
+        if (creatingProject) {
+          creatingProject = false;
+          return true;
+        }
+        return false;
+      });
+    }
     try {
       const s = await invoke<PersistedState>("load_state");
       const migrated = migrateThemeId(s.themeId ?? "");
@@ -2332,6 +2436,7 @@
   });
   onDestroy(() => {
     clearInterval(timer);
+    detachMenuKeys?.();
     unlistenExpand?.();
     unlistenCollapse?.();
     unlistenBeing?.();
@@ -2497,6 +2602,8 @@
       type="button"
       class="planet-tab"
       class:sel={sheetSlot === "unclaimed"}
+      class:mkey-sel={menuRing.activeId === "ptab-unclaimed"}
+      data-mkey="ptab-unclaimed"
       role="tab"
       aria-selected={sheetSlot === "unclaimed"}
       onclick={() => (sheetSlot = "unclaimed")}
@@ -2509,6 +2616,8 @@
         type="button"
         class="planet-tab"
         class:sel={sheetSlot === p.id}
+        class:mkey-sel={menuRing.activeId === `ptab-${p.id}`}
+        data-mkey={`ptab-${p.id}`}
         role="tab"
         aria-selected={sheetSlot === p.id}
         title={p.name}
@@ -2543,6 +2652,8 @@
       <button
         type="button"
         class="planet-tab add"
+        class:mkey-sel={menuRing.activeId === "ptab-add"}
+        data-mkey="ptab-add"
         onclick={() => (creatingProject = true)}>+ Planet</button
       >
     {/if}
@@ -2556,7 +2667,11 @@
       {:else}
         <ul class="wins">
           {#each unmapped as w (w.id)}
-            <li class="sheet-row">
+            <li
+              class="sheet-row"
+              class:mkey-sel={menuRing.activeId === `prow-${w.id}`}
+              data-mkey={`prow-${w.id}`}
+            >
               <span class="app-icon-slot">
                 {#if w.iconBase64}
                   <img class="app-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
@@ -2586,6 +2701,8 @@
                   {#each projects as p (p.id)}
                     <button
                       class="mini claim-pick"
+                      class:mkey-sel={menuRing.activeId === `pclaim-${w.id}-${p.id}`}
+                      data-mkey={`pclaim-${w.id}-${p.id}`}
                       onclick={() => sheetClaim(w.id, p.id)}
                       title="Claim to {p.name}"
                       ><span
@@ -2626,6 +2743,8 @@
                 class="row"
                 class:front={w.isFrontmost}
                 class:min={w.isMinimized}
+                class:mkey-sel={menuRing.activeId === `prow-${w.id}`}
+                data-mkey={`prow-${w.id}`}
                 onclick={() => sheetFocus(w)}
                 title="{w.appName} — {w.title} · click to focus"
               >

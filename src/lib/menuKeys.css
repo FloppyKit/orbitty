@@ -1,0 +1,8 @@
+/* GO-ORBITTY-MENU-KEYS: the one visible focus ring for the hosted well.
+   Imported by menuKeys.svelte.ts so every menu on the ring paints the
+   same highlight. Negative offset keeps the ring inside scroll
+   containers; outline follows each element's own border-radius. */
+.mkey-sel {
+  outline: 2px solid var(--focus, #6e4db0);
+  outline-offset: -1px;
+}

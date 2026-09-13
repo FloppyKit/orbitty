@@ -12,7 +12,8 @@
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
   import { startPaneDrag } from "./dragPane";
-  import NeededInbox from "./NeededInbox.svelte";
+  import NeededInbox, { neededSorted } from "./NeededInbox.svelte";
+  import { MenuRing, type RingStop } from "./menuKeys.svelte";
   import type {
     Actor,
     Claim,
@@ -36,11 +37,15 @@
     onClose,
     onPopout,
     onNeededFocus,
+    onNeededAnswer,
   }: {
     embedded?: boolean;
     onClose?: () => void;
     onPopout?: () => void;
     onNeededFocus?: (id: string | null, title: string | null) => void;
+    // MENU-KEYS: Enter on a Needed row — the host lands the caret in the
+    // composer so the next typed line answers it.
+    onNeededAnswer?: () => void;
   } = $props();
 
   type Status = "todo" | "doing" | "done";
@@ -82,6 +87,74 @@
 
   let detailId = $state<string | null>(null);
   let newSubtask = $state("");
+
+  // GO-ORBITTY-MENU-KEYS: the Launchpad ring — Needed pile, then the
+  // board piles column-major. Up/down walk the pile, left/right hop the
+  // highlight to the same row in the next non-empty column (wraps);
+  // Enter selects a Needed row (the composer answers it) or opens a
+  // card's detail drawer. Esc closes the drawer first, then the well
+  // (CompanionPage's bubble Esc). Embedded only — the overlay Lists
+  // window keeps its mouse habits. Grab/drop (Shift+Enter = X) is
+  // KANBAN-GRAB, the next phrase on this same ring — not here.
+  const menuRing = new MenuRing();
+  let neededOpen = $state(false);
+  let neededSelectedId = $state<string | null>(null);
+  const neededRows = $derived(neededSorted(kanbanCards));
+
+  $effect(() => {
+    if (!embedded) return;
+    if (detailId) {
+      // Drawer open: the ring parks (its inputs own the caret); the
+      // attach onEscape below closes the drawer before the well.
+      menuRing.setStops([]);
+      return;
+    }
+    const stops: RingStop[] = [];
+    if (neededRows.length > 0 || addingNeeded) {
+      stops.push({
+        id: "needed-toggle",
+        confirm: () => {
+          neededOpen = !neededOpen;
+          if (!neededOpen) neededSelectedId = null;
+        },
+      });
+      if (neededOpen) {
+        for (const c of neededRows) {
+          stops.push({
+            id: `needed-${c.id}`,
+            confirm: () => {
+              neededSelectedId = c.id;
+              onNeededAnswer?.();
+            },
+          });
+        }
+      }
+    }
+    const cols = COLUMNS.map((c) => boardCols[c.id]);
+    cols.forEach((colCards, ci) => {
+      colCards.forEach((card, ri) => {
+        stops.push({
+          id: `card-${card.id}`,
+          confirm: () => openDetail(card),
+          arrow: (dir) => {
+            if (dir !== "left" && dir !== "right") return false;
+            const step = dir === "left" ? -1 : 1;
+            for (let k = 1; k < cols.length; k++) {
+              const t = (((ci + step * k) % cols.length) + cols.length) % cols.length;
+              if (cols[t].length === 0) continue;
+              const target = cols[t][Math.min(ri, cols[t].length - 1)];
+              menuRing.select(`card-${target.id}`);
+              break;
+            }
+            return true;
+          },
+        });
+      });
+    });
+    menuRing.setStops(stops);
+  });
+
+  let detachMenuKeys: (() => void) | undefined;
 
   // Board drag: card id in flight + column under the cursor.
   let dragCardId = $state<string | null>(null);
@@ -703,6 +776,13 @@
     // mount — that IPC return was painting cards mid-rise and lagging
     // the sprite aside. Overlay Launchpad still hydrates in-line.
     if (embedded) {
+      detachMenuKeys = menuRing.attach(() => {
+        if (detailId) {
+          detailId = null;
+          return true;
+        }
+        return false;
+      });
       void loadState();
       return;
     }
@@ -725,6 +805,7 @@
   });
   onDestroy(() => {
     stopRefreshTimer();
+    detachMenuKeys?.();
     unlisten?.();
     unlistenFocus?.();
     unlistenVis?.();
@@ -834,6 +915,9 @@
     {mutate}
     {logEvent}
     bind:addingNeeded
+    bind:open={neededOpen}
+    bind:selectedId={neededSelectedId}
+    ringActiveId={menuRing.activeId}
     {onNeededFocus}
   />
 
@@ -948,6 +1032,8 @@
                   class="b-card"
                   class:dragging={dragCardId === card.id}
                   class:done={card.status === "done"}
+                  class:mkey-sel={menuRing.activeId === `card-${card.id}`}
+                  data-mkey={`card-${card.id}`}
                   draggable="true"
                   ondragstart={(e) => onCardDragStart(e, card)}
                   ondragend={onCardDragEnd}

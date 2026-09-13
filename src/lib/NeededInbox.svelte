@@ -1,10 +1,34 @@
+<script module lang="ts">
+  import type { KanbanCard } from "./persist";
+
+  // GO-ORBITTY-MENU-KEYS: one Needed ordering, two readers — the strip
+  // paints it, the Launchpad ring (KanbanPage) walks it.
+  export function neededSorted(cards: KanbanCard[]): KanbanCard[] {
+    return cards
+      .filter(
+        (c) =>
+          c.kind === "needed" &&
+          (c.neededState === "open" || c.neededState === "later"),
+      )
+      .sort((a, b) => {
+        const al = a.neededState === "later" ? 1 : 0;
+        const bl = b.neededState === "later" ? 1 : 0;
+        if (al !== bl) return al - bl;
+        if (al === 1) return (a.lastTouchedAt ?? 0) - (b.lastTouchedAt ?? 0);
+        return a.createdAt - b.createdAt;
+      });
+  }
+</script>
+
 <script lang="ts">
   // Needed pile. Launchpad strip is an accordion: one header with a
   // count, open to a standard card (question / why / Answer·Later·Skip).
   // Why is mdLite so **bold**, `paths`, and lists read as prose, not
   // raw markdown. Parent owns mutate/logEvent so persist stays one door.
+  // GO-ORBITTY-MENU-KEYS: open/selectedId are bindable so the Launchpad
+  // ring can walk the pile; ringActiveId paints the one focus ring.
   import { mdLite } from "./mdLite";
-  import type { KanbanCard, PersistedState } from "./persist";
+  import type { PersistedState } from "./persist";
 
   let {
     variant,
@@ -13,6 +37,9 @@
     mutate,
     logEvent,
     addingNeeded = $bindable(false),
+    open = $bindable(false),
+    selectedId = $bindable<string | null>(null),
+    ringActiveId = null,
     onNeededFocus,
   }: {
     variant: "strip" | "side";
@@ -25,32 +52,19 @@
       projectId?: string,
     ) => void;
     addingNeeded?: boolean;
+    open?: boolean;
+    selectedId?: string | null;
+    ringActiveId?: string | null;
     onNeededFocus?: (id: string | null, title: string | null) => void;
   } = $props();
 
   let newNeeded = $state("");
-  let selectedId = $state<string | null>(null);
-  let open = $state(false);
 
   $effect(() => {
     if (addingNeeded) open = true;
   });
 
-  let neededNow = $derived(
-    cards
-      .filter(
-        (c) =>
-          c.kind === "needed" &&
-          (c.neededState === "open" || c.neededState === "later"),
-      )
-      .sort((a, b) => {
-        const al = a.neededState === "later" ? 1 : 0;
-        const bl = b.neededState === "later" ? 1 : 0;
-        if (al !== bl) return al - bl;
-        if (al === 1) return (a.lastTouchedAt ?? 0) - (b.lastTouchedAt ?? 0);
-        return a.createdAt - b.createdAt;
-      }),
-  );
+  let neededNow = $derived(neededSorted(cards));
 
   function setOpen(v: boolean) {
     open = v;
@@ -139,6 +153,8 @@
       <button
         type="button"
         class="kn-toggle"
+        class:mkey-sel={ringActiveId === "needed-toggle"}
+        data-mkey="needed-toggle"
         aria-expanded={open}
         onclick={() => setOpen(!open)}
       >
@@ -179,6 +195,8 @@
           <li
             class="kn-row"
             class:sel={selectedId === card.id}
+            class:mkey-sel={ringActiveId === `needed-${card.id}`}
+            data-mkey={`needed-${card.id}`}
             onclick={() => (selectedId = card.id)}
           >
             <p class="kn-q">{card.title}</p>
