@@ -17,13 +17,31 @@ use std::path::Path;
 
 use crate::coordinator::{
     PlugState, capture_goose_session, goose_args, grok_args, grok_reply_text, is_uuid, mint_uuid,
-    run_mouth_cli, save_plug,
+    run_mouth_cli, run_mouth_cli_watched, save_plug,
 };
 
-/// True when a grok failure says the resume target is GONE — grok fails
-/// FAST here (~0.5s: `session get failed: 404 Not Found`), never a slow
-/// generate. Fail fast means: mint a fresh id, `-s`, save plug.json —
-/// forking a corpse would 404 too, so the fork path is skipped.
+/// Streaming kill matcher for a grok `--resume` spawn: the dead-resume
+/// line (`session get failed: 404 Not Found`) prints in ~0.5s but grok
+/// STAYS ALIVE, so the watched runner kills on this line instead of
+/// waiting out the 180s for a corpse. Narrower than `grok_session_gone`
+/// on purpose — a live generate's tool noise can say "no such file"
+/// with the session perfectly healthy, so the line must name the
+/// session AND a gone word.
+pub fn grok_session_gone_line(line: &str) -> bool {
+    let e = line.to_ascii_lowercase();
+    e.contains("session")
+        && (e.contains("404")
+            || e.contains("not found")
+            || e.contains("no such")
+            || e.contains("invalid")
+            || e.contains("expired"))
+}
+
+/// True when a grok failure says the resume target is GONE — the watched
+/// resume surfaces it FAST (~0.5s: `session get failed: 404 Not Found`),
+/// never a slow generate. Fail fast means: mint a fresh id, `-s`, save
+/// plug.json — forking a corpse would 404 too, so the fork path is
+/// skipped.
 pub fn grok_session_gone(err: &str) -> bool {
     let e = err.to_ascii_lowercase();
     e.contains("not found")
@@ -146,7 +164,12 @@ pub fn grok_rollover(
     let new_sid = mint_uuid()?;
     if is_uuid(&old_sid) {
         let args = grok_fork_args(&old_sid, &new_sid, soul, handoff);
-        if let Ok(raw) = run_mouth_cli("Grok", bin, &args, &[], 180) {
+        // The fork RESUMES the old id — under the watch a corpse 404s in
+        // ~0.5s and falls through to the fresh rollover, instead of
+        // hanging out the 180s first.
+        if let Ok(raw) =
+            run_mouth_cli_watched("Grok", bin, &args, &[], 180, Some(&grok_session_gone_line))
+        {
             let text = grok_reply_text(&raw);
             if !text.is_empty() {
                 plug.grok_session_id = Some(new_sid);

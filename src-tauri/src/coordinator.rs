@@ -605,6 +605,26 @@ pub(crate) fn run_mouth_cli(
     envs: &[(&str, &str)],
     timeout_secs: u64,
 ) -> Result<String, String> {
+    run_mouth_cli_watched(tool, bin, args, envs, timeout_secs, None)
+}
+
+/// run_mouth_cli + a stderr watch: a reader thread forwards stderr lines
+/// as they arrive, and `kill_on` matching a line kills the child AT ONCE,
+/// returning that line as the error. GO-ORBITTY-MOUTH-LIVE: grok prints a
+/// dead-resume 404 (`session get failed: 404 Not Found`) in ~0.5s but
+/// STAYS ALIVE — an unwatched poll waits out the whole timeout for a
+/// corpse. The kill is line-matched, never time-based: a fat `--rules`
+/// soul may slow startup, and a live slow generate keeps the full
+/// timeout.
+pub(crate) fn run_mouth_cli_watched(
+    tool: &str,
+    bin: &Path,
+    args: &[String],
+    envs: &[(&str, &str)],
+    timeout_secs: u64,
+    kill_on: Option<&dyn Fn(&str) -> bool>,
+) -> Result<String, String> {
+    use std::io::BufRead as _;
     let mut child = Command::new(bin)
         .args(args)
         .envs(envs.iter().copied())
@@ -613,15 +633,52 @@ pub(crate) fn run_mouth_cli(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("launch {}: {e}", bin.display()))?;
+    // stderr → line channel. EOF (child dead, pipe closed) drops the
+    // sender. The thread is never joined — a grandchild inheriting the
+    // pipe must not hang the send path.
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stderr).lines() {
+                let Ok(line) = line else { break };
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+    }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    let mut stderr_lines: Vec<String> = Vec::new();
     loop {
+        // Drain arrived stderr lines; a kill-line ends it now.
+        while let Ok(line) = rx.try_recv() {
+            if kill_on.is_some_and(|k| k(&line)) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("{tool}: {line}"));
+            }
+            stderr_lines.push(line);
+        }
         match child.try_wait() {
             Ok(Some(_)) => {
+                // stderr was taken for the watch, so wait_with_output
+                // only collects stdout here.
                 let out = child
                     .wait_with_output()
                     .map_err(|e| format!("collect {tool} output: {e}"))?;
                 if !out.status.success() {
-                    return Err(tool_error_line(tool, &out.stderr, &out.stdout, out.status.code()));
+                    // The last stderr lines may still be in flight behind
+                    // the exit — drain bounded (Disconnected = reader hit
+                    // EOF; a line cap guards a grandchild holding the
+                    // pipe), then the usual one honest error line.
+                    loop {
+                        match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+                            Ok(line) if stderr_lines.len() < 400 => stderr_lines.push(line),
+                            Ok(_) | Err(_) => break,
+                        }
+                    }
+                    let stderr = stderr_lines.join("\n").into_bytes();
+                    return Err(tool_error_line(tool, &stderr, &out.stdout, out.status.code()));
                 }
                 return Ok(String::from_utf8_lossy(&out.stdout).trim().to_string());
             }
@@ -1622,15 +1679,40 @@ fn run_grok_reply(
     let sid = plug.grok_session_id.clone().unwrap_or_default();
 
     let args = grok_args(&sid, plug.grok_session_minted, soul, line);
-    let raw = match run_mouth_cli("Grok", bin, &args, &[], 180) {
+    // GO-ORBITTY-MOUTH-LIVE: every `--resume` spawn runs under the stderr
+    // watch — a dead id 404s in ~0.5s but grok STAYS ALIVE, so the kill
+    // lands on the line, never on the 180s timeout. First sends (`-s`
+    // creates) stay unwatched: their failures are honest, never a corpse
+    // resume.
+    let raw = match if plug.grok_session_minted {
+        run_mouth_cli_watched(
+            "Grok",
+            bin,
+            &args,
+            &[],
+            180,
+            Some(&crate::mouth_roll::grok_session_gone_line),
+        )
+    } else {
+        run_mouth_cli("Grok", bin, &args, &[], 180)
+    } {
         Ok(r) => r,
         Err(e) if !plug.grok_session_minted && e.to_ascii_lowercase().contains("session") => {
             // The `-s` create may have landed server-side despite the
-            // error — heal: mark minted and retry once as a resume.
+            // error — heal: mark minted and retry once as a resume (also
+            // watched: if the create never landed, the resume 404s fast
+            // instead of hanging out the timeout).
             plug.grok_session_minted = true;
             save_plug(&plug);
             let retry = grok_args(&sid, true, soul, line);
-            run_mouth_cli("Grok", bin, &retry, &[], 180)?
+            run_mouth_cli_watched(
+                "Grok",
+                bin,
+                &retry,
+                &[],
+                180,
+                Some(&crate::mouth_roll::grok_session_gone_line),
+            )?
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_session_gone(&e) => {
             // GO-ORBITTY-MOUTH-LIVE: a dead resume id fails FAST (grok
