@@ -750,7 +750,7 @@
 
   async function sendLine() {
     const line = draft.trim();
-    if (!line || sending) return;
+    if (!line) return;
     if (neededFocusId) {
       draft = "";
       try {
@@ -761,6 +761,7 @@
       }
       return;
     }
+    if (sending) return;
     sending = true;
     sendNote = null;
     // S2.5 optimistic you: the bubble lands NOW, the field clears, and
@@ -1211,7 +1212,19 @@
       // once sending is false.
       if (!sending) userLine = s.companion?.lastUserLine ?? "";
       botLine = s.companion?.lastBotLine ?? "";
-      turns = s.companion?.turns ?? [];
+      const incoming = s.companion?.turns ?? [];
+      if (sending) {
+        const optimistic = turns.at(-1);
+        turns = incoming;
+        if (
+          optimistic?.role === "you" &&
+          turns.at(-1)?.text !== optimistic.text
+        ) {
+          turns = [...turns, optimistic].slice(-40);
+        }
+      } else {
+        turns = incoming;
+      }
       expanded = s.companion?.expanded ?? false;
       speak = s.companion?.speakReplies ?? false;
       speakVolume = typeof s.companion?.speakVolume === "number"

@@ -435,6 +435,13 @@ pub fn needed_open(
     }
     let before = crate::state::load_state(app)?;
     check_project(&before, project_id)?;
+    if let Some(existing) = before.kanban_cards.iter().find(|c| {
+        c.kind.as_deref() == Some("needed")
+            && c.needed_state.as_deref() == Some("open")
+            && c.title.trim() == title
+    }) {
+        return Ok(existing.clone());
+    }
     let ruled = match crate::needed_rules::decide(title, project_id, &before.projects) {
         crate::needed_rules::Decision::Apply(answer) => Some(answer),
         crate::needed_rules::Decision::Open => None,
@@ -526,10 +533,6 @@ pub fn needed_answer(
         c.needed_state = Some("answered".into());
         c.last_touched_at = now;
     }
-    after.companion.last_user_line = answer.to_string();
-    after.companion.last_bot_line = "Needed answered.".into();
-    after.companion.push_turn("you", answer);
-    after.companion.push_turn("them", "Needed answered.");
     save_with_events(app, &before, &after)?;
     event_log::append_best(
         app,

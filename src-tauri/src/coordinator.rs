@@ -1148,6 +1148,26 @@ fn match_action_line(
 /// GO-ORBITTY-MODE-SPLIT: push_turn lands both on the active `turns` and
 /// the parked `threads[mode]` copy, so the intercept never leaks across
 /// modes either.
+/// Land the you-row + last_user_line NOW, before the 180s model wait.
+/// Collapsed CC and expanded transcript both read persist; waiting until
+/// the reply meant a hung send showed nothing and state:changed wiped
+/// the optimistic bubble.
+fn persist_companion_you(app: &tauri::AppHandle, line: &str) {
+    if let Ok(mut st) = crate::state::load_state(app) {
+        st.companion.last_user_line = line.to_string();
+        let you_already_saved = st
+            .companion
+            .turns
+            .last()
+            .is_some_and(|t| t.role == "you" && t.text == line);
+        if !you_already_saved {
+            st.companion.push_turn("you", line);
+        }
+        let _ = crate::state::save_state(app, &st);
+        let _ = app.emit("state:changed", ());
+    }
+}
+
 fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) {
     if let Ok(mut st) = crate::state::load_state(app) {
         if let Some(you) = you {
@@ -1350,6 +1370,7 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
     }
 
     let backend = companion_backend();
+    persist_companion_you(&app, &line);
     // GO-MH-2-APP: pocket inject AFTER action-intercept (Actions above ran
     // on the raw line). Every mouth gets the wrapped prompt; persist +
     // event log below keep the raw `line`.
@@ -1372,13 +1393,8 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
         }
     };
 
-    // Both turns persist only once the reply actually landed — a failed
-    // send keeps the old captions. S2.5: an optimistic client already has
-    // this `you` line on screen; if the saved transcript's last turn IS
-    // this same line, persist only the reply so the you turn never
-    // doubles. Old clients (no optimistic append) still get both turns.
+    // You-row already persisted before the model wait. Reply only here.
     if let Ok(mut st) = crate::state::load_state(&app) {
-        st.companion.last_user_line = line.clone();
         st.companion.last_bot_line = reply.clone();
         let you_already_saved = st
             .companion
@@ -1386,8 +1402,6 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
             .last()
             .is_some_and(|t| t.role == "you" && t.text == line);
         if !you_already_saved {
-            // GO-ORBITTY-MODE-SPLIT: push_turn mirrors the active thread
-            // into threads[mode] — a later switch away loses nothing.
             st.companion.push_turn("you", &line);
         }
         st.companion.push_turn("them", &reply);
