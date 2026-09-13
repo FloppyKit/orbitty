@@ -8,8 +8,9 @@ import "./menuKeys.css";
 // half lives in CompanionPage's bubble Esc, which this capture handler
 // never eats unless the page claimed it first). Menus only: Launchpad
 // Needed/todo pile, STARS spokes/switcher, Planets pop. Never habitat
-// walkers. KANBAN-GRAB (Shift+Enter = X) is the next phrase on this
-// same ring; GO-ORBITTY-PAD points a real gamepad at these verbs.
+// walkers. KANBAN-GRAB rides this same ring: Shift+Enter = X (grab the
+// focused Todo) is the ONE chord the ring owns — the handleKey carve-out
+// below. GO-ORBITTY-PAD points a real gamepad at these verbs.
 //
 // Hold-repeat is the OS key repeat: every keydown is handled, e.repeat
 // included, so a held arrow walks at the native delay/rate.
@@ -26,6 +27,11 @@ export interface RingStop {
   id: string;
   /** A button: open / select. */
   confirm?: () => void;
+  /**
+   * X (Shift+Enter): grab this stop — KANBAN-GRAB's held Todo. A stop
+   * with a grab handler eats the chord; a field keeps its newline.
+   */
+  grab?: () => void;
   /**
    * Arrow override: return true when the stop ate the key (value bump,
    * column hop, parked). Omit / return false for the default ring walk.
@@ -105,13 +111,29 @@ export class MenuRing {
   }
 
   private handleKey(e: KeyboardEvent): boolean {
-    // Chords are not the ring: ⌘⌥←/→ yaw dests, ⌘⌥1/2/3 toggle them,
-    // Shift+Enter is the KANBAN-GRAB verb. Bare keys only.
-    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
     // A field owns its caret — arrows type, Enter is its own, Esc blurs
     // (the blur half is CompanionPage's bubble Esc; never eaten here).
     const t = e.target as HTMLElement | null;
-    if (t?.closest?.("input, textarea, select")) return false;
+    const inField = !!t?.closest?.("input, textarea, select");
+    // KANBAN-GRAB: Shift+Enter is the X verb — the one chord the ring
+    // owns. A field keeps its newline (the composer binds Shift+Enter).
+    if (
+      e.key === "Enter" &&
+      e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey
+    ) {
+      if (inField) return false;
+      const g = this.current()?.grab;
+      if (!g) return false;
+      g();
+      return true;
+    }
+    // Chords are not the ring: ⌘⌥←/→ yaw dests, ⌘⌥1/2/3 toggle them.
+    // Bare keys only.
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    if (inField) return false;
 
     if (e.key === "Escape") return this.onEscape?.() ?? false;
 

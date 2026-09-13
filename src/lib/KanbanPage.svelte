@@ -13,7 +13,7 @@
   import { planetCss } from "./planetColor";
   import { startPaneDrag } from "./dragPane";
   import NeededInbox, { neededSorted } from "./NeededInbox.svelte";
-  import { MenuRing, type RingStop } from "./menuKeys.svelte";
+  import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import type {
     Actor,
     Claim,
@@ -94,8 +94,14 @@
   // Enter selects a Needed row (the composer answers it) or opens a
   // card's detail drawer. Esc closes the drawer first, then the well
   // (CompanionPage's bubble Esc). Embedded only — the overlay Lists
-  // window keeps its mouse habits. Grab/drop (Shift+Enter = X) is
-  // KANBAN-GRAB, the next phrase on this same ring — not here.
+  // window keeps its mouse habits.
+  // GO-ORBITTY-KANBAN-GRAB: Shift+Enter (pad X) grabs the focused card —
+  // it paints held at the grab cursor while arrows move it (left/right =
+  // column, clamped at the ends, empty columns legal; up/down = row in
+  // the column). Enter (pad A) drops through moveCard — the ONE save
+  // door a mouse drag takes, so doing-fire still owns a GO-* todo →
+  // doing. Esc (pad B) lets go: nothing ever mutated, the card is still
+  // in its pre-grab column.
   const menuRing = new MenuRing();
   let neededOpen = $state(false);
   let neededSelectedId = $state<string | null>(null);
@@ -105,9 +111,20 @@
     if (!embedded) return;
     if (detailId) {
       // Drawer open: the ring parks (its inputs own the caret); the
-      // attach onEscape below closes the drawer before the well.
+      // attach onEscape below closes the drawer before the well. A held
+      // card is let go — you cannot inspect one card while holding
+      // another.
+      if (grabbedId) ungrab();
       menuRing.setStops([]);
       return;
+    }
+    // KANBAN-GRAB: the held card left the board (a state reload, a
+    // sidebar flip mid-hold) — let go rather than pin a ghost.
+    if (
+      grabbedId &&
+      !COLUMNS.some((c) => boardCols[c.id].some((k) => k.id === grabbedId))
+    ) {
+      ungrab();
     }
     const stops: RingStop[] = [];
     if (neededRows.length > 0 || addingNeeded) {
@@ -135,8 +152,23 @@
       colCards.forEach((card, ri) => {
         stops.push({
           id: `card-${card.id}`,
-          confirm: () => openDetail(card),
+          confirm: () => {
+            // KANBAN-GRAB: Enter (pad A) on the held card is the drop,
+            // not the drawer. The highlight is pinned to the held card,
+            // so no other stop can take this branch.
+            if (grabbedId) {
+              if (card.id === grabbedId) dropGrab();
+              return;
+            }
+            openDetail(card);
+          },
           arrow: (dir) => {
+            // KANBAN-GRAB: while held, arrows move the CARD — the ring's
+            // default walk never runs, the highlight stays pinned.
+            if (grabbedId) {
+              if (card.id === grabbedId) grabArrow(dir);
+              return true;
+            }
             if (dir !== "left" && dir !== "right") return false;
             const step = dir === "left" ? -1 : 1;
             for (let k = 1; k < cols.length; k++) {
@@ -148,6 +180,8 @@
             }
             return true;
           },
+          // X (Shift+Enter): pick up this Todo — it follows the focus.
+          grab: () => startGrab(card),
         });
       });
     });
@@ -259,6 +293,81 @@
         .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
     } as Record<Status, KanbanCard[]>;
   });
+
+  // GO-ORBITTY-KANBAN-GRAB: the held card. grabbedId pins the ring
+  // highlight; grabCol/grabIdx are the grab cursor the card paints at
+  // (viewCols). Nothing mutates until Enter drops — Esc just lets go.
+  let grabbedId = $state<string | null>(null);
+  let grabCol = $state<Status | null>(null);
+  let grabIdx = $state(0);
+
+  // While held, the card paints at the grab cursor instead of its real
+  // column — the board itself is unchanged until the drop. Not held:
+  // viewCols IS boardCols (same reference, no churn).
+  let viewCols = $derived.by(() => {
+    if (!grabbedId || !grabCol) return boardCols;
+    const card = kanbanCards.find((c) => c.id === grabbedId);
+    if (!card) return boardCols;
+    const out: Record<Status, KanbanCard[]> = {
+      todo: boardCols.todo.filter((c) => c.id !== grabbedId),
+      doing: boardCols.doing.filter((c) => c.id !== grabbedId),
+      done: boardCols.done.filter((c) => c.id !== grabbedId),
+    };
+    const list = [...out[grabCol]];
+    list.splice(Math.min(grabIdx, list.length), 0, card);
+    out[grabCol] = list;
+    return out;
+  });
+
+  function startGrab(card: KanbanCard) {
+    if (grabbedId) return; // a repeated Shift+Enter is not a re-grab
+    grabbedId = card.id;
+    grabCol = card.status;
+    // Start where the card really sits so the grab never jumps it.
+    grabIdx = Math.max(
+      0,
+      boardCols[card.status].findIndex((c) => c.id === card.id),
+    );
+  }
+
+  function grabArrow(dir: RingDir) {
+    if (!grabbedId || !grabCol) return;
+    if (dir === "left" || dir === "right") {
+      // Column hop, clamped at the ends. Empty columns are legal targets
+      // here — you are placing the card, not selecting one.
+      const order = COLUMNS.map((c) => c.id);
+      const next = order.indexOf(grabCol) + (dir === "left" ? -1 : 1);
+      if (next < 0 || next >= order.length) return;
+      grabCol = order[next];
+    } else {
+      grabIdx += dir === "up" ? -1 : 1;
+    }
+    // Same row, clamped into the column (its length excludes the held card).
+    const len = boardCols[grabCol].filter((c) => c.id !== grabbedId).length;
+    grabIdx = Math.min(Math.max(grabIdx, 0), len);
+    // The card moved under a pinned highlight — keep it scrolled in view.
+    menuRing.select(`card-${grabbedId}`);
+  }
+
+  function dropGrab() {
+    const id = grabbedId;
+    const target = grabCol;
+    grabbedId = null;
+    grabCol = null;
+    grabIdx = 0;
+    const card = id ? kanbanCards.find((c) => c.id === id) : undefined;
+    // The ONE save door — the same moveCard a mouse drop takes (Done is
+    // the complete door; doing-fire diffs this save for a GO-* todo).
+    if (card && target) moveCard(card, target);
+  }
+
+  function ungrab() {
+    // Esc (pad B): no mutation ever happened — the card is still in its
+    // pre-grab column; the held paint just stops.
+    grabbedId = null;
+    grabCol = null;
+    grabIdx = 0;
+  }
 
   let detailCard = $derived(
     detailId ? kanbanCards.find((c) => c.id === detailId) : undefined,
@@ -777,6 +886,12 @@
     // the sprite aside. Overlay Launchpad still hydrates in-line.
     if (embedded) {
       detachMenuKeys = menuRing.attach(() => {
+        // KANBAN-GRAB: Esc (pad B) lets go of a held card first, then
+        // the drawer, then (CompanionPage's bubble Esc) the well.
+        if (grabbedId) {
+          ungrab();
+          return true;
+        }
         if (detailId) {
           detailId = null;
           return true;
@@ -1012,7 +1127,7 @@
         {#each COLUMNS as col (col.id)}
           <section
             class="b-col"
-            class:drop-ok={dropCol === col.id}
+            class:drop-ok={dropCol === col.id || grabCol === col.id}
             aria-label={col.name}
             ondragover={(e) => onColDragOver(e, col.id)}
             ondragleave={(e) => onColDragLeave(e, col.id)}
@@ -1020,17 +1135,18 @@
           >
             <header class="b-head">
               <span class="b-name">{col.name}</span>
-              <span class="b-count">{boardCols[col.id].length}</span>
+              <span class="b-count">{viewCols[col.id].length}</span>
               {#if col.id === "done"}
                 {@render doneActorChips()}
               {/if}
             </header>
             <div class="b-cards">
-              {#each boardCols[col.id] as card (card.id)}
+              {#each viewCols[col.id] as card (card.id)}
                 {@const pid = livePlanetId(card)}
                 <article
                   class="b-card"
                   class:dragging={dragCardId === card.id}
+                  class:held={grabbedId === card.id}
                   class:done={card.status === "done"}
                   class:mkey-sel={menuRing.activeId === `card-${card.id}`}
                   data-mkey={`card-${card.id}`}
@@ -1038,7 +1154,7 @@
                   ondragstart={(e) => onCardDragStart(e, card)}
                   ondragend={onCardDragEnd}
                   onclick={() => openDetail(card)}
-                  onkeydown={(e) => e.key === "Enter" && openDetail(card)}
+                  onkeydown={(e) => e.key === "Enter" && !e.shiftKey && openDetail(card)}
                   tabindex="0"
                   role="button"
                   title="{displayTitle(card)} — click for details, drag to move"
@@ -1873,6 +1989,15 @@
 
   .b-card.dragging {
     opacity: 0.45;
+  }
+
+  /* GO-ORBITTY-KANBAN-GRAB: the held card — accent-lifted, painted at
+     the grab cursor until Enter drops / Esc lets go. The column under
+     the cursor reuses the drag's drop-ok paint. */
+  .b-card.held {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    opacity: 0.85;
   }
 
   .b-card.done {
