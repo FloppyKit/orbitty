@@ -366,6 +366,14 @@ fn cached_icon(app: *mut Object, cache_key: &str) -> Option<String> {
     {
         return Some(hit.clone());
     }
+    // WK custom-scheme IPC (`list_windows`) runs on the main thread.
+    // `NSRunningApplication.icon` → getattrlist can block that handler
+    // forever (beach ball, 100% samples in startURLSchemeTask). Skip
+    // the fetch here; empty icon is better than a dead desk.
+    let is_main: bool = unsafe { msg_send![class!(NSThread), isMainThread] };
+    if is_main {
+        return None;
+    }
     let fetched = unsafe { app_icon_png_base64(app) };
     if let Some(png) = &fetched {
         icon_cache()

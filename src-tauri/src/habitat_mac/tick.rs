@@ -159,6 +159,7 @@ unsafe extern "C" fn display_link_output(
     // (FRONT-HOLD leftover; same guard as MUSIC_PICKER_OPEN).
     if audio::MUSIC_PICKER_OPEN.load(Ordering::SeqCst)
         || crate::companion_clear::menu_quiet()
+        || lock().planets_hidden
     {
         return 0;
     }
@@ -275,6 +276,11 @@ pub fn start(app: AppHandle) {
 }
 
 fn tick(n: u64) {
+    // Hidden discs: do not AX-hit-test or dirty views on main while
+    // WKWebView is loading custom schemes — that combo beach-balls.
+    if lock().planets_hidden {
+        return;
+    }
     drag_tick();
     if n % 3 == 0 {
         anim_tick();
