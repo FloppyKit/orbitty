@@ -50,6 +50,7 @@ commands:
   action run --id <id> | --name <name>
   action rm --id <id>
   needed open --title \"t\" [--project P] [--why \"w\"]
+  needed answer --id <id> -- \"text\"
   log append --type T [--project P] [--actor agent] -- '{\"k\":1}'
   stars open
   packs list
@@ -86,6 +87,12 @@ unassigns), and agent pickup moves the oldest assigned todo to doing and
 launches the row's harness with that title (every harness lights the dock
 LED while the run is live). agent list is read-safe; the rest are writes
 (full / named custom).
+
+GO-ORBITTY-NEEDED-RULES-OPEN: needed answer --id n-… -- \"text\" applies an
+answer through the same needed-answer event path as the composer (the
+watch dispatches on it) — scripts never need the UI. needed open itself
+now consults the user-minted standing rules first: a can-run hit is born
+answered (actor \"rule\"); a miss/collide still pings.
 
 exit codes: 0 ok · 2 Orbitty not running · 3 auth · 4 denied · 5 AX · 1 other";
 
@@ -480,6 +487,13 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             }
             Ok(("needed.open", a))
         }
+        // GO-ORBITTY-NEEDED-RULES-OPEN: answer a Needed from the CLI —
+        // the same needed-answer event path as the composer, so the watch
+        // dispatches on it. The answer text is the `--` payload.
+        ["needed", "answer"] => Ok((
+            "needed.answer",
+            json!({ "id": need_id(o)?, "answer": payload(o)? }),
+        )),
         ["log", "append"] => {
             let mut a = json!({ "eType": need_flag(&o.etype, "--type")? });
             if let Some(p) = opt(&o.project) {
@@ -799,6 +813,11 @@ fn print_human(tool: &str, data: &Value) {
         }
         "needed.open" => println!(
             "needed {} — {}",
+            data["id"].as_str().unwrap_or("?"),
+            data["title"].as_str().unwrap_or("")
+        ),
+        "needed.answer" => println!(
+            "answered {} — {}",
             data["id"].as_str().unwrap_or("?"),
             data["title"].as_str().unwrap_or("")
         ),

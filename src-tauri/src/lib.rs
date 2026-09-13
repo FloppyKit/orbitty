@@ -16,6 +16,7 @@ mod drawers;
 mod event_log;
 mod glass;
 mod mouth_roll;
+mod needed_rules;
 mod nextcard;
 mod panes;
 mod habitat;

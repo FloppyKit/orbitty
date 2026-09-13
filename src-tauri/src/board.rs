@@ -417,6 +417,12 @@ pub fn project_rename(app: &tauri::AppHandle, id: &str, name: &str) -> Result<Pr
 /// `needed.open` — mint `kind: "needed"`, `neededState: "open"`,
 /// `status: "todo"`, `windowId: null` (the Needed inbox shape). Logs
 /// `needed-open`.
+/// GO-ORBITTY-NEEDED-RULES-OPEN: the user-minted standing rules get first
+/// claim (needed_rules.rs — classify/match/can-run live there, not here).
+/// One hit + can-run → the card is born `answered` in the SAME save,
+/// `neededAnswer` = the rule's answer, `actor: "rule"`, and `needed-answer`
+/// is emitted so the existing watch → nest clerk / writer dispatch acts.
+/// Miss / collide / cannot-run / unreadable store → mint `open` as today.
 pub fn needed_open(
     app: &tauri::AppHandle,
     title: &str,
@@ -429,6 +435,10 @@ pub fn needed_open(
     }
     let before = crate::state::load_state(app)?;
     check_project(&before, project_id)?;
+    let ruled = match crate::needed_rules::decide(title, project_id, &before.projects) {
+        crate::needed_rules::Decision::Apply(answer) => Some(answer),
+        crate::needed_rules::Decision::Open => None,
+    };
     let now = now_secs();
     let card = KanbanCard {
         id: new_id("n"),
@@ -449,13 +459,13 @@ pub fn needed_open(
         subtasks: None,
         due_at: None,
         tag_ids: None,
-        needed_state: Some("open".into()),
+        needed_state: Some(if ruled.is_some() { "answered" } else { "open" }.into()),
         needed_why: why
             .map(str::trim)
             .filter(|w| !w.is_empty())
             .map(str::to_string),
-        needed_answer: None,
-        actor: Some("agent".into()),
+        needed_answer: ruled.clone(),
+        actor: Some(if ruled.is_some() { "rule" } else { "agent" }.into()),
         assigned_agent_id: None,
     };
     let mut after = before.clone();
@@ -466,10 +476,24 @@ pub fn needed_open(
         "needed-open",
         None,
         Some(&card.project_id),
-        Some("agent"),
+        card.actor.as_deref(),
         true,
         &serde_json::json!({ "cardId": card.id, "title": card.title }),
     );
+    if ruled.is_some() {
+        // The answer event rides the same save — the watch dispatches the
+        // standing answer exactly as if Matt typed it. No walker sits, no
+        // NEXT-CARD pops (neededState is answered), no companion send.
+        event_log::append_best(
+            app,
+            "needed-answer",
+            None,
+            Some(&card.project_id),
+            Some("rule"),
+            true,
+            &serde_json::json!({ "cardId": card.id }),
+        );
+    }
     Ok(card)
 }
 

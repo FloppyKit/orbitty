@@ -38,6 +38,12 @@
 //! agent.rm / agent.pin / agent.pickup) plus kanban.assign. `agent.list`
 //! rides READ_TOOLS; the rest are writes — full / named custom only,
 //! never companion.* (Spark never spawns a harness).
+//!
+//! GO-ORBITTY-NEEDED-RULES-OPEN adds needed.answer (same path as the
+//! Tauri needed_answer — the watch sees the event) and puts the
+//! user-minted standing rules in front of needed.open: one hit + can-run
+//! mints the card already answered (actor "rule"); miss / collide /
+//! cannot-run / unreadable store mints open as today. Write-class ACL.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -561,6 +567,18 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let project = arg_opt(args, "projectId").unwrap_or_default();
             let why = arg_opt(args, "why");
             crate::board::needed_open(app, &title, &project, why.as_deref())
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // GO-ORBITTY-NEEDED-RULES-OPEN: needed.answer — the exact path of
+        // the Tauri needed_answer command (same save door, same
+        // needed-answer event the watch dispatches on), so orbittyctl and
+        // the python wrapper can apply an answer without the UI. Same
+        // write-class ACL as needed.open (full / named custom only).
+        "needed.answer" => {
+            let id = arg_str(args, "id")?;
+            let answer = arg_str(args, "answer")?;
+            crate::board::needed_answer(app, &id, &answer)
                 .map(to_data)
                 .map_err(tool_err)
         }
