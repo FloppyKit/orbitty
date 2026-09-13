@@ -738,11 +738,16 @@
   let neededFocusId = $state<string | null>(null);
   let neededFocusTitle = $state<string | null>(null);
   function onNeededFocus(id: string | null, title: string | null) {
+    if (expanded) {
+      neededFocusId = null;
+      neededFocusTitle = null;
+      return;
+    }
     neededFocusId = id;
     neededFocusTitle = title;
   }
   $effect(() => {
-    if (hosted !== "launchpad") {
+    if (expanded || hosted !== "launchpad") {
       neededFocusId = null;
       neededFocusTitle = null;
     }
@@ -751,7 +756,9 @@
   async function sendLine() {
     const line = draft.trim();
     if (!line) return;
-    if (neededFocusId) {
+    // Expanded transcript is Spark. Needed only hijacks the composer
+    // while collapsed (Launchpad well visible). Collapse to answer.
+    if (neededFocusId && !expanded) {
       draft = "";
       try {
         await invoke("needed_answer", { id: neededFocusId, answer: line });
@@ -1746,7 +1753,7 @@
     {captions}
     {planetsHidden}
     {talking}
-    neededHint={neededFocusTitle}
+    neededHint={expanded ? null : neededFocusTitle}
     {cheatSheetHint}
     onCheatSheet={() => (cheatOpen = !cheatOpen)}
     bind:draft
