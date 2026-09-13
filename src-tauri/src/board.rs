@@ -445,10 +445,12 @@ pub fn needed_open(
     }) {
         return Ok(existing.clone());
     }
-    let ruled = match crate::needed_rules::decide(title, project_id, &before.projects) {
-        crate::needed_rules::Decision::Apply(answer) => Some(answer),
-        crate::needed_rules::Decision::Open => None,
-    };
+    let ruled =
+        match crate::needed_rules::decide(title, project_id, why.unwrap_or(""), &before.projects)
+        {
+            crate::needed_rules::Decision::Apply(answer) => Some(answer),
+            crate::needed_rules::Decision::Open => None,
+        };
     let now = now_secs();
     let card = KanbanCard {
         id: new_id("n"),

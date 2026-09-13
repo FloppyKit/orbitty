@@ -64,7 +64,7 @@ pub enum Decision {
 pub struct Classified {
     pub title: String,
     pub flavor: &'static str, // "dogfood" | "writer" | "writer-leftover" | "fact"
-    pub go: Option<String>,   // GO-… token from the title
+    pub go: Option<String>,   // GO-… token from the title, else the why's `go=`
     pub prompt_kind: Option<&'static str>, // "first" | "leftover"
     pub project: String,      // project id as passed ("" = inbox)
 }
@@ -92,11 +92,22 @@ pub fn extract_go(text: &str) -> Option<String> {
     None
 }
 
-/// Title → flavor / go / prompt_kind, per the lock table.
-pub fn classify(title: &str, project: &str) -> Classified {
+/// First `key=value` token in a doing-fire why line
+/// (`card=… go=GO-… planet=…`) — the fact title `Who runs this doing GO?`
+/// carries no GO token, so the why is where `go` matches.
+fn why_value<'a>(why: &'a str, key: &str) -> Option<&'a str> {
+    let prefix = format!("{key}=");
+    why.split_whitespace()
+        .find_map(|tok| tok.strip_prefix(prefix.as_str()))
+        .filter(|v| !v.is_empty())
+}
+
+/// Title → flavor / go / prompt_kind, per the lock table. `go` falls back
+/// to the why's `go=` when the title has no token (doing-fire fact).
+pub fn classify(title: &str, project: &str, why: &str) -> Classified {
     let t = title.trim().to_string();
     let low = t.to_lowercase();
-    let go = extract_go(&t);
+    let go = extract_go(&t).or_else(|| why_value(why, "go").map(str::to_uppercase));
     let mut flavor = "fact";
     let mut prompt_kind = None;
     if t.starts_with("Dogfood ") && go.is_some() {
@@ -335,6 +346,32 @@ fn project_matches(rule_value: &str, card_project: &str, projects: &[Project]) -
         .any(|p| p.id == card_project && p.name.trim() == rule_value)
 }
 
+/// `go` param: a trailing `*` is a prefix match (`GO-ORBITTY*`); without
+/// the star it stays exact. Case-insensitive either way.
+fn go_param_matches(rule_value: &str, card_go: &str) -> bool {
+    if card_go.is_empty() {
+        return false;
+    }
+    match rule_value.strip_suffix('*') {
+        Some(prefix) => {
+            !prefix.is_empty()
+                && card_go.len() >= prefix.len()
+                && card_go[..prefix.len()].eq_ignore_ascii_case(prefix)
+        }
+        None => card_go.eq_ignore_ascii_case(rule_value),
+    }
+}
+
+/// The GO a rule acts on for `when.issued` / can-run prompt lookups: the
+/// param, unless it is a prefix pattern — `GO-ORBITTY*` itself names no
+/// prompt file, so the card's concrete token is the lookup key.
+fn rule_go(rule: &Rule, card: &Classified) -> String {
+    match rule.params.get("go") {
+        Some(g) if !g.ends_with('*') => g.clone(),
+        _ => card.go.clone().unwrap_or_default(),
+    }
+}
+
 /// AND: every specified param must match; omitted = wildcard. Every
 /// specified `when` must hold. Unknown keys never match (writes refuse
 /// them; a hand-edit fails closed instead of silently widening).
@@ -342,7 +379,7 @@ fn rule_matches(rule: &Rule, card: &Classified, projects: &[Project]) -> bool {
     for (k, v) in &rule.params {
         let hit = match k.as_str() {
             "flavor" => card.flavor == v,
-            "go" => card.go.as_deref().unwrap_or("").eq_ignore_ascii_case(v),
+            "go" => go_param_matches(v, card.go.as_deref().unwrap_or("")),
             "prompt_kind" => card.prompt_kind == Some(v.as_str()),
             "project" => project_matches(v, &card.project, projects),
             "title_prefix" => card.title.starts_with(v.as_str()),
@@ -355,12 +392,7 @@ fn rule_matches(rule: &Rule, card: &Classified, projects: &[Project]) -> bool {
     }
     if let Some(when) = &rule.when {
         if let Some(want) = when.get("issued") {
-            let go = rule
-                .params
-                .get("go")
-                .cloned()
-                .or_else(|| card.go.clone())
-                .unwrap_or_default();
+            let go = rule_go(rule, card);
             let kind = rule
                 .params
                 .get("prompt_kind")
@@ -419,12 +451,7 @@ fn can_run(rule: &Rule, card: &Classified) -> Result<(), String> {
     let writerish = card.flavor == "writer" || card.flavor == "writer-leftover";
     let seat = seat_of(answer);
     if writerish && matches!(seat, Some("cursor") | Some("grok")) {
-        let go = rule
-            .params
-            .get("go")
-            .cloned()
-            .or_else(|| card.go.clone())
-            .unwrap_or_default();
+        let go = rule_go(rule, card);
         let kind = rule
             .params
             .get("prompt_kind")
@@ -449,9 +476,11 @@ fn can_run(rule: &Rule, card: &Classified) -> Result<(), String> {
 // ---------- the gate ----------
 
 /// Classify + match + can-run for one `needed.open`. Logs the outcome
-/// (hit applied true/false, collide, miss) to `rules.log`.
-pub fn decide(title: &str, project_id: &str, projects: &[Project]) -> Decision {
-    let card = classify(title, project_id);
+/// (hit applied true/false, collide, miss) to `rules.log`. `why` is the
+/// card's machine-parseable why line — a fact title with no GO token
+/// (doing-fire) matches `go` against the why's `go=`.
+pub fn decide(title: &str, project_id: &str, why: &str, projects: &[Project]) -> Decision {
+    let card = classify(title, project_id, why);
     let rules = match load_rules() {
         Ok(r) => r,
         Err(e) => {
@@ -527,23 +556,116 @@ mod tests {
 
     #[test]
     fn classify_table() {
-        let c = classify("Dogfood GO-ORBITTY-X?", "");
+        let c = classify("Dogfood GO-ORBITTY-X?", "", "");
         assert_eq!(c.flavor, "dogfood");
         assert_eq!(c.prompt_kind, None);
-        let c = classify("Dogfood GO-ORBITTY-X leftover?", "");
+        let c = classify("Dogfood GO-ORBITTY-X leftover?", "", "");
         assert_eq!(c.flavor, "dogfood");
         assert_eq!(c.prompt_kind, Some("leftover"));
-        let c = classify("Writer for GO-ORBITTY-X leftover?", "");
+        let c = classify("Writer for GO-ORBITTY-X leftover?", "", "");
         assert_eq!(c.flavor, "writer-leftover");
         assert_eq!(c.prompt_kind, Some("leftover"));
         assert_eq!(c.go.as_deref(), Some("GO-ORBITTY-X"));
-        let c = classify("Writer for GO-ORBITTY-X?", "");
+        let c = classify("Writer for GO-ORBITTY-X?", "", "");
         assert_eq!(c.flavor, "writer");
         assert_eq!(c.prompt_kind, Some("first"));
-        let c = classify("Rules STORE dogfood: fact ping?", "p-1");
+        let c = classify("Rules STORE dogfood: fact ping?", "p-1", "");
         assert_eq!(c.flavor, "fact");
         assert_eq!(c.prompt_kind, None);
         assert_eq!(c.project, "p-1");
+    }
+
+    #[test]
+    fn doing_fire_fact_go_from_why() {
+        // The one fact title has no GO token — the why's `go=` is the match.
+        let c = classify(
+            "Who runs this doing GO?",
+            "p-orb",
+            "card=c-1 go=GO-ORBITTY-DOING-FIRE planet=orbitty",
+        );
+        assert_eq!(c.flavor, "fact");
+        assert_eq!(c.go.as_deref(), Some("GO-ORBITTY-DOING-FIRE"));
+        // A title token still wins over the why.
+        let c = classify(
+            "Writer for GO-ORBITTY-X?",
+            "",
+            "card=c-2 go=GO-OTHER planet=orbitty",
+        );
+        assert_eq!(c.go.as_deref(), Some("GO-ORBITTY-X"));
+        // No token anywhere → no go.
+        let c = classify("Who runs this doing GO?", "p-orb", "card=c-3 planet=orbitty");
+        assert_eq!(c.go, None);
+    }
+
+    #[test]
+    fn go_prefix_star() {
+        assert!(go_param_matches("GO-ORBITTY*", "GO-ORBITTY-DOING-FIRE"));
+        assert!(go_param_matches("go-orbitty*", "GO-ORBITTY-X")); // case-insensitive
+        assert!(!go_param_matches("GO-ORBITTY*", "GO-RGL-X"));
+        assert!(!go_param_matches("GO-ORBITTY*", "GO-ORBIT")); // shorter than prefix
+        assert!(!go_param_matches("GO-ORBITTY*", "")); // no token never matches
+        assert!(!go_param_matches("*", "GO-ORBITTY-X")); // bare star is not a param
+        // No star = exact, as before.
+        assert!(go_param_matches("GO-ORBITTY-X", "go-orbitty-x"));
+        assert!(!go_param_matches("GO-ORBITTY-X", "GO-ORBITTY-XY"));
+    }
+
+    #[test]
+    fn rule_star_matches_doing_fire_card() {
+        let rule = Rule {
+            id: "r-1".into(),
+            enabled: true,
+            params: [
+                ("flavor".to_string(), "fact".to_string()),
+                ("go".to_string(), "GO-ORBITTY*".to_string()),
+                ("project".to_string(), "orbitty".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+            when: None,
+            answer: "cursor on this planet".into(),
+        };
+        let projects = vec![Project {
+            id: "p-orb".into(),
+            name: "orbitty".into(),
+        }];
+        let hit = classify(
+            "Who runs this doing GO?",
+            "p-orb",
+            "card=c-1 go=GO-ORBITTY-DOING-FIRE planet=orbitty",
+        );
+        assert!(rule_matches(&rule, &hit, &projects));
+        // A GO-* that is not GO-ORBITTY* misses.
+        let other_go = classify(
+            "Who runs this doing GO?",
+            "p-orb",
+            "card=c-2 go=GO-RGL-X planet=orbitty",
+        );
+        assert!(!rule_matches(&rule, &other_go, &projects));
+        // The same fire on another planet misses.
+        let other_planet = classify(
+            "Who runs this doing GO?",
+            "p-rgl",
+            "card=c-3 go=GO-ORBITTY-X planet=rgl",
+        );
+        assert!(!rule_matches(&rule, &other_planet, &projects));
+        // title_exact still works alongside the star param.
+        let titled = Rule {
+            id: "r-2".into(),
+            enabled: true,
+            params: [
+                ("flavor".to_string(), "fact".to_string()),
+                (
+                    "title_exact".to_string(),
+                    "Who runs this doing GO?".to_string(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            when: None,
+            answer: "cursor on this planet".into(),
+        };
+        assert!(rule_matches(&titled, &other_planet, &projects));
     }
 
     #[test]
