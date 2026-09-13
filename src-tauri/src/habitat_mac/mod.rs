@@ -63,6 +63,7 @@ mod audio;
 mod tick;
 mod input;
 mod draw;
+mod boombox_hud;
 
 pub use tick::{persist_now, start};
 
@@ -851,6 +852,10 @@ pub(crate) struct WorldState {
     /// full volume — the container `default` would give 0.0.
     #[serde(default = "default_boombox_volume")]
     boombox_volume: f32,
+    /// GO-ORBITTY-BOOMBOX leftover (click): the HUD speaker's hard mute.
+    /// The player is kept, faded to 0; unmute returns to the slider's
+    /// remembered multiplier. Container default keeps old saves unmuted.
+    boombox_muted: bool,
     /// Legacy field. Live disc ignores this — GO-ORBITTY-PROJ-LOCK derives
     /// projection from marble vs expanded. Rewritten on sync to heal.
     projection: String,
@@ -1142,6 +1147,12 @@ enum Drag {
         start: NSPoint,
         moved: f64,
     },
+    /// HUD slider stroke (BOOMBOX click leftover): the press landed on
+    /// the HUD's vertical slider; drag_tick maps mouse y → the
+    /// remembered volume. No click/drag question on release.
+    BoomboxSlider {
+        project_id: String,
+    },
 }
 
 /// After "Place plant/mushroom/boombox" the next disc click drops it.
@@ -1181,6 +1192,10 @@ pub(crate) struct Habitat {
     locate_planet: Option<(String, Instant)>,
     /// Armed by the Place menu items; the next empty-disc click drops it.
     placement: Option<Placement>,
+    /// GO-ORBITTY-BOOMBOX leftover (click): the planet whose boombox HUD
+    /// is open (slider + speaker + `new track` pill). In-memory; the HUD
+    /// dies with the box (cursor_tick self-heal).
+    boombox_hud: Option<String>,
     bob_phase: f64,
     last_anim: Option<Instant>,
     reduce_motion: bool,
@@ -2003,6 +2018,7 @@ fn default_state(screen_id: &str, existing_on_screen: usize) -> WorldState {
         boombox: false,
         music: String::new(),
         boombox_volume: 1.0,
+        boombox_muted: false,
         projection: "oblique".into(),
         first_seen: now_epoch(),
         plants: Vec::new(),
@@ -3162,8 +3178,14 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 planet.view = view as usize;
             }
             // Boombox persisted on: start playing once the planet exists.
+            // A hard-muted save starts nothing — the cursor_tick fader
+            // door brings it up on unmute.
             if state.boombox && !state.music.is_empty() {
-                let live = audio::live_volume(state.boombox_volume, planet.radius, h.reduce_motion);
+                let live = if state.boombox_muted {
+                    0.0
+                } else {
+                    audio::live_volume(state.boombox_volume, planet.radius, h.reduce_motion)
+                };
                 audio::start_audio(&mut planet, &state.music, live);
             }
             h.planets.insert(project_id.clone(), planet);

@@ -184,8 +184,9 @@ extern "C" {
 /// Always hop to the *next* main-queue turn — even if we are already on
 /// main. `main_thread_async` runs inline on main, which is still inside
 /// `popUpContextMenu`'s nested loop; NSOpenPanel never becomes visible
-/// from there (the "Choose music does nothing" bug).
-fn defer_main<F: FnOnce() + Send + 'static>(f: F) {
+/// from there (the "Choose music does nothing" bug). The boombox HUD's
+/// event monitors hop through the same door.
+pub(crate) fn defer_main<F: FnOnce() + Send + 'static>(f: F) {
     extern "C" fn trampoline<F: FnOnce()>(ctx: *mut c_void) {
         let f = unsafe { Box::from_raw(ctx as *mut F) };
         let _ = catch_unwind(AssertUnwindSafe(f));
@@ -236,18 +237,27 @@ fn present_music_picker(id: &str) {
         return;
     }
     let mut h = lock();
-    let (boombox, remembered) = {
+    let (remembered, muted) = {
         let world = world_entry(&mut h, id);
         world.music = picked.clone();
-        (world.boombox, world.boombox_volume)
+        // BOOMBOX click leftover: the HUD carries no play/pause — the
+        // pick IS the play door (old flow: menu Play after Choose
+        // music). Never faked: start_audio below owns the outcome.
+        world.boombox = true;
+        (world.boombox_volume, world.boombox_muted)
     };
     h.worlds_dirty = true;
     let reduce = h.reduce_motion;
     if let Some(planet) = h.planets.get_mut(id) {
-        if boombox {
-            let live = live_volume(remembered, planet.radius, reduce);
-            start_audio(planet, &picked, live);
-        }
+        // start_audio owns every case: same file fades, new file swaps,
+        // live 0 (hard mute / marble) stops — never a silent spawn; the
+        // cursor_tick fader door brings it up on unmute / growth.
+        let live = if muted {
+            0.0
+        } else {
+            live_volume(remembered, planet.radius, reduce)
+        };
+        start_audio(planet, &picked, live);
         let file = picked.rsplit('/').next().unwrap_or(&picked);
         set_caption(planet, format!("Music: {file}"));
     }

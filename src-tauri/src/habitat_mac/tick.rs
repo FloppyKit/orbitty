@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use super::audio;
+use super::boombox_hud;
 use super::input::{boombox_click, contains_interactive, over_disc, BOOMBOX_CLICK_SLOP};
 use super::{
     app_handle, app_handle_cell, ball_arc_heads, ball_hop_secs, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings,
@@ -352,7 +353,7 @@ fn drag_tick() {
                     (project_id.clone(), *moved, 0u8, String::new())
                 }
                 // Boombox decor gets its own code: a press-release that
-                // never moved is a click (play/pause), not a placement.
+                // never moved is a click (HUD toggle), not a placement.
                 Drag::Decor { project_id, decor, moved, .. } => (
                     project_id.clone(),
                     *moved,
@@ -365,6 +366,11 @@ fn drag_tick() {
                     moved,
                     ..
                 } => (project_id.clone(), *moved, 2u8, entry_id.clone()),
+                // HUD slider: no click/drag question on release — the
+                // stroke already wrote the remembered volume live.
+                Drag::BoomboxSlider { project_id } => {
+                    (project_id.clone(), 0.0, 4u8, String::new())
+                }
             };
             h.drag = None;
             // GO-ORBITTY-MARBLE-HOST: drift paused while this drag held
@@ -411,7 +417,13 @@ fn drag_tick() {
                     boombox_click(&mut h, &project_id);
                 } else {
                     h.worlds_dirty = true;
+                    // A drag is not a click — and an open HUD never
+                    // rides the box to its new spot.
+                    boombox_hud::close(&mut h);
                 }
+            } else if kind == 4 {
+                // HUD slider: the value was applied live during the
+                // stroke; set_volume's worlds_dirty persists at 10Hz.
             } else if moved >= 4.0 {
                 // kind == 2 (walker): a real drag, not a click — the
                 // pending click dies. PROPS leftover (town usable): the
@@ -470,6 +482,9 @@ fn drag_tick() {
             return;
         }
         let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+        // HUD slider strokes compute the value under the drag borrow,
+        // then apply after the match (set_volume wants the whole h).
+        let mut slider: Option<(String, f32)> = None;
         match h.drag.as_mut() {
             Some(Drag::Panel {
                 project_id,
@@ -506,7 +521,7 @@ fn drag_tick() {
                 let dref = *decor;
                 let pid = project_id.clone();
                 // Boombox: do not slide the sprite until past click slop.
-                // Under that, mouse-up is the volume slider and boombox_pos stays.
+                // Under that, mouse-up is the HUD toggle and boombox_pos stays.
                 if dref.kind == DecorKind::Boombox && *moved < BOOMBOX_CLICK_SLOP {
                     return;
                 }
@@ -591,7 +606,24 @@ fn drag_tick() {
                     let _: () = msg_send![view, setNeedsDisplay: true];
                 }
             }
+            Some(Drag::BoomboxSlider { project_id }) => {
+                let pid = project_id.clone();
+                if let Some(planet) = h.planets.get(&pid) {
+                    let panel = planet.panel as *mut Object;
+                    let frame: NSRect = msg_send![panel, frame];
+                    let local = NSPoint {
+                        x: mouse.x - frame.origin.x,
+                        y: frame.origin.y + frame.size.height - mouse.y,
+                    };
+                    if let Some(r) = boombox_hud::rects(planet) {
+                        slider = Some((pid, boombox_hud::slider_value(&r, local)));
+                    }
+                }
+            }
             None => {}
+        }
+        if let Some((pid, v)) = slider {
+            boombox_hud::set_volume(&mut h, &pid, v);
         }
     }
 }
@@ -1891,10 +1923,15 @@ fn cursor_tick() {
     // Boombox: AVAudioPlayer loops while on. Zoom is the fader — set
     // volume in place, never restart the file. Off / unplayable still
     // stop. Runs even mid-drag so music never gaps while moving a planet.
-    let audio_state: HashMap<String, (String, f32)> = h
+    let audio_state: HashMap<String, (String, f32, bool)> = h
         .worlds
         .iter()
-        .map(|(id, w)| (id.clone(), (w.music.clone(), w.boombox_volume)))
+        .map(|(id, w)| {
+            (
+                id.clone(),
+                (w.music.clone(), w.boombox_volume, w.boombox_muted),
+            )
+        })
         .collect();
     let reduce = h.reduce_motion;
     // Choose-music panel up: no start until it closes (beachball guard).
@@ -1905,11 +1942,17 @@ fn cursor_tick() {
             if !planet.boombox {
                 continue;
             }
-            let (music, remembered) = audio_state
+            let (music, remembered, muted) = audio_state
                 .get(project_id)
                 .cloned()
-                .unwrap_or_else(|| (String::new(), 1.0));
-            let live = audio::live_volume(remembered, planet.radius, reduce);
+                .unwrap_or_else(|| (String::new(), 1.0, false));
+            // HUD speaker hard mute: the kept player fades to 0 — never
+            // the Off end's stop/release, so unmute continues mid-track.
+            let live = if muted {
+                0.0
+            } else {
+                audio::live_volume(remembered, planet.radius, reduce)
+            };
             if planet.audio.is_some() {
                 // Same player: fade even at 0 (marble mute, keep the
                 // playhead so zooming back continues the track).
@@ -1933,6 +1976,19 @@ fn cursor_tick() {
     if h.worlds_dirty {
         h.worlds_dirty = false;
         save_worlds(&h);
+    }
+    // HUD self-heal: the box left the world (Remove, a sync, collapse,
+    // teardown) → the HUD dies with it, whichever door did it.
+    if h.boombox_hud.is_some() {
+        let gone = {
+            let pid = h.boombox_hud.as_deref().unwrap_or_default();
+            h.planets
+                .get(pid)
+                .map_or(true, |p| p.is_marble || boombox_hud::rects(p).is_none())
+        };
+        if gone {
+            boombox_hud::close(&mut h);
+        }
     }
     // Locate stroke expiry (GO-ORBITTY-RAIL-ROW-MENU): 10Hz sweep, so the
     // ring draws out even with Reduce Motion on (anim_tick is parked then).
@@ -1980,6 +2036,7 @@ fn cursor_tick() {
         let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
         let all = screens();
         let primary = all.first().map(|(id, _)| id.clone());
+        let hud_open = h.boombox_hud.clone();
         let Habitat { planets, worlds, .. } = &mut *h;
         for (project_id, planet) in planets.iter_mut() {
             let panel = planet.panel as *mut Object;
@@ -1999,7 +2056,8 @@ fn cursor_tick() {
                 x: mouse.x - frame.origin.x,
                 y: frame.max_y() - mouse.y,
             };
-            let over = contains_interactive(planet, local);
+            let over =
+                contains_interactive(planet, local, hud_open.as_deref() == Some(project_id));
             let _: () = msg_send![panel, setIgnoresMouseEvents: !over];
             // GO-ORBITTY-PLANET-MARK: marble hover names the planet. Done
             // here in the cursor watcher — the panel ignores mouse events

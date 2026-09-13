@@ -10,7 +10,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
 use super::{
-    ball_pos, card_color, ensure_town_art, fill_oval, lock, now_epoch, ns_color,
+    ball_pos, boombox_hud, card_color, ensure_town_art, fill_oval, lock, now_epoch, ns_color,
     ns_string, pack_still_aspect, panic_msg, radius_y, set_fill, station_anchor, walker_fit, walker_hidden, CGSize,
     DecorKind, Habitat, NSPoint, NSRect, Pose, Projection, CAPTION_TTL, LOCATE_TTL,
     PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE, VIEW_PADDING, YARD_EAST,
@@ -426,6 +426,9 @@ struct DrawData {
     /// GO-ORBITTY-WORLD-YARD leftover: the beach ball's view-local center
     /// this frame. None = hidden (toggle off / < 2 Doing / marble).
     ball: Option<(f64, f64)>,
+    /// GO-ORBITTY-BOOMBOX leftover (click): the open boombox HUD —
+    /// geometry + live slider/mute state. None = closed.
+    hud: Option<boombox_hud::HudDraw>,
 }
 
 pub(crate) extern "C" fn draw_rect(this: &Object, _cmd: Sel, _dirty: NSRect) {
@@ -604,6 +607,21 @@ fn draw_rect_guarded(this: &Object) {
             } else {
                 ball_pos(&pack_aspects, p, Instant::now())
             };
+            // BOOMBOX click leftover: the open HUD rides the draw —
+            // geometry from the live decor frame, slider/mute from the
+            // world slice.
+            let hud = if h.boombox_hud.as_deref() == Some(pid.as_str()) {
+                boombox_hud::rects(p).map(|rects| {
+                    let (value, muted) = h
+                        .worlds
+                        .get(pid)
+                        .map(|w| (w.boombox_volume, w.boombox_muted))
+                        .unwrap_or((1.0, false));
+                    boombox_hud::HudDraw { rects, value, muted }
+                })
+            } else {
+                None
+            };
             DrawData {
                 radius: p.radius,
                 sprite_scale: p.sprite_scale,
@@ -639,6 +657,7 @@ fn draw_rect_guarded(this: &Object) {
                         None
                     }
                 }),
+                hud,
             }
         })
     };
@@ -1100,6 +1119,12 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     }
 
     draw_planet_locate(d, center, r, ry, rect);
+
+    // GO-ORBITTY-BOOMBOX leftover (click): the boombox HUD floats over
+    // everything — caption, under-label, locate glow, walkers.
+    if let Some(hud) = &d.hud {
+        boombox_hud::draw(hud);
+    }
 }
 
 /// Dest-menu find glow. Marble: saturn ring stays in a UL→LR plane,

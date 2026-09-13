@@ -1,6 +1,6 @@
 //! Mouse, hit-tests, planet/walker menus, boombox click.
 //! Class registration stays on the host; selector bodies live here.
-//! GAIN slop is moved as-is (14px). boombox_click is called from tick::drag_tick.
+//! Boombox slop is the walker 4px. boombox_click is called from tick::drag_tick.
 
 #![allow(unexpected_cfgs)]
 
@@ -33,18 +33,19 @@ unsafe fn pop_context_menu(menu: *mut Object, event: *mut Object, view: *mut Obj
 
 use super::audio;
 use super::{
-    app_handle, building_cap, default_state, layout_beings, layout_decor, lock, max_radius,
-    menu_target, now_epoch, ns_string, panel_set_frame, panic_msg, plant_cap, primary_screen_id,
-    radius_y, sender_project_id, set_caption, view_to_disc, walker_hidden, world_entry, DecorItem,
+    app_handle, boombox_hud, building_cap, default_state, layout_beings, layout_decor, lock,
+    max_radius, menu_target, now_epoch, ns_string, panel_set_frame, panic_msg, plant_cap,
+    primary_screen_id, radius_y, sender_project_id, set_caption, view_to_disc, walker_hidden,
+    world_entry, DecorItem,
     draw::hit_board_column,
     DecorKind, DecorPoint, DecorRef, Drag, Habitat, NSPoint, NSRect, PendingClick, Placement,
     Planet, MIN_RADIUS, VIEW_PADDING,
 };
 
-/// GO-ORBITTY-BOOMBOX-GAIN: press-release on the boombox under this
-/// distance is a click (play/pause). The old 4px slop started a drag
-/// on a normal click and slid the sprite.
-pub(crate) const BOOMBOX_CLICK_SLOP: f64 = 14.0;
+/// GO-ORBITTY-BOOMBOX leftover (click): press-release on the boombox
+/// under this distance is a click (toggles the HUD); past it the stroke
+/// is a drag — the same ≥4px law as walkers. A drag is not a click.
+pub(crate) const BOOMBOX_CLICK_SLOP: f64 = 4.0;
 
 // ---------- hit tests + mouse ----------
 
@@ -100,8 +101,10 @@ fn hit_decor(planet: &Planet, local: NSPoint) -> Option<DecorRef> {
 }
 
 /// Interactive region for the cursor watcher: disc + a margin, plus each
-/// sprite/dot frame (they orbit outside the disc edge).
-pub(crate) fn contains_interactive(planet: &Planet, local: NSPoint) -> bool {
+/// sprite/dot frame (they orbit outside the disc edge). While this
+/// planet's boombox HUD is open its floating glass is interactive too —
+/// otherwise the panel clicks through and the controls never see a down.
+pub(crate) fn contains_interactive(planet: &Planet, local: NSPoint, hud_open: bool) -> bool {
     let side = (planet.radius + VIEW_PADDING) * 2.0;
     let dx = local.x - side / 2.0;
     let dy = local.y - side / 2.0;
@@ -110,12 +113,16 @@ pub(crate) fn contains_interactive(planet: &Planet, local: NSPoint) -> bool {
     if dx * dx + dy * dy <= reach * reach {
         return true;
     }
-    planet
+    if planet
         .walkers
         .iter()
         .filter(|b| !walker_hidden(planet, b))
         .chain(planet.dots.iter())
         .any(|b| b.frame.inset(-3.0).contains(local))
+    {
+        return true;
+    }
+    hud_open && boombox_hud::contains_hud(planet, local)
 }
 
 pub(crate) extern "C" fn mouse_down(this: &Object, _cmd: Sel, event: *mut Object) {
@@ -151,6 +158,45 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
                 hit_board_column(planet, local),
             )
         };
+        // GO-ORBITTY-BOOMBOX leftover (click): an open boombox HUD owns
+        // the next down on its planet — slider/speaker/pill eat it, the
+        // backer swallows it, anything else dismisses the HUD and falls
+        // through to its normal hit. The boombox sprite itself falls
+        // through untouched: its press-release is the HUD toggle.
+        if let Some(open_pid) = h.boombox_hud.clone() {
+            let hud_hit = if open_pid == pid {
+                h.planets.get(&pid).and_then(|p| boombox_hud::hit(p, local))
+            } else {
+                None
+            };
+            match hud_hit {
+                Some(boombox_hud::HudHit::Slider(v)) => {
+                    boombox_hud::set_volume(&mut h, &pid, v);
+                    h.drag = Some(Drag::BoomboxSlider { project_id: pid });
+                    return;
+                }
+                Some(boombox_hud::HudHit::Speaker) => {
+                    boombox_hud::toggle_mute(&mut h, &pid);
+                    return;
+                }
+                Some(boombox_hud::HudHit::Pill) => {
+                    // Same picker door as the 6c6e9ae stamp: hop off the
+                    // event loop, activate, runModal — never a sheet.
+                    boombox_hud::close(&mut h);
+                    drop(h);
+                    audio::begin_choose_music(&open_pid);
+                    return;
+                }
+                Some(boombox_hud::HudHit::Panel) => return,
+                None => {
+                    let on_box = open_pid == pid
+                        && dref.is_some_and(|d| d.kind == DecorKind::Boombox);
+                    if !on_box {
+                        boombox_hud::close(&mut h);
+                    }
+                }
+            }
+        }
         if let Some((entry_id, walker)) = being {
             if walker {
                 let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
@@ -525,89 +571,15 @@ unsafe fn add_separator(menu: *mut Object) {
     let _: () = msg_send![menu, addItem: sep];
 }
 
-/// GO-ORBITTY-BOOMBOX: the five remembered volume steps — no slider; the
-/// checkmark rides the current step. Off = 0.0 stops the player outright
-/// (never a fake silent player) and is the remembered mute, so a later
-/// zoom-in can't surprise-blast. Shared by the disc menu and the boombox
-/// sprite menu.
-unsafe fn add_volume_items(menu: *mut Object, target: usize, project_id: &str, current: f32) {
-    for (label, step) in [
-        ("Off", 0.0f32),
-        ("Quiet", 0.25),
-        ("Low", 0.5),
-        ("Med", 0.75),
-        ("High", 1.0),
-    ] {
-        add_menu_item(
-            menu,
-            label,
-            sel!(planetBoomboxVolume:),
-            target,
-            &format!("{project_id}\u{1f}{step}"),
-            Some((current - step).abs() < 0.01),
-            true,
-        );
-    }
-}
-
-/// Right-click on the placed boombox sprite — Play/Pause (disabled
-/// without a file), Choose music…, Remove, then the remembered volume
-/// steps. Never opens NSOpenPanel from inside rightMouseDown: the planet
-/// is a non-activating NSPanel and a sheet on it aborts.
-unsafe fn boombox_context_menu(this: &Object, event: *mut Object, project_id: &str) {
-    let (playing, has_music, volume) = {
-        let h = lock();
-        h.worlds
-            .get(project_id)
-            .map(|w| (w.boombox, !w.music.is_empty(), w.boombox_volume))
-            .unwrap_or((false, false, 1.0))
-    };
-    let Some(target) = menu_target() else {
-        return;
-    };
-    let menu: *mut Object = msg_send![class!(NSMenu), alloc];
-    let menu: *mut Object = msg_send![menu, initWithTitle: ns_string("")];
-    if menu.is_null() {
-        return;
-    }
-    add_menu_item(
-        menu,
-        if playing { "Pause" } else { "Play" },
-        sel!(planetBoomboxPlayPause:),
-        target,
-        project_id,
-        None,
-        has_music,
-    );
-    add_menu_item(
-        menu,
-        "Choose music…",
-        sel!(planetChooseMusic:),
-        target,
-        project_id,
-        None,
-        true,
-    );
-    add_menu_item(
-        menu,
-        "Remove",
-        sel!(planetRemoveBoombox:),
-        target,
-        project_id,
-        None,
-        true,
-    );
-    add_separator(menu);
-    add_volume_items(menu, target, project_id, volume);
-    let view = this as *const Object as *mut Object;
-    pop_context_menu(menu, event, view);
-    let _: () = msg_send![menu, release];
-}
-
 unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
     let loc: NSPoint = msg_send![event, locationInWindow];
     let local: NSPoint = msg_send![this, convertPoint: loc fromView: std::ptr::null::<Object>()];
     let view_ptr = this as *const Object as usize;
+    // A right-down anywhere dismisses an open boombox HUD (click-away).
+    {
+        let mut h = lock();
+        boombox_hud::close(&mut h);
+    }
     // GO-ORBITTY-RAIL-ROW-MENU: a walker hit gets the sprite-assignment
     // menu; dots fall through to the planet menu (no walker menu on dots).
     let (walker_hit, boombox_hit) = {
@@ -634,9 +606,9 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         }
         (project_id.clone(), planet.is_marble)
     };
-    // Placed boombox gets its own menu ahead of the disc menu.
+    // GO-ORBITTY-BOOMBOX leftover (click): the sprite's right-click is
+    // EMPTY — no menu, and it never falls through to the disc menu.
     if boombox_hit {
-        boombox_context_menu(this, event, &project_id);
         return;
     }
     let (plant_left, mush_left, build_left, has_box, beach_ball) = {
@@ -1067,52 +1039,27 @@ pub(crate) extern "C" fn menu_toggle_mushroom(_this: &Object, _cmd: Sel, sender:
 }
 
 /// Left-click on the placed boombox (press-release without a drag)
-/// toggles play/pause. No file picked → caption "Choose music…" and
-/// never fake playing. Volume lives on the right-click menu (Off/Quiet/
-/// Low/Med/High) — not a slider.
+/// toggles the HUD — vertical volume slider + hard-mute speaker + the
+/// `new track` pill (boombox_hud.rs). Not play/pause: the pick is the
+/// play door, the slider's bottom end is Off, the speaker is the mute.
 pub(crate) fn boombox_click(h: &mut Habitat, project_id: &str) {
-    let (on, music, remembered) = {
-        let world = world_entry(h, project_id);
-        if world.music.is_empty() {
-            (world.boombox, String::new(), world.boombox_volume)
-        } else {
-            world.boombox = !world.boombox;
-            (world.boombox, world.music.clone(), world.boombox_volume)
-        }
-    };
-    if music.is_empty() {
-        if let Some(planet) = h.planets.get_mut(project_id) {
-            set_caption(planet, "Choose music…".into());
-        }
-        return;
-    }
-    h.worlds_dirty = true;
-    let live = match h.planets.get(project_id) {
-        Some(p) => audio::live_volume(remembered, p.radius, h.reduce_motion),
-        None => remembered,
-    };
-    if let Some(planet) = h.planets.get_mut(project_id) {
-        planet.boombox = on;
-        if on {
-            audio::start_audio(planet, &music, live);
-            set_caption(planet, "Boombox on".into());
-        } else {
-            audio::stop_audio(planet);
-            set_caption(planet, "Boombox off".into());
-        }
-    }
+    boombox_hud::toggle(h, project_id);
 }
 
 pub(crate) extern "C" fn menu_boombox_slider(_this: &Object, _cmd: Sel, sender: *mut Object) {
     // Leftover selector from the PLANETS-STRIP slider experiment. Volume
-    // is Off/Quiet/Low/Med/High on the boombox menu; keep the slot so an
-    // old target class registration cannot miss a method.
+    // is the boombox HUD's vertical slider now; keep the slot so an old
+    // target class registration cannot miss a method.
     let _ = sender;
 }
 
 /// GO-ORBITTY-BOOMBOX Remove: placement cleared, audio stopped, playing
-/// off. The music pick is kept — Place boombox + Play brings it back.
+/// off, HUD closed. The music pick is kept — Place boombox + a `new
+/// track` pick brings it back.
 fn remove_boombox(h: &mut Habitat, project_id: &str) {
+    if h.boombox_hud.as_deref() == Some(project_id) {
+        boombox_hud::close(h);
+    }
     {
         let world = world_entry(h, project_id);
         world.boombox_pos = None;
@@ -1184,6 +1131,9 @@ pub(crate) extern "C" fn menu_toggle_beach_ball(_this: &Object, _cmd: Sel, sende
     }));
 }
 
+/// Unreachable since the sprite menu died (BOOMBOX leftover: click) —
+/// the selector stays registered so an old target class registration
+/// cannot miss a method. Now the HUD toggle, same as a sprite click.
 pub(crate) extern "C" fn menu_boombox_play_pause(_this: &Object, _cmd: Sel, sender: *mut Object) {
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
         let Some(id) = sender_project_id(sender) else {
@@ -1207,6 +1157,8 @@ pub(crate) extern "C" fn menu_remove_boombox(_this: &Object, _cmd: Sel, sender: 
 /// Volume-step pick: the represented object rides as `projectId␟step`
 /// (unit separator — window titles never carry it). A playing box
 /// fades the live player to the new volume — same file, no restart.
+/// Unreachable since the sprite menu died (the HUD slider is the
+/// volume door); the selector stays registered.
 pub(crate) extern "C" fn menu_boombox_volume(_this: &Object, _cmd: Sel, sender: *mut Object) {
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
         let Some(raw) = sender_project_id(sender) else {
