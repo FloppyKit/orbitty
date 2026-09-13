@@ -563,9 +563,9 @@
     <button
       type="button"
       class="gear"
-      onclick={() => invoke("open_settings_window").catch(() => {})}
-      title="Open Settings"
-      aria-label="Open Settings"
+      onclick={() => invoke("toggle_labeled", { label: "settings" }).catch(() => {})}
+      title="Settings — click again to hide"
+      aria-label="Toggle Settings"
     >
       <svg
         viewBox="0 0 24 24"

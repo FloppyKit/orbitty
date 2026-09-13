@@ -25,6 +25,7 @@ mod nextcard;
 mod panes;
 mod habitat;
 mod packs;
+mod rail_toggle;
 mod state;
 mod talk;
 mod tilechords;
@@ -556,6 +557,7 @@ pub fn run() {
             yard_stop,
             yard_status,
             toggle_next_card_window,
+            rail_toggle::toggle_labeled,
             drawers::retether_drawer,
             drawers::retether_all_drawers,
             drawers::companion_drag_begin,
@@ -856,8 +858,14 @@ pub fn run() {
                         app.exit(0);
                     }
                     "show_companion" => {
-                        let _ = panes::show_companion(app);
-                        let _ = app.emit_to("companion", "orbitty:companion-summon", ());
+                        // GO-ORBITTY-RAIL-CLOSE: second click hides —
+                        // talk-stop + persist hidden ride hide_window.
+                        // The caret summon fires on the show edge only;
+                        // left-click / ⌘⇧O / dock Reopen stay raise-only
+                        // summons (FRONT-HOLD).
+                        if let Ok(true) = rail_toggle::toggle(app, "companion") {
+                            let _ = app.emit_to("companion", "orbitty:companion-summon", ());
+                        }
                     }
                     "hide_dock" => {
                         let _ = panes::hide_window(app.clone(), "companion".to_string());
@@ -871,7 +879,9 @@ pub fn run() {
                         let _ = app.emit_to("companion", "orbitty:enter-host", mode);
                     }
                     "settings" => {
-                        let _ = panes::show_labeled(app, "settings");
+                        // GO-ORBITTY-RAIL-CLOSE: same rule as the dock
+                        // gear — a click while visible hides.
+                        let _ = rail_toggle::toggle(app, "settings");
                     }
                     "inspector" => {
                         show_rail_inner(app);
