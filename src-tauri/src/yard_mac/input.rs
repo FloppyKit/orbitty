@@ -1,4 +1,4 @@
-//! Yard hits — GO-ORBITTY-HERDING-CATS leftover: click. The cat hit
+//! Yard hits — GO-ORBITTY-HERDING-CATS leftover: hits. The cat hit
 //! machine: press / drag / click / double-click on the overlay's only
 //! hot pixels. Cats match the walkers' locate-then-open split:
 //!
@@ -17,8 +17,14 @@
 //!
 //! Right-click (the claim menu) stays in mod.rs. Release is watched two
 //! ways, same as the habitat: mouseUp on the view, and press_tick's
-//! pressedMouseButtons poll from the 33ms hop — an up that slips the
-//! view still drops the cat. First taker wins (the press is take()n).
+//! pressedMouseButtons poll from the 33ms hop. FIRST TAKER WINS (the
+//! press is take()n) and both takers run the SAME verdict — a sub-slop
+//! release is a CLICK, never a drop. The hop can beat the up event when
+//! the main thread is busy (the fullscreen blits are the load); eating
+//! a click as a drop there is what bounced the click leftover. The
+//! press anchors its slop and clickCount from the DOWN EVENT ITSELF,
+//! never a fresh mouseLocation at dispatch time: a late-dispatched
+//! down must still measure the drag from where the finger landed.
 
 #![allow(unexpected_cfgs)]
 
@@ -55,7 +61,7 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
     let loc: NSPoint = msg_send![event, locationInWindow];
     let local: NSPoint =
         msg_send![this, convertPoint: loc fromView: std::ptr::null::<Object>()];
-    let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+    let clicks: usize = msg_send![event, clickCount];
     let mut y = lock();
     let Some(id) = hit_cat(&y, this as *const Object as usize, local) else {
         return;
@@ -67,12 +73,24 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
     // sprite from snapping its center to the pointer on the first slide.
     let grab_dx = local.x - cat.x;
     let grab_dy = local.y - cat.y;
+    // Slop anchor from the EVENT's own location (view-local flipped →
+    // global bottom-left), never a fresh mouseLocation: a down that
+    // dispatches late (busy hop) would otherwise anchor after the
+    // drag's first pixels and the press would never cross the slop.
+    let Some(panel) = y.panels.iter().find(|p| p.screen_id == cat.screen_id) else {
+        return;
+    };
+    let start = NSPoint {
+        x: panel.frame.origin.x + local.x,
+        y: panel.frame.max_y() - local.y,
+    };
     y.press = Some(CatPress {
         window_id: id,
-        start: mouse,
+        start,
         moved: 0.0,
         grab_dx,
         grab_dy,
+        clicks,
     });
 }
 
@@ -93,7 +111,9 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
     let mut focus: Option<String> = None;
     {
         let mut y = lock();
-        let Some(press) = y.press.take() else {
+        let Some(mut press) = y.press.take() else {
+            // press_tick already ran this release's verdict — first
+            // taker won; there is nothing twice.
             return;
         };
         if press.moved >= DRAG_SLOP {
@@ -109,21 +129,11 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
         if id != press.window_id {
             return;
         }
-        if clicks >= 2 {
-            // Double-click: open / focus / restore. The AX path runs
-            // after the lock drops.
-            focus = Some(id);
-        } else {
-            // Single click: say the app name only — caption / chip, then
-            // nothing else. No focus, no restore, no open.
-            if let Some(cat) = y.cats.iter().find(|c| c.window_id == id) {
-                if let Some(p) = y.panels.iter().find(|p| p.screen_id == cat.screen_id) {
-                    let view = p.view as *mut Object;
-                    let _: () = msg_send![view, setNeedsDisplay: true];
-                }
-            }
-            y.caption = Some((id, Instant::now()));
+        // The up event's own clickCount is the freshest count.
+        if clicks > 0 {
+            press.clicks = clicks;
         }
+        focus = click_verdict(&mut y, &press);
     }
     if let Some(id) = focus {
         // The cat stays until the window is claimed/closed/scooped — a
@@ -132,48 +142,83 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
     }
 }
 
+/// The click act, shared by mouseUp and the hop's release catch (first
+/// taker wins, same verdict either way). Single click says the app name
+/// only — never a focus/restore/open. Double-click is the AX open; the
+/// window id comes BACK so the caller restores after the lock drops.
+fn click_verdict(y: &mut Yard, press: &CatPress) -> Option<String> {
+    if press.clicks >= 2 {
+        return Some(press.window_id.clone());
+    }
+    arm_caption(y, &press.window_id);
+    None
+}
+
+/// Single-click feedback: the ~2s app-name chip above the sprite, then
+/// nothing else. The chip text is the cat's app_name — the window's
+/// app from the same list_windows the rail reads, never the title.
+fn arm_caption(y: &mut Yard, window_id: &str) {
+    if let Some(cat) = y.cats.iter().find(|c| c.window_id == window_id) {
+        if let Some(p) = y.panels.iter().find(|p| p.screen_id == cat.screen_id) {
+            unsafe {
+                let view = p.view as *mut Object;
+                let _: () = msg_send![view, setNeedsDisplay: true];
+            }
+        }
+    }
+    y.caption = Some((window_id.to_string(), Instant::now()));
+}
+
 // ---------- the hop's drag step ----------
 
 /// Runs from the 33ms hop (main thread): slides a dragged cat with the
-/// pointer once past click slop, and catches a release that never made
-/// it to mouseUp (first taker wins — the press is take()n either way).
-pub(crate) fn press_tick(y: &mut Yard) {
+/// pointer once past click slop, and catches a release whose mouseUp
+/// hasn't dispatched yet. First taker wins against mouseUp — but the
+/// verdict is SHARED: a real drag (≥4px) drops here; a sub-slop release
+/// is a CLICK (chip, or focus when the down's clickCount was ≥2), never
+/// a silent drop. Returns the double-click focus id so the AX restore
+/// runs after the yard lock drops, same as mouseUp's own path.
+pub(crate) fn press_tick(y: &mut Yard) -> Option<String> {
     if y.press.is_none() {
-        return;
+        return None;
     }
     unsafe {
         let buttons: usize = msg_send![class!(NSEvent), pressedMouseButtons];
         let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
         if buttons & 1 == 0 {
-            // Released off-view: drop at the pointer's last spot.
-            if let Some(press) = y.press.take() {
+            let press = y.press.take()?;
+            if press.moved >= DRAG_SLOP {
+                // A real drag: drop at the pointer's last spot.
                 release_press(y, &press);
+                return None;
             }
-            return;
+            // A click whose up event is still en route — the cat is
+            // frozen while held, so a sub-slop release is still on it.
+            return click_verdict(y, &press);
         }
         let (id, grab_dx, grab_dy) = {
             let Some(press) = y.press.as_mut() else {
-                return;
+                return None;
             };
             press.moved = press
                 .moved
                 .max((mouse.x - press.start.x).hypot(mouse.y - press.start.y));
             if press.moved < DRAG_SLOP {
-                return; // click slop — the sprite doesn't slide yet
+                return None; // click slop — the sprite doesn't slide yet
             }
             (press.window_id.clone(), press.grab_dx, press.grab_dy)
         };
         let Some(idx) = y.cats.iter().position(|c| c.window_id == id) else {
             // Claimed/closed/scooped mid-drag — the press dies with it.
             y.press = None;
-            return;
+            return None;
         };
         let Some(panel) = y
             .panels
             .iter()
             .find(|p| p.screen_id == y.cats[idx].screen_id)
         else {
-            return;
+            return None;
         };
         let walk = panel.walk;
         let local = NSPoint {
@@ -192,6 +237,7 @@ pub(crate) fn press_tick(y: &mut Yard) {
         cat.y = local.y - grab_dy;
         clamp_cat(cat, &walk);
     }
+    None
 }
 
 /// The drop verdict. Top fifth of the cat's OWN screen (the panel the

@@ -45,6 +45,12 @@
   const noneOn = $derived(!yardWindows && !yardTabs);
   const dropReady = $derived(!noneOn && !listErr && (unclaimed ?? 0) > 0);
   let dropping = $state(false);
+  // Leftover hits — Drop again: the pane is hide-not-destroy, so a
+  // successful Drop left `dropping` stuck true and the button greyed
+  // forever. The yard's own state is the truth: while the clowder is
+  // out Drop stays grey (an already-on yard is a native no-op), and the
+  // count beat re-arms it once the cats are scooped / gone.
+  let yardOn = $state(false);
 
   $effect(() => {
     if (!themeId) return;
@@ -84,6 +90,15 @@
       listErr = true;
       unclaimed = null;
     }
+    // Drop-again: re-arm once the clowder is gone (scoop, last cat
+    // gone, overlay torn down). Grey while the yard is live is fine —
+    // Drop on an already-on yard is a no-op, never a double spawn.
+    try {
+      yardOn = await invoke<boolean>("yard_status");
+    } catch {
+      yardOn = false;
+    }
+    if (!yardOn) dropping = false;
   }
 
   function persistSources() {
@@ -112,10 +127,11 @@
   // of the way so the clowder is visible. Drop on an already-on yard is
   // a native no-op — never a double spawn.
   async function dropCats() {
-    if (!dropReady || dropping) return;
+    if (!dropReady || dropping || yardOn) return;
     dropping = true;
     try {
       await invoke("yard_start");
+      yardOn = true;
       invoke("hide_window", { label: "yard-warn" }).catch(() => {});
     } catch {
       dropping = false;
@@ -213,13 +229,15 @@
       <div class="buttons">
         <button
           class="mini"
-          disabled={!dropReady || dropping}
+          disabled={!dropReady || dropping || yardOn}
           onclick={dropCats}
-          title={dropReady
-            ? "rain a cat per unclaimed window — Esc or ⌘⇧Y scoops"
-            : noneOn
-              ? "pick windows or tabs"
-              : "nothing to herd"}>Drop the cats</button
+          title={yardOn
+            ? "cats are out — Esc or ⌘⇧Y scoops"
+            : dropReady
+              ? "rain a cat per unclaimed window — Esc or ⌘⇧Y scoops"
+              : noneOn
+                ? "pick windows or tabs"
+                : "nothing to herd"}>Drop the cats</button
         >
         <button class="mini" onclick={cancel}>Cancel</button>
       </div>
