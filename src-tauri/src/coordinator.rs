@@ -1632,11 +1632,22 @@ fn run_grok_reply(
             let retry = grok_args(&sid, true, soul, line);
             run_mouth_cli("Grok", bin, &retry, &[], 180)?
         }
+        Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_session_gone(&e) => {
+            // GO-ORBITTY-MOUTH-LIVE: a dead resume id fails FAST (grok
+            // 404s in ~0.5s) — never wait out a 180s kill for it. Mint a
+            // fresh id, `-s`, save plug.json; no fork of a corpse. The
+            // reply still lands on the same turns; the bubble is never
+            // cleared.
+            let handoff = crate::mouth_roll::handoff_prompt(app, line);
+            return crate::mouth_roll::grok_fresh_rollover(bin, soul, &mut plug, &handoff);
+        }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_context_dead(&e) => {
-            // GO-ORBITTY-MOUTH-FOREVER: resume of a dead/thin session
-            // hangs then 180s-kills. Roll onto a fresh id (fork when the
-            // old one still resumes) with a handoff — the reply still
-            // lands on the same turns; the bubble is never cleared.
+            // GO-ORBITTY-MOUTH-FOREVER: context-full / session-death on
+            // a live id. Roll onto a fresh id (fork when the old one
+            // still resumes) with a handoff — the reply still lands on
+            // the same turns; the bubble is never cleared. A 180s
+            // timeout is a slow generate, not death — it never lands
+            // here (grok_context_dead keeps the kill line out).
             let handoff = crate::mouth_roll::handoff_prompt(app, line);
             return crate::mouth_roll::grok_rollover(bin, soul, &mut plug, &handoff);
         }

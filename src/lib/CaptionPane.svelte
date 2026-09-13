@@ -371,8 +371,13 @@
 </script>
 
 {#snippet wait()}
+  <!-- GO-ORBITTY-MOUTH-LIVE: the thinking splash is EPHEMERAL — one
+       short live line next to the mark while companion_send is in
+       flight (the spirit already plays the thinking loop). Never a
+       turn: nothing here persists; the final them-row is the only
+       row the send path saves. -->
   <span class="wait" role="status" aria-busy="true">
-    <span class="sr-only">waiting</span>
+    <span class="sr-only">thinking</span>
     <span class="wmark" aria-hidden="true">
       <svg class="ring" viewBox="0 0 20 20" fill="none">
         <ellipse cx="10" cy="10" rx="8" ry="5.2" transform="rotate(18 10 10)" />
@@ -383,6 +388,7 @@
         <i class="speck"></i>
       </span>
     </span>
+    <span class="wline" aria-hidden="true">thinking…</span>
   </span>
 {/snippet}
 
@@ -613,6 +619,14 @@
     display: inline-block;
     width: 20px;
     height: 20px;
+  }
+
+  /* MOUTH-LIVE splash line: short, muted, gone with the reply. */
+  .wline {
+    margin-left: 7px;
+    font-size: 0.66rem;
+    font-style: italic;
+    opacity: 0.55;
   }
 
   .wmark .ring {

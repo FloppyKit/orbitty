@@ -157,6 +157,20 @@ pub fn grok_rollover(
         }
         // Fork missed (resume target gone/thin) — fall through to fresh.
     }
+    grok_fresh_rollover(bin, soul, plug, handoff)
+}
+
+/// Fresh `-s` rollover, no fork attempt: the resume target is known gone
+/// (404 / not-found / invalid), so forking it would 404 too. Mint a new
+/// id, send the handoff on it (the handoff IS the context), save
+/// plug.json marked minted. One shot — a failure stays an honest Err.
+pub fn grok_fresh_rollover(
+    bin: &Path,
+    soul: &str,
+    plug: &mut PlugState,
+    handoff: &str,
+) -> Result<String, String> {
+    let new_sid = mint_uuid()?;
     let args = grok_args(&new_sid, false, soul, handoff);
     let raw = run_mouth_cli("Grok", bin, &args, &[], 180)?;
     let text = grok_reply_text(&raw);
