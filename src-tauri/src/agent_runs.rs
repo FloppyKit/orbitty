@@ -18,6 +18,15 @@
 //! and the UI's whole-state `save_state` command) as a before/after card
 //! diff. `state: "blocked"` / `"starting"` are read-supported in the
 //! snapshot mapping for the Herdr adapter; this phrase writes neither.
+//!
+//! Leftover (no droid): the strip-trap heal. A stale whole-state persist
+//! (the rail's in-memory `agentRuns` predating the mint, doing-fire's
+//! Who-runs save riding a pre-attach snapshot) writes an `agentRuns`
+//! subset over a live run, and the bare card diff never remints — the
+//! card already reads Doing. `stripped` re-carries any row the incoming
+//! save dropped while its card is still Doing, so NO save door can take
+//! the walker off the board. `agent-run-attach` fires only after the
+//! save lands: the event means the row is on disk, never before.
 
 use serde_json::json;
 
@@ -70,13 +79,36 @@ fn transitions(
     (mints, dones, drops)
 }
 
+/// The strip-trap heal: rows the incoming save DROPPED without moving
+/// the card. The card still reads Doing, so the run is still live —
+/// restore the row (the wire rebuilds planet/agent from the card's
+/// current fields; the row's own state survives). Legit exits never
+/// heal: doing→todo and the vanished card fail the still-doing gate,
+/// and the rail's walked-off door evicts only a Done card's row.
+fn stripped(before: &PersistedState, after: &PersistedState) -> Vec<AgentRun> {
+    before
+        .agent_runs
+        .iter()
+        .filter(|r| !after.agent_runs.iter().any(|a| a.card_id == r.card_id))
+        .filter(|r| {
+            after
+                .kanban_cards
+                .iter()
+                .any(|c| c.id == r.card_id && c.status == "doing")
+        })
+        .cloned()
+        .collect()
+}
+
 /// The wire: call with the disk-before snapshot and the just-saved state
 /// from each kanban-move door, AFTER doing-fire (its Needed mint saves
-/// again — this loads the post-fire state). Best-effort — an attach
+/// again — this loads the post-fire state, and the heal re-carries any
+/// row that mint's pre-attach snapshot dropped). Best-effort — an attach
 /// never fails the save that carried the move.
 pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &PersistedState) {
     let (mints, dones, drops) = transitions(before, after);
-    if mints.is_empty() && dones.is_empty() && drops.is_empty() {
+    let heals = stripped(before, after);
+    if mints.is_empty() && dones.is_empty() && drops.is_empty() && heals.is_empty() {
         return;
     }
     let Ok(mut cur) = crate::state::load_state(app) else {
@@ -84,6 +116,10 @@ pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &
     };
     let prev = cur.clone();
     let mut changed = false;
+    // Events collect through the mutation and fire only after the save
+    // lands — `agent-run-attach` means the row is on disk, never before.
+    let mut attached: Vec<&KanbanCard> = Vec::new();
+    let mut went_done: Vec<(String, String)> = Vec::new();
     for card_id in &mints {
         let Some(card) = after.kanban_cards.iter().find(|c| &c.id == card_id) else {
             continue;
@@ -107,6 +143,50 @@ pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &
             }),
         }
         changed = true;
+        attached.push(card);
+    }
+    for card_id in &dones {
+        if let Some(r) = cur.agent_runs.iter_mut().find(|r| &r.card_id == card_id) {
+            if r.state != "done" {
+                r.state = "done".into();
+                went_done.push((card_id.clone(), r.planet_id.clone()));
+                changed = true;
+            }
+        }
+    }
+    for card_id in &drops {
+        let n = cur.agent_runs.len();
+        cur.agent_runs.retain(|r| &r.card_id != card_id);
+        changed |= cur.agent_runs.len() != n;
+    }
+    for row in &heals {
+        // A mint this pass already rewrote the row — never twins.
+        if cur.agent_runs.iter().any(|r| r.card_id == row.card_id) {
+            continue;
+        }
+        let Some(card) = after.kanban_cards.iter().find(|c| c.id == row.card_id) else {
+            continue;
+        };
+        cur.agent_runs.push(AgentRun {
+            card_id: row.card_id.clone(),
+            planet_id: card.project_id.clone(),
+            agent_shortcut_id: card
+                .assigned_agent_id
+                .clone()
+                .unwrap_or_default(),
+            state: row.state.clone(),
+        });
+        changed = true;
+        attached.push(card);
+    }
+    if !changed {
+        return;
+    }
+    // The one save door — claims are untouched, so the diff is silent.
+    if crate::board::save_with_events(app, &prev, &cur).is_err() {
+        return;
+    }
+    for card in attached {
         crate::event_log::append_best(
             app,
             "agent-run-attach",
@@ -120,33 +200,17 @@ pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &
             }),
         );
     }
-    for card_id in &dones {
-        if let Some(r) = cur.agent_runs.iter_mut().find(|r| &r.card_id == card_id) {
-            if r.state != "done" {
-                r.state = "done".into();
-                changed = true;
-                crate::event_log::append_best(
-                    app,
-                    "agent-run-done",
-                    None,
-                    Some(&r.planet_id),
-                    Some("agent"),
-                    true,
-                    &json!({ "cardId": card_id }),
-                );
-            }
-        }
+    for (card_id, planet_id) in went_done {
+        crate::event_log::append_best(
+            app,
+            "agent-run-done",
+            None,
+            Some(&planet_id),
+            Some("agent"),
+            true,
+            &json!({ "cardId": card_id }),
+        );
     }
-    for card_id in &drops {
-        let n = cur.agent_runs.len();
-        cur.agent_runs.retain(|r| &r.card_id != card_id);
-        changed |= cur.agent_runs.len() != n;
-    }
-    if !changed {
-        return;
-    }
-    // The one save door — claims are untouched, so the diff is silent.
-    let _ = crate::board::save_with_events(app, &prev, &cur);
 }
 
 #[cfg(test)]
@@ -221,5 +285,53 @@ mod tests {
         assert_eq!(mints, vec!["c-1".to_string()]);
         assert!(dones.is_empty());
         assert!(drops.is_empty());
+    }
+
+    fn run(card_id: &str, state: &str) -> AgentRun {
+        AgentRun {
+            card_id: card_id.into(),
+            planet_id: "p-1".into(),
+            agent_shortcut_id: String::new(),
+            state: state.into(),
+        }
+    }
+
+    #[test]
+    fn strip_heal_restores_live_run() {
+        // A stale whole-state persist drops the row; the card never left
+        // Doing, so the run is still live and heals.
+        let mut before = PersistedState::default();
+        before.kanban_cards = vec![card("c-run", "todo", "doing", "GO-ORBITTY-X", None)];
+        before.agent_runs = vec![run("c-run", "working")];
+        let mut after = before.clone();
+        after.agent_runs = vec![]; // the strip
+        let heals = stripped(&before, &after);
+        assert_eq!(heals.len(), 1);
+        assert_eq!(heals[0].card_id, "c-run");
+        assert_eq!(heals[0].state, "working");
+        // A save that CARRIES the row heals nothing.
+        let after = before.clone();
+        assert!(stripped(&before, &after).is_empty());
+    }
+
+    #[test]
+    fn strip_heal_never_fights_legit_exits() {
+        let mut before = PersistedState::default();
+        before.kanban_cards = vec![
+            card("c-todo", "todo", "doing", "GO-ORBITTY-A", None),
+            card("c-done", "todo", "doing", "GO-ORBITTY-B", None),
+            card("c-gone", "todo", "doing", "GO-ORBITTY-C", None),
+        ];
+        before.agent_runs = vec![
+            run("c-todo", "working"),
+            run("c-done", "done"),
+            run("c-gone", "working"),
+        ];
+        let mut after = before.clone();
+        after.agent_runs = vec![];
+        after.kanban_cards[0].status = "todo".into(); // doing→todo drop
+        after.kanban_cards[1].status = "done".into(); // walked-off eviction
+        after.kanban_cards.retain(|c| c.id != "c-gone"); // card vanished
+        assert!(stripped(&before, &after).is_empty());
     }
 }
