@@ -64,6 +64,7 @@ mod tick;
 mod input;
 mod draw;
 mod boombox_hud;
+mod droid;
 
 pub use tick::{persist_now, start};
 
@@ -390,7 +391,8 @@ pub(crate) fn station_target(pose: Pose, entry_id: &str) -> (f64, f64) {
 }
 
 /// FNV-1a for stable per-walker offsets (tick.rs has its own for tracks).
-fn hash_str(s: &str) -> u64 {
+/// GO-ORBITTY-DOING-WALKER: also hashes the droid's bake seed string.
+pub(crate) fn hash_str(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in s.as_bytes() {
         h ^= *b as u64;
@@ -956,6 +958,10 @@ pub(crate) struct Being {
     /// snapshot's card fields at sync. Rebuilt every sync; the roam state
     /// (position) lives outside so a re-sync never teleports anyone.
     pose: Pose,
+    /// GO-ORBITTY-DOING-WALKER: Some(seed) = an agent walker — the draw
+    /// blits the baked droid atlas (droid.rs) instead of the pack/person
+    /// art. The seed hashes the run's `planetId:cardId`.
+    droid: Option<u64>,
 }
 
 /// Which decor item a frame belongs to (plants[i], mushrooms[i], boombox).
@@ -1242,6 +1248,10 @@ pub(crate) struct Habitat {
     /// `habitat:walked-off` — once per Done spell, never per sync. Pruned
     /// when the entry leaves Done so a re-Done emits again.
     walkoff_fast: std::collections::HashSet<String>,
+    /// GO-ORBITTY-DOING-WALKER: baked droid atlases, keyed by the run's
+    /// seed hash. Baked ONCE on first draw (droid.rs), session-cached like
+    /// the icon cache — never a per-frame procgen.
+    droids: HashMap<u64, droid::DroidAtlas>,
 }
 
 pub(crate) struct PackFrames {
@@ -2536,19 +2546,29 @@ fn layout_beings(planet: &mut Planet) {
 }
 
 fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
+    // GO-ORBITTY-DOING-WALKER: an agent entry carries a bake seed, not a
+    // window — no icon decode, no pack wear; the draw blits the baked
+    // droid atlas. Everything else (pose, roam, stations) stays generic.
+    let droid = if entry.agent_seed.is_empty() {
+        None
+    } else {
+        Some(hash_str(&entry.agent_seed))
+    };
     let mut icon = 0usize;
-    if let Some(b64) = entry.icon_base64.as_deref() {
-        let key = entry
-            .bundle_id
-            .clone()
-            .unwrap_or_else(|| entry.app_name.clone());
-        if let Some(&ptr) = h.icon_cache.get(&key) {
-            icon = ptr;
-        } else if let Some(bytes) = base64_decode(b64) {
-            let img = unsafe { ns_image_from_bytes(&bytes) };
-            if !img.is_null() {
-                h.icon_cache.insert(key, img as usize);
-                icon = img as usize;
+    if droid.is_none() {
+        if let Some(b64) = entry.icon_base64.as_deref() {
+            let key = entry
+                .bundle_id
+                .clone()
+                .unwrap_or_else(|| entry.app_name.clone());
+            if let Some(&ptr) = h.icon_cache.get(&key) {
+                icon = ptr;
+            } else if let Some(bytes) = base64_decode(b64) {
+                let img = unsafe { ns_image_from_bytes(&bytes) };
+                if !img.is_null() {
+                    h.icon_cache.insert(key, img as usize);
+                    icon = img as usize;
+                }
             }
         }
     }
@@ -2573,16 +2593,20 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
     // Sprite picker: a user-picked pack wins. Otherwise the Season 1 bitty
     // for this look's Kind+Palette (GO-ORBITTY-S1-BITTYS) — the planet's
     // default population is the blessed bitmap crew, never the glyph grid.
-    let pack_id = if entry.sprite_pack_id.is_empty() {
-        crate::chars::default_pack(&look)
+    // A droid never wears a pack — its atlas blits in the draw.
+    let pack = if droid.is_some() {
+        None
     } else {
-        entry.sprite_pack_id.clone()
+        let pack_id = if entry.sprite_pack_id.is_empty() {
+            crate::chars::default_pack(&look)
+        } else {
+            entry.sprite_pack_id.clone()
+        };
+        h.pack_frames
+            .iter()
+            .position(|(id, _)| id == &pack_id)
+            .or_else(|| fallback_pack_index(h))
     };
-    let pack = h
-        .pack_frames
-        .iter()
-        .position(|(id, _)| id == &pack_id)
-        .or_else(|| fallback_pack_index(h));
     let user_scale = if entry.sprite_scale <= 0.0 {
         1.0
     } else {
@@ -2611,6 +2635,7 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
         asleep: entry.asleep,
         sprite_pack_id: entry.sprite_pack_id.clone(),
         pose,
+        droid,
     }
 }
 
@@ -3334,6 +3359,7 @@ fn being_fields_eq(a: &HabitatEntry, b: &HabitatEntry) -> bool {
         && a.char_look == b.char_look
         && a.sprite_scale == b.sprite_scale
         && a.asleep == b.asleep
+        && a.agent_seed == b.agent_seed
 }
 
 unsafe fn panel_set_frame(panel: *mut Object, frame: NSRect, display: bool) {

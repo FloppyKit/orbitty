@@ -13,6 +13,7 @@
   import RailStack from "./RailStack.svelte";
   import type {
     ActionShortcut,
+    AgentRun,
     AgentShortcut,
     CharLook,
     Claim,
@@ -159,6 +160,11 @@
   // persist() never strips the arrays.
   let actionShortcuts = $state<ActionShortcut[]>([]);
   let agentShortcuts = $state<AgentShortcut[]>([]);
+  // GO-ORBITTY-DOING-WALKER: the doing-run rows (agent walkers). The
+  // native attach door owns mint/done/drop; the rail round-trips the
+  // slice, mirrors it into the habitat snapshot, and evicts the done row
+  // on habitat:walked-off.
+  let agentRuns = $state<AgentRun[]>([]);
 
   // GO-LS-TAURI-AVATAR-LARGE: companion slice, round-tripped opaquely (the
   // companion window and the native side own the contents).
@@ -585,6 +591,7 @@
       marbleDrift,
       actionShortcuts,
       agentShortcuts,
+      agentRuns,
       companion: companionState,
       stars: starsState,
       sky: skyState,
@@ -700,7 +707,56 @@
       cardStatus: card?.status ?? "",
       cardKind: card?.kind ?? "",
       neededState: needed ? (needed.neededState ?? "open") : "",
+      // GO-ORBITTY-DOING-WALKER: window walkers never bake the droid —
+      // the empty seed keeps one entry shape for the sig.
+      agentSeed: "",
     };
+  }
+
+  // GO-ORBITTY-DOING-WALKER: one pseudo-entry per doing-run on this
+  // planet — the agent walker. The pose rides the SAME card fields as a
+  // window walker (one channel, sync_habitat): working/starting → the
+  // disc; an open/later project Needed or a blocked run → sit the near
+  // rim; done → the far-rim walk-off (the native side walks it, then the
+  // walked-off door below evicts the row). agentSeed marks the entry as
+  // the baked droid (bitty sheets stay on window walkers); the native
+  // side bakes the atlas once off its hash.
+  function agentEntriesFor(p: Project) {
+    return agentRuns
+      .filter(
+        (r) =>
+          r.planetId === p.id && kanbanCards.some((k) => k.id === r.cardId),
+      )
+      .map((r) => {
+        const card = kanbanCards.find((k) => k.id === r.cardId);
+        const agent = agentShortcuts.find((a) => a.id === r.agentShortcutId);
+        const needed = kanbanCards.find(
+          (k) =>
+            k.kind === "needed" &&
+            (k.neededState === "open" || k.neededState === "later") &&
+            k.windowId == null &&
+            (k.projectId ?? "") === p.id,
+        );
+        return {
+          id: `agent:${r.cardId}`,
+          appName: agent?.name ?? "agent",
+          title: card?.title ?? "",
+          bundleId: null,
+          minimized: false,
+          iconBase64: null,
+          age: "fresh",
+          asleep: false,
+          spritePackId: "",
+          charSeed: 0,
+          charLook: null,
+          spriteScale: 0,
+          cardStatus: r.state === "done" ? "done" : "doing",
+          cardKind: "todo",
+          neededState:
+            r.state === "blocked" ? "open" : needed ? (needed.neededState ?? "open") : "",
+          agentSeed: `${r.planetId}:${r.cardId}`,
+        };
+      });
   }
 
   function habitatPlanetFor(p: Project, rows: WindowInfo[]) {
@@ -709,7 +765,10 @@
       name: p.name,
       collapsed: isCollapsed(p.id),
       boardCards: boardCardsFor(p),
-      entries: rows.map((w) => habitatEntryFor(w, p)),
+      entries: [
+        ...rows.map((w) => habitatEntryFor(w, p)),
+        ...agentEntriesFor(p),
+      ],
     };
   }
 
@@ -776,6 +835,7 @@
           e.cardStatus,
           e.cardKind,
           e.neededState,
+          e.agentSeed ?? "",
         ]),
       ]),
       packs.map((pk) => pk.id),
@@ -2032,6 +2092,7 @@
       marbleDrift = s.marbleDrift ?? false;
       actionShortcuts = s.actionShortcuts ?? [];
       agentShortcuts = s.agentShortcuts ?? [];
+      agentRuns = s.agentRuns ?? [];
       companionState = s.companion ?? companionState;
       starsState = s.stars ?? { promptsOptIn: false, checkins: {} };
       skyState = s.sky ?? { muted: [] };
@@ -2129,6 +2190,17 @@
     });
     unlistenWalkedOff = await listen<string>("habitat:walked-off", (e) => {
       const windowId = e.payload;
+      // GO-ORBITTY-DOING-WALKER: an agent walker's far-rim exit evicts
+      // the run row (the droid has no claim to unclaim). Idempotent —
+      // the native side re-delivers while a walker lingers.
+      if (windowId.startsWith("agent:")) {
+        const cardId = windowId.slice("agent:".length);
+        if (agentRuns.some((r) => r.cardId === cardId)) {
+          agentRuns = agentRuns.filter((r) => r.cardId !== cardId);
+          persist();
+        }
+        return;
+      }
       const open = kanbanCards.find(
         (c) => c.windowId === windowId && c.status !== "done",
       );
@@ -2184,6 +2256,10 @@
         const s = await invoke<PersistedState>("load_state");
         kanbanCards = s.kanbanCards ?? [];
         pointsLedger = s.pointsLedger ?? [];
+        // GO-ORBITTY-DOING-WALKER: the native attach door's mints/dones
+        // land here; the rail round-trips the slice so persist() never
+        // strips a live run.
+        agentRuns = s.agentRuns ?? [];
         companionState = s.companion ?? companionState;
         // STARS: the STARS window's check-in saves and the companion's
         // Prompts toggle / strip ack land here; the rail only round-trips.

@@ -10,11 +10,11 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
 use super::{
-    ball_pos, boombox_hud, card_color, ensure_town_art, fill_oval, lock, now_epoch, ns_color,
-    ns_string, pack_still_aspect, panic_msg, radius_y, set_fill, station_anchor, walker_fit, walker_hidden, CGSize,
-    DecorKind, Habitat, NSPoint, NSRect, Pose, Projection, CAPTION_TTL, LOCATE_TTL,
-    PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE, VIEW_PADDING, YARD_EAST,
-    YARD_NORTH, YARD_SOUTH, YARD_WEST,
+    ball_pos, boombox_hud, card_color, droid, ensure_town_art, fill_oval, lock, now_epoch,
+    ns_color, ns_string, pack_still_aspect, panic_msg, radius_y, set_fill, station_anchor,
+    walker_fit, walker_hidden, CGSize, DecorKind, Habitat, NSPoint, NSRect, Pose, Projection,
+    CAPTION_TTL, LOCATE_TTL, PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE,
+    VIEW_PADDING, YARD_EAST, YARD_NORTH, YARD_SOUTH, YARD_WEST,
 };
 
 // GO-ORBITTY-WORLD-PROPS: the sign's blank face inside the punched PNG
@@ -444,6 +444,18 @@ fn draw_rect_guarded(this: &Object) {
     let data = {
         let mut h = lock();
         ensure_town_art(&mut h);
+        // GO-ORBITTY-DOING-WALKER: bake this view's droid atlases BEFORE
+        // the immutable draw pass — once per seed, then frame_ptr only
+        // reads. Never a per-frame procgen.
+        let droid_seeds = h
+            .planets
+            .iter()
+            .find(|(_, p)| p.view == view_ptr)
+            .map(|(_, p)| p.walkers.iter().filter_map(|b| b.droid).collect::<Vec<u64>>())
+            .unwrap_or_default();
+        for seed in droid_seeds {
+            droid::ensure_baked(&mut h, seed);
+        }
         let town_igloo = h.town_igloo;
         let town_sign = h.town_sign;
         let town_boombox = h.town_boombox;
@@ -508,7 +520,13 @@ fn draw_rect_guarded(this: &Object) {
                         } else {
                             0
                         },
-                        pack_frame: if sleeper_still {
+                        // GO-ORBITTY-DOING-WALKER: a droid blits its baked
+                        // atlas (Sit = seated frame; cycling = the two
+                        // walk frames) — window walkers keep the bitty
+                        // sheets / generated person below.
+                        pack_frame: if let Some(seed) = b.droid {
+                            droid::frame_ptr(&h, seed, b.pose, cycling && !sleeper_still, h.anim_frame, i)
+                        } else if sleeper_still {
                             pack_frame_still(&h, b.pack)
                         } else {
                             pack_frame_ptr(&h, b.pack, i, cycling)

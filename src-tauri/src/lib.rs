@@ -1,5 +1,7 @@
 mod actions;
 #[cfg(unix)]
+mod agent_runs;
+#[cfg(unix)]
 mod agents;
 #[cfg(unix)]
 mod board;
@@ -515,6 +517,10 @@ fn save_state(app: tauri::AppHandle, state: state::PersistedState) -> Result<(),
         // (best-effort; the fire never fails the save).
         #[cfg(unix)]
         doing_fire::fire_on_moves(&app, before, &state);
+        // GO-ORBITTY-DOING-WALKER: same diff attaches the agent walker
+        // (the run row) — never a second process (best-effort).
+        #[cfg(unix)]
+        agent_runs::attach_on_moves(&app, before, &state);
     }
     // Keep the separate Kanban window in sync with the rail's writes.
     let _ = app.emit("state:changed", ());

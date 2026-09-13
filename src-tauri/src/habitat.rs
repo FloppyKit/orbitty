@@ -57,6 +57,13 @@ pub struct HabitatEntry {
     /// over Doing); "" = nothing needed from the user here.
     #[serde(default)]
     pub needed_state: String,
+    /// GO-ORBITTY-DOING-WALKER: non-empty = this entry is an AGENT walker
+    /// (a doing-run's droid, not a claimed window). The value is the bake
+    /// seed string `"<planetId>:<cardId>"` — the native side hashes it and
+    /// bakes the android atlas once per run. Bitty-crew sheets stay for
+    /// window walkers.
+    #[serde(default)]
+    pub agent_seed: String,
 }
 
 fn default_age() -> String {

@@ -327,6 +327,9 @@ enum BeingAction {
     /// Sleeper double: wake via the claim's stamps (live → file → session →
     /// recipe → app) — a dead pid:cgid would only fail restore_window.
     Wake(String),
+    /// GO-ORBITTY-DOING-WALKER: droid double-click — no window to restore;
+    /// raise the run's planet (the pane/TTY raise is HERDR-ADAPTER's).
+    Planet(String),
 }
 
 
@@ -383,9 +386,10 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                         b.frame.inset(-3.0).contains(local),
                         b.label.clone(),
                         b.asleep,
+                        b.droid.is_some(),
                     )
                 });
-            let Some((still_inside, label, asleep)) = found else {
+            let Some((still_inside, label, asleep, droid)) = found else {
                 return;
             };
             if !still_inside {
@@ -397,8 +401,22 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
             // right-click menu's "Open being…". A real drag (≥4px) is not a
             // click: the walker just moved house.
             let mut locate_id: Option<String> = None;
-            let action = match (pending.walker, clicks >= 2, asleep) {
-                (true, false, false) => {
+            let action = match (pending.walker, clicks >= 2, asleep, droid) {
+                // GO-ORBITTY-DOING-WALKER: droid single — the same locate
+                // stroke as a window walker; the caption names the run.
+                (true, false, _, true) => {
+                    set_caption(planet, format!("{label} · agent"));
+                    if !dragged {
+                        locate_id = Some(entry_id.clone());
+                    }
+                    None
+                }
+                // Droid double: no window to restore — front the planet
+                // (the pane/TTY raise lands with HERDR-ADAPTER).
+                (true, true, _, true) => {
+                    Some(BeingAction::Planet(pending.project_id.clone()))
+                }
+                (true, false, false, _) => {
                     set_caption(planet, format!("{label} · stowed"));
                     if !dragged {
                         locate_id = Some(entry_id.clone());
@@ -407,7 +425,7 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                 }
                 // Sleeper single: caption + locate stroke — never the
                 // editor, never a restore attempt on a dead window.
-                (true, false, true) => {
+                (true, false, true, _) => {
                     set_caption(planet, format!("{label} · asleep — double-click to wake"));
                     if !dragged {
                         locate_id = Some(entry_id.clone());
@@ -415,16 +433,16 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                     None
                 }
                 // Walker double: restore + focus (window comes back bigger).
-                (true, true, false) => Some(BeingAction::Focus(entry_id)),
+                (true, true, false, _) => Some(BeingAction::Focus(entry_id)),
                 // Sleeper double: wake through the claim's stamps.
-                (true, true, true) => Some(BeingAction::Wake(entry_id)),
+                (true, true, true, _) => Some(BeingAction::Wake(entry_id)),
                 // Dot single: focus the open window + caption.
-                (false, false, _) => {
+                (false, false, _, _) => {
                     set_caption(planet, format!("{label} · open"));
                     Some(BeingAction::Focus(entry_id))
                 }
                 // Dot double: stow/minimize back to the planet.
-                (false, true, _) => Some(BeingAction::Stow(entry_id)),
+                (false, true, _, _) => Some(BeingAction::Stow(entry_id)),
             };
             if let Some(id) = locate_id {
                 h.locate = Some((id, Instant::now()));
@@ -439,6 +457,11 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
             }
             Some(BeingAction::Stow(id)) => {
                 let _ = crate::windows::minimize_window(&id);
+            }
+            Some(BeingAction::Planet(pid)) => {
+                // Droid double-click: front the run's planet (cheap; the
+                // pane/TTY raise is HERDR-ADAPTER's, not this phrase).
+                crate::habitat::bring_planet_front(&pid);
             }
             Some(BeingAction::Wake(id)) => {
                 let msg = match app_handle() {
@@ -587,8 +610,17 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         let Some((_, planet)) = planet_for_view(&mut h, view_ptr) else {
             return;
         };
+        // GO-ORBITTY-DOING-WALKER: a droid has no claim, no Being editor,
+        // no pack picks — its right-click is the planet menu.
+        let being = hit_being(planet, local).filter(|(id, walker)| {
+            !*walker
+                || !planet
+                    .walkers
+                    .iter()
+                    .any(|b| b.entry_id == *id && b.droid.is_some())
+        });
         (
-            hit_being(planet, local),
+            being,
             hit_decor(planet, local).is_some_and(|d| d.kind == DecorKind::Boombox),
         )
     };

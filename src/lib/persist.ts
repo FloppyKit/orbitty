@@ -145,6 +145,18 @@ export interface AgentShortcut {
   extra?: string | null;
 }
 
+// GO-ORBITTY-DOING-WALKER: one row per doing-run — the agent walker on
+// that planet. Minted native-side when a gated kind=todo card lands in
+// Doing (doing-fire / pickup own the process; this row is never a
+// spawn). state: starting | working | blocked | done. Additive — never
+// strip the key; the rail's walked-off door evicts the done row.
+export interface AgentRun {
+  cardId: string;
+  planetId: string;
+  agentShortcutId?: string;
+  state: "starting" | "working" | "blocked" | "done";
+}
+
 export interface CompanionBounds {
   x: number;
   y: number;
@@ -257,6 +269,9 @@ export interface PersistedState {
   yardTabs?: boolean;
   actionShortcuts: ActionShortcut[];
   agentShortcuts: AgentShortcut[];
+  // GO-ORBITTY-DOING-WALKER: optional in TS so whole-state writers that
+  // predate the field keep type-checking; the native save always writes it.
+  agentRuns?: AgentRun[];
   companion: CompanionSlice;
   stars: StarsSlice;
   sky: SkySlice;

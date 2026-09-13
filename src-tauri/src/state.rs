@@ -68,6 +68,10 @@
 //! pickup instructions) and `kanbanCards[].assignedAgentId` (the agent row
 //! a Todo is assigned to) — both optional, both additive; old saves load,
 //! and a removed agent row leaves the id on its cards (project.rm law).
+//! GO-ORBITTY-DOING-WALKER adds `agentRuns: [{cardId, planetId,
+//! agentShortcutId, state}]` — one row per doing-run, the agent walker on
+//! that planet. Whole-object save, no second schema; old saves load with
+//! an empty list.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -133,6 +137,9 @@ pub struct PersistedState {
     /// GO-ORBITTY-RAIL-DRAWER: leash state per drawer label. Missing labels
     /// default per `drawer_docked` — never strip old keys on save.
     pub drawers: std::collections::BTreeMap<String, DrawerState>,
+    /// GO-ORBITTY-DOING-WALKER: one row per doing-run — the agent walker
+    /// on that planet. Additive; old saves load with an empty list.
+    pub agent_runs: Vec<AgentRun>,
 }
 
 /// GO-ORBITTY-RAIL-DRAWER: the only labels that can be drawers. The rail
@@ -225,6 +232,38 @@ impl Default for PersistedState {
             sky: SkyState::default(),
             shared_pane_mode: "board".to_string(),
             drawers: std::collections::BTreeMap::new(),
+            agent_runs: Vec::new(),
+        }
+    }
+}
+
+/// GO-ORBITTY-DOING-WALKER: one doing-run — the row the habitat mirrors
+/// as the seeded droid walker on `planet_id`. Minted/refreshed by the
+/// attach door (`agent_runs::attach_on_moves`) when a gated `kind=todo`
+/// card lands in Doing; the launchers (doing-fire / pickup /
+/// `launch_agent`) own the process — this row is never a spawn.
+/// `state`: "starting" | "working" | "blocked" | "done". This phrase
+/// writes working/done; blocked/starting are read-supported for the
+/// Herdr adapter (NeededInbox open or blocked → the walker sits the
+/// near rim; done → the far-rim walk-off, then the rail evicts the row).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentRun {
+    pub card_id: String,
+    pub planet_id: String,
+    /// The agentShortcuts row running the card; "" = none resolved
+    /// (a GO-* fire before the standing answer assigns one).
+    pub agent_shortcut_id: String,
+    pub state: String,
+}
+
+impl Default for AgentRun {
+    fn default() -> Self {
+        Self {
+            card_id: String::new(),
+            planet_id: String::new(),
+            agent_shortcut_id: String::new(),
+            state: "working".to_string(),
         }
     }
 }
