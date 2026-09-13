@@ -303,6 +303,9 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
         true,
         &serde_json::json!({ "from": from, "to": target, "cardId": id }),
     );
+    // GO-ORBITTY-DOING-FIRE: a GO-* todo landing in Doing fires the one
+    // "Who runs this doing GO?" Needed (best-effort — never fails the move).
+    crate::doing_fire::fire_on_moves(app, &before, &after);
     Ok(after.kanban_cards[idx].clone())
 }
 

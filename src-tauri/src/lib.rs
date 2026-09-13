@@ -12,6 +12,8 @@ mod companion_todo;
 #[cfg(unix)]
 mod control;
 mod coordinator;
+#[cfg(unix)]
+mod doing_fire;
 mod drawers;
 mod event_log;
 mod glass;
@@ -503,8 +505,13 @@ fn save_state(app: tauri::AppHandle, state: state::PersistedState) -> Result<(),
     // missing/corrupt old file skips the diff rather than inventing churn.
     let before = state::load_state(&app).ok();
     state::save_state(&app, &state)?;
-    if let Some(before) = before {
+    if let Some(before) = before.as_ref() {
         event_log::diff_claims(&app, &before.claims, &state.claims);
+        // GO-ORBITTY-DOING-FIRE: the UI drag's move door is this
+        // whole-state persist — diff it for a GO-* todo landing in Doing
+        // (best-effort; the fire never fails the save).
+        #[cfg(unix)]
+        doing_fire::fire_on_moves(&app, before, &state);
     }
     // Keep the separate Kanban window in sync with the rail's writes.
     let _ = app.emit("state:changed", ());
