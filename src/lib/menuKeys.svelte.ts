@@ -11,6 +11,11 @@ import "./menuKeys.css";
 // walkers. KANBAN-GRAB rides this same ring: Shift+Enter = X (grab the
 // focused Todo) is the ONE chord the ring owns — the handleKey carve-out
 // below. GO-ORBITTY-PAD points a real gamepad at these verbs.
+// KANBAN-GRAB leftover (arrows in charge): surfaces. Enter (pad A) can
+// descend into a nested surface (the card drawer); Esc (pad B) backs one
+// level. pushSurface suspends the current stops/highlight/onEscape and
+// popSurface restores them, so a mouse click or a backed-out surface
+// never parks the ring into page scroll.
 //
 // Hold-repeat is the OS key repeat: every keydown is handled, e.repeat
 // included, so a held arrow walks at the native delay/rate.
@@ -46,6 +51,13 @@ export class MenuRing {
   activeId = $state<string | null>(null);
   private stops: RingStop[] = [];
   private onEscape: (() => boolean) | null = null;
+  // The surface stack: each entry suspends the surface below (its stops,
+  // highlight, and Esc) while a nested surface owns the top.
+  private stack: {
+    stops: RingStop[];
+    activeId: string | null;
+    onEscape: (() => boolean) | null;
+  }[] = [];
 
   /** Pages rebuild stops off state. The highlight survives by id; when
    *  its row left the menu (an answered Needed, a claimed window) it
@@ -66,6 +78,32 @@ export class MenuRing {
   /** Jump the highlight — column / tab hops from arrow overrides. */
   select(id: string) {
     if (this.stops.some((s) => s.id === id)) this.setActive(id);
+  }
+
+  /** Descend one surface (pad A into a nested menu). Suspends the
+   *  current stops/highlight/Esc; the page setStops() the fresh top,
+   *  whose onEscape is its B (back one level). The fresh top starts
+   *  with no highlight — the first arrow picks an end, console-style. */
+  pushSurface(onEscape: () => boolean) {
+    this.stack.push({
+      stops: this.stops,
+      activeId: untrack(() => this.activeId),
+      onEscape: this.onEscape,
+    });
+    this.stops = [];
+    this.onEscape = onEscape;
+    this.setActive(null);
+  }
+
+  /** Back one surface (pad B): restore the suspended stops, highlight,
+   *  and Esc. The root never pops — the well's own Esc lives below the
+   *  ring (CompanionPage's bubble handler). */
+  popSurface() {
+    const prev = this.stack.pop();
+    if (!prev) return;
+    this.stops = prev.stops;
+    this.onEscape = prev.onEscape;
+    this.setActive(prev.activeId);
   }
 
   /** Capture-phase keydown on the window; returns the detach. onEscape

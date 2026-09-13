@@ -88,13 +88,14 @@
   let detailId = $state<string | null>(null);
   let newSubtask = $state("");
 
-  // GO-ORBITTY-MENU-KEYS: the Launchpad ring — Needed pile, then the
-  // board piles column-major. Up/down walk the pile, left/right hop the
-  // highlight to the same row in the next non-empty column (wraps);
-  // Enter selects a Needed row (the composer answers it) or opens a
-  // card's detail drawer. Esc closes the drawer first, then the well
-  // (CompanionPage's bubble Esc). Embedded only — the overlay Lists
-  // window keeps its mouse habits.
+  // GO-ORBITTY-MENU-KEYS: the Launchpad ring — Needed pile, the planet
+  // strip (a row: left/right walk it), then the board piles
+  // column-major. Up/down walk the pile, left/right hop the highlight
+  // to the same row in the next non-empty column (wraps); Enter selects
+  // a Needed row (the composer answers it), selects a list tab, or
+  // descends into a card's detail drawer. Esc backs one surface, then
+  // the well (CompanionPage's bubble Esc). Embedded only — the overlay
+  // Lists window keeps its mouse habits.
   // GO-ORBITTY-KANBAN-GRAB: Shift+Enter (pad X) grabs the focused card —
   // it paints held at the grab cursor while arrows move it (left/right =
   // column, clamped at the ends, empty columns legal; up/down = row in
@@ -102,21 +103,46 @@
   // door a mouse drag takes, so doing-fire still owns a GO-* todo →
   // doing. Esc (pad B) lets go: nothing ever mutated, the card is still
   // in its pre-grab column.
+  // GRAB leftover (arrows in charge): the ring never parks. The drawer
+  // is a pushed SURFACE on this one ring — not an empty stops list — so
+  // after any mouse click (a card, a column, well chrome) arrows keep
+  // walking the current surface's selectables instead of falling back
+  // to page scroll, and Esc pops back to the board with its highlight.
   const menuRing = new MenuRing();
   let neededOpen = $state(false);
   let neededSelectedId = $state<string | null>(null);
   const neededRows = $derived(neededSorted(kanbanCards));
+  // Tracks the drawer surface's push/pop pairing on the ring.
+  let drawerOnRing = false;
 
   $effect(() => {
     if (!embedded) return;
-    if (detailId) {
-      // Drawer open: the ring parks (its inputs own the caret); the
-      // attach onEscape below closes the drawer before the well. A held
-      // card is let go — you cannot inspect one card while holding
-      // another.
+    const drawer = detailId
+      ? kanbanCards.find((c) => c.id === detailId)
+      : undefined;
+    // The card vanished under an open drawer (a state reload) — back
+    // out to the board rather than pin a ghost surface.
+    if (detailId && !drawer) detailId = null;
+    if (detailId && drawer) {
+      // Drawer open: descend one surface (pad A) — the drawer's own
+      // stops + its B (close) ride the ring. A held card is let go:
+      // you cannot inspect one card while holding another.
       if (grabbedId) ungrab();
-      menuRing.setStops([]);
+      if (!drawerOnRing) {
+        drawerOnRing = true;
+        menuRing.pushSurface(() => {
+          detailId = null;
+          return true;
+        });
+      }
+      menuRing.setStops(drawerStops(drawer));
       return;
+    }
+    if (drawerOnRing) {
+      // Back one level (pad B): the board's stops/highlight restore, so
+      // backing out never dumps arrows into page scroll.
+      drawerOnRing = false;
+      menuRing.popSurface();
     }
     // KANBAN-GRAB: the held card left the board (a state reload, a
     // sidebar flip mid-hold) — let go rather than pin a ghost.
@@ -147,6 +173,46 @@
         }
       }
     }
+    // The planet strip is a ROW on this surface: left/right walk it,
+    // down drops into the first card of the first non-empty column, up
+    // climbs back to the Needed pile.
+    const tabIds = ["inbox", "today", "done", ...projects.map((p) => p.id)];
+    tabIds.forEach((id, i) => {
+      stops.push({
+        id: `listtab-${id}`,
+        confirm: () => {
+          if (projects.some((p) => p.id === id)) onPlanetTabClick(id);
+          else selected = id;
+        },
+        arrow: (dir) => {
+          if (dir === "left" || dir === "right") {
+            const n = tabIds.length;
+            const next = tabIds[(i + (dir === "left" ? -1 : 1) + n) % n];
+            menuRing.select(`listtab-${next}`);
+            return true;
+          }
+          if (dir === "down") {
+            const first = COLUMNS.map((c) => boardCols[c.id]).find(
+              (l) => l.length > 0,
+            )?.[0];
+            if (first) {
+              menuRing.select(`card-${first.id}`);
+              return true;
+            }
+            return false;
+          }
+          if (neededOpen && neededRows.length > 0) {
+            menuRing.select(`needed-${neededRows[neededRows.length - 1].id}`);
+            return true;
+          }
+          if (neededRows.length > 0 || addingNeeded) {
+            menuRing.select("needed-toggle");
+            return true;
+          }
+          return false;
+        },
+      });
+    });
     const cols = COLUMNS.map((c) => boardCols[c.id]);
     cols.forEach((colCards, ci) => {
       colCards.forEach((card, ri) => {
@@ -621,6 +687,56 @@
     newSubtask = "";
   }
 
+  // GRAB leftover (arrows in charge): the drawer's ring stops — every
+  // selectable on that surface, in paint order. A field confirms by
+  // FOCUSING it (the caret stays the field's own — pad grammar never
+  // steals it, Esc blurs); a button confirms by doing what its click
+  // does. Closing the drawer pops the surface back to the board.
+  function drawerStops(card: KanbanCard): RingStop[] {
+    const focusStop = (id: string) => () => {
+      document
+        .querySelector<HTMLElement>(`[data-mkey="${CSS.escape(id)}"]`)
+        ?.focus();
+    };
+    const stops: RingStop[] = [
+      { id: "d-close", confirm: () => (detailId = null) },
+      { id: "d-title", confirm: focusStop("d-title") },
+      { id: "d-notes", confirm: focusStop("d-notes") },
+    ];
+    for (const d of DIFFICULTIES) {
+      stops.push({
+        id: `d-diff-${d}`,
+        confirm: () => setDifficulty(card, card.difficulty === d ? null : d),
+      });
+    }
+    stops.push({ id: "d-due", confirm: focusStop("d-due") });
+    if (card.dueAt) {
+      stops.push({ id: "d-due-clear", confirm: () => setDue(card, "") });
+    }
+    for (const sub of card.subtasks ?? []) {
+      stops.push({
+        id: `d-sub-check-${sub.id}`,
+        confirm: () => toggleSubtask(card, sub.id),
+      });
+      stops.push({
+        id: `d-sub-del-${sub.id}`,
+        confirm: () => deleteSubtask(card, sub.id),
+      });
+    }
+    stops.push({ id: "d-sub-input", confirm: focusStop("d-sub-input") });
+    stops.push({ id: "d-sub-add", confirm: () => addSubtask(card) });
+    for (const t of tags) {
+      stops.push({
+        id: `d-tag-${t.id}`,
+        confirm: () => toggleCardTag(card, t.id),
+      });
+    }
+    if ((card.kind === "window" || card.windowId) && winFor(card)) {
+      stops.push({ id: "d-win-focus", confirm: () => focusCard(card) });
+    }
+    return stops;
+  }
+
   function saveTitle(card: KanbanCard, raw: string) {
     const title = raw.trim();
     if (!title || title === card.title) return;
@@ -886,8 +1002,11 @@
     // the sprite aside. Overlay Launchpad still hydrates in-line.
     if (embedded) {
       detachMenuKeys = menuRing.attach(() => {
-        // KANBAN-GRAB: Esc (pad B) lets go of a held card first, then
-        // the drawer, then (CompanionPage's bubble Esc) the well.
+        // KANBAN-GRAB: Esc (pad B) lets go of a held card first. An open
+        // drawer is its own ring surface and eats its Esc ahead of this
+        // root handler — the detailId branch only covers the sub-frame
+        // before the surface push lands. Then (CompanionPage's bubble
+        // Esc) the well.
         if (grabbedId) {
           ungrab();
           return true;
@@ -1041,6 +1160,8 @@
       type="button"
       class="planet-tab"
       class:sel={selected === "inbox"}
+      class:mkey-sel={menuRing.activeId === "listtab-inbox"}
+      data-mkey="listtab-inbox"
       role="tab"
       aria-selected={selected === "inbox"}
       onclick={() => (selected = "inbox")}
@@ -1052,6 +1173,8 @@
       type="button"
       class="planet-tab"
       class:sel={selected === "today"}
+      class:mkey-sel={menuRing.activeId === "listtab-today"}
+      data-mkey="listtab-today"
       role="tab"
       aria-selected={selected === "today"}
       onclick={() => (selected = "today")}
@@ -1063,6 +1186,8 @@
       type="button"
       class="planet-tab"
       class:sel={selected === "done"}
+      class:mkey-sel={menuRing.activeId === "listtab-done"}
+      data-mkey="listtab-done"
       role="tab"
       aria-selected={selected === "done"}
       onclick={() => (selected = "done")}
@@ -1076,6 +1201,8 @@
         type="button"
         class="planet-tab"
         class:sel={selected === p.id}
+        class:mkey-sel={menuRing.activeId === `listtab-${p.id}`}
+        data-mkey={`listtab-${p.id}`}
         role="tab"
         aria-selected={selected === p.id}
         title={p.name}
@@ -1191,13 +1318,21 @@
       <aside class="k-detail" aria-label="Item details">
         <header class="d-head">
           <span class="d-title">Details</span>
-          <button class="d-close" onclick={() => (detailId = null)} aria-label="Close details">×</button>
+          <button
+            class="d-close"
+            class:mkey-sel={menuRing.activeId === "d-close"}
+            data-mkey="d-close"
+            onclick={() => (detailId = null)}
+            aria-label="Close details">×</button
+          >
         </header>
 
         <label class="d-label" for="d-name">Title</label>
         <input
           id="d-name"
           class="d-input"
+          class:mkey-sel={menuRing.activeId === "d-title"}
+          data-mkey="d-title"
           value={card.title}
           onchange={(e) => saveTitle(card, e.currentTarget.value)}
           required
@@ -1207,6 +1342,8 @@
         <textarea
           id="d-notes"
           class="d-input d-textarea"
+          class:mkey-sel={menuRing.activeId === "d-notes"}
+          data-mkey="d-notes"
           rows="4"
           placeholder="Add notes…"
           value={card.notes ?? ""}
@@ -1219,6 +1356,8 @@
             <button
               class="mini"
               class:active={card.difficulty === d}
+              class:mkey-sel={menuRing.activeId === `d-diff-${d}`}
+              data-mkey={`d-diff-${d}`}
               onclick={() => setDifficulty(card, card.difficulty === d ? null : d)}
             >
               {d}
@@ -1231,12 +1370,19 @@
           <input
             id="d-due"
             class="d-input"
+            class:mkey-sel={menuRing.activeId === "d-due"}
+            data-mkey="d-due"
             type="date"
             value={dateInputValue(card)}
             onchange={(e) => setDue(card, e.currentTarget.value)}
           />
           {#if card.dueAt}
-            <button class="mini ghost" onclick={() => setDue(card, "")}>Clear</button>
+            <button
+              class="mini ghost"
+              class:mkey-sel={menuRing.activeId === "d-due-clear"}
+              data-mkey="d-due-clear"
+              onclick={() => setDue(card, "")}>Clear</button
+            >
           {/if}
         </div>
 
@@ -1247,6 +1393,8 @@
               <button
                 class="k-check"
                 class:checked={sub.done}
+                class:mkey-sel={menuRing.activeId === `d-sub-check-${sub.id}`}
+                data-mkey={`d-sub-check-${sub.id}`}
                 onclick={() => toggleSubtask(card, sub.id)}
                 aria-label={sub.done ? "Reopen subtask" : "Complete subtask"}
                 title={sub.done ? "Reopen" : "Complete"}>{sub.done ? "✓" : ""}</button
@@ -1254,6 +1402,8 @@
               <span class="d-subtitle" class:strike={sub.done}>{sub.title}</span>
               <button
                 class="d-del"
+                class:mkey-sel={menuRing.activeId === `d-sub-del-${sub.id}`}
+                data-mkey={`d-sub-del-${sub.id}`}
                 onclick={() => deleteSubtask(card, sub.id)}
                 aria-label="Delete subtask"
                 title="Delete">×</button
@@ -1266,11 +1416,18 @@
         <div class="d-subadd">
           <input
             class="d-input"
+            class:mkey-sel={menuRing.activeId === "d-sub-input"}
+            data-mkey="d-sub-input"
             bind:value={newSubtask}
             placeholder="Add a subtask…"
             onkeydown={(e) => e.key === "Enter" && addSubtask(card)}
           />
-          <button class="mini" onclick={() => addSubtask(card)}>Add</button>
+          <button
+            class="mini"
+            class:mkey-sel={menuRing.activeId === "d-sub-add"}
+            data-mkey="d-sub-add"
+            onclick={() => addSubtask(card)}>Add</button
+          >
         </div>
 
         <span class="d-label">Tags</span>
@@ -1280,6 +1437,8 @@
               <button
                 class="mini"
                 class:active={cardHasTag(card, t.id)}
+                class:mkey-sel={menuRing.activeId === `d-tag-${t.id}`}
+                data-mkey={`d-tag-${t.id}`}
                 aria-pressed={cardHasTag(card, t.id)}
                 onclick={() => toggleCardTag(card, t.id)}>{t.name}</button
               >
@@ -1300,7 +1459,12 @@
               {card.windowId ? displayTitle(card) : "Not linked"}
             </span>
             {#if w}
-              <button class="mini" onclick={() => focusCard(card)}>Focus</button>
+              <button
+                class="mini"
+                class:mkey-sel={menuRing.activeId === "d-win-focus"}
+                data-mkey="d-win-focus"
+                onclick={() => focusCard(card)}>Focus</button
+              >
             {/if}
           </div>
           <p class="d-hint">Window links are made by claiming in the rail — read-only here.</p>
