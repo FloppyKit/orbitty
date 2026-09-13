@@ -10,6 +10,7 @@
   } from "../themes/apply";
   import { planetCss } from "./planetColor";
   import { startPaneDrag } from "./dragPane";
+  import RailStack from "./RailStack.svelte";
   import type {
     ActionShortcut,
     AgentShortcut,
@@ -2636,6 +2637,14 @@
         aria-label={embedded ? "Dismiss Planets" : "Hide Orbitty"}>×</button
       >
     </header>
+
+    {#if !embedded}
+      <!-- GO-ORBITTY-RAIL-CLOSE: the window stack (STARS / Sky / Board /
+           Companion / ⚙) — toggle_labeled, show+focus then hide. Own
+           file (module law); the embedded Planets well keeps the dock's
+           dest chips instead. -->
+      <RailStack />
+    {/if}
 
     {#if status?.trusted && stateLoaded && !embedded}
       <div class="list-head">
