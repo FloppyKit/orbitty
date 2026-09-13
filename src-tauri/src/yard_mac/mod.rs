@@ -13,11 +13,19 @@
 //! planets; the yard never steals a walker. Cats are SESSION ONLY — no
 //! state.json, no worlds.json, no persistence of any kind.
 //!
-//! Hits: left-click a cat focuses/restores its window (the existing AX
-//! path); right-click opens the cat menu — Assign to planet (emits
+//! Hits (leftover: click — cats match the walkers' locate-then-open
+//! split): single click says the cat's app name only (~2s chip above
+//! the sprite, never a focus/restore/open); click-hold drags the cat
+//! SPRITE (≥4px slop, same as walkers — a real drag is not a click);
+//! a drop in the top fifth of THAT screen rains the cat back to the
+//! bottom of that display (the existing rain gait — a visible fall,
+//! never a teleport), any other drop leaves it where it was let go;
+//! double-click focuses/restores the window (the existing AX path);
+//! right-click opens the cat menu — Assign to planet (emits
 //! `yard:assign`; the rail's claim() is the one claim writer), Close
 //! window (AX close press, never a pid kill), Scoop this cat (hidden, the
-//! window stays). Esc (global monitor for other apps key, local monitor
+//! window stays). The hit machine lives in input.rs (module law).
+//! Esc (global monitor for other apps key, local monitor
 //! for Orbitty key), ⌘⇧Y, and the Settings row while on all scoop all.
 //! Last cat gone = overlay gone, mode off. Drop on an already-on yard is
 //! a no-op (never double-spawn).
@@ -46,6 +54,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
+mod input;
 mod meow;
 
 // ---------- geometry (habitat stays crate-private; these are the same
@@ -185,6 +194,20 @@ struct PendingCat {
     at: Instant,
 }
 
+/// A live press on a cat (mouseDown → mouseUp), click-or-drag undecided
+/// until the slop or the up. Mirrors the habitat's walker press: ≥4px
+/// of travel is a drag, under that a click.
+struct CatPress {
+    window_id: String,
+    /// Global bottom-left mouse at mouseDown (the slop anchor).
+    start: NSPoint,
+    moved: f64,
+    /// Pointer offset inside the sprite box at grab — the cat follows
+    /// the hand without snapping its center to the pointer.
+    grab_dx: f64,
+    grab_dy: f64,
+}
+
 struct YardPanel {
     screen_id: String,
     panel: usize, // NSPanel
@@ -224,6 +247,11 @@ struct Yard {
     /// monitors never see our own app's keys, so this is what scoops
     /// while Orbitty is key.
     esc_local_monitor: usize,
+    /// Live press on a cat (leftover: click) — click-or-drag until the
+    /// 4px slop or the up decides. input.rs owns the verdicts.
+    press: Option<CatPress>,
+    /// Single-click app-name chip: (window id, armed at), ~2s.
+    caption: Option<(String, Instant)>,
 }
 
 impl Default for Yard {
@@ -242,6 +270,8 @@ impl Default for Yard {
             meow: meow::Meow::default(),
             esc_monitor: 0,
             esc_local_monitor: 0,
+            press: None,
+            caption: None,
         }
     }
 }
@@ -557,11 +587,11 @@ unsafe fn register_yard_view_class() -> Option<&'static Class> {
     );
     decl.add_method(
         sel!(mouseDown:),
-        mouse_down as extern "C" fn(&Object, Sel, *mut Object),
+        input::mouse_down as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(mouseUp:),
-        mouse_up as extern "C" fn(&Object, Sel, *mut Object),
+        input::mouse_up as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(rightMouseDown:),
@@ -850,7 +880,10 @@ fn motion_step(y: &mut Yard, dt: f64) {
             pause_until: None,
         });
     }
-    // Step motion.
+    // Step motion. A cat held by hand (leftover: click) is owned by
+    // input::press_tick — anim still advances so the drag reads alive,
+    // but gait/position are the hand's.
+    let held_id = y.press.as_ref().map(|p| p.window_id.clone());
     for idx in 0..y.cats.len() {
         let Some(panel) = y
             .panels
@@ -862,6 +895,9 @@ fn motion_step(y: &mut Yard, dt: f64) {
         let walk = panel.walk;
         let cat = &mut y.cats[idx];
         cat.anim = cat.anim.wrapping_add(1);
+        if held_id.as_deref() == Some(cat.window_id.as_str()) {
+            continue;
+        }
         match cat.gait {
             Gait::Rain => {
                 cat.y += RAIN_VY * dt;
@@ -1034,6 +1070,17 @@ fn hop() {
         if !y.packs.is_empty() {
             motion_step(&mut y, dt);
         }
+        // The drag step / off-view release catch (leftover: click).
+        input::press_tick(&mut y);
+        // Retire an expired app-name chip (draw also gates on the TTL;
+        // this just keeps the state honest between blits).
+        if y
+            .caption
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() >= input::CAPTION_TTL)
+        {
+            y.caption = None;
+        }
         // Display hotplug / rearrange, ~1s cadence (cheap on main).
         if y.hop_count % POLL_EVERY == 0 {
             unsafe { sync_panels(&mut y) };
@@ -1080,15 +1127,24 @@ fn hop() {
 fn cursor_ghost(y: &mut Yard) {
     unsafe {
         let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+        // A held press keeps its panel's events on even if the pointer
+        // slips off the sprite mid-press (leftover: click) — otherwise
+        // the drag/up dies en route and the cat sticks to the hand.
+        let held: Option<String> = y.press.as_ref().and_then(|press| {
+            y.cats
+                .iter()
+                .find(|c| c.window_id == press.window_id)
+                .map(|c| c.screen_id.clone())
+        });
         for p in y.panels.iter() {
             let local = NSPoint {
                 x: mouse.x - p.frame.origin.x,
                 y: p.frame.max_y() - mouse.y,
             };
-            let over = y
-                .cats
-                .iter()
-                .any(|c| c.screen_id == p.screen_id && cat_rect(c).inset(-3.0).contains(local));
+            let over = held.as_deref() == Some(p.screen_id.as_str())
+                || y.cats
+                    .iter()
+                    .any(|c| c.screen_id == p.screen_id && cat_rect(c).inset(-3.0).contains(local));
             let panel = p.panel as *mut Object;
             let _: () = msg_send![panel, setIgnoresMouseEvents: !over];
         }
@@ -1170,6 +1226,20 @@ unsafe fn draw_inner(this: &Object) {
             hints: std::ptr::null::<Object>()];
         let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
     }
+    // Single-click chip (leftover: click): the cat's app name above its
+    // sprite for ~2s — the walker locate stroke's yard form. Drawn last
+    // so it sits over the sprite; never a focus/restore.
+    if let Some((id, at)) = &y.caption {
+        if at.elapsed() < input::CAPTION_TTL {
+            if let Some(cat) = y
+                .cats
+                .iter()
+                .find(|c| &c.window_id == id && c.screen_id == screen_id)
+            {
+                input::draw_cat_chip(cat, &cat.app_name);
+            }
+        }
+    }
 }
 
 unsafe fn current_graphics_context() -> Option<*mut Object> {
@@ -1181,28 +1251,8 @@ unsafe fn current_graphics_context() -> Option<*mut Object> {
     }
 }
 
-/// mouseDown is swallowed — the click act is mouseUp (focus), and a
-/// default NSView mouseDown would just walk the responder chain.
-extern "C" fn mouse_down(_this: &Object, _cmd: Sel, _event: *mut Object) {}
-
-extern "C" fn mouse_up(this: &Object, _cmd: Sel, event: *mut Object) {
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let loc: NSPoint = msg_send![event, locationInWindow];
-        let local: NSPoint =
-            msg_send![this, convertPoint: loc fromView: std::ptr::null::<Object>()];
-        let id = {
-            let y = lock();
-            hit_cat(&y, this as *const Object as usize, local)
-        };
-        if let Some(id) = id {
-            // Focus/restore the window (existing AX path). The cat stays
-            // until the window is claimed/closed/scooped — a focused
-            // unclaimed window is still unclaimed.
-            let _ = crate::windows::restore_window(&id);
-        }
-    }))
-    .map_err(|p| eprintln!("yard: mouseUp panicked: {}", panic_msg(&*p)));
-}
+// mouseDown / mouseUp (click / drag / double-click on a cat) live in
+// input.rs — the hit machine would pile onto this file (module law).
 
 extern "C" fn right_mouse_down(this: &Object, _cmd: Sel, event: *mut Object) {
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
@@ -1638,6 +1688,8 @@ unsafe fn start_on_main() {
     y.spawn_count = 0;
     y.last_hop = None;
     y.hop_count = 0;
+    y.press = None;
+    y.caption = None;
     HOP_PENDING.store(false, Ordering::SeqCst);
     y.packs = packs;
     y.meow = meow::Meow::armed();
@@ -1702,4 +1754,6 @@ fn stop_on_main() {
     y.cats.clear();
     y.queue.clear();
     y.scooped.clear();
+    y.press = None;
+    y.caption = None;
 }
