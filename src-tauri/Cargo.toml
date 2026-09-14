@@ -34,7 +34,7 @@ cc = "1"
 [dependencies]
 # protocol-asset: GO-ORBITTY-COMPANION-3D serves the bundled GLBs via
 # convertFileSrc (scope $RESOURCE/companion/3d/**) — never a data-URL.
-tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
@@ -59,3 +59,6 @@ window-vibrancy = "0.6"
 panic = "unwind"
 codegen-units = 1
 lto = true
+# GO-ORBITTY-SHIP-SLIM: LTO was already on; strip is the missing half of
+# the release diet (copy test: 15MB -> 13MB binary).
+strip = true
