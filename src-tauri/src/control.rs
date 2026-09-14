@@ -17,6 +17,8 @@
 //! kanban.move / needed.open / log.append). Writes are never in
 //! READ_TOOLS and never match companion.*, so only `full` or a named
 //! `custom` allowlist reaches them; `read` / `companion` deny (4).
+//! GO-ORBITTY-CARD-BLURB adds kanban.notes (set/clear a card's one-line
+//! summary) and the optional `notes` arg on kanban.add — same write ACL.
 //!
 //! GO-ORBITTY-ACTION-FILE adds the action recipe file (action.list /
 //! action.add / action.run / action.rm). `action.list` is read-profile
@@ -236,7 +238,8 @@ fn load_acl(dir: &Path) -> Result<Acl, String> {
 // needed.open / log.append) are deliberately NOT here and not companion.* —
 // `read` and `companion` profiles deny them (4); only `full` or a named
 // `custom` entry allows a write. GO-ORBITTY-PROJECT-ADD: project.add /
-// project.rm / project.rename ride the same rule.
+// project.rm / project.rename ride the same rule. GO-ORBITTY-CARD-BLURB:
+// kanban.notes too.
 const READ_TOOLS: &[&str] = &[
     "app.status",
     "app.accessibility_status",
@@ -489,7 +492,23 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let title = arg_str(args, "title")?;
             let project = arg_opt(args, "projectId").unwrap_or_default();
             let status = arg_opt(args, "status").unwrap_or_default();
-            crate::board::kanban_add(app, &title, &project, &status)
+            // GO-ORBITTY-CARD-BLURB: optional one-line summary (notes).
+            crate::board::kanban_add(app, &title, &project, &status, arg_opt(args, "notes").as_deref())
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // GO-ORBITTY-CARD-BLURB: set a card's notes (first line = the
+        // board-row summary). `notes` must be a string; empty clears —
+        // same shape as kanban.assign's empty-unassigns. Same write ACL.
+        "kanban.notes" => {
+            let id = arg_str(args, "id")?;
+            let notes = args.get("notes").and_then(Value::as_str).ok_or_else(|| {
+                (
+                    ERR_OTHER,
+                    "kanban.notes: need string arg \"notes\" (empty clears)".to_string(),
+                )
+            })?;
+            crate::board::kanban_notes(app, &id, notes)
                 .map(to_data)
                 .map_err(tool_err)
         }

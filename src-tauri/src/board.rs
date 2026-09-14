@@ -1,5 +1,10 @@
 //! GO-ORBITTY-MCP-WRITE — board write helpers for the control-plane write
-//! tools (`kanban.add` / `kanban.move` / `needed.open`). One mutate path:
+//! tools (`kanban.add` / `kanban.move` / `kanban.notes` / `needed.open`).
+//! GO-ORBITTY-CARD-BLURB: `kanban.add` takes an optional `notes` (the board
+//! row's one-line summary), `kanban.notes` sets/clears it on an existing
+//! card, and `backfill_go_card_notes` (startup) pre-fills the locked
+//! one-liners on exact-token GO-ORBITTY-* todos whose notes are empty.
+//! One mutate path:
 //! `load_state` → change cards → `save_state` through the SAME door the
 //! Tauri `save_state` command uses (disk-before claim diff + `state:changed`
 //! emit), so Launchpad / STARS / planets live-update on an agent write
@@ -132,13 +137,16 @@ pub(crate) fn resolve_project(
 /// `todo` (default) or `doing`; done is never minted (it is earned through
 /// the complete door). `projectId` is an id OR a unique planet name
 /// (GO-ORBITTY-MOUTH-TODO resolve). Logs `board-add`.
+/// GO-ORBITTY-CARD-BLURB: `notes` is the optional one-line runner summary
+/// (first line paints as the board row's `.b-notes`); empty/None = none.
 pub fn kanban_add(
     app: &tauri::AppHandle,
     title: &str,
     project_id: &str,
     status: &str,
+    notes: Option<&str>,
 ) -> Result<KanbanCard, String> {
-    kanban_add_as(app, title, project_id, status, "agent")
+    kanban_add_as(app, title, project_id, status, "agent", notes)
 }
 
 /// Same door as `kanban.add`; `actor` is who minted ("agent" for MCP/ctl,
@@ -149,6 +157,7 @@ pub fn kanban_add_as(
     project_id: &str,
     status: &str,
     actor: &str,
+    notes: Option<&str>,
 ) -> Result<KanbanCard, String> {
     let title = title.trim();
     if title.is_empty() {
@@ -180,7 +189,10 @@ pub fn kanban_add_as(
         clinical_or_master: false,
         points_awarded: 0,
         starred: false,
-        notes: None,
+        notes: notes
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(str::to_string),
         difficulty: None,
         subtasks: None,
         due_at: None,
@@ -310,6 +322,140 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
     // (run row only — the launchers above own the process).
     crate::agent_runs::attach_on_moves(app, &before, &after);
     Ok(after.kanban_cards[idx].clone())
+}
+
+/// GO-ORBITTY-CARD-BLURB: `kanban.notes` — set a card's `notes` (the first
+/// line is the board row's one-line summary; the drawer edits the rest).
+/// Empty-after-trim clears, exactly like the drawer (notes → None). Same
+/// one save door as add/move; a no-change write is the board's early
+/// return (no save, no log). Logs `board-notes` with the id + cleared
+/// flag only — never the text (small JSON, no PHI).
+pub fn kanban_notes(app: &tauri::AppHandle, id: &str, notes: &str) -> Result<KanbanCard, String> {
+    let notes = notes.trim();
+    let before = crate::state::load_state(app)?;
+    let idx = before
+        .kanban_cards
+        .iter()
+        .position(|c| c.id == id.trim())
+        .ok_or_else(|| format!("kanban.notes: unknown card id {id:?}"))?;
+    if before.kanban_cards[idx].notes.as_deref().unwrap_or("") == notes {
+        return Ok(before.kanban_cards[idx].clone());
+    }
+    let mut after = before.clone();
+    after.kanban_cards[idx].notes = if notes.is_empty() {
+        None
+    } else {
+        Some(notes.to_string())
+    };
+    save_with_events(app, &before, &after)?;
+    event_log::append_best(
+        app,
+        "board-notes",
+        None,
+        Some(&after.kanban_cards[idx].project_id),
+        Some("agent"),
+        true,
+        &serde_json::json!({ "cardId": after.kanban_cards[idx].id, "cleared": notes.is_empty() }),
+    );
+    Ok(after.kanban_cards[idx].clone())
+}
+
+/// GO-ORBITTY-CARD-BLURB: the locked one-liners for the GO-ORBITTY-*
+/// runner todos — what the runner is and does, first line of `notes`.
+const GO_CARD_BLURBS: &[(&str, &str)] = &[
+    ("GO-ORBITTY-ATTACH", "One file chip on Spark, original path, gone after send. 25 MB cap."),
+    ("GO-ORBITTY-SHIP-SLIM", "NES-tiny blessed app (strip, GLBs out, icns). Not habitat behavior."),
+    ("GO-ORBITTY-DEAD-DRAWERS", "Diet #2: delete unused drawer/dock stubs. Behavior unchanged."),
+    ("GO-ORBITTY-DEAD-INVOKE", "Diet #3: drop Tauri commands the UI never calls."),
+    ("GO-ORBITTY-CHROME-CSS", "Diet #4: one shared wordmark/winx CSS. No restyle."),
+    ("GO-ORBITTY-COMMENT-DIET", "Diet #5: strip GO history comments; keep constraint lines."),
+    ("GO-ORBITTY-SLEEP-PRESETS", "Unused planets marble after 1h/4h/12h/Never. Default 4h."),
+    ("GO-ORBITTY-STARS-FIVE", "STARS spokes 1–5. Empty day stays empty."),
+    ("GO-ORBITTY-NEEDED-RULES-ANSWER", "After an answer, “if this again” without typing RULE:."),
+    ("GO-ORBITTY-DOCK-CENTER", "Optional: dests sit on the dock after rail is quiet."),
+    ("GO-ORBITTY-TASK-BOUNDARY", "Snapshot planet root before/after a file-writing task. Undo that task."),
+    ("GO-ORBITTY-GATE-CAPS", "$20/day default, 2 runners (max 4). Needed is the gate."),
+    ("GO-ORBITTY-CHEATSHEET", "⌘? one-screen keys after cockpit mails."),
+    ("GO-ORBITTY-BOARD-PROOFS", "Todo/doing/done as Nostr 420/421/422 (`t=orbitty`). Journal stays 31200."),
+    ("GO-ORBITTY-DOING-WALKER", "Drag doing → android on that planet. Needed/blocked → near rim."),
+    ("GO-ORBITTY-HERDR-ADAPTER", "Herdr if present (skip+URL). OpenCode detect-only."),
+    ("GO-ORBITTY-MOUTH-HOP", "Thin router: local → OpenRouter free → paid Grok. Same bubble."),
+    ("GO-ORBITTY-KANBAN-GRAB", "Shift+Enter grab, arrows move, Enter drop, Esc ungrab."),
+    ("GO-ORBITTY-CARD-BLURB", "Board row shows a one-line runner summary (`notes`)."),
+];
+
+/// A backfillable GO title is exactly the token — `GO-ORBITTY-FOO`, never
+/// `GO-ORBITTY-FOO leftover: …` (a suffixed row is Matt's own edit).
+fn is_exact_go_token(title: &str) -> bool {
+    title
+        .strip_prefix("GO-ORBITTY-")
+        .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-'))
+}
+
+/// Fallback for tokens outside the table: the first non-empty `Matt:` line
+/// of the nest prompt file `~/.buzz/PLANS/_GO_<TOKEN>_PROMPT.md`
+/// (dash→underscore slug, same PLANS dir needed_rules uses).
+fn go_prompt_blurb(title: &str) -> Option<String> {
+    let path = std::path::PathBuf::from(std::env::var("HOME").ok()?)
+        .join(".buzz/PLANS")
+        .join(format!("_{}_PROMPT.md", title.replace('-', "_")));
+    let raw = std::fs::read_to_string(path).ok()?;
+    raw.lines()
+        .filter_map(|l| l.trim().strip_prefix("Matt:"))
+        .map(str::trim)
+        .find(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// GO-ORBITTY-CARD-BLURB: one-time startup backfill — existing
+/// `kind: "todo"` cards titled exactly `GO-ORBITTY-*` with EMPTY notes get
+/// the one-liner (table first, then the nest prompt file's first `Matt:`
+/// line, else left empty). A note Matt already typed is never overwritten.
+/// Best-effort: a load/save failure only skips the backfill, never boot.
+pub fn backfill_go_card_notes(app: &tauri::AppHandle) {
+    let before = match crate::state::load_state(app) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("card-blurb backfill: load_state: {e}");
+            return;
+        }
+    };
+    let mut after = before.clone();
+    let mut filled = 0u32;
+    for c in &mut after.kanban_cards {
+        if c.kind.as_deref() != Some("todo") || !is_exact_go_token(&c.title) {
+            continue;
+        }
+        if c.notes.as_deref().is_some_and(|n| !n.trim().is_empty()) {
+            continue; // Matt's note wins — never overwrite
+        }
+        let blurb = GO_CARD_BLURBS
+            .iter()
+            .find(|(t, _)| *t == c.title)
+            .map(|(_, b)| (*b).to_string())
+            .or_else(|| go_prompt_blurb(&c.title));
+        if let Some(b) = blurb {
+            c.notes = Some(b);
+            filled += 1;
+        }
+    }
+    if filled == 0 {
+        return;
+    }
+    if let Err(e) = save_with_events(app, &before, &after) {
+        eprintln!("card-blurb backfill: save: {e}");
+        return;
+    }
+    // Count only — card text stays out of the log (small JSON, no PHI).
+    event_log::append_best(
+        app,
+        "board-notes-backfill",
+        None,
+        None,
+        Some("agent"),
+        true,
+        &serde_json::json!({ "filled": filled }),
+    );
 }
 
 /// GO-ORBITTY-PROJECT-ADD: `project.add` — mint a planet row

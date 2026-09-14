@@ -628,6 +628,11 @@ pub fn run() {
             // reads/writes state under the new identifier.
             state::migrate_app_support(app.handle());
 
+            // GO-ORBITTY-CARD-BLURB: one-time backfill — exact-token
+            // GO-ORBITTY-* todos with empty notes get the locked one-liner
+            // (never overwrites a note Matt typed). Best-effort.
+            board::backfill_go_card_notes(app.handle());
+
             // GO-ORBITTY-CONTROL-PLANE-0: local Unix control socket (0600)
             // serving the same handlers as invoke. Bind failure is logged
             // once and the app runs on without it.

@@ -33,8 +33,9 @@ commands:
   companion note [--mode spark|chat|work|hold] -- \"line\"
   companion hack -- on|off [--who cursor] [--project P]
   kanban open
-  kanban add --title \"t\" [--project P] [--status todo|doing]
+  kanban add --title \"t\" [--project P] [--status todo|doing] [--notes \"n\"]
   kanban move --id <id> --status todo|doing|done
+  kanban notes --id <card> -- \"text\"      empty \"\" clears
   kanban assign --id <card> --agent <agent>   empty --agent \"\" unassigns
   agent list
   agent add --name N --harness cursor|goose|grok|hermes [--profile P]
@@ -67,6 +68,10 @@ GO-ORBITTY-MCP-WRITE: the four write verbs (kanban add/move, needed open,
 log append) mutate through the app's one save door — the UI live-updates.
 ACL: control.json profile full, or a named custom allowlist entry; read /
 companion are denied (exit 4).
+
+GO-ORBITTY-CARD-BLURB: kanban add takes --notes (the board row's one-line
+summary; first line paints, the drawer edits the rest) and kanban notes
+sets/clears it on an existing card — same save door, same write ACL.
 
 GO-ORBITTY-PROJECT-ADD: project add / rm / rename mint, kill, and rename
 planets through the same save door (habitat paints whatever projects[]
@@ -104,6 +109,7 @@ struct Opts {
     title: Option<String>,
     project: Option<String>,
     status: Option<String>,
+    notes: Option<String>,
     why: Option<String>,
     etype: Option<String>,
     actor: Option<String>,
@@ -133,6 +139,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         title: None,
         project: None,
         status: None,
+        notes: None,
         why: None,
         etype: None,
         actor: None,
@@ -175,6 +182,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--status" => {
                 o.status = Some(it.next().ok_or("--status needs a value")?.clone())
             }
+            "--notes" => o.notes = Some(it.next().ok_or("--notes needs a value")?.clone()),
             "--why" => o.why = Some(it.next().ok_or("--why needs a value")?.clone()),
             "--type" => o.etype = Some(it.next().ok_or("--type needs a value")?.clone()),
             "--actor" => o.actor = Some(it.next().ok_or("--actor needs a value")?.clone()),
@@ -209,6 +217,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.project = Some(s["--project=".len()..].to_string())
             }
             s if s.starts_with("--status=") => o.status = Some(s["--status=".len()..].to_string()),
+            s if s.starts_with("--notes=") => o.notes = Some(s["--notes=".len()..].to_string()),
             s if s.starts_with("--why=") => o.why = Some(s["--why=".len()..].to_string()),
             s if s.starts_with("--type=") => o.etype = Some(s["--type=".len()..].to_string()),
             s if s.starts_with("--actor=") => o.actor = Some(s["--actor=".len()..].to_string()),
@@ -369,8 +378,19 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             if let Some(s) = opt(&o.status) {
                 a["status"] = json!(s);
             }
+            // GO-ORBITTY-CARD-BLURB: blank --notes = absent (none minted).
+            if let Some(n) = opt(&o.notes) {
+                a["notes"] = json!(n);
+            }
             Ok(("kanban.add", a))
         }
+        // GO-ORBITTY-CARD-BLURB: set/clear a card's one-line summary. The
+        // text is the `--` payload; `-- ""` clears (payload keeps Some("")),
+        // so the clear always reaches the server as an empty string.
+        ["kanban", "notes"] => Ok((
+            "kanban.notes",
+            json!({ "id": need_id(o)?, "notes": payload(o)? }),
+        )),
         ["kanban", "move"] => Ok((
             "kanban.move",
             json!({ "id": need_id(o)?, "status": need_flag(&o.status, "--status")? }),
@@ -668,6 +688,15 @@ fn print_human(tool: &str, data: &Value) {
             data["id"].as_str().unwrap_or("?"),
             data["status"].as_str().unwrap_or("?")
         ),
+        // GO-ORBITTY-CARD-BLURB printer. The reply is the card; notes
+        // absent = cleared back to title-only.
+        "kanban.notes" => {
+            let id = data["id"].as_str().unwrap_or("?");
+            match data["notes"].as_str().filter(|n| !n.is_empty()) {
+                Some(n) => println!("notes {id} — {}", n.lines().next().unwrap_or("")),
+                None => println!("notes cleared {id}"),
+            }
+        }
         // GO-ORBITTY-AGENT-PLANET printers.
         "kanban.assign" => {
             let id = data["id"].as_str().unwrap_or("?");

@@ -10,6 +10,8 @@
 //! kanban.move / needed.open / log.append) alongside the v0 read/open
 //! surface — same one Unix round-trip per tools/call, same control.json
 //! ACL (writes: full / named custom only).
+//! GO-ORBITTY-CARD-BLURB adds kanban.notes (set/clear the board-row
+//! summary) and the optional `notes` arg on kanban.add — same write ACL.
 //! GO-ORBITTY-PROJECT-ADD lists the planet control plane (project.add /
 //! project.rm / project.rename) next to the kanban writes — same ACL.
 //! GO-ORBITTY-AGENT-PLANET lists the agent roster (agent.list / agent.add /
@@ -32,10 +34,10 @@ struct ToolDef {
     name: &'static str,
     description: &'static str,
     /// "none" | "id" | "line" | "profile" | "clip" | "kanban_add" |
-    /// "kanban_move" | "kanban_assign" | "needed_open" | "log_append" |
-    /// "action_add" | "action_run" | "action_rm" | "project_add" |
-    /// "project_rm" | "project_rename" | "agent_add" | "agent_pin" |
-    /// "agent_pickup"
+    /// "kanban_move" | "kanban_notes" | "kanban_assign" | "needed_open" |
+    /// "log_append" | "action_add" | "action_run" | "action_rm" |
+    /// "project_add" | "project_rm" | "project_rename" | "agent_add" |
+    /// "agent_pin" | "agent_pickup"
     args: &'static str,
 }
 
@@ -59,8 +61,10 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "state.get", description: "Read persisted Orbitty state", args: "none" },
     // GO-ORBITTY-MCP-WRITE: the four write tools. control.json ACL still
     // applies — read / companion profiles get denied (4).
-    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move)", args: "kanban_add" },
+    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move); optional notes = the board row's one-line summary", args: "kanban_add" },
     ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
+    // GO-ORBITTY-CARD-BLURB: set/clear the summary line. Same write ACL.
+    ToolDef { name: "kanban.notes", description: "Set a card's notes (first line paints as the board-row summary; the drawer edits the rest); empty string clears", args: "kanban_notes" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
     // GO-ORBITTY-PROJECT-ADD: the planet control plane, next to the kanban
@@ -127,9 +131,19 @@ fn input_schema(kind: &str) -> Value {
                     "type": "string",
                     "enum": ["todo", "doing"],
                     "description": "Initial column (default todo; done is never minted)"
-                }
+                },
+                "notes": { "type": "string", "description": "One-line runner summary (first line paints on the board row); omitted/empty = none" }
             },
             "required": ["title"]
+        }),
+        // GO-ORBITTY-CARD-BLURB schema. Empty string is meaningful: clears.
+        "kanban_notes" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "notes": { "type": "string", "description": "Notes text (first line is the board-row summary); empty string clears" }
+            },
+            "required": ["id", "notes"]
         }),
         "kanban_move" => json!({
             "type": "object",
