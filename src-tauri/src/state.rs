@@ -453,6 +453,13 @@ pub struct CompanionState {
     /// while the run is live. None = no pin / not a pickup; cleared on
     /// off. Never a transcript.
     pub hack_project_id: Option<String>,
+    /// GO-ORBITTY-MOUTH-HOP: Free Mode — the grok-lane router runs the
+    /// free lanes only (local Ollama → OpenRouter free) and paid Grok
+    /// stays off, so no surprise bill. Default off. The OpenRouter key
+    /// is NOT here — it lives 0600 in companions/orbitty-primary, never
+    /// in this whole-object save.
+    #[serde(default)]
+    pub free_mode: bool,
 }
 
 /// S2.4: one saved companion turn. role: "you" | "them".
@@ -608,6 +615,7 @@ impl Default for CompanionState {
             hack_live: false,
             hack_who: String::new(),
             hack_project_id: None,
+            free_mode: false,
         }
     }
 }

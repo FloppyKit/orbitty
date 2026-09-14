@@ -22,6 +22,7 @@ mod doing_fire;
 mod drawers;
 mod event_log;
 mod glass;
+mod mouth_hop;
 mod mouth_roll;
 mod needed_rules;
 mod nextcard;
@@ -606,6 +607,9 @@ pub fn run() {
             coordinator::set_companion_speak_volume,
             coordinator::set_companion_captions,
             coordinator::set_companion_talk_source,
+            mouth_hop::set_companion_free_mode,
+            mouth_hop::set_openrouter_key,
+            mouth_hop::openrouter_key_status,
             talk::talk_start,
             talk::talk_stop,
             coordinator::set_stars_prompts,

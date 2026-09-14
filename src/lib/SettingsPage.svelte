@@ -62,6 +62,18 @@
   let marbleDrift = $state(false);
   let talkSource = $state<"system" | "hotkey">("system");
   let cheatSheetHint = $state(true);
+  // GO-ORBITTY-MOUTH-HOP: Free Mode toggle + BYOK OpenRouter key. The
+  // key is write-only — the native side stores it 0600 and reports only
+  // set/source/last4; the draft clears on save.
+  let freeMode = $state(false);
+  let orKeyDraft = $state("");
+  let orKey = $state<{ set: boolean; source: string; tail: string }>({
+    set: false,
+    source: "",
+    tail: "",
+  });
+  let orBusy = $state(false);
+  let orNote = $state<string | null>(null);
   let section = $state<"appearance" | "packs">("appearance");
   // Companion body picker (Appearance): Spirit + role:companion packs.
   // Same persist as the old companion-row select — set_companion_pack
@@ -105,6 +117,7 @@
       marbleDrift = s.marbleDrift ?? false;
       talkSource = normalizeTalk(s.companion?.talkSource);
       cheatSheetHint = s.companion?.cheatSheetHint ?? true;
+      freeMode = s.companion?.freeMode ?? false;
       const pack = s.companion?.imagePackId ?? null;
       bodyId = pack && pack.length > 0 ? pack : "spirit";
     } catch {
@@ -196,6 +209,53 @@
     } catch {
       /* state:changed restores */
     }
+  }
+
+  // GO-ORBITTY-MOUTH-HOP: Free Mode persists through its own command
+  // (same load-modify-save as the other companion switches); the key
+  // commands never return the key itself.
+  async function toggleFreeMode() {
+    freeMode = !freeMode;
+    try {
+      await invoke("set_companion_free_mode", { enabled: freeMode });
+    } catch {
+      /* state:changed restores */
+    }
+  }
+
+  async function loadKeyStatus() {
+    try {
+      orKey = await invoke<{ set: boolean; source: string; tail: string }>(
+        "openrouter_key_status",
+      );
+    } catch {
+      orKey = { set: false, source: "", tail: "" };
+    }
+  }
+
+  async function saveOrKey() {
+    if (orBusy) return;
+    orBusy = true;
+    orNote = null;
+    try {
+      orKey = await invoke("set_openrouter_key", { key: orKeyDraft.trim() });
+      orKeyDraft = "";
+    } catch (e) {
+      orNote = `${e}`;
+    }
+    orBusy = false;
+  }
+
+  async function clearOrKey() {
+    if (orBusy) return;
+    orBusy = true;
+    orNote = null;
+    try {
+      orKey = await invoke("set_openrouter_key", { key: "" });
+    } catch (e) {
+      orNote = `${e}`;
+    }
+    orBusy = false;
   }
 
   async function refreshPacks() {
@@ -299,6 +359,7 @@
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
     await loadState();
+    await loadKeyStatus();
     await refreshPacks();
     unlisten = await listen("state:changed", () => {
       loadState();
@@ -475,6 +536,62 @@
         <p class="help">
           System speech is the default — macOS dictation. Hotkey needs Handy
           and holds Ctrl+Space while Listening.
+        </p>
+        <p class="block-label">Mouth</p>
+        <div class="setting-row">
+          <button
+            class="mini"
+            class:active={freeMode}
+            aria-pressed={freeMode}
+            onclick={toggleFreeMode}
+            title="Free lanes only — local Ollama, then OpenRouter free models. Paid Grok stays off."
+          >Free Mode</button>
+        </div>
+        <p class="help">
+          Free lanes only: local Ollama, then OpenRouter
+          <code>openrouter/free</code> — limits apply and some upstreams
+          train on your lines. Paid Grok never runs while this is on; a
+          cooked Grok lane (429/quota) hops the same free lanes either way.
+        </p>
+        <div class="setting-row">
+          <input
+            class="keyin"
+            type="password"
+            bind:value={orKeyDraft}
+            placeholder="OpenRouter key (sk-or-…)"
+            aria-label="OpenRouter API key"
+            onkeydown={(e) => e.key === "Enter" && saveOrKey()}
+          />
+          <button
+            class="mini"
+            disabled={orBusy || orKeyDraft.trim().length === 0}
+            onclick={saveOrKey}
+            title="Save the key locally (0600, companions/orbitty-primary) — never in state.json"
+          >Save key</button>
+          {#if orKey.set && orKey.source === "file"}
+            <button
+              class="mini ghost"
+              disabled={orBusy}
+              onclick={clearOrKey}
+              title="Delete the saved key file"
+            >Clear</button>
+          {/if}
+        </div>
+        {#if orNote}
+          <p class="help err">{orNote}</p>
+        {/if}
+        <p class="help">
+          {#if orKey.set}
+            OpenRouter key:
+            {orKey.source === "env"
+              ? "from env OPENROUTER_API_KEY"
+              : "saved locally"}
+            (…{orKey.tail}). Used only for the free lane + quota checks.
+          {:else}
+            Optional BYOK — your own OpenRouter key unlocks the free lane.
+            Stored locally, sent only to openrouter.ai. Orbitty is never
+            the wallet.
+          {/if}
         </p>
         <p class="block-label">Cheat sheet</p>
         <div class="setting-row">
@@ -755,6 +872,23 @@
   .bodypick:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  /* GO-ORBITTY-MOUTH-HOP: the BYOK key field — same chrome as bodypick,
+     flexes to the row. */
+  .keyin {
+    flex: 1;
+    min-width: 140px;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 3px 8px;
+    outline: none;
+  }
+  .keyin:focus {
+    border-color: var(--accent);
   }
   .chips {
     display: inline-flex;

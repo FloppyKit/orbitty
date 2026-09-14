@@ -165,7 +165,8 @@ fn companion_backend() -> String {
     }
 }
 
-fn companions_root() -> PathBuf {
+/// pub(crate): mouth_hop keeps the BYOK OpenRouter key next to plug.json.
+pub(crate) fn companions_root() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
     PathBuf::from(home)
         .join(".agents")
@@ -496,7 +497,9 @@ pub(crate) fn save_plug(plug: &PlugState) {
 /// YAML frontmatter is stripped (clap reads a leading-dash value as
 /// another flag — Matt's spark.md ping died on `---`), and the body
 /// never starts with `-`.
-fn companion_soul_text(app: &tauri::AppHandle) -> String {
+/// pub(crate): mouth_hop rides the same soul as the system message of a
+/// stateless hop lane (Grok gets it via --rules).
+pub(crate) fn companion_soul_text(app: &tauri::AppHandle) -> String {
     const SOUL_CAP: usize = 4096;
     let persisted = crate::state::load_state(app)
         .map(|s| s.companion.agent_profile)
@@ -1495,7 +1498,10 @@ async fn companion_send_inner(
     // never a silent Berd fallback.
     let reply = match backend.as_str() {
         "goose" => companion_send_goose(&app, &prompt).await?,
-        "grok" => companion_send_grok(&app, &prompt).await?,
+        // GO-ORBITTY-MOUTH-HOP: the grok lane runs through the router —
+        // Free Mode skips paid Grok; a cooked lane hops Ollama →
+        // OpenRouter free with the hop packet. Same bubble either way.
+        "grok" => crate::mouth_hop::send_with_hops(&app, &line, &prompt).await?,
         "hermes" => companion_send_hermes(&app, &prompt).await?,
         "berd" => companion_send_berd(&prompt).await?,
         other => {
@@ -1672,7 +1678,9 @@ pub(crate) fn capture_goose_session(bin: &Path) {
 /// `-s UUID`, later `--resume UUID` (re-passing `-s` on a live id fails —
 /// a failed create is retried once as a resume to self-heal that race).
 /// Honest error when grok is missing — no silent Berd fallback.
-async fn companion_send_grok(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
+/// pub(crate): mouth_hop wraps this — Grok is the paid lane of the
+/// router; a cooked lane (429/402/quota/session-wall) hops free lanes.
+pub(crate) async fn companion_send_grok(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
     let bin = find_grok().ok_or(
         "`grok` not found — install the Grok CLI or put it on PATH (also checks ~/.grok/bin/grok).",
     )?;

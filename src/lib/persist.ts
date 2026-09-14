@@ -218,6 +218,10 @@ export interface CompanionSlice {
   // (pickup writes it) — the dest/planet menus glow that one planet
   // while hackLive is on. null/undefined = no pin; cleared on off.
   hackProjectId?: string | null;
+  // GO-ORBITTY-MOUTH-HOP: Free Mode — free lanes only (local Ollama →
+  // OpenRouter free); paid Grok stays off. The BYOK key never lives in
+  // state — native keeps it 0600 under companions/orbitty-primary.
+  freeMode?: boolean;
 }
 
 export interface StarsCheckin {
