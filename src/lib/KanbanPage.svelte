@@ -865,10 +865,12 @@
 
   // ---- board drag handlers ----
 
-  function onCardDragStart(e: DragEvent, card: KanbanCard) {
-    dragCardId = card.id;
-    e.dataTransfer?.setData("text/plain", card.id);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  function onCardDragStart(e: DragEvent, _card: KanbanCard) {
+    // BOARD-DRAG: the pointer path below owns the mouse now. WK's native
+    // drag session would cancel its pointer stream mid-hold, and WK never
+    // fires a legal drop — preventing dragstart keeps the stream alive.
+    // The DnD handlers stay wired as the belt for a WK that honors drop.
+    e.preventDefault();
   }
 
   function onCardDragEnd() {
@@ -905,6 +907,117 @@
     if (card) moveCard(card, col);
     dragCardId = null;
     dropCol = null;
+  }
+
+  // ---- pointer drag (GO-ORBITTY-BOARD-DRAG) ----
+  // Pointer drag IS the grab path: mousedown arms, ≥4px of move picks the
+  // card up into the SAME hold as Shift+Enter (grabbedId/grabCol — the
+  // card paints at the grab cursor, the column under the pointer paints
+  // drop-ok), mouseup drops through dropGrab → moveCard, the ONE save
+  // door, so doing-fire still owns a GO-* todo → doing. A press that
+  // never moves 4px is still a click → the detail drawer. Esc lets go —
+  // nothing ever mutated. Listeners ride the window: the drag must
+  // survive leaving the card/column, and the popped Lists window has no
+  // menu ring to eat Esc.
+  let ptr: { id: string; x: number; y: number; held: boolean } | null = null;
+  let suppressClick = false;
+
+  function onCardPointerDown(e: PointerEvent, card: KanbanCard) {
+    // Left button only; never steal a Shift+Enter hold, never start a
+    // hold over an open drawer (you cannot inspect one card while
+    // holding another).
+    if (e.button !== 0 || grabbedId || detailId) return;
+    suppressClick = false; // a fresh press is never a drag's trailing click
+    ptr = { id: card.id, x: e.clientX, y: e.clientY, held: false };
+    window.addEventListener("pointermove", onPtrMove);
+    window.addEventListener("pointerup", onPtrUp);
+    window.addEventListener("pointercancel", onPtrCancel);
+    window.addEventListener("keydown", onPtrKey, true);
+    window.addEventListener("blur", onPtrCancel);
+  }
+
+  function onPtrMove(e: PointerEvent) {
+    const p = ptr;
+    if (!p) return;
+    if (!p.held) {
+      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 4) return;
+      const card = kanbanCards.find((c) => c.id === p.id);
+      if (!card) return ptrEnd();
+      startGrab(card);
+      p.held = true;
+    }
+    if (!grabbedId) return; // Esc let go mid-drag — parked until mouseup
+    const col = colAtPoint(e.clientX, e.clientY);
+    if (!col) return; // between columns: the cursor keeps its last column
+    grabCol = col;
+    grabIdx = rowAtPoint(col, e.clientY);
+  }
+
+  function onPtrUp() {
+    const p = ptr;
+    if (!p) return;
+    const wasHeld = p.held;
+    const stillHeld = !!grabbedId;
+    ptrEnd();
+    if (!wasHeld) return; // a click, not a drag — the drawer opens onclick
+    suppressClick = true; // the click trailing a drag is not a drawer open
+    if (stillHeld) dropGrab(); // else Esc already let go — no mutation
+  }
+
+  function onPtrCancel() {
+    // The OS took the gesture (or the window blurred mid-drag) — let go
+    // without a drop; like Esc, nothing ever mutated.
+    if (ptr?.held && grabbedId) ungrab();
+    ptrEnd();
+  }
+
+  function ptrEnd() {
+    ptr = null;
+    window.removeEventListener("pointermove", onPtrMove);
+    window.removeEventListener("pointerup", onPtrUp);
+    window.removeEventListener("pointercancel", onPtrCancel);
+    window.removeEventListener("keydown", onPtrKey, true);
+    window.removeEventListener("blur", onPtrCancel);
+  }
+
+  function onPtrKey(e: KeyboardEvent) {
+    // Esc mid-drag lets go. Embedded, the ring eats this first (same
+    // ungrab, idempotent); the popped Lists window has no ring.
+    if (e.key !== "Escape" || !ptr?.held || !grabbedId) return;
+    ungrab();
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function colAtPoint(x: number, y: number): Status | null {
+    const id = document
+      .elementFromPoint(x, y)
+      ?.closest("[data-col]")
+      ?.getAttribute("data-col");
+    return COLUMNS.some((c) => c.id === id) ? (id as Status) : null;
+  }
+
+  function rowAtPoint(col: Status, y: number): number {
+    // Insertion row among the column's real cards — the held one paints
+    // at this cursor but is not a slot. Same basis grabArrow clamps to.
+    const els = document.querySelectorAll(
+      `[data-col="${col}"] .b-card:not(.held)`,
+    );
+    let i = 0;
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      if (y > r.top + r.height / 2) i++;
+    }
+    return i;
+  }
+
+  function onCardClick(card: KanbanCard) {
+    // The click trailing a drag-drop is not a drawer open.
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
+    openDetail(card);
   }
 
   async function refreshWindows() {
@@ -1053,6 +1166,7 @@
   });
   onDestroy(() => {
     stopRefreshTimer();
+    ptrEnd();
     detachMenuKeys?.();
     unlisten?.();
     unlistenFocus?.();
@@ -1270,6 +1384,7 @@
             class="b-col"
             class:drop-ok={dropCol === col.id || grabCol === col.id}
             aria-label={col.name}
+            data-col={col.id}
             ondragover={(e) => onColDragOver(e, col.id)}
             ondragleave={(e) => onColDragLeave(e, col.id)}
             ondrop={(e) => onColDrop(e, col.id)}
@@ -1294,7 +1409,8 @@
                   draggable="true"
                   ondragstart={(e) => onCardDragStart(e, card)}
                   ondragend={onCardDragEnd}
-                  onclick={() => openDetail(card)}
+                  onpointerdown={(e) => onCardPointerDown(e, card)}
+                  onclick={() => onCardClick(card)}
                   onkeydown={(e) => e.key === "Enter" && !e.shiftKey && openDetail(card)}
                   tabindex="0"
                   role="button"
@@ -2159,6 +2275,10 @@
     border: 1px solid var(--edge);
     border-radius: 8px;
     cursor: grab;
+    /* BOARD-DRAG: a press-and-move must never fall into text selection
+       while the pointer drag arms. Drawer fields stay selectable. */
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .b-card:hover {
