@@ -297,6 +297,13 @@ export interface PersistedState {
   // GO-ORBITTY-DOING-WALKER: optional in TS so whole-state writers that
   // predate the field keep type-checking; the native save always writes it.
   agentRuns?: AgentRun[];
+  // GO-ORBITTY-GATE-CAPS: daily spend ceiling + runner cap. Optional so
+  // older whole-state writers keep type-checking; native defaults 20 / 2.
+  spendCapUsd?: number;
+  spendCapEnabled?: boolean;
+  runnerCap?: number;
+  spendDay?: string;
+  spendUsd?: number;
   companion: CompanionSlice;
   stars: StarsSlice;
   sky: SkySlice;

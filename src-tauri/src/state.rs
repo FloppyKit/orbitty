@@ -140,6 +140,16 @@ pub struct PersistedState {
     /// GO-ORBITTY-DOING-WALKER: one row per doing-run — the agent walker
     /// on that planet. Additive; old saves load with an empty list.
     pub agent_runs: Vec<AgentRun>,
+    /// GO-ORBITTY-GATE-CAPS: daily spend ceiling USD. Default 20.
+    pub spend_cap_usd: f64,
+    /// GO-ORBITTY-GATE-CAPS: false = Never for money.
+    pub spend_cap_enabled: bool,
+    /// GO-ORBITTY-GATE-CAPS: concurrent runners, default 2, clamp 1–4.
+    pub runner_cap: u32,
+    /// GO-ORBITTY-GATE-CAPS: local calendar day for spendUsd roll.
+    pub spend_day: String,
+    /// GO-ORBITTY-GATE-CAPS: parsed usage USD today. 0 if nothing parsed.
+    pub spend_usd: f64,
 }
 
 /// GO-ORBITTY-RAIL-DRAWER: the only labels that can be drawers. The rail
@@ -233,6 +243,11 @@ impl Default for PersistedState {
             shared_pane_mode: "board".to_string(),
             drawers: std::collections::BTreeMap::new(),
             agent_runs: Vec::new(),
+            spend_cap_usd: 20.0,
+            spend_cap_enabled: true,
+            runner_cap: 2,
+            spend_day: String::new(),
+            spend_usd: 0.0,
         }
     }
 }

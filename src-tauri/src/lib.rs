@@ -21,6 +21,8 @@ mod coordinator;
 mod doing_fire;
 mod drawers;
 mod event_log;
+#[cfg(unix)]
+mod gate_caps;
 mod glass;
 mod mouth_ack;
 mod mouth_hop;

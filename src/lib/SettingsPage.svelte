@@ -86,6 +86,9 @@
   let bodyPacks = $state<BodyPack[]>([]);
   let bodyId = $state("spirit");
   let bodyBusy = $state(false);
+  let spendCapUsd = $state(20);
+  let spendCapEnabled = $state(true);
+  let runnerCap = $state(2);
 
   let packs = $state<PackInfo[]>([]);
   let packsDir = $state("");
@@ -127,6 +130,10 @@
       conductorModel = s.companion?.conductorModel ?? "";
       const pack = s.companion?.imagePackId ?? null;
       bodyId = pack && pack.length > 0 ? pack : "spirit";
+      spendCapUsd = Number.isFinite(s.spendCapUsd) && (s.spendCapUsd ?? 0) > 0 ? Number(s.spendCapUsd) : 20;
+      spendCapEnabled = s.spendCapEnabled ?? true;
+      const rc = Number(s.runnerCap ?? 2);
+      runnerCap = Math.min(4, Math.max(1, Number.isFinite(rc) ? rc : 2));
     } catch {
       themeId = osThemeId();
     }
@@ -157,6 +164,9 @@
       s.hideAppIcons = hideAppIcons;
       s.marbleDrift = marbleDrift;
       if (s.companion) s.companion.cheatSheetHint = cheatSheetHint;
+      s.spendCapUsd = spendCapUsd;
+      s.spendCapEnabled = spendCapEnabled;
+      s.runnerCap = runnerCap;
       await invoke("save_state", { state: s });
     } catch {
       /* next mutation retries */
@@ -563,6 +573,53 @@
         <p class="help">
           System speech is the default — macOS dictation. Hotkey needs Handy
           and holds Ctrl+Space while Listening.
+        </p>
+        <p class="block-label">Caps</p>
+        <div class="opacity-row">
+          <label for="spend-cap">Spend / day (USD)</label>
+          <input
+            id="spend-cap"
+            type="number"
+            min="0.01"
+            step="1"
+            bind:value={spendCapUsd}
+            disabled={!spendCapEnabled}
+            onchange={() => {
+              const n = Number(spendCapUsd);
+              spendCapUsd = Number.isFinite(n) && n > 0 ? n : 20;
+              persistSettings();
+            }}
+          />
+          <button
+            class="mini"
+            class:active={!spendCapEnabled}
+            aria-pressed={!spendCapEnabled}
+            onclick={() => {
+              spendCapEnabled = !spendCapEnabled;
+              persistSettings();
+            }}
+            title="Off = Never for money"
+          >Never</button>
+        </div>
+        <div class="opacity-row">
+          <label for="runner-cap">Runners</label>
+          <input
+            id="runner-cap"
+            type="number"
+            min="1"
+            max="4"
+            step="1"
+            bind:value={runnerCap}
+            onchange={() => {
+              const n = Number(runnerCap);
+              runnerCap = Math.min(4, Math.max(1, Number.isFinite(n) ? n : 2));
+              persistSettings();
+            }}
+          />
+          <span class="opacity-val">{runnerCap} / 4</span>
+        </div>
+        <p class="help">
+          Default $20/day and 2 runners (hard 4). Needed is the gate — no toast.
         </p>
         <p class="block-label">Mouth</p>
         <div class="setting-row">

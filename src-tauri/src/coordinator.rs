@@ -2387,6 +2387,10 @@ pub(crate) fn run_action_logged(
     command: String,
     cwd: Option<String>,
 ) -> Result<ActionResult, String> {
+    #[cfg(unix)]
+    crate::gate_caps::check(app)?;
+    #[cfg(unix)]
+    let _guard = crate::gate_caps::begin_action();
     crate::event_log::append_best(
         app,
         "action-start",
@@ -2397,6 +2401,14 @@ pub(crate) fn run_action_logged(
         &serde_json::json!({ "n": command.chars().count() }),
     );
     let out = run_action_inner(command, cwd);
+    #[cfg(unix)]
+    if let Ok(r) = &out {
+        if let Some(usd) = crate::gate_caps::parse_usage_usd(&r.stdout)
+            .or_else(|| crate::gate_caps::parse_usage_usd(&r.stderr))
+        {
+            crate::gate_caps::add_spend(app, usd);
+        }
+    }
     let (ok, code) = match &out {
         Ok(r) => (r.ok, r.code),
         Err(_) => (false, None),
@@ -2585,6 +2597,8 @@ pub fn launch_agent(
     project_name: Option<String>,
     titles: Vec<String>,
 ) -> Result<String, String> {
+    #[cfg(unix)]
+    crate::gate_caps::check(&app)?;
     let (query, skipped) = write_agent_query(&app, &shortcut, project_name.as_deref(), &titles)?;
     let skip_note = if skipped > 0 {
         format!(" Skipped {skipped} unreadable md path(s).")
