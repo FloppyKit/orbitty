@@ -920,24 +920,33 @@
   // nothing ever mutated. Listeners ride the window: the drag must
   // survive leaving the card/column, and the popped Lists window has no
   // menu ring to eat Esc.
+  // Dual pointer+mouse streams, dragPane's pattern — the one WK-proven
+  // drag in this app. WebKit fires the pointer event then its compat
+  // mouse event for the same press/move/up; every handler below is
+  // idempotent (arming is p.held-guarded, up/cancel null ptr first), so
+  // a WK build that stutters one stream mid-press still drags, and the
+  // healthy build just runs each handler twice with the same coords.
   let ptr: { id: string; x: number; y: number; held: boolean } | null = null;
   let suppressClick = false;
 
-  function onCardPointerDown(e: PointerEvent, card: KanbanCard) {
+  function onCardPointerDown(e: PointerEvent | MouseEvent, card: KanbanCard) {
     // Left button only; never steal a Shift+Enter hold, never start a
     // hold over an open drawer (you cannot inspect one card while
-    // holding another).
+    // holding another). A duplicate down from the compat stream just
+    // re-inits the same press (same id/coords, listeners dedupe).
     if (e.button !== 0 || grabbedId || detailId) return;
     suppressClick = false; // a fresh press is never a drag's trailing click
     ptr = { id: card.id, x: e.clientX, y: e.clientY, held: false };
     window.addEventListener("pointermove", onPtrMove);
+    window.addEventListener("mousemove", onPtrMove);
     window.addEventListener("pointerup", onPtrUp);
+    window.addEventListener("mouseup", onPtrUp);
     window.addEventListener("pointercancel", onPtrCancel);
     window.addEventListener("keydown", onPtrKey, true);
     window.addEventListener("blur", onPtrCancel);
   }
 
-  function onPtrMove(e: PointerEvent) {
+  function onPtrMove(e: PointerEvent | MouseEvent) {
     const p = ptr;
     if (!p) return;
     if (!p.held) {
@@ -975,7 +984,9 @@
   function ptrEnd() {
     ptr = null;
     window.removeEventListener("pointermove", onPtrMove);
+    window.removeEventListener("mousemove", onPtrMove);
     window.removeEventListener("pointerup", onPtrUp);
+    window.removeEventListener("mouseup", onPtrUp);
     window.removeEventListener("pointercancel", onPtrCancel);
     window.removeEventListener("keydown", onPtrKey, true);
     window.removeEventListener("blur", onPtrCancel);
@@ -1410,6 +1421,7 @@
                   ondragstart={(e) => onCardDragStart(e, card)}
                   ondragend={onCardDragEnd}
                   onpointerdown={(e) => onCardPointerDown(e, card)}
+                  onmousedown={(e) => onCardPointerDown(e, card)}
                   onclick={() => onCardClick(card)}
                   onkeydown={(e) => e.key === "Enter" && !e.shiftKey && openDetail(card)}
                   tabindex="0"
