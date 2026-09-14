@@ -579,7 +579,9 @@
       await invoke("save_state", { state: s });
       await loadState();
     } catch {
-      // next state:changed / visibility refresh retries
+      // Optimistic column paint already moved the card; reload disk
+      // so a failed save does not leave a lying column.
+      await loadState();
     }
   }
 
@@ -665,6 +667,18 @@
       return;
     }
     const now = Date.now() / 1000;
+    // Paint the column this frame. Doing-fire / walker attach run after
+    // the save returns — awaiting them here is the todo→doing hitch.
+    kanbanCards = kanbanCards.map((c) =>
+      c.id === card.id
+        ? {
+            ...c,
+            status: target,
+            completedAt: null,
+            lastTouchedAt: now,
+          }
+        : c,
+    );
     mutate((s) => {
       s.kanbanCards = s.kanbanCards.map((c) =>
         c.id === card.id

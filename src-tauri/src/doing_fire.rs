@@ -132,6 +132,19 @@ pub fn fire_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &Pe
     }
 }
 
+/// Doing-fire + walker attach after the column save has returned.
+/// Needed mint and cursor-go stay the same; they must not hitch the drag.
+pub fn spawn_fire_and_attach(app: &tauri::AppHandle, before: PersistedState, after: PersistedState) {
+    let app = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("orbitty-doing-fx".into())
+        .spawn(move || {
+            fire_on_moves(&app, &before, &after);
+            #[cfg(unix)]
+            crate::agent_runs::attach_on_moves(&app, &before, &after);
+        });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

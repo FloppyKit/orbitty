@@ -315,12 +315,9 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
         true,
         &serde_json::json!({ "from": from, "to": target, "cardId": id }),
     );
-    // GO-ORBITTY-DOING-FIRE: a GO-* todo landing in Doing fires the one
-    // "Who runs this doing GO?" Needed (best-effort — never fails the move).
-    crate::doing_fire::fire_on_moves(app, &before, &after);
-    // GO-ORBITTY-DOING-WALKER: the same move attaches the agent walker
-    // (run row only — the launchers above own the process).
-    crate::agent_runs::attach_on_moves(app, &before, &after);
+    // Doing-fire + walker attach after this move returns (same work,
+    // not on the drop's IPC wait).
+    crate::doing_fire::spawn_fire_and_attach(app, before, after.clone());
     Ok(after.kanban_cards[idx].clone())
 }
 
