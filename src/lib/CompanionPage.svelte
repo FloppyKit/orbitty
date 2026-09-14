@@ -87,6 +87,7 @@
   // set_companion_hack via orbittyctl, never this page.
   import { invoke } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
+  import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { onMount, onDestroy, tick } from "svelte";
   import {
     applyHostTokens,
@@ -185,6 +186,37 @@
   let ccSnap = $state(false);
   let sending = $state(false);
   let sendNote = $state<string | null>(null);
+  // GO-ORBITTY-ATTACH: the one-file chip. Original path only (never a
+  // copy); it rides companion_send as an optional path, vanishes after
+  // the send, and comes back on an honest error. One chip, × to drop.
+  interface AttachChip {
+    path: string;
+    name: string;
+    size: number;
+  }
+  let attach = $state<AttachChip | null>(null);
+  async function attachPath(path: string) {
+    try {
+      attach = await invoke<AttachChip>("companion_attach_stat", { path });
+      sendNote = null;
+    } catch (e) {
+      sendNote = `${e}`;
+    }
+  }
+  async function pickAttach() {
+    try {
+      const info = await invoke<AttachChip | null>("companion_attach_pick");
+      if (info) {
+        attach = info;
+        sendNote = null;
+      }
+    } catch (e) {
+      sendNote = `${e}`;
+    }
+  }
+  function dropAttach() {
+    attach = null;
+  }
   // Thinking v9 plays only while a reply is in flight; missing thinking
   // art fails soft to rest. The full figure and the Head bust each draw
   // their own set on this same tick.
@@ -773,10 +805,12 @@
 
   async function sendLine() {
     const line = draft.trim();
-    if (!line) return;
+    const file = attach;
+    if (!line && !file) return;
     // Expanded transcript is Spark. Needed only hijacks the composer
-    // while collapsed (Launchpad well visible). Collapse to answer.
-    if (neededFocusId && !expanded) {
+    // while collapsed (Launchpad well visible). Collapse to answer. A
+    // chip stands the hijack down — needed_answer cannot take a file.
+    if (neededFocusId && !expanded && !file) {
       draft = "";
       try {
         await invoke("needed_answer", { id: neededFocusId, answer: line });
@@ -795,11 +829,19 @@
     // the thinking v9 loop until the reply lands — the wait mark sits
     // bare in the agent-text slot (no bubble, no border) where the
     // reply will land; spirit still plays thinking v9.
-    turns = [...turns, { role: "you", text: line }].slice(-40);
-    userLine = line;
+    // GO-ORBITTY-ATTACH: a file-only send bubbles "[file] name" (the
+    // same stand-in companion_send persists); the chip vanishes on send
+    // and returns only on an honest error.
+    const youText = line || `[file] ${file?.name ?? ""}`;
+    turns = [...turns, { role: "you", text: youText }].slice(-40);
+    userLine = youText;
     draft = "";
+    attach = null;
     try {
-      const reply = await invoke<string>("companion_send", { line });
+      const reply = await invoke<string>("companion_send", {
+        line,
+        path: file?.path ?? null,
+      });
       botLine = reply;
       // CAPTION-CHUNK: speaking is the arrival effect's job — fill the
       // live CC box, then read page one.
@@ -812,14 +854,16 @@
         turns[n - 1].role === "them" &&
         turns[n - 1].text === reply &&
         turns[n - 2].role === "you" &&
-        turns[n - 2].text === line;
+        turns[n - 2].text === youText;
       if (!landed) {
         turns = [...turns, { role: "them", text: reply }].slice(-40);
       }
     } catch (e) {
       // The you bubble stays (it was appended up front); the draft is
-      // already gone — one honest error line is all that remains.
+      // already gone — one honest error line is all that remains. The
+      // chip comes back too: the file never left, so don't fake it.
       sendNote = `${e}`;
+      attach = file;
     } finally {
       sending = false;
     }
@@ -1400,6 +1444,7 @@
   let unlistenDismissHost: (() => void) | undefined;
   let unlistenRaiseLastHost: (() => void) | undefined;
   let unlistenCheat: (() => void) | undefined;
+  let unlistenDrop: (() => void) | undefined;
   let unlistenTalk: (() => void)[] = [];
   let hugObserver: ResizeObserver | undefined;
   onMount(async () => {
@@ -1489,6 +1534,15 @@
     unlistenCheat = await listen("orbitty:toggle-cheatsheet", () => {
       cheatOpen = !cheatOpen;
     });
+    // GO-ORBITTY-ATTACH: a file dropped anywhere on this window becomes
+    // the one chip (first path only — multi-file is forbidden in v0).
+    // The path is the original; stat validates and sizes the chip.
+    unlistenDrop = await getCurrentWebviewWindow().onDragDropEvent((e) => {
+      if (e.payload.type !== "drop") return;
+      const paths = e.payload.paths;
+      if (paths.length > 1) sendNote = "one file at a time";
+      if (paths.length >= 1) void attachPath(paths[0]);
+    });
     unlistenTalk.push(
       await listen<string>("talk:partial", (e) => {
         applyTalkText(e.payload ?? "");
@@ -1527,6 +1581,7 @@
     unlistenDismissHost?.();
     unlistenRaiseLastHost?.();
     unlistenCheat?.();
+    unlistenDrop?.();
     for (const u of unlistenTalk) u();
     invoke("talk_stop").catch(() => {});
   });
@@ -1779,6 +1834,9 @@
     bind:draft
     bind:fieldEl
     bind:composerExtra
+    {attach}
+    onPickAttach={pickAttach}
+    onDropAttach={dropAttach}
     {onAgentChange}
     {togglePrompts}
     {toggleDest}

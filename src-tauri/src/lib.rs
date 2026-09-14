@@ -1,4 +1,5 @@
 mod actions;
+mod attach;
 #[cfg(unix)]
 mod agent_runs;
 #[cfg(unix)]
@@ -513,15 +514,10 @@ fn save_state(app: tauri::AppHandle, state: state::PersistedState) -> Result<(),
     state::save_state(&app, &state)?;
     if let Some(before) = before.as_ref() {
         event_log::diff_claims(&app, &before.claims, &state.claims);
-        // GO-ORBITTY-DOING-FIRE: the UI drag's move door is this
-        // whole-state persist — diff it for a GO-* todo landing in Doing
-        // (best-effort; the fire never fails the save).
+        // GO-ORBITTY-DOING-FIRE / WALKER: after the save returns so the
+        // board column is not waiting on Needed mint + extra saves.
         #[cfg(unix)]
-        doing_fire::fire_on_moves(&app, before, &state);
-        // GO-ORBITTY-DOING-WALKER: same diff attaches the agent walker
-        // (the run row) — never a second process (best-effort).
-        #[cfg(unix)]
-        agent_runs::attach_on_moves(&app, before, &state);
+        doing_fire::spawn_fire_and_attach(&app, before.clone(), state.clone());
     }
     // Keep the separate Kanban window in sync with the rail's writes.
     let _ = app.emit("state:changed", ());
@@ -595,6 +591,8 @@ pub fn run() {
             char_preview,
             coordinator::launch_coordinator,
             coordinator::companion_send,
+            attach::companion_attach_stat,
+            attach::companion_attach_pick,
             coordinator::companion_agents,
             coordinator::set_companion_agent,
             coordinator::set_companion_mode,

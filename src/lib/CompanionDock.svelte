@@ -37,6 +37,16 @@
 
   type HostMode = "off" | "launchpad" | "stars" | "inspector";
 
+  // GO-ORBITTY-ATTACH: one chip = name + size. Original path rides
+  // companion_send; never a copy.
+  type AttachChip = { path: string; name: string; size: number };
+  const fmtSize = (n: number) =>
+    n >= 1024 * 1024
+      ? `${(n / (1024 * 1024)).toFixed(1)} MB`
+      : n >= 1024
+        ? `${(n / 1024).toFixed(1)} KB`
+        : `${n} B`;
+
   let {
     agents,
     agent = $bindable(),
@@ -60,6 +70,9 @@
     draft = $bindable(),
     fieldEl = $bindable(),
     composerExtra = $bindable(0),
+    attach = null,
+    onPickAttach,
+    onDropAttach,
     onAgentChange,
     togglePrompts,
     toggleDest,
@@ -101,6 +114,11 @@
     neededHint?: string | null;
     draft: string;
     fieldEl: HTMLTextAreaElement | null;
+    // GO-ORBITTY-ATTACH: the one-file chip (name + size, × to drop).
+    // CompanionPage owns it; the dock only paints and reports presses.
+    attach?: AttachChip | null;
+    onPickAttach: () => void;
+    onDropAttach: () => void;
     // COLLAPSE-CC: px the composer grew past its one-line idle (collapsed
     // only — expanded/hosted keep the 6-line cap and report 0).
     // CompanionPage turns it into the native hug / window grow.
@@ -592,6 +610,59 @@
       sendLine();
     }}
   >
+    {#if attach}
+      <!-- GO-ORBITTY-ATTACH: the one chip — name + size, × to drop.
+           Vanishes on send (CompanionPage clears it); an honest send
+           error brings it back. -->
+      <div class="chiprow">
+        <span class="attachchip" title={attach.path}>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"
+            />
+          </svg>
+          <span class="attachname">{attach.name}</span>
+          <span class="attachsize">{fmtSize(attach.size)}</span>
+          <button
+            type="button"
+            class="attachx"
+            onclick={onDropAttach}
+            aria-label="Drop file"
+            title="Drop file — it was never copied"
+          >×</button>
+        </span>
+      </div>
+    {/if}
+    <button
+      type="button"
+      class="clipbtn"
+      onclick={onPickAttach}
+      disabled={sending}
+      aria-label="Attach one file"
+      title="Attach one file (25 MB cap) — or drop one anywhere here"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.9"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path
+          d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"
+        />
+      </svg>
+    </button>
     <div class="fieldwrap" class:talking>
       <textarea
         class="field"
@@ -675,7 +746,7 @@
     <button
       class="send"
       type="submit"
-      disabled={sending || !draft.trim()}
+      disabled={sending || (!draft.trim() && !attach)}
       aria-label="Send"
       title="Send"
     >
@@ -1082,12 +1153,108 @@
 
   /* Composer: field with the mic parked inside its right edge + Send
      outside. Ghost chrome gaps drag (DOCK-GRIP); field / mic / Send
-     never do. */
+     never do. GO-ORBITTY-ATTACH: the chip row wraps above the row. */
   .composer {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     padding: 8px 10px 10px;
+  }
+
+  /* GO-ORBITTY-ATTACH: one chip — name + size, × to drop. Same outlined
+     pill language as the dock icon buttons, full row above the field. */
+  .chiprow {
+    flex: 1 1 100%;
+    display: flex;
+    min-width: 0;
+  }
+
+  .attachchip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 3px 6px 3px 8px;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+  }
+
+  .attachchip svg {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    display: block;
+    color: var(--dim);
+  }
+
+  .attachname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .attachsize {
+    flex: none;
+    color: var(--dim);
+  }
+
+  .attachx {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: inherit;
+    font-size: 0.85rem;
+    line-height: 1;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .attachx:hover {
+    color: var(--ink);
+  }
+
+  /* Paperclip: quiet field-side button, same energy as the mic. */
+  .clipbtn {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .clipbtn svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
+
+  .clipbtn:hover {
+    color: var(--accent);
+  }
+
+  .clipbtn:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 
   /* COMPOSER-WRAP: same box as the 0224c1f input — padding, font,

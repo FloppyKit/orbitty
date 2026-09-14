@@ -1329,10 +1329,21 @@ fn wrap_with_pocket(line: &str) -> String {
 /// Never hosts a model inside Orbitty. Async; UI disables Send in flight.
 /// GO-ORBITTY-EVENT-LOG: appends `companion-send` / `companion-reply`
 /// (best-effort) — content is `{ "n": <chars> }` only, never the line.
+/// GO-ORBITTY-ATTACH: optional `path` — the one-file chip. Validated
+/// BEFORE any intercept or persist so a bad path never fakes a send;
+/// the original path (never a copy) rides the prompt to the mouth.
 #[tauri::command]
-pub async fn companion_send(app: tauri::AppHandle, line: String) -> Result<String, String> {
+pub async fn companion_send(
+    app: tauri::AppHandle,
+    line: String,
+    path: Option<String>,
+) -> Result<String, String> {
     let line = line.trim().replace('\n', " ");
-    if line.is_empty() {
+    let attach = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => Some(crate::attach::stat_path(p)?),
+        None => None,
+    };
+    if line.is_empty() && attach.is_none() {
         return Err("Type a line first.".into());
     }
     crate::event_log::append_best(
@@ -1342,9 +1353,9 @@ pub async fn companion_send(app: tauri::AppHandle, line: String) -> Result<Strin
         None,
         Some("user"),
         true,
-        &serde_json::json!({ "n": line.chars().count() }),
+        &serde_json::json!({ "n": line.chars().count(), "file": attach.is_some() }),
     );
-    let out = companion_send_inner(app.clone(), line).await;
+    let out = companion_send_inner(app.clone(), line, attach).await;
     crate::event_log::append_best(
         &app,
         "companion-reply",
@@ -1357,33 +1368,46 @@ pub async fn companion_send(app: tauri::AppHandle, line: String) -> Result<Strin
     out
 }
 
-async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<String, String> {
+async fn companion_send_inner(
+    app: tauri::AppHandle,
+    line: String,
+    attach: Option<crate::attach::AttachInfo>,
+) -> Result<String, String> {
+    // GO-ORBITTY-ATTACH: a chip means the line is for the AI — the local
+    // todo:/go:/Action intercepts cannot take a file, so they stand down
+    // while one is attached (never a silent drop of the path).
+    let no_intercepts = attach.is_some();
 
     // Local `todo:` mint — never pings the model. Before Actions so a
     // shortcut named "todo" cannot steal the intercept.
     #[cfg(unix)]
-    if let Some(out) = crate::companion_todo::intercept(&app, &line) {
-        let them = match out {
-            Ok(s) => s,
-            Err(e) => e,
-        };
-        persist_action_intercept(&app, Some(line.as_str()), &them);
-        return Ok(them);
+    if !no_intercepts {
+        if let Some(out) = crate::companion_todo::intercept(&app, &line) {
+            let them = match out {
+                Ok(s) => s,
+                Err(e) => e,
+            };
+            persist_action_intercept(&app, Some(line.as_str()), &them);
+            return Ok(them);
+        }
     }
 
     #[cfg(unix)]
-    if let Some(out) = crate::companion_go::intercept(&app, &line) {
-        let them = match out {
-            Ok(s) => s,
-            Err(e) => e,
-        };
-        persist_action_intercept(&app, Some(line.as_str()), &them);
-        return Ok(them);
+    if !no_intercepts {
+        if let Some(out) = crate::companion_go::intercept(&app, &line) {
+            let them = match out {
+                Ok(s) => s,
+                Err(e) => e,
+            };
+            persist_action_intercept(&app, Some(line.as_str()), &them);
+            return Ok(them);
+        }
     }
 
     // GO-ORBITTY-ASK-ACTION: a line naming a Launchpad Action runs it
     // locally — Hermes/Berd never sees it. No match → unchanged send.
-    if let Ok(st) = crate::state::load_state(&app) {
+    if !no_intercepts {
+        if let Ok(st) = crate::state::load_state(&app) {
         match match_action_line(&st.action_shortcuts, &line) {
             Some(ActionIntercept::Run(shortcut, keep_you)) => {
                 let command = shortcut.command.clone();
@@ -1426,14 +1450,40 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
             }
             None => {}
         }
+        }
     }
 
     let backend = companion_backend();
-    persist_companion_you(&app, &line);
+    // GO-ORBITTY-ATTACH: a file-only send still needs a you-row — the
+    // chip's name stands in for the empty line (never a blank bubble).
+    let you_line = match &attach {
+        Some(a) if line.is_empty() => format!("[file] {}", a.name),
+        _ => line.clone(),
+    };
+    persist_companion_you(&app, &you_line);
     // GO-MH-2-APP: pocket inject AFTER action-intercept (Actions above ran
     // on the raw line). Every mouth gets the wrapped prompt; persist +
     // event log below keep the raw `line`.
     let prompt = wrap_with_pocket(&line);
+    // GO-ORBITTY-ATTACH: hand the chip's ORIGINAL path to the mouth —
+    // the agent's own tools read it there. Never a staging copy, never
+    // an upload, no convert/OCR.
+    let prompt = match &attach {
+        Some(a) => {
+            let note = format!(
+                "[file: {} ({}, {}) — read it at that exact path with your tools.]",
+                a.path,
+                a.name,
+                crate::attach::human_size(a.size)
+            );
+            if prompt.is_empty() {
+                note
+            } else {
+                format!("{prompt}\n\n{note}")
+            }
+        }
+        None => prompt,
+    };
     // Desk wrap only when the line looks like a board mint — not every
     // "hi". Planet ids stay available for todo: intercept without a chew.
     let prompt = if crate::companion_desk::line_needs_desk(&line) {
@@ -1462,9 +1512,9 @@ async fn companion_send_inner(app: tauri::AppHandle, line: String) -> Result<Str
             .companion
             .turns
             .last()
-            .is_some_and(|t| t.role == "you" && t.text == line);
+            .is_some_and(|t| t.role == "you" && t.text == you_line);
         if !you_already_saved {
-            st.companion.push_turn("you", &line);
+            st.companion.push_turn("you", &you_line);
         }
         st.companion.push_turn("them", &reply);
         let _ = crate::state::save_state(&app, &st);

@@ -136,7 +136,9 @@ pub(crate) fn ensure_window(
         transparent: true,
         title_bar_style: tauri::TitleBarStyle::Overlay,
         hidden_title: true,
-        drag_drop_enabled: false,
+        // GO-ORBITTY-ATTACH: the companion composer takes a dragged file
+        // (one chip, original path) — every other pane stays drop-deaf.
+        drag_drop_enabled: label == "companion",
         ..Default::default()
     };
     // Chrome panes: no native Overlay title strip. That invisible ~28px
