@@ -1462,6 +1462,31 @@ async fn companion_send_inner(
         _ => line.clone(),
     };
     persist_companion_you(&app, &you_line);
+    // GO-ORBITTY-MOUTH-ACK: the conductor — a slim local fast ack in
+    // front of the mouth (Settings toggle; off = today's path exactly).
+    // Runs on the RAW line (pocket/desk wraps are for the mouth, not the
+    // triage). A chip send is always for the AI, so the conductor stands
+    // down while one rides. `chat` splashes the ack over the wait mark
+    // (companion:ack — never a saved turn) and the mouth below lands the
+    // real reply in the same bubble; any other verb's ack IS the
+    // them-row — no mouth spend. Propose-don't-save lives inside: only
+    // Matt's yes reaches action add.
+    #[cfg(unix)]
+    if attach.is_none() {
+        match crate::mouth_ack::conduct(&app, &line).await {
+            Some(crate::mouth_ack::Step::Final(them)) => {
+                persist_action_intercept(&app, None, &them);
+                return Ok(them);
+            }
+            Some(crate::mouth_ack::Step::Chat(ack)) => {
+                let _ = app.emit(
+                    "companion:ack",
+                    serde_json::json!({ "line": ack, "verb": "chat" }),
+                );
+            }
+            None => {}
+        }
+    }
     // GO-MH-2-APP: pocket inject AFTER action-intercept (Actions above ran
     // on the raw line). Every mouth gets the wrapped prompt; persist +
     // event log below keep the raw `line`.

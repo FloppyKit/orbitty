@@ -225,6 +225,13 @@ export interface CompanionSlice {
   // save and silently strips the mode (the agentRuns strip-trap). Page
   // state loaded from disk defaults it false; never leave it undefined.
   freeMode: boolean;
+  // GO-ORBITTY-MOUTH-ACK: conductor — the slim local fast-ack layer in
+  // front of the mouth. Optional in TS (agentRuns precedent): the
+  // native save_state carries the disk values forward (same strip-trap
+  // as freeMode), so a stale whole-state writer can never strip them;
+  // the set_companion_conductor* commands are the only doors.
+  conductorOn?: boolean;
+  conductorModel?: string;
 }
 
 export interface StarsCheckin {

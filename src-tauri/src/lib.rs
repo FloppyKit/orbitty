@@ -22,6 +22,7 @@ mod doing_fire;
 mod drawers;
 mod event_log;
 mod glass;
+mod mouth_ack;
 mod mouth_hop;
 mod mouth_roll;
 mod needed_rules;
@@ -509,6 +510,10 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
     // strip Free Mode back off (the agentRuns strip-trap).
     if let Some(b) = before.as_ref() {
         state.companion.free_mode = b.companion.free_mode;
+        // GO-ORBITTY-MOUTH-ACK: same strip-trap for the conductor pair —
+        // the set_companion_conductor* commands are the only doors.
+        state.companion.conductor_on = b.companion.conductor_on;
+        state.companion.conductor_model = b.companion.conductor_model.clone();
     }
     state::save_state(&app, &state)?;
     if let Some(before) = before.as_ref() {
@@ -599,6 +604,8 @@ pub fn run() {
             mouth_hop::set_companion_free_mode,
             mouth_hop::set_openrouter_key,
             mouth_hop::openrouter_key_status,
+            mouth_ack::set_companion_conductor,
+            mouth_ack::set_companion_conductor_model,
             talk::talk_start,
             talk::talk_stop,
             coordinator::set_stars_prompts,

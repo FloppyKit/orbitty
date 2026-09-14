@@ -66,6 +66,11 @@
   // key is write-only — the native side stores it 0600 and reports only
   // set/source/last4; the draft clears on save.
   let freeMode = $state(false);
+  // GO-ORBITTY-MOUTH-ACK: conductor on/off + model id. Blank model =
+  // auto (first pulled Ollama model; non-LLM classifier when Ollama is
+  // down). Both ride their own commands — save_state never owns them.
+  let conductorOn = $state(false);
+  let conductorModel = $state("");
   let orKeyDraft = $state("");
   let orKey = $state<{ set: boolean; source: string; tail: string }>({
     set: false,
@@ -118,6 +123,8 @@
       talkSource = normalizeTalk(s.companion?.talkSource);
       cheatSheetHint = s.companion?.cheatSheetHint ?? true;
       freeMode = s.companion?.freeMode ?? false;
+      conductorOn = s.companion?.conductorOn ?? false;
+      conductorModel = s.companion?.conductorModel ?? "";
       const pack = s.companion?.imagePackId ?? null;
       bodyId = pack && pack.length > 0 ? pack : "spirit";
     } catch {
@@ -218,6 +225,26 @@
     freeMode = !freeMode;
     try {
       await invoke("set_companion_free_mode", { enabled: freeMode });
+    } catch {
+      /* state:changed restores */
+    }
+  }
+
+  // GO-ORBITTY-MOUTH-ACK: same own-command pattern as Free Mode.
+  async function toggleConductor() {
+    conductorOn = !conductorOn;
+    try {
+      await invoke("set_companion_conductor", { enabled: conductorOn });
+    } catch {
+      /* state:changed restores */
+    }
+  }
+
+  async function saveConductorModel() {
+    try {
+      await invoke("set_companion_conductor_model", {
+        model: conductorModel.trim(),
+      });
     } catch {
       /* state:changed restores */
     }
@@ -552,6 +579,38 @@
           <code>openrouter/free</code> — limits apply and some upstreams
           train on your lines. Paid Grok never runs while this is on; a
           cooked Grok lane (429/quota) hops the same free lanes either way.
+        </p>
+        <div class="setting-row">
+          <button
+            class="mini"
+            class:active={conductorOn}
+            aria-pressed={conductorOn}
+            onclick={toggleConductor}
+            title="Slim local fast-ack in front of the mouth — one line + a verb in hundreds of ms. Off = today's mouth only."
+          >Conductor</button>
+          <input
+            class="keyin"
+            bind:value={conductorModel}
+            placeholder="conductor model (blank = first Ollama)"
+            aria-label="Conductor model id"
+            onkeydown={(e) => e.key === "Enter" && saveConductorModel()}
+          />
+          <button
+            class="mini"
+            onclick={saveConductorModel}
+            title="Save the conductor model id (an Ollama tag; blank = auto)"
+          >Save</button>
+        </div>
+        <p class="help">
+          Conductor: a slim local layer (a small Ollama model, or the
+          built-in classifier when Ollama is down) answers in hundreds of
+          ms with a one-line ack + a verb — <code>chat</code> falls
+          through to the hop mouth for the real reply in the same bubble.
+          Verbs: <code>chat</code> · <code>do-go</code> ·
+          <code>run-action</code> · <code>ask-needed</code> ·
+          <code>none</code>. It never mints an Action or a rule on its
+          own — a "save this as an action" line only proposes, and your
+          yes is the mint.
         </p>
         <div class="setting-row">
           <input

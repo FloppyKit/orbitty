@@ -460,6 +460,20 @@ pub struct CompanionState {
     /// in this whole-object save.
     #[serde(default)]
     pub free_mode: bool,
+    /// GO-ORBITTY-MOUTH-ACK: the conductor — a slim local fast-ack layer
+    /// in front of the mouth. On = every Spark send gets a one-line ack
+    /// + a verb in hundreds of ms (local Ollama first, non-LLM
+    /// classifier when it's down); `chat` falls through to the hop
+    /// mouth for the real reply in the same bubble. Off = today's mouth
+    /// only. Default off. The set_companion_conductor* commands are the
+    /// only doors — save_state carries the disk values forward.
+    #[serde(default)]
+    pub conductor_on: bool,
+    /// GO-ORBITTY-MOUTH-ACK: conductor model id (an Ollama tag). "" =
+    /// auto — the first pulled model when Ollama is up, the non-LLM
+    /// classifier when it isn't. Local-only, never a hosted id.
+    #[serde(default)]
+    pub conductor_model: String,
 }
 
 /// S2.4: one saved companion turn. role: "you" | "them".
@@ -616,6 +630,8 @@ impl Default for CompanionState {
             hack_who: String::new(),
             hack_project_id: None,
             free_mode: false,
+            conductor_on: false,
+            conductor_model: String::new(),
         }
     }
 }

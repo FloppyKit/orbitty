@@ -38,7 +38,8 @@ use tauri::Emitter;
 const HOP_TURNS: usize = 6;
 const HOP_HISTORY_CAP: usize = 1200;
 
-const OLLAMA_BASE: &str = "http://localhost:11434";
+/// pub(crate): mouth_ack's conductor rides the same local probe/chat.
+pub(crate) const OLLAMA_BASE: &str = "http://localhost:11434";
 const OPENROUTER_BASE: &str = "https://openrouter.ai/api/v1";
 
 /// The one default free-lane model. `openrouter/auto` (any flavor) is
@@ -139,7 +140,9 @@ impl Drop for TmpFile {
 /// One curl call, JSON in/out. Returns (HTTP status, body). A transport
 /// failure (curl exit ≠ 0 — refused, timed out, DNS) is the Err; an
 /// HTTP error status is NOT an Err — the lane reads the code + body.
-fn curl_json(
+/// pub(crate): mouth_ack's conductor reuses the one curl door (the
+/// 0600-key discipline carries over).
+pub(crate) fn curl_json(
     method: &str,
     url: &str,
     bearer: Option<&str>,
@@ -225,7 +228,8 @@ fn json_error_note(body: &str) -> String {
 
 /// Up = the HTTP server answers /api/version. The `ollama` bin is not
 /// required — Orbitty talks HTTP, never shells the model.
-fn ollama_up() -> bool {
+/// pub(crate): mouth_ack probes through here (behind its own 15s cache).
+pub(crate) fn ollama_up() -> bool {
     matches!(
         curl_json("GET", &format!("{OLLAMA_BASE}/api/version"), None, None, 2),
         Ok((200..=299, _))
@@ -233,7 +237,8 @@ fn ollama_up() -> bool {
 }
 
 /// ORBITTY_OLLAMA_MODEL wins when set; else the first pulled model.
-fn ollama_model() -> Result<String, String> {
+/// pub(crate): the conductor's blank setting resolves here too.
+pub(crate) fn ollama_model() -> Result<String, String> {
     let env = std::env::var("ORBITTY_OLLAMA_MODEL").unwrap_or_default();
     if !env.trim().is_empty() {
         return Ok(env.trim().to_string());

@@ -186,6 +186,10 @@
   let ccSnap = $state(false);
   let sending = $state(false);
   let sendNote = $state<string | null>(null);
+  // GO-ORBITTY-MOUTH-ACK: the conductor's fast ack line, splashed over
+  // the wait mark while the mouth answers (companion:ack). Ephemeral —
+  // never a turn; the reply replaces it. "" = no ack this send.
+  let ackLine = $state("");
   // GO-ORBITTY-ATTACH: the one-file chip. Original path only (never a
   // copy); it rides companion_send as an optional path, vanishes after
   // the send, and comes back on an honest error. One chip, × to drop.
@@ -832,6 +836,7 @@
     if (sending) return;
     sending = true;
     sendNote = null;
+    ackLine = "";
     // S2.5 optimistic you: the bubble lands NOW, the field clears, and
     // the scroll effect (watching turns.length + sending) pins the
     // expanded transcript to the bottom; `sending` swaps the spirit to
@@ -867,11 +872,13 @@
       if (!landed) {
         turns = [...turns, { role: "them", text: reply }].slice(-40);
       }
+      ackLine = ""; // the reply replaces the conductor's ack splash
     } catch (e) {
       // The you bubble stays (it was appended up front); the draft is
       // already gone — one honest error line is all that remains. The
       // chip comes back too: the file never left, so don't fake it.
       sendNote = `${e}`;
+      ackLine = "";
       attach = file;
     } finally {
       sending = false;
@@ -1454,6 +1461,7 @@
   let unlistenRaiseLastHost: (() => void) | undefined;
   let unlistenCheat: (() => void) | undefined;
   let unlistenDrop: (() => void) | undefined;
+  let unlistenAck: (() => void) | undefined;
   let unlistenTalk: (() => void)[] = [];
   let hugObserver: ResizeObserver | undefined;
   onMount(async () => {
@@ -1543,6 +1551,12 @@
     unlistenCheat = await listen("orbitty:toggle-cheatsheet", () => {
       cheatOpen = !cheatOpen;
     });
+    // GO-ORBITTY-MOUTH-ACK: the conductor's ack lands mid-send and rides
+    // the wait-mark slot until the reply replaces it. Only while sending
+    // — a late event after the reply must not resurrect a splash.
+    unlistenAck = await listen<{ line?: string }>("companion:ack", (e) => {
+      if (sending) ackLine = (e.payload?.line ?? "").trim();
+    });
     // GO-ORBITTY-ATTACH: a file dropped anywhere on this window becomes
     // the one chip (first path only — multi-file is forbidden in v0).
     // The path is the original; stat validates and sizes the chip.
@@ -1591,6 +1605,7 @@
     unlistenRaiseLastHost?.();
     unlistenCheat?.();
     unlistenDrop?.();
+    unlistenAck?.();
     for (const u of unlistenTalk) u();
     invoke("talk_stop").catch(() => {});
   });
@@ -1603,6 +1618,7 @@
     {userLine}
     {botLine}
     {sending}
+    {ackLine}
     {turns}
     {speak}
     {draft}
