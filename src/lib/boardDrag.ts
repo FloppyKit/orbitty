@@ -1,7 +1,11 @@
 // GO-ORBITTY-BOARD-DRAG leftover: mouse again.
-// Pointer grab for board cards. WKWebView starts a native drag at ~4px
-// and pointercancel's the stream; the mouse belt must survive that.
-// HTML5 DnD is not the mouse door.
+// Pointer grab for board cards. WK arms its native drag on the mousedown
+// default action — preventing pointerdown does NOT disarm it. Once armed,
+// at ~4px it pointercancels the pointer stream AND eats the mouse belt
+// with it; preventing dragstart does not revive either. The card's
+// mousedown is routed through cardPointerDown so the preventDefault below
+// disarms the native drag — pointercancel never fires. HTML5 DnD is not
+// the mouse door.
 
 const SLOP = 4;
 
@@ -81,6 +85,9 @@ export function cardPointerDown(
   h: BoardDragHandlers,
 ): void {
   if (e.button !== 0 || h.blocked) return;
+  // preventDefault stays ABOVE the guard: the compat mousedown must be
+  // canceled even when it duplicates a press — that cancel is what
+  // disarms WK's native drag (see header).
   e.preventDefault();
   // Compat mouse after pointerdown: keep the original press.
   if (press && press.id === cardId) return;

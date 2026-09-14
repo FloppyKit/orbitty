@@ -1357,6 +1357,7 @@
                   ondragstart={(e) => onCardDragStart(e, card)}
                   ondragend={onCardDragEnd}
                   onpointerdown={(e) => onCardPointerDown(e, card)}
+                  onmousedown={(e) => onCardPointerDown(e, card)}
                   onclick={() => onCardClick(card)}
                   onkeydown={(e) => e.key === "Enter" && !e.shiftKey && openDetail(card)}
                   tabindex="0"
