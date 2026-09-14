@@ -342,9 +342,12 @@ pub(crate) enum Pose {
     WalkOff,
 }
 
-/// The board → pose mapping (one place). Needed wins over Doing; a Done
-/// card walks even a sleeper off (the complete ritual closes the window —
-/// the walk-off narrates the eviction, then the rail's unclaim lands).
+/// The board → pose mapping (one place). Needed wins over Doing for a
+/// WINDOW walker; a Done card walks even a sleeper off (the complete
+/// ritual closes the window — the walk-off narrates the eviction, then
+/// the rail's unclaim lands). DOING-WALKER leftover (doing orbit): an
+/// agent walker's needed_state is its own run's blocked signal — a
+/// working droid never reports a planet Needed, so it keeps the disc.
 fn pose_for(entry: &HabitatEntry) -> Pose {
     if entry.needed_state == "open" || entry.needed_state == "later" {
         return Pose::Sit;

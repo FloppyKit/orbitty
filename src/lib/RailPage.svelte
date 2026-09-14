@@ -807,11 +807,16 @@
   // GO-ORBITTY-DOING-WALKER: one pseudo-entry per doing-run on this
   // planet — the agent walker. The pose rides the SAME card fields as a
   // window walker (one channel, sync_habitat): working/starting → the
-  // disc; an open/later project Needed or a blocked run → sit the near
-  // rim; done → the far-rim walk-off (the native side walks it, then the
-  // walked-off door below evicts the row). agentSeed marks the entry as
-  // the baked droid (bitty sheets stay on window walkers); the native
-  // side bakes the atlas once off its hash.
+  // disc; a blocked run → sit the near rim; done → the far-rim walk-off
+  // (the native side walks it, then the walked-off door below evicts the
+  // row). agentSeed marks the entry as the baked droid (bitty sheets
+  // stay on window walkers); the native side bakes the atlas once off
+  // its hash.
+  // Leftover (doing orbit): the agent walker's neededState is its OWN
+  // run's blocked signal, never the planet NeededInbox — an open Needed
+  // on this planet must not steal a WORKING droid off the disc. Needed
+  // wins over Doing for WINDOW walkers only (the CADENCE sit in
+  // habitatEntryFor is unchanged). Blocked still sits; done still exits.
   function agentEntriesFor(p: Project) {
     return agentRuns
       .filter(
@@ -821,13 +826,6 @@
       .map((r) => {
         const card = kanbanCards.find((k) => k.id === r.cardId);
         const agent = agentShortcuts.find((a) => a.id === r.agentShortcutId);
-        const needed = kanbanCards.find(
-          (k) =>
-            k.kind === "needed" &&
-            (k.neededState === "open" || k.neededState === "later") &&
-            k.windowId == null &&
-            (k.projectId ?? "") === p.id,
-        );
         return {
           id: `agent:${r.cardId}`,
           appName: agent?.name ?? "agent",
@@ -843,8 +841,9 @@
           spriteScale: 0,
           cardStatus: r.state === "done" ? "done" : "doing",
           cardKind: "todo",
-          neededState:
-            r.state === "blocked" ? "open" : needed ? (needed.neededState ?? "open") : "",
+          // blocked sits the near rim; a working run reports no Needed,
+          // so the pose table's Needed-wins law never fires for it.
+          neededState: r.state === "blocked" ? "open" : "",
           agentSeed: `${r.planetId}:${r.cardId}`,
         };
       });

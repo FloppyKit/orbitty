@@ -55,6 +55,9 @@ pub struct HabitatEntry {
     /// GO-ORBITTY-CADENCE: "open" | "later" when an open/later Needed card
     /// names this window or its project (Needed sits the walker, and wins
     /// over Doing); "" = nothing needed from the user here.
+    /// DOING-WALKER leftover (doing orbit): for an AGENT walker this is
+    /// the run's OWN blocked signal only — a working droid never reports
+    /// a planet Needed, so Needed never wins over Doing for that walker.
     #[serde(default)]
     pub needed_state: String,
     /// GO-ORBITTY-DOING-WALKER: non-empty = this entry is an AGENT walker
