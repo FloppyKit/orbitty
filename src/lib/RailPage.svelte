@@ -1079,7 +1079,7 @@
 
   // GO-ORBITTY-RAIL-REVIEW: the rail no longer opens the Sky window — the
   // word field lives inside STARS Review. The sky webview itself stays
-  // (hide-not-destroy); open_sky_window remains on the native side.
+  // (hide-not-destroy).
 
   // Home button: order every planet panel front (peer order preserved
   // native-side; other apps keep their relative stacking).

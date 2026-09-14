@@ -60,25 +60,11 @@ fn drawer_expected_matches(label: &str, pos: (i32, i32)) -> bool {
         .unwrap_or(false)
 }
 
-fn drawer_expected_clear(label: &str) {
-    if let Ok(mut rt) = drawer_rt().lock() {
-        rt.expected.remove(label);
-    }
-}
-
 /// Refresh the warm cache from a freshly loaded/saved state.
 pub(crate) fn drawer_cache_refresh(st: &state::PersistedState) {
     if let Ok(mut rt) = drawer_rt().lock() {
         rt.drawers = Some(st.drawers.clone());
         rt.companion_legacy_bounds = st.companion.bounds.is_some();
-    }
-}
-
-pub(crate) fn ensure_drawer_cache(app: &tauri::AppHandle) {
-    let warm = drawer_rt().lock().map(|rt| rt.drawers.is_some()).unwrap_or(false);
-    if !warm {
-        let st = state::load_state(app).unwrap_or_default();
-        drawer_cache_refresh(&st);
     }
 }
 
@@ -1840,22 +1826,6 @@ pub fn companion_drag_begin(app: tauri::AppHandle) {
     });
 }
 
-#[tauri::command]
-pub fn companion_drag_tick(app: tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("companion") {
-        crate::main_thread_sync(move || {
-            let _ = companion_drag_apply(&w);
-        });
-    }
-}
-
-#[tauri::command]
-pub fn companion_drag_end() {
-    if let Ok(mut g) = companion_drag_grab().lock() {
-        *g = None;
-    }
-}
-
 /// Park a WARM-created drawer on a real display while it stays hidden.
 /// Same place law as show_drawer. Never show(), never pin; a pane that is
 /// already visible is never parked.
@@ -1872,49 +1842,6 @@ pub(crate) fn park_warm_drawer(app: &tauri::AppHandle, label: &str) {
     let st = state::load_state(app).unwrap_or_default();
     drawer_cache_refresh(&st);
     place_chrome(app, &w, label, &st);
-}
-
-/// Settings → Drawers: forget last place; next show is primary-center.
-#[tauri::command]
-pub(crate) fn retether_drawer(app: tauri::AppHandle, label: String) -> Result<(), String> {
-    if !state::DRAWER_LABELS.contains(&label.as_str()) {
-        return Err(format!("not a drawer: {label}"));
-    }
-    ensure_drawer_cache(&app);
-    if let Ok(mut rt) = drawer_rt().lock() {
-        if let Some(d) = rt.drawers.as_mut() {
-            d.insert(label.clone(), state::DrawerState::default());
-        }
-        rt.dirty = true;
-    }
-    drawer_expected_clear(&label);
-    if label == "companion" {
-        // GO-ORBITTY-SPRITE-HUG: a retether re-places to the fallback —
-        // leave the hug first so the live bar is never the re-place base.
-        crate::panes::unhug_companion(&app);
-        if let Ok(mut st) = state::load_state(&app) {
-            st.companion.bounds = None;
-            let _ = state::save_state(&app, &st);
-        }
-    }
-    drawer_persist(&app);
-    if let Some(w) = app.get_webview_window(&label) {
-        if w.is_visible().unwrap_or(false) {
-            if let Some(r) = drawer_slot_fallback(&app, &w, &label) {
-                place_logical_rect(&w, &label, &r);
-            }
-        }
-    }
-    Ok(())
-}
-
-/// GO-ORBITTY-RAIL-DRAWER: dock every drawer back onto the rail.
-#[tauri::command]
-pub(crate) fn retether_all_drawers(app: tauri::AppHandle) -> Result<(), String> {
-    for label in state::DRAWER_LABELS {
-        retether_drawer(app.clone(), label.to_string())?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

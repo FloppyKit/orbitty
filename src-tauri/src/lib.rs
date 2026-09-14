@@ -272,42 +272,6 @@ fn open_kanban(app: tauri::AppHandle) -> Result<(), String> {
     panes::show_shared_pane(&app, "board")
 }
 
-/// GO-LS-TAURI-AVATAR-LARGE — same trick as Lists: the companion window is
-/// created on first open (slim-panes); this shows + focuses it, applying
-/// persisted bounds or the first-show default (~⅓ of the display at the
-/// trailing edge; a portrait display maximizes). Persists visible=true.
-#[tauri::command]
-fn open_companion(app: tauri::AppHandle) -> Result<(), String> {
-    panes::show_companion(&app)
-}
-
-/// GO-ORBITTY-BOARD-STARS (supersedes STARS S1.1's own-window pop-out):
-/// STARS mounts inside the one shared 780×520 `kanban` overlay — this
-/// shows that pane in stars mode (StarsPage). The legacy 420×560 `stars`
-/// pane is never spawned here; if one is somehow live it hides, never
-/// destroys. Close / × hides, never destroys.
-#[tauri::command]
-fn open_stars(app: tauri::AppHandle) -> Result<(), String> {
-    panes::show_shared_pane(&app, "stars")
-}
-
-/// GO-ORBITTY-SETTINGS-WIN: gear pops Settings into its own window.
-/// Close / × hides, never destroys. Same SPA bundle — frontend mounts
-/// SettingsPage when the window label matches.
-#[tauri::command]
-fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-    panes::show_labeled(&app, "settings")
-}
-
-/// GO-ORBITTY-WORD-SKY: the word sky pops into its own window, same trick
-/// as STARS — created on first open (slim-panes); this shows + focuses it.
-/// Close / × hides, never destroys. Same SPA bundle — the frontend mounts
-/// SkyPage when the window label matches. Deliberately no ctl/MCP verb.
-#[tauri::command]
-fn open_sky_window(app: tauri::AppHandle) -> Result<(), String> {
-    panes::show_labeled(&app, "sky")
-}
-
 /// GO-ORBITTY-YARD-WARN: Settings → Appearance → Herding Cats… pops the
 /// confirm into its own small window (same trick as Settings), so ⌘⇧Y
 /// works with Settings closed. Close / × / Esc hides, never destroys.
@@ -560,21 +524,13 @@ pub fn run() {
             event_log::log_event,
             set_vibrancy,
             open_kanban,
-            open_companion,
-            open_stars,
-            open_settings_window,
-            open_sky_window,
             open_yard_warn_window,
             yard_start,
             yard_stop,
             yard_status,
             toggle_next_card_window,
             rail_toggle::toggle_labeled,
-            drawers::retether_drawer,
-            drawers::retether_all_drawers,
             drawers::companion_drag_begin,
-            drawers::companion_drag_tick,
-            drawers::companion_drag_end,
             companion::companion_frames,
             companion::companion_glb_url,
             panes::hide_window,
@@ -605,8 +561,6 @@ pub fn run() {
             coordinator::companion_agents,
             coordinator::set_companion_agent,
             coordinator::set_companion_mode,
-            coordinator::companion_note,
-            coordinator::set_companion_hack,
             coordinator::set_companion_pack,
             coordinator::set_companion_expanded,
             coordinator::set_companion_view,
@@ -624,8 +578,6 @@ pub fn run() {
             coordinator::ack_stars_prompt,
             coordinator::speak_reply,
             coordinator::run_action,
-            actions::action_combo_status,
-            coordinator::launch_agent,
             coordinator::wake_sleeper,
             coordinator::load_soul,
             coordinator::save_soul,

@@ -297,13 +297,6 @@ fn combo_statuses() -> BTreeMap<String, String> {
     BTreeMap::new()
 }
 
-/// Settings → Actions reads this to mark conflicts. Keyed by action id; a
-/// Spirit-only row (no combo) has no entry.
-#[tauri::command]
-pub fn action_combo_status() -> BTreeMap<String, String> {
-    combo_statuses()
-}
-
 // ---------- control plane (`action.*` tools; unix socket only) ----------
 
 /// `action.list` — the persisted rows plus runtime combo status

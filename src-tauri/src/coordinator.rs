@@ -835,7 +835,6 @@ pub fn set_companion_mode(app: tauri::AppHandle, mode: String) -> Result<String,
 /// so CaptionPane shows it immediately; a note into a parked mode only
 /// parks (no caption hijack). Think-play stays with the caller (the bus
 /// already plays think). Returns the mode the note landed on.
-#[tauri::command]
 pub fn companion_note(
     app: tauri::AppHandle,
     line: String,
@@ -877,7 +876,6 @@ pub fn companion_note(
 /// GO-ORBITTY-AGENT-PLANET leftover: `project_id` is the live agent's
 /// pinned planet (pickup passes it) so the dest/planet menus glow that
 /// one planet; cleared on off like the who.
-#[tauri::command]
 pub fn set_companion_hack(
     app: tauri::AppHandle,
     live: bool,
@@ -2556,7 +2554,6 @@ fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
 /// error, never a silent hermes dump. Each door also owns the dock LED
 /// off for the run it launched (pickup lit it): the Terminal `.command`
 /// traps EXIT, the hermes door waits on the child.
-#[tauri::command]
 pub fn launch_agent(
     app: tauri::AppHandle,
     shortcut: crate::state::AgentShortcut,
