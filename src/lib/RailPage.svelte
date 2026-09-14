@@ -174,6 +174,9 @@
     bounds: null,
     imagePackId: null,
     state: "idle",
+    // MOUTH-HOP leftover: required key — a constructed slice must carry
+    // the flag (default off) so persist() can never omit it.
+    freeMode: false,
   });
   // GO-ORBITTY-AGENT-PLANET leftover: the planet an agent is writing on
   // (companion.hackLive + that agent's pinned projectId) glows a little

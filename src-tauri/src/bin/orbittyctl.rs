@@ -30,6 +30,7 @@ commands:
   companion set-agent -- <profile>
   companion play -- <clip>         idle · think · nod · look-left · look-right
   companion mode -- spark|chat|work|hold
+  companion free-mode -- on|off
   companion note [--mode spark|chat|work|hold] -- \"line\"
   companion hack -- on|off [--who cursor] [--project P]
   kanban open
@@ -309,6 +310,17 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                 other => Err(format!(
                     "unknown mode {other:?} — spark | chat | work | hold"
                 )),
+            }
+        }
+        // GO-ORBITTY-MOUTH-HOP leftover: the Free Mode switch — same
+        // companion.* ACL as companion.mode. Fail CLOSED on an unknown
+        // verb — a typo never flips the lane router.
+        ["companion", "free-mode"] => {
+            let v = payload(o)?;
+            match v.as_str() {
+                "on" => Ok(("companion.free_mode", json!({ "enabled": true }))),
+                "off" => Ok(("companion.free_mode", json!({ "enabled": false }))),
+                other => Err(format!("unknown free-mode state {other:?} — on | off")),
             }
         }
         ["companion", "note"] => {
@@ -648,6 +660,14 @@ fn print_human(tool: &str, data: &Value) {
         "companion.set_agent" => println!("agent: {}", data.as_str().unwrap_or("")),
         "companion.play" => println!("playing: {}", data["played"].as_str().unwrap_or("")),
         "companion.mode" => println!("mode: {}", data.as_str().unwrap_or("")),
+        "companion.free_mode" => println!(
+            "free mode: {}",
+            if data["freeMode"].as_bool() == Some(true) {
+                "on"
+            } else {
+                "off"
+            }
+        ),
         "companion.note" => println!("noted ({})", data.as_str().unwrap_or("")),
         "companion.hack" => {
             let live = data["live"].as_bool().unwrap_or(false);

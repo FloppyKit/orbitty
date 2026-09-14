@@ -221,7 +221,10 @@ export interface CompanionSlice {
   // GO-ORBITTY-MOUTH-HOP: Free Mode — free lanes only (local Ollama →
   // OpenRouter free); paid Grok stays off. The BYOK key never lives in
   // state — native keeps it 0600 under companions/orbitty-primary.
-  freeMode?: boolean;
+  // Leftover: REQUIRED — an omitted key heals to false on the native
+  // save and silently strips the mode (the agentRuns strip-trap). Page
+  // state loaded from disk defaults it false; never leave it undefined.
+  freeMode: boolean;
 }
 
 export interface StarsCheckin {

@@ -46,6 +46,11 @@
 //! user-minted standing rules in front of needed.open: one hit + can-run
 //! mints the card already answered (actor "rule"); miss / collide /
 //! cannot-run / unreadable store mints open as today. Write-class ACL.
+//!
+//! GO-ORBITTY-MOUTH-HOP leftover adds companion.free_mode — the Free
+//! Mode switch through the one control door, so dogfood/automation
+//! toggles it without poking state.json. companion.* ACL like
+//! companion.mode; `enabled` must be a real bool (fail closed).
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -424,6 +429,23 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let line = arg_str(args, "line")?;
             crate::coordinator::companion_note(app.clone(), line, arg_opt(args, "mode"))
                 .map(to_data)
+                .map_err(tool_err)
+        }
+        // GO-ORBITTY-MOUTH-HOP leftover: the Free Mode switch — same
+        // companion.* ACL as companion.mode. `enabled` must be a real
+        // bool (fail closed, same as companion.hack's `live`).
+        "companion.free_mode" => {
+            let enabled = args
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| {
+                    (
+                        ERR_OTHER,
+                        "companion.free_mode: need bool arg \"enabled\"".to_string(),
+                    )
+                })?;
+            crate::mouth_hop::set_companion_free_mode(app.clone(), enabled)
+                .map(|_| json!({ "freeMode": enabled }))
                 .map_err(tool_err)
         }
         // GO-ORBITTY-DOCK-HACK: the dock LED flag — companion.* ACL like

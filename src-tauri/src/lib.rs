@@ -506,12 +506,20 @@ fn load_state(app: tauri::AppHandle) -> Result<state::PersistedState, String> {
 }
 
 #[tauri::command]
-fn save_state(app: tauri::AppHandle, state: state::PersistedState) -> Result<(), String> {
+fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result<(), String> {
     // GO-ORBITTY-EVENT-LOG: this command is the one native writer of
     // `claims` — diff disk-before against the incoming snapshot and emit
     // claim/unclaim (best-effort; a dead log never fails the save). A
     // missing/corrupt old file skips the diff rather than inventing churn.
     let before = state::load_state(&app).ok();
+    // GO-ORBITTY-MOUTH-HOP leftover: whole-state writers never OWN
+    // companion.free_mode — the set_companion_free_mode command (Settings
+    // toggle / companion.free_mode ctl tool) is the only door. Carry the
+    // disk value forward so a stale or omitted incoming flag can never
+    // strip Free Mode back off (the agentRuns strip-trap).
+    if let Some(b) = before.as_ref() {
+        state.companion.free_mode = b.companion.free_mode;
+    }
     state::save_state(&app, &state)?;
     if let Some(before) = before.as_ref() {
         event_log::diff_claims(&app, &before.claims, &state.claims);
