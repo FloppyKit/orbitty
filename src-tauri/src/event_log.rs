@@ -1,7 +1,10 @@
 //! GO-ORBITTY-EVENT-LOG — one append-only Nostr-shaped log on disk.
 //! Relay is not in the write path: `sig` and `pubkey` stay empty, `id` is
-//! uuid-v4 hex (real Nostr id hashing waits for keys). Every runtime event
-//! this GO is kind 31200; the type lives in the `e-type` tag. `t` is
+//! uuid-v4 hex (real Nostr id hashing waits for keys). Runtime events are
+//! kind 31200 with the type in the `e-type` tag — EXCEPT board column
+//! proofs (GO-ORBITTY-BOARD-PROOFS): todo/doing/done are kinds
+//! 420/421/422 with `t=orbitty`, the original map. NCH compute keeps the
+//! same three numbers under `t=nch` — the two chains never merge. `t` is
 //! `local-only` (default) or `publishable` — nothing is publishable yet.
 //!
 //! Path: `app_data/events.jsonl` (same dir as state.json / control.sock),
@@ -17,6 +20,12 @@ use tauri::Manager;
 
 /// One kind for every Orbitty runtime event this GO.
 pub const KIND: u64 = 31200;
+
+/// GO-ORBITTY-BOARD-PROOFS — board column proofs. Same three numbers as
+/// NCH compute, different `t` tag (`orbitty` here, `nch` there).
+pub const KIND_BOARD_TODO: u64 = 420;
+pub const KIND_BOARD_DOING: u64 = 421;
+pub const KIND_BOARD_DONE: u64 = 422;
 
 /// Serializes appends so two command threads can't interleave a line.
 static LOG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -191,6 +200,153 @@ pub fn append_best(
     }
 }
 
+/// GO-ORBITTY-BOARD-PROOFS — one board column proof: a mint or move to
+/// todo/doing/done is kind 420/421/422 with `t=orbitty` (never a 31200
+/// board-move/board-add line). `d` = card id; doing chains `e` → the
+/// card's newest 420, done chains `e` → the newest 420 and 421. Same
+/// envelope as 31200 (uuid id, empty pubkey/sig, small JSON content) and
+/// the same contract: a log failure never fails the board action.
+pub fn append_board_proof(
+    app: &tauri::AppHandle,
+    card_id: &str,
+    to: &str,
+    trace_id: Option<&str>,
+    project_id: Option<&str>,
+    actor: Option<&str>,
+    content: &serde_json::Value,
+) -> Result<Appended, String> {
+    let kind = match to.trim() {
+        "todo" => KIND_BOARD_TODO,
+        "doing" => KIND_BOARD_DOING,
+        "done" => KIND_BOARD_DONE,
+        other => return Err(format!("board proof: unknown column {other:?}")),
+    };
+    let path = events_path(app)?;
+    let trace = trace_id
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(uuid_v4_hex);
+    let project = project_id
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or("void")
+        .to_string();
+    let actor = actor
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .unwrap_or("user")
+        .to_string();
+    let mut tags = vec![
+        ["t".into(), "orbitty".into()],
+        ["d".into(), card_id.to_string()],
+    ];
+    match kind {
+        KIND_BOARD_DOING => {
+            tags.extend(board_chain_links(&path, card_id, &[KIND_BOARD_TODO]));
+        }
+        KIND_BOARD_DONE => {
+            tags.extend(board_chain_links(
+                &path,
+                card_id,
+                &[KIND_BOARD_TODO, KIND_BOARD_DOING],
+            ));
+        }
+        _ => {}
+    }
+    tags.push(["project".into(), project]);
+    tags.push(["actor".into(), actor]);
+    tags.push(["trace".into(), trace.clone()]);
+    let line = EventLine {
+        id: uuid_v4_hex(),
+        pubkey: String::new(),
+        created_at: unix_now(),
+        kind,
+        tags,
+        content: serde_json::to_string(content).unwrap_or_else(|_| "{}".into()),
+        sig: String::new(),
+    };
+    let text = serde_json::to_string(&line).map_err(|e| format!("serialize event: {e}"))?;
+    write_line(&path, &text).map_err(|e| format!("append {}: {e}", path.display()))?;
+    Ok(Appended {
+        id: line.id,
+        created_at: line.created_at,
+        trace_id: trace,
+    })
+}
+
+/// Best-effort twin of [`append_board_proof`] for the native board
+/// writers: one stderr line per process on failure, never an Err bubbling
+/// into the save path.
+pub fn append_board_proof_best(
+    app: &tauri::AppHandle,
+    card_id: &str,
+    to: &str,
+    trace_id: Option<&str>,
+    project_id: Option<&str>,
+    actor: Option<&str>,
+    content: &serde_json::Value,
+) -> Option<Appended> {
+    match append_board_proof(app, card_id, to, trace_id, project_id, actor, content) {
+        Ok(a) => Some(a),
+        Err(e) => {
+            warn_once(&e);
+            None
+        }
+    }
+}
+
+/// Chain links for a proof: the newest event id per wanted kind (420
+/// before 421) for this card, scanned from the tail of the log. Only
+/// `t=orbitty` lines with this exact `d` tag count — NCH's same-numbered
+/// `t=nch` events are a different chain. A miss or an unreadable file is
+/// an empty chain, never an error: the proof still writes.
+fn board_chain_links(path: &Path, card_id: &str, want: &[u64]) -> Vec<[String; 2]> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let d_needle = format!("\"d\",\"{card_id}\"");
+    let mut found: Vec<(u64, String)> = Vec::new();
+    for line in raw.lines().rev() {
+        if found.len() == want.len() {
+            break;
+        }
+        if !line.contains("\"t\",\"orbitty\"") || !line.contains(&d_needle) {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(kind) = v.get("kind").and_then(|k| k.as_u64()) else {
+            continue;
+        };
+        if !want.contains(&kind) || found.iter().any(|(k, _)| *k == kind) {
+            continue;
+        }
+        // Substring hits are only a prefilter — confirm the real `d` tag.
+        let tagged = v
+            .get("tags")
+            .and_then(|t| t.as_array())
+            .is_some_and(|tags| {
+                tags.iter().any(|t| {
+                    t.as_array().is_some_and(|a| {
+                        a.len() == 2 && a[0].as_str() == Some("d") && a[1].as_str() == Some(card_id)
+                    })
+                })
+            });
+        if !tagged {
+            continue;
+        }
+        if let Some(id) = v.get("id").and_then(|i| i.as_str()) {
+            found.push((kind, id.to_string()));
+        }
+    }
+    want.iter()
+        .filter_map(|k| found.iter().find(|(fk, _)| fk == k))
+        .map(|(_, id)| ["e".into(), id.clone()])
+        .collect()
+}
+
 /// What the UI gets back. `traceId` is always populated (minted when the
 /// caller didn't thread one) so a drag can be stitched later. On IO error
 /// the command still returns Ok with `skipped: true` — never an Err that
@@ -219,6 +375,45 @@ pub fn log_event(
         .filter(|t| !t.is_empty())
         .unwrap_or_else(uuid_v4_hex);
     let content = content.unwrap_or_else(|| serde_json::json!({}));
+    // GO-ORBITTY-BOARD-PROOFS: a board column transition (mint or move to
+    // todo/doing/done) is kind 420/421/422 with `t=orbitty`, never a 31200
+    // board-move/board-add line — one match arm on the e-type. A shape we
+    // don't recognize falls through to the generic 31200 write.
+    let proof_to = match e_type.as_str() {
+        "board-move" => content.get("to").and_then(|v| v.as_str()),
+        "board-add" => content.get("to").and_then(|v| v.as_str()).or(Some("todo")),
+        _ => None,
+    };
+    if let (Some(to), Some(card_id)) = (proof_to, content.get("cardId").and_then(|v| v.as_str()))
+    {
+        if matches!(to, "todo" | "doing" | "done") {
+            return match append_board_proof(
+                &app,
+                card_id,
+                to,
+                Some(&trace),
+                project_id.as_deref(),
+                actor.as_deref(),
+                &content,
+            ) {
+                Ok(a) => LogEventAck {
+                    id: a.id,
+                    created_at: a.created_at,
+                    trace_id: a.trace_id,
+                    skipped: false,
+                },
+                Err(e) => {
+                    warn_once(&e);
+                    LogEventAck {
+                        id: String::new(),
+                        created_at: 0,
+                        trace_id: trace,
+                        skipped: true,
+                    }
+                }
+            };
+        }
+    }
     match append(
         &app,
         &e_type,

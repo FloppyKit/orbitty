@@ -136,7 +136,8 @@ pub(crate) fn resolve_project(
 /// `kanban.add` — mint `kind: "todo"`, `actor: "agent"`. `status` is
 /// `todo` (default) or `doing`; done is never minted (it is earned through
 /// the complete door). `projectId` is an id OR a unique planet name
-/// (GO-ORBITTY-MOUTH-TODO resolve). Logs `board-add`.
+/// (GO-ORBITTY-MOUTH-TODO resolve). Logs the mint's board proof — 420 for
+/// todo, 421 for doing (GO-ORBITTY-BOARD-PROOFS; never a 31200 board-add).
 /// GO-ORBITTY-CARD-BLURB: `notes` is the optional one-line runner summary
 /// (first line paints as the board row's `.b-notes`); empty/None = none.
 pub fn kanban_add(
@@ -206,13 +207,15 @@ pub fn kanban_add_as(
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
     save_with_events(app, &before, &after)?;
-    event_log::append_best(
+    // GO-ORBITTY-BOARD-PROOFS: a mint writes the target column's proof
+    // (420 todo / 421 doing) with `t=orbitty`, not a 31200 board-add line.
+    event_log::append_board_proof_best(
         app,
-        "board-add",
+        &card.id,
+        &card.status,
         None,
         Some(&card.project_id),
         Some(actor.trim()),
-        true,
         &serde_json::json!({ "cardId": card.id, "title": card.title }),
     );
     Ok(card)
@@ -223,7 +226,9 @@ pub fn kanban_add_as(
 /// daily cap, `completedAt`, actor "agent") and does NOT unclaim — the
 /// walk-off still narrates. Moving a window-carded row out of Doing
 /// unclaims its window, exactly like the board drag. Same-column = the
-/// board's early return (no save, no log). Logs `board-move`.
+/// board's early return (no save, no log). Logs the target column's board
+/// proof — 420/421/422 with `t=orbitty` (GO-ORBITTY-BOARD-PROOFS; never a
+/// 31200 board-move).
 pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<KanbanCard, String> {
     let target = match target.trim() {
         "todo" | "doing" | "done" => target.trim(),
@@ -306,13 +311,13 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
         }
     }
     save_with_events(app, &before, &after)?;
-    event_log::append_best(
+    event_log::append_board_proof_best(
         app,
-        "board-move",
+        id,
+        target,
         None,
         Some(&project_id),
         Some("agent"),
-        true,
         &serde_json::json!({ "from": from, "to": target, "cardId": id }),
     );
     // Doing-fire + walker attach after this move returns (same work,

@@ -1501,6 +1501,18 @@
     }, 240);
   }
 
+  // GO-ORBITTY-BOARD-PROOFS: a loose-todo mint is a kind-420 board proof
+  // (`t=orbitty`) — the log_event match arm kinds "board-add". Fire-and-
+  // forget in the same tick as the save: a log failure never blocks a mint.
+  function logEvent(eType: string, content: Record<string, unknown>, projectId?: string) {
+    invoke("log_event", {
+      eType,
+      content,
+      projectId: projectId || null,
+      actor: "user",
+    }).catch(() => {});
+  }
+
   // "+ To-do" under a project section: a loose todo card on that project.
   // Creating one opens Lists focused on the new card.
   function addTodoTo(projectId: string) {
@@ -1529,6 +1541,7 @@
     newTodoTitle = "";
     addingTodoFor = null;
     persist();
+    logEvent("board-add", { cardId: id, title }, projectId);
     openKanbanFocus(id);
   }
 
