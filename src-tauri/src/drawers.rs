@@ -5,17 +5,6 @@
 use crate::state;
 use tauri::{Emitter, Manager};
 
-// ---------- GO-ORBITTY-RAIL-DRAWER ----------
-// Chrome panes dock at the inboard slot beside the rail and stay docked
-// until drag-plucked.
-// The tether is an invisible leash: follow-translate on rail Moved, no
-// child windows, no drawn string. Drawer labels are companion / kanban /
-// settings only — Board+STARS share `kanban`, `sky` is never a drawer.
-
-/// Dead leash constant — Law B does not pluck. Kept so a later strip of
-/// RAIL-DRAWER can delete the whole block without a hunt.
-#[allow(dead_code)]
-const PLUCK_DISTANCE: f64 = 48.0;
 /// Vertical gap between stacked docked panes; also the rail→pane gap.
 const DRAWER_GAP: f64 = 8.0;
 
@@ -93,37 +82,6 @@ pub(crate) fn ensure_drawer_cache(app: &tauri::AppHandle) {
     }
 }
 
-/// Effective docked flag, cache-first. Law B no longer docks; slot math
-/// still consults this when a slot is not forced.
-#[allow(dead_code)]
-pub(crate) fn drawer_docked(app: &tauri::AppHandle, label: &str) -> bool {
-    ensure_drawer_cache(app);
-    drawer_rt()
-        .lock()
-        .map(|rt| {
-            let legacy = rt.companion_legacy_bounds;
-            rt.drawers
-                .as_ref()
-                .map(|d| state::drawer_docked_from(d, legacy, label))
-                .unwrap_or(true)
-        })
-        .unwrap_or(true)
-}
-
-/// Live outer size when the window exists, else the create-time spec size —
-/// slots stay stable for panes not yet created this session.
-fn drawer_size(app: &tauri::AppHandle, label: &str) -> (f64, f64) {
-    if let Some(w) = app.get_webview_window(label) {
-        if let Ok(s) = w.outer_size() {
-            return (s.width as f64, s.height as f64);
-        }
-    }
-    match crate::panes::pane_spec(label) {
-        Some((_, w, h, _)) => (w, h),
-        None => (0.0, 0.0),
-    }
-}
-
 /// A visibleFrame (menu bar / Dock excluded) in top-left-origin
 /// coordinates — Tauri physical px or CG points, per the caller's space.
 #[derive(Clone, Copy)]
@@ -132,102 +90,6 @@ struct VisibleFrame {
     y: f64,
     w: f64,
     h: f64,
-}
-
-#[cfg(target_os = "macos")]
-fn rail_visible_frame(rail: &tauri::WebviewWindow) -> Option<VisibleFrame> {
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct NSPoint {
-        x: f64,
-        y: f64,
-    }
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct NSSize {
-        width: f64,
-        height: f64,
-    }
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct NSRect {
-        origin: NSPoint,
-        size: NSSize,
-    }
-    let rp = rail.outer_position().ok()?;
-    let rs = rail.outer_size().ok()?;
-    let mon = rail
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| rail.primary_monitor().ok().flatten())?;
-    let scale = mon.scale_factor();
-    // Rail center in points (top-left origin), then AppKit's bottom-left.
-    let cx = (rp.x as f64 + rs.width as f64 / 2.0) / scale;
-    let cy = (rp.y as f64 + rs.height as f64 / 2.0) / scale;
-    unsafe {
-        let screens: *mut Object = msg_send![class!(NSScreen), screens];
-        if screens.is_null() {
-            return None;
-        }
-        let count: usize = msg_send![screens, count];
-        if count == 0 {
-            return None;
-        }
-        let s0: *mut Object = msg_send![screens, objectAtIndex: 0usize];
-        let primary: NSRect = msg_send![s0, frame];
-        let ay = primary.size.height - cy;
-        for i in 0..count {
-            let s: *mut Object = msg_send![screens, objectAtIndex: i];
-            let f: NSRect = msg_send![s, frame];
-            let inside = cx >= f.origin.x
-                && cx < f.origin.x + f.size.width
-                && ay >= f.origin.y
-                && ay < f.origin.y + f.size.height;
-            if inside {
-                let vf: NSRect = msg_send![s, visibleFrame];
-                return Some(VisibleFrame {
-                    x: vf.origin.x * scale,
-                    y: (primary.size.height - (vf.origin.y + vf.size.height)) * scale,
-                    w: vf.size.width * scale,
-                    h: vf.size.height * scale,
-                });
-            }
-        }
-        None
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn rail_visible_frame(_rail: &tauri::WebviewWindow) -> Option<VisibleFrame> {
-    None
-}
-
-struct RailGeo {
-    pos: tauri::PhysicalPosition<i32>,
-    size: tauri::PhysicalSize<u32>,
-    vf: Option<VisibleFrame>,
-    /// Right of the rail, unless the rail sits on the screen's right third.
-    inboard_right: bool,
-}
-
-fn rail_geo(app: &tauri::AppHandle) -> Option<RailGeo> {
-    let rail = app.get_webview_window("main")?;
-    let pos = rail.outer_position().ok()?;
-    let size = rail.outer_size().ok()?;
-    let vf = rail_visible_frame(&rail);
-    let inboard_right = match &vf {
-        Some(vf) => (pos.x as f64 + size.width as f64 / 2.0) < vf.x + vf.w * 2.0 / 3.0,
-        None => true,
-    };
-    Some(RailGeo {
-        pos,
-        size,
-        vf,
-        inboard_right,
-    })
 }
 
 // ---------- GO-ORBITTY-DRAWER-CLAMP / SHEET-CLICK / SHEET-FRONT ----------
@@ -333,58 +195,6 @@ fn points_frames(screens: &ScreenVfs) -> Vec<VisibleFrame> {
 }
 
 
-// ---------- GO-ORBITTY-SHEET-FRONT: CG on-screen list (telemetry only) ----------
-
-/// Is this CG window number on the screen right now — the same
-/// on-screen-only window list Pixel reads. GO-ORBITTY-PANE-RAISE: this is
-/// TELEMETRY, never a gate — overlay-transparent drawers miss this list
-/// while fully AppKit-visible, so using it as a hide trigger hid live
-/// panes. Front truth is NSWindow isVisible (pane_appkit_visible).
-#[cfg(target_os = "macos")]
-fn cg_window_onscreen(window_number: i64) -> bool {
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-    use std::ffi::c_void;
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *mut c_void;
-    }
-    #[link(name = "CoreFoundation", kind = "framework")]
-    extern "C" {
-        fn CFRelease(cf: *const c_void);
-    }
-    // kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements
-    const OPTIONS: u32 = 1 | 16;
-    unsafe {
-        let list = CGWindowListCopyWindowInfo(OPTIONS, 0);
-        if list.is_null() {
-            return false;
-        }
-        let arr = list as *mut Object;
-        let key = std::ffi::CString::new("kCGWindowNumber").unwrap();
-        let nskey: *mut Object = msg_send![class!(NSString), stringWithUTF8String: key.as_ptr()];
-        let count: usize = msg_send![arr, count];
-        let mut found = false;
-        for i in 0..count {
-            let d: *mut Object = msg_send![arr, objectAtIndex: i];
-            if d.is_null() {
-                continue;
-            }
-            let v: *mut Object = msg_send![d, objectForKey: nskey];
-            if v.is_null() {
-                continue;
-            }
-            let n: i64 = msg_send![v, longLongValue];
-            if n == window_number {
-                found = true;
-                break;
-            }
-        }
-        CFRelease(list as *const c_void);
-        found
-    }
-}
-
 /// Front truth for one of our windows (GO-ORBITTY-PANE-RAISE): NSWindow
 /// isVisible, full stop. The CG on-screen-only list lags and misses
 /// overlay-transparent drawers entirely, and isOnActiveSpace false-fails
@@ -409,36 +219,6 @@ pub(crate) fn pane_appkit_visible(w: &tauri::WebviewWindow) -> bool {
 pub(crate) fn pane_appkit_visible(w: &tauri::WebviewWindow) -> bool {
     w.is_visible().unwrap_or(false)
 }
-
-/// CG-list telemetry (GO-ORBITTY-PANE-RAISE): the on-screen-only list and
-/// isOnActiveSpace, logged when a pane fails the mouse gate. Never a gate
-/// input — overlay-transparent drawers miss this list while fully visible.
-#[cfg(target_os = "macos")]
-#[allow(dead_code)]
-pub(crate) fn pane_cg_telemetry(label: &str, w: &tauri::WebviewWindow) {
-    use objc::runtime::Object;
-    use objc::{msg_send, sel, sel_impl};
-    let Ok(raw) = w.ns_window() else {
-        return;
-    };
-    if raw.is_null() {
-        return;
-    }
-    unsafe {
-        let nsw = raw as *mut Object;
-        let visible: bool = msg_send![nsw, isVisible];
-        let on_space: bool = msg_send![nsw, isOnActiveSpace];
-        let num: i64 = msg_send![nsw, windowNumber];
-        let cg = num > 0 && cg_window_onscreen(num);
-        eprintln!(
-            "pane-raise: {label} mouse-gate fail — isVisible={visible} onSpace={on_space} cgOnScreen={cg}"
-        );
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-#[allow(dead_code)]
-pub(crate) fn pane_cg_telemetry(_label: &str, _w: &tauri::WebviewWindow) {}
 
 /// AppKit raise, ON the main thread and WAITED on.
 /// `heavy` is the rail ladder (dock / Show Orbitty): activateIgnoringOtherApps
@@ -773,19 +553,6 @@ unsafe fn ax_subtree_has_web_area(el: *const std::ffi::c_void, depth: u32) -> bo
     found
 }
 
-/// Live outer rect as bounds.
-#[allow(dead_code)]
-fn live_rect(w: &tauri::WebviewWindow) -> Option<state::CompanionBounds> {
-    let p = w.outer_position().ok()?;
-    let s = w.outer_size().ok()?;
-    Some(state::CompanionBounds {
-        x: p.x as f64,
-        y: p.y as f64,
-        w: s.width as f64,
-        h: s.height as f64,
-    })
-}
-
 /// No overlap with the visibleFrame at all.
 fn rect_fully_off(b: &state::CompanionBounds, vf: &VisibleFrame) -> bool {
     b.x + b.w <= vf.x || b.x >= vf.x + vf.w || b.y + b.h <= vf.y || b.y >= vf.y + vf.h
@@ -947,7 +714,8 @@ pub(crate) fn live_points_rect(w: &tauri::WebviewWindow) -> Option<state::Compan
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn live_points_rect(w: &tauri::WebviewWindow) -> Option<state::CompanionBounds> {
-    let r = live_rect(w)?;
+    let p = w.outer_position().ok()?;
+    let s = w.outer_size().ok()?;
     let scale = w
         .current_monitor()
         .ok()
@@ -956,10 +724,10 @@ pub(crate) fn live_points_rect(w: &tauri::WebviewWindow) -> Option<state::Compan
         .unwrap_or(1.0);
     let scale = if scale > 0.0 { scale } else { 1.0 };
     Some(state::CompanionBounds {
-        x: r.x / scale,
-        y: r.y / scale,
-        w: r.w / scale,
-        h: r.h / scale,
+        x: p.x as f64 / scale,
+        y: p.y as f64 / scale,
+        w: s.width as f64 / scale,
+        h: s.height as f64 / scale,
     })
 }
 
@@ -1145,26 +913,6 @@ fn drawer_live_off(w: &tauri::WebviewWindow) -> bool {
     live_points_rect(w)
         .map(|r| !screens.points.iter().any(|(vf, _)| rect_handle_on(&r, vf)))
         .unwrap_or(false)
-}
-
-/// The mouse law (GO-ORBITTY-SHEET-CLICK + SHEET-FRONT + PANE-RAISE): a
-/// pane earns hit-testing only as a real pane — AppKit-visible, a 24px
-/// handle on some display, never covering the rail. No display info → the
-/// visibility and rail-cover tests alone decide. The CG on-screen list is
-/// telemetry only — it must not hide a pane.
-#[allow(dead_code)]
-pub(crate) fn pane_mouse_ok(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> bool {
-    if !pane_appkit_visible(w) {
-        return false;
-    }
-    let Some(r) = live_points_rect(w) else {
-        return false;
-    };
-    if points_cover_rail(app, &r) {
-        return false;
-    }
-    let screens = screen_visible_frames();
-    screens.points.is_empty() || screens.points.iter().any(|(vf, _)| rect_handle_on(&r, vf))
 }
 
 /// Single-frame clamp: keep a 24px handle of the rect on this frame.
@@ -1780,55 +1528,6 @@ pub(crate) fn place_hug_rect(w: &tauri::WebviewWindow, label: &str, r: &state::C
     }
 }
 
-/// Docked placement (GO-ORBITTY-PANE-STAY: AppKit points, never Tauri
-/// Logical/Physical — the slot origin is physical px on the rail display,
-/// so it divides by the rail's scale into the points setFrame speaks;
-/// size is the live points size, untouched by the move). The inboard slot
-/// + leash offset when the slot exists; when it is withheld (the full
-/// spec does not fit beside the rail — GO-ORBITTY-PANE-HOLD) the
-/// slot-fallback puts the pane on the largest display that fits. The
-/// Moved ledger is stamped from the post-place read-back only.
-/// GO-ORBITTY-RAIL-COVER: no on-rail tuck, no slide — the pane is never
-/// placed at the rail origin, not even for a frame.
-#[allow(dead_code)]
-fn place_docked_slot(
-    app: &tauri::AppHandle,
-    w: &tauri::WebviewWindow,
-    label: &str,
-    d: state::DrawerState,
-) {
-    let slots = drawer_slots(app);
-    match slots.get(label).copied() {
-        Some(slot) => {
-            let rs = app
-                .get_webview_window("main")
-                .and_then(|r| r.current_monitor().ok().flatten())
-                .map(|m| m.scale_factor())
-                .unwrap_or(1.0);
-            let rs = if rs > 0.0 { rs } else { 1.0 };
-            let (pw, ph) = live_points_rect(w)
-                .map(|r| (r.w, r.h))
-                .or_else(|| crate::panes::pane_spec(label).map(|(_, sw, sh, _)| (sw, sh)))
-                .unwrap_or((780.0, 520.0));
-            let r = state::CompanionBounds {
-                x: (slot.0 as f64 + d.dx) / rs,
-                y: (slot.1 as f64 + d.dy) / rs,
-                w: pw,
-                h: ph,
-            };
-            appkit_place_points(w, &r);
-            if let Ok(p) = w.outer_position() {
-                drawer_expect(label, (p.x, p.y));
-            }
-        }
-        None => {
-            if let Some(r) = drawer_slot_fallback(app, w, label) {
-                place_logical_rect(w, label, &r);
-            }
-        }
-    }
-}
-
 /// Persist the live frame unless it is fully off every display.
 /// Covering the rail, sitting at center, overlapping another pane:
 /// those are the user's place. Companion also writes legacy bounds.
@@ -1860,79 +1559,6 @@ fn persist_drawer_rect(app: &tauri::AppHandle, label: &str, rect: state::Compani
         }
     }
 }
-
-/// One inboard slot per docked drawer, stacked Companion → Board → Settings
-/// top-aligned to the rail with an 8pt gap. GO-ORBITTY-PANE-HOLD: a slot is
-/// emitted only when the FULL pane spec fits the rail display's
-/// visibleFrame beside the rail (rail + gap + spec inside vis — a 780-wide
-/// Board is never jammed into the leftover strip of an 847-wide portrait).
-/// No fit → no slot; the caller's fallback puts the pane on the largest
-/// display that fits. Returns absolute physical-px origins keyed by label.
-#[allow(dead_code)]
-fn drawer_slots(app: &tauri::AppHandle) -> std::collections::HashMap<String, (i32, i32)> {
-    drawer_slots_inner(app, None)
-}
-
-/// GO-ORBITTY-DRAWER-CLAMP: `include` forces one plucked label into the
-/// slot math as if docked, so a fully-off plucked pane can fall back to
-/// its inboard slot. GO-ORBITTY-PANE-HOLD: forced no longer bypasses the
-/// fit check — that bypass placed panes hanging off the portrait.
-fn drawer_slots_inner(
-    app: &tauri::AppHandle,
-    include: Option<&str>,
-) -> std::collections::HashMap<String, (i32, i32)> {
-    let mut out = std::collections::HashMap::new();
-    let Some(geo) = rail_geo(app) else {
-        return out;
-    };
-    // The spec is logical; the slot geometry here is physical px on the
-    // rail display — convert with the rail's own scale.
-    let rs = app
-        .get_webview_window("main")
-        .and_then(|r| r.current_monitor().ok().flatten())
-        .map(|m| m.scale_factor())
-        .unwrap_or(1.0);
-    let rs = if rs > 0.0 { rs } else { 1.0 };
-    let mut cursor_y = geo.pos.y as f64;
-    for label in state::DRAWER_LABELS {
-        let forced = include == Some(label);
-        if !forced && !drawer_docked(app, label) {
-            continue;
-        }
-        let (pw, ph) = drawer_size(app, label);
-        let (fw, fh) = crate::panes::pane_spec(label)
-            .map(|(_, sw, sh, _)| (sw * rs, sh * rs))
-            .unwrap_or((pw, ph));
-        let (mw, mh) = (pw.max(fw), ph.max(fh));
-        let x = if geo.inboard_right {
-            geo.pos.x as f64 + geo.size.width as f64 + DRAWER_GAP
-        } else {
-            geo.pos.x as f64 - pw - DRAWER_GAP
-        };
-        let y = cursor_y;
-        let fits = match &geo.vf {
-            Some(vf) => {
-                y >= vf.y
-                    && y + mh <= vf.y + vf.h
-                    && if geo.inboard_right {
-                        x >= vf.x && x + mw <= vf.x + vf.w
-                    } else {
-                        geo.pos.x as f64 - mw - DRAWER_GAP >= vf.x
-                    }
-            }
-            None => true,
-        };
-        if fits {
-            out.insert(label.to_string(), (x.round() as i32, y.round() as i32));
-            cursor_y = y + ph + DRAWER_GAP;
-        }
-    }
-    out
-}
-
-/// Law B: the rail does not move chrome. Kept as the named sink so lib.rs
-/// rail Moved/Resized wiring does not grow a second writer.
-pub(crate) fn follow_docked_panes(_app: &tauri::AppHandle) {}
 
 /// Persist the warm drawers cache into state.json (other slices are
 /// reload-preserved). Clears the dirty flag; emits state:changed.

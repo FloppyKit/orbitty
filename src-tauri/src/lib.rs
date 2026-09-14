@@ -771,20 +771,6 @@ pub fn run() {
                 }
             }
 
-            // GO-ORBITTY-RAIL-DRAWER: docked panes follow-translate the rail
-            // (Moved; Resized too — the inboard edge moves with rail width).
-            if let Some(main) = app.get_webview_window("main") {
-                let handle = app.handle().clone();
-                main.on_window_event(move |event| {
-                    if matches!(
-                        event,
-                        tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)
-                    ) {
-                        drawers::follow_docked_panes(&handle);
-                    }
-                });
-            }
-
             // GO-ORBITTY-PANE-WARM: build the three chrome drawer
             // webviews now — still hidden, still click-through — so the
             // first rail click is show + orderFront of an already-created
