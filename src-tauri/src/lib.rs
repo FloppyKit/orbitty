@@ -34,6 +34,8 @@ mod habitat;
 mod herdr;
 mod packs;
 mod rail_toggle;
+#[cfg(unix)]
+mod shift_continue;
 mod state;
 mod talk;
 mod tilechords;

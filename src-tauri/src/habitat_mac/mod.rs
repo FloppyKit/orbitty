@@ -692,6 +692,14 @@ pub(crate) fn walker_hidden(planet: &Planet, b: &Being) -> bool {
 pub(crate) fn emit_walked_off(entry_id: &str) {
     if let Some(app) = app_handle() {
         let _ = app.emit_to("main", "habitat:walked-off", entry_id.to_string());
+        #[cfg(unix)]
+        if let Some(card_id) = entry_id.strip_prefix("agent:") {
+            let app = app.clone();
+            let card_id = card_id.to_string();
+            let _ = std::thread::Builder::new()
+                .name("orbitty-shift-continue".into())
+                .spawn(move || crate::shift_continue::on_agent_walked_off(&app, &card_id));
+        }
     }
 }
 
