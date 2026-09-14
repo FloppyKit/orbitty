@@ -18,7 +18,7 @@ use super::audio;
 use super::boombox_hud;
 use super::input::{boombox_click, contains_interactive, over_disc, BOOMBOX_CLICK_SLOP};
 use super::{
-    app_handle, app_handle_cell, ball_arc_heads, ball_hop_secs, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings,
+    app_handle, app_handle_cell, ball_arc_heads, ball_hop_secs, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings, walkoff_target,
     layout_decor, lock, now_epoch, pack_still_aspect, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
     set_caption, station_target, view_to_disc, visible_frames, walker_head_view, yard_clamp, yard_contains,
     yard_dwell_ms, yard_pick, yard_pick_sailing, yard_seed, BallState, ClusterState,
@@ -1074,6 +1074,34 @@ fn anim_tick() {
                 // at the door, then unclaim. No north walk-through. No
                 // left-rim curtain; last walker lets the planet shrink.
                 Pose::WalkOff => {
+                    let is_droid = planet
+                        .walkers
+                        .get(i)
+                        .and_then(|b| b.droid)
+                        .is_some();
+                    if is_droid {
+                        let (tx, ty) = walkoff_target(id, roam.x, roam.y);
+                        let dx = tx - roam.x;
+                        let dy = ty - roam.y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        roam.tx = tx;
+                        roam.ty = ty;
+                        if dist < 0.05 || roam.x < HOME_HIDE_X {
+                            if !roam.off_emitted {
+                                roam.off_emitted = true;
+                                emit_walked_off(id);
+                                dirty = true;
+                            }
+                        } else {
+                            let step = (0.16 * dt).min(dist);
+                            roam.x += dx / dist * step;
+                            roam.y += dy / dist * step;
+                            roam.facing_left = dx < -0.002;
+                            stepping[i] = true;
+                            moved = true;
+                        }
+                        continue;
+                    }
                     if roam.x < HOME_HIDE_X {
                         roam.x = house.0;
                         roam.y = house.1;

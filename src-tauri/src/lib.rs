@@ -515,6 +515,8 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
         state.companion.conductor_on = b.companion.conductor_on;
         state.companion.conductor_model = b.companion.conductor_model.clone();
     }
+    #[cfg(unix)]
+    crate::agent_runs::reconcile_incoming(&mut state);
     state::save_state(&app, &state)?;
     if let Some(before) = before.as_ref() {
         event_log::diff_claims(&app, &before.claims, &state.claims);

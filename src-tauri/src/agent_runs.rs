@@ -80,6 +80,26 @@ fn transitions(
     (mints, dones, drops)
 }
 
+/// Whole-state save carry: a done card must not leave its run `working`.
+/// The walked-off door still drops the row (incoming omitted it); this
+/// only rewrites a row that arrived with the save.
+pub fn reconcile_incoming(incoming: &mut PersistedState) {
+    for card in &incoming.kanban_cards {
+        if card.kind.as_deref() != Some("todo") || card.status != "done" {
+            continue;
+        }
+        if let Some(r) = incoming
+            .agent_runs
+            .iter_mut()
+            .find(|r| r.card_id == card.id)
+        {
+            if r.state != "done" {
+                r.state = "done".into();
+            }
+        }
+    }
+}
+
 /// The strip-trap heal: rows the incoming save DROPPED without moving
 /// the card. The card still reads Doing, so the run is still live —
 /// restore the row (the wire rebuilds planet/agent from the card's
@@ -337,5 +357,17 @@ mod tests {
         after.kanban_cards[1].status = "done".into(); // walked-off eviction
         after.kanban_cards.retain(|c| c.id != "c-gone"); // card vanished
         assert!(stripped(&before, &after).is_empty());
+    }
+
+    #[test]
+    fn reconcile_forces_done_keeps_omitted() {
+        let mut st = PersistedState::default();
+        st.kanban_cards = vec![card("c-1", "todo", "done", "GO-ORBITTY-X", Some("a"))];
+        st.agent_runs = vec![run("c-1", "working")];
+        reconcile_incoming(&mut st);
+        assert_eq!(st.agent_runs[0].state, "done");
+        st.agent_runs.clear();
+        reconcile_incoming(&mut st);
+        assert!(st.agent_runs.is_empty());
     }
 }
