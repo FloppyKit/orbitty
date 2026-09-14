@@ -866,10 +866,11 @@
   // ---- board drag handlers ----
 
   function onCardDragStart(e: DragEvent, _card: KanbanCard) {
-    // BOARD-DRAG: the pointer path below owns the mouse now. WK's native
-    // drag session would cancel its pointer stream mid-hold, and WK never
-    // fires a legal drop — preventing dragstart keeps the stream alive.
-    // The DnD handlers stay wired as the belt for a WK that honors drop.
+    // BOARD-DRAG: never make the card draggable — WK's native drag
+    // session pointercancels the pointer stream at ~4px, right at the
+    // arm threshold, and preventing dragstart does not revive it. The
+    // pointer path below owns the mouse; the DnD handlers stay wired as
+    // the belt for a WK that honors drop.
     e.preventDefault();
   }
 
@@ -1406,7 +1407,6 @@
                   class:done={card.status === "done"}
                   class:mkey-sel={menuRing.activeId === `card-${card.id}`}
                   data-mkey={`card-${card.id}`}
-                  draggable="true"
                   ondragstart={(e) => onCardDragStart(e, card)}
                   ondragend={onCardDragEnd}
                   onpointerdown={(e) => onCardPointerDown(e, card)}
