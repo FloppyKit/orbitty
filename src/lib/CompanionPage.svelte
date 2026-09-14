@@ -779,6 +779,15 @@
 
   let neededFocusId = $state<string | null>(null);
   let neededFocusTitle = $state<string | null>(null);
+  // NEEDED-RULES-ANSWER: the focused card itself, so the composer's
+  // "if this again" row can classify it (title/why/project) and name it
+  // as from-needed on Save. Null whenever the hijack is off.
+  let neededFocusCard = $derived(
+    neededFocusId
+      ? (cards.find((c) => c.id === neededFocusId && c.kind === "needed") ??
+          null)
+      : null,
+  );
   function onNeededFocus(id: string | null, title: string | null) {
     if (expanded) {
       neededFocusId = null;
@@ -1829,6 +1838,7 @@
     {planetsHidden}
     {talking}
     neededHint={expanded ? null : neededFocusTitle}
+    neededCard={expanded ? null : neededFocusCard}
     {cheatSheetHint}
     onCheatSheet={() => (cheatOpen = !cheatOpen)}
     bind:draft

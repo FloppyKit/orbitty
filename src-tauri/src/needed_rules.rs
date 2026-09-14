@@ -16,6 +16,12 @@
 //! writer seat + issue already running/shipped, unreadable JSON → ping.
 //! Match is the small AND param list (unspecified = wildcard) — no model.
 //! Log: append-only `rules.log` JSONL (titles only, no PHI).
+//!
+//! GO-ORBITTY-NEEDED-RULES-ANSWER: `rule_add` is the Answer chrome's Save
+//! ("if this again" row). Still no writes from Rust — it shells out to
+//! `orbitty-needed rule add`, so the python CLI keeps owning rules.json
+//! (validation, the 48 cap, atomic save, log). This builds argv (no
+//! shell) and hands back the minted rule or the CLI's refusal verbatim.
 
 use std::path::{Path, PathBuf};
 
@@ -539,6 +545,61 @@ pub fn decide(title: &str, project_id: &str, why: &str, projects: &[Project]) ->
     }
 }
 
+// ---------- GO-ORBITTY-NEEDED-RULES-ANSWER: the Answer chrome's Save ----------
+
+/// `~/.local/bin/orbitty-needed` (a symlink into the scripts repo).
+fn cli_path() -> PathBuf {
+    home().join(".local/bin/orbitty-needed")
+}
+
+/// argv for `orbitty-needed rule add`: every param is one `--param k=v`
+/// (an `issued=` pair rides the same flag — the CLI sorts it into `when`).
+/// No shell, so spaces in title_prefix/title_exact/answer stay one arg.
+fn rule_add_argv(
+    params: &[(String, String)],
+    answer: &str,
+    from_needed: Option<&str>,
+) -> Vec<String> {
+    let mut argv = vec!["rule".to_string(), "add".to_string()];
+    for (k, v) in params {
+        argv.push("--param".to_string());
+        argv.push(format!("{k}={v}"));
+    }
+    argv.push("--answer".to_string());
+    argv.push(answer.to_string());
+    if let Some(id) = from_needed {
+        argv.push("--from-needed".to_string());
+        argv.push(id.to_string());
+    }
+    argv
+}
+
+/// Thin door for the "if this again" row. The write itself stays the
+/// python CLI's job — this never opens rules.json. Returns the minted
+/// rule JSON; a CLI refusal (unknown key, cap full, issued without go,
+/// empty answer) comes back verbatim as Err.
+pub fn rule_add(
+    params: &[(String, String)],
+    answer: &str,
+    from_needed: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let cli = cli_path();
+    let out = std::process::Command::new(&cli)
+        .args(rule_add_argv(params, answer, from_needed))
+        .output()
+        .map_err(|e| format!("rule add: cannot run {}: {e}", cli.display()))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() {
+            format!("rule add: exit {}", out.status)
+        } else {
+            err
+        });
+    }
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    serde_json::from_str(&text).map_err(|e| format!("rule add: bad JSON from CLI: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -676,5 +737,46 @@ mod tests {
         assert_eq!(seat_of("wait"), Some("wait"));
         assert_eq!(seat_of("already shipped"), None);
         assert_eq!(seat_of("green"), None);
+    }
+
+    #[test]
+    fn rule_add_argv_shape() {
+        // One --param k=v per pair, issued rides --param, answer last-ish,
+        // spaces never split (title_exact slurps are a CLI-side concern).
+        let argv = rule_add_argv(
+            &[
+                ("flavor".to_string(), "fact".to_string()),
+                ("go".to_string(), "GO-ORBITTY*".to_string()),
+                ("issued".to_string(), "shipped".to_string()),
+                (
+                    "title_exact".to_string(),
+                    "Who runs this doing GO?".to_string(),
+                ),
+            ],
+            "cursor on this planet",
+            Some("n-abc"),
+        );
+        assert_eq!(
+            argv,
+            vec![
+                "rule",
+                "add",
+                "--param",
+                "flavor=fact",
+                "--param",
+                "go=GO-ORBITTY*",
+                "--param",
+                "issued=shipped",
+                "--param",
+                "title_exact=Who runs this doing GO?",
+                "--answer",
+                "cursor on this planet",
+                "--from-needed",
+                "n-abc",
+            ]
+        );
+        // No from-needed → the flag is absent, not empty.
+        let argv = rule_add_argv(&[], "green", None);
+        assert_eq!(argv, vec!["rule", "add", "--answer", "green"]);
     }
 }

@@ -177,6 +177,32 @@ fn needed_answer(
     Err("needed.answer: unix only".into())
 }
 
+/// GO-ORBITTY-NEEDED-RULES-ANSWER — the "if this again" row's Save.
+/// Thin door: the rules.json write stays the python CLI's job
+/// (`orbitty-needed rule add` — validation, 48 cap, atomic save, log);
+/// this only builds argv and returns the minted rule, or the CLI's
+/// refusal verbatim. It never answers the card — the normal
+/// answer/dispatch path is untouched and no RULE: stanza is stuffed.
+#[cfg(unix)]
+#[tauri::command]
+fn needed_rule_add(
+    params: Vec<(String, String)>,
+    answer: String,
+    from_needed: Option<String>,
+) -> Result<serde_json::Value, String> {
+    needed_rules::rule_add(&params, &answer, from_needed.as_deref())
+}
+
+#[cfg(not(unix))]
+#[tauri::command]
+fn needed_rule_add(
+    _params: Vec<(String, String)>,
+    _answer: String,
+    _from_needed: Option<String>,
+) -> Result<serde_json::Value, String> {
+    Err("needed.rule_add: unix only".into())
+}
+
 /// GO-ORBITTY-CHARS — deterministic roll: the Being editor's reroll mints a
 /// seed, this maps it to a Kind+Palette (same function the habitat draws
 /// from when a claim has no explicit look yet).
@@ -540,6 +566,7 @@ pub fn run() {
             show_rail,
             set_planets_hidden,
             needed_answer,
+            needed_rule_add,
             bring_all_front,
             bring_planet_front,
             ensure_glass,
