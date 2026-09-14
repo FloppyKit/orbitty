@@ -26,6 +26,7 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import "./chrome.css";
   import type {
     AverageWindow,
     PersistedState,
@@ -643,30 +644,6 @@
     cursor: grabbing;
   }
 
-  /* The only close affordance: hides STARS, never quits (tray → Quit). */
-  .winx {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    font: inherit;
-    font-size: 0.82rem;
-    line-height: 1;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 999px;
-    cursor: pointer;
-  }
-
-  .winx:hover {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-  }
-
   .s-banner h1 {
     margin: 0;
     font-size: 0.9rem;
@@ -723,35 +700,6 @@
 
   .s-banner .winx {
     margin-left: 4px;
-  }
-
-  /* GO-ORBITTY-WORDMARK: ochre i-dot / ink O / accent ty. */
-  .mark {
-    text-shadow:
-      1px 1px 0 rgba(0, 0, 0, 0.28),
-      -1px -1px 0 rgba(255, 255, 255, 0.09);
-  }
-
-  .o {
-    color: var(--ink);
-    text-shadow:
-      1px 1px 0 rgba(0, 0, 0, 0.42),
-      -1px -1px 0 rgba(255, 255, 255, 0.14);
-  }
-
-  .idot {
-    color: #e59e3d;
-    text-shadow:
-      1px 1px 0 rgba(0, 0, 0, 0.42),
-      -1px -1px 0 rgba(255, 255, 255, 0.14);
-  }
-
-  .rest {
-    color: var(--ink);
-  }
-
-  .pop {
-    color: var(--accent);
   }
 
   .s-body {
