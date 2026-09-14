@@ -2805,7 +2805,7 @@
           onclick={onWordmarkClick}
           title="Home — click to bring planets front, drag to move the rail"
           aria-label="Home — bring all planet panels to the front"
-          ><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span></button
+          ><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">tty</span></span></button
         >
         {/if}
       </h1>

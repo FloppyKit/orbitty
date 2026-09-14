@@ -22,10 +22,30 @@
 //! (actions.rs reserved list); ⌘⌥+letter stays the action lane — dests
 //! are never registered as letters.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 use tauri_plugin_global_shortcut::{
     Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
 };
+
+/// Arrow keys repeat. One Pressed + a repeat on a 3-dest ring is the
+/// other neighbor (looks inverted). Ignore dest chords inside the yaw.
+const DEST_DEBOUNCE_MS: u64 = 450;
+static LAST_DEST_MS: AtomicU64 = AtomicU64::new(0);
+
+fn dest_chord_ok() -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_DEST_MS.load(Ordering::SeqCst);
+    if now.saturating_sub(last) < DEST_DEBOUNCE_MS {
+        return false;
+    }
+    LAST_DEST_MS.store(now, Ordering::SeqCst);
+    true
+}
 
 const DESTS: [(Code, &str); 3] = [
     (Code::Digit1, "launchpad"),
@@ -50,6 +70,9 @@ pub fn register(app: &tauri::AppHandle) {
             if ev.state() != ShortcutState::Pressed {
                 return;
             }
+            if !dest_chord_ok() {
+                return;
+            }
             // A global chord must work from a hidden companion: raise it
             // native-side first (same as the tray dest items), then ask
             // the page to toggle — enterHost / dismissHost own the host
@@ -65,6 +88,9 @@ pub fn register(app: &tauri::AppHandle) {
         let handle = app.clone();
         if let Err(e) = gs.on_shortcut(chord, move |_app, _s, ev| {
             if ev.state() != ShortcutState::Pressed {
+                return;
+            }
+            if !dest_chord_ok() {
                 return;
             }
             // No show_companion here — idle is a no-op, never a summon.
@@ -83,6 +109,9 @@ pub fn register(app: &tauri::AppHandle) {
         if ev.state() != ShortcutState::Pressed {
             return;
         }
+        if !dest_chord_ok() {
+            return;
+        }
         let _ = handle.emit_to("companion", "orbitty:dismiss-host", ());
     }) {
         eprintln!("tile-chords: ⌘⌥↓ register failed: {e}");
@@ -95,6 +124,9 @@ pub fn register(app: &tauri::AppHandle) {
     let handle = app.clone();
     if let Err(e) = gs.on_shortcut(chord, move |_app, _s, ev| {
         if ev.state() != ShortcutState::Pressed {
+            return;
+        }
+        if !dest_chord_ok() {
             return;
         }
         let _ = crate::panes::show_companion(&handle);

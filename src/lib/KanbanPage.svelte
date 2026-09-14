@@ -1201,7 +1201,7 @@
         </svg>
       </button>
     {:else}
-      <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span> Lists</h1>
+      <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">tty</span></span> Lists</h1>
     {/if}
     <span class="k-pts" title="Points today / daily cap">{pointsToday()}/{DAILY_CAP}</span>
     <button

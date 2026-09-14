@@ -90,7 +90,7 @@
       title="Hide Cloud"
       aria-label="Hide Cloud">×</button
     >
-    <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span> Cloud</h1>
+    <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">tty</span></span> Cloud</h1>
   </header>
 
   <div class="s-body">

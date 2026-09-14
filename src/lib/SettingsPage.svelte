@@ -432,7 +432,7 @@
       title="Hide Settings — reopen from the gear"
       aria-label="Hide Settings">×</button
     >
-    <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">ty</span></span> Settings</h1>
+    <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">tty</span></span> Settings</h1>
   </header>
 
   <nav class="tabs" aria-label="Settings sections">

@@ -964,8 +964,10 @@
         // Prism apothem from the pane width: r = w / (2·tan(π/3)). The
         // pane is already mounted and keeps its width across a swap.
         const w = wellpaneEl?.clientWidth ?? 0;
-        prismR = w > 0 ? Math.round(w / (2 * Math.tan(Math.PI / 3))) : 0;
-        swapPrev = prev;
+        prismR = w > 16 ? Math.round(w / (2 * Math.tan(Math.PI / 3))) : 0;
+        // r=0 + rotateY(120) + backface-hidden is a black card. Instant
+        // swap instead of a 3D turn that cannot land.
+        swapPrev = prismR > 0 ? prev : null;
       }
       hosted = mode;
       try {
@@ -1533,6 +1535,9 @@
     });
     unlistenYawHost = await listen<string>("orbitty:yaw-host", (e) => {
       if (hosted === "off") return;
+      // A second yaw mid-turn (key repeat) skips a dest — on a 3-ring
+      // that is the other neighbor, i.e. the opposite arrow.
+      if (swapPrev !== null || tileLeave) return;
       const from = DEST_RING.indexOf(hosted);
       const step = e.payload === "prev" ? DEST_RING.length - 1 : 1;
       const next = DEST_RING[(from + step) % DEST_RING.length];
@@ -2172,6 +2177,8 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    transform: none;
+    animation: none;
   }
 
   .wellpane.turning {
