@@ -90,11 +90,43 @@ fn run_json(bin: &Path, args: &[&str], timeout_ms: u64) -> Result<Value, String>
     }
 }
 
-/// Server up = `workspace list` answers. The error envelope's
-/// `code: message` rides the skip line (`server_not_running` → the
-/// human runs `herdr` to start it — Orbitty never auto-starts it).
+/// Server up = `workspace list` answers.
 fn server_up(bin: &Path) -> Result<(), String> {
     run_json(bin, &["workspace", "list"], 10_000).map(|_| ())
+}
+
+fn is_server_not_running(why: &str) -> bool {
+    why.starts_with("server_not_running")
+}
+
+/// Leftover pane: if the binary is present and the socket is down, start
+/// `herdr server` (headless) once and wait for the socket. Fail → skip,
+/// old launcher still fires. Never a nag loop, never the TUI `herdr`.
+fn ensure_server(bin: &Path) -> Result<(), String> {
+    match server_up(bin) {
+        Ok(()) => return Ok(()),
+        Err(e) if is_server_not_running(&e) => {}
+        Err(e) => return Err(e),
+    }
+    let child = Command::new(bin)
+        .arg("server")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("herdr server start: {e}"))?;
+    std::thread::spawn(move || {
+        let mut child = child;
+        let _ = child.wait();
+    });
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < deadline {
+        if server_up(bin).is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    Err("server_not_running: started herdr server but the socket never came up".into())
 }
 
 /// `~` / `~/…` expansion — claims store the raw AX string.
@@ -351,11 +383,11 @@ pub fn branch(
         );
         return Branch::Skip;
     };
-    if let Err(why) = server_up(&bin) {
+    if let Err(why) = ensure_server(&bin) {
         skip_line(
             app,
             shortcut,
-            &format!("herdr server not up ({why}) — run `herdr` to start it; the old launcher fires"),
+            &format!("herdr server not up ({why}) — the old launcher fires"),
         );
         return Branch::Skip;
     }
@@ -604,5 +636,14 @@ mod tests {
         assert_eq!(expand_home("~"), home);
         assert_eq!(expand_home("~/x"), format!("{home}/x"));
         assert_eq!(expand_home("/tmp"), "/tmp");
+    }
+
+    #[test]
+    fn server_not_running_code() {
+        assert!(is_server_not_running(
+            "server_not_running: no herdr server is running"
+        ));
+        assert!(!is_server_not_running("timeout"));
+        assert!(!is_server_not_running("bad json"));
     }
 }
