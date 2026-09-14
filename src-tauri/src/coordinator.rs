@@ -2372,7 +2372,7 @@ fn run_action_inner(command: String, cwd: Option<String>) -> Result<ActionResult
 
 // ---------- Agents lane: harness shortcuts (no LLM inside Orbitty) ----------
 
-fn find_on_path(bin: &str) -> Option<PathBuf> {
+pub(crate) fn find_on_path(bin: &str) -> Option<PathBuf> {
     let path = std::env::var("PATH").unwrap_or_default();
     for dir in path.split(':') {
         let candidate = PathBuf::from(dir).join(bin);
@@ -2562,6 +2562,16 @@ pub fn launch_agent(
             ))
         }
         "grok" => {
+            // GO-ORBITTY-HERDR-ADAPTER: the herdr branch of this door —
+            // pane first, agent second, when herdr is present + up.
+            // Skip falls through to the Terminal launcher unchanged
+            // (one skip line was already logged; never a dual-launch).
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles) {
+                crate::herdr::Branch::Skip => {}
+                crate::herdr::Branch::Up(m) | crate::herdr::Branch::Blocked(m) => {
+                    return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
+                }
+            }
             let Some(bin) = find_grok() else {
                 return Err(
                     "`grok` not on PATH — install the Grok CLI or pick another harness."
@@ -2622,6 +2632,19 @@ pub fn launch_agent(
                 )),
             }
         }
+        // GO-ORBITTY-HERDR-ADAPTER: opencode is a herdr kind, detect-only
+        // — legal with `opencode` on PATH, never prompt-installed, never
+        // `opencode serve`d as the mouth. No Terminal door exists for it,
+        // so a skip is an honest error, not a fall-through.
+        "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles) {
+            crate::herdr::Branch::Up(m) | crate::herdr::Branch::Blocked(m) => {
+                Ok(format!("{m} Query: {}.{skip_note}", query.display()))
+            }
+            crate::herdr::Branch::Skip => Err(
+                "`opencode` needs herdr up + `opencode` on PATH (detect-only — never prompt-installed). Pick another harness."
+                    .to_string(),
+            ),
+        },
         other => Err(format!(
             "unknown harness {other:?} — cursor | goose | grok | hermes (set per agent row; never a silent hermes)"
         )),

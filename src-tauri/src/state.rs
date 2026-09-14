@@ -242,10 +242,11 @@ impl Default for PersistedState {
 /// attach door (`agent_runs::attach_on_moves`) when a gated `kind=todo`
 /// card lands in Doing; the launchers (doing-fire / pickup /
 /// `launch_agent`) own the process — this row is never a spawn.
-/// `state`: "starting" | "working" | "blocked" | "done". This phrase
-/// writes working/done; blocked/starting are read-supported for the
-/// Herdr adapter (NeededInbox open or blocked → the walker sits the
-/// near rim; done → the far-rim walk-off, then the rail evicts the row).
+/// `state`: "starting" | "working" | "blocked" | "done". DOING-WALKER
+/// writes working/done; the Herdr adapter (`herdr.rs`) writes blocked
+/// and carries `herdr`; starting stays read-supported only (NeededInbox
+/// open or blocked → the walker sits the near rim; done → the far-rim
+/// walk-off, then the rail evicts the row).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AgentRun {
@@ -255,6 +256,26 @@ pub struct AgentRun {
     /// (a GO-* fire before the standing answer assigns one).
     pub agent_shortcut_id: String,
     pub state: String,
+    /// GO-ORBITTY-HERDR-ADAPTER: the herdr pen for this run — present
+    /// only when the herdr branch of `launch_agent` launched it. The few
+    /// adapter fields ride the one row; never a second planet DB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub herdr: Option<AgentRunHerdr>,
+}
+
+/// GO-ORBITTY-HERDR-ADAPTER: the herdr pen of one doing-run, persisted
+/// on the run row (`agentRun.herdr`). Additive; old saves load with None.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentRunHerdr {
+    pub planet_id: String,
+    pub workspace: String,
+    pub tab: String,
+    pub pane: String,
+    pub agent_name: String,
+    /// "grok" | "opencode" — opencode is detect-only (on PATH = legal),
+    /// never prompt-installed.
+    pub kind: String,
 }
 
 impl Default for AgentRun {
@@ -264,6 +285,7 @@ impl Default for AgentRun {
             planet_id: String::new(),
             agent_shortcut_id: String::new(),
             state: "working".to_string(),
+            herdr: None,
         }
     }
 }

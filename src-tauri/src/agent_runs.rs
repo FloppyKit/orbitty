@@ -17,7 +17,8 @@
 //! Wired from the same two move doors as doing-fire (`board::kanban_move`
 //! and the UI's whole-state `save_state` command) as a before/after card
 //! diff. `state: "blocked"` / `"starting"` are read-supported in the
-//! snapshot mapping for the Herdr adapter; this phrase writes neither.
+//! snapshot mapping and written by the Herdr adapter (`herdr.rs`);
+//! `"starting"` stays read-supported only — this phrase writes neither.
 //!
 //! Leftover (no droid): the strip-trap heal. A stale whole-state persist
 //! (the rail's in-memory `agentRuns` predating the mint, doing-fire's
@@ -140,6 +141,7 @@ pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &
                     .clone()
                     .unwrap_or_default(),
                 state: "working".into(),
+                herdr: None,
             }),
         }
         changed = true;
@@ -175,6 +177,7 @@ pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &
                 .clone()
                 .unwrap_or_default(),
             state: row.state.clone(),
+            herdr: row.herdr.clone(),
         });
         changed = true;
         attached.push(card);
@@ -293,6 +296,7 @@ mod tests {
             planet_id: "p-1".into(),
             agent_shortcut_id: String::new(),
             state: state.into(),
+            herdr: None,
         }
     }
 

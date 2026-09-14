@@ -155,6 +155,17 @@ export interface AgentRun {
   planetId: string;
   agentShortcutId?: string;
   state: "starting" | "working" | "blocked" | "done";
+  // GO-ORBITTY-HERDR-ADAPTER: present only when the herdr branch of
+  // launch_agent launched the run. Round-tripped opaquely — the native
+  // side owns it; never a second planet DB.
+  herdr?: {
+    planetId: string;
+    workspace: string;
+    tab: string;
+    pane: string;
+    agentName: string;
+    kind: string;
+  };
 }
 
 export interface CompanionBounds {

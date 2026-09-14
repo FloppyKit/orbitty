@@ -26,6 +26,7 @@ mod needed_rules;
 mod nextcard;
 mod panes;
 mod habitat;
+mod herdr;
 mod packs;
 mod rail_toggle;
 mod state;
