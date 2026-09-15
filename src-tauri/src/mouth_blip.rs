@@ -199,7 +199,7 @@ fn clip(raw: &str) -> Option<String> {
     }
     let mut s = lines.join("\n");
     if s.chars().count() > BLIP_CAP {
-        s = s.chars().take(BLIP_CAP - 1).collect::<String>() + "…";
+        s = s.chars().take(BLIP_CAP.saturating_sub(3)).collect::<String>() + "...";
     }
     if s.is_empty() {
         None
@@ -283,7 +283,7 @@ mod tests {
     fn clip_caps_long() {
         let long = "a".repeat(500);
         let b = clip(&long).unwrap();
-        assert!(b.ends_with('…'));
+        assert!(b.ends_with("..."));
         assert!(b.chars().count() <= BLIP_CAP);
     }
 

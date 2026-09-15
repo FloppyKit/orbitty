@@ -652,29 +652,15 @@
       aria-label="Thin — new chat needed"
       title="This chat is thin — stamp and start a new job (⌘⌥T)"
     >thin</button>
-    <button
-      type="button"
-      class="clipbtn"
-      onclick={onPickAttach}
-      disabled={sending}
-      aria-label="Attach one file"
-      title="Attach one file (25 MB cap) — or drop one anywhere here"
-    >
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.9"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <path
-          d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"
-        />
-      </svg>
-    </button>
     <div class="fieldwrap" class:talking>
+      <button
+        type="button"
+        class="fieldplus"
+        onclick={onPickAttach}
+        disabled={sending}
+        aria-label="Attach one file"
+        title="Attach one file (25 MB cap)"
+      >+</button>
       <textarea
         class="field"
         rows="1"
@@ -1366,7 +1352,39 @@
 
   .fieldwrap .field {
     width: 100%;
+    padding-left: 28px;
     padding-right: 32px;
+  }
+
+  .fieldplus {
+    position: absolute;
+    left: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: inherit;
+    font-size: 1.05rem;
+    line-height: 1;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .fieldplus:hover {
+    color: var(--accent);
+  }
+
+  .fieldplus:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 
   .fieldwrap.talking .field {

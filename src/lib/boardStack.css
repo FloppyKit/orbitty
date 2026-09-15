@@ -108,6 +108,24 @@
   opacity: 0.45;
 }
 
+.doing-floor {
+  flex: 0 0 10px;
+  position: relative;
+  cursor: default;
+}
+
+.doing-floor::after {
+  content: "";
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  top: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--dim);
+  opacity: 0.35;
+}
+
 .mail-todo {
   flex: 1;
 }

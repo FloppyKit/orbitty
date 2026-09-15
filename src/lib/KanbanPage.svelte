@@ -531,13 +531,36 @@
   function dropGrab() {
     const id = grabbedId;
     const target = grabCol;
+    const idx = grabIdx;
     grabbedId = null;
     grabCol = null;
     grabIdx = 0;
     const card = id ? kanbanCards.find((c) => c.id === id) : undefined;
-    // The ONE save door — the same moveCard a mouse drop takes (Done is
-    // the complete door; doing-fire diffs this save for a GO-* todo).
-    if (card && target) moveCard(card, target);
+    if (!card || !target) return;
+    if (target !== card.status) {
+      moveCard(card, target);
+      return;
+    }
+    persistColumnOrder(card, target, idx);
+  }
+
+  function persistColumnOrder(card: KanbanCard, col: Status, toIdx: number) {
+    mutate((s) => {
+      const cards = s.kanbanCards;
+      const match = (c: KanbanCard) =>
+        c.status === col &&
+        c.kind !== "needed" &&
+        c.kind !== "window" &&
+        !c.parentId &&
+        inScope(c);
+      const group = cards.filter(match);
+      const from = group.findIndex((c) => c.id === card.id);
+      if (from < 0) return;
+      const [held] = group.splice(from, 1);
+      group.splice(Math.min(Math.max(toIdx, 0), group.length), 0, held);
+      let gi = 0;
+      s.kanbanCards = cards.map((c) => (match(c) ? group[gi++] : c));
+    });
   }
 
   function ungrab() {
@@ -1244,7 +1267,7 @@
     e.preventDefault();
     const id = e.dataTransfer?.getData("text/plain") || dragCardId;
     const card = kanbanCards.find((c) => c.id === id);
-    if (card) moveCard(card, col);
+    if (card && col === "done") moveCard(card, col);
     dragCardId = null;
     dropCol = null;
   }
@@ -1275,10 +1298,10 @@
       p.held = true;
     }
     if (!grabbedId) return;
-    const col = colAtPoint(e.clientX, e.clientY);
-    if (!col) return;
-    grabCol = col;
-    grabIdx = rowAtPoint(col, e.clientY);
+    const card = kanbanCards.find((c) => c.id === grabbedId);
+    if (!card) return;
+    grabCol = card.status;
+    grabIdx = rowAtPoint(card.status, e.clientY);
   }
 
   function onPtrUp() {
@@ -1910,6 +1933,7 @@
                 <button class="mini" onclick={() => mintTodo(newTodoTitle)}>Add</button>
               </div>
             {/if}
+            <div class="doing-lane" data-col="doing">
             {#each viewCols.doing as card (card.id)}
               {@render stackCard(card)}
               {#if openSubtaskIds.includes(card.id)}
@@ -1918,6 +1942,9 @@
                 {/each}
               {/if}
             {/each}
+            </div>
+            <div class="doing-floor" aria-hidden="true"></div>
+            <div class="todo-lane" data-col="todo">
             {#each viewCols.todo as card (card.id)}
               {@render stackCard(card)}
               {#if openSubtaskIds.includes(card.id)}
@@ -1930,6 +1957,7 @@
                 <p class="b-empty">No to-dos — drag a card here.</p>
               {/if}
             {/each}
+            </div>
           </div>
         </section>
         {/if}

@@ -140,6 +140,9 @@ pub(crate) fn ensure_window(
         drag_drop_enabled: label == "companion",
         ..Default::default()
     };
+    // Dest chips close in one click while Launchpad/STARS hold key-window
+    // — without this, the first click only activates companion.
+    config.accept_first_mouse = label == "companion";
     // Chrome panes: no native Overlay title strip. That invisible ~28px
     // bar plus the in-SPA banner was two drag sources — grab failed
     // or the window ran ahead of the cursor. Borderless; JS

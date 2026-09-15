@@ -10,6 +10,12 @@
   import { mdLite, fitPages } from "./mdLite";
   import type { CompanionTurn } from "./persist";
 
+  function fitBlip(text: string): string {
+    const max = 360;
+    if (text.length <= max) return text;
+    return text.slice(0, max - 3) + "...";
+  }
+
   let {
     expanded = false,
     hosted = false,
@@ -401,7 +407,7 @@
       </span>
     </span>
     {#if ackLine}
-      <span class="waitbubble wline" aria-hidden="true">{ackLine}</span>
+      <span class="waitbubble wline" aria-hidden="true">{fitBlip(ackLine)}</span>
     {/if}
   </span>
 {/snippet}

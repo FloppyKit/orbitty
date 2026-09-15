@@ -189,7 +189,7 @@
   let ackLine = $state("");
   let pendingAck = "";
   let ackReveal: ReturnType<typeof setTimeout> | undefined;
-  const ACK_SPIN_MS = 700;
+  const ACK_SPIN_MS = 2100;
   // The one-file chip. Original path only (never a
   // copy); it rides companion_send as an optional path, vanishes after
   // the send, and comes back on an honest error. One chip, × to drop.
@@ -775,13 +775,12 @@
   let neededFocusId = $state<string | null>(null);
   let neededFocusTitle = $state<string | null>(null);
   function onNeededFocus(id: string | null, title: string | null) {
-    if (expanded) {
-      neededFocusId = null;
-      neededFocusTitle = null;
-      return;
-    }
     neededFocusId = id;
     neededFocusTitle = title;
+    if (id) {
+      fieldEl?.focus();
+      getCurrentWebviewWindow().setFocus().catch(() => {});
+    }
   }
 
   // Enter on a Needed row arms the composer
@@ -791,12 +790,7 @@
   function onNeededAnswer() {
     fieldEl?.focus();
   }
-  $effect(() => {
-    if (expanded) {
-      neededFocusId = null;
-      neededFocusTitle = null;
-    }
-  });
+
 
   async function sendLine() {
     const line = draft.trim();
