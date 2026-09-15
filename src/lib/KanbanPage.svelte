@@ -87,6 +87,10 @@
   let addingTodo = $state(false);
   let newTodoTitle = $state("");
   let hideSubtasks = $state(true);
+  let newTagName = $state("");
+  let planetDragId = $state<string | null>(null);
+  let planetDropId = $state<string | null>(null);
+  let planetDidDrag = false;
 
   // No Actions well here — actions are a Settings
   // list + `orbittyctl action` verbs; the slice still round-trips via
@@ -101,7 +105,6 @@
   let collapsedSectionIds = $state<string[]>([]);
 
   let detailId = $state<string | null>(null);
-  let newSubtask = $state("");
 
   // The Launchpad ring — Needed pile, the planet
   // strip (a row: left/right walk it), then the board piles
@@ -262,8 +265,55 @@
   }
 
   function onPlanetTabClick(id: string) {
+    if (planetDidDrag) {
+      planetDidDrag = false;
+      return;
+    }
     selected = id;
     raisePlanet(id);
+  }
+
+  function reorderPlanets(fromId: string, beforeId: string | null) {
+    if (!fromId || fromId === beforeId) return;
+    mutate((s) => {
+      const list = [...(s.projects ?? [])];
+      const from = list.findIndex((p) => p.id === fromId);
+      if (from < 0) return;
+      const [moved] = list.splice(from, 1);
+      const to = beforeId ? list.findIndex((p) => p.id === beforeId) : list.length;
+      list.splice(to < 0 ? list.length : to, 0, moved);
+      s.projects = list;
+    });
+  }
+
+  function onPlanetDragStart(e: DragEvent, id: string) {
+    planetDragId = id;
+    planetDidDrag = false;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", id);
+    }
+  }
+
+  function onPlanetDragOver(e: DragEvent, id: string) {
+    if (!planetDragId || planetDragId === id) return;
+    e.preventDefault();
+    planetDropId = id;
+    planetDidDrag = true;
+  }
+
+  function onPlanetDrop(e: DragEvent, id: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    const from = planetDragId;
+    planetDragId = null;
+    planetDropId = null;
+    if (from) reorderPlanets(from, id);
+  }
+
+  function onPlanetDragEnd() {
+    planetDragId = null;
+    planetDropId = null;
   }
 
   function toggleDoneChip() {
@@ -760,7 +810,7 @@
   function openDetail(card: KanbanCard) {
     if (card.kind !== "needed") neededSelectedId = null;
     detailId = card.id;
-    newSubtask = "";
+    newTagName = "";
   }
 
   function toggleDoing(card: KanbanCard, e: MouseEvent) {
@@ -846,8 +896,7 @@
         confirm: () => deleteSubtask(card, sub.id),
       });
     }
-    stops.push({ id: "d-sub-input", confirm: focusStop("d-sub-input") });
-    stops.push({ id: "d-sub-add", confirm: () => addSubtask(card) });
+    stops.push({ id: "d-tag-new", confirm: focusStop("d-tag-new") });
     for (const t of tags) {
       stops.push({
         id: `d-tag-${t.id}`,
@@ -1024,6 +1073,30 @@
     return (card.tagIds ?? []).includes(tagId);
   }
 
+  function addTagToCard(card: KanbanCard, raw: string) {
+    const name = raw.trim();
+    if (!name) return;
+    mutate((s) => {
+      s.tags ??= [];
+      let tag = s.tags.find((t) => t.name.toLowerCase() === name.toLowerCase());
+      if (!tag) {
+        tag = {
+          id: `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          name,
+        };
+        s.tags = [...s.tags, tag];
+      }
+      const tagId = tag.id;
+      s.kanbanCards = s.kanbanCards.map((c) => {
+        if (c.id !== card.id) return c;
+        const cur = c.tagIds ?? [];
+        if (cur.includes(tagId)) return c;
+        return { ...c, tagIds: [...cur, tagId] };
+      });
+    });
+    newTagName = "";
+  }
+
   function toggleCardTag(card: KanbanCard, tagId: string) {
     mutate((s) => {
       s.kanbanCards = s.kanbanCards.map((c) => {
@@ -1035,13 +1108,6 @@
         return { ...c, tagIds: next.length ? next : undefined };
       });
     });
-  }
-
-  function addSubtask(card: KanbanCard) {
-    const title = newSubtask.trim();
-    if (!title) return;
-    mintTodo(title, card.id);
-    newSubtask = "";
   }
 
   function toggleSubtask(card: KanbanCard, subId: string) {
@@ -1281,7 +1347,7 @@
     if (!card) return;
     selected = listOf(card);
     detailId = card.id;
-    newSubtask = "";
+    newTagName = "";
   }
 
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -1558,17 +1624,39 @@
       </button>
     </div>
     <span class="strip-gap" aria-hidden="true"></span>
-    <div class="strip-planets">
+    <div
+      class="strip-planets"
+      ondragover={(e) => {
+        if (!planetDragId) return;
+        e.preventDefault();
+        planetDidDrag = true;
+      }}
+      ondrop={(e) => {
+        if (!planetDragId) return;
+        e.preventDefault();
+        const from = planetDragId;
+        planetDragId = null;
+        planetDropId = null;
+        reorderPlanets(from, null);
+      }}
+    >
     {#each projects as p (p.id)}
       <button
         type="button"
         class="planet-tab"
         class:sel={selected === p.id}
+        class:drop-ok={planetDropId === p.id}
+        class:dragging={planetDragId === p.id}
         class:mkey-sel={menuRing.activeId === `listtab-${p.id}`}
         data-mkey={`listtab-${p.id}`}
         role="tab"
         aria-selected={selected === p.id}
         title={p.name}
+        draggable="true"
+        ondragstart={(e) => onPlanetDragStart(e, p.id)}
+        ondragover={(e) => onPlanetDragOver(e, p.id)}
+        ondrop={(e) => onPlanetDrop(e, p.id)}
+        ondragend={onPlanetDragEnd}
         onclick={() => onPlanetTabClick(p.id)}
         ondblclick={() => onPlanetTabDblClick(p.id)}
       >
@@ -1892,25 +1980,9 @@
             </li>
           {/each}
           {#if childrenOf(card.id).length === 0 && !(card.subtasks ?? []).length}
-            <li class="d-hint">No subtasks yet — add one or tag another to-do.</li>
+            <li class="d-hint">No subtasks yet — tag a to-do below.</li>
           {/if}
         </ul>
-        <div class="d-subadd">
-          <input
-            class="d-input"
-            class:mkey-sel={menuRing.activeId === "d-sub-input"}
-            data-mkey="d-sub-input"
-            bind:value={newSubtask}
-            placeholder="New subtask…"
-            onkeydown={(e) => e.key === "Enter" && addSubtask(card)}
-          />
-          <button
-            class="mini"
-            class:mkey-sel={menuRing.activeId === "d-sub-add"}
-            data-mkey="d-sub-add"
-            onclick={() => addSubtask(card)}>Add</button
-          >
-        </div>
         {#if linkableTodos(card).length > 0}
           <select
             class="d-input"
@@ -1941,9 +2013,21 @@
               >
             {/each}
           </div>
-        {:else}
-          <p class="d-hint">No tags yet — make them in the rail attach menu.</p>
         {/if}
+        <div class="d-subadd">
+          <input
+            class="d-input"
+            class:mkey-sel={menuRing.activeId === "d-tag-new"}
+            data-mkey="d-tag-new"
+            bind:value={newTagName}
+            placeholder="New tag"
+            onkeydown={(e) => e.key === "Enter" && addTagToCard(card, newTagName)}
+          />
+          <button
+            class="mini"
+            onclick={() => addTagToCard(card, newTagName)}>Add</button
+          >
+        </div>
 
         {#if card.kind === "window" || card.windowId}
           {@const w = winFor(card)}
@@ -2100,6 +2184,10 @@
 
   .planet-tab.drop-ok {
     box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  .planet-tab.dragging {
+    opacity: 0.45;
   }
 
   .planet-tab {
