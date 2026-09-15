@@ -11,8 +11,6 @@
   // pick (sending || hackLive); the pick hugs its labels (46% cap dead).
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import NeededRuleRow from "./NeededRuleRow.svelte";
-  import type { KanbanCard } from "./persist";
 
   // Chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
@@ -69,7 +67,6 @@
     planetsHidden = false,
     talking,
     neededHint = null,
-    neededCard = null,
     draft = $bindable(),
     fieldEl = $bindable(),
     composerExtra = $bindable(0),
@@ -115,10 +112,6 @@
     planetsHidden?: boolean;
     talking: boolean;
     neededHint?: string | null;
-    // NEEDED-RULES-ANSWER: the Needed the composer is hijacked to answer
-    // (needed-focus) — the "if this again" row rides above the field.
-    // Null = a plain chat composer; no row, no second answer box.
-    neededCard?: KanbanCard | null;
     draft: string;
     fieldEl: HTMLTextAreaElement | null;
     // The one-file chip (name + size, × to drop).
@@ -648,16 +641,6 @@
         </span>
       </div>
     {/if}
-    {#if neededCard}
-      <!-- NEEDED-RULES-ANSWER: "if this again" rides the composer's
-           needed-focus (the Launchpad strip's answer path) — closed by
-           default, keyed per card, Save never sends the answer. -->
-      <div class="ruleslot">
-        {#key neededCard.id}
-          <NeededRuleRow card={neededCard} answer={draft} />
-        {/key}
-      </div>
-    {/if}
     <button
       type="button"
       class="clipbtn"
@@ -688,7 +671,7 @@
         bind:value={draft}
         onkeydown={onFieldKeydown}
         placeholder={neededHint
-          ? `answer: ${neededHint}`
+          ? `answer: ${neededHint}  ·  Rule: … to remember`
           : "type…  ·  todo: buy milk -fkt"}
         aria-label="Message your companion"
         autocomplete="off"

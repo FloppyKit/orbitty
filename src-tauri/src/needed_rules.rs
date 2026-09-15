@@ -600,9 +600,147 @@ pub fn rule_add(
     serde_json::from_str(&text).map_err(|e| format!("rule add: bad JSON from CLI: {e}"))
 }
 
+const PARAM_KEYS: &[&str] = &[
+    "flavor",
+    "go",
+    "prompt_kind",
+    "project",
+    "title_prefix",
+    "title_exact",
+];
+
+/// Leading `Rule:` / `RULE:` on a composer answer. Returns the dispatch
+/// text (Rule: stripped). If the line taught a rule, it is saved here.
+/// Teaching is user-minted only — callers never invent a line.
+pub fn apply_composer_rule(card: &crate::state::KanbanCard, raw: &str) -> String {
+    let t = raw.trim();
+    let rest = match t.split_once(':') {
+        Some((h, r)) if h.trim().eq_ignore_ascii_case("rule") => r.trim(),
+        _ => return t.to_string(),
+    };
+    if rest.is_empty() {
+        return String::new();
+    }
+    if first_tok_is_param(rest) {
+        let mut lines = rest.lines();
+        let first = lines.next().unwrap_or("").trim();
+        let body = lines.collect::<Vec<_>>().join("\n").trim().to_string();
+        let mut params: Vec<(String, String)> = Vec::new();
+        for tok in first.split_whitespace() {
+            if let Some((k, v)) = tok.split_once('=') {
+                let k = k.trim().to_ascii_lowercase();
+                let v = v.trim();
+                if !k.is_empty() && !v.is_empty() {
+                    params.push((k, v.to_string()));
+                }
+            }
+        }
+        let answer = if body.is_empty() {
+            String::new()
+        } else {
+            body
+        };
+        if !answer.is_empty() && !params.is_empty() {
+            let _ = rule_add(&params, &answer, Some(card.id.as_str()));
+        }
+        return answer;
+    }
+    teach_from_composer(card, rest);
+    rest.to_string()
+}
+
+fn first_tok_is_param(s: &str) -> bool {
+    let tok = s.split_whitespace().next().unwrap_or("");
+    let Some((k, _)) = tok.split_once('=') else {
+        return false;
+    };
+    let k = k.trim().to_ascii_lowercase();
+    PARAM_KEYS.iter().any(|p| *p == k)
+}
+
+fn teach_from_composer(card: &crate::state::KanbanCard, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return;
+    }
+    let (params, answer) = if first_tok_is_param(rest) {
+        let mut lines = rest.lines();
+        let first = lines.next().unwrap_or("").trim();
+        let body = lines.collect::<Vec<_>>().join("\n").trim().to_string();
+        let mut params: Vec<(String, String)> = Vec::new();
+        for tok in first.split_whitespace() {
+            if let Some((k, v)) = tok.split_once('=') {
+                let k = k.trim().to_ascii_lowercase();
+                let v = v.trim();
+                if !k.is_empty() && !v.is_empty() {
+                    params.push((k, v.to_string()));
+                }
+            }
+        }
+        let answer = if body.is_empty() {
+            String::new()
+        } else {
+            body
+        };
+        (params, answer)
+    } else {
+        let cls = classify(
+            card.title.as_str(),
+            card.project_id.as_str(),
+            card.needed_why.as_deref().unwrap_or(""),
+        );
+        let mut params = vec![("flavor".into(), cls.flavor.to_string())];
+        if let Some(go) = cls.go {
+            params.push(("go".into(), go));
+        }
+        if let Some(pk) = cls.prompt_kind {
+            params.push(("prompt_kind".into(), pk.to_string()));
+        }
+        if !cls.project.is_empty() {
+            params.push(("project".into(), cls.project));
+        }
+        (params, rest.to_string())
+    };
+    if answer.trim().is_empty() || params.is_empty() {
+        return;
+    }
+    let _ = rule_add(&params, answer.trim(), Some(card.id.as_str()));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composer_rule_passthrough() {
+        let c = crate::state::KanbanCard {
+            id: "n-1".into(),
+            title: "Who runs this doing GO?".into(),
+            project_id: "p-1".into(),
+            window_id: None,
+            kind: Some("needed".into()),
+            status: "todo".into(),
+            created_at: 0.0,
+            last_touched_at: 0.0,
+            completed_at: None,
+            goal_aligned: true,
+            clinical_or_master: false,
+            points_awarded: 0,
+            starred: false,
+            notes: None,
+            difficulty: None,
+            subtasks: None,
+            due_at: None,
+            tag_ids: None,
+            needed_state: Some("open".into()),
+            needed_why: None,
+            needed_answer: None,
+            actor: None,
+            assigned_agent_id: None,
+        };
+        assert_eq!(apply_composer_rule(&c, "cursor on this planet"), "cursor on this planet");
+        assert_eq!(apply_composer_rule(&c, "Rule:"), "");
+    }
 
     #[test]
     fn go_token_from_title() {

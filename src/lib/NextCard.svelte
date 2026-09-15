@@ -5,7 +5,6 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { startPaneDrag } from "./dragPane";
-  import NeededRuleRow from "./NeededRuleRow.svelte";
   import { onMount, onDestroy, tick } from "svelte";
   import {
     applyHostTokens,
@@ -449,12 +448,6 @@
             }}
           />
         </div>
-        <!-- NEEDED-RULES-ANSWER: "if this again" — closed by default,
-             keyed per card so a saved/cancelled row never leaks into the
-             next Needed. Saving a rule never answers this card. -->
-        {#key neededCard.id}
-          <NeededRuleRow card={neededCard} answer={answerDraft} />
-        {/key}
         <button class="nc-defer" onclick={() => laterNeeded(neededCard)}>Not now</button>
       {:else if todoCard}
         <p class="nc-title">{todoCard.title}</p>

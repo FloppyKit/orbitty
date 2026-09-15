@@ -142,27 +142,10 @@
     const drawer = detailId
       ? kanbanCards.find((c) => c.id === detailId)
       : undefined;
-    // The card vanished under an open drawer (a state reload) — back
-    // out to the board rather than pin a ghost surface.
     if (detailId && !drawer) detailId = null;
-    if (detailId && drawer) {
-      // Drawer open: descend one surface (pad A) — the drawer's own
-      // stops + its B (close) ride the ring. A held card is let go:
-      // you cannot inspect one card while holding another.
-      if (grabbedId) ungrab();
-      if (!drawerOnRing) {
-        drawerOnRing = true;
-        menuRing.pushSurface(() => {
-          detailId = null;
-          return true;
-        });
-      }
-      menuRing.setStops(drawerStops(drawer));
-      return;
-    }
+    // Preview is always on — not a modal surface. Drag stays on the
+    // board ring. Esc does not close the pane.
     if (drawerOnRing) {
-      // Back one level (pad B): the board's stops/highlight restore, so
-      // backing out never dumps arrows into page scroll.
       drawerOnRing = false;
       menuRing.popSurface();
     }
@@ -398,6 +381,18 @@
     list.splice(Math.min(grabIdx, list.length), 0, card);
     out[grabCol] = list;
     return out;
+  });
+
+  $effect(() => {
+    const pile = [...viewCols.doing, ...viewCols.todo];
+    if (detailId && pile.some((c) => c.id === detailId)) return;
+    if (
+      detailId &&
+      (doneOpen || selected === "done") &&
+      viewCols.done.some((c) => c.id === detailId)
+    )
+      return;
+    detailId = pile[0]?.id ?? null;
   });
 
   function startGrab(card: KanbanCard) {
@@ -957,7 +952,7 @@
   let suppressClick = false;
 
   function onCardPointerDown(e: PointerEvent, card: KanbanCard) {
-    if (e.button !== 0 || grabbedId || detailId) return;
+    if (e.button !== 0 || grabbedId) return;
     suppressClick = false;
     ptr = { id: card.id, x: e.clientX, y: e.clientY, held: false };
     window.addEventListener("pointermove", onPtrMove);
@@ -1162,10 +1157,6 @@
           ungrab();
           return true;
         }
-        if (detailId) {
-          detailId = null;
-          return true;
-        }
         return false;
       });
       void loadState();
@@ -1253,6 +1244,7 @@
     class:held={grabbedId === card.id}
     class:done={card.status === "done"}
     class:doing={card.status === "doing"}
+    class:sel={detailId === card.id}
     class:mkey-sel={menuRing.activeId === `card-${card.id}`}
     data-mkey={`card-${card.id}`}
     draggable="true"
@@ -1540,18 +1532,11 @@
       </div>
     </section>
 
-    {#if detailCard}
+    <aside class="k-detail" aria-label="Item details">
+      {#if detailCard}
       {@const card = detailCard}
-      <aside class="k-detail" aria-label="Item details">
         <header class="d-head">
           <span class="d-title">Details</span>
-          <button
-            class="d-close"
-            class:mkey-sel={menuRing.activeId === "d-close"}
-            data-mkey="d-close"
-            onclick={() => (detailId = null)}
-            aria-label="Close details">×</button
-          >
         </header>
 
         <label class="d-label" for="d-name">Title</label>
@@ -1696,8 +1681,13 @@
           </div>
           <p class="d-hint">Window links are made by claiming in the rail — read-only here.</p>
         {/if}
-      </aside>
-    {/if}
+      {:else}
+        <header class="d-head">
+          <span class="d-title">Details</span>
+        </header>
+        <p class="d-hint">Highlight a todo to see it here.</p>
+      {/if}
+    </aside>
   </div>
 </main>
 
@@ -1797,6 +1787,10 @@
   .k-body {
     flex: 1;
     min-height: 0;
+    display: flex;
+  }
+
+  .k-body > .k-detail {
     display: flex;
   }
 

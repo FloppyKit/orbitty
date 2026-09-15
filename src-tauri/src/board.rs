@@ -668,8 +668,8 @@ pub fn needed_answer(
     id: &str,
     answer: &str,
 ) -> Result<KanbanCard, String> {
-    let answer = answer.trim();
-    if answer.is_empty() {
+    let raw = answer.trim();
+    if raw.is_empty() {
         return Err("needed.answer: empty answer".into());
     }
     let before = crate::state::load_state(app)?;
@@ -680,6 +680,10 @@ pub fn needed_answer(
         .ok_or_else(|| format!("needed.answer: unknown card id {id:?}"))?;
     if before.kanban_cards[idx].kind.as_deref() != Some("needed") {
         return Err("needed.answer: that card is not a Needed".into());
+    }
+    let answer = crate::needed_rules::apply_composer_rule(&before.kanban_cards[idx], raw);
+    if answer.is_empty() {
+        return Err("needed.answer: empty answer".into());
     }
     let now = now_secs();
     let mut after = before.clone();
