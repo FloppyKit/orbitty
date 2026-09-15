@@ -73,6 +73,9 @@
   let pointsLedger = $state<PointsEntry[]>([]);
   let windows = $state<WindowInfo[]>([]);
   let titleOverrides = $state<TitleOverride[]>([]);
+  // AGENT-PLANET leftover: writer on a planet glows that chip in the
+  // Launchpad strip (same flag the inspector sheet tabs already read).
+  let hackProjectId = $state<string | null>(null);
 
   // GO-ORBITTY-ACTION-FILE: no Actions well here — actions are a Settings
   // list + `orbittyctl action` verbs; the slice still round-trips via
@@ -533,6 +536,9 @@
       pointsLedger = s.pointsLedger ?? [];
       titleOverrides = s.titleOverrides ?? [];
       collapsedSectionIds = s.collapsedSectionIds ?? [];
+      hackProjectId = s.companion?.hackLive
+        ? (s.companion?.hackProjectId ?? null)
+        : null;
     } catch {
       // keep last good state; next state:changed retries
     }
@@ -1322,7 +1328,8 @@
       >
         <span
           class="planet-chip"
-          style="background: {planetCss(p.id)}"
+          class:live={hackProjectId === p.id}
+          style="background: {planetCss(p.id)}; --pglow: {planetCss(p.id)}"
           aria-hidden="true"
         ></span>
         <span class="planet-tab-name">{p.name}</span>
@@ -1337,7 +1344,8 @@
         {#if selectedProject}
           <span
             class="planet-chip"
-            style="background: {planetCss(selectedProject.id)}"
+            class:live={hackProjectId === selectedProject.id}
+            style="background: {planetCss(selectedProject.id)}; --pglow: {planetCss(selectedProject.id)}"
             title={selectedProject.name}
             aria-hidden="true"
           ></span>
@@ -1824,6 +1832,12 @@
     height: 11px;
     border-radius: 50%;
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+
+  .planet-chip.live {
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+      0 0 8px 2px var(--pglow, var(--accent));
   }
 
   .side-count {
