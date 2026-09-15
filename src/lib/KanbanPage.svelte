@@ -23,7 +23,6 @@
     AgentRun,
     AgentShortcut,
     Claim,
-    Difficulty,
     KanbanCard,
     NeededState,
     PersistedState,
@@ -60,7 +59,6 @@
   type DoneFilter = "all" | "mine" | "behalf";
 
   const DAILY_CAP = 12;
-  const DIFFICULTIES: Difficulty[] = ["trivial", "easy", "medium", "hard"];
   const COLUMNS: { id: Status; name: string; hint: string }[] = [
     { id: "todo", name: "Todo", hint: "No to-dos — drag a card here." },
     { id: "doing", name: "Doing", hint: "Nothing in progress — drag a card here." },
@@ -817,14 +815,10 @@
     };
     const stops: RingStop[] = [
       { id: "d-title", confirm: focusStop("d-title") },
+      { id: "d-planet", confirm: focusStop("d-planet") },
+      { id: "d-agent", confirm: focusStop("d-agent") },
       { id: "d-notes", confirm: focusStop("d-notes") },
     ];
-    for (const d of DIFFICULTIES) {
-      stops.push({
-        id: `d-diff-${d}`,
-        confirm: () => setDifficulty(card, card.difficulty === d ? null : d),
-      });
-    }
     stops.push({ id: "d-due", confirm: focusStop("d-due") });
     if (card.dueAt) {
       stops.push({ id: "d-due-clear", confirm: () => setDue(card, "") });
@@ -873,13 +867,36 @@
     });
   }
 
-  // Difficulty is metadata only — it never enters the points formula.
-  function setDifficulty(card: KanbanCard, d: Difficulty | null) {
+  function setPlanet(card: KanbanCard, projectId: string) {
     mutate((s) => {
       s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id ? { ...c, difficulty: d ?? undefined } : c,
+        c.id === card.id
+          ? { ...c, projectId, lastTouchedAt: Date.now() / 1000 }
+          : c,
       );
     });
+    logEvent("board-planet", { cardId: card.id, projectId }, projectId || undefined);
+  }
+
+  function setAgent(card: KanbanCard, agentId: string) {
+    const assignedAgentId = agentId || null;
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards.map((c) =>
+        c.id === card.id
+          ? {
+              ...c,
+              assignedAgentId,
+              actor: assignedAgentId ? "agent" : c.actor,
+              lastTouchedAt: Date.now() / 1000,
+            }
+          : c,
+      );
+    });
+    logEvent(
+      "board-assign",
+      { cardId: card.id, agentId: assignedAgentId },
+      card.projectId,
+    );
   }
 
   function setDue(card: KanbanCard, dateValue: string) {
@@ -1274,13 +1291,6 @@
   {#if card.neededState}
     <span class="k-needst" title="Needed state">{card.neededState}</span>
   {/if}
-  {#if card.difficulty}
-    <span
-      class="pip {card.difficulty}"
-      title="Difficulty: {card.difficulty} (metadata only — points unchanged)"
-      aria-label="Difficulty: {card.difficulty}"
-    ></span>
-  {/if}
   {#if due}
     <span class="k-due" class:overdue={due.overdue} title="Due date">{due.label}</span>
   {/if}
@@ -1612,6 +1622,18 @@
       {@const card = detailCard}
         {#if card.kind === "needed"}
           <p class="d-need-title">{card.title}</p>
+          <label class="d-label" for="d-need-planet">Planet</label>
+          <select
+            id="d-need-planet"
+            class="d-input"
+            value={livePlanetId(card) ?? ""}
+            onchange={(e) => setPlanet(card, e.currentTarget.value)}
+          >
+            <option value="">Inbox</option>
+            {#each projects as p (p.id)}
+              <option value={p.id}>{p.name}</option>
+            {/each}
+          </select>
           {#if card.neededWhy}
             <div class="kn-why">{@html mdLite(card.neededWhy)}</div>
           {/if}
@@ -1639,6 +1661,36 @@
           required
         />
 
+        <label class="d-label" for="d-planet">Planet</label>
+        <select
+          id="d-planet"
+          class="d-input"
+          class:mkey-sel={menuRing.activeId === "d-planet"}
+          data-mkey="d-planet"
+          value={livePlanetId(card) ?? ""}
+          onchange={(e) => setPlanet(card, e.currentTarget.value)}
+        >
+          <option value="">Inbox</option>
+          {#each projects as p (p.id)}
+            <option value={p.id}>{p.name}</option>
+          {/each}
+        </select>
+
+        <label class="d-label" for="d-agent">Agent</label>
+        <select
+          id="d-agent"
+          class="d-input"
+          class:mkey-sel={menuRing.activeId === "d-agent"}
+          data-mkey="d-agent"
+          value={card.assignedAgentId ?? ""}
+          onchange={(e) => setAgent(card, e.currentTarget.value)}
+        >
+          <option value="">None</option>
+          {#each agentShortcuts as a (a.id)}
+            <option value={a.id}>{a.name}</option>
+          {/each}
+        </select>
+
         <label class="d-label" for="d-notes">Notes</label>
         <textarea
           id="d-notes"
@@ -1650,21 +1702,6 @@
           value={card.notes ?? ""}
           onchange={(e) => saveNotes(card, e.currentTarget.value)}
         ></textarea>
-
-        <span class="d-label">Difficulty</span>
-        <div class="d-diff" title="Metadata only — the points formula never reads difficulty">
-          {#each DIFFICULTIES as d (d)}
-            <button
-              class="mini"
-              class:active={card.difficulty === d}
-              class:mkey-sel={menuRing.activeId === `d-diff-${d}`}
-              data-mkey={`d-diff-${d}`}
-              onclick={() => setDifficulty(card, card.difficulty === d ? null : d)}
-            >
-              {d}
-            </button>
-          {/each}
-        </div>
 
         <label class="d-label" for="d-due">Due date</label>
         <div class="d-duerow">

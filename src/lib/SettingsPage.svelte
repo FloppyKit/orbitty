@@ -4,6 +4,7 @@
   // Talk source uses set_companion_talk_source (companion slice).
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open as shellOpen } from "@tauri-apps/plugin-shell";
   import { startPaneDrag } from "./dragPane";
   import { onMount, onDestroy } from "svelte";
@@ -394,6 +395,8 @@
     }
   };
   let unlisten: (() => void) | undefined;
+  let unlistenFocus: (() => void) | undefined;
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
     await loadState();
@@ -403,9 +406,29 @@
       loadState();
     });
     document.addEventListener("visibilitychange", onVisibility);
+    const win = getCurrentWindow();
+    unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
+      if (focused) {
+        if (hideTimer) clearTimeout(hideTimer);
+        hideTimer = undefined;
+        return;
+      }
+      hideTimer = setTimeout(() => {
+        invoke("hide_window", { label: "settings" }).catch(() => {});
+      }, 220);
+    });
+    window.addEventListener("keydown", onSettingsKey);
   });
+  function onSettingsKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      invoke("hide_window", { label: "settings" }).catch(() => {});
+    }
+  }
   onDestroy(() => {
+    if (hideTimer) clearTimeout(hideTimer);
     unlisten?.();
+    unlistenFocus?.();
+    window.removeEventListener("keydown", onSettingsKey);
     document.removeEventListener("visibilitychange", onVisibility);
   });
 
@@ -425,13 +448,6 @@
   <!-- One drag source: JS startDragging on this banner. Drawers are
        borderless — no native Overlay strip competing with the click. -->
   <header class="s-banner" onmousedown={onBannerMouseDown}>
-    <button
-      class="winx"
-      onmousedown={(e) => e.stopPropagation()}
-      onclick={() => invoke("hide_window", { label: "settings" }).catch(() => {})}
-      title="Hide Settings — reopen from the gear"
-      aria-label="Hide Settings">×</button
-    >
     <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">tty</span></span> Settings</h1>
   </header>
 
