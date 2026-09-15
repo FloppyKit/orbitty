@@ -1,0 +1,119 @@
+/* GO-ORBITTY-LAUNCHPAD-SPLIT: the open Needed strip is a SPLIT band —
+   pile list left, selected card (question / why / Answer·Later·Skip)
+   right — capped at a fixed height so the Todo/Doing/Done columns below
+   never leave the screen. The 42vh accordion that covered the board was
+   the miss. NeededInbox.svelte owns this paint; board chrome stays in
+   KanbanPage. Global (chrome.css precedent), kn-* namespaced. */
+
+.kn-split {
+  display: flex;
+  gap: 10px;
+  height: 168px;
+  padding-top: 4px;
+}
+
+/* Left half: the pile, one compact row per Needed. */
+.kn-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 2px 0 0;
+  flex: 0 0 38%;
+  min-width: 132px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.kn-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 0.76rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.kn-item:hover {
+  background: var(--panel-fill, var(--panel));
+}
+
+.kn-item.sel {
+  background: var(--panel-fill, var(--panel));
+  border-color: var(--focus, #6e4db0);
+}
+
+/* Planet circle — same marble color recipe as the board's planet-chip
+   (scoped there, so the Needed pane gets its own). */
+.kn-chip {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.kn-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Right half: the selected card. Fixed band height → why scrolls
+   inside, actions pin to the bottom edge. */
+.kn-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--panel-fill, var(--panel));
+  overflow: hidden;
+}
+
+.kn-card-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kn-pname {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.kn-card .kn-q {
+  flex-shrink: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kn-card-why {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.kn-card .kn-acts {
+  margin-top: auto;
+  padding-top: 4px;
+}

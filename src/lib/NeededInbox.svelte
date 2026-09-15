@@ -1,5 +1,5 @@
 <script module lang="ts">
-  import type { KanbanCard } from "./persist";
+  import type { KanbanCard, Project } from "./persist";
 
   // One Needed ordering, two readers — the strip
   // paints it, the Launchpad ring (KanbanPage) walks it.
@@ -18,21 +18,40 @@
         return a.createdAt - b.createdAt;
       });
   }
+
+  // LP-SPLIT: the pile AND the planet-tab filter, one door — the strip
+  // paints exactly these rows and the Launchpad ring walks exactly these
+  // rows. "" (Inbox / Today / Done) = the consolidated all-planets pile;
+  // a planet id = that planet's Neededs only.
+  export function neededFor(
+    cards: KanbanCard[],
+    projectId: string,
+  ): KanbanCard[] {
+    return neededSorted(cards).filter(
+      (c) => projectId === "" || c.projectId === projectId,
+    );
+  }
 </script>
 
 <script lang="ts">
-  // Needed pile. Launchpad strip is an accordion: one header with a
-  // count, open to a standard card (question / why / Answer·Later·Skip).
-  // Why is mdLite so **bold**, `paths`, and lists read as prose, not
-  // raw markdown. Parent owns mutate/logEvent so persist stays one door.
+  // Needed pile. Launchpad strip: idle is a one-line count; open is a
+  // SPLIT band — pile list left, the selected card (question / why /
+  // Answer·Later·Skip) right — height-capped (needed-split.css) so the
+  // Todo/Doing/Done columns stay on screen. The 42vh accordion that
+  // covered the board was the miss. Why is mdLite so **bold**, `paths`,
+  // and lists read as prose, not raw markdown. Parent owns
+  // mutate/logEvent so persist stays one door.
   // open/selectedId are bindable so the Launchpad
   // ring can walk the pile; ringActiveId paints the one focus ring.
   import { mdLite } from "./mdLite";
+  import { planetCss } from "./planetColor";
   import type { PersistedState } from "./persist";
+  import "./needed-split.css";
 
   let {
     variant,
     cards,
+    projects = [],
     projectId = "",
     mutate,
     logEvent,
@@ -41,9 +60,11 @@
     selectedId = $bindable<string | null>(null),
     ringActiveId = null,
     onNeededFocus,
+    onNeededAnswer,
   }: {
     variant: "strip" | "side";
     cards: KanbanCard[];
+    projects?: Project[];
     projectId?: string;
     mutate: (fn: (s: PersistedState) => void) => void;
     logEvent: (
@@ -56,6 +77,10 @@
     selectedId?: string | null;
     ringActiveId?: string | null;
     onNeededFocus?: (id: string | null, title: string | null) => void;
+    // LP-SPLIT: the Answer button — arms the composer hijack (same door
+    // as ring Enter). Embedded Launchpad only; the overlay Lists window
+    // has no composer, so no Answer button paints there.
+    onNeededAnswer?: () => void;
   } = $props();
 
   let newNeeded = $state("");
@@ -64,7 +89,26 @@
     if (addingNeeded) open = true;
   });
 
-  let neededNow = $derived(neededSorted(cards));
+  let neededNow = $derived(neededFor(cards, projectId));
+  // The card half of the split. The effect below keeps selectedId alive;
+  // the neededNow[0] fallback covers the frame between a Skip and the
+  // state:changed reload.
+  let selCard = $derived(
+    neededNow.find((c) => c.id === selectedId) ?? neededNow[0] ?? null,
+  );
+
+  // Planet chip + short name on every row/card — a screenshot of the
+  // consolidated Inbox reads which planet each Needed belongs to.
+  function projOf(card: KanbanCard): Project | undefined {
+    return card.projectId
+      ? projects.find((p) => p.id === card.projectId)
+      : undefined;
+  }
+
+  function answerNeeded(card: KanbanCard) {
+    selectedId = card.id;
+    onNeededAnswer?.();
+  }
 
   function setOpen(v: boolean) {
     open = v;
@@ -190,40 +234,75 @@
           <button class="mini ghost" onclick={() => (addingNeeded = false)}>Cancel</button>
         </div>
       {/if}
-      <ul class="kn-rows">
-        {#each neededNow as card (card.id)}
-          <li
-            class="kn-row"
-            class:sel={selectedId === card.id}
-            class:mkey-sel={ringActiveId === `needed-${card.id}`}
-            data-mkey={`needed-${card.id}`}
-            onclick={() => (selectedId = card.id)}
-          >
-            <p class="kn-q">{card.title}</p>
-            {#if card.neededWhy}
-              <div class="kn-why">{@html mdLite(card.neededWhy)}</div>
-            {/if}
-            <div class="kn-acts">
-              <button
-                class="mini ghost"
-                onclick={(e) => {
-                  e.stopPropagation();
-                  laterNeeded(card);
-                }}
-                title="Drop to the bottom of the stack">Later</button
+      {#if neededNow.length > 0}
+        <!-- LP-SPLIT: pile list beside the selected card, band height
+             capped in needed-split.css — the board columns never leave
+             the screen while a Needed is read/answered. -->
+        <div class="kn-split">
+          <ul class="kn-list" aria-label="Needed pile">
+            {#each neededNow as card (card.id)}
+              {@const p = projOf(card)}
+              <li
+                class="kn-item"
+                class:sel={selectedId === card.id}
+                class:mkey-sel={ringActiveId === `needed-${card.id}`}
+                data-mkey={`needed-${card.id}`}
+                onclick={() => (selectedId = card.id)}
               >
-              <button
-                class="mini ghost"
-                onclick={(e) => {
-                  e.stopPropagation();
-                  skipNeeded(card);
-                }}
-                title="Delete this Needed">Skip</button
-              >
+                {#if p}
+                  <span
+                    class="kn-chip"
+                    style="background: {planetCss(p.id)}"
+                    title={p.name}
+                    aria-hidden="true"
+                  ></span>
+                {/if}
+                <span class="kn-item-title">{card.title}</span>
+              </li>
+            {/each}
+          </ul>
+          {#if selCard}
+            {@const sc = selCard}
+            {@const sp = projOf(sc)}
+            <div class="kn-card">
+              {#if sp}
+                <div class="kn-card-head">
+                  <span
+                    class="kn-chip"
+                    style="background: {planetCss(sp.id)}"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="kn-pname">{sp.name}</span>
+                </div>
+              {/if}
+              <p class="kn-q">{sc.title}</p>
+              {#if sc.neededWhy}
+                <div class="kn-why kn-card-why">{@html mdLite(sc.neededWhy)}</div>
+              {/if}
+              <div class="kn-acts">
+                {#if onNeededAnswer}
+                  <button
+                    class="mini"
+                    onclick={() => answerNeeded(sc)}
+                    title="Answer in the composer — the next typed line lands on this Needed"
+                    >Answer</button
+                  >
+                {/if}
+                <button
+                  class="mini ghost"
+                  onclick={() => laterNeeded(sc)}
+                  title="Drop to the bottom of the stack">Later</button
+                >
+                <button
+                  class="mini ghost"
+                  onclick={() => skipNeeded(sc)}
+                  title="Delete this Needed">Skip</button
+                >
+              </div>
             </div>
-          </li>
-        {/each}
-      </ul>
+          {/if}
+        </div>
+      {/if}
     {/if}
   </section>
 {/if}
@@ -317,33 +396,9 @@
     line-height: 1.5;
   }
 
-  .kn-rows {
-    list-style: none;
-    margin: 0;
-    padding: 4px 0 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    max-height: 42vh;
-    overflow-y: auto;
-  }
-
-  .kn-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px 10px;
-    border: 1px solid var(--edge);
-    border-radius: 10px;
-    background: var(--panel-fill, var(--panel));
-    cursor: pointer;
-  }
-
-  .kn-row.sel {
-    border-color: var(--focus, #6e4db0);
-    box-shadow: inset 0 0 0 1px var(--focus, #6e4db0);
-  }
-
+  /* LP-SPLIT: the open band (kn-split / kn-list / kn-item / kn-card)
+     lives in needed-split.css — the 42vh accordion rows were the miss
+     and are deleted, not piled on. */
   .kn-q {
     margin: 0;
     font-size: 0.92rem;

@@ -12,7 +12,7 @@
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
   import { startPaneDrag } from "./dragPane";
-  import NeededInbox, { neededSorted } from "./NeededInbox.svelte";
+  import NeededInbox, { neededFor } from "./NeededInbox.svelte";
   import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import "./chrome.css";
   import type {
@@ -115,7 +115,14 @@
   const menuRing = new MenuRing();
   let neededOpen = $state(false);
   let neededSelectedId = $state<string | null>(null);
-  const neededRows = $derived(neededSorted(kanbanCards));
+  // LP-SPLIT: the Needed pane filters with the planet tab — Inbox and
+  // the smart tabs ("") paint the consolidated all-planets pile, a
+  // planet tab paints that planet's Neededs. neededFor is the one
+  // filter; the pane paints and this ring walks the SAME rows.
+  const neededProjectId = $derived(
+    projects.some((p) => p.id === selected) ? selected : "",
+  );
+  const neededRows = $derived(neededFor(kanbanCards, neededProjectId));
   // Tracks the drawer surface's push/pop pairing on the ring.
   let drawerOnRing = false;
 
@@ -345,9 +352,14 @@
   // Board scope mirrors the sidebar selection; the Done smart filter boards
   // every card so all three columns stay meaningful.
   function inScope(c: KanbanCard): boolean {
+    // LP-SPLIT: the kind filter is also what keeps ANSWERED Neededs out
+    // of the consolidated Inbox — a Needed never becomes a board todo.
     if (c.kind === "needed" || c.kind === "window") return false;
     if (selected === "done") return true;
     if (selected === "today") return c.createdAt >= startOfToday();
+    // LP-SPLIT: Inbox is the consolidated pile — every planet's todos,
+    // each card marked by its planet chip. Planet tabs still filter.
+    if (selected === "inbox") return true;
     return listOf(c) === selected;
   }
 
@@ -447,6 +459,8 @@
     if (list === "today")
       return openCards.filter((c) => c.createdAt >= startOfToday()).length;
     if (list === "done") return doneCards.length;
+    // LP-SPLIT: Inbox counts the whole consolidated all-planets pile.
+    if (list === "inbox") return openCards.length;
     return openCards.filter((c) => listOf(c) === list).length;
   }
 
@@ -505,12 +519,10 @@
     };
   }
 
-  // Project chip: shown whenever it adds information the sidebar doesn't.
+  // Project chip: LP-SPLIT — on whenever the planet is live, even on that
+  // planet's own tab, so a screenshot of any board reads the planet.
   function showProj(card: KanbanCard): boolean {
-    return (
-      projectName(card.projectId) !== "" &&
-      (selected === "today" || selected === "done" || selected !== card.projectId)
-    );
+    return livePlanetId(card) !== null;
   }
 
   // The seven palette skins are retired; a
@@ -1259,10 +1271,13 @@
     >
   </header>
 
+  <!-- LP-SPLIT: idle this is the one-line Needed count; open it is the
+       split band (pile | card) — the board columns stay on screen. -->
   <NeededInbox
     variant="strip"
     cards={kanbanCards}
-    projectId={selectedProject?.id ?? ""}
+    {projects}
+    projectId={neededProjectId}
     {mutate}
     {logEvent}
     bind:addingNeeded
@@ -1270,6 +1285,7 @@
     bind:selectedId={neededSelectedId}
     ringActiveId={menuRing.activeId}
     {onNeededFocus}
+    {onNeededAnswer}
   />
 
   <div class="planet-strip" role="tablist" aria-label="Lists and planets">
