@@ -105,6 +105,11 @@
   flex: 1;
 }
 
+.mail-done {
+  flex: 1;
+  min-height: 0;
+}
+
 .b-zone {
   display: flex;
   flex-direction: column;

@@ -81,8 +81,7 @@
   // AGENT-PLANET leftover: writer on a planet glows that chip in the
   // Launchpad strip (same flag the inspector sheet tabs already read).
   let hackProjectId = $state<string | null>(null);
-  // BOARD-STACK: Done accordion, closed unless the Done tab is selected.
-  let doneOpen = $state(false);
+  let selectedBeforeDone = $state("inbox");
   let neededSplit = $state(0.28);
   let mailEl: HTMLDivElement | null = $state(null);
   let addingTodo = $state(false);
@@ -267,6 +266,15 @@
     raisePlanet(id);
   }
 
+  function toggleDoneChip() {
+    if (selected === "done") {
+      selected = selectedBeforeDone || "inbox";
+    } else {
+      selectedBeforeDone = selected;
+      selected = "done";
+    }
+  }
+
   function onPlanetTabDblClick(id: string) {
     const collapsed = collapsedSectionIds.includes(id);
     emitTo("main", collapsed ? "habitat:expand" : "habitat:collapse", id).catch(
@@ -400,7 +408,7 @@
     if (detailId && pile.some((c) => c.id === detailId)) return;
     if (
       detailId &&
-      (doneOpen || selected === "done") &&
+      selected === "done" &&
       viewCols.done.some((c) => c.id === detailId)
     )
       return;
@@ -1487,7 +1495,6 @@
     {:else}
       <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">tty</span></span> Lists</h1>
     {/if}
-    <span class="k-pts" title="Points today / daily cap">{pointsToday()}/{DAILY_CAP}</span>
     <button
       class="winx"
       onmousedown={(e) => e.stopPropagation()}
@@ -1503,46 +1510,55 @@
   </header>
 
   <div class="planet-strip" role="tablist" aria-label="Lists and planets">
-    <button
-      type="button"
-      class="planet-tab"
-      class:sel={selected === "inbox"}
-      class:mkey-sel={menuRing.activeId === "listtab-inbox"}
-      data-mkey="listtab-inbox"
-      role="tab"
-      aria-selected={selected === "inbox"}
-      onclick={() => (selected = "inbox")}
-    >
-      <span class="planet-tab-name">Inbox</span>
-      <span class="side-count">{sideCount("inbox")}</span>
-    </button>
-    <button
-      type="button"
-      class="planet-tab"
-      class:sel={selected === "today"}
-      class:mkey-sel={menuRing.activeId === "listtab-today"}
-      data-mkey="listtab-today"
-      role="tab"
-      aria-selected={selected === "today"}
-      onclick={() => (selected = "today")}
-    >
-      <span class="planet-tab-name">Today</span>
-      <span class="side-count">{sideCount("today")}</span>
-    </button>
-    <button
-      type="button"
-      class="planet-tab"
-      class:sel={selected === "done"}
-      class:mkey-sel={menuRing.activeId === "listtab-done"}
-      data-mkey="listtab-done"
-      role="tab"
-      aria-selected={selected === "done"}
-      onclick={() => (selected = "done")}
-    >
-      <span class="planet-tab-name">Done</span>
-      <span class="side-count">{sideCount("done")}</span>
-    </button>
+    <div class="strip-pins">
+      <button
+        type="button"
+        class="planet-tab"
+        class:sel={selected === "inbox"}
+        class:mkey-sel={menuRing.activeId === "listtab-inbox"}
+        data-mkey="listtab-inbox"
+        role="tab"
+        aria-selected={selected === "inbox"}
+        onclick={() => (selected = "inbox")}
+      >
+        <span class="planet-tab-name">Inbox</span>
+        <span class="side-count">{sideCount("inbox")}</span>
+      </button>
+      <button
+        type="button"
+        class="planet-tab"
+        class:sel={selected === "today"}
+        class:mkey-sel={menuRing.activeId === "listtab-today"}
+        data-mkey="listtab-today"
+        role="tab"
+        aria-selected={selected === "today"}
+        onclick={() => (selected = "today")}
+      >
+        <span class="planet-tab-name">Today</span>
+        <span class="side-count">{sideCount("today")}</span>
+      </button>
+      <button
+        type="button"
+        class="planet-tab"
+        class:sel={selected === "done"}
+        class:mkey-sel={menuRing.activeId === "listtab-done"}
+        data-mkey="listtab-done"
+        role="tab"
+        aria-selected={selected === "done"}
+        data-col="done"
+        class:drop-ok={dropCol === "done" || grabCol === "done"}
+        title="Done — click to show completed, click again to return"
+        onclick={() => toggleDoneChip()}
+        ondragover={(e) => onColDragOver(e, "done")}
+        ondragleave={(e) => onColDragLeave(e, "done")}
+        ondrop={(e) => onColDrop(e, "done")}
+      >
+        <span class="planet-tab-name">Done</span>
+        <span class="side-count">{sideCount("done")}</span>
+      </button>
+    </div>
     <span class="strip-gap" aria-hidden="true"></span>
+    <div class="strip-planets">
     {#each projects as p (p.id)}
       <button
         type="button"
@@ -1566,6 +1582,7 @@
         <span class="side-count">{sideCount(p.id)}</span>
       </button>
     {/each}
+    </div>
   </div>
 
   <div class="k-heads" onmousedown={onBannerMouseDown}>
@@ -1604,6 +1621,29 @@
     <section class="k-main" aria-label={listTitle}>
 
       <div class="mail" bind:this={mailEl}>
+        {#if selected === "done"}
+          <section class="mail-todo mail-done" aria-label="Done">
+            <div
+              class="b-zone todo"
+              class:drop-ok={dropCol === "done" || grabCol === "done"}
+              data-col="done"
+              ondragover={(e) => onColDragOver(e, "done")}
+              ondragleave={(e) => onColDragLeave(e, "done")}
+              ondrop={(e) => onColDrop(e, "done")}
+            >
+              <header class="b-head">
+                <span class="b-name">Done</span>
+                <span class="b-count">{viewCols.done.length}</span>
+                {@render doneActorChips()}
+              </header>
+              {#each viewCols.done as card (card.id)}
+                {@render stackCard(card)}
+              {:else}
+                <p class="b-empty">Nothing done yet.</p>
+              {/each}
+            </div>
+          </section>
+        {:else}
         <div
           class="mail-needed"
           class:empty={neededRows.length === 0 && !addingNeeded}
@@ -1693,35 +1733,8 @@
               {/if}
             {/each}
           </div>
-          <div
-            class="b-zone done"
-            class:drop-ok={dropCol === "done" || grabCol === "done"}
-            class:open={doneOpen || selected === "done"}
-            data-col="done"
-            ondragover={(e) => onColDragOver(e, "done")}
-            ondragleave={(e) => onColDragLeave(e, "done")}
-            ondrop={(e) => onColDrop(e, "done")}
-          >
-            <button
-              type="button"
-              class="b-acc"
-              onclick={() => (doneOpen = !doneOpen)}
-              aria-expanded={doneOpen || selected === "done"}
-            >
-              <span class="chev" class:open={doneOpen || selected === "done"}>▸</span>
-              <span class="b-name">Done</span>
-              <span class="b-count">{viewCols.done.length}</span>
-            </button>
-            {#if doneOpen || selected === "done"}
-              {@render doneActorChips()}
-              {#each viewCols.done as card (card.id)}
-                {@render stackCard(card)}
-              {:else}
-                <p class="b-empty">Nothing done yet.</p>
-              {/each}
-            {/if}
-          </div>
         </section>
+        {/if}
       </div>
     </section>
 
@@ -2044,14 +2057,8 @@
     letter-spacing: 0.02em;
   }
 
-  .k-pts {
+  .winx {
     margin-left: auto;
-    font-size: 0.66rem;
-    font-weight: 700;
-    color: var(--accent);
-    border: 1px solid var(--edge);
-    border-radius: 999px;
-    padding: 1px 0.5rem;
   }
 
   .k-body {
@@ -2070,9 +2077,29 @@
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
-    overflow-x: auto;
+    overflow: hidden;
     padding: 4px 12px 8px;
+  }
+
+  .strip-pins {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .strip-planets {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
     scrollbar-width: thin;
+  }
+
+  .planet-tab.drop-ok {
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
 
   .planet-tab {
