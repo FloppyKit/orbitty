@@ -277,6 +277,19 @@
   border-color: var(--focus, #6e4db0);
 }
 
+.k-bot {
+  display: inline-flex;
+  align-items: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.k-bot svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
 .k-doing,
 .k-run,
 .k-agent,

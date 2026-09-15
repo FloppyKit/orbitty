@@ -478,6 +478,7 @@
       emitTo("companion", "orbitty:needed-focus", { id: c.id, title: c.title }).catch(
         () => {},
       );
+      emitTo("companion", "orbitty:companion-summon", null).catch(() => {});
     } else {
       onNeededFocus?.(null, null);
       emitTo("companion", "orbitty:needed-focus", { id: null, title: null }).catch(
@@ -1346,7 +1347,7 @@
 
   function rowAtPoint(col: Status, y: number): number {
     const els = document.querySelectorAll(
-      `[data-col="${col}"] .b-card:not(.held)`,
+      `.${col}-lane .b-card:not(.held)`,
     );
     let i = 0;
     for (const el of els) {
@@ -1550,7 +1551,17 @@
     <span class="k-needchip" title={need.title}>needed</span>
   {/if}
   {#if who}
-    <span class="k-agent" title="Assigned agent">{who}</span>
+    <span class="k-bot" title={who} aria-label={who}>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="7" y="9" width="10" height="8" rx="2"/>
+        <circle cx="10" cy="13" r="1.2"/>
+        <circle cx="14" cy="13" r="1.2"/>
+        <rect x="11" y="5" width="2" height="4" rx="1"/>
+        <circle cx="12" cy="4.5" r="1.3"/>
+        <rect x="5" y="11" width="2" height="4" rx="1"/>
+        <rect x="17" y="11" width="2" height="4" rx="1"/>
+      </svg>
+    </span>
   {/if}
   {#if card.actor && card.actor !== "user"}
     <span class="k-actor" title="Actor">{card.actor}</span>
@@ -1896,7 +1907,6 @@
           <div
             class="b-zone todo"
             class:drop-ok={dropCol === "todo" || grabCol === "todo"}
-            data-col="todo"
             ondragover={(e) => onColDragOver(e, "todo")}
             ondragleave={(e) => onColDragLeave(e, "todo")}
             ondrop={(e) => onColDrop(e, "todo")}

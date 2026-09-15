@@ -777,10 +777,17 @@
   function onNeededFocus(id: string | null, title: string | null) {
     neededFocusId = id;
     neededFocusTitle = title;
-    if (id) {
-      fieldEl?.focus();
-      getCurrentWebviewWindow().setFocus().catch(() => {});
+    if (id) void armMouth();
+  }
+
+  async function armMouth() {
+    try {
+      await getCurrentWebviewWindow().setFocus();
+    } catch {
+      /* pane may already be focused */
     }
+    await tick();
+    fieldEl?.focus();
   }
 
   // Enter on a Needed row arms the composer
