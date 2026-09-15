@@ -48,7 +48,6 @@
   // markdown. Parent owns mutate/logEvent so persist stays one door.
   // selectedId is bindable so the Launchpad
   // ring can walk the pile; ringActiveId paints the one focus ring.
-  import { mdLite } from "./mdLite";
   import { planetCss } from "./planetColor";
   import type { PersistedState } from "./persist";
   import "./needed-split.css";
@@ -90,12 +89,6 @@
   let newNeeded = $state("");
 
   let neededNow = $derived(neededFor(cards, projectId));
-  // The card half of the split. The effect below keeps selectedId alive;
-  // the neededNow[0] fallback covers the frame between a Skip and the
-  // state:changed reload.
-  let selCard = $derived(
-    neededNow.find((c) => c.id === selectedId) ?? neededNow[0] ?? null,
-  );
 
   // Planet chip + short name on every row/card — a screenshot of the
   // consolidated Inbox reads which planet each Needed belongs to.
@@ -107,19 +100,10 @@
 
   // The Answer button arms the composer hijack — the companion text
   // box is the one answer mouth (same door as ring Enter).
-  function answerNeeded(card: KanbanCard) {
-    selectedId = card.id;
-    onNeededAnswer?.();
-  }
-
-  // Keep the preview alive: an answered/skipped card leaves the pile,
-  // so the selection falls forward to the next Needed — and report the
-  // focus so the companion composer stays the mouth for it.
   $effect(() => {
-    const alive = neededNow.some((c) => c.id === selectedId);
-    if (!alive) selectedId = neededNow[0]?.id ?? null;
-    const card = neededNow.find((c) => c.id === selectedId) ?? null;
-    onNeededFocus?.(card?.id ?? null, card?.title ?? null);
+    if (selectedId && !neededNow.some((c) => c.id === selectedId)) {
+      selectedId = null;
+    }
   });
 
   function addNeeded() {
@@ -183,10 +167,11 @@
   }
 </script>
 
-{#if variant === "strip" && (neededNow.length > 0 || addingNeeded)}
+{#if variant === "strip"}
   <section class="k-needed" aria-label="Needed from you">
     <div class="kn-head">
       <span class="kn-label">
+        <span class="mail-ico" aria-hidden="true">?</span>
         <span class="kn-title">Needed</span>
         {#if neededNow.length > 0}
           <span class="kn-count">{neededNow.length}</span>
@@ -242,46 +227,6 @@
           </li>
         {/each}
       </ul>
-      {#if selCard}
-        {@const sc = selCard}
-        {@const sp = projOf(sc)}
-        <div class="kn-card">
-          {#if sp}
-            <div class="kn-card-head">
-              <span
-                class="kn-chip"
-                style="background: {planetCss(sp.id)}"
-                aria-hidden="true"
-              ></span>
-              <span class="kn-pname">{sp.name}</span>
-            </div>
-          {/if}
-          <p class="kn-q">{sc.title}</p>
-          {#if sc.neededWhy}
-            <div class="kn-why kn-card-why">{@html mdLite(sc.neededWhy)}</div>
-          {/if}
-          <div class="kn-acts">
-            {#if onNeededAnswer}
-              <button
-                class="mini"
-                onclick={() => answerNeeded(sc)}
-                title="Answer in the composer — the next typed line lands on this Needed"
-                >Answer</button
-              >
-            {/if}
-            <button
-              class="mini ghost"
-              onclick={() => laterNeeded(sc)}
-              title="Drop to the bottom of the stack">Later</button
-            >
-            <button
-              class="mini ghost"
-              onclick={() => skipNeeded(sc)}
-              title="Delete this Needed">Skip</button
-            >
-          </div>
-        </div>
-      {/if}
     {/if}
   </section>
 {/if}

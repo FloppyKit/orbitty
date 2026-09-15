@@ -142,6 +142,14 @@ pub struct PersistedState {
     pub spend_day: String,
     /// Parsed usage USD today. 0 if nothing parsed.
     pub spend_usd: f64,
+    /// Launchpad mail split: Needed fraction of column 1 (0.18–0.45).
+    /// Default 0.28. Additive — old saves load the default.
+    #[serde(default = "needed_split_default")]
+    pub needed_split: f64,
+}
+
+fn needed_split_default() -> f64 {
+    0.28
 }
 
 /// The only labels that can be drawers. The rail
@@ -240,6 +248,7 @@ impl Default for PersistedState {
             runner_cap: 2,
             spend_day: String::new(),
             spend_usd: 0.0,
+            needed_split: 0.28,
         }
     }
 }

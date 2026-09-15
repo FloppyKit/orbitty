@@ -167,6 +167,7 @@
   // slice, mirrors it into the habitat snapshot, and evicts the done row
   // on habitat:walked-off.
   let agentRuns = $state<AgentRun[]>([]);
+  let neededSplit = $state(0.28);
 
   // Companion slice, round-tripped opaquely (the
   // companion window and the native side own the contents).
@@ -687,6 +688,7 @@
       actionShortcuts,
       agentShortcuts,
       agentRuns,
+      neededSplit: neededSplit,
       companion: companionState,
       stars: starsState,
       sky: skyState,
@@ -2213,6 +2215,7 @@
       actionShortcuts = s.actionShortcuts ?? [];
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
+      neededSplit = s.neededSplit ?? 0.28;
       companionState = s.companion ?? companionState;
       starsState = s.stars ?? { promptsOptIn: false, checkins: {} };
       skyState = s.sky ?? { muted: [] };
@@ -2380,6 +2383,7 @@
         // land here; the rail round-trips the slice so persist() never
         // strips a live run.
         agentRuns = s.agentRuns ?? [];
+        neededSplit = s.neededSplit ?? 0.28;
         companionState = s.companion ?? companionState;
         // STARS: the STARS window's check-in saves and the companion's
         // Prompts toggle / strip ack land here; the rail only round-trips.

@@ -1,28 +1,86 @@
-/* BOARD-STACK: one list beside Neededs. Doing is a zone at the top;
-   Done is a closed accordion. Persist status is unchanged. */
+/* BOARD-STACK mail: column 1 = Needed / Todo / Done bin; column 2 = preview. */
 
-.b-cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+.k-body {
+  display: flex;
+  min-height: 0;
 }
 
-.b-cols.with-needed {
-  grid-template-columns: minmax(200px, 0.95fr) minmax(0, 1.35fr);
+.k-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.b-card.sel {
-  border-color: var(--focus, #6e4db0);
+.k-body > .k-detail {
+  display: flex;
+  flex-shrink: 0;
+  width: 280px;
 }
 
-.b-stack {
+.mail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--panel-fill, var(--panel));
+  overflow: hidden;
+}
+
+.mail-needed {
+  flex-shrink: 0;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.mail-needed.empty {
+  flex-basis: auto !important;
+  flex-shrink: 0;
+}
+
+.mail-needed .k-needed {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.mail-split {
+  flex: 0 0 6px;
+  cursor: ns-resize;
+  background: var(--edge);
+  position: relative;
+}
+
+.mail-split::after {
+  content: "";
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--dim);
+  opacity: 0.45;
+}
+
+.mail-todo {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .b-zone {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   padding: 0 8px 8px;
   min-height: 0;
 }
@@ -32,15 +90,6 @@
   overflow-y: auto;
 }
 
-.b-zone.doing {
-  flex-shrink: 0;
-  max-height: 42%;
-  overflow-y: auto;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border-bottom: 1px solid var(--edge);
-}
-
-.b-zone.doing.drop-ok,
 .b-zone.todo.drop-ok,
 .b-zone.done.drop-ok {
   box-shadow: inset 0 0 0 1px var(--accent);
@@ -67,9 +116,28 @@
   text-align: left;
 }
 
+.mail-ico {
+  flex-shrink: 0;
+  width: 1.1rem;
+  font-size: 0.72rem;
+  color: var(--dim);
+  text-align: center;
+}
+
+.b-head {
+  padding-left: 2px;
+}
+
+.b-card {
+  margin-left: 1.15rem;
+}
+
 .b-card.doing {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.b-card.sel {
+  border-color: var(--focus, #6e4db0);
 }
 
 .k-doing,
@@ -83,10 +151,19 @@
   border: 1px solid var(--edge);
   border-radius: 999px;
   padding: 0 0.35rem;
+  background: transparent;
+  cursor: pointer;
 }
 
-.k-doing,
+.k-doing.on,
 .k-run {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.d-need-title {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1.35;
 }

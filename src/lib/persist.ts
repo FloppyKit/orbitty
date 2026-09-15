@@ -307,6 +307,8 @@ export interface PersistedState {
   runnerCap?: number;
   spendDay?: string;
   spendUsd?: number;
+  // Launchpad mail: Needed fraction of column 1 (0.18–0.45). Default 0.28.
+  neededSplit?: number;
   companion: CompanionSlice;
   stars: StarsSlice;
   sky: SkySlice;

@@ -15,6 +15,7 @@
   import { startPaneDrag } from "./dragPane";
   import NeededInbox, { neededFor } from "./NeededInbox.svelte";
   import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
+  import { mdLite } from "./mdLite";
   import "./chrome.css";
   import "./boardStack.css";
   import type {
@@ -84,6 +85,8 @@
   let hackProjectId = $state<string | null>(null);
   // BOARD-STACK: Done accordion, closed unless the Done tab is selected.
   let doneOpen = $state(false);
+  let neededSplit = $state(0.28);
+  let mailEl: HTMLDivElement | null = $state(null);
 
   // No Actions well here — actions are a Settings
   // list + `orbittyctl action` verbs; the slice still round-trips via
@@ -130,10 +133,6 @@
     projects.some((p) => p.id === selected) ? selected : "",
   );
   const neededRows = $derived(neededFor(kanbanCards, neededProjectId));
-  // LP-SPLIT leftover: the Needed pane rides the board row as an
-  // always-open column in front of Todo — titles top box + tile
-  // preview lower box. The grid tracks below follow this flag.
-  const neededCol = $derived(neededRows.length > 0 || addingNeeded);
   // Tracks the drawer surface's push/pop pairing on the ring.
   let drawerOnRing = false;
 
@@ -384,7 +383,17 @@
   });
 
   $effect(() => {
-    const pile = [...viewCols.doing, ...viewCols.todo];
+    if (neededSelectedId) detailId = neededSelectedId;
+  });
+
+  $effect(() => {
+    const c = kanbanCards.find((x) => x.id === detailId);
+    if (c?.kind === "needed") onNeededFocus?.(c.id, c.title);
+    else onNeededFocus?.(null, null);
+  });
+
+  $effect(() => {
+    const pile = [...neededRows, ...viewCols.doing, ...viewCols.todo];
     if (detailId && pile.some((c) => c.id === detailId)) return;
     if (
       detailId &&
@@ -566,6 +575,7 @@
       collapsedSectionIds = s.collapsedSectionIds ?? [];
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
+      neededSplit = Math.min(0.45, Math.max(0.18, s.neededSplit ?? 0.28));
       hackProjectId = s.companion?.hackLive
         ? (s.companion?.hackProjectId ?? null)
         : null;
@@ -737,8 +747,61 @@
   // ---- detail drawer mutations (all additive on the card) ----
 
   function openDetail(card: KanbanCard) {
+    if (card.kind !== "needed") neededSelectedId = null;
     detailId = card.id;
     newSubtask = "";
+  }
+
+  function toggleDoing(card: KanbanCard, e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    moveCard(card, card.status === "doing" ? "todo" : "doing");
+  }
+
+  function skipNeededCard(card: KanbanCard) {
+    const now = Date.now() / 1000;
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards.map((c) =>
+        c.id === card.id
+          ? { ...c, neededState: "skipped" as const, lastTouchedAt: now }
+          : c,
+      );
+    });
+    logEvent("needed-skip", { cardId: card.id }, card.projectId);
+  }
+
+  function laterNeededCard(card: KanbanCard) {
+    const now = Date.now() / 1000;
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards.map((c) =>
+        c.id === card.id
+          ? { ...c, neededState: "later" as const, lastTouchedAt: now }
+          : c,
+      );
+    });
+    logEvent("needed-later", { cardId: card.id }, card.projectId);
+  }
+
+  function onSplitDown(e: PointerEvent) {
+    const el = mailEl;
+    if (!el) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const start = neededSplit;
+    const h = Math.max(el.clientHeight, 1);
+    const move = (ev: PointerEvent) => {
+      neededSplit = Math.min(0.45, Math.max(0.18, start + (ev.clientY - startY) / h));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const v = neededSplit;
+      mutate((s) => {
+        s.neededSplit = v;
+      });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   }
 
   // GRAB leftover (arrows in charge): the drawer's ring stops — every
@@ -753,7 +816,6 @@
         ?.focus();
     };
     const stops: RingStop[] = [
-      { id: "d-close", confirm: () => (detailId = null) },
       { id: "d-title", confirm: focusStop("d-title") },
       { id: "d-notes", confirm: focusStop("d-notes") },
     ];
@@ -1200,9 +1262,6 @@
   {@const who = agentName(card)}
   {@const run = runState(card)}
   {@const age = ageLabel(card)}
-  {#if card.status === "doing"}
-    <span class="k-doing" title="In doing">doing</span>
-  {/if}
   {#if run}
     <span class="k-run" title="Runner state">{run}</span>
   {/if}
@@ -1254,7 +1313,6 @@
     onclick={() => onCardClick(card)}
     onkeydown={(e) => e.key === "Enter" && !e.shiftKey && openDetail(card)}
     tabindex="0"
-    role="button"
     title="{displayTitle(card)} — click for details, drag to move"
   >
     <div class="b-card-top">
@@ -1267,10 +1325,17 @@
         ></span>
       {/if}
       <span class="b-title" class:strike={card.status === "done"}>{displayTitle(card)}</span>
+      {#if card.status !== "done"}
+        <button
+          type="button"
+          class="k-doing"
+          class:on={card.status === "doing"}
+          onclick={(e) => toggleDoing(card, e)}
+          onpointerdown={(e) => e.stopPropagation()}
+          title={card.status === "doing" ? "Doing — click to park back in Todo" : "Mark doing — pins to the top"}
+        >doing</button>
+      {/if}
     </div>
-    {#if card.notes}
-      <p class="b-notes">{notesSnippet(card)}</p>
-    {/if}
     <div class="b-meta">
       {@render metaChips(card)}
     </div>
@@ -1444,44 +1509,44 @@
         </div>
       {/if}
 
-      <div class="b-cols" class:with-needed={neededCol}>
-        <!-- LP-SPLIT leftover: the Needed pane is an always-open
-             board-row column in front of Todo — pile titles in a top
-             box, the selected tile's preview in the lower box. The
-             board columns never leave the screen while a Needed is
-             read/answered. -->
-        <NeededInbox
-          variant="strip"
-          cards={kanbanCards}
-          {projects}
-          projectId={neededProjectId}
-          {mutate}
-          {logEvent}
-          bind:addingNeeded
-          bind:selectedId={neededSelectedId}
-          ringActiveId={menuRing.activeId}
-          {onNeededFocus}
-          {onNeededAnswer}
-        />
-        <section class="b-col b-stack" aria-label="Todos">
+      <div class="mail" bind:this={mailEl}>
+        <div
+          class="mail-needed"
+          class:empty={neededRows.length === 0 && !addingNeeded}
+          style="flex-basis: {neededRows.length === 0 && !addingNeeded
+            ? 'auto'
+            : `${Math.round(neededSplit * 100)}%`}"
+        >
+          <NeededInbox
+            variant="strip"
+            cards={kanbanCards}
+            {projects}
+            projectId={neededProjectId}
+            {mutate}
+            {logEvent}
+            bind:addingNeeded
+            bind:selectedId={neededSelectedId}
+            ringActiveId={menuRing.activeId}
+            {onNeededAnswer}
+          />
+        </div>
+        {#if neededRows.length > 0 || addingNeeded}
           <div
-            class="b-zone doing"
-            class:drop-ok={dropCol === "doing" || grabCol === "doing"}
-            data-col="doing"
-            ondragover={(e) => onColDragOver(e, "doing")}
-            ondragleave={(e) => onColDragLeave(e, "doing")}
-            ondrop={(e) => onColDrop(e, "doing")}
-          >
-            <header class="b-head">
-              <span class="b-name">Doing</span>
-              <span class="b-count">{viewCols.doing.length}</span>
-            </header>
-            {#each viewCols.doing as card (card.id)}
-              {@render stackCard(card)}
-            {:else}
-              <p class="b-empty">Drop a GO here to run it.</p>
-            {/each}
-          </div>
+            class="mail-split"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize Needed"
+            title="Drag to resize Needed · double-click resets"
+            onpointerdown={onSplitDown}
+            ondblclick={() => {
+              neededSplit = 0.28;
+              mutate((s) => {
+                s.neededSplit = 0.28;
+              });
+            }}
+          ></div>
+        {/if}
+        <section class="mail-todo" aria-label="Todos">
           <div
             class="b-zone todo"
             class:drop-ok={dropCol === "todo" || grabCol === "todo"}
@@ -1491,13 +1556,19 @@
             ondrop={(e) => onColDrop(e, "todo")}
           >
             <header class="b-head">
+              <span class="mail-ico" aria-hidden="true">☐</span>
               <span class="b-name">Todo</span>
-              <span class="b-count">{viewCols.todo.length}</span>
+              <span class="b-count">{viewCols.doing.length + viewCols.todo.length}</span>
             </header>
+            {#each viewCols.doing as card (card.id)}
+              {@render stackCard(card)}
+            {/each}
             {#each viewCols.todo as card (card.id)}
               {@render stackCard(card)}
             {:else}
-              <p class="b-empty">No to-dos — drag a card here.</p>
+              {#if viewCols.doing.length === 0}
+                <p class="b-empty">No to-dos — drag a card here.</p>
+              {/if}
             {/each}
           </div>
           <div
@@ -1536,9 +1607,27 @@
       {#if detailCard}
       {@const card = detailCard}
         <header class="d-head">
-          <span class="d-title">Details</span>
+          <span class="d-title">{card.kind === "needed" ? "Needed" : "Details"}</span>
         </header>
 
+        {#if card.kind === "needed"}
+          <p class="d-need-title">{card.title}</p>
+          {#if card.neededWhy}
+            <div class="kn-why">{@html mdLite(card.neededWhy)}</div>
+          {/if}
+          <div class="d-duerow">
+            {#if onNeededAnswer}
+              <button
+                class="mini"
+                onclick={() => onNeededAnswer?.()}
+                title="Answer in the composer — Rule: … remembers"
+                >Answer</button
+              >
+            {/if}
+            <button class="mini ghost" onclick={() => laterNeededCard(card)}>Later</button>
+            <button class="mini ghost" onclick={() => skipNeededCard(card)}>Skip</button>
+          </div>
+        {:else}
         <label class="d-label" for="d-name">Title</label>
         <input
           id="d-name"
@@ -1680,6 +1769,7 @@
             {/if}
           </div>
           <p class="d-hint">Window links are made by claiming in the rail — read-only here.</p>
+        {/if}
         {/if}
       {:else}
         <header class="d-head">
@@ -1964,7 +2054,7 @@
     display: flex;
     flex-direction: column;
     padding: 12px 16px 12px;
-    overflow-y: auto;
+    overflow: hidden;
   }
 
   .k-title {
