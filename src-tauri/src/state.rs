@@ -838,6 +838,9 @@ pub struct KanbanCard {
     // as project rm keeping cards.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assigned_agent_id: Option<String>,
+    /// Another todo this card is nested under. Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

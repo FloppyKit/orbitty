@@ -85,6 +85,9 @@
   let doneOpen = $state(false);
   let neededSplit = $state(0.28);
   let mailEl: HTMLDivElement | null = $state(null);
+  let addingTodo = $state(false);
+  let newTodoTitle = $state("");
+  let hideSubtasks = $state(true);
 
   // No Actions well here — actions are a Settings
   // list + `orbittyctl action` verbs; the slice still round-trips via
@@ -343,7 +346,9 @@
   }
 
   let boardCols = $derived.by(() => {
-    const scoped = kanbanCards.filter(inScope);
+    const scoped = kanbanCards.filter(
+      (c) => inScope(c) && (!hideSubtasks || !c.parentId),
+    );
     const byAge = (a: KanbanCard, b: KanbanCard) => a.createdAt - b.createdAt;
     return {
       todo: scoped.filter((c) => c.status === "todo").sort(byAge),
@@ -899,6 +904,96 @@
     );
   }
 
+  function newCardId(): string {
+    return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function childrenOf(parentId: string): KanbanCard[] {
+    return kanbanCards.filter(
+      (c) => c.parentId === parentId && c.kind !== "needed" && c.kind !== "window",
+    );
+  }
+
+  const hasNestedTodos = $derived(
+    kanbanCards.some(
+      (c) => c.parentId && c.kind !== "needed" && c.kind !== "window",
+    ),
+  );
+
+  function wouldCycle(parentId: string, childId: string): boolean {
+    let id: string | null | undefined = parentId;
+    const seen = new Set<string>();
+    while (id) {
+      if (id === childId) return true;
+      if (seen.has(id)) return true;
+      seen.add(id);
+      id = kanbanCards.find((c) => c.id === id)?.parentId;
+    }
+    return false;
+  }
+
+  function linkableTodos(parent: KanbanCard): KanbanCard[] {
+    return kanbanCards.filter(
+      (c) =>
+        c.id !== parent.id &&
+        c.kind !== "needed" &&
+        c.kind !== "window" &&
+        c.parentId !== parent.id &&
+        !wouldCycle(parent.id, c.id),
+    );
+  }
+
+  function mintTodo(title: string, parentId?: string) {
+    const t = title.trim();
+    if (!t) return;
+    const now = Date.now() / 1000;
+    const projectId =
+      projects.some((p) => p.id === selected) ? selected : "";
+    const card: KanbanCard = {
+      id: newCardId(),
+      title: t,
+      projectId,
+      kind: "todo",
+      status: "todo",
+      createdAt: now,
+      lastTouchedAt: now,
+      goalAligned: true,
+      clinicalOrMaster: false,
+      pointsAwarded: 0,
+      parentId: parentId || undefined,
+    };
+    mutate((s) => {
+      s.kanbanCards = [...s.kanbanCards, card];
+    });
+    logEvent("board-add", { cardId: card.id, title: t, parentId }, projectId || undefined);
+    if (!parentId) {
+      addingTodo = false;
+      newTodoTitle = "";
+      detailId = card.id;
+    }
+  }
+
+  function attachChild(parent: KanbanCard, childId: string) {
+    if (!childId || wouldCycle(parent.id, childId)) return;
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards.map((c) =>
+        c.id === childId
+          ? { ...c, parentId: parent.id, lastTouchedAt: Date.now() / 1000 }
+          : c,
+      );
+    });
+  }
+
+  function detachChild(childId: string) {
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards.map((c) =>
+        c.id === childId
+          ? { ...c, parentId: undefined, lastTouchedAt: Date.now() / 1000 }
+          : c,
+      );
+    });
+  }
+
   function setDue(card: KanbanCard, dateValue: string) {
     // Local noon sidesteps DST/timezone edge flips on the stored epoch.
     const dueAt = dateValue
@@ -937,23 +1032,7 @@
   function addSubtask(card: KanbanCard) {
     const title = newSubtask.trim();
     if (!title) return;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              subtasks: [
-                ...(c.subtasks ?? []),
-                {
-                  id: `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-                  title,
-                  done: false,
-                },
-              ],
-            }
-          : c,
-      );
-    });
+    mintTodo(title, card.id);
     newSubtask = "";
   }
 
@@ -1313,6 +1392,7 @@
     class:held={grabbedId === card.id}
     class:done={card.status === "done"}
     class:doing={card.status === "doing"}
+    class:child={!!card.parentId}
     class:sel={detailId === card.id}
     class:mkey-sel={menuRing.activeId === `card-${card.id}`}
     data-mkey={`card-${card.id}`}
@@ -1573,7 +1653,35 @@
               <span class="mail-ico" aria-hidden="true">☐</span>
               <span class="b-name">Todo</span>
               <span class="b-count">{viewCols.doing.length + viewCols.todo.length}</span>
+              {#if hasNestedTodos}
+                <label class="hide-subs">
+                  <input type="checkbox" bind:checked={hideSubtasks} />
+                  Hide subtasks
+                </label>
+              {/if}
+              <button
+                type="button"
+                class="ka-plus"
+                onclick={() => (addingTodo = !addingTodo)}
+                title={addingTodo ? "Cancel" : "Add a to-do"}
+                aria-label={addingTodo ? "Cancel add to-do" : "Add a to-do"}
+              >{addingTodo ? "×" : "+"}</button>
             </header>
+            {#if addingTodo}
+              <div class="todo-add">
+                <input
+                  class="d-input"
+                  bind:value={newTodoTitle}
+                  placeholder="New to-do…"
+                  aria-label="New to-do title"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") mintTodo(newTodoTitle);
+                    if (e.key === "Escape") addingTodo = false;
+                  }}
+                />
+                <button class="mini" onclick={() => mintTodo(newTodoTitle)}>Add</button>
+              </div>
+            {/if}
             {#each viewCols.doing as card (card.id)}
               {@render stackCard(card)}
             {/each}
@@ -1694,10 +1802,10 @@
         <label class="d-label" for="d-notes">Notes</label>
         <textarea
           id="d-notes"
-          class="d-input d-textarea"
+          class="d-input d-textarea d-notes-lg"
           class:mkey-sel={menuRing.activeId === "d-notes"}
           data-mkey="d-notes"
-          rows="4"
+          rows="10"
           placeholder="Add notes…"
           value={card.notes ?? ""}
           onchange={(e) => saveNotes(card, e.currentTarget.value)}
@@ -1724,8 +1832,30 @@
           {/if}
         </div>
 
-        <span class="d-label">Checklist</span>
+        <span class="d-label">Subtasks</span>
         <ul class="d-subs">
+          {#each childrenOf(card.id) as kid (kid.id)}
+            <li class="d-sub">
+              <button
+                class="k-check"
+                class:checked={kid.status === "done"}
+                onclick={() => moveCard(kid, kid.status === "done" ? "todo" : "done")}
+                aria-label={kid.status === "done" ? "Reopen subtask" : "Complete subtask"}
+              >{kid.status === "done" ? "✓" : ""}</button>
+              <button
+                type="button"
+                class="d-subtitle"
+                class:strike={kid.status === "done"}
+                onclick={() => openDetail(kid)}
+              >{kid.title}</button>
+              <button
+                class="d-del"
+                onclick={() => detachChild(kid.id)}
+                aria-label="Unlink subtask"
+                title="Unlink — stays a to-do">×</button
+              >
+            </li>
+          {/each}
           {#each card.subtasks ?? [] as sub (sub.id)}
             <li class="d-sub">
               <button
@@ -1747,9 +1877,10 @@
                 title="Delete">×</button
               >
             </li>
-          {:else}
-            <li class="d-hint">No subtasks yet.</li>
           {/each}
+          {#if childrenOf(card.id).length === 0 && !(card.subtasks ?? []).length}
+            <li class="d-hint">No subtasks yet — add one or tag another to-do.</li>
+          {/if}
         </ul>
         <div class="d-subadd">
           <input
@@ -1757,7 +1888,7 @@
             class:mkey-sel={menuRing.activeId === "d-sub-input"}
             data-mkey="d-sub-input"
             bind:value={newSubtask}
-            placeholder="Add a subtask…"
+            placeholder="New subtask…"
             onkeydown={(e) => e.key === "Enter" && addSubtask(card)}
           />
           <button
@@ -1767,6 +1898,21 @@
             onclick={() => addSubtask(card)}>Add</button
           >
         </div>
+        {#if linkableTodos(card).length > 0}
+          <select
+            class="d-input"
+            aria-label="Tag an existing to-do as a subtask"
+            onchange={(e) => {
+              attachChild(card, e.currentTarget.value);
+              e.currentTarget.value = "";
+            }}
+          >
+            <option value="">Tag a to-do as subtask…</option>
+            {#each linkableTodos(card) as t (t.id)}
+              <option value={t.id}>{t.title}</option>
+            {/each}
+          </select>
+        {/if}
 
         <span class="d-label">Tags</span>
         {#if tags.length > 0}

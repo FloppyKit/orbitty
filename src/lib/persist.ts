@@ -95,6 +95,9 @@ export interface KanbanCard {
   // (agentShortcuts id). Additive — never strip the key; a removed agent
   // leaves the id on the card (same law as project rm).
   assignedAgentId?: string | null;
+  // Another todo this card is nested under. Hidden from the
+  // stack when "Hide subtasks" is on; still a real card.
+  parentId?: string | null;
 }
 
 export interface PointsEntry {

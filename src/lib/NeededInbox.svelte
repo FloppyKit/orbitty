@@ -177,28 +177,7 @@
           <span class="kn-count">{neededNow.length}</span>
         {/if}
       </span>
-      <button
-        class="ka-plus"
-        onclick={() => (addingNeeded = true)}
-        title="Add a Needed question"
-        aria-label="Add a Needed question">+</button
-      >
     </div>
-    {#if addingNeeded}
-      <div class="ka-form">
-        <input
-          bind:value={newNeeded}
-          placeholder="Needed from you…"
-          aria-label="Needed question"
-          onkeydown={(e) => {
-            if (e.key === "Enter") addNeeded();
-            if (e.key === "Escape") addingNeeded = false;
-          }}
-        />
-        <button class="mini" onclick={addNeeded}>Save</button>
-        <button class="mini ghost" onclick={() => (addingNeeded = false)}>Cancel</button>
-      </div>
-    {/if}
     {#if neededNow.length > 0}
       <!-- LP-SPLIT leftover: pile titles in the top box (cap four
            rows, scrolls), the selected tile's preview in the lower

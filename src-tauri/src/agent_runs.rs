@@ -265,6 +265,7 @@ mod tests {
             needed_answer: None,
             actor: None,
             assigned_agent_id: agent.map(str::to_string),
+            parent_id: None,
         }
     }
 

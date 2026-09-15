@@ -737,6 +737,7 @@ mod tests {
             needed_answer: None,
             actor: None,
             assigned_agent_id: None,
+            parent_id: None,
         };
         assert_eq!(apply_composer_rule(&c, "cursor on this planet"), "cursor on this planet");
         assert_eq!(apply_composer_rule(&c, "Rule:"), "");

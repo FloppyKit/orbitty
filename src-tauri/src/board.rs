@@ -203,6 +203,7 @@ pub fn kanban_add_as(
         needed_answer: None,
         actor: Some(actor.trim().to_string()),
         assigned_agent_id: None,
+        parent_id: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
@@ -630,6 +631,7 @@ pub fn needed_open(
         needed_answer: ruled.clone(),
         actor: Some(if ruled.is_some() { "rule" } else { "agent" }.into()),
         assigned_agent_id: None,
+        parent_id: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());

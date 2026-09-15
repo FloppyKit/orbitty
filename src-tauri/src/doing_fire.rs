@@ -174,6 +174,7 @@ mod tests {
             needed_answer: None,
             actor: None,
             assigned_agent_id: None,
+            parent_id: None,
         }
     }
 
