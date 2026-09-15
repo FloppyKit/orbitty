@@ -572,6 +572,7 @@ pub fn run() {
             rail_toggle::dest_show,
             rail_toggle::dest_open_state,
             drawers::companion_drag_begin,
+            drawers::pane_drag_begin,
             companion::companion_frames,
             companion::companion_glb_url,
             panes::hide_window,

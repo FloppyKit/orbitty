@@ -1734,7 +1734,7 @@ struct DragRect {
     size: DragSize,
 }
 
-fn companion_drag_apply(w: &tauri::WebviewWindow) -> bool {
+fn pane_drag_apply(app: &tauri::AppHandle, w: &tauri::WebviewWindow, label: &str) -> bool {
     use objc::runtime::Object;
     use objc::{class, msg_send, sel, sel_impl};
     let Ok(raw) = w.ns_window() else {
@@ -1749,6 +1749,9 @@ fn companion_drag_apply(w: &tauri::WebviewWindow) -> bool {
         if buttons & 1 == 0 {
             if let Ok(mut g) = companion_drag_grab().lock() {
                 *g = None;
+            }
+            if state::DRAWER_LABELS.contains(&label) {
+                persist_shown_place(app, label);
             }
             return false;
         }
@@ -1770,15 +1773,24 @@ fn companion_drag_apply(w: &tauri::WebviewWindow) -> bool {
         };
         let _: () = msg_send![nsw, setFrame: next display: true];
     }
-    if let Ok(p) = w.outer_position() {
-        drawer_expect("companion", (p.x, p.y));
+    if label == "companion" {
+        if let Ok(p) = w.outer_position() {
+            drawer_expect("companion", (p.x, p.y));
+        }
     }
     true
 }
 
 #[tauri::command]
 pub fn companion_drag_begin(app: tauri::AppHandle) {
-    let Some(w) = app.get_webview_window("companion") else {
+    pane_drag_begin(app, "companion".into());
+}
+
+/// Native AppKit follow for any labeled pane. Tauri startDragging
+/// jumps; setPosition is the wrong space — that is the fake grab-hand.
+#[tauri::command]
+pub fn pane_drag_begin(app: tauri::AppHandle, label: String) {
+    let Some(w) = app.get_webview_window(&label) else {
         return;
     };
     crate::main_thread_sync({
@@ -1805,12 +1817,16 @@ pub fn companion_drag_begin(app: tauri::AppHandle) {
             }
         }
     });
+    let app = app.clone();
+    let label_loop = label.clone();
     std::thread::spawn(move || {
         loop {
             crate::main_thread_sync({
                 let w = w.clone();
+                let app = app.clone();
+                let label = label_loop.clone();
                 move || {
-                    let _ = companion_drag_apply(&w);
+                    let _ = pane_drag_apply(&app, &w, &label);
                 }
             });
             let alive = companion_drag_grab()

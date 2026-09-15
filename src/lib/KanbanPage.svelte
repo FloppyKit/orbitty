@@ -1478,7 +1478,7 @@
     {/each}
   </div>
 
-  <div class="k-heads">
+  <div class="k-heads" onmousedown={onBannerMouseDown}>
     <div class="k-titlerow">
       {#if selectedProject}
         <span
@@ -2404,7 +2404,7 @@
     background: var(--bg-fill, var(--bg));
     border: 1px solid var(--edge);
     border-radius: 8px;
-    cursor: grab;
+    cursor: pointer;
     touch-action: none;
     -webkit-user-select: none;
     user-select: none;
