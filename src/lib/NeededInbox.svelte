@@ -208,6 +208,22 @@
               ></span>
             {/if}
             <span class="kn-item-title">{card.title}</span>
+            <button
+              type="button"
+              class="mini ghost kn-act"
+              onclick={(e) => {
+                e.stopPropagation();
+                laterNeeded(card);
+              }}
+            >Later</button>
+            <button
+              type="button"
+              class="mini ghost kn-act"
+              onclick={(e) => {
+                e.stopPropagation();
+                skipNeeded(card);
+              }}
+            >Skip</button>
           </li>
         {/each}
       </ul>
@@ -298,6 +314,11 @@
     line-height: 1.55;
     color: var(--ink);
     overflow-wrap: anywhere;
+  }
+
+  .kn-act {
+    flex-shrink: 0;
+    font-size: 0.6rem;
   }
 
   .kn-why :global(strong) {

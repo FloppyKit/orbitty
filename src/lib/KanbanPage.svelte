@@ -89,6 +89,7 @@
   let openSubtaskIds = $state<string[]>([]);
   let newTagName = $state("");
   let previewEdit = $state(false);
+  let planetDdOpen = $state(false);
   let planetDragId = $state<string | null>(null);
   let planetDropId = $state<string | null>(null);
   let planetDidDrag = false;
@@ -469,7 +470,9 @@
   });
 
   $effect(() => {
-    const c = kanbanCards.find((x) => x.id === detailId);
+    const c = neededSelectedId
+      ? kanbanCards.find((x) => x.id === neededSelectedId)
+      : undefined;
     if (c?.kind === "needed") {
       onNeededFocus?.(c.id, c.title);
       emitTo("companion", "orbitty:needed-focus", { id: c.id, title: c.title }).catch(
@@ -484,7 +487,7 @@
   });
 
   $effect(() => {
-    const pile = [...neededRows, ...viewCols.doing, ...viewCols.todo];
+    const pile = [...viewCols.doing, ...viewCols.todo, ...neededRows];
     if (detailId && pile.some((c) => c.id === detailId)) return;
     if (
       detailId &&
@@ -866,6 +869,7 @@
     detailId = card.id;
     newTagName = "";
     previewEdit = false;
+    planetDdOpen = false;
   }
 
   function toggleDoing(card: KanbanCard, e: MouseEvent) {
@@ -1472,11 +1476,18 @@
         loadState();
         refreshWindows();
         startRefreshTimer();
-        const c = kanbanCards.find((x) => x.id === detailId);
+        const c = neededSelectedId
+          ? kanbanCards.find((x) => x.id === neededSelectedId)
+          : undefined;
         if (c?.kind === "needed") {
           emitTo("companion", "orbitty:needed-focus", {
             id: c.id,
             title: c.title,
+          }).catch(() => {});
+        } else {
+          emitTo("companion", "orbitty:needed-focus", {
+            id: null,
+            title: null,
           }).catch(() => {});
         }
       } else {
@@ -1929,34 +1940,51 @@
       {#if detailCard}
       {@const card = detailCard}
         {#if card.kind === "needed"}
+          {@const npid = livePlanetId(card)}
           <p class="d-need-title">{card.title}</p>
-          <label class="d-label" for="d-need-planet">Planet</label>
-          <select
-            id="d-need-planet"
-            class="d-input"
-            value={livePlanetId(card) ?? ""}
-            onchange={(e) => setPlanet(card, e.currentTarget.value)}
-          >
-            <option value="">Inbox</option>
-            {#each projects as p (p.id)}
-              <option value={p.id}>{p.name}</option>
-            {/each}
-          </select>
+          <label class="d-label">Planet</label>
+          <div class="planet-dd">
+            <button
+              type="button"
+              class="d-input planet-dd-btn"
+              onclick={() => (planetDdOpen = !planetDdOpen)}
+            >
+              {#if npid}
+                <span class="planet-chip" style="background: {planetCss(npid)}"></span>
+                {projectName(npid)}
+              {:else}
+                Inbox
+              {/if}
+            </button>
+            {#if planetDdOpen}
+              <div class="planet-dd-list" role="listbox">
+                <button
+                  type="button"
+                  class="planet-dd-opt"
+                  onclick={() => {
+                    setPlanet(card, "");
+                    planetDdOpen = false;
+                  }}
+                >Inbox</button>
+                {#each projects as p (p.id)}
+                  <button
+                    type="button"
+                    class="planet-dd-opt"
+                    onclick={() => {
+                      setPlanet(card, p.id);
+                      planetDdOpen = false;
+                    }}
+                  >
+                    <span class="planet-chip" style="background: {planetCss(p.id)}"></span>
+                    {p.name}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
           {#if card.neededWhy}
             <div class="kn-why">{@html mdLite(card.neededWhy)}</div>
           {/if}
-          <div class="d-duerow">
-            {#if onNeededAnswer}
-              <button
-                class="mini"
-                onclick={() => onNeededAnswer?.()}
-                title="Answer in the composer — Rule: … remembers"
-                >Answer</button
-              >
-            {/if}
-            <button class="mini ghost" onclick={() => laterNeededCard(card)}>Later</button>
-            <button class="mini ghost" onclick={() => skipNeededCard(card)}>Skip</button>
-          </div>
         {:else}
         {#if !previewEdit}
           {@const pid = livePlanetId(card)}

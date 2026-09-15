@@ -311,7 +311,7 @@
   font-weight: 700;
   color: #e59e3d;
   background: transparent;
-  border: 1px solid var(--focus, #6e4db0);
+  border: 1px solid var(--edge);
   border-radius: 999px;
   padding: 0 0.4rem;
 }
@@ -369,6 +369,52 @@
   margin: 0;
   padding-left: 1.1rem;
   font-size: 0.78rem;
+}
+
+.planet-dd {
+  position: relative;
+}
+
+.planet-dd-btn,
+.planet-dd-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.planet-dd-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-fill, var(--bg));
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.planet-dd-opt {
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+}
+
+.planet-dd-opt:hover {
+  background: var(--panel-fill, var(--panel));
 }
 
 .d-need-title {
