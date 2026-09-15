@@ -1506,13 +1506,13 @@
 
 {#snippet stackCard(card: KanbanCard)}
   {@const pid = livePlanetId(card)}
+  <div class="b-row" class:child={!!card.parentId}>
   <article
     class="b-card"
     class:dragging={dragCardId === card.id}
     class:held={grabbedId === card.id}
     class:done={card.status === "done"}
     class:doing={card.status === "doing"}
-    class:child={!!card.parentId}
     class:sel={detailId === card.id}
     class:mkey-sel={menuRing.activeId === `card-${card.id}`}
     data-mkey={`card-${card.id}`}
@@ -1526,18 +1526,6 @@
     title="{displayTitle(card)} — click for details, drag to move"
   >
     <div class="b-card-top">
-      <button
-        type="button"
-        class="k-check"
-        class:checked={card.status === "done"}
-        onclick={(e) => {
-          e.stopPropagation();
-          moveCard(card, card.status === "done" ? "todo" : "done");
-        }}
-        onpointerdown={(e) => e.stopPropagation()}
-        aria-label={card.status === "done" ? "Reopen" : "Mark done"}
-        title={card.status === "done" ? "Reopen" : "Mark done"}
-      >{card.status === "done" ? "✓" : ""}</button>
       {#if pid}
         <span
           class="planet-chip"
@@ -1583,6 +1571,19 @@
       {@render metaChips(card)}
     </div>
   </article>
+  <button
+    type="button"
+    class="k-check"
+    class:checked={card.status === "done"}
+    onclick={(e) => {
+      e.stopPropagation();
+      moveCard(card, card.status === "done" ? "todo" : "done");
+    }}
+    onpointerdown={(e) => e.stopPropagation()}
+    aria-label={card.status === "done" ? "Reopen" : "Mark done"}
+    title={card.status === "done" ? "Reopen" : "Mark done"}
+  >{card.status === "done" ? "✓" : ""}</button>
+  </div>
 {/snippet}
 
 {#snippet doneActorChips()}

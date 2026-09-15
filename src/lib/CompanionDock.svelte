@@ -413,7 +413,7 @@
       </button>
       <button
         class="dest iconbtn planetsdest"
-        class:planets-on={!planetsHidden}
+        class:on={!planetsHidden}
         onclick={onPlanetsClick}
         oncontextmenu={onPlanetsRight}
         aria-label="Planets"
@@ -852,9 +852,9 @@
     padding: 3px 10px;
     font: inherit;
     font-size: 0.78rem;
-    color: var(--ink);
+    color: var(--accent);
     background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
+    border: 1px solid var(--focus, #6e4db0);
     border-radius: 8px;
     outline: none;
     cursor: pointer;
@@ -888,11 +888,11 @@
   }
 
   .agentopt.on {
-    border-color: var(--focus, #6e4db0);
     color: var(--accent);
   }
 
-  .agentopt:hover {
+  .agentopt:hover,
+  .agentopt:focus-visible {
     border-color: var(--focus, #6e4db0);
   }
 
@@ -1005,10 +1005,7 @@
   /* HOST-SPLIT: the dest whose well is live. */
   .dest.on {
     color: var(--accent);
-  }
-
-  .planetsdest.planets-on {
-    color: #2dd4bf;
+    border-color: var(--focus, #6e4db0);
   }
 
   /* NEXT-CARD leftover: quiet ochre pip, not a dest chip, not red. */

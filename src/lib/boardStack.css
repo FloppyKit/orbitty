@@ -130,8 +130,7 @@
   background: var(--panel-fill, var(--panel));
 }
 
-.b-card.child {
-  margin-left: 2.1rem;
+.b-row.child .b-card {
   opacity: 0.92;
 }
 
@@ -223,9 +222,26 @@
   display: block;
 }
 
-.b-card {
-  margin-left: 10px;
-  margin-right: 10px;
+.b-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 10px;
+}
+
+.b-row.child {
+  margin-left: 1.6rem;
+}
+
+.b-row .b-card {
+  flex: 1;
+  min-width: 0;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.b-row .k-check {
+  margin-top: 8px;
 }
 
 .b-card.doing {
