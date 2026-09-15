@@ -168,6 +168,7 @@
   // on habitat:walked-off.
   let agentRuns = $state<AgentRun[]>([]);
   let neededSplit = $state(0.28);
+  let openSubtaskIds = $state<string[]>([]);
 
   // Companion slice, round-tripped opaquely (the
   // companion window and the native side own the contents).
@@ -689,6 +690,7 @@
       agentShortcuts,
       agentRuns,
       neededSplit: neededSplit,
+      openSubtaskIds,
       companion: companionState,
       stars: starsState,
       sky: skyState,
@@ -2216,6 +2218,7 @@
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
       neededSplit = s.neededSplit ?? 0.28;
+      openSubtaskIds = s.openSubtaskIds ?? [];
       companionState = s.companion ?? companionState;
       starsState = s.stars ?? { promptsOptIn: false, checkins: {} };
       skyState = s.sky ?? { muted: [] };
@@ -2384,6 +2387,7 @@
         // strips a live run.
         agentRuns = s.agentRuns ?? [];
         neededSplit = s.neededSplit ?? 0.28;
+        openSubtaskIds = s.openSubtaskIds ?? [];
         companionState = s.companion ?? companionState;
         // STARS: the STARS window's check-in saves and the companion's
         // Prompts toggle / strip ack land here; the rail only round-trips.

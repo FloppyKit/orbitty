@@ -146,6 +146,9 @@ pub struct PersistedState {
     /// Default 0.28. Additive — old saves load the default.
     #[serde(default = "needed_split_default")]
     pub needed_split: f64,
+    /// Parent todo ids with nested subtasks expanded on Launchpad.
+    #[serde(default)]
+    pub open_subtask_ids: Vec<String>,
 }
 
 fn needed_split_default() -> f64 {
@@ -249,6 +252,7 @@ impl Default for PersistedState {
             spend_day: String::new(),
             spend_usd: 0.0,
             needed_split: 0.28,
+            open_subtask_ids: Vec::new(),
         }
     }
 }

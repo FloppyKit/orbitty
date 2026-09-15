@@ -207,10 +207,18 @@
 
 .mail-ico {
   flex-shrink: 0;
-  width: 1.1rem;
-  font-size: 0.72rem;
-  color: var(--dim);
-  text-align: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mail-ico svg {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .b-head {
@@ -244,10 +252,78 @@
   cursor: pointer;
 }
 
+.k-doing {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.k-doing svg {
+  width: 10px;
+  height: 10px;
+}
+
 .k-doing.on,
 .k-run {
-  color: var(--accent);
+  color: var(--on-accent, #fff);
+  background: var(--accent);
   border-color: var(--accent);
+  font-weight: 700;
+}
+
+.k-subs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.62rem;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 0 0.4rem 0 0.2rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.k-subs.open {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.d-read-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.d-read-top .d-need-title {
+  flex: 1;
+  margin: 0;
+}
+
+.d-read-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.d-read-line.dim {
+  color: var(--dim);
+}
+
+.d-read-notes {
+  white-space: pre-wrap;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  flex: 1;
+  min-height: 4rem;
+}
+
+.d-read-subs {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
 }
 
 .d-need-title {

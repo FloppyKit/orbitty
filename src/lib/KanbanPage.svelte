@@ -86,8 +86,9 @@
   let mailEl: HTMLDivElement | null = $state(null);
   let addingTodo = $state(false);
   let newTodoTitle = $state("");
-  let hideSubtasks = $state(true);
+  let openSubtaskIds = $state<string[]>([]);
   let newTagName = $state("");
+  let previewEdit = $state(false);
   let planetDragId = $state<string | null>(null);
   let planetDropId = $state<string | null>(null);
   let planetDidDrag = false;
@@ -273,47 +274,63 @@
     raisePlanet(id);
   }
 
-  function reorderPlanets(fromId: string, beforeId: string | null) {
+  function reorderPlanetsLive(fromId: string, beforeId: string | null) {
     if (!fromId || fromId === beforeId) return;
+    const list = [...projects];
+    const from = list.findIndex((p) => p.id === fromId);
+    if (from < 0) return;
+    const [moved] = list.splice(from, 1);
+    const to = beforeId ? list.findIndex((p) => p.id === beforeId) : list.length;
+    list.splice(to < 0 ? list.length : to, 0, moved);
+    projects = list;
+  }
+
+  function persistPlanetOrder() {
+    const order = projects.map((p) => p.id);
     mutate((s) => {
-      const list = [...(s.projects ?? [])];
-      const from = list.findIndex((p) => p.id === fromId);
-      if (from < 0) return;
-      const [moved] = list.splice(from, 1);
-      const to = beforeId ? list.findIndex((p) => p.id === beforeId) : list.length;
-      list.splice(to < 0 ? list.length : to, 0, moved);
-      s.projects = list;
+      const byId = new Map((s.projects ?? []).map((p) => [p.id, p]));
+      s.projects = order.map((id) => byId.get(id)).filter((p): p is Project => !!p);
     });
   }
 
-  function onPlanetDragStart(e: DragEvent, id: string) {
-    planetDragId = id;
-    planetDidDrag = false;
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", id);
+  function planetBeforeAt(clientX: number): string | null {
+    const els = document.querySelectorAll(".strip-planets .planet-tab");
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      if (clientX < r.left + r.width / 2) {
+        return el.getAttribute("data-pid");
+      }
     }
+    return null;
   }
 
-  function onPlanetDragOver(e: DragEvent, id: string) {
-    if (!planetDragId || planetDragId === id) return;
-    e.preventDefault();
-    planetDropId = id;
-    planetDidDrag = true;
-  }
-
-  function onPlanetDrop(e: DragEvent, id: string) {
-    e.preventDefault();
-    e.stopPropagation();
-    const from = planetDragId;
-    planetDragId = null;
-    planetDropId = null;
-    if (from) reorderPlanets(from, id);
-  }
-
-  function onPlanetDragEnd() {
-    planetDragId = null;
-    planetDropId = null;
+  function onPlanetPointerDown(e: PointerEvent, id: string) {
+    if (e.button !== 0) return;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let dragging = false;
+    const onMove = (ev: PointerEvent) => {
+      if (!dragging) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+        dragging = true;
+        planetDidDrag = true;
+        planetDragId = id;
+      }
+      const before = planetBeforeAt(ev.clientX);
+      planetDropId = before;
+      reorderPlanetsLive(id, before);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (dragging) persistPlanetOrder();
+      planetDragId = null;
+      planetDropId = null;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 
   function toggleDoneChip() {
@@ -341,6 +358,12 @@
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d.getTime() / 1000;
+  }
+
+  function isDueToday(c: KanbanCard): boolean {
+    if (!c.dueAt) return false;
+    const t = startOfToday();
+    return c.dueAt >= t && c.dueAt < t + 86400;
   }
 
   function pointsToday(): number {
@@ -396,7 +419,7 @@
     // of the consolidated Inbox — a Needed never becomes a board todo.
     if (c.kind === "needed" || c.kind === "window") return false;
     if (selected === "done") return true;
-    if (selected === "today") return c.createdAt >= startOfToday();
+    if (selected === "today") return isDueToday(c);
     // LP-SPLIT: Inbox is the consolidated pile — every planet's todos,
     // each card marked by its planet chip. Planet tabs still filter.
     if (selected === "inbox") return true;
@@ -404,9 +427,7 @@
   }
 
   let boardCols = $derived.by(() => {
-    const scoped = kanbanCards.filter(
-      (c) => inScope(c) && (!hideSubtasks || !c.parentId),
-    );
+    const scoped = kanbanCards.filter((c) => inScope(c) && !c.parentId);
     const byAge = (a: KanbanCard, b: KanbanCard) => a.createdAt - b.createdAt;
     return {
       todo: scoped.filter((c) => c.status === "todo").sort(byAge),
@@ -520,8 +541,7 @@
   );
 
   function sideCount(list: string): number {
-    if (list === "today")
-      return openCards.filter((c) => c.createdAt >= startOfToday()).length;
+    if (list === "today") return openCards.filter((c) => isDueToday(c)).length;
     if (list === "done") return doneCards.length;
     // LP-SPLIT: Inbox counts the whole consolidated all-planets pile.
     if (list === "inbox") return openCards.length;
@@ -637,6 +657,7 @@
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
       neededSplit = Math.min(0.45, Math.max(0.18, s.neededSplit ?? 0.28));
+      openSubtaskIds = s.openSubtaskIds ?? [];
       hackProjectId = s.companion?.hackLive
         ? (s.companion?.hackProjectId ?? null)
         : null;
@@ -811,6 +832,7 @@
     if (card.kind !== "needed") neededSelectedId = null;
     detailId = card.id;
     newTagName = "";
+    previewEdit = false;
   }
 
   function toggleDoing(card: KanbanCard, e: MouseEvent) {
@@ -971,11 +993,22 @@
     );
   }
 
-  const hasNestedTodos = $derived(
-    kanbanCards.some(
-      (c) => c.parentId && c.kind !== "needed" && c.kind !== "window",
-    ),
-  );
+  function remainingKids(parentId: string): number {
+    return childrenOf(parentId).filter((c) => c.status !== "done").length;
+  }
+
+  function toggleOpenSubtasks(parentId: string, e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const on = openSubtaskIds.includes(parentId);
+    const next = on
+      ? openSubtaskIds.filter((id) => id !== parentId)
+      : [...openSubtaskIds, parentId];
+    openSubtaskIds = next;
+    mutate((s) => {
+      s.openSubtaskIds = next;
+    });
+  }
 
   function wouldCycle(parentId: string, childId: string): boolean {
     let id: string | null | undefined = parentId;
@@ -1348,6 +1381,7 @@
     selected = listOf(card);
     detailId = card.id;
     newTagName = "";
+    previewEdit = false;
   }
 
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -1489,15 +1523,36 @@
         ></span>
       {/if}
       <span class="b-title" class:strike={card.status === "done"}>{displayTitle(card)}</span>
-      {#if card.status !== "done"}
+      {#if card.status !== "done" && !card.parentId}
         <button
           type="button"
           class="k-doing"
           class:on={card.status === "doing"}
           onclick={(e) => toggleDoing(card, e)}
           onpointerdown={(e) => e.stopPropagation()}
-          title={card.status === "doing" ? "Doing — click to park back in Todo" : "Mark doing — pins to the top"}
-        >doing</button>
+          title={card.status === "doing" ? "Doing — click to park" : "Start — pin to the top"}
+        >
+          {#if card.status === "doing"}
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+            doing
+          {:else}
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            start
+          {/if}
+        </button>
+      {/if}
+      {#if !card.parentId && childrenOf(card.id).length > 0}
+        <button
+          type="button"
+          class="k-subs"
+          class:open={openSubtaskIds.includes(card.id)}
+          onclick={(e) => toggleOpenSubtasks(card.id, e)}
+          onpointerdown={(e) => e.stopPropagation()}
+          title={openSubtaskIds.includes(card.id) ? "Hide subtasks" : "Show subtasks"}
+        >
+          <span class="chev" class:open={openSubtaskIds.includes(card.id)}>▸</span>
+          {remainingKids(card.id)}
+        </button>
       {/if}
     </div>
     <div class="b-meta">
@@ -1624,22 +1679,7 @@
       </button>
     </div>
     <span class="strip-gap" aria-hidden="true"></span>
-    <div
-      class="strip-planets"
-      ondragover={(e) => {
-        if (!planetDragId) return;
-        e.preventDefault();
-        planetDidDrag = true;
-      }}
-      ondrop={(e) => {
-        if (!planetDragId) return;
-        e.preventDefault();
-        const from = planetDragId;
-        planetDragId = null;
-        planetDropId = null;
-        reorderPlanets(from, null);
-      }}
-    >
+    <div class="strip-planets">
     {#each projects as p (p.id)}
       <button
         type="button"
@@ -1649,14 +1689,11 @@
         class:dragging={planetDragId === p.id}
         class:mkey-sel={menuRing.activeId === `listtab-${p.id}`}
         data-mkey={`listtab-${p.id}`}
+        data-pid={p.id}
         role="tab"
         aria-selected={selected === p.id}
         title={p.name}
-        draggable="true"
-        ondragstart={(e) => onPlanetDragStart(e, p.id)}
-        ondragover={(e) => onPlanetDragOver(e, p.id)}
-        ondrop={(e) => onPlanetDrop(e, p.id)}
-        ondragend={onPlanetDragEnd}
+        onpointerdown={(e) => onPlanetPointerDown(e, p.id)}
         onclick={() => onPlanetTabClick(p.id)}
         ondblclick={() => onPlanetTabDblClick(p.id)}
       >
@@ -1687,13 +1724,6 @@
       <h2 class="k-title">{listTitle}</h2>
       {#if selected === "done"}
         {@render doneActorChips()}
-      {/if}
-      {#if selectedProject}
-        <button
-          class="mini"
-          onclick={launchHermes}
-          title="Hermes — focus or launch the existing harness with this list's titles-only context"
-        >Hermes</button>
       {/if}
     </div>
     <div class="k-preview-head">Preview:</div>
@@ -1778,15 +1808,14 @@
             ondrop={(e) => onColDrop(e, "todo")}
           >
             <header class="b-head">
-              <span class="mail-ico" aria-hidden="true">☐</span>
+              <span class="mail-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <rect x="4.5" y="4.5" width="15" height="15" rx="3.5"/>
+                  <path d="M8 12.2l2.6 2.6L16.5 9" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
               <span class="b-name">Todo</span>
               <span class="b-count">{viewCols.doing.length + viewCols.todo.length}</span>
-              {#if hasNestedTodos}
-                <label class="hide-subs">
-                  <input type="checkbox" bind:checked={hideSubtasks} />
-                  Hide subtasks
-                </label>
-              {/if}
               <button
                 type="button"
                 class="ka-plus"
@@ -1812,9 +1841,19 @@
             {/if}
             {#each viewCols.doing as card (card.id)}
               {@render stackCard(card)}
+              {#if openSubtaskIds.includes(card.id)}
+                {#each childrenOf(card.id) as kid (kid.id)}
+                  {@render stackCard(kid)}
+                {/each}
+              {/if}
             {/each}
             {#each viewCols.todo as card (card.id)}
               {@render stackCard(card)}
+              {#if openSubtaskIds.includes(card.id)}
+                {#each childrenOf(card.id) as kid (kid.id)}
+                  {@render stackCard(kid)}
+                {/each}
+              {/if}
             {:else}
               {#if viewCols.doing.length === 0}
                 <p class="b-empty">No to-dos — drag a card here.</p>
@@ -1859,6 +1898,49 @@
             <button class="mini ghost" onclick={() => skipNeededCard(card)}>Skip</button>
           </div>
         {:else}
+        {#if !previewEdit}
+          {@const pid = livePlanetId(card)}
+          {@const due = dueInfo(card)}
+          <div class="d-read-top">
+            <h3 class="d-need-title">{displayTitle(card)}</h3>
+            <button type="button" class="mini" onclick={() => (previewEdit = true)}>Edit</button>
+          </div>
+          {#if pid}
+            <p class="d-read-line">
+              <span class="planet-chip" style="background: {planetCss(pid)}"></span>
+              {projectName(pid)}
+            </p>
+          {:else}
+            <p class="d-read-line dim">Inbox</p>
+          {/if}
+          {#if agentName(card)}
+            <p class="d-read-line">{agentName(card)}</p>
+          {/if}
+          {#if card.notes}
+            <div class="d-read-notes">{card.notes}</div>
+          {/if}
+          {#if due}
+            <p class="d-read-line" class:overdue={due.overdue}>{due.label}</p>
+          {/if}
+          {#if childrenOf(card.id).length}
+            <ul class="d-read-subs">
+              {#each childrenOf(card.id) as kid (kid.id)}
+                <li class:strike={kid.status === "done"}>{kid.title}</li>
+              {/each}
+            </ul>
+          {/if}
+          {#if (card.tagIds ?? []).length}
+            <div class="d-tags">
+              {#each tags.filter((t) => cardHasTag(card, t.id)) as t (t.id)}
+                <span class="mini active">{t.name}</span>
+              {/each}
+            </div>
+          {/if}
+        {:else}
+        <div class="d-read-top">
+          <span class="d-label" style="margin:0">Edit</span>
+          <button type="button" class="mini ghost" onclick={() => (previewEdit = false)}>Done</button>
+        </div>
         <label class="d-label" for="d-name">Title</label>
         <input
           id="d-name"
@@ -2049,6 +2131,7 @@
             {/if}
           </div>
           <p class="d-hint">Window links are made by claiming in the rail — read-only here.</p>
+        {/if}
         {/if}
         {/if}
       {:else}
@@ -2672,7 +2755,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: var(--dim);
+    color: var(--ink);
   }
 
   .b-col.drop-ok .b-name {
