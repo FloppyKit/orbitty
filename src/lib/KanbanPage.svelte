@@ -12,12 +12,6 @@
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
   import { startPaneDrag } from "./dragPane";
-  import {
-    cardPointerDown,
-    consumeTrailingClick,
-    type BoardDragCol,
-    type BoardDragHandlers,
-  } from "./boardDrag";
   import NeededInbox, { neededSorted } from "./NeededInbox.svelte";
   import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import "./chrome.css";
@@ -876,11 +870,8 @@
   // ---- board drag handlers ----
 
   function onCardDragStart(e: DragEvent, _card: KanbanCard) {
-    // BOARD-DRAG: never make the card draggable — WK's native drag
-    // session pointercancels the pointer stream at ~4px, right at the
-    // arm threshold, and preventing dragstart does not revive it. The
-    // pointer path below owns the mouse; the DnD handlers stay wired as
-    // the belt for a WK that honors drop.
+    // Pointer path owns the mouse. Prevent native WK drag so it cannot
+    // pointercancel the stream at ~4px. DnD handlers stay as a belt.
     e.preventDefault();
   }
 
@@ -920,6 +911,70 @@
     dropCol = null;
   }
 
+  // Pointer drag is the grab path (restored to c2997ce). Shift+Enter unchanged.
+  let ptr: { id: string; x: number; y: number; held: boolean } | null = null;
+  let suppressClick = false;
+
+  function onCardPointerDown(e: PointerEvent, card: KanbanCard) {
+    if (e.button !== 0 || grabbedId || detailId) return;
+    suppressClick = false;
+    ptr = { id: card.id, x: e.clientX, y: e.clientY, held: false };
+    window.addEventListener("pointermove", onPtrMove);
+    window.addEventListener("pointerup", onPtrUp);
+    window.addEventListener("pointercancel", onPtrCancel);
+    window.addEventListener("keydown", onPtrKey, true);
+    window.addEventListener("blur", onPtrCancel);
+  }
+
+  function onPtrMove(e: PointerEvent) {
+    const p = ptr;
+    if (!p) return;
+    if (!p.held) {
+      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 4) return;
+      const card = kanbanCards.find((c) => c.id === p.id);
+      if (!card) return ptrEnd();
+      startGrab(card);
+      p.held = true;
+    }
+    if (!grabbedId) return;
+    const col = colAtPoint(e.clientX, e.clientY);
+    if (!col) return;
+    grabCol = col;
+    grabIdx = rowAtPoint(col, e.clientY);
+  }
+
+  function onPtrUp() {
+    const p = ptr;
+    if (!p) return;
+    const wasHeld = p.held;
+    const stillHeld = !!grabbedId;
+    ptrEnd();
+    if (!wasHeld) return;
+    suppressClick = true;
+    if (stillHeld) dropGrab();
+  }
+
+  function onPtrCancel() {
+    if (ptr?.held && grabbedId) ungrab();
+    ptrEnd();
+  }
+
+  function ptrEnd() {
+    ptr = null;
+    window.removeEventListener("pointermove", onPtrMove);
+    window.removeEventListener("pointerup", onPtrUp);
+    window.removeEventListener("pointercancel", onPtrCancel);
+    window.removeEventListener("keydown", onPtrKey, true);
+    window.removeEventListener("blur", onPtrCancel);
+  }
+
+  function onPtrKey(e: KeyboardEvent) {
+    if (e.key !== "Escape" || !ptr?.held || !grabbedId) return;
+    ungrab();
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
   function colAtPoint(x: number, y: number): Status | null {
     const id = document
       .elementFromPoint(x, y)
@@ -940,31 +995,11 @@
     return i;
   }
 
-  function dragHandlers(): BoardDragHandlers {
-    return {
-      blocked: !!grabbedId || !!detailId,
-      startGrab: (cardId) => {
-        const card = kanbanCards.find((c) => c.id === cardId);
-        if (card) startGrab(card);
-      },
-      setCursor: (col: BoardDragCol, idx: number) => {
-        if (!grabbedId) return;
-        grabCol = col;
-        grabIdx = idx;
-      },
-      drop: () => dropGrab(),
-      cancel: () => ungrab(),
-      colAtPoint,
-      rowAtPoint,
-    };
-  }
-
-  function onCardPointerDown(e: PointerEvent | MouseEvent, card: KanbanCard) {
-    cardPointerDown(e, card.id, dragHandlers());
-  }
-
   function onCardClick(card: KanbanCard) {
-    if (consumeTrailingClick()) return;
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
     openDetail(card);
   }
 
@@ -1354,10 +1389,10 @@
                   class:done={card.status === "done"}
                   class:mkey-sel={menuRing.activeId === `card-${card.id}`}
                   data-mkey={`card-${card.id}`}
+                  draggable="true"
                   ondragstart={(e) => onCardDragStart(e, card)}
                   ondragend={onCardDragEnd}
                   onpointerdown={(e) => onCardPointerDown(e, card)}
-                  onmousedown={(e) => onCardPointerDown(e, card)}
                   onclick={() => onCardClick(card)}
                   onkeydown={(e) => e.key === "Enter" && !e.shiftKey && openDetail(card)}
                   tabindex="0"
