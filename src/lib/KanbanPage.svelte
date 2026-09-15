@@ -2746,7 +2746,7 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
     padding: 8px 10px 6px;
   }
 

@@ -114,7 +114,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 0 8px 8px;
+  padding: 0 0 8px;
   min-height: 0;
 }
 
@@ -170,7 +170,7 @@
 .todo-add {
   display: flex;
   gap: 6px;
-  padding: 0 10px 8px 1.15rem;
+  padding: 0 10px 8px;
 }
 
 .d-notes-lg {
@@ -207,12 +207,14 @@
 
 .mail-ico {
   flex-shrink: 0;
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 1.2rem;
+  height: 1.2rem;
   color: var(--ink);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-size: 0.85rem;
+  line-height: 1;
 }
 
 .mail-ico svg {
@@ -221,12 +223,9 @@
   display: block;
 }
 
-.b-head {
-  padding-left: 2px;
-}
-
 .b-card {
-  margin-left: 1.15rem;
+  margin-left: 10px;
+  margin-right: 10px;
 }
 
 .b-card.doing {

@@ -171,12 +171,7 @@
   <section class="k-needed" aria-label="Needed from you">
     <div class="kn-head">
       <span class="kn-label">
-        <span class="mail-ico" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 2.4l1.6 5.2 5.5.1-4.4 3.2 1.6 5.2L12 13l-4.3 3.1 1.6-5.2-4.4-3.2 5.5-.1z"/>
-            <circle cx="19.2" cy="5.2" r="1.3"/>
-          </svg>
-        </span>
+        <span class="mail-ico" aria-hidden="true">☄️</span>
         <span class="kn-title">Needed</span>
         {#if neededNow.length > 0}
           <span class="kn-count">{neededNow.length}</span>
@@ -250,7 +245,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 6px 0;
+    padding: 8px 10px 6px;
   }
 
   /* Always open — the header is a label, not a toggle. */
@@ -260,7 +255,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 4px;
+    padding: 0;
   }
 
   .kn-title {
