@@ -607,6 +607,28 @@
     return r.state;
   }
 
+  function isWriting(card: KanbanCard): boolean {
+    const s = runState(card);
+    return s === "working" || s === "starting";
+  }
+
+  function goToken(title: string): string | null {
+    const m = title.match(/GO-[A-Z0-9]+(?:-[A-Z0-9]+)*/i);
+    return m ? m[0].toUpperCase() : null;
+  }
+
+  function neededForTodo(card: KanbanCard): KanbanCard | undefined {
+    const go = goToken(card.title);
+    if (!go) return undefined;
+    return kanbanCards.find(
+      (c) =>
+        c.kind === "needed" &&
+        (c.neededState === "open" || c.neededState === "later") &&
+        ((c.title || "").toUpperCase().includes(go) ||
+          (c.neededWhy || "").toUpperCase().includes(go)),
+    );
+  }
+
   function ageLabel(card: KanbanCard): string {
     const t = card.lastTouchedAt || card.createdAt;
     if (!t) return "";
@@ -1486,10 +1508,10 @@
   {@const due = dueInfo(card)}
   {@const sub = subProgress(card)}
   {@const who = agentName(card)}
-  {@const run = runState(card)}
   {@const age = ageLabel(card)}
-  {#if run}
-    <span class="k-run" title="Runner state">{run}</span>
+  {@const need = neededForTodo(card)}
+  {#if need}
+    <span class="k-needchip" title={need.title}>needed</span>
   {/if}
   {#if who}
     <span class="k-agent" title="Assigned agent">{who}</span>
@@ -1551,7 +1573,8 @@
       {#if pid}
         <span
           class="planet-chip"
-          style="background: {planetCss(pid)}"
+          class:live={isWriting(card)}
+          style="background: {planetCss(pid)}; --pglow: {planetCss(pid)}"
           title={projectName(pid)}
           aria-hidden="true"
         ></span>
@@ -1567,8 +1590,8 @@
           title={card.status === "doing" ? "Doing — click to park" : "Start — pin to the top"}
         >
           {#if card.status === "doing"}
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
-            doing
+            <span class="k-doing-ico"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></span>
+            <span class="k-doing-lbl">doing</span>
           {:else}
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
             start
@@ -2441,6 +2464,21 @@
     box-shadow:
       inset 0 0 0 1px rgba(0, 0, 0, 0.25),
       0 0 8px 2px var(--pglow, var(--accent));
+    animation: pglow 1.6s ease-in-out infinite;
+  }
+
+  @keyframes pglow {
+    0%,
+    100% {
+      box-shadow:
+        inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+        0 0 5px 1px var(--pglow, var(--accent));
+    }
+    50% {
+      box-shadow:
+        inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+        0 0 12px 4px var(--pglow, var(--accent));
+    }
   }
 
   .side-count {

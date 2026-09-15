@@ -278,12 +278,35 @@
   height: 10px;
 }
 
-.k-doing.on,
-.k-run {
-  color: var(--on-accent, #fff);
+.k-doing:not(.on):hover {
+  border-color: var(--focus, #6e4db0);
+  color: var(--ink);
+  background: var(--panel-fill, var(--panel));
+}
+
+.k-doing.on {
   background: var(--accent);
   border-color: var(--accent);
   font-weight: 700;
+}
+
+.k-doing.on .k-doing-ico {
+  color: #fff;
+  display: inline-flex;
+}
+
+.k-doing.on .k-doing-lbl {
+  color: #6e4db0;
+}
+
+.k-needchip {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #e59e3d;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0 0.4rem;
 }
 
 .k-subs {
