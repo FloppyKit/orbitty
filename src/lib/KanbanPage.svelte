@@ -8,7 +8,7 @@
   // (`todo: … -planet --agent`).
   import { invoke } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
@@ -38,16 +38,10 @@
     embedded = false,
     onClose,
     onPopout,
-    onNeededFocus,
-    onNeededAnswer,
   }: {
     embedded?: boolean;
     onClose?: () => void;
     onPopout?: () => void;
-    onNeededFocus?: (id: string | null, title: string | null) => void;
-    // MENU-KEYS: Enter on a Needed row — the host lands the caret in the
-    // composer so the next typed line answers it.
-    onNeededAnswer?: () => void;
   } = $props();
 
   type Status = "todo" | "doing" | "done";
@@ -97,7 +91,8 @@
   // strip (a row: left/right walk it), then the board piles
   // column-major. Up/down walk the pile, left/right hop the highlight
   // to the same row in the next non-empty column (wraps); Enter selects
-  // a Needed row (the composer answers it), selects a list tab, or
+  // a Needed row (landing the caret in its in-column answer input),
+  // selects a list tab, or
   // descends into a card's detail drawer. Esc backs one surface, then
   // the well (CompanionPage's bubble Esc). Embedded only — the overlay
   // Lists window keeps its mouse habits.
@@ -183,7 +178,15 @@
             id: `needed-${c.id}`,
             confirm: () => {
               neededSelectedId = c.id;
-              onNeededAnswer?.();
+              // Enter on a Needed row lands the caret in the row's own
+              // answer input (the answer section lives in the column
+              // now) — the next typed line answers it. Esc blurs back
+              // out, arrows resume the ring.
+              tick().then(() =>
+                document
+                  .querySelector<HTMLElement>(`[data-mkey="kn-answer"]`)
+                  ?.focus(),
+              );
             },
           });
         }
@@ -1393,8 +1396,6 @@
           bind:open={neededOpen}
           bind:selectedId={neededSelectedId}
           ringActiveId={menuRing.activeId}
-          {onNeededFocus}
-          {onNeededAnswer}
         />
         {#each COLUMNS as col (col.id)}
           <section

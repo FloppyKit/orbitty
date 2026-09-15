@@ -37,15 +37,19 @@
   // Needed pile. Launchpad kanban-row COLUMN in front of Todo: the
   // header toggles it; open paints the pile titles in a top box (cap
   // four rows, scrolls) and the selected tile (question / why /
-  // Answer·Later·Skip) in the lower preview box (needed-split.css) —
-  // the Todo/Doing/Done columns stay on screen. The split band above
-  // the board (a menu within the Needed menu) was the miss. Why is
+  // answer input + "if this again" rule row / Later·Skip) in the lower
+  // preview box (needed-split.css) — the Todo/Doing/Done columns stay
+  // on screen. The split band above the board (a menu within the
+  // Needed menu) was the miss; the answer section riding the composer
+  // below the well was the next one — it lives IN the card now, so
+  // reading and answering a Needed never leaves the kanban row. Why is
   // mdLite so **bold**, `paths`, and lists read as prose, not raw
   // markdown. Parent owns mutate/logEvent so persist stays one door.
   // open/selectedId are bindable so the Launchpad
   // ring can walk the pile; ringActiveId paints the one focus ring.
   import { mdLite } from "./mdLite";
   import { planetCss } from "./planetColor";
+  import NeededRuleRow from "./NeededRuleRow.svelte";
   import type { PersistedState } from "./persist";
   import "./needed-split.css";
 
@@ -60,8 +64,6 @@
     open = $bindable(false),
     selectedId = $bindable<string | null>(null),
     ringActiveId = null,
-    onNeededFocus,
-    onNeededAnswer,
   }: {
     variant: "strip" | "side";
     cards: KanbanCard[];
@@ -77,14 +79,12 @@
     open?: boolean;
     selectedId?: string | null;
     ringActiveId?: string | null;
-    onNeededFocus?: (id: string | null, title: string | null) => void;
-    // LP-SPLIT: the Answer button — arms the composer hijack (same door
-    // as ring Enter). Embedded Launchpad only; the overlay Lists window
-    // has no composer, so no Answer button paints there.
-    onNeededAnswer?: () => void;
   } = $props();
 
   let newNeeded = $state("");
+  // The answer section lives in the preview card — one draft per
+  // Needed; selecting another row starts fresh.
+  let answerDraft = $state("");
 
   $effect(() => {
     if (addingNeeded) open = true;
@@ -106,9 +106,28 @@
       : undefined;
   }
 
-  function answerNeeded(card: KanbanCard) {
-    selectedId = card.id;
-    onNeededAnswer?.();
+  // The one answer door — the same needed-answer event the NextCard
+  // window and `orbittyctl needed answer` log, so the watch dispatches.
+  // The answered card leaves the pile on the reload; the keep-alive
+  // effect below advances the preview to the next Needed.
+  function answerCard(card: KanbanCard) {
+    const answer = answerDraft.trim();
+    if (!answer) return;
+    const now = Date.now() / 1000;
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards.map((c) =>
+        c.id === card.id
+          ? {
+              ...c,
+              neededAnswer: answer,
+              neededState: "answered" as const,
+              lastTouchedAt: now,
+            }
+          : c,
+      );
+    });
+    logEvent("needed-answer", { cardId: card.id }, card.projectId);
+    answerDraft = "";
   }
 
   function setOpen(v: boolean) {
@@ -120,15 +139,18 @@
     }
   }
 
+  // Keep the preview alive: an answered/skipped card leaves the pile,
+  // so the selection falls forward to the next Needed.
   $effect(() => {
-    if (!open) {
-      onNeededFocus?.(null, null);
-      return;
-    }
+    if (!open) return;
     const alive = neededNow.some((c) => c.id === selectedId);
     if (!alive) selectedId = neededNow[0]?.id ?? null;
-    const card = neededNow.find((c) => c.id === selectedId) ?? null;
-    onNeededFocus?.(card?.id ?? null, card?.title ?? null);
+  });
+
+  // One answer draft per card — selecting another row starts fresh.
+  $effect(() => {
+    void selCard?.id;
+    answerDraft = "";
   });
 
   function addNeeded() {
@@ -281,15 +303,26 @@
             {#if sc.neededWhy}
               <div class="kn-why kn-card-why">{@html mdLite(sc.neededWhy)}</div>
             {/if}
+            <!-- The answer section rides the preview card — the same
+                 row the kanban columns live in, at the front of it.
+                 Enter answers; Esc blurs. The "if this again" rule row
+                 moved with it, keyed per card (Save never answers). -->
+            <div class="kn-answer">
+              <input
+                data-mkey="kn-answer"
+                bind:value={answerDraft}
+                placeholder="Your answer…"
+                aria-label="Your answer"
+                onkeydown={(e) => {
+                  if (e.key === "Enter") answerCard(sc);
+                  if (e.key === "Escape") e.currentTarget.blur();
+                }}
+              />
+            </div>
+            {#key sc.id}
+              <NeededRuleRow card={sc} answer={answerDraft} />
+            {/key}
             <div class="kn-acts">
-              {#if onNeededAnswer}
-                <button
-                  class="mini"
-                  onclick={() => answerNeeded(sc)}
-                  title="Answer in the composer — the next typed line lands on this Needed"
-                  >Answer</button
-                >
-              {/if}
               <button
                 class="mini ghost"
                 onclick={() => laterNeeded(sc)}
@@ -456,6 +489,7 @@
   }
 
   .kn-answer {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 6px;
