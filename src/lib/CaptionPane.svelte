@@ -345,12 +345,14 @@
   });
 
   $effect(() => {
-    const watching = [turns.length, sending, expanded, pageIdx, pagedTurnIdx];
+    const watching = [turns.length, sending, expanded, pageIdx, pagedTurnIdx, ackLine];
     void watching;
     if (!expanded || !transcriptEl) return;
     const el = transcriptEl;
     tick().then(() => {
-      el.scrollTop = el.scrollHeight;
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
     });
   });
 
@@ -398,7 +400,9 @@
         <i class="speck"></i>
       </span>
     </span>
-    <span class="waitbubble wline" aria-hidden="true">{ackLine || "thinking…"}</span>
+    {#if ackLine}
+      <span class="waitbubble wline" aria-hidden="true">{ackLine}</span>
+    {/if}
   </span>
 {/snippet}
 
@@ -493,7 +497,7 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 10px 2px 106px;
+    padding: 4px 10px 12px 106px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -618,7 +622,7 @@
     align-items: flex-start;
     gap: 8px;
     width: 100%;
-    max-width: 100%;
+    max-width: 82%;
     box-sizing: border-box;
   }
 
@@ -629,8 +633,8 @@
     color: var(--ink);
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
-    border-radius: 10px;
-    padding: 8px 10px;
+    border-radius: 14px;
+    padding: 5px 10px;
     box-sizing: border-box;
   }
 
@@ -658,17 +662,17 @@
   /* MOUTH-LIVE splash line: short, muted, gone with the reply. */
   .wline {
     margin-left: 0;
-    font-size: 0.78rem;
+    font-size: 0.68rem;
     font-style: italic;
     opacity: 0.88;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 4;
+    -webkit-line-clamp: 6;
     overflow: hidden;
-    line-height: 1.35;
-    max-height: calc(1.35em * 4);
+    line-height: 1.3;
+    max-height: calc(1.3em * 6 + 10px);
   }
 
   .wmark .ring {

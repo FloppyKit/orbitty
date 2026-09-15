@@ -13,7 +13,7 @@ use tauri::Emitter;
 
 const BLIP_MS: u128 = 350;
 const BLIP_CAP: usize = 480;
-const BLIP_LINES: usize = 4;
+const BLIP_LINES: usize = 6;
 
 /// Spawn grok (or the same argv), stream NDJSON stdout, splash real
 /// thought/tool lines, return concatenated assistant text.
