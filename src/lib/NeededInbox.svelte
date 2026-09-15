@@ -34,22 +34,22 @@
 </script>
 
 <script lang="ts">
-  // Needed pile. Launchpad kanban-row COLUMN in front of Todo: the
-  // header toggles it; open paints the pile titles in a top box (cap
-  // four rows, scrolls) and the selected tile (question / why /
-  // answer input + "if this again" rule row / Later·Skip) in the lower
-  // preview box (needed-split.css) — the Todo/Doing/Done columns stay
-  // on screen. The split band above the board (a menu within the
-  // Needed menu) was the miss; the answer section riding the composer
-  // below the well was the next one — it lives IN the card now, so
-  // reading and answering a Needed never leaves the kanban row. Why is
+  // Needed pile. Launchpad kanban-row COLUMN in front of Todo, ALWAYS
+  // OPEN — not an accordion (Matt 2026-09-15: "have the neededs open
+  // and not an accordian file"). Pile titles in a top box (cap four
+  // rows, scrolls) and the selected tile (question / why /
+  // Answer·Later·Skip) in the lower preview box (needed-split.css) —
+  // the Todo/Doing/Done columns stay on screen. The companion text box
+  // is the mouth for the answer: onNeededFocus arms the composer,
+  // Answer / ring Enter lands the caret there — the in-card answer
+  // input was the miss. The split band above the board (a menu within
+  // the Needed menu) was the earlier one. Why is
   // mdLite so **bold**, `paths`, and lists read as prose, not raw
   // markdown. Parent owns mutate/logEvent so persist stays one door.
-  // open/selectedId are bindable so the Launchpad
+  // selectedId is bindable so the Launchpad
   // ring can walk the pile; ringActiveId paints the one focus ring.
   import { mdLite } from "./mdLite";
   import { planetCss } from "./planetColor";
-  import NeededRuleRow from "./NeededRuleRow.svelte";
   import type { PersistedState } from "./persist";
   import "./needed-split.css";
 
@@ -61,9 +61,10 @@
     mutate,
     logEvent,
     addingNeeded = $bindable(false),
-    open = $bindable(false),
     selectedId = $bindable<string | null>(null),
     ringActiveId = null,
+    onNeededFocus,
+    onNeededAnswer,
   }: {
     variant: "strip" | "side";
     cards: KanbanCard[];
@@ -76,19 +77,17 @@
       projectId?: string,
     ) => void;
     addingNeeded?: boolean;
-    open?: boolean;
     selectedId?: string | null;
     ringActiveId?: string | null;
+    onNeededFocus?: (id: string | null, title: string | null) => void;
+    // The Answer button / ring Enter — arms the composer hijack (the
+    // companion text box is the one answer mouth). Embedded Launchpad
+    // only; the overlay Lists window has no composer, so no Answer
+    // button paints there.
+    onNeededAnswer?: () => void;
   } = $props();
 
   let newNeeded = $state("");
-  // The answer section lives in the preview card — one draft per
-  // Needed; selecting another row starts fresh.
-  let answerDraft = $state("");
-
-  $effect(() => {
-    if (addingNeeded) open = true;
-  });
 
   let neededNow = $derived(neededFor(cards, projectId));
   // The card half of the split. The effect below keeps selectedId alive;
@@ -106,51 +105,21 @@
       : undefined;
   }
 
-  // The one answer door — the same needed-answer event the NextCard
-  // window and `orbittyctl needed answer` log, so the watch dispatches.
-  // The answered card leaves the pile on the reload; the keep-alive
-  // effect below advances the preview to the next Needed.
-  function answerCard(card: KanbanCard) {
-    const answer = answerDraft.trim();
-    if (!answer) return;
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              neededAnswer: answer,
-              neededState: "answered" as const,
-              lastTouchedAt: now,
-            }
-          : c,
-      );
-    });
-    logEvent("needed-answer", { cardId: card.id }, card.projectId);
-    answerDraft = "";
-  }
-
-  function setOpen(v: boolean) {
-    open = v;
-    if (v && neededNow.length > 0) {
-      selectedId = neededNow[0].id;
-    } else if (!v) {
-      selectedId = null;
-    }
+  // The Answer button arms the composer hijack — the companion text
+  // box is the one answer mouth (same door as ring Enter).
+  function answerNeeded(card: KanbanCard) {
+    selectedId = card.id;
+    onNeededAnswer?.();
   }
 
   // Keep the preview alive: an answered/skipped card leaves the pile,
-  // so the selection falls forward to the next Needed.
+  // so the selection falls forward to the next Needed — and report the
+  // focus so the companion composer stays the mouth for it.
   $effect(() => {
-    if (!open) return;
     const alive = neededNow.some((c) => c.id === selectedId);
     if (!alive) selectedId = neededNow[0]?.id ?? null;
-  });
-
-  // One answer draft per card — selecting another row starts fresh.
-  $effect(() => {
-    void selCard?.id;
-    answerDraft = "";
+    const card = neededNow.find((c) => c.id === selectedId) ?? null;
+    onNeededFocus?.(card?.id ?? null, card?.title ?? null);
   });
 
   function addNeeded() {
@@ -217,125 +186,101 @@
 {#if variant === "strip" && (neededNow.length > 0 || addingNeeded)}
   <section class="k-needed" aria-label="Needed from you">
     <div class="kn-head">
-      <button
-        type="button"
-        class="kn-toggle"
-        class:mkey-sel={ringActiveId === "needed-toggle"}
-        data-mkey="needed-toggle"
-        aria-expanded={open}
-        onclick={() => setOpen(!open)}
-      >
-        <span class="kn-chev" class:open aria-hidden="true">▸</span>
+      <span class="kn-label">
         <span class="kn-title">Needed</span>
         {#if neededNow.length > 0}
           <span class="kn-count">{neededNow.length}</span>
         {/if}
-      </button>
+      </span>
       <button
         class="ka-plus"
-        onclick={() => {
-          addingNeeded = true;
-          setOpen(true);
-        }}
+        onclick={() => (addingNeeded = true)}
         title="Add a Needed question"
         aria-label="Add a Needed question">+</button
       >
     </div>
-    {#if open}
-      {#if addingNeeded}
-        <div class="ka-form">
-          <input
-            bind:value={newNeeded}
-            placeholder="Needed from you…"
-            aria-label="Needed question"
-            onkeydown={(e) => {
-              if (e.key === "Enter") addNeeded();
-              if (e.key === "Escape") addingNeeded = false;
-            }}
-          />
-          <button class="mini" onclick={addNeeded}>Save</button>
-          <button class="mini ghost" onclick={() => (addingNeeded = false)}>Cancel</button>
-        </div>
-      {/if}
-      {#if neededNow.length > 0}
-        <!-- LP-SPLIT leftover: pile titles in the top box (cap four
-             rows, scrolls), the selected tile's preview in the lower
-             box — a column in the board row, so the Todo/Doing/Done
-             columns never leave the screen while a Needed is
-             read/answered. -->
-        <ul class="kn-list" aria-label="Needed pile">
-          {#each neededNow as card (card.id)}
-            {@const p = projOf(card)}
-            <li
-              class="kn-item"
-              class:sel={selectedId === card.id}
-              class:mkey-sel={ringActiveId === `needed-${card.id}`}
-              data-mkey={`needed-${card.id}`}
-              onclick={() => (selectedId = card.id)}
+    {#if addingNeeded}
+      <div class="ka-form">
+        <input
+          bind:value={newNeeded}
+          placeholder="Needed from you…"
+          aria-label="Needed question"
+          onkeydown={(e) => {
+            if (e.key === "Enter") addNeeded();
+            if (e.key === "Escape") addingNeeded = false;
+          }}
+        />
+        <button class="mini" onclick={addNeeded}>Save</button>
+        <button class="mini ghost" onclick={() => (addingNeeded = false)}>Cancel</button>
+      </div>
+    {/if}
+    {#if neededNow.length > 0}
+      <!-- LP-SPLIT leftover: pile titles in the top box (cap four
+           rows, scrolls), the selected tile's preview in the lower
+           box — an always-open column in the board row, so the
+           Todo/Doing/Done columns never leave the screen while a
+           Needed is read/answered. -->
+      <ul class="kn-list" aria-label="Needed pile">
+        {#each neededNow as card (card.id)}
+          {@const p = projOf(card)}
+          <li
+            class="kn-item"
+            class:sel={selectedId === card.id}
+            class:mkey-sel={ringActiveId === `needed-${card.id}`}
+            data-mkey={`needed-${card.id}`}
+            onclick={() => (selectedId = card.id)}
+          >
+            {#if p}
+              <span
+                class="kn-chip"
+                style="background: {planetCss(p.id)}"
+                title={p.name}
+                aria-hidden="true"
+              ></span>
+            {/if}
+            <span class="kn-item-title">{card.title}</span>
+          </li>
+        {/each}
+      </ul>
+      {#if selCard}
+        {@const sc = selCard}
+        {@const sp = projOf(sc)}
+        <div class="kn-card">
+          {#if sp}
+            <div class="kn-card-head">
+              <span
+                class="kn-chip"
+                style="background: {planetCss(sp.id)}"
+                aria-hidden="true"
+              ></span>
+              <span class="kn-pname">{sp.name}</span>
+            </div>
+          {/if}
+          <p class="kn-q">{sc.title}</p>
+          {#if sc.neededWhy}
+            <div class="kn-why kn-card-why">{@html mdLite(sc.neededWhy)}</div>
+          {/if}
+          <div class="kn-acts">
+            {#if onNeededAnswer}
+              <button
+                class="mini"
+                onclick={() => answerNeeded(sc)}
+                title="Answer in the composer — the next typed line lands on this Needed"
+                >Answer</button
+              >
+            {/if}
+            <button
+              class="mini ghost"
+              onclick={() => laterNeeded(sc)}
+              title="Drop to the bottom of the stack">Later</button
             >
-              {#if p}
-                <span
-                  class="kn-chip"
-                  style="background: {planetCss(p.id)}"
-                  title={p.name}
-                  aria-hidden="true"
-                ></span>
-              {/if}
-              <span class="kn-item-title">{card.title}</span>
-            </li>
-          {/each}
-        </ul>
-        {#if selCard}
-          {@const sc = selCard}
-          {@const sp = projOf(sc)}
-          <div class="kn-card">
-            {#if sp}
-              <div class="kn-card-head">
-                <span
-                  class="kn-chip"
-                  style="background: {planetCss(sp.id)}"
-                  aria-hidden="true"
-                ></span>
-                <span class="kn-pname">{sp.name}</span>
-              </div>
-            {/if}
-            <p class="kn-q">{sc.title}</p>
-            {#if sc.neededWhy}
-              <div class="kn-why kn-card-why">{@html mdLite(sc.neededWhy)}</div>
-            {/if}
-            <!-- The answer section rides the preview card — the same
-                 row the kanban columns live in, at the front of it.
-                 Enter answers; Esc blurs. The "if this again" rule row
-                 moved with it, keyed per card (Save never answers). -->
-            <div class="kn-answer">
-              <input
-                data-mkey="kn-answer"
-                bind:value={answerDraft}
-                placeholder="Your answer…"
-                aria-label="Your answer"
-                onkeydown={(e) => {
-                  if (e.key === "Enter") answerCard(sc);
-                  if (e.key === "Escape") e.currentTarget.blur();
-                }}
-              />
-            </div>
-            {#key sc.id}
-              <NeededRuleRow card={sc} answer={answerDraft} />
-            {/key}
-            <div class="kn-acts">
-              <button
-                class="mini ghost"
-                onclick={() => laterNeeded(sc)}
-                title="Drop to the bottom of the stack">Later</button
-              >
-              <button
-                class="mini ghost"
-                onclick={() => skipNeeded(sc)}
-                title="Delete this Needed">Skip</button
-              >
-            </div>
+            <button
+              class="mini ghost"
+              onclick={() => skipNeeded(sc)}
+              title="Delete this Needed">Skip</button
+            >
           </div>
-        {/if}
+        </div>
       {/if}
     {/if}
   </section>
@@ -379,36 +324,14 @@
     padding: 2px 6px 0;
   }
 
-  .kn-toggle {
+  /* Always open — the header is a label, not a toggle. */
+  .kn-label {
     flex: 1;
     min-width: 0;
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0;
     padding: 6px 4px;
-    font: inherit;
-    color: inherit;
-    background: transparent;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .kn-toggle:hover {
-    background: var(--panel-fill, var(--panel));
-  }
-
-  .kn-chev {
-    flex-shrink: 0;
-    font-size: 0.62rem;
-    color: var(--dim);
-    transition: transform 0.12s;
-  }
-
-  .kn-chev.open {
-    transform: rotate(90deg);
   }
 
   .kn-title {
@@ -486,31 +409,6 @@
     display: block;
     content: "";
     margin-top: 0.45em;
-  }
-
-  .kn-answer {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-  }
-
-  .kn-answer input {
-    flex: 1;
-    min-width: 0;
-    font: inherit;
-    font-size: 0.76rem;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 4px 8px;
-  }
-
-  .kn-answer input:focus {
-    outline: none;
-    border-color: var(--focus, #6e4db0);
   }
 
   .kn-acts {

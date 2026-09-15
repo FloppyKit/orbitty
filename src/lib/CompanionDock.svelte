@@ -11,6 +11,8 @@
   // pick (sending || hackLive); the pick hugs its labels (46% cap dead).
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import NeededRuleRow from "./NeededRuleRow.svelte";
+  import type { KanbanCard } from "./persist";
 
   // Chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
@@ -66,6 +68,8 @@
     captions = true,
     planetsHidden = false,
     talking,
+    neededHint = null,
+    neededCard = null,
     draft = $bindable(),
     fieldEl = $bindable(),
     composerExtra = $bindable(0),
@@ -110,6 +114,11 @@
     captions?: boolean;
     planetsHidden?: boolean;
     talking: boolean;
+    neededHint?: string | null;
+    // NEEDED-RULES-ANSWER: the Needed the composer is hijacked to answer
+    // (needed-focus) — the "if this again" row rides above the field.
+    // Null = a plain chat composer; no row, no second answer box.
+    neededCard?: KanbanCard | null;
     draft: string;
     fieldEl: HTMLTextAreaElement | null;
     // The one-file chip (name + size, × to drop).
@@ -639,6 +648,16 @@
         </span>
       </div>
     {/if}
+    {#if neededCard}
+      <!-- NEEDED-RULES-ANSWER: "if this again" rides the composer's
+           needed-focus (the Launchpad strip's answer path) — closed by
+           default, keyed per card, Save never sends the answer. -->
+      <div class="ruleslot">
+        {#key neededCard.id}
+          <NeededRuleRow card={neededCard} answer={draft} />
+        {/key}
+      </div>
+    {/if}
     <button
       type="button"
       class="clipbtn"
@@ -668,7 +687,9 @@
         bind:this={fieldEl}
         bind:value={draft}
         onkeydown={onFieldKeydown}
-        placeholder="type…  ·  todo: buy milk -fkt"
+        placeholder={neededHint
+          ? `answer: ${neededHint}`
+          : "type…  ·  todo: buy milk -fkt"}
         aria-label="Message your companion"
         autocomplete="off"
         spellcheck="false"
@@ -1161,6 +1182,14 @@
   /* One chip — name + size, × to drop. Same outlined
      pill language as the dock icon buttons, full row above the field. */
   .chiprow {
+    flex: 1 1 100%;
+    display: flex;
+    min-width: 0;
+  }
+
+  /* NEEDED-RULES-ANSWER: full-row slot above the field (chiprow energy)
+     for the "if this again" row while the composer is needed-focused. */
+  .ruleslot {
     flex: 1 1 100%;
     display: flex;
     min-width: 0;

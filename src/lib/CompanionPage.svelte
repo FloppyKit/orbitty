@@ -778,15 +778,58 @@
     fieldEl?.focus();
   }
 
-  // LP-SPLIT leftover: the Needed answer section lives in the
-  // Launchpad's Needed column (inline input + "if this again" row in
-  // the preview card) — the composer hijack stood down, the composer
-  // is chat-only again.
+  let neededFocusId = $state<string | null>(null);
+  let neededFocusTitle = $state<string | null>(null);
+  // NEEDED-RULES-ANSWER: the focused card itself, so the composer's
+  // "if this again" row can classify it (title/why/project) and name it
+  // as from-needed on Save. Null whenever the hijack is off.
+  let neededFocusCard = $derived(
+    neededFocusId
+      ? (cards.find((c) => c.id === neededFocusId && c.kind === "needed") ??
+          null)
+      : null,
+  );
+  function onNeededFocus(id: string | null, title: string | null) {
+    if (expanded) {
+      neededFocusId = null;
+      neededFocusTitle = null;
+      return;
+    }
+    neededFocusId = id;
+    neededFocusTitle = title;
+  }
+
+  // Enter on a Needed row arms the composer
+  // answer (onNeededFocus already set the hint) — land the caret so the
+  // next typed line answers it. Esc blurs back out (onPaneKey), arrows
+  // resume the ring.
+  function onNeededAnswer() {
+    fieldEl?.focus();
+  }
+  $effect(() => {
+    if (expanded || hosted !== "launchpad") {
+      neededFocusId = null;
+      neededFocusTitle = null;
+    }
+  });
 
   async function sendLine() {
     const line = draft.trim();
     const file = attach;
     if (!line && !file) return;
+    // Expanded transcript is Spark. Needed only hijacks the composer
+    // while collapsed (Launchpad well visible). Collapse to answer. A
+    // chip stands the hijack down — needed_answer cannot take a file.
+    if (neededFocusId && !expanded && !file) {
+      draft = "";
+      try {
+        await invoke("needed_answer", { id: neededFocusId, answer: line });
+      } catch (e) {
+        draft = line;
+        sendNote = `${e}`;
+      }
+      return;
+    }
     if (sending) return;
     sending = true;
     sendNote = null;
@@ -1660,6 +1703,8 @@
                   embedded
                   onClose={dismissHost}
                   onPopout={popoutLaunchpad}
+                  {onNeededFocus}
+                  {onNeededAnswer}
                 />
               {:else if swapPrev === "stars"}
                 <StarsPage embedded onClose={dismissHost} />
@@ -1683,6 +1728,8 @@
                 embedded
                 onClose={dismissHost}
                 onPopout={popoutLaunchpad}
+                {onNeededFocus}
+                {onNeededAnswer}
               />
             {:else if hosted === "stars"}
               <StarsPage embedded onClose={dismissHost} />
@@ -1808,6 +1855,8 @@
     {captions}
     {planetsHidden}
     {talking}
+    neededHint={expanded ? null : neededFocusTitle}
+    neededCard={expanded ? null : neededFocusCard}
     {cheatSheetHint}
     onCheatSheet={() => (cheatOpen = !cheatOpen)}
     bind:draft

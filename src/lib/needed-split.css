@@ -1,17 +1,16 @@
-/* GO-ORBITTY-LAUNCHPAD-SPLIT leftover: the open Needed pane is a
-   kanban-row COLUMN in front of Todo — pile titles in a top box (cap
-   four rows, scrolls), the selected tile (question / why / answer
-   input + "if this again" row / Later·Skip) in the lower preview box —
-   so the Todo/Doing/Done columns never leave the screen. The split
-   band above the board (a menu within the Needed menu) was the miss;
-   the answer section riding the composer below the well was the next —
-   it lives in the card now. NeededInbox.svelte owns this paint; board
+/* GO-ORBITTY-LAUNCHPAD-SPLIT leftover: the Needed pane is an
+   always-open kanban-row COLUMN in front of Todo (not an accordion) —
+   pile titles in a top box (cap four rows, scrolls), the selected tile
+   (question / why / Answer·Later·Skip) in the lower preview box — so
+   the Todo/Doing/Done columns never leave the screen. The companion
+   text box is the mouth for the answer; the in-card answer input was
+   the miss. The split band above the board (a menu within the Needed
+   menu) was the earlier one. NeededInbox.svelte owns this paint; board
    chrome stays in KanbanPage. Global (chrome.css precedent), kn-*
    namespaced. */
 
 /* The column root — a grid item in KanbanPage's .b-cols, painted like a
-   board column. Closed it is a slim header rail (the grid track is
-   `auto` there); open it carries the two boxes below. */
+   board column. Always open: it carries the two boxes below. */
 .k-needed {
   min-height: 0;
   display: flex;

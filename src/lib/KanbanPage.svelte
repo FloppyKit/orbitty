@@ -8,7 +8,7 @@
   // (`todo: … -planet --agent`).
   import { invoke } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
-  import { onMount, onDestroy, tick } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
@@ -38,10 +38,16 @@
     embedded = false,
     onClose,
     onPopout,
+    onNeededFocus,
+    onNeededAnswer,
   }: {
     embedded?: boolean;
     onClose?: () => void;
     onPopout?: () => void;
+    onNeededFocus?: (id: string | null, title: string | null) => void;
+    // MENU-KEYS: Enter on a Needed row — the host lands the caret in the
+    // composer so the next typed line answers it.
+    onNeededAnswer?: () => void;
   } = $props();
 
   type Status = "todo" | "doing" | "done";
@@ -91,8 +97,7 @@
   // strip (a row: left/right walk it), then the board piles
   // column-major. Up/down walk the pile, left/right hop the highlight
   // to the same row in the next non-empty column (wraps); Enter selects
-  // a Needed row (landing the caret in its in-column answer input),
-  // selects a list tab, or
+  // a Needed row (the composer answers it), selects a list tab, or
   // descends into a card's detail drawer. Esc backs one surface, then
   // the well (CompanionPage's bubble Esc). Embedded only — the overlay
   // Lists window keeps its mouse habits.
@@ -109,7 +114,6 @@
   // walking the current surface's selectables instead of falling back
   // to page scroll, and Esc pops back to the board with its highlight.
   const menuRing = new MenuRing();
-  let neededOpen = $state(false);
   let neededSelectedId = $state<string | null>(null);
   // LP-SPLIT: the Needed pane filters with the planet tab — Inbox and
   // the smart tabs ("") paint the consolidated all-planets pile, a
@@ -119,9 +123,9 @@
     projects.some((p) => p.id === selected) ? selected : "",
   );
   const neededRows = $derived(neededFor(kanbanCards, neededProjectId));
-  // LP-SPLIT leftover: the Needed pane rides the board row as a column
-  // in front of Todo — slim header rail closed, titles top box + tile
-  // preview lower box open. The grid tracks below follow this flag.
+  // LP-SPLIT leftover: the Needed pane rides the board row as an
+  // always-open column in front of Todo — titles top box + tile
+  // preview lower box. The grid tracks below follow this flag.
   const neededCol = $derived(neededRows.length > 0 || addingNeeded);
   // Tracks the drawer surface's push/pop pairing on the ring.
   let drawerOnRing = false;
@@ -164,33 +168,17 @@
       ungrab();
     }
     const stops: RingStop[] = [];
-    if (neededRows.length > 0 || addingNeeded) {
+    // The Needed column is always open — the pile rows ride the ring
+    // directly (no toggle stop). Enter on a row arms the composer
+    // answer (the companion text box is the mouth) and lands the caret.
+    for (const c of neededRows) {
       stops.push({
-        id: "needed-toggle",
+        id: `needed-${c.id}`,
         confirm: () => {
-          neededOpen = !neededOpen;
-          if (!neededOpen) neededSelectedId = null;
+          neededSelectedId = c.id;
+          onNeededAnswer?.();
         },
       });
-      if (neededOpen) {
-        for (const c of neededRows) {
-          stops.push({
-            id: `needed-${c.id}`,
-            confirm: () => {
-              neededSelectedId = c.id;
-              // Enter on a Needed row lands the caret in the row's own
-              // answer input (the answer section lives in the column
-              // now) — the next typed line answers it. Esc blurs back
-              // out, arrows resume the ring.
-              tick().then(() =>
-                document
-                  .querySelector<HTMLElement>(`[data-mkey="kn-answer"]`)
-                  ?.focus(),
-              );
-            },
-          });
-        }
-      }
     }
     // The planet strip is a ROW on this surface: left/right walk it,
     // down drops into the first card of the first non-empty column, up
@@ -220,12 +208,8 @@
             }
             return false;
           }
-          if (neededOpen && neededRows.length > 0) {
+          if (neededRows.length > 0) {
             menuRing.select(`needed-${neededRows[neededRows.length - 1].id}`);
-            return true;
-          }
-          if (neededRows.length > 0 || addingNeeded) {
-            menuRing.select("needed-toggle");
             return true;
           }
           return false;
@@ -1376,15 +1360,12 @@
         </div>
       {/if}
 
-      <div
-        class="b-cols"
-        class:with-needed={neededCol}
-        class:needed-open={neededCol && neededOpen}
-      >
-        <!-- LP-SPLIT leftover: the Needed pane is a board-row column in
-             front of Todo — pile titles in a top box, the selected
-             tile's preview in the lower box. The board columns never
-             leave the screen while a Needed is read/answered. -->
+      <div class="b-cols" class:with-needed={neededCol}>
+        <!-- LP-SPLIT leftover: the Needed pane is an always-open
+             board-row column in front of Todo — pile titles in a top
+             box, the selected tile's preview in the lower box. The
+             board columns never leave the screen while a Needed is
+             read/answered. -->
         <NeededInbox
           variant="strip"
           cards={kanbanCards}
@@ -1393,9 +1374,10 @@
           {mutate}
           {logEvent}
           bind:addingNeeded
-          bind:open={neededOpen}
           bind:selectedId={neededSelectedId}
           ringActiveId={menuRing.activeId}
+          {onNeededFocus}
+          {onNeededAnswer}
         />
         {#each COLUMNS as col (col.id)}
           <section
@@ -2185,12 +2167,8 @@
   }
 
   /* LP-SPLIT leftover: the Needed column rides the row in front of
-     Todo — a slim header rail closed, a titles+preview column open. */
+     Todo — always open, titles top box + preview lower box. */
   .b-cols.with-needed {
-    grid-template-columns: auto repeat(3, minmax(0, 1fr));
-  }
-
-  .b-cols.with-needed.needed-open {
     grid-template-columns: minmax(220px, 1.15fr) repeat(3, minmax(0, 1fr));
   }
 
