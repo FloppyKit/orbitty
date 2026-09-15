@@ -398,7 +398,7 @@
         <i class="speck"></i>
       </span>
     </span>
-    <span class="wline" aria-hidden="true">{ackLine || "thinking…"}</span>
+    <span class="waitbubble wline" aria-hidden="true">{ackLine || "thinking…"}</span>
   </span>
 {/snippet}
 
@@ -434,7 +434,7 @@
     {/each}
     {#if sending}
       <div class="row them wait-row" aria-live="polite">
-        <div class="bubble waitbubble">{@render wait()}</div>
+        {@render wait()}
       </div>
     {/if}
   </div>
@@ -447,7 +447,7 @@
     {/if}
     {#if sending}
       <div class="ccrow them wait-row" aria-live="polite">
-        <div class="cc waitbubble">{@render wait()}</div>
+        {@render wait()}
       </div>
     {/if}
     {#if botLine && !sending}
@@ -609,22 +609,29 @@
     flex: none;
     justify-content: flex-start;
     pointer-events: none;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .wait {
-    display: inline-flex;
-    align-items: center;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
-  /* THINK-BLIPS leftover: the ack / blip line rides IN a them-bubble —
-     never a bare line hanging in the air by the mark. Same ephemeral
-     wait slot: the reply still replaces it; nothing here persists.
-     (The transcript's .row.them .bubble already paints this; the
-     collapsed .cc needs the them paint said once here.) */
   .waitbubble {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
     color: var(--ink);
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
+    border-radius: 10px;
+    padding: 8px 10px;
+    box-sizing: border-box;
   }
 
   .sr-only {
@@ -642,16 +649,26 @@
   .wmark {
     position: relative;
     display: inline-block;
+    flex-shrink: 0;
     width: 20px;
     height: 20px;
+    margin-top: 6px;
   }
 
   /* MOUTH-LIVE splash line: short, muted, gone with the reply. */
   .wline {
-    margin-left: 7px;
-    font-size: 0.66rem;
+    margin-left: 0;
+    font-size: 0.78rem;
     font-style: italic;
-    opacity: 0.55;
+    opacity: 0.88;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
+    line-height: 1.35;
+    max-height: calc(1.35em * 4);
   }
 
   .wmark .ring {

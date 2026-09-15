@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use tauri::Emitter;
 
 const BLIP_MS: u128 = 350;
-const BLIP_CAP: usize = 72;
+const BLIP_CAP: usize = 480;
+const BLIP_LINES: usize = 4;
 
 /// Spawn grok (or the same argv), stream NDJSON stdout, splash real
 /// thought/tool lines, return concatenated assistant text.
@@ -123,6 +124,7 @@ pub fn run_streamed(
 
 struct Feed {
     text: String,
+    thought: String,
     error: Option<String>,
     last_blip: Option<Instant>,
 }
@@ -131,6 +133,7 @@ impl Feed {
     fn new() -> Self {
         Self {
             text: String::new(),
+            thought: String::new(),
             error: None,
             last_blip: None,
         }
@@ -150,8 +153,21 @@ impl Feed {
         if let Some(chunk) = event_text(&v) {
             self.text.push_str(chunk);
         }
-        if let Some(blip) = event_blip(&v) {
-            self.emit(app, &blip);
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("thought") => {
+                if let Some(d) = v.get("data").and_then(|d| d.as_str()) {
+                    self.thought.push_str(d);
+                    if let Some(blip) = clip(&self.thought) {
+                        self.emit(app, &blip);
+                    }
+                }
+            }
+            Some("tool_call") => {
+                if let Some(blip) = event_blip(&v) {
+                    self.emit(app, &blip);
+                }
+            }
+            _ => {}
         }
         None
     }
@@ -169,21 +185,27 @@ impl Feed {
 }
 
 fn clip(raw: &str) -> Option<String> {
-    let one = raw
-        .lines()
-        .next()
-        .unwrap_or("")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    if one.is_empty() {
+    let t = raw.trim();
+    if t.is_empty() {
         return None;
     }
-    let mut s = one;
+    let mut lines: Vec<String> = t
+        .lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|l| !l.is_empty())
+        .collect();
+    if lines.len() > BLIP_LINES {
+        lines = lines[lines.len() - BLIP_LINES..].to_vec();
+    }
+    let mut s = lines.join("\n");
     if s.chars().count() > BLIP_CAP {
         s = s.chars().take(BLIP_CAP - 1).collect::<String>() + "…";
     }
-    Some(s)
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 fn event_blip(v: &Value) -> Option<String> {
@@ -258,10 +280,16 @@ mod tests {
     }
 
     #[test]
-    fn clip_caps_and_first_line() {
-        let long = "a".repeat(90);
-        let b = clip(&format!("{long}\nsecond")).unwrap();
+    fn clip_caps_long() {
+        let long = "a".repeat(500);
+        let b = clip(&long).unwrap();
         assert!(b.ends_with('…'));
         assert!(b.chars().count() <= BLIP_CAP);
+    }
+
+    fn clip_keeps_multiple_lines() {
+        let b = clip("one\ntwo\nthree").unwrap();
+        assert!(b.contains("one"));
+        assert!(b.contains('\n'));
     }
 }

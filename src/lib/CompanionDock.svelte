@@ -91,6 +91,7 @@
     onDockMouseDown,
     cheatSheetHint = true,
     onCheatSheet,
+    onThin,
   }: {
     agents: string[];
     agent: string;
@@ -140,6 +141,7 @@
     onDockMouseDown: (e: MouseEvent | PointerEvent) => void;
     cheatSheetHint?: boolean;
     onCheatSheet?: () => void;
+    onThin?: () => void;
   } = $props();
 
   // DOCK-HACK: the LED is live when either source is — the Spark mouth
@@ -215,9 +217,12 @@
     oneLineH = el.scrollHeight + border; // empty → border-box target
   }
 
+  let growing = false;
   function growField() {
     const el = fieldEl;
-    if (!el) return;
+    if (!el || growing) return;
+    growing = true;
+    try {
     // Park at rows=1 so scrollHeight reports the honest content height.
     el.style.height = "auto";
     if (draft === "") {
@@ -241,6 +246,9 @@
     el.style.overflowY = capped ? "auto" : "hidden";
     composerExtra =
       collapsed && oneLineH > 0 ? Math.max(0, Math.round(needed - oneLineH)) : 0;
+    } finally {
+      growing = false;
+    }
   }
 
   function onFieldKeydown(e: KeyboardEvent) {
@@ -276,12 +284,11 @@
     // Tile open/close widens the window → rewrap → re-grow without
     // waiting for the next keystroke. RO fires only on real size
     // deltas, so the grow writes above do not loop it.
-    const ro = new ResizeObserver(() => growField());
-    if (fieldEl) ro.observe(fieldEl);
+    window.addEventListener("resize", growField);
     return () => {
       window.removeEventListener("mousedown", onDoc);
       window.removeEventListener("mousedown", onDocAgent);
-      ro.disconnect();
+      window.removeEventListener("resize", growField);
     };
   });
 </script>
@@ -637,6 +644,14 @@
         </span>
       </div>
     {/if}
+    <button
+      type="button"
+      class="thinbtn"
+      onclick={() => onThin?.()}
+      disabled={sending}
+      aria-label="Thin — new chat needed"
+      title="This chat is thin — stamp and start a new job (⌘⌥T)"
+    >thin</button>
     <button
       type="button"
       class="clipbtn"
@@ -1229,6 +1244,28 @@
 
   .attachx:hover {
     color: var(--ink);
+  }
+
+  .thinbtn {
+    flex: none;
+    height: 24px;
+    padding: 0 6px;
+    font: 600 10px/1 var(--sans, system-ui, sans-serif);
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    color: var(--dim);
+    background: transparent;
+    border: 1px solid var(--edge, #444);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .thinbtn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .thinbtn:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 
   /* Paperclip: quiet field-side button, same energy as the mic. */
