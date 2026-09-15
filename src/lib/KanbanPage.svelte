@@ -1478,36 +1478,40 @@
     {/each}
   </div>
 
+  <div class="k-heads">
+    <div class="k-titlerow">
+      {#if selectedProject}
+        <span
+          class="planet-chip"
+          class:live={hackProjectId === selectedProject.id}
+          style="background: {planetCss(selectedProject.id)}; --pglow: {planetCss(selectedProject.id)}"
+          title={selectedProject.name}
+          aria-hidden="true"
+        ></span>
+      {/if}
+      <h2 class="k-title">{listTitle}</h2>
+      {#if selected === "done"}
+        {@render doneActorChips()}
+      {/if}
+      {#if selectedProject}
+        <button
+          class="mini"
+          onclick={launchHermes}
+          title="Hermes — focus or launch the existing harness with this list's titles-only context"
+        >Hermes</button>
+      {/if}
+    </div>
+    <div class="k-preview-head">Preview:</div>
+  </div>
+  {#if hermesNote}
+    <div class="k-hermesnote" class:err={hermesNote.kind === "err"}>
+      <span class="k-hermestext">{hermesNote.text}</span>
+      <button class="mini ghost" onclick={() => (hermesNote = null)} aria-label="Dismiss">×</button>
+    </div>
+  {/if}
+
   <div class="k-body">
     <section class="k-main" aria-label={listTitle}>
-      <div class="k-titlerow">
-        {#if selectedProject}
-          <span
-            class="planet-chip"
-            class:live={hackProjectId === selectedProject.id}
-            style="background: {planetCss(selectedProject.id)}; --pglow: {planetCss(selectedProject.id)}"
-            title={selectedProject.name}
-            aria-hidden="true"
-          ></span>
-        {/if}
-        <h2 class="k-title">{listTitle}</h2>
-        {#if selected === "done"}
-          {@render doneActorChips()}
-        {/if}
-        {#if selectedProject}
-          <button
-            class="mini"
-            onclick={launchHermes}
-            title="Hermes — focus or launch the existing harness with this list's titles-only context"
-          >Hermes</button>
-        {/if}
-      </div>
-      {#if hermesNote}
-        <div class="k-hermesnote" class:err={hermesNote.kind === "err"}>
-          <span class="k-hermestext">{hermesNote.text}</span>
-          <button class="mini ghost" onclick={() => (hermesNote = null)} aria-label="Dismiss">×</button>
-        </div>
-      {/if}
 
       <div class="mail" bind:this={mailEl}>
         <div
@@ -1606,10 +1610,6 @@
     <aside class="k-detail" aria-label="Item details">
       {#if detailCard}
       {@const card = detailCard}
-        <header class="d-head">
-          <span class="d-title">{card.kind === "needed" ? "Needed" : "Details"}</span>
-        </header>
-
         {#if card.kind === "needed"}
           <p class="d-need-title">{card.title}</p>
           {#if card.neededWhy}
@@ -1772,10 +1772,7 @@
         {/if}
         {/if}
       {:else}
-        <header class="d-head">
-          <span class="d-title">Details</span>
-        </header>
-        <p class="d-hint">Highlight a todo to see it here.</p>
+        <p class="d-hint">Highlight a row to preview it here.</p>
       {/if}
     </aside>
   </div>
@@ -2053,12 +2050,12 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: 12px 16px 12px;
+    padding: 0;
     overflow: hidden;
   }
 
   .k-title {
-    margin: 2px 2px 10px;
+    margin: 0;
     font-size: 1.15rem;
     font-weight: 700;
     letter-spacing: 0.01em;
@@ -2487,10 +2484,10 @@
     border-radius: 8px;
   }
 
-  /* ---- S4.4 detail drawer (Habitica-thin) ---- */
+  /* Preview tile — same chrome as the mail stack, not a flush wall. */
   .k-detail {
     flex-shrink: 0;
-    width: 272px;
+    width: 280px;
     min-height: 0;
     overflow-y: auto;
     display: flex;
@@ -2498,7 +2495,8 @@
     gap: 6px;
     padding: 12px 14px;
     background: var(--panel-fill, var(--panel));
-    border-left: 1px solid var(--edge);
+    border: 1px solid var(--edge);
+    border-radius: 10px;
   }
 
   .d-head {
