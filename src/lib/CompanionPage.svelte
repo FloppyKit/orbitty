@@ -874,11 +874,9 @@
     }
   }
 
-  // Leftover: the ONE agent dropdown also picks the
-  // thread — four-cast stem → mode. Labels stay Spark / Command / Riff /
-  // Witness; stems are never recast, and ctl `companion mode` can move
-  // the thread without touching this pick. An unlisted stem (a fail-open
-  // roster) leaves the mode where it is. No pills, no second select.
+  // Four-cast stem → mode JOB (spark/work/chat/hold). One transcript —
+  // set_companion_mode does not park a second brain. Labels stay Spark /
+  // Work / Chat / Hold.
   const AGENT_MODE: Record<string, string> = {
     spark: "spark",
     grok: "work",
@@ -886,12 +884,19 @@
     "fkt-homie": "hold",
   };
 
+  async function stampThin() {
+    try {
+      const msg = await invoke<string>("companion_thin");
+      sendNote = msg.split("\n")[0] ?? "THIN stamped";
+    } catch (e) {
+      sendNote = `${e}`;
+    }
+  }
+
   async function onAgentChange() {
     try {
       agent = await invoke<string>("set_companion_agent", { profile: agent });
-      // Same flip switches the thread: set_companion_mode parks the
-      // current turns under the old mode and loads the new mode's
-      // thread, then state:changed → loadState swaps the transcript in.
+      // Same flip switches the JOB (mode law). Transcript stays.
       const nextMode = AGENT_MODE[agent];
       if (nextMode) {
         await invoke("set_companion_mode", { mode: nextMode });
@@ -1451,6 +1456,7 @@
   let unlistenDestVis: (() => void) | undefined;
   let unlistenSummon: (() => void) | undefined;
   let unlistenNeededFocus: (() => void) | undefined;
+  let unlistenKanbanVis: (() => void) | undefined;
   let unlistenEnterHost: (() => void) | undefined;
   let unlistenToggleHost: (() => void) | undefined;
   let unlistenYawHost: (() => void) | undefined;
@@ -1518,6 +1524,9 @@
       title: string | null;
     }>("orbitty:needed-focus", (e) => {
       onNeededFocus(e.payload?.id ?? null, e.payload?.title ?? null);
+    });
+    unlistenKanbanVis = await listenPaneVis("kanban", (visible) => {
+      if (!visible) onNeededFocus(null, null);
     });
     // Tray Launchpad/STARS raise this pane
     // native-side and ask the well to open — raise-only via enterHost,
@@ -1613,6 +1622,7 @@
     unlistenDestVis?.();
     unlistenSummon?.();
     unlistenNeededFocus?.();
+    unlistenKanbanVis?.();
     unlistenEnterHost?.();
     unlistenToggleHost?.();
     unlistenYawHost?.();
@@ -1877,6 +1887,7 @@
     onPickAttach={pickAttach}
     onDropAttach={dropAttach}
     {onAgentChange}
+    onThin={stampThin}
     {togglePrompts}
     destOpen={destOpen}
     {toggleDest}

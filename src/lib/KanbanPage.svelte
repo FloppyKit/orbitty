@@ -1448,8 +1448,18 @@
         loadState();
         refreshWindows();
         startRefreshTimer();
+        const c = kanbanCards.find((x) => x.id === detailId);
+        if (c?.kind === "needed") {
+          emitTo("companion", "orbitty:needed-focus", {
+            id: c.id,
+            title: c.title,
+          }).catch(() => {});
+        }
       } else {
         stopRefreshTimer();
+        emitTo("companion", "orbitty:needed-focus", { id: null, title: null }).catch(
+          () => {},
+        );
       }
     });
     document.addEventListener("visibilitychange", onVisibility);
@@ -1507,6 +1517,18 @@
 {#snippet stackCard(card: KanbanCard)}
   {@const pid = livePlanetId(card)}
   <div class="b-row" class:child={!!card.parentId}>
+  <button
+    type="button"
+    class="k-check"
+    class:checked={card.status === "done"}
+    onclick={(e) => {
+      e.stopPropagation();
+      moveCard(card, card.status === "done" ? "todo" : "done");
+    }}
+    onpointerdown={(e) => e.stopPropagation()}
+    aria-label={card.status === "done" ? "Reopen" : "Mark done"}
+    title={card.status === "done" ? "Reopen" : "Mark done"}
+  >{card.status === "done" ? "✓" : ""}</button>
   <article
     class="b-card"
     class:dragging={dragCardId === card.id}
@@ -1571,18 +1593,6 @@
       {@render metaChips(card)}
     </div>
   </article>
-  <button
-    type="button"
-    class="k-check"
-    class:checked={card.status === "done"}
-    onclick={(e) => {
-      e.stopPropagation();
-      moveCard(card, card.status === "done" ? "todo" : "done");
-    }}
-    onpointerdown={(e) => e.stopPropagation()}
-    aria-label={card.status === "done" ? "Reopen" : "Mark done"}
-    title={card.status === "done" ? "Reopen" : "Mark done"}
-  >{card.status === "done" ? "✓" : ""}</button>
   </div>
 {/snippet}
 
