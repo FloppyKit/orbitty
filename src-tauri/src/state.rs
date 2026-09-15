@@ -155,7 +155,7 @@ fn needed_split_default() -> f64 {
 /// The only labels that can be drawers. The rail
 /// is not a drawer; `sky` stays hide-not-destroy; Board+STARS are the one
 /// `kanban` overlay; planets are never docked.
-pub const DRAWER_LABELS: [&str; 3] = ["companion", "kanban", "settings"];
+pub const DRAWER_LABELS: [&str; 4] = ["companion", "kanban", "settings", "stars"];
 
 /// `docked` = follow-translate on the rail
 /// from the inboard slot plus (dx, dy); `bounds` is the plucked resting

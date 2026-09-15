@@ -788,7 +788,7 @@ pub fn run() {
             // (this desk: s2 @2x) and every later place inherited that
             // wrong-scale origin (the click-hop). Still visible:false,
             // still click-through, no show(), no companion pin.
-            for label in ["companion", "kanban", "settings"] {
+            for label in ["companion", "kanban", "settings", "stars"] {
                 if let Err(e) = panes::ensure_window(app.handle(), label) {
                     eprintln!("pane-warm: ensure_window({label}) failed: {e}");
                     continue;

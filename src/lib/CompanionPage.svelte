@@ -538,17 +538,7 @@
         : "Click: full body (no bust art) · Right-click: hide sprite",
   );
 
-  let captions = $state(true);
-  async function toggleCaptions() {
-    const next = !captions;
-    captions = next;
-    try {
-      await invoke("set_companion_captions", { enabled: next });
-    } catch (e) {
-      captions = !next;
-      sendNote = `${e}`;
-    }
-  }
+  const captions = true;
 
   let planetsHidden = $state(false);
   let cheatSheetHint = $state(true);
@@ -1323,7 +1313,6 @@
         : 1;
       figureView = s.companion?.viewCollapsed === "head" ? "head" : "full";
       sprite = s.companion?.sprite ?? true;
-      captions = s.companion?.captions ?? true;
       planetsHidden = s.companion?.planetsHidden ?? false;
       cheatSheetHint = s.companion?.cheatSheetHint ?? true;
       actionRows = s.actionShortcuts ?? [];
@@ -1869,7 +1858,6 @@
     {bustOk}
     {viewTitle}
     {expanded}
-    {captions}
     {planetsHidden}
     {talking}
     neededHint={expanded ? null : neededFocusTitle}
@@ -1892,7 +1880,6 @@
     {toggleSprite}
     {toggleView}
     {toggleExpanded}
-    {toggleCaptions}
     {togglePlanetsHidden}
     {sendLine}
     {talkStart}
@@ -1906,20 +1893,6 @@
     actions={actionRows}
     onClose={() => (cheatOpen = false)}
   />
-
-  <button
-    class="winx"
-    class:hosted-hide={hosted !== "off"}
-    onmousedown={(e) => e.stopPropagation()}
-    onclick={async () => {
-      // HOST-SPLIT: restore the idle size before the hide so the
-      // persisted place is never the host frame.
-      if (hosted !== "off") await dismissHost();
-      invoke("hide_window", { label: "companion" }).catch(() => {});
-    }}
-    title="Hide Companion — reopen from the rail or tray"
-    aria-label="Hide Companion">×</button
-  >
 </main>
 
 <style>

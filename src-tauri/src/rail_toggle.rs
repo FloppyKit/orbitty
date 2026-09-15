@@ -16,20 +16,14 @@ use tauri::Manager;
 /// SHOWN, `Ok(false)` when HIDDEN — callers (the tray) fire show-only
 /// side effects (the companion caret summon) on the show edge only.
 ///
-/// - `stars` / `kanban`: the one shared 780×520 overlay (BOARD-STARS).
-///   "Visible" for the button means the overlay is up AND already in
-///   that button's mode — an overlay visible in the OTHER mode takes
-///   the show path (a warm mode swap), never a hide. Hide targets the
-///   `kanban` window; the legacy `stars` pane can never exist
-///   (PANE-404), so `hide_window("stars")` is never the real path.
+/// - `stars` / `kanban`: separate windows. Visible → hide; else show.
 /// - `companion`: hide rides `hide_window`, which keeps the companion
 ///   bookkeeping — `talk::stop_if_any`, unpin, persist visible=false.
 /// - `sky` / `settings`: plain panes; no new visibility slice is
 ///   persisted for them (lock law 3).
 pub(crate) fn toggle(app: &tauri::AppHandle, label: &str) -> Result<bool, String> {
     match label {
-        "stars" | "kanban" => toggle_shared(app, label),
-        "companion" | "sky" | "settings" => toggle_plain(app, label),
+        "stars" | "kanban" | "companion" | "sky" | "settings" => toggle_plain(app, label),
         _ => Err(format!("rail toggle: unknown label {label}")),
     }
 }
@@ -55,23 +49,6 @@ fn toggle_plain(app: &tauri::AppHandle, label: &str) -> Result<bool, String> {
     } else {
         crate::panes::show_labeled(app, label)?;
     }
-    Ok(true)
-}
-
-/// Board / STARS share the one `kanban` overlay. Hide only when the
-/// overlay is up in THIS button's mode; otherwise the existing show
-/// path (which swaps a warm overlay's mode live). A state-load miss
-/// never hides — the show path is the safe default.
-fn toggle_shared(app: &tauri::AppHandle, label: &str) -> Result<bool, String> {
-    let mode = if label == "stars" { "stars" } else { "board" };
-    let cur = crate::state::load_state(app)
-        .ok()
-        .map(|s| s.shared_pane_mode);
-    if visible(app, "kanban") && cur.as_deref() == Some(mode) {
-        crate::panes::hide_window(app.clone(), "kanban".to_string())?;
-        return Ok(false);
-    }
-    crate::panes::show_shared_pane(app, mode)?;
     Ok(true)
 }
 
@@ -119,14 +96,9 @@ pub fn dest_show(app: tauri::AppHandle, dest: String) -> Result<(), String> {
 /// Chip highlight: which dest windows are up.
 #[tauri::command]
 pub fn dest_open_state(app: tauri::AppHandle) -> serde_json::Value {
-    let kanban = visible(&app, "kanban");
-    let mode = crate::state::load_state(&app)
-        .ok()
-        .map(|s| s.shared_pane_mode)
-        .unwrap_or_else(|| "board".into());
     serde_json::json!({
-        "launchpad": kanban && mode == "board",
-        "stars": kanban && mode == "stars",
+        "launchpad": visible(&app, "kanban"),
+        "stars": visible(&app, "stars"),
         "inspector": visible(&app, "main"),
     })
 }

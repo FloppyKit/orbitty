@@ -55,10 +55,9 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
 pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(f64, f64)>)> {
     match label {
         "kanban" => Some(("", 780.0, 520.0, None)),
+        "stars" => Some(("", 780.0, 520.0, None)),
         "companion" => Some(("", 619.0, 647.0, Some((280.0, 360.0)))),
-        // No "stars" spec — Board+STARS share the one
-        // `kanban` overlay, so nothing may ever spawn/pin a `stars` pane.
-        "settings" | "sky" => Some(("", 420.0, 560.0, None)),
+        "settings" | "sky" => Some(("", 420.0, 760.0, None)),
         // The Herding Cats confirm is its own small
         // window (like Settings) so ⌘⇧Y works with Settings closed. Plain
         // pane, not a drawer — a confirm never docks on the rail.
@@ -292,37 +291,13 @@ pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), St
     Ok(())
 }
 
-/// Board and STARS share the one 780×520 `kanban`
-/// overlay (one WebContent) — this shows it in `mode` ("board" | "stars").
-/// The mode is persisted BEFORE the show; a cold webview reconciles it via
-/// load_state on mount (the URL never carries a
-/// `?mode=` query), then the mode is emitted so a warm webview swaps pages
-/// live. A legacy `stars` pane, if one is somehow live, hides — never
-/// destroys; nothing can spawn it (`pane_spec` has no "stars").
+/// Launchpad (`kanban`) and STARS (`stars`) are separate windows.
 pub(crate) fn show_shared_pane(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
-    let mode = if mode == "stars" { "stars" } else { "board" };
-    if let Some(s) = app.get_webview_window("stars") {
-        if s.is_visible().unwrap_or(false) {
-            let _ = s.hide();
-            emit_pane_vis(app, "stars", false);
-        }
+    if mode == "stars" {
+        show_labeled(app, "stars")
+    } else {
+        show_labeled(app, "kanban")
     }
-    if let Ok(mut st) = crate::state::load_state(app) {
-        if st.shared_pane_mode != mode {
-            st.shared_pane_mode = mode.to_string();
-            let _ = crate::state::save_state(app, &st);
-            let _ = app.emit("state:changed", ());
-        }
-    }
-    // Persist + emit BEFORE show. The already-visible path in
-    // show_drawer used to return without this emit, so Board left the
-    // overlay sitting in Stars (blank-looking) until Stars was clicked
-    // and the swap finally fired. Always emit so a warm webview swaps.
-    let _ = app.emit_to("kanban", "orbitty:shared-pane-mode", mode);
-    show_labeled(app, "kanban")?;
-    let _ = app.emit_to("kanban", "orbitty:shared-pane-mode", mode);
-    // Dest chips lightswitch this overlay; the companion stays idle.
-    Ok(())
 }
 
 /// The companion window is the host for the

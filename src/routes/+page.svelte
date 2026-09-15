@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import KanbanPage from "$lib/KanbanPage.svelte";
   import CompanionPage from "$lib/CompanionPage.svelte";
@@ -11,7 +9,6 @@
   import YardWarnPage from "$lib/YardWarnPage.svelte";
   import NextCard from "$lib/NextCard.svelte";
   import RailPage from "$lib/RailPage.svelte";
-  import type { PersistedState, SharedPaneMode } from "$lib/persist";
 
   // The same SPA bundle serves the separate Kanban/Companion/STARS/Sky
   // windows; each mounts only its own page and never runs the rail
@@ -69,6 +66,7 @@
   // tag on resolution.
   const isDrawerWindow = $derived(
     isKanbanWindow ||
+      isStarsWindow ||
       isCompanionWindow ||
       isSettingsWindow ||
       isYardWarnWindow ||
@@ -76,6 +74,7 @@
   );
   if (
     initialLabel === "kanban" ||
+    initialLabel === "stars" ||
     initialLabel === "companion" ||
     initialLabel === "settings" ||
     initialLabel === "yard-warn" ||
@@ -87,59 +86,6 @@
     if (isDrawerWindow) document.documentElement.dataset.drawer = "";
   });
 
-  // The `kanban` webview is the ONE shared 780×520
-  // overlay — Board mounts KanbanPage, STARS mounts StarsPage inside it.
-  // The URL never carries the mode (a query 404s the
-  // custom protocol) — native persists sharedPaneMode BEFORE show; warm
-  // swaps arrive as `orbitty:shared-pane-mode`, and the load_state
-  // reconcile on mount covers a cold webview. Last mode persists
-  // native-side, so a bare re-show (tray Lists) restores it.
-  // Seed "board" before first paint — a null mode
-  // renders nothing, and a transparent window rendering nothing still
-  // hit-tests (the invisible click-eater over the rail). Belt-and-braces:
-  // while the mode is somehow null the overlay ignores the mouse entirely.
-  let paneMode = $state<SharedPaneMode | null>("board");
-  $effect(() => {
-    if (!isKanbanWindow) return;
-    getCurrentWindow()
-      .setIgnoreCursorEvents(paneMode == null)
-      .catch(() => {});
-  });
-
-
-
-  // Shared-pane mode channel (kanban window only): warm swaps land as the
-  // event; the reconcile covers a create/load race where the event fired
-  // before this webview finished loading.
-  let unlistenPaneMode: (() => void) | undefined;
-  onMount(() => {
-    if (!isKanbanWindow) return;
-    let dead = false;
-    let liveFromNative = false;
-    listen<SharedPaneMode>("orbitty:shared-pane-mode", (e) => {
-      if (e.payload === "board" || e.payload === "stars") {
-        liveFromNative = true;
-        paneMode = e.payload;
-      }
-    }).then((un) => {
-      if (dead) un();
-      else unlistenPaneMode = un;
-    });
-    invoke<PersistedState>("load_state")
-      .then((s) => {
-        // A live emit already owns the mode — do not let a late load_state
-        // snap Board back to last-saved Stars (or the reverse).
-        if (liveFromNative) return;
-        const m: SharedPaneMode = s.sharedPaneMode === "stars" ? "stars" : "board";
-        if (m !== paneMode) paneMode = m;
-      })
-      .catch(() => {
-        paneMode ??= "board";
-      });
-    return () => {
-      dead = true;
-    };
-  });
 </script>
 
 {#if !labelKnown}
@@ -147,11 +93,7 @@
        never white, never rail chrome in a drawer. -->
   <div class="spa-slab" aria-hidden="true"></div>
 {:else if isKanbanWindow}
-  {#if paneMode === "stars"}
-    <StarsPage hideLabel="kanban" />
-  {:else if paneMode === "board"}
-    <KanbanPage />
-  {/if}
+  <KanbanPage />
 {:else if isCompanionWindow}
   <CompanionPage />
 {:else if isStarsWindow}

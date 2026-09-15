@@ -6,9 +6,8 @@
   // first click shows + focuses, a click while visible hides via
   // `hide_window`. Hide never quits (tray Quit stays the only quit) and
   // never destroys a webview; companion hide keeps its talk-stop +
-  // persist-hidden bookkeeping inside hide_window. Board/STARS share the
-  // one `kanban` overlay — a warm overlay in the OTHER mode takes the
-  // show path (a live mode swap), never a hide.
+  // persist-hidden bookkeeping inside hide_window. Board and STARS
+  // are separate windows.
   // Words, not marks: RAIL-MARKS art (eight PNGs) is still blocked, so
   // the buttons keep their text labels — a missing mark is a word, never
   // tofu. Chrome still says Sky (Cloud waits on that art). Active-state

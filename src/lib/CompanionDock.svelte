@@ -64,7 +64,6 @@
     bustOk,
     viewTitle,
     expanded,
-    captions = true,
     planetsHidden = false,
     talking,
     neededHint = null,
@@ -84,7 +83,6 @@
     toggleSprite,
     toggleView,
     toggleExpanded,
-    toggleCaptions,
     togglePlanetsHidden,
     sendLine,
     talkStart,
@@ -110,7 +108,6 @@
     bustOk: boolean;
     viewTitle: string;
     expanded: boolean;
-    captions?: boolean;
     planetsHidden?: boolean;
     talking: boolean;
     neededHint?: string | null;
@@ -135,7 +132,6 @@
     toggleSprite: (e: MouseEvent) => void;
     toggleView: () => void;
     toggleExpanded: () => void;
-    toggleCaptions: () => void;
     togglePlanetsHidden: () => void;
     sendLine: () => void;
     talkStart: (e: Event) => void;
@@ -545,16 +541,9 @@
     </button>
     <button
       class="expandbtn iconbtn"
-      class:muted={!captions}
       onclick={toggleExpanded}
-      oncontextmenu={(e) => {
-        e.preventDefault();
-        toggleCaptions();
-      }}
       aria-label={expanded ? "Collapse transcript" : "Expand transcript"}
-      title={captions
-        ? "Click: expand or collapse · Right-click: hide conversation"
-        : "Conversation hidden — right-click to show. Click still expands"}
+      title={expanded ? "Collapse transcript" : "Expand transcript"}
     >
       {#if expanded}
         <svg
