@@ -377,7 +377,9 @@
 {#snippet wait()}
   <!-- The thinking splash is EPHEMERAL — one
        short live line next to the mark while companion_send is in
-       flight (the spirit already plays the thinking loop). Never a
+       flight (the spirit already plays the thinking loop), wrapped at
+       the call sites in a them-bubble (.waitbubble) so the ack never
+       hangs bare. Never a
        turn: nothing here persists; the final them-row is the only
        row the send path saves.
        When the conductor is on, its fast ack line
@@ -431,7 +433,9 @@
       </div>
     {/each}
     {#if sending}
-      <div class="row them wait-row" aria-live="polite">{@render wait()}</div>
+      <div class="row them wait-row" aria-live="polite">
+        <div class="bubble waitbubble">{@render wait()}</div>
+      </div>
     {/if}
   </div>
 {:else}
@@ -442,7 +446,9 @@
       </div>
     {/if}
     {#if sending}
-      <div class="ccrow them wait-row" aria-live="polite">{@render wait()}</div>
+      <div class="ccrow them wait-row" aria-live="polite">
+        <div class="cc waitbubble">{@render wait()}</div>
+      </div>
     {/if}
     {#if botLine && !sending}
       <div class="ccrow them" class:open={ccOpen}>
@@ -608,6 +614,17 @@
   .wait {
     display: inline-flex;
     align-items: center;
+  }
+
+  /* THINK-BLIPS leftover: the ack / blip line rides IN a them-bubble —
+     never a bare line hanging in the air by the mark. Same ephemeral
+     wait slot: the reply still replaces it; nothing here persists.
+     (The transcript's .row.them .bubble already paints this; the
+     collapsed .cc needs the them paint said once here.) */
+  .waitbubble {
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
   }
 
   .sr-only {
