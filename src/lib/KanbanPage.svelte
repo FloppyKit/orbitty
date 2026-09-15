@@ -608,8 +608,10 @@
   }
 
   function isWriting(card: KanbanCard): boolean {
-    const s = runState(card);
-    return s === "working" || s === "starting";
+    const r = agentRuns.find((x) => x.cardId === card.id);
+    if (!r || (r.state !== "working" && r.state !== "starting")) return false;
+    // Walker attach on GO→doing leaves working with no seat — leftover glow.
+    return !!r.agentShortcutId;
   }
 
   function goToken(title: string): string | null {
@@ -2942,6 +2944,7 @@
   .k-detail {
     flex-shrink: 0;
     width: 280px;
+    box-sizing: border-box;
     min-height: 0;
     overflow-y: auto;
     display: flex;

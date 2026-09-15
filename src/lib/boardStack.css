@@ -19,6 +19,9 @@
 .k-preview-head {
   flex-shrink: 0;
   width: 280px;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -98,7 +101,11 @@
   height: 2px;
   border-radius: 1px;
   background: var(--dim);
-  opacity: 0.55;
+  opacity: 0;
+}
+
+.mail-split:hover::after {
+  opacity: 0.45;
 }
 
 .mail-todo {
@@ -285,8 +292,8 @@
 }
 
 .k-doing.on {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: transparent;
+  border-color: var(--focus, #6e4db0);
   font-weight: 700;
 }
 
@@ -296,15 +303,15 @@
 }
 
 .k-doing.on .k-doing-lbl {
-  color: #6e4db0;
+  color: var(--accent);
 }
 
 .k-needchip {
   font-size: 0.62rem;
   font-weight: 700;
   color: #e59e3d;
-  background: var(--accent);
-  border: 1px solid var(--accent);
+  background: transparent;
+  border: 1px solid var(--focus, #6e4db0);
   border-radius: 999px;
   padding: 0 0.4rem;
 }
