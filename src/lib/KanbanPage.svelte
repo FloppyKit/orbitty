@@ -470,8 +470,17 @@
 
   $effect(() => {
     const c = kanbanCards.find((x) => x.id === detailId);
-    if (c?.kind === "needed") onNeededFocus?.(c.id, c.title);
-    else onNeededFocus?.(null, null);
+    if (c?.kind === "needed") {
+      onNeededFocus?.(c.id, c.title);
+      emitTo("companion", "orbitty:needed-focus", { id: c.id, title: c.title }).catch(
+        () => {},
+      );
+    } else {
+      onNeededFocus?.(null, null);
+      emitTo("companion", "orbitty:needed-focus", { id: null, title: null }).catch(
+        () => {},
+      );
+    }
   });
 
   $effect(() => {
@@ -1453,6 +1462,9 @@
     unlistenFocus?.();
     unlistenVis?.();
     document.removeEventListener("visibilitychange", onVisibility);
+    emitTo("companion", "orbitty:needed-focus", { id: null, title: null }).catch(
+      () => {},
+    );
   });
 
   function onBannerMouseDown(e: MouseEvent) {
@@ -1514,6 +1526,18 @@
     title="{displayTitle(card)} — click for details, drag to move"
   >
     <div class="b-card-top">
+      <button
+        type="button"
+        class="k-check"
+        class:checked={card.status === "done"}
+        onclick={(e) => {
+          e.stopPropagation();
+          moveCard(card, card.status === "done" ? "todo" : "done");
+        }}
+        onpointerdown={(e) => e.stopPropagation()}
+        aria-label={card.status === "done" ? "Reopen" : "Mark done"}
+        title={card.status === "done" ? "Reopen" : "Mark done"}
+      >{card.status === "done" ? "✓" : ""}</button>
       {#if pid}
         <span
           class="planet-chip"

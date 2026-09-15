@@ -157,6 +157,11 @@
   });
 
   function onPlanetsClick() {
+    togglePlanetsHidden();
+  }
+
+  function onPlanetsRight(e: MouseEvent) {
+    e.preventDefault();
     toggleDest("inspector");
   }
 
@@ -408,18 +413,14 @@
       </button>
       <button
         class="dest iconbtn planetsdest"
-        class:on={destOpen.inspector}
-        class:muted={planetsHidden}
+        class:planets-on={!planetsHidden}
         onclick={onPlanetsClick}
-        oncontextmenu={(e) => {
-          e.preventDefault();
-          togglePlanetsHidden();
-        }}
-        aria-label="Inspector"
+        oncontextmenu={onPlanetsRight}
+        aria-label="Planets"
         data-chip="Planets"
-        title={destOpen.inspector
-          ? "Inspector is open — click to hide. Right-click hides planets on the desk"
-          : "Inspector — click to open. Right-click hides planets on the desk"}
+        title={!planetsHidden
+          ? "Planets on — click to hide discs. Right-click toggles Inspector"
+          : "Planets off — click to show discs. Right-click toggles Inspector"}
       >
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <circle cx="12" cy="12" r="5" />
@@ -1004,6 +1005,10 @@
   /* HOST-SPLIT: the dest whose well is live. */
   .dest.on {
     color: var(--accent);
+  }
+
+  .planetsdest.planets-on {
+    color: #2dd4bf;
   }
 
   /* NEXT-CARD leftover: quiet ochre pip, not a dest chip, not red. */

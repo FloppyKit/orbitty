@@ -171,7 +171,12 @@
   <section class="k-needed" aria-label="Needed from you">
     <div class="kn-head">
       <span class="kn-label">
-        <span class="mail-ico" aria-hidden="true">☄️</span>
+        <span class="mail-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2"/>
+            <ellipse cx="12" cy="12" rx="9.2" ry="3.2" transform="rotate(-22 12 12)"/>
+          </svg>
+        </span>
         <span class="kn-title">Needed</span>
         {#if neededNow.length > 0}
           <span class="kn-count">{neededNow.length}</span>

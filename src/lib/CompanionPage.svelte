@@ -789,7 +789,7 @@
     fieldEl?.focus();
   }
   $effect(() => {
-    if (expanded || hosted !== "launchpad") {
+    if (expanded) {
       neededFocusId = null;
       neededFocusTitle = null;
     }
@@ -799,10 +799,9 @@
     const line = draft.trim();
     const file = attach;
     if (!line && !file) return;
-    // Expanded transcript is Spark. Needed only hijacks the composer
-    // while collapsed (Launchpad well visible). Collapse to answer. A
-    // chip stands the hijack down — needed_answer cannot take a file.
-    if (neededFocusId && !expanded && !file) {
+    // Highlighted Needed in Launchpad owns the mouth — even with
+    // Launchpad in its own window. A file chip stands the hijack down.
+    if (neededFocusId && !file) {
       draft = "";
       try {
         await invoke("needed_answer", { id: neededFocusId, answer: line });
@@ -1451,6 +1450,7 @@
   let unlistenVis: (() => void) | undefined;
   let unlistenDestVis: (() => void) | undefined;
   let unlistenSummon: (() => void) | undefined;
+  let unlistenNeededFocus: (() => void) | undefined;
   let unlistenEnterHost: (() => void) | undefined;
   let unlistenToggleHost: (() => void) | undefined;
   let unlistenYawHost: (() => void) | undefined;
@@ -1512,6 +1512,12 @@
     // focus alone never lands the caret in .field — the summon event does.
     unlistenSummon = await listen("orbitty:companion-summon", () => {
       fieldEl?.focus();
+    });
+    unlistenNeededFocus = await listen<{
+      id: string | null;
+      title: string | null;
+    }>("orbitty:needed-focus", (e) => {
+      onNeededFocus(e.payload?.id ?? null, e.payload?.title ?? null);
     });
     // Tray Launchpad/STARS raise this pane
     // native-side and ask the well to open — raise-only via enterHost,
@@ -1606,6 +1612,7 @@
     unlistenVis?.();
     unlistenDestVis?.();
     unlistenSummon?.();
+    unlistenNeededFocus?.();
     unlistenEnterHost?.();
     unlistenToggleHost?.();
     unlistenYawHost?.();
@@ -1860,7 +1867,7 @@
     {expanded}
     {planetsHidden}
     {talking}
-    neededHint={expanded ? null : neededFocusTitle}
+    neededHint={neededFocusTitle}
     {cheatSheetHint}
     onCheatSheet={() => (cheatOpen = !cheatOpen)}
     bind:draft
