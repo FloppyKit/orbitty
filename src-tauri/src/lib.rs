@@ -630,6 +630,10 @@ pub fn run() {
             // reads/writes state under the new identifier.
             state::migrate_app_support(app.handle());
 
+            // GO-ORBITTY-STARS-FIVE: one-time 0–4 → 1–5 checkin shift
+            // (scaleV flag — never twice), before any window reads state.
+            state::migrate_stars_scale(app.handle());
+
             // GO-ORBITTY-CARD-BLURB: one-time backfill — exact-token
             // GO-ORBITTY-* todos with empty notes get the locked one-liner
             // (never overwrites a note Matt typed). Best-effort.

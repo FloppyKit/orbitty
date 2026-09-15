@@ -1,11 +1,14 @@
 <script lang="ts">
   // STARS S1.1: the check-in radar lives in its own window (like Lists),
-  // never stuffed into the rail. Five spokes 0–4 keyed by local YYYY-MM-DD;
-  // explicit check-in only. GO-ORBITTY-STARS-LOOKBACK: an in-session day
+  // never stuffed into the rail. Five spokes 1–5 keyed by local YYYY-MM-DD;
+  // explicit check-in only. GO-ORBITTY-STARS-FIVE: the scale is 1–5 (was
+  // 0–4) — legacy saves migrate n→n+1 once native-side at setup (scaleV
+  // flag); an unsaved day is still empty (draft 0 = unset, lights nothing).
+  // GO-ORBITTY-STARS-LOOKBACK: an in-session day
   // cursor pages the saved map — past days are read-only, Save only ever
   // writes today, and the cursor itself is never persisted.
   // GO-ORBITTY-STARS-AVERAGE: rolling 7/14/30-day window ending at the
-  // day cursor, mean of saved days only (a saved 0 counts; blanks shrink
+  // day cursor, mean of saved days only (a saved 1 counts; blanks shrink
   // the denominator, never a zero-fill). Persists as stars.averageWindow.
   // GO-ORBITTY-PLANETS-STRIP leftover: one screen — left check-in, right
   // Cloud. Average pills sit under the day chips. No Check-in | Review.
@@ -74,6 +77,8 @@
     { key: "self", label: "Self" },
   ] as const;
   type SpokeKey = (typeof STARS_SPOKES)[number]["key"];
+  // Draft sentinel 0 = unset (below the 1–5 floor): an unsaved today
+  // lights no button and draws an empty radar. Saved check-ins are 1–5.
   const emptyCheckin = (): StarsCheckin => ({
     sleep: 0,
     terroir: 0,
@@ -100,7 +105,7 @@
   const isToday = $derived(cursorDay === todayKey());
   const cursorSaved = $derived(starsState.checkins[cursorDay]);
   // Today shows the live draft; a past day shows its save, or null for an
-  // empty day (blank pentagon / no active 0–4 — never a warning).
+  // empty day (blank pentagon / no active 1–5 — never a warning).
   const shown = $derived<StarsCheckin | null>(
     isToday ? starsDraft : (cursorSaved ?? null),
   );
@@ -195,7 +200,7 @@
     const day = todayKey();
     const clean = emptyCheckin();
     for (const { key } of STARS_SPOKES) {
-      clean[key] = Math.max(0, Math.min(4, Math.round(starsDraft[key] ?? 0)));
+      clean[key] = Math.max(1, Math.min(5, Math.round(starsDraft[key] ?? 0)));
     }
     try {
       const s = await invoke<PersistedState>("load_state");
@@ -256,7 +261,7 @@
 
   // GO-ORBITTY-MENU-KEYS: the STARS ring — view switcher + five spokes,
   // per the pad lock: left/right picks a stop, up/down adjusts what's
-  // highlighted (spoke value 0–4, or the view), Enter saves today under
+  // highlighted (spoke value 1–5, or the view), Enter saves today under
   // the Save button's own gate, Esc backs out of the well (CompanionPage
   // owns it — nothing inner to close here). Past days and averages stay
   // read-only; a first bump on a saved today unlocks editing, same as
@@ -287,7 +292,7 @@
       editingToday = true;
       return;
     }
-    setSpoke(key, Math.max(0, Math.min(4, (starsDraft[key] ?? 0) + delta)));
+    setSpoke(key, Math.max(1, Math.min(5, (starsDraft[key] ?? 0) + delta)));
   }
 
   function saveFromRing() {
@@ -349,13 +354,14 @@
     }
   }
 
-  // Radar geometry: five axes from the top, 72° apart; value 0–4 maps to
-  // 0–R. Even polygon = calm; a thin spoke just reads short — no alarm
-  // color anywhere (chunky teal fill / ochre stroke, like the mark).
+  // Radar geometry: five axes from the top, 72° apart; value 1–5 maps to
+  // 0–R (a 1 sits at the center like the old 0; an unset draft 0 clamps
+  // there too). Even polygon = calm; a thin spoke just reads short — no
+  // alarm color anywhere (chunky teal fill / ochre stroke, like the mark).
   const RADAR_R = 52;
   function radarVertex(i: number, v: number): [number, number] {
     const a = -Math.PI / 2 + (i * 2 * Math.PI) / STARS_SPOKES.length;
-    const r = (Math.max(0, Math.min(4, v)) / 4) * RADAR_R;
+    const r = ((Math.max(1, Math.min(5, v)) - 1) / 4) * RADAR_R;
     return [Math.cos(a) * r, Math.sin(a) * r];
   }
   function radarRing(v: number): string {
@@ -517,10 +523,10 @@
                 ? "Today's STARS radar"
                 : `STARS radar for ${cursorDay}`}
           >
-            <polygon class="grid" points={radarRing(4)} />
-            <polygon class="grid inner" points={radarRing(2)} />
+            <polygon class="grid" points={radarRing(5)} />
+            <polygon class="grid inner" points={radarRing(3)} />
             {#each STARS_SPOKES as _, i (i)}
-              {@const [ax, ay] = radarVertex(i, 4)}
+              {@const [ax, ay] = radarVertex(i, 5)}
               <line class="axis" x1="0" y1="0" x2={ax} y2={ay} />
             {/each}
             {#if radarCheckin}
@@ -544,8 +550,8 @@
                   >{windowMean ? windowMean[spoke.key].toFixed(1) : "—"}</span
                 >
               {:else if dayEditable}
-                <span class="spoke-btns" role="group" aria-label="{spoke.label} 0 to 4">
-                  {#each [0, 1, 2, 3, 4] as v (v)}
+                <span class="spoke-btns" role="group" aria-label="{spoke.label} 1 to 5">
+                  {#each [1, 2, 3, 4, 5] as v (v)}
                     <button
                       class="spoke-val"
                       class:active={shown?.[spoke.key] === v}
@@ -718,7 +724,7 @@
   }
 
   /* Chunky radar (teal fill / ochre stroke, the mark's fixed colors) + five
-     obvious 0–4 rows. Even polygon = calm; a thin spoke just reads short —
+     obvious 1–5 rows. Even polygon = calm; a thin spoke just reads short —
      never a red alarm. */
   .stars-panel {
     flex: 1 1 0;

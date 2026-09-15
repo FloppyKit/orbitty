@@ -251,6 +251,9 @@ export interface StarsSlice {
   averageWindow?: AverageWindow;
   averageFrom?: string;
   averageTo?: string;
+  // GO-ORBITTY-STARS-FIVE: 2 = spokes are 1–5; absent = legacy 0–4, which
+  // native setup migrates n→n+1 once before any window reads state.
+  scaleV?: number;
 }
 
 export interface SkySlice {

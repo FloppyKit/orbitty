@@ -35,9 +35,12 @@
 //! spirit, the field remains so old saves load.
 //! GO-LS-STARS-STATUS adds `stars: {promptsOptIn, checkins, promptsAck}` —
 //! the explicit daily check-in radar (Sleep · Terroir · Athleticism ·
-//! Relationships · Self, 0–4 each, keyed by local YYYY-MM-DD). No PHI:
+//! Relationships · Self, keyed by local YYYY-MM-DD). No PHI:
 //! five small self-reported integers per day, written only by the rail's
 //! Save today. All fields default so old saves load.
+//! GO-ORBITTY-STARS-FIVE: spokes are 1–5 (was 0–4); `scaleV` marks the
+//! migrated shape and `migrate_stars_scale` shifts legacy saves n→n+1
+//! once at setup.
 //! GO-ORBITTY-STARS-AVERAGE adds `stars.averageWindow` ("week" | "14" |
 //! "month", default "14") — which rolling window the mean line under the
 //! chip strip shows. Missing on old saves → "14" via the slice Default.
@@ -330,6 +333,10 @@ pub struct StarsState {
     pub average_window: String,
     pub average_from: String,
     pub average_to: String,
+    /// GO-ORBITTY-STARS-FIVE: spoke scale version. 0/absent = legacy 0–4
+    /// (migrate n→n+1 once at setup), 2 = 1–5. The flag is what stops a
+    /// double migration — a migrated save has no zeros left to sniff for.
+    pub scale_v: u8,
 }
 
 impl Default for StarsState {
@@ -341,11 +348,13 @@ impl Default for StarsState {
             average_window: "14".to_string(),
             average_from: String::new(),
             average_to: String::new(),
+            scale_v: 0,
         }
     }
 }
 
-/// One day's check-in: five spokes, 0–4 each. `self` is the fifth spoke
+/// One day's check-in: five spokes, 1–5 each (legacy 0–4 migrates n→n+1
+/// once via `migrate_stars_scale`). `self` is the fifth spoke
 /// (Spiritual in the pane heading); renamed past the Rust keyword.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -907,6 +916,31 @@ pub fn save_state(app: &tauri::AppHandle, state: &PersistedState) -> Result<(), 
     std::fs::write(&tmp, text).map_err(|e| format!("write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("rename to {}: {e}", path.display()))?;
     Ok(())
+}
+
+/// GO-ORBITTY-STARS-FIVE one-time migration: legacy checkins are 0–4, the
+/// scale is now 1–5. Every saved spoke shifts n → n+1 exactly once — the
+/// `scale_v` flag guards it, never zero-sniffing (a migrated save has no
+/// zeros) — then the migrated shape is written back so no window ever
+/// re-reads the old scale. Best-effort: a load/save failure just retries
+/// next boot. An empty day stays empty: only EXISTING checkins shift, no
+/// day is ever invented here.
+pub fn migrate_stars_scale(app: &tauri::AppHandle) {
+    let Ok(mut st) = load_state(app) else {
+        return;
+    };
+    if st.stars.scale_v >= 2 {
+        return;
+    }
+    for c in st.stars.checkins.values_mut() {
+        c.sleep = c.sleep.saturating_add(1).min(5);
+        c.terroir = c.terroir.saturating_add(1).min(5);
+        c.athleticism = c.athleticism.saturating_add(1).min(5);
+        c.relationships = c.relationships.saturating_add(1).min(5);
+        c.self_ = c.self_.saturating_add(1).min(5);
+    }
+    st.stars.scale_v = 2;
+    let _ = save_state(app, &st);
 }
 
 /// GO-LS-TAURI-CUTOVER one-time migration: if the new `space.orbitty.mac`

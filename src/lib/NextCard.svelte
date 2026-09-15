@@ -273,12 +273,14 @@
     const day = todayKey();
     mutate((s) => {
       const st = s.stars ?? { promptsOptIn: false, checkins: {} };
+      // STARS-FIVE: unanswered spokes sit at the 1–5 floor (was 0 on the
+      // old scale) so a partial walk never saves an off-scale value.
       const cur: StarsCheckin = st.checkins[day] ?? {
-        sleep: 0,
-        terroir: 0,
-        athleticism: 0,
-        relationships: 0,
-        self: 0,
+        sleep: 1,
+        terroir: 1,
+        athleticism: 1,
+        relationships: 1,
+        self: 1,
       };
       cur[key] = v;
       st.checkins = { ...st.checkins, [day]: cur };
@@ -466,8 +468,8 @@
       </header>
       {#if nextSpoke}
         <p class="nc-title">{nextSpoke.label}</p>
-        <div class="nc-acts" role="group" aria-label="{nextSpoke.label} 0 to 4">
-          {#each [0, 1, 2, 3, 4] as v}
+        <div class="nc-acts" role="group" aria-label="{nextSpoke.label} 1 to 5">
+          {#each [1, 2, 3, 4, 5] as v}
             <button class="mini" onclick={() => saveSpoke(nextSpoke.key, v)}>{v}</button>
           {/each}
         </div>
