@@ -16,8 +16,11 @@
   import NeededInbox, { neededFor } from "./NeededInbox.svelte";
   import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import "./chrome.css";
+  import "./boardStack.css";
   import type {
     Actor,
+    AgentRun,
+    AgentShortcut,
     Claim,
     Difficulty,
     KanbanCard,
@@ -74,9 +77,13 @@
   let pointsLedger = $state<PointsEntry[]>([]);
   let windows = $state<WindowInfo[]>([]);
   let titleOverrides = $state<TitleOverride[]>([]);
+  let agentShortcuts = $state<AgentShortcut[]>([]);
+  let agentRuns = $state<AgentRun[]>([]);
   // AGENT-PLANET leftover: writer on a planet glows that chip in the
   // Launchpad strip (same flag the inspector sheet tabs already read).
   let hackProjectId = $state<string | null>(null);
+  // BOARD-STACK: Done accordion, closed unless the Done tab is selected.
+  let doneOpen = $state(false);
 
   // No Actions well here — actions are a Settings
   // list + `orbittyctl action` verbs; the slice still round-trips via
@@ -494,6 +501,28 @@
     return `${subs.filter((s) => s.done).length}/${subs.length}`;
   }
 
+  function agentName(card: KanbanCard): string {
+    const id = card.assignedAgentId;
+    if (!id) return "";
+    return agentShortcuts.find((a) => a.id === id)?.name ?? "";
+  }
+
+  function runState(card: KanbanCard): string {
+    const r = agentRuns.find((x) => x.cardId === card.id);
+    if (!r || r.state === "done") return "";
+    return r.state;
+  }
+
+  function ageLabel(card: KanbanCard): string {
+    const t = card.lastTouchedAt || card.createdAt;
+    if (!t) return "";
+    const s = Date.now() / 1000 - t;
+    if (s < 90) return "now";
+    if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
+    if (s < 86400) return `${Math.max(1, Math.round(s / 3600))}h`;
+    return `${Math.max(1, Math.round(s / 86400))}d`;
+  }
+
   function dueInfo(card: KanbanCard): { label: string; overdue: boolean } | null {
     if (!card.dueAt) return null;
     const d = new Date(card.dueAt * 1000);
@@ -540,6 +569,8 @@
       pointsLedger = s.pointsLedger ?? [];
       titleOverrides = s.titleOverrides ?? [];
       collapsedSectionIds = s.collapsedSectionIds ?? [];
+      agentShortcuts = s.agentShortcuts ?? [];
+      agentRuns = s.agentRuns ?? [];
       hackProjectId = s.companion?.hackLive
         ? (s.companion?.hackProjectId ?? null)
         : null;
@@ -1175,6 +1206,24 @@
 {#snippet metaChips(card: KanbanCard)}
   {@const due = dueInfo(card)}
   {@const sub = subProgress(card)}
+  {@const who = agentName(card)}
+  {@const run = runState(card)}
+  {@const age = ageLabel(card)}
+  {#if card.status === "doing"}
+    <span class="k-doing" title="In doing">doing</span>
+  {/if}
+  {#if run}
+    <span class="k-run" title="Runner state">{run}</span>
+  {/if}
+  {#if who}
+    <span class="k-agent" title="Assigned agent">{who}</span>
+  {/if}
+  {#if card.actor && card.actor !== "user"}
+    <span class="k-actor" title="Actor">{card.actor}</span>
+  {/if}
+  {#if card.neededState}
+    <span class="k-needst" title="Needed state">{card.neededState}</span>
+  {/if}
   {#if card.difficulty}
     <span
       class="pip {card.difficulty}"
@@ -1191,6 +1240,49 @@
   {#if showProj(card)}
     <span class="k-proj">{projectName(card.projectId)}</span>
   {/if}
+  {#if age}
+    <span class="k-age" title="Last touched">{age}</span>
+  {/if}
+{/snippet}
+
+{#snippet stackCard(card: KanbanCard)}
+  {@const pid = livePlanetId(card)}
+  <article
+    class="b-card"
+    class:dragging={dragCardId === card.id}
+    class:held={grabbedId === card.id}
+    class:done={card.status === "done"}
+    class:doing={card.status === "doing"}
+    class:mkey-sel={menuRing.activeId === `card-${card.id}`}
+    data-mkey={`card-${card.id}`}
+    draggable="true"
+    ondragstart={(e) => onCardDragStart(e, card)}
+    ondragend={onCardDragEnd}
+    onpointerdown={(e) => onCardPointerDown(e, card)}
+    onclick={() => onCardClick(card)}
+    onkeydown={(e) => e.key === "Enter" && !e.shiftKey && openDetail(card)}
+    tabindex="0"
+    role="button"
+    title="{displayTitle(card)} — click for details, drag to move"
+  >
+    <div class="b-card-top">
+      {#if pid}
+        <span
+          class="planet-chip"
+          style="background: {planetCss(pid)}"
+          title={projectName(pid)}
+          aria-hidden="true"
+        ></span>
+      {/if}
+      <span class="b-title" class:strike={card.status === "done"}>{displayTitle(card)}</span>
+    </div>
+    {#if card.notes}
+      <p class="b-notes">{notesSnippet(card)}</p>
+    {/if}
+    <div class="b-meta">
+      {@render metaChips(card)}
+    </div>
+  </article>
 {/snippet}
 
 {#snippet doneActorChips()}
@@ -1379,67 +1471,72 @@
           {onNeededFocus}
           {onNeededAnswer}
         />
-        {#each COLUMNS as col (col.id)}
-          <section
-            class="b-col"
-            class:drop-ok={dropCol === col.id || grabCol === col.id}
-            aria-label={col.name}
-            data-col={col.id}
-            ondragover={(e) => onColDragOver(e, col.id)}
-            ondragleave={(e) => onColDragLeave(e, col.id)}
-            ondrop={(e) => onColDrop(e, col.id)}
+        <section class="b-col b-stack" aria-label="Todos">
+          <div
+            class="b-zone doing"
+            class:drop-ok={dropCol === "doing" || grabCol === "doing"}
+            data-col="doing"
+            ondragover={(e) => onColDragOver(e, "doing")}
+            ondragleave={(e) => onColDragLeave(e, "doing")}
+            ondrop={(e) => onColDrop(e, "doing")}
           >
             <header class="b-head">
-              <span class="b-name">{col.name}</span>
-              <span class="b-count">{viewCols[col.id].length}</span>
-              {#if col.id === "done"}
-                {@render doneActorChips()}
-              {/if}
+              <span class="b-name">Doing</span>
+              <span class="b-count">{viewCols.doing.length}</span>
             </header>
-            <div class="b-cards">
-              {#each viewCols[col.id] as card (card.id)}
-                {@const pid = livePlanetId(card)}
-                <article
-                  class="b-card"
-                  class:dragging={dragCardId === card.id}
-                  class:held={grabbedId === card.id}
-                  class:done={card.status === "done"}
-                  class:mkey-sel={menuRing.activeId === `card-${card.id}`}
-                  data-mkey={`card-${card.id}`}
-                  draggable="true"
-                  ondragstart={(e) => onCardDragStart(e, card)}
-                  ondragend={onCardDragEnd}
-                  onpointerdown={(e) => onCardPointerDown(e, card)}
-                  onclick={() => onCardClick(card)}
-                  onkeydown={(e) => e.key === "Enter" && !e.shiftKey && openDetail(card)}
-                  tabindex="0"
-                  role="button"
-                  title="{displayTitle(card)} — click for details, drag to move"
-                >
-                  <div class="b-card-top">
-                    {#if pid}
-                      <span
-                        class="planet-chip"
-                        style="background: {planetCss(pid)}"
-                        title={projectName(pid)}
-                        aria-hidden="true"
-                      ></span>
-                    {/if}
-                    <span class="b-title" class:strike={card.status === "done"}>{displayTitle(card)}</span>
-                  </div>
-                  {#if card.notes}
-                    <p class="b-notes">{notesSnippet(card)}</p>
-                  {/if}
-                  <div class="b-meta">
-                    {@render metaChips(card)}
-                  </div>
-                </article>
+            {#each viewCols.doing as card (card.id)}
+              {@render stackCard(card)}
+            {:else}
+              <p class="b-empty">Drop a GO here to run it.</p>
+            {/each}
+          </div>
+          <div
+            class="b-zone todo"
+            class:drop-ok={dropCol === "todo" || grabCol === "todo"}
+            data-col="todo"
+            ondragover={(e) => onColDragOver(e, "todo")}
+            ondragleave={(e) => onColDragLeave(e, "todo")}
+            ondrop={(e) => onColDrop(e, "todo")}
+          >
+            <header class="b-head">
+              <span class="b-name">Todo</span>
+              <span class="b-count">{viewCols.todo.length}</span>
+            </header>
+            {#each viewCols.todo as card (card.id)}
+              {@render stackCard(card)}
+            {:else}
+              <p class="b-empty">No to-dos — drag a card here.</p>
+            {/each}
+          </div>
+          <div
+            class="b-zone done"
+            class:drop-ok={dropCol === "done" || grabCol === "done"}
+            class:open={doneOpen || selected === "done"}
+            data-col="done"
+            ondragover={(e) => onColDragOver(e, "done")}
+            ondragleave={(e) => onColDragLeave(e, "done")}
+            ondrop={(e) => onColDrop(e, "done")}
+          >
+            <button
+              type="button"
+              class="b-acc"
+              onclick={() => (doneOpen = !doneOpen)}
+              aria-expanded={doneOpen || selected === "done"}
+            >
+              <span class="chev" class:open={doneOpen || selected === "done"}>▸</span>
+              <span class="b-name">Done</span>
+              <span class="b-count">{viewCols.done.length}</span>
+            </button>
+            {#if doneOpen || selected === "done"}
+              {@render doneActorChips()}
+              {#each viewCols.done as card (card.id)}
+                {@render stackCard(card)}
               {:else}
-                <p class="b-empty">{col.hint}</p>
+                <p class="b-empty">Nothing done yet.</p>
               {/each}
-            </div>
-          </section>
-        {/each}
+            {/if}
+          </div>
+        </section>
       </div>
     </section>
 
@@ -2157,19 +2254,12 @@
     transform: rotate(90deg);
   }
 
-  /* ---- S4.4 Board (Hive-like Todo · Doing · Done) ---- */
+  /* ---- S4.4 Board. Column counts live in boardStack.css. ---- */
   .b-cols {
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
-  }
-
-  /* LP-SPLIT leftover: the Needed column rides the row in front of
-     Todo — always open, titles top box + preview lower box. */
-  .b-cols.with-needed {
-    grid-template-columns: minmax(220px, 1.15fr) repeat(3, minmax(0, 1fr));
   }
 
   .b-col {
@@ -2294,6 +2384,7 @@
   .b-meta {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 6px;
     margin-top: 6px;
   }
