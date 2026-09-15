@@ -1,8 +1,8 @@
-//! GO-LS-TAURI-USER-PACKS — user sprite packs: local folder/zip/image
+//! User sprite packs: local folder/zip/image
 //! import, pack listing for the Gear → Packs UI, and frame sources for the
 //! habitat. Law: LIVESPRITE_SPRITE_PACKS_LOCK_v0.md — missing/unclear
 //! license warns but never blocks, user packs stay on the user's machine.
-//! GO-ORBITTY-CHARS: the website-download path (itch/Kenney directory) is
+//! The website-download path (itch/Kenney directory) is
 //! gone — a sprite exists by generation (chars.rs) or by local import,
 //! never by fetching from a website.
 //!
@@ -64,7 +64,7 @@ struct Manifest {
     /// Optional idle cycle (catalog installs curate one when the pack has
     /// idle-named art next to the walk cycle).
     idle_frames: Vec<String>,
-    /// GO-ORBITTY-COMPANION-HEADROOM: optional bust set (head+neck+collar)
+    /// Optional bust set (head+neck+collar)
     /// next to idle_* — the companion's Head view. Never derived from the
     /// idle frames; absent = the pack has no Head art.
     bust_frames: Vec<String>,
@@ -669,7 +669,7 @@ pub fn import_pack_zip(app: tauri::AppHandle) -> Result<Option<PackInfo>, String
     pack_info(&dst).map(Some)
 }
 
-/// GO-ORBITTY-CHARS — "Use my image…": pick one local image file; it lands
+/// "Use my image…": pick one local image file; it lands
 /// in packs/<slug>/ as a single-frame pack (a lone PNG/GIF/WebP/JPEG is a
 /// still walker per `art_for`). Local files only — Orbitty never downloads
 /// sprite art.
@@ -855,7 +855,7 @@ pub fn pack_art(app: &tauri::AppHandle) -> Vec<(String, PackArt)> {
         .collect()
 }
 
-/// GO-LS-TAURI-AVATAR-LARGE — resolve one pack's art for the companion
+/// Resolve one pack's art for the companion
 /// window's "Use my image…" (the caller prefers the idle cycle; a lone
 /// image is a still spirit). Unknown/gone id → None.
 pub fn companion_pack_art(app: &tauri::AppHandle, id: &str) -> Option<PackArt> {
@@ -870,7 +870,7 @@ pub fn companion_pack_art(app: &tauri::AppHandle, id: &str) -> Option<PackArt> {
     art_for(&dir, &manifest)
 }
 
-/// GO-ORBITTY-COMPANION-HEADROOM — a companion pack MAY carry a bust set
+/// A companion pack MAY carry a bust set
 /// (head+neck+collar) next to its idle cycle: manifest `bustFrames` first,
 /// else top-level `bust_*` images, sorted. Never synthesized from idle_* —
 /// no bust art means an empty list, and the companion sits on Full with
@@ -929,7 +929,7 @@ pub fn ensure_packs_dir(app: &tauri::AppHandle) {
 }
 
 fn seed_bible_packs(packs: &Path, app: &tauri::AppHandle) {
-    // GO-ORBITTY-S1-BITTYS: the Season 1 bitty crew (11 kinds × default +
+    // The Season 1 bitty crew (11 kinds × default +
     // 3 named palettes) is the default planet population. The old Imagine
     // guy/cat slugs stay seeded so pre-S1 claims that picked them still
     // resolve — they are just never the default anymore (chars::default_pack).

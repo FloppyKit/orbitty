@@ -29,7 +29,7 @@
     WindowInfo,
   } from "./persist";
 
-  // GO-ORBITTY-HOST-SPLIT: embedded mounts this page in the companion's
+  // Embedded mounts this page in the companion's
   // Launchpad well — × calls onClose (never hide_window), the banner
   // wordmark is Launchpad, and a pop-out control (onPopout) hands the
   // board back to the real kanban window. The overlay passes nothing.
@@ -62,7 +62,7 @@
     { id: "done", name: "Done", hint: "Nothing done yet — check a to-do." },
   ];
 
-  // GO-ORBITTY-PANE-PAINT: seed the OS theme synchronously so --bg exists
+  // Seed the OS theme synchronously so --bg exists
   // before load_state lands — an empty themeId on an opaque drawer is a
   // white-on-white first paint. loadState overrides with the saved id.
   let themeId = $state(osThemeId());
@@ -77,10 +77,10 @@
   // Launchpad strip (same flag the inspector sheet tabs already read).
   let hackProjectId = $state<string | null>(null);
 
-  // GO-ORBITTY-ACTION-FILE: no Actions well here — actions are a Settings
+  // No Actions well here — actions are a Settings
   // list + `orbittyctl action` verbs; the slice still round-trips via
   // load → mutate → save.
-  // GO-ORBITTY-LP-NEEDED: shared so strip + and sidebar form stay one toggle.
+  // Shared so strip + and sidebar form stay one toggle.
   let addingNeeded = $state(false);
 
   // Sidebar selection: a smart filter, Inbox, or a project id. Session-only.
@@ -92,7 +92,7 @@
   let detailId = $state<string | null>(null);
   let newSubtask = $state("");
 
-  // GO-ORBITTY-MENU-KEYS: the Launchpad ring — Needed pile, the planet
+  // The Launchpad ring — Needed pile, the planet
   // strip (a row: left/right walk it), then the board piles
   // column-major. Up/down walk the pile, left/right hop the highlight
   // to the same row in the next non-empty column (wraps); Enter selects
@@ -100,7 +100,7 @@
   // descends into a card's detail drawer. Esc backs one surface, then
   // the well (CompanionPage's bubble Esc). Embedded only — the overlay
   // Lists window keeps its mouse habits.
-  // GO-ORBITTY-KANBAN-GRAB: Shift+Enter (pad X) grabs the focused card —
+  // Shift+Enter (pad X) grabs the focused card —
   // it paints held at the grab cursor while arrows move it (left/right =
   // column, clamped at the ends, empty columns legal; up/down = row in
   // the column). Enter (pad A) drops through moveCard — the ONE save
@@ -325,7 +325,7 @@
       .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
   );
 
-  // GO-ORBITTY-LP-ACTOR: Happened chips (sidebar Done + Board Done header).
+  // Happened chips (sidebar Done + Board Done header).
   let doneFilter = $state<DoneFilter>("all");
 
   function actorSide(card: KanbanCard): "mine" | "behalf" {
@@ -364,7 +364,7 @@
     } as Record<Status, KanbanCard[]>;
   });
 
-  // GO-ORBITTY-KANBAN-GRAB: the held card. grabbedId pins the ring
+  // The held card. grabbedId pins the ring
   // highlight; grabCol/grabIdx are the grab cursor the card paints at
   // (viewCols). Nothing mutates until Enter drops — Esc just lets go.
   let grabbedId = $state<string | null>(null);
@@ -513,7 +513,7 @@
     );
   }
 
-  // GO-ORBITTY-COMPANION-BRAND: the seven palette skins are retired; a
+  // The seven palette skins are retired; a
   // dead saved id falls back to the OS pair. Terminal stays valid.
   const KNOWN_THEMES = new Set(["systemLight", "systemDark", "terminal"]);
 
@@ -554,7 +554,7 @@
     return card.title;
   }
 
-  // GO-ORBITTY-EVENT-LOG: append-only local event log (kind 31200). Fire-
+  // Append-only local event log (kind 31200). Fire-
   // and-forget in the same tick as the save — a log failure never blocks a
   // board mutation, and claim/unclaim events come from the native
   // save_state diff instead of a second guess here.
@@ -594,7 +594,7 @@
 
   // Complete — the only door that retires a sprite and can mint points.
   // Award once per card, 1 pt (2 clinical/master), daily cap honored.
-  // GO-ORBITTY-CADENCE: a window card KEEPS its claim here so the walker
+  // A window card KEEPS its claim here so the walker
   // can walk off the north rim — the rail's habitat:walked-off listener
   // performs the unclaim (the existing eviction) once the walker is off,
   // or immediately when no walker can narrate the walk (marble/open dot).
@@ -1190,7 +1190,7 @@
 {/snippet}
 
 {#snippet doneActorChips()}
-  <!-- GO-ORBITTY-LP-ACTOR: Happened split — All default, session-only. -->
+  <!-- Happened split — All default, session-only. -->
   <div class="actor-chips" role="group" aria-label="Filter Done by who acted">
     <button
       class:active={doneFilter === "all"}
@@ -1617,7 +1617,7 @@
     text-shadow: 0 1px 2px var(--bg-solid, transparent);
   }
 
-  /* GO-ORBITTY-HOST-SPLIT: embedded in the companion's Launchpad well —
+  /* Embedded in the companion's Launchpad well —
      fill the well pane (the host window owns the outer size), square
      corners inside the companion's rounded clip. */
   .kanban.embedded {
@@ -1694,7 +1694,7 @@
     display: flex;
   }
 
-  /* GO-ORBITTY-PLANETS-STRIP: planet orbs across the top of Lists. */
+  /* Planet orbs across the top of Lists. */
   .planet-strip {
     display: flex;
     align-items: center;
@@ -1825,7 +1825,7 @@
     white-space: nowrap;
   }
 
-  /* GO-ORBITTY-PLANET-MARK: the list wears the disc's marble color. */
+  /* The list wears the disc's marble color. */
   .planet-chip {
     flex-shrink: 0;
     width: 11px;
@@ -2075,7 +2075,7 @@
     font-weight: 400;
   }
 
-  /* GO-ORBITTY-LP-ACTOR: Happened chips — All / I did / On my behalf. */
+  /* Happened chips — All / I did / On my behalf. */
   .actor-chips {
     display: inline-flex;
     align-items: center;
@@ -2232,7 +2232,7 @@
     opacity: 0.45;
   }
 
-  /* GO-ORBITTY-KANBAN-GRAB: the held card — accent-lifted, painted at
+  /* The held card — accent-lifted, painted at
      the grab cursor until Enter drops / Esc lets go. The column under
      the cursor reuses the drag's drop-ok paint. */
   .b-card.held {

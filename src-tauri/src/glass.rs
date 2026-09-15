@@ -9,7 +9,7 @@
 //! Applied at setup and re-applied on every `ensure_glass` invoke (the
 //! frontend calls it on mount, after the page is up). No-op off macOS.
 //!
-//! GO-ORBITTY-PANE-MATCH: the transparency surgery runs on drawers too.
+//! The transparency surgery runs on drawers too.
 //! The SPA hydrates now, so the PAINT-era opaque slab (ensure_opaque +
 //! under-page paint) is retired — the CSS --bg-fill alpha (Settings
 //! slider) owns the fill on every pane, same as the rail.
@@ -74,7 +74,7 @@ mod imp {
         }
     }
 
-    /// Undo `pin_stay_visible` (GO-ORBITTY-PANE-SHOW: the companion pins
+    /// Undo `pin_stay_visible` (the companion pins
     /// only while shown). Back to NSWindow defaults: collection behavior 0,
     /// canHide YES, hidesOnDeactivate NO. Main thread only.
     pub fn unpin_stay_visible(window: &tauri::WebviewWindow) {
@@ -151,7 +151,7 @@ pub fn ensure_transparent(window: &tauri::WebviewWindow) {
     let _ = window;
 }
 
-/// GO-ORBITTY-PANE-SHOW: undo the stay-visible pin (companion hide paths).
+/// Undo the stay-visible pin (companion hide paths).
 pub fn unpin_stay_visible(window: &tauri::WebviewWindow) {
     #[cfg(target_os = "macos")]
     imp::unpin_stay_visible(window);

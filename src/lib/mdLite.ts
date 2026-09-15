@@ -1,4 +1,4 @@
-// GO-ORBITTY-COMPANION-RENDER: tiny markdown subset for the companion —
+// Tiny markdown subset for the companion —
 // one parser shared by the expanded transcript bubbles and the collapsed
 // CC. HTML is escaped FIRST, then we emit only: <strong> <em> <code>
 // <ul>/<ol>/<li> <table>/<thead>/<tbody>/<tr>/<th>/<td> <br>.
@@ -46,7 +46,7 @@ const UL_ITEM = /^\s*[-*]\s+(.+)$/;
 const OL_ITEM = /^\s*\d+[.)]\s+(.+)$/;
 const DASH_RULE = /^\s*-{3,}\s*$/;
 
-// GO-ORBITTY-CAPTION-CHUNK: the collapsed pager fills the live CC box
+// The collapsed pager fills the live CC box
 // (fitPages below). wordPages remains for a fixed token budget.
 // block parse stays exported next to the render.
 // mdLite(src) === mdLiteJoin(mdLiteChunks(src)) — byte-identical.
@@ -163,7 +163,7 @@ export function mdLite(src: string): string {
   return mdLiteJoin(mdLiteChunks(src));
 }
 
-// GO-ORBITTY-CAPTION-CHUNK: split RAW text into prefixes that `fits`
+// Split RAW text into prefixes that `fits`
 // accepts. `fits(prefix, hasMore)` is a DOM measure (scrollHeight vs the
 // live `.cc.bot` cap). Cuts land on a word boundary; prefer a paragraph
 // break then a sentence end in the back half of the fitted window.

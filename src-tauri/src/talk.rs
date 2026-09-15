@@ -1,4 +1,4 @@
-//! GO-ORBITTY-PTT-DICTATION — companion Talk.
+//! Companion Talk.
 //!
 //! Default path: macOS Speech.framework (press-to-start / press-to-stop).
 //! Optional path: Handy PTT chord (Ctrl+Space) when Settings → Talk is

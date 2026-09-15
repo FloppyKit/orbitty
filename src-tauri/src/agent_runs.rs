@@ -1,4 +1,4 @@
-//! GO-ORBITTY-DOING-WALKER — the agent-walker join. A `kind=todo` card
+//! The agent-walker join. A `kind=todo` card
 //! dragged `todo` → `doing` already launches its worker (doing-fire /
 //! agent pickup / `launch_agent` own the processes); this door only
 //! ATTACHES the `agentRuns` row the habitat mirrors as the seeded droid

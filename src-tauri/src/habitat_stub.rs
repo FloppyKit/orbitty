@@ -26,7 +26,7 @@ pub fn locate_planet(_app: tauri::AppHandle, _project_id: String) -> Result<(), 
 
 pub fn reload_pack_frames() {}
 
-/// GO-ORBITTY-HERDING-CATS: yard meows skip while a boombox plays.
+/// Yard meows skip while a boombox plays.
 /// No habitat off macOS = never playing.
 pub fn boombox_playing() -> bool {
     false

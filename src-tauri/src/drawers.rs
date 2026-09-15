@@ -1,4 +1,4 @@
-//! GO-ORBITTY-SPLIT-DRAWERS: the rail leash + DRAWER-CLAMP, lifted out of
+//! The rail leash + drawer clamp, lifted out of
 //! lib.rs (move only — behavior identical). Chrome drawers are companion /
 //! kanban / settings; `sky` and the rail are never drawers.
 
@@ -78,10 +78,10 @@ struct VisibleFrame {
     h: f64,
 }
 
-// ---------- GO-ORBITTY-DRAWER-CLAMP / SHEET-CLICK / SHEET-FRONT ----------
+// ---------- Drawer clamp / sheet-click / sheet-front ----------
 // One on-screen law for every drawer label (companion / kanban /
 // settings), used on the already-visible path and the slot fallback.
-// GO-ORBITTY-PANE-SLOT: there is no plucked restore and no bounds writer —
+// There is no plucked restore and no bounds writer —
 // every show lands on the slot. The on-screen test is the UNION of every display's
 // visibleFrame, and no honored rect may cover the rail by more than a
 // shared 1px edge. SHEET-FRONT makes the whole pipeline points-native:
@@ -90,7 +90,7 @@ struct VisibleFrame {
 // persisted rect all speak points. A saved rect is read as points first;
 // ~2x pane_spec / ~2x live size, or fully off every points frame, reads
 // it as a physical-on-@2x leftover — halved into points and re-honored.
-// Shown means STAY shown (GO-ORBITTY-PANE-HOLD): show + a sync AppKit
+// Shown means STAY shown: show + a sync AppKit
 // orderFront ladder, then the pane is left visible and hit-testing — the
 // mouse/placement gate is telemetry only, never a hide trigger. Hide is
 // only banner × / hide_window / nav-guard on a broken URL. A frame fully
@@ -181,7 +181,7 @@ fn points_frames(screens: &ScreenVfs) -> Vec<VisibleFrame> {
 }
 
 
-/// Front truth for one of our windows (GO-ORBITTY-PANE-RAISE): NSWindow
+/// Front truth for one of our windows: NSWindow
 /// isVisible, full stop. The CG on-screen-only list lags and misses
 /// overlay-transparent drawers entirely, and isOnActiveSpace false-fails
 /// the unpinned companion — both are telemetry now, never a hide trigger.
@@ -261,7 +261,7 @@ pub(crate) fn appkit_order_chrome(app: &tauri::AppHandle, w: &tauri::WebviewWind
     appkit_raise(w, false);
 }
 
-/// GO-ORBITTY-COMPANION-RAISE: a companion summon (tray Show Companion /
+/// A companion summon (tray Show Companion /
 /// left-click, ⌘⇧O, dock Reopen — every one routes through show_drawer)
 /// heavy-raises like the rail. FRONT-HOLD leftover: raise_now is activate
 /// + level 4 + orderFront in one hop so CHROME-Z cannot leave the window
@@ -274,7 +274,7 @@ fn drawer_order_front(app: &tauri::AppHandle, w: &tauri::WebviewWindow, label: &
     }
 }
 
-// ---------- GO-ORBITTY-PANE-WARM: created-at stamps ----------
+// ---------- Created-at stamps ----------
 
 /// When ensure_window actually BUILT the pane — stamped there, never on a
 /// cache hit. The mount check reads this to tell a still-hydrating first
@@ -298,7 +298,7 @@ fn window_created_at(label: &str) -> Option<std::time::Instant> {
     created_at_stamps().lock().ok()?.get(label).copied()
 }
 
-// ---------- GO-ORBITTY-PANE-SHOW (D): the SPA must actually mount ----------
+// ---------- The SPA must actually mount ----------
 
 /// After a verified drawer show, the webview must grow an AXWebArea — the
 /// same "is the SPA really mounted" truth Pixel reads. The empty-glass
@@ -306,7 +306,7 @@ fn window_created_at(label: &str) -> Option<std::time::Instant> {
 /// invisible forever on transparent chrome; on opaque chrome it is a dead
 /// slab. Check after a beat, re-check once (WKWebView vends the web area
 /// lazily on the first AX query, and a cold webview mounts late), then
-/// reload the webview ONCE. GO-ORBITTY-PANE-SPA: an AXWebArea with ZERO AX
+/// reload the webview ONCE. An AXWebArea with ZERO AX
 /// children is a loaded-but-never-hydrated document — also not mounted
 /// (the rail's web area always has children). A mount that still reads
 /// unmounted after the reload earns ONE navigate to the bare index.html —
@@ -331,7 +331,7 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
             if drawer_mount_ok(&w) {
                 return;
             }
-            // GO-ORBITTY-PANE-WARM: a pane built < ~3s ago is still
+            // A pane built < ~3s ago is still
             // hydrating its first paint — the one AX read above is all it
             // gets. A reload() here lands mid-hydrate and IS the
             // first-show beach ball. A warm pane (alive > 3s) with an
@@ -351,8 +351,8 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
             );
             let _ = w.reload();
             // Still not mounted after the reload — navigate to the bare
-            // index.html once, then stop. Do not hide. GO-ORBITTY-PANE-SPA:
-            // the target is what the rail actually loaded (its live URL),
+            // index.html once, then stop. Do not hide.
+            // The target is what the rail actually loaded (its live URL),
             // not a hand-parsed tauri:// string.
             std::thread::sleep(std::time::Duration::from_millis(1500));
             if drawer_mount_ok(&w) {
@@ -377,7 +377,7 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
 
 /// Visible-and-mounted read, on the main thread and waited on. A hidden
 /// pane reads mounted (nothing to reload); AX-unknown reads mounted.
-/// GO-ORBITTY-PANE-SPA: an EMPTY AXWebArea (zero AX children) reads
+/// An EMPTY AXWebArea (zero AX children) reads
 /// NOT mounted — the document loaded but the SPA never hydrated.
 #[cfg(target_os = "macos")]
 fn drawer_mount_ok(w: &tauri::WebviewWindow) -> bool {
@@ -464,7 +464,7 @@ fn ax_window_has_web_area(w: &tauri::WebviewWindow) -> Option<bool> {
 }
 
 /// Depth-capped subtree walk for a MOUNTED "AXWebArea" (one with at least
-/// one AX child — GO-ORBITTY-PANE-SPA: a zero-child web area is a document
+/// one AX child — a zero-child web area is a document
 /// that never hydrated, i.e. not mounted). Querying is itself the trigger —
 /// WKWebView lazily builds its AX tree on the first AX read.
 #[cfg(target_os = "macos")]
@@ -498,7 +498,7 @@ unsafe fn ax_subtree_has_web_area(el: *const std::ffi::c_void, depth: u32) -> bo
         // Copy-rule result: ownership moves into the wrapper; Drop releases.
         let is_web = CFString::wrap_under_create_rule(role as _).to_string() == "AXWebArea";
         if is_web {
-            // GO-ORBITTY-PANE-SPA: mounted means the web area has AX
+            // Mounted means the web area has AX
             // children. An empty one (kids=0) is a loaded document whose
             // SPA never ran — not mounted. A web area never nests another
             // web area, so this subtree is done either way.
@@ -986,7 +986,7 @@ fn clamp_drawer_rect_ex(
     })
 }
 
-/// GO-ORBITTY-PARK: the one clamp, against every live display's points
+/// The one clamp, against every live display's points
 /// visibleFrame — lets panes.rs park the companion without naming
 /// VisibleFrame. Reuse of clamp_drawer_rect, not a copy.
 #[allow(dead_code)]
@@ -1002,7 +1002,7 @@ pub(crate) fn clamp_on_displays_keep_bottom(
     clamp_drawer_rect_ex(b, &points_frames(&screen_visible_frames()), true)
 }
 
-/// GO-ORBITTY-HOST-STAY: host dismiss clamps on the ONE display the live
+/// Host dismiss clamps on the ONE display the live
 /// hosted rect sits on — the every-display pick walked the restored idle
 /// rect to the big middle screen whenever the stash origin looked
 /// handle-thin. That display is where the live rect is mostly on, else
@@ -1043,7 +1043,7 @@ pub(crate) fn clamp_on_host_display(
     }
 }
 
-/// GO-ORBITTY-TILE-YAW leftover (summon clamp): the companion's dock must
+/// Leftover (summon clamp): the companion's dock must
 /// stay clickable — a keep-bottom place whose bottom edge already hangs
 /// below every display (the dock-click drop, a hug from a low-parked
 /// idle, a host grow pinned to a sunk bottom) strands the window with no
@@ -1111,7 +1111,7 @@ pub(crate) fn ensure_companion_dock_onscreen(w: &tauri::WebviewWindow) {
     }
 }
 
-/// GO-ORBITTY-HOST-FIT: the host grow follows the display the companion
+/// The host grow follows the display the companion
 /// sits on — the visibleFrame the live rect is mostly on (else first
 /// screen). Landscape (vf.w >= vf.h) grows wide 1080×620; portrait
 /// (vf.h > vf.w) grows tall 620×1080; no screens → 1080×620. Origin
@@ -1135,7 +1135,7 @@ pub(crate) fn host_grown_rect(cur: state::CompanionBounds) -> state::CompanionBo
     }
 }
 
-/// GO-ORBITTY-HOST-DOCK: keep `cur`'s bottom-center; apply new `w`/`h`.
+/// Keep `cur`'s bottom-center; apply new `w`/`h`.
 /// Dest buttons sit on the ghostdock at the bottom of the companion —
 /// pinning that edge (and the horizontal center) means dest toggle
 /// expand/contract does not walk the cursor. Clamp after may still
@@ -1406,9 +1406,9 @@ fn pane_center_fallback(
     None
 }
 
-/// GO-ORBITTY-PANE-STAY: the one drawer placement primitive — NSWindow
+/// The one drawer placement primitive — NSWindow
 /// setFrame: in AppKit global points, on the main thread and WAITED (the
-/// same sync hop as the PANE-RAISE raise). Tauri's LogicalPosition /
+/// same sync hop as the front-truth raise). Tauri's LogicalPosition /
 /// LogicalSize convert through the window's CURRENT monitor scale, so a
 /// pane parked on a foreign-scale display (WARM's hidden create parks on
 /// s2 @2x) landed far from the points target — the click-hop. AppKit
@@ -1479,7 +1479,7 @@ fn appkit_place_points(w: &tauri::WebviewWindow, r: &state::CompanionBounds) {
     let _ = w.set_position(tauri::LogicalPosition::new(r.x, r.y));
 }
 
-/// Points-space placement (GO-ORBITTY-SHEET-FRONT + PANE-STAY): the rect
+/// Points-space placement: the rect
 /// speaks CG points and placement is AppKit-points native — never Tauri
 /// Logical/Physical set_position/set_size. The Moved ledger is stamped
 /// from the post-place outer_position read-back ONLY (no scale-guessed
@@ -1497,7 +1497,7 @@ pub(crate) fn place_logical_rect(w: &tauri::WebviewWindow, label: &str, r: &stat
     }
 }
 
-/// GO-ORBITTY-SPRITE-HUG: bar placement — the same AppKit-points path as
+/// Bar placement — the same AppKit-points path as
 /// place_logical_rect but with the hugged floor (120) instead of the 360
 /// idle min, so the CC+dock bar can exist at all. The caller drops the
 /// window's own min-size before this runs and never persists the bar.
@@ -1637,7 +1637,7 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
     let st = state::load_state(app).unwrap_or_default();
     drawer_cache_refresh(&st);
     let visible = w.is_visible().unwrap_or(false);
-    // GO-ORBITTY-SPRITE-HUG: a hugged bar sits below the 360 min on
+    // A hugged bar sits below the 360 min on
     // purpose — it is not a ghosted min-size window; never re-place it
     // to the saved tall rect on a summon.
     let hugged = label == "companion" && crate::panes::companion_hugged();
@@ -1652,7 +1652,7 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
                     .unwrap_or(false)
             })
             .unwrap_or(false);
-    // GO-ORBITTY-TILE-YAW leftover (summon clamp): a visible pane with no
+    // Leftover (summon clamp): a visible pane with no
     // 24px handle on ANY display is lost, not "already visible" — fall
     // through to the place path so the summon actually recovers it (for
     // the companion, raise_now then clamps the dock back on-screen).
@@ -1663,12 +1663,12 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
         let _ = w.set_ignore_cursor_events(false);
         crate::panes::emit_pane_vis(app, label, true);
         schedule_drawer_mount_check(app, label);
-        // GO-ORBITTY-COMPANION-CLEAR: the forced mouse-on above must not
+        // The forced mouse-on above must not
         // stick on a ghost — re-apply slab/ghost from the live mode.
         if label == "companion" {
             crate::companion_clear::apply_mode(app);
         }
-        // GO-ORBITTY-FRONT-HOLD: the raise lands AFTER apply_mode so the
+        // FRONT-HOLD: the raise lands AFTER apply_mode so the
         // ghost re-apply can never undo the front — Show Companion on an
         // already-visible buried ghost recovers without Quit.
         drawer_order_front(app, &w, label);
@@ -1680,7 +1680,7 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
     let _ = w.set_ignore_cursor_events(false);
     crate::panes::emit_pane_vis(app, label, true);
     schedule_drawer_mount_check(app, label);
-    // GO-ORBITTY-COMPANION-CLEAR: re-apply slab/ghost first, then raise
+    // Re-apply slab/ghost first, then raise
     // so apply_mode cannot undo the front (same order as already-visible).
     if label == "companion" {
         crate::companion_clear::apply_mode(app);

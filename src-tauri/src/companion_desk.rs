@@ -1,4 +1,4 @@
-//! GO-ORBITTY-MOUTH-TODO — desk wrap for the companion mouth.
+//! Desk wrap for the companion mouth.
 //!
 //! The model (never the saved transcript) sees a short `[desk]` prepend:
 //! one board-law line (Orbitty Todos = tool `kanban.add`; graph-sync /

@@ -19,11 +19,11 @@ pub struct HabitatEntry {
     #[serde(default = "default_age")]
     pub age: String,
     /// Sprite picker (claim menu): packs/<id> folder; empty = the generated
-    /// being (GO-ORBITTY-CHARS). Unknown ids (pack removed) also fall back
+    /// being. Unknown ids (pack removed) also fall back
     /// to the generated being.
     #[serde(default)]
     pub sprite_pack_id: String,
-    /// GO-ORBITTY-CHARS: generated-person roll seed (0 = pre-GO snapshot;
+    /// Generated-person roll seed (0 = pre-GO snapshot;
     /// still derives a stable look from seed 0).
     #[serde(default)]
     pub char_seed: u64,
@@ -33,16 +33,16 @@ pub struct HabitatEntry {
     /// Per-walker size (0.4–2.5); 0 = inherit the gear's global spriteScale.
     #[serde(default)]
     pub sprite_scale: f64,
-    /// GO-ORBITTY-SLEEPERS: the claim's window is closed — the walker
+    /// The claim's window is closed — the walker
     /// sleeps (idle frame 0, dim, no bounce) until Done/Unclaim, and a
     /// double-click wakes it (file → session → recipe → app), never a bare
     /// restore_window on a dead id.
     #[serde(default)]
     pub asleep: bool,
-    // GO-ORBITTY-CLAIM-ONE: walker_home (the occupancy teleport) is gone —
+    // walker_home (the occupancy teleport) is gone —
     // occupancy is the entry's planet, i.e. the claim's projectId. One
     // windowId, one projectId.
-    /// GO-ORBITTY-CADENCE: the window-linked card's column
+    /// The window-linked card's column
     /// ("todo" | "doing" | "done"; "" = no linked card). The rail resolves
     /// which card wins; the native side holds the status → station/pose
     /// table. Needed cards never land here (their status is a dummy).
@@ -52,7 +52,7 @@ pub struct HabitatEntry {
     /// Informational — the pose table keys off card_status + needed_state.
     #[serde(default)]
     pub card_kind: String,
-    /// GO-ORBITTY-CADENCE: "open" | "later" when an open/later Needed card
+    /// "open" | "later" when an open/later Needed card
     /// names this window or its project (Needed sits the walker, and wins
     /// over Doing); "" = nothing needed from the user here.
     /// DOING-WALKER leftover (doing orbit): for an AGENT walker this is
@@ -60,7 +60,7 @@ pub struct HabitatEntry {
     /// a planet Needed, so Needed never wins over Doing for that walker.
     #[serde(default)]
     pub needed_state: String,
-    /// GO-ORBITTY-DOING-WALKER: non-empty = this entry is an AGENT walker
+    /// Non-empty = this entry is an AGENT walker
     /// (a doing-run's droid, not a claimed window). The value is the bake
     /// seed string `"<planetId>:<cardId>"` — the native side hashes it and
     /// bakes the android atlas once per run. Bitty-crew sheets stay for
@@ -80,7 +80,7 @@ pub struct HabitatPlanet {
     pub name: String,
     pub collapsed: bool,
     pub entries: Vec<HabitatEntry>,
-    /// GO-ORBITTY-WORLD-TOWN: the project board's ticks for the back-board
+    /// The project board's ticks for the back-board
     /// blit — id + column only, no titles. The rail fills from kanbanCards
     /// on this projectId (kind !== "needed"), capped ~12: oldest open
     /// first, then recent done.
@@ -88,7 +88,7 @@ pub struct HabitatPlanet {
     pub board_cards: Vec<BoardCardTick>,
 }
 
-/// GO-ORBITTY-WORLD-TOWN: one board tick — a card's id (hashed for the
+/// One board tick — a card's id (hashed for the
 /// tick color) and its column ("todo" | "doing" | "done").
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -108,7 +108,7 @@ pub struct HabitatSnapshot {
     /// Gear walker-size slider (0.4–2.5, default 1.0).
     #[serde(default = "default_sprite_scale")]
     pub sprite_scale: f64,
-    /// GO-ORBITTY-MARBLE-DRIFT: the Settings toggle rides the snapshot —
+    /// The Settings toggle rides the snapshot —
     /// one path, so the native side never reads state.json for this.
     #[serde(default)]
     pub marble_drift: bool,

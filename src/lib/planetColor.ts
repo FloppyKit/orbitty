@@ -1,4 +1,4 @@
-// GO-ORBITTY-PLANET-MARK: TS twin of habitat_mac/mod.rs `color_for` —
+// TS twin of habitat_mac/mod.rs `color_for` —
 // byte-sum × golden angle, HSV s=0.55 v=0.80. Lists wear the same marble
 // color as the disc. One hash, two languages; keep them in sync and never
 // persist a color field.

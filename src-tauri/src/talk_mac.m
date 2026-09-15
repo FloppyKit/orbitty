@@ -1,4 +1,4 @@
-// GO-ORBITTY-PTT-DICTATION — macOS Speech.framework Talk engine.
+// macOS Speech.framework Talk engine.
 // Press-to-start / press-to-stop. Partials + finals via C callback.
 // Segment-final restart so Listening does not die after a short utterance.
 // Never always-on. Never a wake word. Never auto-send.

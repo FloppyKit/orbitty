@@ -1,8 +1,8 @@
-//! GO-ORBITTY-EVENT-LOG — one append-only Nostr-shaped log on disk.
+//! One append-only Nostr-shaped log on disk.
 //! Relay is not in the write path: `sig` and `pubkey` stay empty, `id` is
 //! uuid-v4 hex (real Nostr id hashing waits for keys). Runtime events are
 //! kind 31200 with the type in the `e-type` tag — EXCEPT board column
-//! proofs (GO-ORBITTY-BOARD-PROOFS): todo/doing/done are kinds
+//! proofs: todo/doing/done are kinds
 //! 420/421/422 with `t=orbitty`, the original map. NCH compute keeps the
 //! same three numbers under `t=nch` — the two chains never merge. `t` is
 //! `local-only` (default) or `publishable` — nothing is publishable yet.
@@ -21,7 +21,7 @@ use tauri::Manager;
 /// One kind for every Orbitty runtime event this GO.
 pub const KIND: u64 = 31200;
 
-/// GO-ORBITTY-BOARD-PROOFS — board column proofs. Same three numbers as
+/// Board column proofs. Same three numbers as
 /// NCH compute, different `t` tag (`orbitty` here, `nch` there).
 pub const KIND_BOARD_TODO: u64 = 420;
 pub const KIND_BOARD_DOING: u64 = 421;
@@ -200,7 +200,7 @@ pub fn append_best(
     }
 }
 
-/// GO-ORBITTY-BOARD-PROOFS — one board column proof: a mint or move to
+/// One board column proof: a mint or move to
 /// todo/doing/done is kind 420/421/422 with `t=orbitty` (never a 31200
 /// board-move/board-add line). `d` = card id; doing chains `e` → the
 /// card's newest 420, done chains `e` → the newest 420 and 421. Same
@@ -375,7 +375,7 @@ pub fn log_event(
         .filter(|t| !t.is_empty())
         .unwrap_or_else(uuid_v4_hex);
     let content = content.unwrap_or_else(|| serde_json::json!({}));
-    // GO-ORBITTY-BOARD-PROOFS: a board column transition (mint or move to
+    // A board column transition (mint or move to
     // todo/doing/done) is kind 420/421/422 with `t=orbitty`, never a 31200
     // board-move/board-add line — one match arm on the e-type. A shape we
     // don't recognize falls through to the generic 31200 write.

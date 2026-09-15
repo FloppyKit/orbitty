@@ -1,4 +1,4 @@
-//! GO-ORBITTY-GATE-CAPS — spend ceiling + runner cap. Needed is the gate.
+//! Spend ceiling + runner cap. Needed is the gate.
 //! No toasts. Usage USD only when a runner returns parseable cost.
 
 use std::sync::atomic::{AtomicU32, Ordering};

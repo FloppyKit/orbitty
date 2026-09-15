@@ -1,4 +1,4 @@
-// GO-ORBITTY-HITCH-DRAW — native hide/show emits `orbitty:pane-vis`
+// Native hide/show emits `orbitty:pane-vis`
 // (`{ label, visible }`). Panes keep warm on hide, so a hidden webview's
 // `document.hidden` never flips and its timers would keep firing into the
 // void; pages gate those timers on this event instead.

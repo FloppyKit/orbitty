@@ -1,4 +1,4 @@
-//! GO-ORBITTY-MOUTH-ACK: the conductor — a slim local fast-ack layer in
+//! The conductor — a slim local fast-ack layer in
 //! front of the hop mouth. Matt: the box should feel awake. Every Spark
 //! send (the you-row is already persisted by the coordinator) gets a
 //! one-line ack + a verb in hundreds of ms — local Ollama first

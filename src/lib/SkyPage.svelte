@@ -1,5 +1,5 @@
 <script lang="ts">
-  // GO-ORBITTY-WORD-SKY: an opt-in sky of the user's OWN words. The bag
+  // An opt-in sky of the user's OWN words. The bag
   // law, mute (state.sky.muted), click/right-click, and the field itself
   // live in SkyField now — this page is only the window chrome (banner +
   // hide ×) plus theme/opacity, so STARS Review can mount the same field
@@ -20,7 +20,7 @@
 
 
 
-  // GO-ORBITTY-COMPANION-BRAND: the seven palette skins are retired; a
+  // The seven palette skins are retired; a
   // dead saved id falls back to the OS pair. Terminal stays valid.
   const KNOWN_THEMES = new Set(["systemLight", "systemDark", "terminal"]);
 

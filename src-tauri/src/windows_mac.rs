@@ -222,7 +222,7 @@ unsafe fn ax_window_id(element: AXUIElementRef) -> Option<u32> {
     }
 }
 
-/// GO-ORBITTY-SLEEPERS: the window's AXDocument as a real on-disk path.
+/// The window's AXDocument as a real on-disk path.
 /// AXDocument arrives as a CFURL or a CFString URL; only `file://` URLs
 /// whose target exists are stamped — never contents, never a guessed path.
 unsafe fn ax_document_path(element: AXUIElementRef) -> Option<String> {
@@ -828,7 +828,7 @@ pub fn close_window(id: &str) -> Result<(), String> {
     }
 }
 
-// ---------- locate ring (GO-ORBITTY-RAIL-ROW-MENU) ----------
+// ---------- Locate ring ----------
 
 // GCD main-queue hops (same binding trick as habitat_mac): the SDK's
 // dispatch_get_main_queue() is a header inline returning &_dispatch_main_q.

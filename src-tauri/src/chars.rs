@@ -1,4 +1,4 @@
-//! Orbitty walkers — GO-ORBITTY-S1-BITTYS (lock: ORBITTY_BITTY_CREW_v0).
+//! Orbitty walkers — the Season 1 bitty crew (lock: ORBITTY_BITTY_CREW_v0).
 //!
 //! Default planet walkers are the blessed Season 1 bitty crew:
 //! `brand/bitty-crew/packs/orbitty-bitty-<kind>[-<palette>]` — 11 kinds,

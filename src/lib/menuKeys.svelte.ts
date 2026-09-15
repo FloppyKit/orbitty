@@ -1,7 +1,7 @@
 import { untrack } from "svelte";
 import "./menuKeys.css";
 
-// GO-ORBITTY-MENU-KEYS — the ONE focus ring for the hosted well.
+// The ONE focus ring for the hosted well.
 // Pad grammar lock (ORBITTY_PAD_GRAMMAR_LOCK_v0) mimicked on the
 // keyboard: arrows = D-pad (move the highlight), Enter = A (open /
 // select), Esc = B (close the innermost menu, then the well — the well
@@ -10,7 +10,7 @@ import "./menuKeys.css";
 // Needed/todo pile, STARS spokes/switcher, Planets pop. Never habitat
 // walkers. KANBAN-GRAB rides this same ring: Shift+Enter = X (grab the
 // focused Todo) is the ONE chord the ring owns — the handleKey carve-out
-// below. GO-ORBITTY-PAD points a real gamepad at these verbs.
+// below. A real gamepad points at these verbs.
 // KANBAN-GRAB leftover (arrows in charge): surfaces. Enter (pad A) can
 // descend into a nested surface (the card drawer); Esc (pad B) backs one
 // level. pushSurface suspends the current stops/highlight/onEscape and

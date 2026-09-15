@@ -22,7 +22,7 @@ pub struct WindowInfo {
     pub icon_base64: Option<String>,
     pub is_frontmost: bool,
     pub is_minimized: bool,
-    /// GO-ORBITTY-SLEEPERS: the window's AXDocument as a filesystem path —
+    /// The window's AXDocument as a filesystem path —
     /// file:// URLs only, and only when the path exists at poll time.
     /// Titles-only rule kept: never the file's contents.
     pub document_path: Option<String>,

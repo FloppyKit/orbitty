@@ -1,5 +1,5 @@
 <script lang="ts">
-  // GO-ORBITTY-NEXT-CARD leftover: own small window (not dock chrome).
+  // Own small window (not dock chrome).
   // ⌘⇧N or the dock pip toggles it. Drag the banner. Click-off (blur),
   // Esc, ×, or the chord again hides. Quiet ochre — no red badge.
   import { invoke } from "@tauri-apps/api/core";

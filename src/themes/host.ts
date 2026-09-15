@@ -1,13 +1,13 @@
-// Orbitty host theme packs — S4.5 (GO-LS-TAURI-S4.5).
+// Orbitty host theme packs.
 //
 // Law: never invent primary palettes for the System pair. macOS values are
 // the Tahoe semantic table (live aqua dump on Tahoe 26.5 + documented dark
 // semantics — the CLI dark dump never resolved, so dark trusts the docs).
-// GO-ORBITTY-COMPANION-BRAND (lock 2026-08-29) overrides that law for
+// Brand lock (2026-08-29) overrides that law for
 // accent / onAccent / mark / focus ONLY: the System pair wears the Orbitty
 // brand triad (planet teal accent, ochre mark, violet focus). bg / panel /
 // ink / dim / edge stay the Tahoe table.
-// GO-ORBITTY-HABITAT-BRAND (lock 2026-08-29) splits the purple: focus is now
+// Habitat brand lock (2026-08-29) splits the purple: focus is now
 // the deeper violet #6e4db0 (selected/hover outline), and the pair gains
 // bloom #c793e6 (pinky — words/tags/secondary chips, never the ring) plus
 // field #0b1020 (dark habitat pane body; Light keeps Tahoe chrome).
@@ -78,7 +78,7 @@ export function systemTokens(id: string): HostTokens | null {
 }
 
 // ---------------------------------------------------------------------------
-// RESERVED — Linux DE defaults (GO-LS-TAURI-LINUX, not this slice).
+// RESERVED — Linux DE defaults (not this slice).
 // Design-time hex fallback only; at implement time prefer semantic sources
 // (libadwaita CSS variables, KColorScheme, portal accent-color) and read the
 // installed theme rather than baking more hex. Detection order:

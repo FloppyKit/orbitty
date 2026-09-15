@@ -1,4 +1,4 @@
-// GO-ORBITTY-ATTACH: one-file picker for the companion composer chip.
+// One-file picker for the companion composer chip.
 // NSOpenPanel, files only, single selection (multi-file is forbidden in
 // v0). Returns a malloc'd UTF-8 path (caller frees via
 // orbitty_pick_file_free) or NULL on cancel. Runs on the main thread

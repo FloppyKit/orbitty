@@ -1,5 +1,5 @@
 <script lang="ts">
-  // GO-ORBITTY-CLEAN-COMPANION-CAPTION: collapsed CC + wait-in-slot +
+  // Collapsed CC + wait-in-slot +
   // bot click-expand overlay + expanded transcript + Speak-on pager.
   // CompanionPage mounts this; Send / dests / well / SpiritStage stay.
   // Today's bubble: Speak off = ~6-line scroll; Speak on = caps then
@@ -29,7 +29,7 @@
     userLine?: string;
     botLine?: string;
     sending?: boolean;
-    // GO-ORBITTY-MOUTH-ACK: the conductor's fast ack, splashed over the
+    // The conductor's fast ack, splashed over the
     // wait mark while the mouth answers. Ephemeral — never a turn.
     ackLine?: string;
     turns?: CompanionTurn[];
@@ -45,7 +45,7 @@
     onOverlayChange?: (open: boolean, wantWin?: number) => void;
   } = $props();
 
-  // ---------- GO-ORBITTY-COMPANION-CAPTION-WORDS: collapsed pager ------
+  // ---------- Collapsed pager ------
   // Only the collapsed view pages, and only the reply arriving right now
   // — primed/lastTailSig separate a fresh tail from a state reload, so
   // persisted history never pages. The paged turn is bound by index
@@ -224,7 +224,7 @@
     if (ccOpen && !t?.closest(".cc.bot, .cc-full")) ccOpen = false;
   }
 
-  // GO-ORBITTY-COLLAPSE-CC: the expand overlay is FIXED — out of the
+  // The expand overlay is FIXED — out of the
   // caption flow, over the companion window (it may cover the you-row),
   // never the old in-stack pop-down that clipped and sprouted a window
   // scrollbar. Anchored above the dock when there is room; the
@@ -375,12 +375,12 @@
 </script>
 
 {#snippet wait()}
-  <!-- GO-ORBITTY-MOUTH-LIVE: the thinking splash is EPHEMERAL — one
+  <!-- The thinking splash is EPHEMERAL — one
        short live line next to the mark while companion_send is in
        flight (the spirit already plays the thinking loop). Never a
        turn: nothing here persists; the final them-row is the only
        row the send path saves.
-       GO-ORBITTY-MOUTH-ACK: when the conductor is on, its fast ack line
+       When the conductor is on, its fast ack line
        replaces the bare "thinking…" here — same ephemeral slot, same
        no-persist law; the mouth's reply still lands as the only
        them-row. -->
@@ -493,7 +493,7 @@
     gap: 4px;
   }
 
-  /* GO-ORBITTY-HOST-CC: hosted + expanded — the transcript overlays the
+  /* Hosted + expanded — the transcript overlays the
      well (absolute, inset 0 over .wellwrap). The 72% bg scrim dims the
      well so the board stays visible behind it; the bubbles keep their
      own opaque fills. Not a second window; no grow/shrink on Expand. */

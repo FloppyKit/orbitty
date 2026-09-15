@@ -1,5 +1,5 @@
 <script lang="ts">
-  // GO-ORBITTY-CLEAN-COMPANION-STAGE: idle stage + hosted wellhead +
+  // Idle stage + hosted wellhead +
   // expanded corner portrait. CompanionPage mounts this; sprite-off
   // draws none of those three. Think-v9 timing stays on the parent.
 

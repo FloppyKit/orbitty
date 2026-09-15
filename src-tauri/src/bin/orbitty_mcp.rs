@@ -1,4 +1,4 @@
-//! orbitty-mcp — GO-ORBITTY-MCP-0 thin stdio adapter.
+//! orbitty-mcp — thin stdio adapter.
 //!
 //! Speaks MCP JSON-RPC 2.0 on stdin/stdout (newline JSON for Goose/rmcp;
 //! Content-Length still accepted for the Pixel smoke test).
@@ -6,15 +6,15 @@
 //! same newline-JSON protocol as orbittyctl. Never links Tauri, never
 //! opens a WebView, never binds TCP, never writes goose config.
 //!
-//! GO-ORBITTY-MCP-WRITE lists the four write tools (kanban.add /
+//! Lists the four write tools (kanban.add /
 //! kanban.move / needed.open / log.append) alongside the v0 read/open
 //! surface — same one Unix round-trip per tools/call, same control.json
 //! ACL (writes: full / named custom only).
-//! GO-ORBITTY-CARD-BLURB adds kanban.notes (set/clear the board-row
+//! kanban.notes (set/clear the board-row
 //! summary) and the optional `notes` arg on kanban.add — same write ACL.
-//! GO-ORBITTY-PROJECT-ADD lists the planet control plane (project.add /
+//! The planet control plane (project.add /
 //! project.rm / project.rename) next to the kanban writes — same ACL.
-//! GO-ORBITTY-AGENT-PLANET lists the agent roster (agent.list / agent.add /
+//! The agent roster (agent.list / agent.add /
 //! agent.rm / agent.pin / agent.pickup) plus kanban.assign — agent.list is
 //! read-safe, the rest are writes (full / named custom only).
 
@@ -59,28 +59,28 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "packs.list", description: "List installed sprite packs", args: "none" },
     ToolDef { name: "sleeper.wake", description: "Wake a sleeper by id", args: "id" },
     ToolDef { name: "state.get", description: "Read persisted Orbitty state", args: "none" },
-    // GO-ORBITTY-MCP-WRITE: the four write tools. control.json ACL still
+    // The four write tools. control.json ACL still
     // applies — read / companion profiles get denied (4).
     ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move); optional notes = the board row's one-line summary", args: "kanban_add" },
     ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
-    // GO-ORBITTY-CARD-BLURB: set/clear the summary line. Same write ACL.
+    // Set/clear the summary line. Same write ACL.
     ToolDef { name: "kanban.notes", description: "Set a card's notes (first line paints as the board-row summary; the drawer edits the rest); empty string clears", args: "kanban_notes" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
-    // GO-ORBITTY-PROJECT-ADD: the planet control plane, next to the kanban
+    // The planet control plane, next to the kanban
     // writes. Same ACL (full / named custom only). rm keeps cards'
     // projectId and live claims; add dedups same-name rows (newest id).
     ToolDef { name: "project.add", description: "Mint a project planet, or reuse + front the existing one on a same-name add (trim, case-insensitive; empty name refused)", args: "project_add" },
     ToolDef { name: "project.rm", description: "Remove a project planet by id; cards keep their projectId and live claims stay (walkers vanish on next habitat sync)", args: "project_rm" },
     ToolDef { name: "project.rename", description: "Rename a project planet, keeping its id (empty name refused)", args: "project_rename" },
-    // GO-ORBITTY-ACTION-FILE: the action recipe file. list is read-safe;
+    // The action recipe file. list is read-safe;
     // add / run ride the companion profile (Spark mints + runs named
     // recipes, never a raw shell); rm needs full / named custom ("action.*").
     ToolDef { name: "action.list", description: "List action shortcuts (id, name, combo, command, conflict status)", args: "none" },
     ToolDef { name: "action.add", description: "Mint an action shortcut: a named /bin/zsh -lc recipe with an optional global combo like cmd+alt+m", args: "action_add" },
     ToolDef { name: "action.run", description: "Run an action by id or name (the logged 120s /bin/zsh -lc door; output clipped)", args: "action_run" },
     ToolDef { name: "action.rm", description: "Remove an action by id (full / named custom ACL only)", args: "action_rm" },
-    // GO-ORBITTY-AGENT-PLANET: the agent roster + assignment. agent.list
+    // The agent roster + assignment. agent.list
     // is read-safe; add / rm / pin / pickup / kanban.assign are writes
     // (full / named custom only). The harness is per row, required on
     // add — unknown harness errors honestly, never a silent hermes.
@@ -136,7 +136,7 @@ fn input_schema(kind: &str) -> Value {
             },
             "required": ["title"]
         }),
-        // GO-ORBITTY-CARD-BLURB schema. Empty string is meaningful: clears.
+        // Empty string is meaningful: clears.
         "kanban_notes" => json!({
             "type": "object",
             "properties": {
@@ -222,7 +222,7 @@ fn input_schema(kind: &str) -> Value {
             },
             "required": ["id", "name"]
         }),
-        // GO-ORBITTY-AGENT-PLANET schemas.
+        // Agent roster schemas.
         "agent_add" => json!({
             "type": "object",
             "properties": {

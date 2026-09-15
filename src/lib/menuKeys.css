@@ -1,4 +1,4 @@
-/* GO-ORBITTY-MENU-KEYS: the one visible focus ring for the hosted well.
+/* The one visible focus ring for the hosted well.
    Imported by menuKeys.svelte.ts so every menu on the ring paints the
    same highlight. Negative offset keeps the ring inside scroll
    containers; outline follows each element's own border-radius. */

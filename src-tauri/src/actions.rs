@@ -1,4 +1,4 @@
-//! GO-ORBITTY-ACTION-FILE — an action is a named shell recipe plus an
+//! An action is a named shell recipe plus an
 //! optional key combo. Spark (or a human) writes rows through the control
 //! plane (`orbittyctl action add`); the face is the Settings list, not a
 //! Launchpad well. SoT stays whole-object `state.json`.
@@ -38,13 +38,13 @@ fn parse_combo(combo: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, St
 }
 
 /// Never register these — a row carrying one shows `conflict`.
-/// ⌘⇧O = companion summon. ⌘⇧Y = Herding Cats confirm (GO-ORBITTY-YARD-WARN).
-/// ⌘⇧N = next-card window (GO-ORBITTY-NEXT-CARD leftover).
+/// ⌘⇧O = companion summon. ⌘⇧Y = Herding Cats confirm.
+/// ⌘⇧N = next-card window (leftover).
 /// ⌘Space = Spotlight. Super-only letters below
 /// are Mac menu equivalents (Hide, Minimize, Quit, Close, …): Carbon
 /// RegisterEventHotKey succeeds, then the menu swallows the press while
 /// Orbitty is frontmost, so the action looks dead. ⌘⌥+letter is fine.
-/// GO-ORBITTY-TILE-CHORDS: ⌘⌥1/2/3 = dest tiles, ⌘⌥←/→ = ring yaw,
+/// ⌘⌥1/2/3 = dest tiles, ⌘⌥←/→ = ring yaw,
 /// ⌘⌥↓ = dismiss the hosted tile, ⌘⌥↑ = raise the last lowered tile —
 /// the tile chord wins, so a row carrying one shows `conflict`.
 #[cfg(target_os = "macos")]
@@ -222,7 +222,7 @@ mod reg {
     }
 }
 
-/// GO-ORBITTY-ACTIONS-BAKE — first-run seed + toy migration, the one
+/// First-run seed + toy migration, the one
 /// writer for the baked set. Runs on boot before the first `sync_combos`:
 ///   1. drop the dead toys (`calle-next`, `review-prs` — any command);
 ///      never restore `orbitty-calle-next`.

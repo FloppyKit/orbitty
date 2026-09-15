@@ -1,6 +1,6 @@
-//! GO-ORBITTY-MCP-WRITE — board write helpers for the control-plane write
+//! Board write helpers for the control-plane write
 //! tools (`kanban.add` / `kanban.move` / `kanban.notes` / `needed.open`).
-//! GO-ORBITTY-CARD-BLURB: `kanban.add` takes an optional `notes` (the board
+//! `kanban.add` takes an optional `notes` (the board
 //! row's one-line summary), `kanban.notes` sets/clears it on an existing
 //! card, and `backfill_go_card_notes` (startup) pre-fills the locked
 //! one-liners on exact-token GO-ORBITTY-* todos whose notes are empty.
@@ -11,7 +11,7 @@
 //! exactly as on a UI write. No claim/unclaim tools here: a done-move keeps
 //! the claim so the walk-off still narrates (the rail's habitat:walked-off
 //! handler unclaims, same as the checkbox).
-//! GO-ORBITTY-PROJECT-ADD adds the planet control plane (`project.add` /
+//! The planet control plane (`project.add` /
 //! `project.rm` / `project.rename`) — same one save door; habitat paints
 //! whatever `projects[]` holds, no tick/draw changes here.
 
@@ -98,12 +98,12 @@ fn check_project(state: &PersistedState, project_id: &str) -> Result<(), String>
     Ok(())
 }
 
-/// GO-ORBITTY-MOUTH-TODO: `kanban.add` projectId resolve — "" is the
+/// `kanban.add` projectId resolve — "" is the
 /// inbox; an existing project id passes through; anything else is tried
 /// as a trim / case-insensitive display name (`fkt`, `orbitty`,
 /// `practice_desk`) and must match exactly one planet. Unknown or
 /// ambiguous = honest error, no mint. Returns the id to store.
-/// GO-ORBITTY-AGENT-PLANET: shared with agent.add / agent.pin — `who`
+/// Shared with agent.add / agent.pin — `who`
 /// labels the honest error with the calling tool.
 pub(crate) fn resolve_project(
     state: &PersistedState,
@@ -136,9 +136,9 @@ pub(crate) fn resolve_project(
 /// `kanban.add` — mint `kind: "todo"`, `actor: "agent"`. `status` is
 /// `todo` (default) or `doing`; done is never minted (it is earned through
 /// the complete door). `projectId` is an id OR a unique planet name
-/// (GO-ORBITTY-MOUTH-TODO resolve). Logs the mint's board proof — 420 for
-/// todo, 421 for doing (GO-ORBITTY-BOARD-PROOFS; never a 31200 board-add).
-/// GO-ORBITTY-CARD-BLURB: `notes` is the optional one-line runner summary
+/// (the resolve above). Logs the mint's board proof — 420 for
+/// todo, 421 for doing (never a 31200 board-add).
+/// `notes` is the optional one-line runner summary
 /// (first line paints as the board row's `.b-notes`); empty/None = none.
 pub fn kanban_add(
     app: &tauri::AppHandle,
@@ -207,7 +207,7 @@ pub fn kanban_add_as(
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
     save_with_events(app, &before, &after)?;
-    // GO-ORBITTY-BOARD-PROOFS: a mint writes the target column's proof
+    // A mint writes the target column's proof
     // (420 todo / 421 doing) with `t=orbitty`, not a 31200 board-add line.
     event_log::append_board_proof_best(
         app,
@@ -227,7 +227,7 @@ pub fn kanban_add_as(
 /// walk-off still narrates. Moving a window-carded row out of Doing
 /// unclaims its window, exactly like the board drag. Same-column = the
 /// board's early return (no save, no log). Logs the target column's board
-/// proof — 420/421/422 with `t=orbitty` (GO-ORBITTY-BOARD-PROOFS; never a
+/// proof — 420/421/422 with `t=orbitty` (never a
 /// 31200 board-move).
 pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<KanbanCard, String> {
     let target = match target.trim() {
@@ -326,7 +326,7 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
     Ok(after.kanban_cards[idx].clone())
 }
 
-/// GO-ORBITTY-CARD-BLURB: `kanban.notes` — set a card's `notes` (the first
+/// `kanban.notes` — set a card's `notes` (the first
 /// line is the board row's one-line summary; the drawer edits the rest).
 /// Empty-after-trim clears, exactly like the drawer (notes → None). Same
 /// one save door as add/move; a no-change write is the board's early
@@ -362,7 +362,7 @@ pub fn kanban_notes(app: &tauri::AppHandle, id: &str, notes: &str) -> Result<Kan
     Ok(after.kanban_cards[idx].clone())
 }
 
-/// GO-ORBITTY-CARD-BLURB: the locked one-liners for the GO-ORBITTY-*
+/// The locked one-liners for the GO-ORBITTY-*
 /// runner todos — what the runner is and does, first line of `notes`.
 const GO_CARD_BLURBS: &[(&str, &str)] = &[
     ("GO-ORBITTY-ATTACH", "One file chip on Spark, original path, gone after send. 25 MB cap."),
@@ -409,7 +409,7 @@ fn go_prompt_blurb(title: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// GO-ORBITTY-CARD-BLURB: one-time startup backfill — existing
+/// One-time startup backfill — existing
 /// `kind: "todo"` cards titled exactly `GO-ORBITTY-*` with EMPTY notes get
 /// the one-liner (table first, then the nest prompt file's first `Matt:`
 /// line, else left empty). A note Matt already typed is never overwritten.
@@ -460,7 +460,7 @@ pub fn backfill_go_card_notes(app: &tauri::AppHandle) {
     );
 }
 
-/// GO-ORBITTY-PROJECT-ADD: `project.add` — mint a planet row
+/// `project.add` — mint a planet row
 /// `{ id: new_id("p"), name }` (the rail's createProject id shape). Empty
 /// name refused. Leftover: a same-name row (trim, case-insensitive) is
 /// reused, never twinned — newest id wins if several — and either way the
@@ -512,7 +512,7 @@ pub fn project_add(app: &tauri::AppHandle, name: &str) -> Result<Project, String
     Ok(project)
 }
 
-/// GO-ORBITTY-PROJECT-ADD: `project.rm` — drop the row from `projects`.
+/// `project.rm` — drop the row from `projects`.
 /// Cards keep their `projectId`; live claims stay (walkers vanish with
 /// the disc on the next habitat sync). Never auto-minted, never
 /// auto-killed — ctl is the door. Unknown id = honest error. Logs
@@ -540,7 +540,7 @@ pub fn project_rm(app: &tauri::AppHandle, id: &str) -> Result<Project, String> {
     Ok(gone)
 }
 
-/// GO-ORBITTY-PROJECT-ADD: `project.rename` — change `name`, keep `id`.
+/// `project.rename` — change `name`, keep `id`.
 /// Empty name = error; unknown id = honest error. Logs `project-rename`.
 pub fn project_rename(app: &tauri::AppHandle, id: &str, name: &str) -> Result<Project, String> {
     let name = name.trim();
@@ -571,7 +571,7 @@ pub fn project_rename(app: &tauri::AppHandle, id: &str, name: &str) -> Result<Pr
 /// `needed.open` — mint `kind: "needed"`, `neededState: "open"`,
 /// `status: "todo"`, `windowId: null` (the Needed inbox shape). Logs
 /// `needed-open`.
-/// GO-ORBITTY-NEEDED-RULES-OPEN: the user-minted standing rules get first
+/// The user-minted standing rules get first
 /// claim (needed_rules.rs — classify/match/can-run live there, not here).
 /// One hit + can-run → the card is born `answered` in the SAME save,
 /// `neededAnswer` = the rule's answer, `actor: "rule"`, and `needed-answer`

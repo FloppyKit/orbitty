@@ -1,5 +1,5 @@
 <script lang="ts">
-  // GO-ORBITTY-YARD-WARN + GO-ORBITTY-HERDING-CATS: the Herding Cats
+  // The Herding Cats
   // confirm. ⌘⇧Y or Settings → Appearance → Herding Cats… opens this own
   // small window (so the shortcut works with Settings closed). Esc / ⌘⇧Y /
   // Cancel / × all scoop = stop the yard if it is on, then hide. Drop the
@@ -25,7 +25,7 @@
       : "systemLight";
   }
 
-  // GO-ORBITTY-PANE-PAINT: same first-paint discipline as Settings — seed
+  // Same first-paint discipline as Settings — seed
   // the OS theme synchronously so the chrome never flashes white.
   let themeId = $state(osThemeId());
   let windowOpacity = $state(1.0);
@@ -122,7 +122,7 @@
     invoke("hide_window", { label: "yard-warn" }).catch(() => {});
   }
 
-  // GO-ORBITTY-HERDING-CATS: Drop starts the yard native-side (the
+  // Drop starts the yard native-side (the
   // current unclaimed set rains in, staggered), then the pane gets out
   // of the way so the clowder is visible. Drop on an already-on yard is
   // a native no-op — never a double spawn.

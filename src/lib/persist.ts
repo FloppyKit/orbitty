@@ -1,4 +1,4 @@
-// GO-ORBITTY-CLEAN-TYPES: TS mirror of src-tauri/src/state.rs (camelCase).
+// TS mirror of src-tauri/src/state.rs (camelCase).
 // Additive only — every key the native save writes. Pages import this so
 // load → mutate → save cannot type-narrow a subset and strip slices.
 // Live AX rows (WindowInfo) are not in state.json; they share this file
@@ -91,7 +91,7 @@ export interface KanbanCard {
   neededWhy?: string;
   neededAnswer?: string;
   actor?: Actor;
-  // GO-ORBITTY-AGENT-PLANET: agent row this Todo is assigned to
+  // Agent row this Todo is assigned to
   // (agentShortcuts id). Additive — never strip the key; a removed agent
   // leaves the id on the card (same law as project rm).
   assignedAgentId?: string | null;
@@ -127,7 +127,7 @@ export interface ActionShortcut {
   name: string;
   command: string;
   cwd?: string | null;
-  // GO-ORBITTY-ACTION-FILE: optional global chord, e.g. "cmd+alt+m".
+  // Optional global chord, e.g. "cmd+alt+m".
   // Empty/absent = Spirit-only (chat intercept or Settings click).
   combo?: string | null;
 }
@@ -140,12 +140,12 @@ export interface AgentShortcut {
   model?: string | null;
   mdPaths: string[];
   projectId?: string | null;
-  // GO-ORBITTY-AGENT-PLANET: free-text extra instructions — pickup
+  // Free-text extra instructions — pickup
   // concatenates them into the query file after the md paths.
   extra?: string | null;
 }
 
-// GO-ORBITTY-DOING-WALKER: one row per doing-run — the agent walker on
+// One row per doing-run — the agent walker on
 // that planet. Minted native-side when a gated kind=todo card lands in
 // Doing (doing-fire / pickup own the process; this row is never a
 // spawn). state: starting | working | blocked | done. Additive — never
@@ -155,7 +155,7 @@ export interface AgentRun {
   planetId: string;
   agentShortcutId?: string;
   state: "starting" | "working" | "blocked" | "done";
-  // GO-ORBITTY-HERDR-ADAPTER: present only when the herdr branch of
+  // Present only when the herdr branch of
   // launch_agent launched the run. Round-tripped opaquely — the native
   // side owns it; never a second planet DB.
   herdr?: {
@@ -180,7 +180,7 @@ export interface CompanionTurn {
   text: string;
 }
 
-// GO-ORBITTY-MODE-SPLIT: the four companion modes — a second axis next
+// The four companion modes — a second axis next
 // to the four-cast agent pick (stems stay). Mode owns the transcript +
 // the bus target; Chat/Hold never get the GO bus.
 export type CompanionMode = "spark" | "chat" | "work" | "hold";
@@ -204,28 +204,28 @@ export interface CompanionSlice {
   captions?: boolean;
   planetsHidden?: boolean;
   cheatSheetHint?: boolean;
-  // GO-ORBITTY-MODE-SPLIT: active mode (default spark) + per-mode parked
+  // Active mode (default spark) + per-mode parked
   // transcripts (cap 40 each). `turns` stays the ACTIVE thread; the
   // native heal parks a pre-split transcript under spark on load.
   mode?: CompanionMode;
   threads?: Partial<Record<CompanionMode, CompanionTurn[]>>;
-  // GO-ORBITTY-DOCK-HACK: ctl-lit "agent working" flag for the dock LED
+  // Ctl-lit "agent working" flag for the dock LED
   // (`orbittyctl companion hack -- on [--who cursor]`). hackWho names the
   // live source for the LED title. A flag, never a transcript.
   hackLive?: boolean;
   hackWho?: string;
-  // GO-ORBITTY-AGENT-PLANET leftover: the live agent's pinned planet
+  // Leftover: the live agent's pinned planet
   // (pickup writes it) — the dest/planet menus glow that one planet
   // while hackLive is on. null/undefined = no pin; cleared on off.
   hackProjectId?: string | null;
-  // GO-ORBITTY-MOUTH-HOP: Free Mode — free lanes only (local Ollama →
+  // Free Mode — free lanes only (local Ollama →
   // OpenRouter free); paid Grok stays off. The BYOK key never lives in
   // state — native keeps it 0600 under companions/orbitty-primary.
   // Leftover: REQUIRED — an omitted key heals to false on the native
   // save and silently strips the mode (the agentRuns strip-trap). Page
   // state loaded from disk defaults it false; never leave it undefined.
   freeMode: boolean;
-  // GO-ORBITTY-MOUTH-ACK: conductor — the slim local fast-ack layer in
+  // Conductor — the slim local fast-ack layer in
   // front of the mouth. Optional in TS (agentRuns precedent): the
   // native save_state carries the disk values forward (same strip-trap
   // as freeMode), so a stale whole-state writer can never strip them;
@@ -286,7 +286,7 @@ export interface PersistedState {
   hideAppIcons: boolean;
   spriteScale: number;
   marbleDrift: boolean;
-  // GO-ORBITTY-YARD-WARN leftover: Herding Cats confirm source checkboxes
+  // Leftover: Herding Cats confirm source checkboxes
   // — independent bools, at least one on before Drop can arm. Tabs stay
   // disabled until Tabbity lands. The old `yardSource` radio key is no
   // longer written; a save that predates the bools heals to windows on /
@@ -297,10 +297,10 @@ export interface PersistedState {
   yardTabs?: boolean;
   actionShortcuts: ActionShortcut[];
   agentShortcuts: AgentShortcut[];
-  // GO-ORBITTY-DOING-WALKER: optional in TS so whole-state writers that
+  // Optional in TS so whole-state writers that
   // predate the field keep type-checking; the native save always writes it.
   agentRuns?: AgentRun[];
-  // GO-ORBITTY-GATE-CAPS: daily spend ceiling + runner cap. Optional so
+  // Daily spend ceiling + runner cap. Optional so
   // older whole-state writers keep type-checking; native defaults 20 / 2.
   spendCapUsd?: number;
   spendCapEnabled?: boolean;

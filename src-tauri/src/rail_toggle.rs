@@ -1,4 +1,4 @@
-//! GO-ORBITTY-RAIL-CLOSE: the stack buttons toggle like the dests —
+//! The stack buttons toggle like the dests —
 //! first click shows + focuses (the button's existing show path), a
 //! click while the window is already visible HIDES it. Hide is always
 //! `panes::hide_window`: hide-not-destroy, never a quit (tray Quit

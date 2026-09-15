@@ -1,4 +1,4 @@
-//! GO-ORBITTY-TILE-CHORDS — global chords for the dest tiles, riding the
+//! Global chords for the dest tiles, riding the
 //! same `tauri_plugin_global_shortcut` as the ⌘⇧O summon and the action
 //! combos. These are NOT user `actionShortcuts` — reserved like summon
 //! (actions.rs `is_reserved` refuses them for action rows, so a

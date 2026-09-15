@@ -1,4 +1,4 @@
-//! GO-ORBITTY-MOUTH-HOP: thin lane router for the Spark mouth.
+//! Thin lane router for the Spark mouth.
 //!
 //! Orbitty owns the ledger — the bubble is ONE continuous thread and
 //! `companion.turns` is never wiped. Paid Grok is today's mouth (session

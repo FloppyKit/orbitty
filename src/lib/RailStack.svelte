@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
 
-  // GO-ORBITTY-RAIL-CLOSE: the rail window stack. Five dests, one native
+  // The rail window stack. Five dests, one native
   // helper — `toggle_labeled` owns the visible?-hide-else-show branch:
   // first click shows + focuses, a click while visible hides via
   // `hide_window`. Hide never quits (tray Quit stays the only quit) and

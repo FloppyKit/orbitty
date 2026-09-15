@@ -1,7 +1,7 @@
 <script module lang="ts">
   import type { KanbanCard } from "./persist";
 
-  // GO-ORBITTY-MENU-KEYS: one Needed ordering, two readers — the strip
+  // One Needed ordering, two readers — the strip
   // paints it, the Launchpad ring (KanbanPage) walks it.
   export function neededSorted(cards: KanbanCard[]): KanbanCard[] {
     return cards
@@ -25,7 +25,7 @@
   // count, open to a standard card (question / why / Answer·Later·Skip).
   // Why is mdLite so **bold**, `paths`, and lists read as prose, not
   // raw markdown. Parent owns mutate/logEvent so persist stays one door.
-  // GO-ORBITTY-MENU-KEYS: open/selectedId are bindable so the Launchpad
+  // open/selectedId are bindable so the Launchpad
   // ring can walk the pile; ringActiveId paints the one focus ring.
   import { mdLite } from "./mdLite";
   import type { PersistedState } from "./persist";

@@ -1,4 +1,4 @@
-//! GO-ORBITTY-DOING-FIRE — moving a `GO-*` **todo** `todo` → `doing` is
+//! Moving a `GO-*` **todo** `todo` → `doing` is
 //! the go. The habitat mints (or reuses) the ONE Needed titled exactly
 //! `Who runs this doing GO?` with a machine-parseable why —
 //! `card=<id> go=<GO-…> planet=<project name or id>` — and Matt teaches

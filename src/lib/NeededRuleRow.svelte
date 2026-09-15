@@ -1,5 +1,5 @@
 <script lang="ts">
-  // GO-ORBITTY-NEEDED-RULES-ANSWER — "if this again": attach a standing
+  // "If this again": attach a standing
   // rule while answering a Needed. Lock: ~/.buzz/PLANS/ORBITTY_NEEDED_RULES_LOCK_v0.md
   //
   // Default OFF: the row is closed, and never opening it writes nothing

@@ -1,4 +1,4 @@
-//! GO-ORBITTY-CONTROL-PLANE-0 — local control socket (Unix only).
+//! Local control socket (Unix only).
 //!
 //! A side-path into the running app: newline-JSON requests on
 //! `app_data/control.sock` (mode 0600), dispatched to the SAME functions
@@ -13,41 +13,41 @@
 //! ACCEPTANCE-ORBITTY-CONTROL-PLANE-0.md`: 2 not-running (ctl-side), 3
 //! auth, 4 denied, 5 AX/degraded, 1 other.
 //!
-//! GO-ORBITTY-MCP-WRITE adds the four write tools (kanban.add /
+//! The four write tools (kanban.add /
 //! kanban.move / needed.open / log.append). Writes are never in
 //! READ_TOOLS and never match companion.*, so only `full` or a named
 //! `custom` allowlist reaches them; `read` / `companion` deny (4).
-//! GO-ORBITTY-CARD-BLURB adds kanban.notes (set/clear a card's one-line
+//! kanban.notes (set/clear a card's one-line
 //! summary) and the optional `notes` arg on kanban.add — same write ACL.
 //!
-//! GO-ORBITTY-ACTION-FILE adds the action recipe file (action.list /
+//! The action recipe file (action.list /
 //! action.add / action.run / action.rm). `action.list` is read-profile
 //! safe; the companion profile (Spark) may `action.run` + `action.add` —
 //! it mints and runs named recipes, never a raw shell; `action.rm` needs
 //! `full` or a custom allowlist naming the tool or the `action.*` prefix.
 //!
-//! GO-ORBITTY-PROJECT-ADD adds the planet control plane (project.add /
+//! The planet control plane (project.add /
 //! project.rm / project.rename). Same ACL class as the kanban writes:
 //! never in READ_TOOLS, never companion.* — `full` or a named `custom`
 //! entry only; `read` / `companion` deny (4).
 //!
-//! GO-ORBITTY-DOCK-HACK adds companion.hack — the ctl-lit "agent
+//! companion.hack — the ctl-lit "agent
 //! working" flag behind the dock LED. companion.* ACL like play/send;
 //! `live` must be a real bool, so a malformed request fails closed and
 //! never leaves a stuck light.
 //!
-//! GO-ORBITTY-AGENT-PLANET adds the agent roster (agent.list / agent.add /
+//! The agent roster (agent.list / agent.add /
 //! agent.rm / agent.pin / agent.pickup) plus kanban.assign. `agent.list`
 //! rides READ_TOOLS; the rest are writes — full / named custom only,
 //! never companion.* (Spark never spawns a harness).
 //!
-//! GO-ORBITTY-NEEDED-RULES-OPEN adds needed.answer (same path as the
+//! needed.answer (same path as the
 //! Tauri needed_answer — the watch sees the event) and puts the
 //! user-minted standing rules in front of needed.open: one hit + can-run
 //! mints the card already answered (actor "rule"); miss / collide /
 //! cannot-run / unreadable store mints open as today. Write-class ACL.
 //!
-//! GO-ORBITTY-MOUTH-HOP leftover adds companion.free_mode — the Free
+//! Leftover: companion.free_mode — the Free
 //! Mode switch through the one control door, so dogfood/automation
 //! toggles it without poking state.json. companion.* ACL like
 //! companion.mode; `enabled` must be a real bool (fail closed).
@@ -239,11 +239,11 @@ fn load_acl(dir: &Path) -> Result<Acl, String> {
     Err("control.json: need \"profile\" or \"allow\"".into())
 }
 
-// GO-ORBITTY-MCP-WRITE: the write tools (kanban.add / kanban.move /
+// The write tools (kanban.add / kanban.move /
 // needed.open / log.append) are deliberately NOT here and not companion.* —
 // `read` and `companion` profiles deny them (4); only `full` or a named
-// `custom` entry allows a write. GO-ORBITTY-PROJECT-ADD: project.add /
-// project.rm / project.rename ride the same rule. GO-ORBITTY-CARD-BLURB:
+// `custom` entry allows a write. project.add /
+// project.rm / project.rename ride the same rule.
 // kanban.notes too.
 const READ_TOOLS: &[&str] = &[
     "app.status",
@@ -252,9 +252,9 @@ const READ_TOOLS: &[&str] = &[
     "packs.list",
     "companion.agents",
     "state.get",
-    // GO-ORBITTY-ACTION-FILE: the list is the read face of the file.
+    // The list is the read face of the file.
     "action.list",
-    // GO-ORBITTY-AGENT-PLANET: the roster is the read face; add / rm /
+    // The roster is the read face; add / rm /
     // pin / pickup / kanban.assign stay write-class (full / named custom).
     "agent.list",
 ];
@@ -265,7 +265,7 @@ fn allowed(acl: &Acl, tool: &str) -> bool {
         Acl::Full => true,
         Acl::Read => READ_TOOLS.contains(&tool),
         Acl::Companion => {
-            // GO-ORBITTY-ACTION-FILE: Spark mints and runs named recipes
+            // Spark mints and runs named recipes
             // (action.add / action.run) — never a raw shell, never rm.
             READ_TOOLS.contains(&tool)
                 || tool.starts_with("companion.")
@@ -386,7 +386,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             crate::windows::close_window(&id).map(|_| ok_true()).map_err(tool_err)
         }
         "companion.open" => crate::panes::show_companion(app).map(|_| ok_true()).map_err(tool_err),
-        // GO-ORBITTY-BOARD-STARS: one shared 780×520 pane — these pick the
+        // One shared 780×520 pane — these pick the
         // page inside it; neither spawns the legacy 420×560 stars window.
         "kanban.open" => crate::panes::show_shared_pane(app, "board").map(|_| ok_true()).map_err(tool_err),
         "stars.open" => crate::panes::show_shared_pane(app, "stars").map(|_| ok_true()).map_err(tool_err),
@@ -411,13 +411,13 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
-        // GO-ORBITTY-COMPANION-PLAY: same ACL class as companion.send
+        // Same ACL class as companion.send
         // (companion.* — never read-only). Unknown clip = honest error.
         "companion.play" => {
             let clip = arg_str(args, "clip")?;
             crate::companion::companion_play(app, &clip).map_err(tool_err)
         }
-        // GO-ORBITTY-MODE-SPLIT: the bus verbs. companion.* ACL like
+        // The bus verbs. companion.* ACL like
         // play/send; unknown modes fail closed at the command.
         "companion.mode" => {
             let mode = arg_str(args, "mode")?;
@@ -431,7 +431,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
-        // GO-ORBITTY-MOUTH-HOP leftover: the Free Mode switch — same
+        // Leftover: the Free Mode switch — same
         // companion.* ACL as companion.mode. `enabled` must be a real
         // bool (fail closed, same as companion.hack's `live`).
         "companion.free_mode" => {
@@ -448,7 +448,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(|_| json!({ "freeMode": enabled }))
                 .map_err(tool_err)
         }
-        // GO-ORBITTY-DOCK-HACK: the dock LED flag — companion.* ACL like
+        // The dock LED flag — companion.* ACL like
         // play/send. `live` must be a real bool (fail closed); `who` is
         // an optional source label ("cursor", "goose", …) for the title.
         // AGENT-PLANET leftover: optional `projectId` — the live agent's
@@ -479,7 +479,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map_err(tool_err)
         }
         "state.get" => crate::state::load_state(app).map(to_data).map_err(tool_err),
-        // GO-ORBITTY-ACTION-FILE: the action recipe file. list = read
+        // The action recipe file. list = read
         // profile; add/run = companion (Spark mints) and up; rm = full /
         // named custom only. Runs go through the same logged /bin/zsh -lc
         // 120s door as the Settings list click — lengths-only event log.
@@ -508,19 +508,19 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let id = arg_str(args, "id")?;
             crate::actions::action_rm(app, &id).map_err(tool_err)
         }
-        // GO-ORBITTY-MCP-WRITE: the four write tools. Same mutate path as
+        // The four write tools. Same mutate path as
         // the save_state command (claim diff + state:changed emit) so the
         // UI live-updates. ACL: full / named custom only (see READ_TOOLS).
         "kanban.add" => {
             let title = arg_str(args, "title")?;
             let project = arg_opt(args, "projectId").unwrap_or_default();
             let status = arg_opt(args, "status").unwrap_or_default();
-            // GO-ORBITTY-CARD-BLURB: optional one-line summary (notes).
+            // Optional one-line summary (notes).
             crate::board::kanban_add(app, &title, &project, &status, arg_opt(args, "notes").as_deref())
                 .map(to_data)
                 .map_err(tool_err)
         }
-        // GO-ORBITTY-CARD-BLURB: set a card's notes (first line = the
+        // Set a card's notes (first line = the
         // board-row summary). `notes` must be a string; empty clears —
         // same shape as kanban.assign's empty-unassigns. Same write ACL.
         "kanban.notes" => {
@@ -542,7 +542,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
-        // GO-ORBITTY-AGENT-PLANET: assign a card to an agent row. `agent`
+        // Assign a card to an agent row. `agent`
         // must be present (id or unique name); an empty string unassigns.
         "kanban.assign" => {
             let id = arg_str(args, "id")?;
@@ -556,7 +556,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
-        // GO-ORBITTY-AGENT-PLANET: the agent roster. list rides read;
+        // The agent roster. list rides read;
         // add / rm / pin / pickup are writes (full / named custom only).
         // Harness is required on add and allowlisted in agents.rs — an
         // unknown harness is an honest error, never a silent hermes.
@@ -612,7 +612,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
-        // GO-ORBITTY-NEEDED-RULES-OPEN: needed.answer — the exact path of
+        // needed.answer — the exact path of
         // the Tauri needed_answer command (same save door, same
         // needed-answer event the watch dispatches on), so orbittyctl and
         // the python wrapper can apply an answer without the UI. Same
@@ -624,7 +624,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
-        // GO-ORBITTY-PROJECT-ADD: mint / kill / rename planets. Same one
+        // Mint / kill / rename planets. Same one
         // save door as the kanban writes (state:changed emit), so the
         // habitat paints the new projects[] on the next sync. ACL: full /
         // named custom only (not in READ_TOOLS, never companion.*).

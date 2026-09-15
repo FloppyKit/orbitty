@@ -16,7 +16,7 @@
   // The same SPA bundle serves the separate Kanban/Companion/STARS/Sky
   // windows; each mounts only its own page and never runs the rail
   // poll/persist loop.
-  // GO-ORBITTY-PANE-SPA: the label read can NEVER throw — in a
+  // The label read can NEVER throw — in a
   // runtime-created drawer webview __TAURI_INTERNALS__ can lag module init,
   // and a throw at module top kills the whole page module before Svelte
   // mounts (white slab, empty AXWebArea). Read the internals metadata
@@ -44,7 +44,7 @@
   const isStarsWindow = $derived(windowLabel === "stars");
   const isSettingsWindow = $derived(windowLabel === "settings");
   const isSkyWindow = $derived(windowLabel === "sky");
-  // GO-ORBITTY-YARD-WARN: the Herding Cats confirm — own small window.
+  // The Herding Cats confirm — own small window.
   const isYardWarnWindow = $derived(windowLabel === "yard-warn");
   const isNextCardWindow = $derived(windowLabel === "next-card");
   const isRailWindow = $derived(windowLabel === "main");
@@ -61,10 +61,10 @@
       isNextCardWindow,
   );
 
-  // GO-ORBITTY-PANE-PAINT: chrome drawers are opaque windows, not rail
+  // Chrome drawers are opaque windows, not rail
   // glass — tag <html> synchronously (before first paint) so the drawer
   // rule in the style block paints the theme slab on html/body. The rail
-  // and sky keep transparent html/body. GO-ORBITTY-PANE-SPA: when the
+  // and sky keep transparent html/body. When the
   // label resolves late (IPC lagged module init) the effect applies the
   // tag on resolution.
   const isDrawerWindow = $derived(
@@ -87,14 +87,14 @@
     if (isDrawerWindow) document.documentElement.dataset.drawer = "";
   });
 
-  // GO-ORBITTY-BOARD-STARS: the `kanban` webview is the ONE shared 780×520
+  // The `kanban` webview is the ONE shared 780×520
   // overlay — Board mounts KanbanPage, STARS mounts StarsPage inside it.
-  // GO-ORBITTY-PANE-404: the URL never carries the mode (a query 404s the
+  // The URL never carries the mode (a query 404s the
   // custom protocol) — native persists sharedPaneMode BEFORE show; warm
   // swaps arrive as `orbitty:shared-pane-mode`, and the load_state
   // reconcile on mount covers a cold webview. Last mode persists
   // native-side, so a bare re-show (tray Lists) restores it.
-  // GO-ORBITTY-RAIL-COVER: seed "board" before first paint — a null mode
+  // Seed "board" before first paint — a null mode
   // renders nothing, and a transparent window rendering nothing still
   // hit-tests (the invisible click-eater over the rail). Belt-and-braces:
   // while the mode is somehow null the overlay ignores the mouse entirely.
@@ -143,7 +143,7 @@
 </script>
 
 {#if !labelKnown}
-  <!-- GO-ORBITTY-PANE-SPA: label unknown or unrecognized — dark slab,
+  <!-- Label unknown or unrecognized — dark slab,
        never white, never rail chrome in a drawer. -->
   <div class="spa-slab" aria-hidden="true"></div>
 {:else if isKanbanWindow}
@@ -171,7 +171,7 @@
 <style>
   /* System pair (systemLight / systemDark): tokens are bound from the Tahoe
      semantic table in src/themes/host.ts and applied inline at runtime —
-     brand accent/mark/focus per GO-ORBITTY-COMPANION-BRAND. The one Custom
+     brand accent/mark/focus. The one Custom
      skin below (Terminal) stays pure CSS. */
   :global(:root[data-theme="terminal"]) {
     --bg: #0a120e;
@@ -191,7 +191,7 @@
     background: transparent;
   }
 
-  /* GO-ORBITTY-PANE-SPA: window label not yet resolved (IPC lagged module
+  /* Window label not yet resolved (IPC lagged module
      init in a runtime-created drawer) or unrecognized — paint the dark
      slab, never white, never rail chrome. */
   .spa-slab {

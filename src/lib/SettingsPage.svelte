@@ -1,5 +1,5 @@
 <script lang="ts">
-  // GO-ORBITTY-SETTINGS-WIN: gear pops this window (same pattern as STARS).
+  // Gear pops this window (same pattern as STARS).
   // Load → mutate settings fields → save whole state so rail slices survive.
   // Talk source uses set_companion_talk_source (companion slice).
   import { invoke } from "@tauri-apps/api/core";
@@ -33,7 +33,7 @@
     name: string;
     block: "System" | "Custom";
   }
-  // GO-ORBITTY-COMPANION-BRAND: Custom holds Terminal only; the seven old
+  // Custom holds Terminal only; the seven old
   // palette skins are gone and a dead saved id falls back to the OS pair.
   const THEMES: Theme[] = [
     { id: "systemLight", name: "Light", block: "System" },
@@ -49,7 +49,7 @@
       : "systemLight";
   }
 
-  // GO-ORBITTY-PANE-PAINT: seed the OS theme synchronously so --bg exists
+  // Seed the OS theme synchronously so --bg exists
   // before load_state lands — an empty themeId on an opaque drawer is a
   // white-on-white first paint. themeChosen stays false until a saved id
   // or an explicit pick, so the seed is never persisted as a choice.
@@ -63,11 +63,11 @@
   let marbleDrift = $state(false);
   let talkSource = $state<"system" | "hotkey">("system");
   let cheatSheetHint = $state(true);
-  // GO-ORBITTY-MOUTH-HOP: Free Mode toggle + BYOK OpenRouter key. The
+  // Free Mode toggle + BYOK OpenRouter key. The
   // key is write-only — the native side stores it 0600 and reports only
   // set/source/last4; the draft clears on save.
   let freeMode = $state(false);
-  // GO-ORBITTY-MOUTH-ACK: conductor on/off + model id. Blank model =
+  // Conductor on/off + model id. Blank model =
   // auto (first pulled Ollama model; non-LLM classifier when Ollama is
   // down). Both ride their own commands — save_state never owns them.
   let conductorOn = $state(false);
@@ -229,7 +229,7 @@
     }
   }
 
-  // GO-ORBITTY-MOUTH-HOP: Free Mode persists through its own command
+  // Free Mode persists through its own command
   // (same load-modify-save as the other companion switches); the key
   // commands never return the key itself.
   async function toggleFreeMode() {
@@ -241,7 +241,7 @@
     }
   }
 
-  // GO-ORBITTY-MOUTH-ACK: same own-command pattern as Free Mode.
+  // Same own-command pattern as Free Mode.
   async function toggleConductor() {
     conductorOn = !conductorOn;
     try {
@@ -409,9 +409,9 @@
     document.removeEventListener("visibilitychange", onVisibility);
   });
 
-  // GO-ORBITTY-YARD-WARN: quiet Appearance-footer button — the same
+  // Quiet Appearance-footer button — the same
   // confirm ⌘⇧Y opens, in its own small window (works with Settings
-  // closed). Confirm only; no cats until phrase #2.
+  // closed).
   function openYardWarn() {
     invoke("open_yard_warn_window").catch(() => {});
   }
@@ -541,7 +541,7 @@
             title="Which body the companion wears — the blessed Spirit, a bundled 3D body, or an imported companion pack"
           >
             <option value="spirit">Spirit</option>
-            <!-- GO-ORBITTY-COMPANION-3D: reserved bundled-GLB ids, never
+            <!-- Reserved bundled-GLB ids, never
                  pack folders. Spirit stays the default. -->
             <option value="tang">Tang · 3D</option>
             <option value="female">Female · 3D</option>
@@ -941,7 +941,7 @@
     opacity: 0.5;
     cursor: default;
   }
-  /* GO-ORBITTY-MOUTH-HOP: the BYOK key field — same chrome as bodypick,
+  /* The BYOK key field — same chrome as bodypick,
      flexes to the row. */
   .keyin {
     flex: 1;
@@ -1051,7 +1051,7 @@
     color: var(--accent);
     border-color: var(--accent);
   }
-  /* GO-ORBITTY-ACTION-FILE: the actions face — one monospace list. */
+  /* The actions face — one monospace list. */
   .action-list {
     list-style: none;
     margin: 2px 0 0;
@@ -1130,7 +1130,7 @@
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 0.62rem;
   }
-  /* GO-ORBITTY-YARD-WARN: quiet footer of the Appearance tab — not a
+  /* Quiet footer of the Appearance tab — not a
      section, not on launch. */
   .yard-foot {
     margin-top: 12px;

@@ -1,12 +1,4 @@
-//! S2 persistence — explicit claim state, JSON file under the app data dir.
-//! S4 adds: `claims[].lastTouchedAt` (zombie aging), `kanbanCards`,
-//! `pointsLedger` (local Kanban SoT + capped points, same file, additive).
-//! S4.2 adds `windowOpacity` (0.35–1.0 background-fill alpha, default 1.0).
-//! GO-ORBITTY-CHARS adds `claims[].charSeed` / `charLook` / `spriteScale`
-//! (generated person + per-walker size; all optional, all additive).
-//! GO-ORBITTY-SLEEPERS adds `claims[].filePath` / `hermesProfile` /
-//! `hermesSession` / `actionId` / `command` / `cwd` — the wake trail for a
-//! closed claimed window (all optional, all additive).
+//! Persistence — explicit claim state, JSON file under the app data dir.
 //! Shape: `{ themeId, windowOpacity, projects: [{id,name}],
 //! claims: [{windowId,projectId,lastTouchedAt}],
 //! tags: [{id,name,color?}], windowTags: [{windowId,tagIds}],
@@ -17,64 +9,61 @@
 //! neededState?, neededWhy?, neededAnswer?, actor?}],
 //! pointsLedger: [{id,cardId,amount,day,at,actor?}],
 //! titleOverrides: [{windowId,title}] }`.
-//! Settings slice adds `autohideRowChrome` (default true) / `hideTitles`
+//! Settings slice: `autohideRowChrome` (default true) / `hideTitles`
 //! (default false; legacy `showFullTitles` is ignored — old saves load with
 //! titles visible, one line) and the user-authored shortcut lanes:
 //! `actionShortcuts: [{id,name,command,cwd?,combo?}]`,
 //! `agentShortcuts: [{id,name,harness,profile,model?,mdPaths[],projectId?,
 //! extra?}]`.
-//! S4.4 adds the Habitica-thin detail fields on cards (all optional, all
-//! additive — old saves load, and the rail's saves must not strip them).
-//! Polish slice adds `titleOverrides: [{windowId,title}]` — display-only
-//! renames written by the rail alone; an absent/empty entry means the live
-//! AX title shows. AX/OS titles are never touched.
-//! GO-LS-TAURI-AVATAR-LARGE adds `companion: {visible, bounds, imagePackId,
-//! state}` — the large companion window (S2), written native-side (bounds/
-//! visible) only. S2.1: `visible` defaults true (first run opens with the
-//! app); `imagePackId` is legacy — the window always draws the blessed
-//! spirit, the field remains so old saves load.
-//! GO-LS-STARS-STATUS adds `stars: {promptsOptIn, checkins, promptsAck}` —
-//! the explicit daily check-in radar (Sleep · Terroir · Athleticism ·
-//! Relationships · Self, keyed by local YYYY-MM-DD). No PHI:
-//! five small self-reported integers per day, written only by the rail's
-//! Save today. All fields default so old saves load.
+//! Card detail fields are all optional, all additive — old saves load, and
+//! the rail's saves must not strip them.
+//! `titleOverrides: [{windowId,title}]` — display-only renames written by
+//! the rail alone; an absent/empty entry means the live AX title shows.
+//! AX/OS titles are never touched.
+//! `companion: {visible, bounds, imagePackId, state}` — the large companion
+//! window, written native-side (bounds/visible) only. `visible` defaults
+//! true (first run opens with the app); `imagePackId` is legacy — the
+//! window always draws the blessed spirit; the field remains so old saves
+//! load.
+//! `stars: {promptsOptIn, checkins, promptsAck}` — the explicit daily
+//! check-in radar (Sleep · Terroir · Athleticism · Relationships · Self,
+//! keyed by local YYYY-MM-DD). No PHI: five small self-reported integers
+//! per day, written only by the rail's Save today. All fields default so
+//! old saves load.
 //! GO-ORBITTY-STARS-FIVE: spokes are 1–5 (was 0–4); `scaleV` marks the
 //! migrated shape and `migrate_stars_scale` shifts legacy saves n→n+1
 //! once at setup.
-//! GO-ORBITTY-STARS-AVERAGE adds `stars.averageWindow` ("week" | "14" |
-//! "month", default "14") — which rolling window the mean line under the
-//! chip strip shows. Missing on old saves → "14" via the slice Default.
-//! GO-ORBITTY-MARBLE-DRIFT adds `marbleDrift` (default false) — the
-//! Settings → Appearance toggle that lets nearby collapsed marbles slowly
-//! drift. Off means marbles sit exactly where they were left.
-//! GO-ORBITTY-WORD-SKY adds `sky: {muted}` — the ONLY persisted piece of
-//! the word sky. Tokens are recomputed from the bag (done titles/notes,
-//! tag names, weak planet names, user companion lines) on every open and
-//! are never stored.
-//! GO-ORBITTY-BOARD-STARS adds `sharedPaneMode` ("board" | "stars",
-//! default "board") — the last page mounted in the one shared 780×520
-//! `kanban` overlay, so a reopen restores it.
-//! GO-ORBITTY-RAIL-DRAWER adds `drawers` — the invisible-leash state for
-//! the three chrome drawers (`companion` / `kanban` / `settings`) only.
-//! Never `sky`, never `stars` (Board+STARS share `kanban`). A missing key
-//! (old saves) means: companion starts plucked iff legacy
-//! `companion.bounds` exists; every other pane starts docked.
-//! GO-ORBITTY-LP-ACTOR adds `actor` ("user" | "agent" | "action" | "vps")
-//! on `kanbanCards` + `pointsLedger` — who completed the quest. Optional,
-//! additive; a missing actor is pre-actor history, which the HUD reads as
-//! "user". Only the KanbanPage completeCard door stamps it today.
-//! GO-ORBITTY-SPRITE-OFF adds `companion.sprite` (default true) — R-click
-//! on the Full/Head button hides the companion sprite while chat stays.
-//! One key for collapsed, expanded, and hosted; a missing key (old saves)
-//! loads true.
-//! GO-ORBITTY-AGENT-PLANET adds `agentShortcuts[].extra` (free-text
-//! pickup instructions) and `kanbanCards[].assignedAgentId` (the agent row
-//! a Todo is assigned to) — both optional, both additive; old saves load,
-//! and a removed agent row leaves the id on its cards (project.rm law).
-//! GO-ORBITTY-DOING-WALKER adds `agentRuns: [{cardId, planetId,
-//! agentShortcutId, state}]` — one row per doing-run, the agent walker on
-//! that planet. Whole-object save, no second schema; old saves load with
-//! an empty list.
+//! `stars.averageWindow` ("week" | "14" | "month", default "14") — which
+//! rolling window the mean line under the chip strip shows. Missing on old
+//! saves → "14" via the slice Default.
+//! `marbleDrift` (default false) — the Settings → Appearance toggle that
+//! lets nearby collapsed marbles slowly drift. Off means marbles sit
+//! exactly where they were left.
+//! `sky: {muted}` — the ONLY persisted piece of the word sky. Tokens are
+//! recomputed from the bag (done titles/notes, tag names, weak planet
+//! names, user companion lines) on every open and are never stored.
+//! `sharedPaneMode` ("board" | "stars", default "board") — the last page
+//! mounted in the one shared 780×520 `kanban` overlay, so a reopen
+//! restores it.
+//! `drawers` — the invisible-leash state for the three chrome drawers
+//! (`companion` / `kanban` / `settings`) only. Never `sky`, never `stars`
+//! (Board+STARS share `kanban`). A missing key (old saves) means:
+//! companion starts plucked iff legacy `companion.bounds` exists; every
+//! other pane starts docked.
+//! `actor` ("user" | "agent" | "action" | "vps") on `kanbanCards` +
+//! `pointsLedger` — who completed the quest. Optional, additive; a missing
+//! actor is pre-actor history, which the HUD reads as "user". Only the
+//! KanbanPage completeCard door stamps it today.
+//! `companion.sprite` (default true) — R-click on the Full/Head button
+//! hides the companion sprite while chat stays. One key for collapsed,
+//! expanded, and hosted; a missing key (old saves) loads true.
+//! `agentShortcuts[].extra` (free-text pickup instructions) and
+//! `kanbanCards[].assignedAgentId` (the agent row a Todo is assigned to) —
+//! both optional, both additive; old saves load, and a removed agent row
+//! leaves the id on its cards (project.rm law).
+//! `agentRuns: [{cardId, planetId, agentShortcutId, state}]` — one row per
+//! doing-run, the agent walker on that planet. Whole-object save, no
+//! second schema; old saves load with an empty list.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -111,10 +100,10 @@ pub struct PersistedState {
     pub agent_shortcuts: Vec<AgentShortcut>,
     /// Gear walker-size slider (0.4–2.5). 0 / missing = 1.0.
     pub sprite_scale: f64,
-    /// GO-ORBITTY-MARBLE-DRIFT: Settings → Appearance toggle. Default OFF —
+    /// Settings → Appearance toggle. Default OFF —
     /// collapsed marbles sit where they were left until opted in.
     pub marble_drift: bool,
-    /// GO-ORBITTY-YARD-WARN leftover: the Herding Cats confirm's source
+    /// Leftover: the Herding Cats confirm's source
     /// checkboxes — independent on/off, at least one must be on before
     /// Drop can arm. Tabs stay disabled in the pane until Tabbity lands.
     /// The legacy `yardSource` radio key is no longer written; old saves
@@ -122,45 +111,45 @@ pub struct PersistedState {
     /// yardCats array: cats never persist.
     pub yard_windows: bool,
     pub yard_tabs: bool,
-    /// GO-LS-TAURI-AVATAR-LARGE: the large companion window (S2). All fields
+    /// The large companion window. All fields
     /// default — old saves load, and other windows round-trip the slice.
     pub companion: CompanionState,
-    /// GO-LS-STARS-STATUS: the operator-green radar. Explicit check-in only
+    /// The operator-green radar. Explicit check-in only
     /// — no wearables, no dwell score, no inferred anything.
     pub stars: StarsState,
-    /// GO-ORBITTY-WORD-SKY: mute list only. The bag is derived, never
+    /// Mute list only. The bag is derived, never
     /// persisted; a missing key loads as an empty mute list.
     pub sky: SkyState,
-    /// GO-ORBITTY-BOARD-STARS: which page the one shared 780×520 `kanban`
+    /// Which page the one shared 780×520 `kanban`
     /// overlay last mounted — "board" (KanbanPage) | "stars" (StarsPage).
     /// Written native-side before every show; a cold webview reconciles it
     /// via load_state on mount (PANE-404: the URL never carries the mode);
     /// a bare re-show restores it.
     pub shared_pane_mode: String,
-    /// GO-ORBITTY-RAIL-DRAWER: leash state per drawer label. Missing labels
+    /// Leash state per drawer label. Missing labels
     /// default per `drawer_docked` — never strip old keys on save.
     pub drawers: std::collections::BTreeMap<String, DrawerState>,
-    /// GO-ORBITTY-DOING-WALKER: one row per doing-run — the agent walker
+    /// One row per doing-run — the agent walker
     /// on that planet. Additive; old saves load with an empty list.
     pub agent_runs: Vec<AgentRun>,
-    /// GO-ORBITTY-GATE-CAPS: daily spend ceiling USD. Default 20.
+    /// Daily spend ceiling USD. Default 20.
     pub spend_cap_usd: f64,
-    /// GO-ORBITTY-GATE-CAPS: false = Never for money.
+    /// false = Never for money.
     pub spend_cap_enabled: bool,
-    /// GO-ORBITTY-GATE-CAPS: concurrent runners, default 2, clamp 1–4.
+    /// Concurrent runners, default 2, clamp 1–4.
     pub runner_cap: u32,
-    /// GO-ORBITTY-GATE-CAPS: local calendar day for spendUsd roll.
+    /// Local calendar day for spendUsd roll.
     pub spend_day: String,
-    /// GO-ORBITTY-GATE-CAPS: parsed usage USD today. 0 if nothing parsed.
+    /// Parsed usage USD today. 0 if nothing parsed.
     pub spend_usd: f64,
 }
 
-/// GO-ORBITTY-RAIL-DRAWER: the only labels that can be drawers. The rail
+/// The only labels that can be drawers. The rail
 /// is not a drawer; `sky` stays hide-not-destroy; Board+STARS are the one
 /// `kanban` overlay; planets are never docked.
 pub const DRAWER_LABELS: [&str; 3] = ["companion", "kanban", "settings"];
 
-/// GO-ORBITTY-RAIL-DRAWER slice. `docked` = follow-translate on the rail
+/// `docked` = follow-translate on the rail
 /// from the inboard slot plus (dx, dy); `bounds` is the plucked resting
 /// rect (physical px). For `companion`, the legacy top-level
 /// `companion.bounds` wins when both exist.
@@ -255,13 +244,13 @@ impl Default for PersistedState {
     }
 }
 
-/// GO-ORBITTY-DOING-WALKER: one doing-run — the row the habitat mirrors
+/// One doing-run — the row the habitat mirrors
 /// as the seeded droid walker on `planet_id`. Minted/refreshed by the
 /// attach door (`agent_runs::attach_on_moves`) when a gated `kind=todo`
 /// card lands in Doing; the launchers (doing-fire / pickup /
 /// `launch_agent`) own the process — this row is never a spawn.
-/// `state`: "starting" | "working" | "blocked" | "done". DOING-WALKER
-/// writes working/done; the Herdr adapter (`herdr.rs`) writes blocked
+/// `state`: "starting" | "working" | "blocked" | "done". The doing-run
+/// doors write working/done; the Herdr adapter (`herdr.rs`) writes blocked
 /// and carries `herdr`; starting stays read-supported only (NeededInbox
 /// open or blocked → the walker sits the near rim; done → the far-rim
 /// walk-off, then the rail evicts the row).
@@ -274,14 +263,14 @@ pub struct AgentRun {
     /// (a GO-* fire before the standing answer assigns one).
     pub agent_shortcut_id: String,
     pub state: String,
-    /// GO-ORBITTY-HERDR-ADAPTER: the herdr pen for this run — present
+    /// The herdr pen for this run — present
     /// only when the herdr branch of `launch_agent` launched it. The few
     /// adapter fields ride the one row; never a second planet DB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub herdr: Option<AgentRunHerdr>,
 }
 
-/// GO-ORBITTY-HERDR-ADAPTER: the herdr pen of one doing-run, persisted
+/// The herdr pen of one doing-run, persisted
 /// on the run row (`agentRun.herdr`). Additive; old saves load with None.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -308,7 +297,7 @@ impl Default for AgentRun {
     }
 }
 
-/// GO-ORBITTY-WORD-SKY slice. `muted` holds smashed words (lowercase
+/// `muted` holds smashed words (lowercase
 /// tokens); everything else about the sky is recomputed on open.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -316,7 +305,7 @@ pub struct SkyState {
     pub muted: Vec<String>,
 }
 
-/// GO-LS-STARS-STATUS slice. `prompts_opt_in` defaults FALSE — the
+/// `prompts_opt_in` defaults FALSE — the
 /// companion's one-strip menu (Rest / Water / Smallest todo) stays silent
 /// until the human opts in, in the STARS pane or on the companion.
 /// `prompts_ack` is the strip dismissal stamp `"{day}:{sig}"` — one show
@@ -328,7 +317,7 @@ pub struct StarsState {
     /// Local calendar day `YYYY-MM-DD` → that day's five spokes.
     pub checkins: std::collections::BTreeMap<String, StarsCheckin>,
     pub prompts_ack: String,
-    /// GO-ORBITTY-STARS-AVERAGE: "week" | "14" | "month" | "year" | "custom".
+    /// "week" | "14" | "month" | "year" | "custom".
     /// Default "14" on old saves. Custom uses average_from / average_to.
     pub average_window: String,
     pub average_from: String,
@@ -367,32 +356,32 @@ pub struct StarsCheckin {
     pub self_: u8,
 }
 
-/// GO-LS-TAURI-AVATAR-LARGE companion slice. Bounds are physical pixels
+/// Companion slice. Bounds are physical pixels
 /// (written by the native move/resize/hide handlers, restored on show).
 /// `image_pack_id`: None = blessed spirit (default). Some ids (e.g.
 /// `companion-jacob`) are temp companion bodies in packs/ with
 /// `role: companion`. Never a planet walker.
 /// `visible` defaults TRUE: first run (no prior key) opens the companion
 /// with the app; after that the native hide/show handlers persist it.
-/// S2.2: `last_user_line` is the composer's latest sent line (true CC —
+/// `last_user_line` is the composer's latest sent line (true CC —
 /// one caption row, not a transcript), written by `companion_send`.
-/// S2.4 / GO-COMPANION-BERD: `last_bot_line` is the companion backend reply;
+/// `last_bot_line` is the companion backend reply;
 /// `agent_profile` is the companion soul label — Berd agent stem under
 /// `~/.agents/agents` (default backend) or Hermes profile when
 /// `ORBITTY_COMPANION_BACKEND=hermes` ("" = unset → grok when present);
 /// `expanded` persists the transcript view; `turns` is the capped
 /// transcript (last 40) the expanded view scrolls.
-/// S2.7: `speak_replies` (default false) — read bot replies aloud via
+/// `speak_replies` (default false) — read bot replies aloud via
 /// macOS `say`.
-/// GO-ORBITTY-COMPANION-HEADROOM: `view_collapsed` / `view_expanded` are
+/// `view_collapsed` / `view_expanded` are
 /// the per-surface Full/Head prefs ("full" | "head") — collapsed defaults
 /// "full", expanded defaults "head". Two keys, never one global bool;
 /// writing one surface never touches the other. Head draws the pack's
 /// bust_* set; a missing bust sits on full (no 128px crop fallback).
-/// GO-ORBITTY-SPRITE-OFF: `sprite` (default true) hides the sprite art on
+/// `sprite` (default true) hides the sprite art on
 /// every surface while chat stays; the Full/Head prefs survive Off
 /// untouched, so turning the sprite back on restores each surface's view.
-/// GO-ORBITTY-MODE-SPLIT adds `mode` ("spark" default | "chat" | "work" |
+/// `mode` ("spark" default | "chat" | "work" |
 /// "hold") + `threads` (mode → capped transcript). `turns` remains the
 /// ACTIVE thread; serde defaults load old saves, `heal_modes` parks a
 /// pre-split transcript under spark.
@@ -404,21 +393,21 @@ pub struct CompanionState {
     /// None = never placed — first show lands at the trailing-edge default.
     pub bounds: Option<CompanionBounds>,
     pub image_pack_id: Option<String>,
-    /// "silent" | "idle" | "needs_human". S2 ships idle-only (no pulse
+    /// "silent" | "idle" | "needs_human". Ships idle-only (no pulse
     /// wiring); the field is forward-compat for the urgency slice.
     pub state: String,
-    /// S2.2: latest line sent from the companion composer. "" = none yet.
+    /// Latest line sent from the companion composer. "" = none yet.
     pub last_user_line: String,
-    /// S2.4: latest reply from the companion backend. "" = none.
+    /// Latest reply from the companion backend. "" = none.
     pub last_bot_line: String,
-    /// S2.4 / GO-COMPANION-BERD: Berd agent stem, Hermes profile name, or ""
+    /// Berd agent stem, Hermes profile name, or ""
     /// (unset — resolves at send/display time, never stored resolved).
     pub agent_profile: String,
-    /// S2.4: expanded transcript view; restored on show.
+    /// Expanded transcript view; restored on show.
     pub expanded: bool,
-    /// S2.4: capped transcript (last 40 turns) for the expanded view.
+    /// Capped transcript (last 40 turns) for the expanded view.
     pub turns: Vec<CompanionTurn>,
-    /// S2.7: read bot replies aloud via macOS `say` (default system
+    /// Read bot replies aloud via macOS `say` (default system
     /// voice). Default OFF. R-click the speaker mutes this.
     pub speak_replies: bool,
     /// Companion `say` volume 0.0–1.0. Missing key (old saves) = 1.
@@ -433,58 +422,58 @@ pub struct CompanionState {
     /// Print ⌘? under the composer. Default on.
     #[serde(default = "companion_cheat_hint_default")]
     pub cheat_sheet_hint: bool,
-    /// GO-ORBITTY-SETTINGS-WIN: companion Talk source. `"system"` (default,
-    /// macOS speech — engine is GO-ORBITTY-PTT-DICTATION) or `"hotkey"`
+    /// Companion Talk source. `"system"` (default,
+    /// macOS speech) or `"hotkey"`
     /// (Handy PTT chord). Unknown values load as system.
     #[serde(default = "talk_source_default")]
     pub talk_source: String,
-    /// GO-ORBITTY-COMPANION-HEADROOM: collapsed-surface view —
+    /// Collapsed-surface view —
     /// "full" (default) | "head".
     #[serde(default = "companion_view_collapsed_default")]
     pub view_collapsed: String,
-    /// GO-ORBITTY-COMPANION-HEADROOM: expanded-surface view —
+    /// Expanded-surface view —
     /// "full" | "head" (default).
     #[serde(default = "companion_view_expanded_default")]
     pub view_expanded: String,
-    /// GO-ORBITTY-SPRITE-OFF: draw the companion sprite. One flag for
+    /// Draw the companion sprite. One flag for
     /// collapsed, expanded, and hosted; missing key (old saves) = true.
     #[serde(default = "companion_sprite_default")]
     pub sprite: bool,
-    /// GO-ORBITTY-MODE-SPLIT: the active companion mode — "spark"
+    /// The active companion mode — "spark"
     /// (default) | "chat" | "work" | "hold". A SECOND axis next to the
     /// four-cast agent pick (spark/grok/chaos-gremlin/fkt-homie stems
     /// stay): mode owns the transcript + the bus target, never a stem
     /// recast. Chat/Hold never get the GO bus.
     #[serde(default = "companion_mode_default")]
     pub mode: String,
-    /// GO-ORBITTY-MODE-SPLIT: mode → parked transcript (cap 40 each).
+    /// Mode → parked transcript (cap 40 each).
     /// `turns` stays the ACTIVE thread (CaptionPane reads it); a mode
     /// switch parks turns under the old mode and loads the new mode's
     /// thread. Healed on load: missing map + a pre-split transcript →
     /// copied under "spark" (first run lands the old chat on Spark).
     #[serde(default)]
     pub threads: std::collections::BTreeMap<String, Vec<CompanionTurn>>,
-    /// GO-ORBITTY-DOCK-HACK: ctl-lit "agent working" flag for the dock
+    /// Ctl-lit "agent working" flag for the dock
     /// LED (`orbittyctl companion hack -- on [--who cursor]`). Any
     /// harness opts in; Spark's own `sending` lights the same LED
     /// without ctl. A flag, never a transcript. Default false.
     pub hack_live: bool,
-    /// GO-ORBITTY-DOCK-HACK: names the live source for the LED title
+    /// Names the live source for the LED title
     /// ("cursor", "goose", …). "" = unknown; cleared on off.
     pub hack_who: String,
-    /// GO-ORBITTY-AGENT-PLANET leftover: the live agent's pinned planet
+    /// Leftover: the live agent's pinned planet
     /// (pickup writes it) — the dest/planet menus glow that one planet
     /// while the run is live. None = no pin / not a pickup; cleared on
     /// off. Never a transcript.
     pub hack_project_id: Option<String>,
-    /// GO-ORBITTY-MOUTH-HOP: Free Mode — the grok-lane router runs the
+    /// Free Mode — the grok-lane router runs the
     /// free lanes only (local Ollama → OpenRouter free) and paid Grok
     /// stays off, so no surprise bill. Default off. The OpenRouter key
     /// is NOT here — it lives 0600 in companions/orbitty-primary, never
     /// in this whole-object save.
     #[serde(default)]
     pub free_mode: bool,
-    /// GO-ORBITTY-MOUTH-ACK: the conductor — a slim local fast-ack layer
+    /// The conductor — a slim local fast-ack layer
     /// in front of the mouth. On = every Spark send gets a one-line ack
     /// + a verb in hundreds of ms (local Ollama first, non-LLM
     /// classifier when it's down); `chat` falls through to the hop
@@ -493,7 +482,7 @@ pub struct CompanionState {
     /// only doors — save_state carries the disk values forward.
     #[serde(default)]
     pub conductor_on: bool,
-    /// GO-ORBITTY-MOUTH-ACK: conductor model id (an Ollama tag). "" =
+    /// Conductor model id (an Ollama tag). "" =
     /// auto — the first pulled model when Ollama is up, the non-LLM
     /// classifier when it isn't. Local-only, never a hosted id.
     #[serde(default)]
@@ -513,7 +502,7 @@ fn companion_visible_default() -> bool {
 }
 
 fn talk_source_default() -> String {
-    // GO-ORBITTY-PTT-DICTATION: shipping default is system speech.
+    // Shipping default is system speech.
     // A saved "hotkey" still wins so Matt's desk Handy path stays until
     // he picks System. Missing key (old saves) lands here.
     "system".into()
@@ -547,7 +536,7 @@ pub fn companion_mode_default() -> String {
     "spark".into()
 }
 
-/// GO-ORBITTY-MODE-SPLIT: the four modes are the whole allowlist —
+/// The four modes are the whole allowlist —
 /// anything else is None so callers fail closed (never a silent spark).
 pub fn normalize_companion_mode(raw: &str) -> Option<String> {
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -571,7 +560,7 @@ pub fn cap_companion_turns(turns: &mut Vec<CompanionTurn>) {
 }
 
 impl CompanionState {
-    /// GO-ORBITTY-MODE-SPLIT heal, run on every native load: an unknown /
+    /// Heal, run on every native load: an unknown /
     /// missing mode snaps to spark, and a pre-split save (no threads map,
     /// existing turns) parks its transcript under spark so the first run
     /// shows the old chat on the Spark chip.
@@ -610,7 +599,7 @@ impl CompanionState {
     }
 }
 
-/// GO-ORBITTY-COMPANION-HEADROOM: only "full" / "head" are real; anything
+/// Only "full" / "head" are real; anything
 /// else (old saves, typos) lands on that surface's default.
 pub fn normalize_companion_view(raw: &str, default: &str) -> String {
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -677,7 +666,7 @@ pub struct ActionShortcut {
     pub command: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
-    /// GO-ORBITTY-ACTION-FILE: optional global chord, e.g. "cmd+alt+m".
+    /// Optional global chord, e.g. "cmd+alt+m".
     /// Absent/empty = Spirit-only. Registered native-side on load and on
     /// every persist; reserved/taken chords are never registered (the
     /// Settings list shows `conflict`).
@@ -691,7 +680,7 @@ pub struct AgentShortcut {
     pub id: String,
     pub name: String,
     /// "cursor" | "goose" | "grok" | "hermes" — per row, picked on
-    /// `agent add` (GO-ORBITTY-AGENT-PLANET; never a product-wide default).
+    /// `agent add` (never a product-wide default).
     pub harness: String,
     pub profile: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -700,7 +689,7 @@ pub struct AgentShortcut {
     pub md_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
-    /// GO-ORBITTY-AGENT-PLANET: free-text extra instructions — pickup
+    /// Free-text extra instructions — pickup
     /// concatenates them into the query file after the md paths.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra: Option<String>,
@@ -729,10 +718,10 @@ pub struct Claim {
     /// save (the rail migrates it to first-seen time on load).
     #[serde(default)]
     pub last_touched_at: f64,
-    // GO-LS-TAURI-USER-PACKS reboot-rematch fingerprint, stamped from the live
+    // Reboot-rematch fingerprint, stamped from the live
     // window at claim time (live AX title, never the display override). Live
     // ids die on reboot; these fields rebuild the stableKey so the claim can
-    // adopt the same window's new id. All optional — pre-GO saves load clean.
+    // adopt the same window's new id. All optional — old saves load clean.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bundle_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -742,10 +731,10 @@ pub struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_index: Option<u32>,
     /// Sprite picker (claim menu): packs/<id> folder this window's walker
-    /// draws from; absent/empty = the generated being (GO-ORBITTY-CHARS).
+    /// draws from; absent/empty = the generated being.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprite_pack_id: Option<String>,
-    /// GO-ORBITTY-CHARS: the generated person's roll seed. Stamped at claim
+    /// The generated person's roll seed. Stamped at claim
     /// time (old saves are seeded on load), so a claim keeps the same being
     /// across relaunches instead of rerolling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -758,12 +747,12 @@ pub struct Claim {
     /// Per-walker size (0.4–2.5); absent/0 = the gear's global spriteScale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprite_scale: Option<f64>,
-    /// GO-ORBITTY-CLAIM-ONE: legacy occupancy-teleport leftover. Ignored —
+    /// Legacy occupancy-teleport leftover. Ignored —
     /// occupancy is `project_id` only (one windowId, one planet). The
-    /// field stays additive so pre-CLAIM-ONE saves still load.
+    /// field stays additive so old saves still load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub walker_home: Option<String>,
-    // GO-ORBITTY-SLEEPERS wake stamps (all additive — old saves load). A
+    // Wake stamps (all additive — old saves load). A
     // closed claimed window stays on its planet as a sleeper; these fields
     // are what wake_sleeper walks through, in order, after a live rematch.
     /// AX document path (file:// only, existed at stamp time).
@@ -785,10 +774,10 @@ pub struct Claim {
     pub cwd: Option<String>,
 }
 
-/// Local Kanban SoT — S4.3: cards are born at claim time (`kind: "window"`,
+/// Local Kanban SoT — cards are born at claim time (`kind: "window"`,
 /// status `doing`) or as freeform `kind: "todo"` from the Lists window.
 /// Unclaim keeps the card as a project todo with `window_id` cleared.
-/// `starred` is shape-only (no star UI this slice).
+/// `starred` is shape-only (no star UI).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct KanbanCard {
@@ -809,7 +798,7 @@ pub struct KanbanCard {
     pub points_awarded: u32,
     #[serde(default)]
     pub starred: bool,
-    // S4.4 detail-panel fields. `difficulty` is metadata only — it never
+    // Detail-panel fields. `difficulty` is metadata only — it never
     // touches the points formula (1 / 2 clinical|master / cap 12).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
@@ -821,7 +810,7 @@ pub struct KanbanCard {
     pub due_at: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag_ids: Option<Vec<String>>,
-    // GO-ORBITTY-LP-NEEDED: the Needed inbox (all additive — old saves
+    // The Needed inbox (all additive — old saves
     // load). `due_at` doubles as the Later snooze stamp on Needed cards.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub needed_state: Option<String>, // "open" | "later" | "answered" | "skipped"
@@ -829,12 +818,12 @@ pub struct KanbanCard {
     pub needed_why: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub needed_answer: Option<String>,
-    // GO-ORBITTY-LP-ACTOR: who completed the card ("user" | "agent" |
+    // Who completed the card ("user" | "agent" |
     // "action" | "vps"). Additive — missing on pre-actor saves, and the HUD
     // reads missing as "user" (pre-actor history was human).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actor: Option<String>,
-    // GO-ORBITTY-AGENT-PLANET: the agentShortcuts row this Todo is assigned
+    // The agentShortcuts row this Todo is assigned
     // to. Additive — missing on pre-assign saves; `kanban assign` writes it
     // (empty agent unassigns); `agent rm` leaves the id on the card, same
     // as project rm keeping cards.
@@ -860,7 +849,7 @@ pub struct PointsEntry {
     /// Local calendar day `YYYY-MM-DD` — the daily cap (12) sums on this.
     pub day: String,
     pub at: f64,
-    /// GO-ORBITTY-LP-ACTOR: who acted on the complete that minted this row
+    /// Who acted on the complete that minted this row
     /// ("user" | "agent" | "action" | "vps"). Additive; missing = pre-actor
     /// human history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -899,7 +888,7 @@ pub fn load_state(app: &tauri::AppHandle) -> Result<PersistedState, String> {
         Ok(text) => {
             let mut st: PersistedState = serde_json::from_str(&text)
                 .map_err(|e| format!("parse {}: {e}", path.display()))?;
-            // GO-ORBITTY-MODE-SPLIT: old saves heal here — mode defaults
+            // Old saves heal here — mode defaults
             // spark, a pre-split transcript parks under spark.
             st.companion.heal_modes();
             Ok(st)
@@ -943,7 +932,7 @@ pub fn migrate_stars_scale(app: &tauri::AppHandle) {
     let _ = save_state(app, &st);
 }
 
-/// GO-LS-TAURI-CUTOVER one-time migration: if the new `space.orbitty.mac`
+/// One-time migration: if the new `space.orbitty.mac`
 /// app-data dir has no state.json yet and the old `app.livesprite.mac` dir
 /// does, copy state + souls/context/packs over once. Never overwrites an
 /// existing Orbitty install; the old dir is left in place untouched.

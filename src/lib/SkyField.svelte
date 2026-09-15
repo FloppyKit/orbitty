@@ -1,5 +1,5 @@
 <script lang="ts">
-  // GO-ORBITTY-RAIL-REVIEW: the embeddable Cloud field (words + mute +
+  // The embeddable Cloud field (words + mute +
   // empty), split out of SkyPage so STARS Review can mount it without the
   // Cloud banner/×. Bag law unchanged: done titles + done notes + tag
   // names + the planet/project name (weak, half weight) + user companion

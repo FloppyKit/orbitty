@@ -1,6 +1,4 @@
-//! GO-ORBITTY-HERDING-CATS — the yard. Phrase #2 of the Herding Cats
-//! cascade; illegal until #1 (YARD-WARN) dogfood-green and the meow wavs
-//! were on disk. Both true 2026-09-09.
+//! The yard.
 //!
 //! Unclaimed windows rain onto the desktop as bitty cats and amble until
 //! each is claimed, closed, or scooped. One fullscreen borderless NSPanel

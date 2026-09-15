@@ -1,4 +1,4 @@
-//! GO-ORBITTY-HERDR-ADAPTER — the Herdr branch of the ONE spawn hook
+//! The Herdr branch of the ONE spawn hook
 //! (`coordinator::launch_agent`; doing-fire / pickup funnel there).
 //! Herdr is first-class IF PRESENT: `herdr` on PATH + its server up →
 //! the run gets a herdr workspace + pane (`workspace create --cwd

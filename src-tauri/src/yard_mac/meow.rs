@@ -1,4 +1,4 @@
-//! Yard meows — GO-ORBITTY-HERDING-CATS. While the clowder is out, one
+//! Yard meows. While the clowder is out, one
 //! `brand/yard/meow_{0,1,2}.wav` (bundled to Resources/yard/) every
 //! 2–6s, jittered, ONE voice at a time. Skipped while any planet boombox
 //! is actually playing (never stack). Killed on every exit — the

@@ -1,4 +1,4 @@
-//! GO-ORBITTY-SHIFT-CONTINUE — after an agent walker walks off, Spark
+//! After an agent walker walks off, Spark
 //! gets a one-line note and, in Work/Hold, pickup fires the next
 //! assigned todo on that agent. Spark/Chat do not auto-continue.
 //! No LLM in this file.

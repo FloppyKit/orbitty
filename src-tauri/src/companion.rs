@@ -1,4 +1,4 @@
-//! GO-LS-TAURI-AVATAR-LARGE — art source for the large companion window.
+//! Art source for the large companion window.
 //! Default: the blessed spirit (`brand/companion/spirit`, bundled at
 //! `companion/spirit`) — 8 idle frames @ 140 ms, hard alpha, nearest-
 //! neighbor in the webview. "Use my image…" swaps in a local pack
@@ -33,7 +33,7 @@ pub struct CompanionArt {
     /// User packs never carry a thinking set.
     #[serde(default)]
     pub thinking_frames: Vec<String>,
-    /// GO-ORBITTY-COMPANION-HEADROOM: bust set (head+neck+collar, hard
+    /// Bust set (head+neck+collar, hard
     /// alpha) for the Head view, same cadence as the idle loop. Empty when
     /// the body has no bust art — the webview sits on Full with Head
     /// disabled. NEVER a CSS crop of the full frames.
@@ -192,7 +192,7 @@ pub fn companion_frames(
     Err("spirit missing".into())
 }
 
-/// GO-ORBITTY-COMPANION-3D: resolve a bundled 3D companion body
+/// Resolve a bundled 3D companion body
 /// (`companion/3d/{id}.glb`) to its filesystem path — the webview wraps it
 /// with convertFileSrc for GLTFLoader (asset protocol scope:
 /// `$RESOURCE/companion/3d/**`). `tang` / `female` are reserved ids, never
@@ -218,8 +218,8 @@ pub fn companion_glb_url(app: tauri::AppHandle, id: String) -> Result<String, St
     }
 }
 
-/// GO-ORBITTY-COMPANION-PLAY: the five allowlisted gestures on the 3D
-/// body. `wave` ships in the GLBs but is NOT this GO (shoulder not
+/// The five allowlisted gestures on the 3D
+/// body. `wave` ships in the GLBs but is NOT allowlisted (shoulder not
 /// locked) — it and any other name are an honest error, never a silent
 /// idle. The spirit sheet mounts no `companion:play` listener, so a play
 /// there is a no-op success — never fake frames on the PNGs.

@@ -100,7 +100,7 @@ fn apply_front_level(handle: &tauri::AppHandle, shown: bool) {
 /// dock click was the menu beach ball) + level 4 + heavy orderFront.
 /// One main-thread block so apply_mode cannot leave the window at 0
 /// under the planets. ⌘⇧O / tray / dock Reopen / hit-mousedown.
-/// GO-ORBITTY-TILE-YAW leftover (summon clamp): a summon ALWAYS recovers
+/// Leftover (summon clamp): a summon ALWAYS recovers
 /// — never bail on a hidden companion (the old `!is_visible` return
 /// stranded a dock-click-dropped window until Quit + relaunch). Show
 /// first, then the dock law: bottom edge sunk below every display (or no

@@ -1,19 +1,19 @@
 <script lang="ts">
-  // GO-LS-TAURI-AVATAR-LARGE — the large companion window. One silent
+  // The large companion window. One silent
   // spirit: the blessed ghost.png sheet / idle_0…7 slices, 8 frames @
   // 140 ms, nearest-neighbor, hard alpha. Default body is the blessed
   // spirit. A Body picker can swap a `role: companion` pack (Jacob
   // temp bake) via imagePackId — no CSS bounce, no import UI. No points,
-  // no editor tabs. GO-LS-STARS-STATUS adds the opt-in prompts strip (one
+  // no editor tabs. The opt-in prompts strip (one
   // menu, never a loop) and hold-to-talk — nothing is ever drawn on the
   // spirit itself.
-  // S2.4 / GO-COMPANION-BERD: REAL send via native companion_send.
-  // GO-ORBITTY-PLUG-APP: the mouth is a plug map — default backend is
+  // REAL send via native companion_send.
+  // The mouth is a plug map — default backend is
   // Goose (`goose run`, plug.json session); ORBITTY_COMPANION_BACKEND
   // picks grok | hermes (compat) | berd (hidden escape). Never Cursor.
   // Async — Send disables while in flight. Never hosts a model here.
   // Agent picker lists ~/.agents/agents stems (four-cast) by default.
-  // S2.5: OPTIMISTIC you — the bubble lands on Send (before the agent
+  // OPTIMISTIC you — the bubble lands on Send (before the agent
   // answers), the field clears, the transcript pins to the bottom, and a
   // pending them bubble holds until the reply; a failed send keeps
   // the you bubble. Expanded transcript = SMS bubbles (you right on
@@ -22,16 +22,13 @@
   // 96×96 portrait absolute upper-right (CORNER); drag moves to that
   // portrait so the transcript can scroll. Missing art fails obvious
   // ("spirit missing").
-  // S2.6: collapsed CC gets the same SMS energy — you right on accent,
+  // Collapsed CC gets the same SMS energy — you right on accent,
   // them left on panel+edge, prefixes gone everywhere.
-  // S2.7: the in-flight wait replaced the cycling Sending/Thinking/…
-  // words (they felt fake). S2.8/S2.9 drew the wait as the Orbitty mark
-  // in a pending bubble; AVATAR-THINK-V9 took the wait mark out of chat
-  // chrome entirely — while a send is in flight the spirit itself (and
+  // While a send is in flight the spirit itself (and
   // the expanded head crop) plays the thinking v9 loop
   // (companion/spirit/thinking, 8 frames @ 140 ms, fail soft to rest),
   // then snaps back to the blessed v5 rest idle when the reply lands.
-  // V9 wait-in-slot: the bare Orbitty mark (no bubble, no fill, no
+  // Wait-in-slot: the bare Orbitty mark (no bubble, no fill, no
   // border) lives IN the agent-text slot — the last left-aligned
   // transcript row expanded, the bot CC slot collapsed — right where
   // the reply will land. Never floating under the stage / head.
@@ -39,7 +36,7 @@
   // companion.speakReplies) reads bot replies aloud via macOS `say`
   // with the default system voice; a new reply or toggling off kills
   // the in-flight `say`. No wake word, no second TTS stack.
-  // GO-ORBITTY-COMPANION-HEADROOM: the 128px .head crop is dead. Each
+  // The 128px .head crop is dead. Each
   // surface has its own persisted view — companion.viewCollapsed
   // (default "full") and companion.viewExpanded (default "head") —
   // written by the one Full/Head control near Expand, current surface
@@ -48,41 +45,41 @@
   // tiny float and a small yaw/roll on send that settles; Reduce
   // Motion stills both. A body with no bust art sits on Full with
   // Head disabled — never a crop fallback, never a neck shear.
-  // GO-ORBITTY-CAPTION-BUBBLE: collapsed CC. Speak off = small scroll
+  // Collapsed CC. Speak off = small scroll
   // (no paging). Speak on = fitPages to that small box so say can flip.
   // Click the bot text = transient in-window full overlay. Enter/Space
   // page leftover only while Speak on. User bubbles never page.
-  // GO-ORBITTY-GHOST-DOCK: idle collapsed gets a tight spirit + a bottom
+  // Idle collapsed gets a tight spirit + a bottom
   // dock. .ghost .stage .floatwrap shrinks to a centered square; agentrow
   // + composer ride in one .ghostdock slab (paint: --bg-fill, radius 12,
   // 1px --edge). The companion is a real window — mouse always on.
-  // GO-ORBITTY-DOCK-GRIP: mousedown on dock chrome (not a control) drags
+  // mousedown on dock chrome (not a control) drags
   // like the spirit; startPaneDrag waits 6px so a click is not a drag.
-  // GO-ORBITTY-SPRITE-OFF: the Full/Head button hides the sprite
+  // The Full/Head button hides the sprite
   // (persisted companion.sprite, default true — one flag for collapsed,
   // expanded, hosted) while chat stays. Off draws no stage / exphead /
   // wellhead, and the hosted well pane takes the full width.
-  // GO-ORBITTY-DOCK-TWEAK: L-click hides/shows the sprite; R-click is
+  // L-click hides/shows the sprite; R-click is
   // Full ↔ Head. Per-surface view prefs survive Off.
-  // GO-ORBITTY-SPRITE-HUG: while !sprite the Full/Head glyph wears the
+  // While !sprite the Full/Head glyph wears the
   // Speak-pattern slash, and idle collapsed + off hugs the window to the
   // measured CC+dock bar — the NATIVE side resizes (never a frontend
   // set_size), keeping the bottom edge so the dock doesn't jump. The
   // tall idle rect is stashed apart from HOST_STASH and is the only
   // rect ever persisted; sprite on / expand / host restore it first.
-  // GO-ORBITTY-COMPANION-3D: bodyId "tang"/"female" (reserved ids, never
+  // bodyId "tang"/"female" (reserved ids, never
   // pack folders) mounts Companion3D — a three.js glTF body playing its
   // `idle` clip — in the same three slots SpiritStage owns. Spirit stays
   // the default; the spirit art still loads underneath as the warm
   // fallback, and any WebGL/loader/404 miss reverts the pick to spirit
   // (persisted) with one quiet line. three.js is dynamically imported
   // only while a 3D body is selected.
-  // GO-ORBITTY-CLEAN-COMPANION-DOCK: the .ghostdock slab (agent pick,
+  // The .ghostdock slab (agent pick,
   // Prompts, dests, Speak, sprite/view, Expand, ⚙, composer) lives in
   // CompanionDock.svelte — paint + presses only. All state, sends (the
   // field still calls companion_send), the well, and the × corner stay
   // here.
-  // GO-ORBITTY-DOCK-HACK: companion.hackLive/hackWho ride loadState down
+  // companion.hackLive/hackWho ride loadState down
   // to the dock LED (lit when ctl-live OR sending); the write door is
   // set_companion_hack via orbittyctl, never this page.
   import { invoke } from "@tauri-apps/api/core";
@@ -132,7 +129,7 @@
     selected: string;
   }
 
-  // GO-ORBITTY-COMPANION-BRAND: the seven palette skins are retired; a
+  // The seven palette skins are retired; a
   // dead saved id falls back to the OS pair. Terminal stays valid.
   const KNOWN_THEMES = new Set(["systemLight", "systemDark", "terminal"]);
 
@@ -142,7 +139,7 @@
       : "systemLight";
   }
 
-  // GO-ORBITTY-PANE-PAINT: seed the OS theme synchronously so --bg exists
+  // Seed the OS theme synchronously so --bg exists
   // before load_state lands — an empty themeId on an opaque drawer is a
   // white-on-white first paint. loadState overrides with the saved id.
   let themeId = $state(osThemeId());
@@ -169,7 +166,7 @@
   let userLine = $state("");
   let botLine = $state("");
   let draft = $state("");
-  // GO-ORBITTY-COLLAPSE-CC: px the collapsed composer grew past one line
+  // Px the collapsed composer grew past one line
   // (bound up from the dock). Sprite-off rides reportHug; sprite-on grows
   // the window down via set_companion_composer_grow.
   let composerExtra = $state(0);
@@ -186,11 +183,11 @@
   let ccSnap = $state(false);
   let sending = $state(false);
   let sendNote = $state<string | null>(null);
-  // GO-ORBITTY-MOUTH-ACK: the conductor's fast ack line, splashed over
+  // The conductor's fast ack line, splashed over
   // the wait mark while the mouth answers (companion:ack). Ephemeral —
   // never a turn; the reply replaces it. "" = no ack this send.
   let ackLine = $state("");
-  // GO-ORBITTY-ATTACH: the one-file chip. Original path only (never a
+  // The one-file chip. Original path only (never a
   // copy); it rides companion_send as an optional path, vanishes after
   // the send, and comes back on an honest error. One chip, × to drop.
   interface AttachChip {
@@ -232,7 +229,7 @@
   );
   let agents = $state<string[]>(["default"]);
   let agent = $state("default");
-  // GO-ORBITTY-DOCK-HACK: the ctl-lit half of the dock LED — a harness
+  // The ctl-lit half of the dock LED — a harness
   // sets companion.hackLive (+ optional hackWho) via
   // `orbittyctl companion hack -- on [--who cursor]`; the dock lights the
   // LED when this OR `sending` is true. Persisted flag, not a transcript.
@@ -250,7 +247,7 @@
   let expanded = $state(false);
   let turns = $state<CompanionTurn[]>([]);
 
-  // GO-ORBITTY-HOST-SPLIT: the companion window is the host. Session-only
+  // The companion window is the host. Session-only
   // — boot is always the idle spirit and nothing persists `hosted`.
   // "launchpad" = KanbanPage embedded in the well (pop-out allowed);
   // "stars" = StarsPage embedded (no pop-out, ever);
@@ -262,7 +259,7 @@
   // only — never state.json; null = none lowered yet → ⌘⌥↑ opens Launchpad.
   let lastDest = $state<"launchpad" | "stars" | "inspector" | null>(null);
 
-  // GO-ORBITTY-TILE-DROP: the card drops in INSIDE the natively-grown
+  // The card drops in INSIDE the natively-grown
   // frame — the grow itself stays instant (keep-bottom), never a
   // set_size / set_position interpolation. set_companion_host lands
   // FIRST, with the idle ghost chrome display:none'd under tilePre —
@@ -285,7 +282,7 @@
   // FLIP (translate + scale) into the column — full body the whole way.
   let spiritHold = $state(false);
 
-  // GO-ORBITTY-TILE-YAW leftover: the hosted dest swap is a TRIANGULAR
+  // Leftover: the hosted dest swap is a TRIANGULAR
   // PRISM turn (Matt: not a recipe-card deal, not a book, not an X).
   // Launchpad / STARS / Planets are the three faces of a triangular
   // prism rotating around a vertical axis through the card — the step
@@ -368,7 +365,7 @@
   // open CC overlay still eats its own Escape.
   function onPaneKey(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
-    // GO-ORBITTY-MENU-KEYS lock law: a focused field owns Esc first —
+    // Lock law: a focused field owns Esc first —
     // its own handler (if any) already ran at target; blur it here and
     // never close the well out from under an edit. e.target still names
     // the field even when the field's own Esc unmounted it mid-dispatch.
@@ -480,7 +477,7 @@
     }, 80);
   }
 
-  // GO-ORBITTY-COLLAPSE-CC: sprite-ON collapsed grows the WINDOW down
+  // Sprite-ON collapsed grows the WINDOW down
   // with the composer (keep top — the spirit is never squashed). The
   // native side owns the gate (collapsed + sprite on + not hosted +
   // shown) and the ungrow on expand / host / sprite-off / hide, so this
@@ -598,7 +595,7 @@
     }
   }
 
-  // ---------- GO-LS-STARS-STATUS: prompts strip + hold-to-talk ----------
+  // ---------- Prompts strip + hold-to-talk ----------
 
   const STARS_SPOKES = [
     { key: "sleep", label: "Sleep" },
@@ -615,7 +612,7 @@
 
   let stars = $state<StarsSlice>({ promptsOptIn: false, checkins: {} });
   let cards = $state<KanbanCard[]>([]);
-  // GO-ORBITTY-NEXT-CARD leftover: quiet dock pip. Count = open/later-due
+  // Quiet dock pip. Count = open/later-due
   // Needed only (not todos). Zero hides the pip; ⌘⇧N still toggles.
   let nextCount = $derived(
     cards.filter((c) => {
@@ -802,7 +799,7 @@
     neededFocusTitle = title;
   }
 
-  // GO-ORBITTY-MENU-KEYS: Enter on a Needed row arms the composer
+  // Enter on a Needed row arms the composer
   // answer (onNeededFocus already set the hint) — land the caret so the
   // next typed line answers it. Esc blurs back out (onPaneKey), arrows
   // resume the ring.
@@ -843,7 +840,7 @@
     // the thinking v9 loop until the reply lands — the wait mark sits
     // bare in the agent-text slot (no bubble, no border) where the
     // reply will land; spirit still plays thinking v9.
-    // GO-ORBITTY-ATTACH: a file-only send bubbles "[file] name" (the
+    // A file-only send bubbles "[file] name" (the
     // same stand-in companion_send persists); the chip vanishes on send
     // and returns only on an honest error.
     const youText = line || `[file] ${file?.name ?? ""}`;
@@ -896,7 +893,7 @@
     }
   }
 
-  // GO-ORBITTY-MODE-SPLIT leftover: the ONE agent dropdown also picks the
+  // Leftover: the ONE agent dropdown also picks the
   // thread — four-cast stem → mode. Labels stay Spark / Command / Riff /
   // Witness; stems are never recast, and ctl `companion mode` can move
   // the thread without touching this pick. An unlisted stem (a fail-open
@@ -934,11 +931,11 @@
     // the native host frame (1080×620) stays up.
   }
 
-  // ---------- GO-ORBITTY-HOST-SPLIT: the hosted well ----------
+  // ---------- The hosted well ----------
   // One host window = this companion. The native set_companion_host owns
   // the frame (stash the idle rect → 1080×620 on enter, restore on off);
   // this JS state only owns WHICH component sits in the well.
-  // GO-ORBITTY-HOST-CC: the expanded transcript OVERLAYS the well
+  // The expanded transcript OVERLAYS the well
   // (absolute over .wellwrap, dimmed scrim, opaque bubbles) — the well
   // stays mounted, the host frame stays up; collapse = second Expand or
   // Escape.
@@ -1154,7 +1151,7 @@
     }
   }
 
-  // GO-ORBITTY-INSPECTOR-HOST: same pop-out pattern — dismiss the well,
+  // Same pop-out pattern — dismiss the well,
   // then show the real rail window. Tray Inspector still show_rail too.
   async function popoutInspector() {
     if (hosted !== "inspector") return;
@@ -1291,7 +1288,7 @@
       const s = await invoke<PersistedState>("load_state");
       themeId = KNOWN_THEMES.has(s.themeId) ? s.themeId : osThemeId();
       windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
-      // GO-ORBITTY-COLLAPSE-CC: sendLine already swapped the you-row to
+      // sendLine already swapped the you-row to
       // the line just sent; while sending, a state:changed reload must
       // not clobber it with the STALE persisted lastUserLine (still the
       // previous prompt — the native side writes the new one only when
@@ -1509,19 +1506,19 @@
         timer = undefined;
       }
     });
-    // GO-ORBITTY-SUMMON: ⌘⇧O raises this pane native-side, but webview
+    // ⌘⇧O raises this pane native-side, but webview
     // focus alone never lands the caret in .field — the summon event does.
     unlistenSummon = await listen("orbitty:companion-summon", () => {
       fieldEl?.focus();
     });
-    // GO-ORBITTY-TRAY-REMOTE: tray Launchpad/STARS raise this pane
+    // Tray Launchpad/STARS raise this pane
     // native-side and ask the well to open — raise-only via enterHost,
     // never toggleDest (the dest buttons still own toggling).
     unlistenEnterHost = await listen<string>("orbitty:enter-host", (e) => {
       const m = e.payload;
       if (m === "launchpad" || m === "stars" || m === "inspector") void enterHost(m);
     });
-    // GO-ORBITTY-TILE-CHORDS: ⌘⌥1/2/3 are the dest chips — toggleDest,
+    // ⌘⌥1/2/3 are the dest chips — toggleDest,
     // so the same chord while that dest is hosted dismisses (the page
     // owns `hosted`; the native side only raises the pane). ⌘⌥←/→ yaw
     // the DEST_RING while hosted; idle is a no-op, never a summon (the
@@ -1556,13 +1553,13 @@
     unlistenCheat = await listen("orbitty:toggle-cheatsheet", () => {
       cheatOpen = !cheatOpen;
     });
-    // GO-ORBITTY-MOUTH-ACK: the conductor's ack lands mid-send and rides
+    // The conductor's ack lands mid-send and rides
     // the wait-mark slot until the reply replaces it. Only while sending
     // — a late event after the reply must not resurrect a splash.
     unlistenAck = await listen<{ line?: string }>("companion:ack", (e) => {
       if (sending) ackLine = (e.payload?.line ?? "").trim();
     });
-    // GO-ORBITTY-ATTACH: a file dropped anywhere on this window becomes
+    // A file dropped anywhere on this window becomes
     // the one chip (first path only — multi-file is forbidden in v0).
     // The path is the original; stat validates and sizes the chip.
     unlistenDrop = await getCurrentWebviewWindow().onDragDropEvent((e) => {
@@ -1836,7 +1833,7 @@
     </div>
   {/if}
 
-  <!-- GO-ORBITTY-CLEAN-COMPANION-DOCK: agentrow + dests + Speak +
+  <!-- Agentrow + dests + Speak +
        sprite/view + Expand + ⚙ + composer live in CompanionDock.svelte.
        × stays a floating corner here. -->
   <CompanionDock
@@ -1929,7 +1926,7 @@
       BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   }
 
-  /* GO-ORBITTY-COMPANION-CLEAR: ghost (idle collapsed, not hosted) —
+  /* Ghost (idle collapsed, not hosted) —
      the slab fill goes transparent so empty pixels show and click
      through to the desk; the chrome keeps its own fills and still hits.
      Slab (expanded / .hosting) keeps today's fill. */
@@ -1937,7 +1934,7 @@
     background: transparent;
   }
 
-  /* GO-ORBITTY-TILE-PAINT: hosted, the slab fill goes transparent so the
+  /* Hosted, the slab fill goes transparent so the
      desk shows in the gap around the glass card — same family as the
      ghost dock. The window still eats clicks (no click-through). */
   .companion.hosting {
@@ -1991,7 +1988,7 @@
     display: none;
   }
 
-  /* GO-ORBITTY-HOST-CC: the wrap is the overlay's positioning context —
+  /* The wrap is the overlay's positioning context —
      the expanded transcript covers the well ONLY (agentrow + composer
      stay below it, usable). The well keeps its own flex so nothing
      resizes on Expand. */
@@ -2004,7 +2001,7 @@
     flex-direction: row;
   }
 
-  /* GO-ORBITTY-HOST-SPLIT: the hosted well — left ~2/3 embedded
+  /* The hosted well — left ~2/3 embedded
      Launchpad/STARS, right 1/3 the Head spirit stage. The window grew to
      1080×620 native-side; the bottom chrome (CC + agentrow + composer)
      stays full-width under the well. */
@@ -2019,7 +2016,7 @@
     padding: 10px;
   }
 
-  /* GO-ORBITTY-TILE-PAINT: the .wellpane wrap IS the glass card — same
+  /* The .wellpane wrap IS the glass card — same
      family as the ghost dock. The 10px ring inside .hostwell lets the
      desk show around it; radius 12 (same as .ghostdock), --bg-fill,
      1px --edge all around. The hard border-right divider is dead: the
@@ -2148,7 +2145,7 @@
     }
   }
 
-  /* GO-ORBITTY-TILE-YAW leftover: the swap verb is a TRIANGULAR PRISM
+  /* Leftover: the swap verb is a TRIANGULAR PRISM
      turn (Matt: not a recipe-card deal, not a book, not an X, not a 90°
      cube). The three dests are the three faces of a triangular prism
      rotating around a vertical axis through the card — the step is
@@ -2341,10 +2338,10 @@
      empty pane left to pin against. The bar stays ghost: empty air in
      it still clicks through via the reported hit list. */
 
-  /* GO-ORBITTY-CLEAN-COMPANION-CAPTION: transcript / CC / wait mark live
+  /* Transcript / CC / wait mark live
      in CaptionPane.svelte. */
 
-  /* GO-LS-STARS-STATUS prompt strip: one quiet menu when Prompts is On and
+  /* Prompt strip: one quiet menu when Prompts is On and
      today's check-in has a thin spoke. Rest/Water/× ack and hide it until
      the day rolls or a fresh check-in lands — never a loop. */
   .starstrip {
@@ -2438,7 +2435,7 @@
     color: var(--ink);
   }
 
-  /* GO-ORBITTY-CLEAN-COMPANION-DOCK: dock styles (.ghostdock, agentrow,
+  /* Dock styles (.ghostdock, agentrow,
      dests, icon toggles, gear, composer, talk slot) moved to
      CompanionDock.svelte with the markup. */
 </style>

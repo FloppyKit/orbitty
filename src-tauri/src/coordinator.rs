@@ -1,4 +1,4 @@
-//! S5 coordinator + soul.md (LIVESPRITE_S5_LOCKS_v0.md, GO-LS-TAURI-S5).
+//! Coordinator + soul.md.
 //!
 //! Orbitty launches/focuses an EXISTING Hermes (app or CLI) and hands it
 //! a titles-only context file. No model, no agent loop inside the sprite
@@ -144,7 +144,7 @@ pub fn launch_coordinator(
     route_to_hermes(&ctx, &query)
 }
 
-// ---------- S2.4 companion: plug map (GO-ORBITTY-PLUG-APP) ----------
+// ---------- Companion: plug map ----------
 // The mouth is a plug map now — off the Berd/Goose combo. Default mouth is
 // **Goose** (`goose run` + plug.json session); `grok` is a mouth; `hermes`
 // is compat; `berd` (`berdctl` + ~/.agents/companions/orbitty-primary) is
@@ -443,7 +443,7 @@ fn update_soul_pointer(agent_stem: &str) {
     let _ = std::fs::write(p, serde_json::to_string_pretty(&v).unwrap_or_default() + "\n");
 }
 
-// ---------- GO-ORBITTY-PLUG-APP: goose/grok mouths + plug.json sessions ----------
+// ---------- Goose/grok mouths + plug.json sessions ----------
 
 /// Persisted plug sessions: `companions/orbitty-primary/plug.json`.
 /// Product sessions only — NEVER the Berd `session.json` id (`20260825_2`)
@@ -613,7 +613,7 @@ pub(crate) fn run_mouth_cli(
 
 /// run_mouth_cli + a stderr watch: a reader thread forwards stderr lines
 /// as they arrive, and `kill_on` matching a line kills the child AT ONCE,
-/// returning that line as the error. GO-ORBITTY-MOUTH-LIVE: grok prints a
+/// returning that line as the error. Grok prints a
 /// dead-resume 404 (`session get failed: 404 Not Found`) in ~0.5s but
 /// STAYS ALIVE — an unwatched poll waits out the whole timeout for a
 /// corpse. The kill is line-matched, never time-based: a fat `--rules`
@@ -753,7 +753,7 @@ pub fn set_companion_pack(app: tauri::AppHandle, pack_id: String) -> Result<Opti
         Some(raw.to_string())
     };
     if let Some(ref pid) = id {
-        // GO-ORBITTY-COMPANION-3D: tang/female are reserved 3D bodies
+        // tang/female are reserved 3D bodies
         // bundled at companion/3d — never pack folders, so the pack-art
         // check is skipped for them.
         let reserved_3d = pid == "tang" || pid == "female";
@@ -808,7 +808,7 @@ pub fn set_companion_agent(app: tauri::AppHandle, profile: String) -> Result<Str
     Ok(p)
 }
 
-/// GO-ORBITTY-MODE-SPLIT: persist the active companion mode (spark |
+/// Persist the active companion mode (spark |
 /// chat | work | hold) — the second axis next to the four-cast agent
 /// pick. Switching parks the current turns under the old mode and loads
 /// the new mode's thread into `turns` (CaptionPane never changes).
@@ -828,7 +828,7 @@ pub fn set_companion_mode(app: tauri::AppHandle, mode: String) -> Result<String,
     Ok(m)
 }
 
-/// GO-ORBITTY-MODE-SPLIT: drop a them-line into a mode's thread — NO
+/// Drop a them-line into a mode's thread — NO
 /// LLM, no send path. The bus (spark_ack) and ctl humans are the
 /// callers. `mode` targets a parked thread; absent = the active mode.
 /// A note into the active mode also lands on `turns` + `last_bot_line`
@@ -868,12 +868,12 @@ pub fn companion_note(
     Ok(target)
 }
 
-/// GO-ORBITTY-DOCK-HACK: the ctl-lit half of the dock LED. Any harness
+/// The ctl-lit half of the dock LED. Any harness
 /// opts in (`orbittyctl companion hack -- on [--who cursor]`); off
 /// clears the who. Persisted on the companion slice (a flag, never a
 /// transcript); state:changed re-paints the dock. Off when every source
 /// is idle — a stuck on-light is a leftover, not a feature.
-/// GO-ORBITTY-AGENT-PLANET leftover: `project_id` is the live agent's
+/// Leftover: `project_id` is the live agent's
 /// pinned planet (pickup passes it) so the dest/planet menus glow that
 /// one planet; cleared on off like the who.
 pub fn set_companion_hack(
@@ -907,7 +907,7 @@ pub fn set_companion_hack(
     }))
 }
 
-/// GO-ORBITTY-SETTINGS-WIN: persist Talk source (`system` | `hotkey`).
+/// Persist Talk source (`system` | `hotkey`).
 #[tauri::command]
 pub fn set_companion_talk_source(app: tauri::AppHandle, source: String) -> Result<String, String> {
     let src = crate::state::normalize_talk_source(&source);
@@ -926,21 +926,21 @@ pub fn set_companion_expanded(app: tauri::AppHandle, expanded: bool) -> Result<(
     st.companion.expanded = expanded;
     crate::state::save_state(&app, &st)?;
     let _ = app.emit("state:changed", ());
-    // GO-ORBITTY-SPRITE-HUG: expanding while hugged restores the tall
+    // Expanding while hugged restores the tall
     // idle FIRST — the transcript is never a 120px slab.
     if expanded {
         crate::panes::unhug_companion(&app);
-        // GO-ORBITTY-COLLAPSE-CC: nor a composer-grown frame — shed the
+        // Nor a composer-grown frame — shed the
         // sprite-on grow extra with the hug.
         crate::panes::ungrow_companion_composer(&app);
     }
-    // GO-ORBITTY-COMPANION-CLEAR: expand forces the slab (mouse on) NOW,
+    // Expand forces the slab (mouse on) NOW,
     // before the JS re-render; collapse reapplies the ghost from kept hits.
     crate::companion_clear::expanded_changed(&app, expanded);
     Ok(())
 }
 
-/// GO-ORBITTY-COMPANION-HEADROOM: persist the Full/Head view for ONE
+/// Persist the Full/Head view for ONE
 /// surface (`surface` = "collapsed" | "expanded", `view` = "full" |
 /// "head"). Two prefs, never one global bool — the other surface's key
 /// is untouched. Returns the value actually written.
@@ -975,11 +975,11 @@ pub fn set_companion_view(
     Ok(written)
 }
 
-/// GO-ORBITTY-SPRITE-OFF: persist the one sprite flag (default on; a
+/// Persist the one sprite flag (default on; a
 /// missing key loads true). Same shape as set_companion_speak. R-click on
 /// the Full/Head button is the only writer; the per-surface Full/Head
 /// prefs are never touched here — they survive Off.
-/// GO-ORBITTY-SPRITE-HUG: idle collapsed + sprite off hugs the window to
+/// Idle collapsed + sprite off hugs the window to
 /// the JS-measured CC+dock bar (`hug_height`), keeping the bottom edge;
 /// sprite on restores the tall idle. Expanded/hosted never hug. A call
 /// with the flag unchanged is the page's hug-height re-report — no
@@ -999,7 +999,7 @@ pub fn set_companion_sprite(
     if enabled {
         crate::panes::unhug_companion(&app);
     } else if !st.companion.expanded {
-        // GO-ORBITTY-COLLAPSE-CC: shed any sprite-on composer grow FIRST
+        // Shed any sprite-on composer grow FIRST
         // — the hug stash must be the true tall idle, never grown.
         crate::panes::ungrow_companion_composer(&app);
         crate::panes::hug_companion(&app, hug_height);
@@ -1063,7 +1063,7 @@ pub fn set_companion_captions(app: tauri::AppHandle, enabled: bool) -> Result<()
     Ok(())
 }
 
-// ---------- GO-LS-STARS-STATUS: prompts opt-in + strip ack ----------
+// ---------- STARS prompts opt-in + strip ack ----------
 // The companion window never writes state.json wholesale; these two
 // load-modify-save commands are its only STARS writes. The rail's STARS
 // pane writes checkins through its own full persist.
@@ -1139,7 +1139,7 @@ pub fn speak_reply(app: tauri::AppHandle, text: String) -> Result<(), String> {
     }
 }
 
-// ---------- GO-ORBITTY-ASK-ACTION: a typed line can name a Launchpad Action ----------
+// ---------- A typed line can name a Launchpad Action ----------
 
 /// `Run` carries the shortcut plus `keep_you`: prefix/command chrome never
 /// persists a you-line; a bare name typed as a sentence keeps it.
@@ -1203,7 +1203,7 @@ fn match_action_line(
 
 /// Intercept persist: them-line always lands; you-line only when the line
 /// read as chat. Same duplicate-you skip + cap 40 as the normal send path.
-/// GO-ORBITTY-MODE-SPLIT: push_turn lands both on the active `turns` and
+/// push_turn lands both on the active `turns` and
 /// the parked `threads[mode]` copy, so the intercept never leaks across
 /// modes either.
 /// Land the you-row + last_user_line NOW, before the 180s model wait.
@@ -1323,14 +1323,14 @@ fn wrap_with_pocket(line: &str) -> String {
     format!("{header}{}{footer}{line}", lines.concat())
 }
 
-/// GO-COMPANION-BERD / GO-ORBITTY-PLUG-APP — companion composer send path.
+/// Companion composer send path.
 /// Default: Goose mouth (`goose run`, plug.json session). `grok` mouth;
 /// `hermes` compat; `berd` hidden escape (bound session from
 /// `~/.agents/companions/orbitty-primary/session.json` via `berdctl`).
 /// Never hosts a model inside Orbitty. Async; UI disables Send in flight.
-/// GO-ORBITTY-EVENT-LOG: appends `companion-send` / `companion-reply`
+/// Appends `companion-send` / `companion-reply`
 /// (best-effort) — content is `{ "n": <chars> }` only, never the line.
-/// GO-ORBITTY-ATTACH: optional `path` — the one-file chip. Validated
+/// Optional `path` — the one-file chip. Validated
 /// BEFORE any intercept or persist so a bad path never fakes a send;
 /// the original path (never a copy) rides the prompt to the mouth.
 #[tauri::command]
@@ -1374,7 +1374,7 @@ async fn companion_send_inner(
     line: String,
     attach: Option<crate::attach::AttachInfo>,
 ) -> Result<String, String> {
-    // GO-ORBITTY-ATTACH: a chip means the line is for the AI — the local
+    // A chip means the line is for the AI — the local
     // todo:/go:/Action intercepts cannot take a file, so they stand down
     // while one is attached (never a silent drop of the path).
     let no_intercepts = attach.is_some();
@@ -1405,7 +1405,7 @@ async fn companion_send_inner(
         }
     }
 
-    // GO-ORBITTY-ASK-ACTION: a line naming a Launchpad Action runs it
+    // A line naming a Launchpad Action runs it
     // locally — Hermes/Berd never sees it. No match → unchanged send.
     if !no_intercepts {
         if let Ok(st) = crate::state::load_state(&app) {
@@ -1455,14 +1455,14 @@ async fn companion_send_inner(
     }
 
     let backend = companion_backend();
-    // GO-ORBITTY-ATTACH: a file-only send still needs a you-row — the
+    // A file-only send still needs a you-row — the
     // chip's name stands in for the empty line (never a blank bubble).
     let you_line = match &attach {
         Some(a) if line.is_empty() => format!("[file] {}", a.name),
         _ => line.clone(),
     };
     persist_companion_you(&app, &you_line);
-    // GO-ORBITTY-MOUTH-ACK: the conductor — a slim local fast ack in
+    // The conductor — a slim local fast ack in
     // front of the mouth (Settings toggle; off = today's path exactly).
     // Runs on the RAW line (pocket/desk wraps are for the mouth, not the
     // triage). A chip send is always for the AI, so the conductor stands
@@ -1491,7 +1491,7 @@ async fn companion_send_inner(
     // on the raw line). Every mouth gets the wrapped prompt; persist +
     // event log below keep the raw `line`.
     let prompt = wrap_with_pocket(&line);
-    // GO-ORBITTY-ATTACH: hand the chip's ORIGINAL path to the mouth —
+    // Hand the chip's ORIGINAL path to the mouth —
     // the agent's own tools read it there. Never a staging copy, never
     // an upload, no convert/OCR.
     let prompt = match &attach {
@@ -1517,11 +1517,11 @@ async fn companion_send_inner(
     } else {
         prompt
     };
-    // GO-ORBITTY-PLUG-APP plug map — unknown backend is an honest error,
+    // Plug map — unknown backend is an honest error,
     // never a silent Berd fallback.
     let reply = match backend.as_str() {
         "goose" => companion_send_goose(&app, &prompt).await?,
-        // GO-ORBITTY-MOUTH-HOP: the grok lane runs through the router —
+        // The grok lane runs through the router —
         // Free Mode skips paid Grok; a cooked lane hops Ollama →
         // OpenRouter free with the hop packet. Same bubble either way.
         "grok" => crate::mouth_hop::send_with_hops(&app, &line, &prompt).await?,
@@ -1563,7 +1563,7 @@ async fn companion_send_berd(line: &str) -> Result<String, String> {
         .map_err(|e| format!("send task: {e}"))?
 }
 
-/// GO-ORBITTY-PLUG-APP: default mouth. `goose run -q` with the default
+/// Default mouth. `goose run -q` with the default
 /// profile (full Goose tools — BLOCK-MH-4) and the soul as --system,
 /// spawned with GOOSE_MODE=always_allow (no yes/no UI in the bubble).
 /// First send names the session `orbitty-companion`,
@@ -1641,9 +1641,9 @@ fn run_goose_reply(
 
     // Config is `smart_approve` and the bubble has no yes/no UI — without
     // always_allow, tool calls would hang or be denied.
-    // PROJECT-ADD leftover: 300s (berd's 5 min) — with extensions actually
+    // Leftover: 300s (berd's 5 min) — with extensions actually
     // loaded, 180s killed real tool runs mid-reply. Grok/Hermes keep 180.
-    // GO-ORBITTY-MOUTH-FOREVER: a dead resume rolls the mouth onto a fresh
+    // A dead resume rolls the mouth onto a fresh
     // session with a handoff — the bubble is one thread, never cleared.
     let reply = match run_mouth_cli("Goose", bin, &args, &[("GOOSE_MODE", "always_allow")], 300) {
         Ok(r) => r,
@@ -1696,7 +1696,7 @@ pub(crate) fn capture_goose_session(bin: &Path) {
     }
 }
 
-/// GO-ORBITTY-PLUG-APP: grok mouth. `grok -p <prompt>` with the soul as
+/// Grok mouth. `grok -p <prompt>` with the soul as
 /// --rules, JSON out. Session UUID lives in plug.json: first send
 /// `-s UUID`, later `--resume UUID` (re-passing `-s` on a live id fails —
 /// a failed create is retried once as a resume to self-heal that race).
@@ -1760,7 +1760,7 @@ fn run_grok_reply(
     let sid = plug.grok_session_id.clone().unwrap_or_default();
 
     let args = grok_args(&sid, plug.grok_session_minted, soul, line);
-    // GO-ORBITTY-MOUTH-LIVE: every `--resume` spawn runs under the stderr
+    // Every `--resume` spawn runs under the stderr
     // watch — a dead id 404s in ~0.5s but grok STAYS ALIVE, so the kill
     // lands on the line, never on the 180s timeout. First sends (`-s`
     // creates) stay unwatched: their failures are honest, never a corpse
@@ -1796,7 +1796,7 @@ fn run_grok_reply(
             )?
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_session_gone(&e) => {
-            // GO-ORBITTY-MOUTH-LIVE: a dead resume id fails FAST (grok
+            // A dead resume id fails FAST (grok
             // 404s in ~0.5s) — never wait out a 180s kill for it. Mint a
             // fresh id, `-s`, save plug.json; no fork of a corpse. The
             // reply still lands on the same turns; the bubble is never
@@ -1805,7 +1805,7 @@ fn run_grok_reply(
             return crate::mouth_roll::grok_fresh_rollover(bin, soul, &mut plug, &handoff);
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_context_dead(&e) => {
-            // GO-ORBITTY-MOUTH-FOREVER: context-full / session-death on
+            // Context-full / session-death on
             // a live id. Roll onto a fresh id (fork when the old one
             // still resumes) with a handoff — the reply still lands on
             // the same turns; the bubble is never cleared. A 180s
@@ -1875,7 +1875,7 @@ async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<Str
         "--continue".into(),
         "orbitty-companion".into(),
         "--create-if-missing".into(),
-        // GO-ORBITTY-PLUG-APP: hermes stays the compat mouth — `--safe-mode`
+        // Hermes stays the compat mouth — `--safe-mode`
         // (probe 05 green on this bin). A bin that rejects the flag gets
         // one retry without it, then the honest error.
         "--safe-mode".into(),
@@ -2190,7 +2190,7 @@ pub fn open_soul_in_editor(
     }
 }
 
-// ---------- GO-ORBITTY-SLEEPERS: wake a closed claimed window ----------
+// ---------- Wake a closed claimed window ----------
 
 fn non_empty(s: Option<&str>) -> Option<&str> {
     s.map(str::trim).filter(|s| !s.is_empty())
@@ -2224,7 +2224,7 @@ fn open_in_terminal(app: &tauri::AppHandle, key: &str, line: &str) -> Result<(),
 
 /// Wake a sleeper (rail row click / sleeper double-click). First rung that
 /// works wins; every miss falls through honestly. Read-only on state — the
-/// rail owns claim writes. GO-ORBITTY-EVENT-LOG: appends `sleeper-wake`
+/// rail owns claim writes. Appends `sleeper-wake`
 /// (best-effort) with the outcome, never the wake trail details.
 pub fn wake_sleeper_with(app: &tauri::AppHandle, id: &str) -> Result<String, String> {
     let out = wake_sleeper_inner(app, id);
@@ -2367,7 +2367,7 @@ fn action_dir(cwd: Option<&str>) -> PathBuf {
 
 /// Run one user-authored shortcut: `/bin/zsh -lc <command>` in cwd or $HOME.
 /// 120s guard so a hung command can't wedge the rail's await; output is
-/// clipped and returned for the lane's note. GO-ORBITTY-EVENT-LOG: appends
+/// clipped and returned for the lane's note. Appends
 /// `action-start` / `action-end` (best-effort) — lengths and outcome only,
 /// never the command line.
 #[tauri::command]
@@ -2379,7 +2379,7 @@ pub fn run_action(
     run_action_logged(&app, command, cwd)
 }
 
-/// GO-ORBITTY-ACTION-FILE: the logged run body, shared by the invoke
+/// The logged run body, shared by the invoke
 /// command, the control plane (`action.run`), and combo presses. Same
 /// contract: `/bin/zsh -lc`, 120s, event log lengths only.
 pub(crate) fn run_action_logged(
@@ -2486,7 +2486,7 @@ pub(crate) fn find_on_path(bin: &str) -> Option<PathBuf> {
 }
 
 /// Query file = concatenated readable .md paths (missing ones skipped) +
-/// the row's free-text `extra` (GO-ORBITTY-AGENT-PLANET) + titles-only
+/// the row's free-text `extra` + titles-only
 /// planet context when the shortcut is attached to a project OR the caller
 /// handed titles over (pickup's one assigned todo — a passed title is
 /// never silently dropped). Overwritten each launch, same honesty rules
@@ -2521,7 +2521,7 @@ fn write_agent_query(
             Err(_) => skipped += 1,
         }
     }
-    // GO-ORBITTY-AGENT-PLANET: the row's extra instructions ride the same
+    // The row's extra instructions ride the same
     // query file — after the md paths, before the todo/planet block.
     if let Some(extra) = shortcut
         .extra
@@ -2548,12 +2548,12 @@ fn write_agent_query(
     Ok((path, skipped))
 }
 
-/// GO-ORBITTY-AGENT-PLANET: the visible-harness door shared by cursor /
+/// The visible-harness door shared by cursor /
 /// goose / grok — a `.command` launcher next to the query file (loads it
 /// into `$prompt`), opened as a fresh Terminal window. `exec_line` is the
 /// harness's own command line — run as a CHILD, never `exec`: exec would
 /// replace the shell and skip the EXIT trap.
-/// GO-ORBITTY-AGENT-PLANET leftover (dock LED): the trap turns the dock
+/// Leftover (dock LED): the trap turns the dock
 /// LED off when the harness exits (the same idea as writer-done-needed —
 /// a stuck on-light is a leftover, not a feature); HUP (Terminal window
 /// closed) exits through the same trap. Silent + best-effort: a missing
@@ -2586,7 +2586,7 @@ fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
 
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
 /// writes the query file and hands off — it never runs the model.
-/// GO-ORBITTY-AGENT-PLANET: the harness is per row (cursor | goose | grok
+/// The harness is per row (cursor | goose | grok
 /// | hermes) with a named door each — an unknown harness is an honest
 /// error, never a silent hermes dump. Each door also owns the dock LED
 /// off for the run it launched (pickup lit it): the Terminal `.command`
@@ -2632,7 +2632,7 @@ pub fn launch_agent(
                 query.display()
             ))
         }
-        // GO-ORBITTY-AGENT-PLANET: goose and grok are named doors with the
+        // Goose and grok are named doors with the
         // same visible Terminal handoff as cursor — never a silent hermes.
         "goose" => {
             let Some(bin) = find_on_path("goose") else {
@@ -2656,7 +2656,7 @@ pub fn launch_agent(
             ))
         }
         "grok" => {
-            // GO-ORBITTY-HERDR-ADAPTER: the herdr branch of this door —
+            // The herdr branch of this door —
             // pane first, agent second, when herdr is present + up.
             // Skip falls through to the Terminal launcher unchanged
             // (one skip line was already logged; never a dual-launch).
@@ -2679,7 +2679,7 @@ pub fn launch_agent(
             ))
         }
         // Hermes door: hermes -p <profile> chat with the query file.
-        // GO-ORBITTY-AGENT-PLANET leftover (dock LED): no Terminal
+        // Leftover (dock LED): no Terminal
         // launcher here, so a waiter thread owns the off — the dock LED
         // goes dark when the hermes process exits (the Terminal doors do
         // it through the .command EXIT trap). Detached stdio, never a
@@ -2726,7 +2726,7 @@ pub fn launch_agent(
                 )),
             }
         }
-        // GO-ORBITTY-HERDR-ADAPTER: opencode is a herdr kind, detect-only
+        // Opencode is a herdr kind, detect-only
         // — legal with `opencode` on PATH, never prompt-installed, never
         // `opencode serve`d as the mouth. No Terminal door exists for it,
         // so a skip is an honest error, not a fall-through.

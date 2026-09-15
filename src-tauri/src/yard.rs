@@ -1,4 +1,4 @@
-//! Yard — GO-ORBITTY-HERDING-CATS. Unclaimed windows rain onto the
+//! Yard. Unclaimed windows rain onto the
 //! desktop as bitty cats (one fullscreen click-through overlay per
 //! display) until each is claimed (Assign), closed, or scooped. Session
 //! only: cats never persist, and planets never paint unmapped sprites

@@ -1,4 +1,4 @@
-//! Yard hits — GO-ORBITTY-HERDING-CATS leftover: hits. The cat hit
+//! Yard hits — the cat hit
 //! machine: press / drag / click / double-click on the overlay's only
 //! hot pixels. Cats match the walkers' locate-then-open split:
 //!

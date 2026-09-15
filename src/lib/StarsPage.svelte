@@ -1,16 +1,16 @@
 <script lang="ts">
-  // STARS S1.1: the check-in radar lives in its own window (like Lists),
+  // The check-in radar lives in its own window (like Lists),
   // never stuffed into the rail. Five spokes 1–5 keyed by local YYYY-MM-DD;
   // explicit check-in only. GO-ORBITTY-STARS-FIVE: the scale is 1–5 (was
   // 0–4) — legacy saves migrate n→n+1 once native-side at setup (scaleV
   // flag); an unsaved day is still empty (draft 0 = unset, lights nothing).
-  // GO-ORBITTY-STARS-LOOKBACK: an in-session day
+  // An in-session day
   // cursor pages the saved map — past days are read-only, Save only ever
   // writes today, and the cursor itself is never persisted.
-  // GO-ORBITTY-STARS-AVERAGE: rolling 7/14/30-day window ending at the
+  // Rolling 7/14/30-day window ending at the
   // day cursor, mean of saved days only (a saved 1 counts; blanks shrink
   // the denominator, never a zero-fill). Persists as stars.averageWindow.
-  // GO-ORBITTY-PLANETS-STRIP leftover: one screen — left check-in, right
+  // One screen — left check-in, right
   // Cloud. Average pills sit under the day chips. No Check-in | Review.
   // Same state.json discipline as Lists: every
   // write is load → mutate → save of the WHOLE loaded object, so rail-owned
@@ -37,11 +37,11 @@
     StarsSlice,
   } from "./persist";
 
-  // GO-ORBITTY-BOARD-STARS: this page now mounts inside the one shared
+  // This page now mounts inside the one shared
   // 780×520 `kanban` overlay (stars mode) — hideLabel is the HOST window's
   // label, so the × and the re-show reset talk to the pane we're in. The
   // legacy 420×560 `stars` window passes nothing and keeps "stars".
-  // GO-ORBITTY-HOST-SPLIT: embedded mounts this page in the companion's
+  // Embedded mounts this page in the companion's
   // STARS well — × calls onClose (never hide_window) and there is NO
   // pop-out. hideLabel stays the overlay's affair.
   let {
@@ -56,7 +56,7 @@
 
 
 
-  // GO-ORBITTY-COMPANION-BRAND: the seven palette skins are retired; a
+  // The seven palette skins are retired; a
   // dead saved id falls back to the OS pair. Terminal stays valid.
   const KNOWN_THEMES = new Set(["systemLight", "systemDark", "terminal"]);
 
@@ -259,7 +259,7 @@
     void setAverageWindow("custom", from, to);
   }
 
-  // GO-ORBITTY-MENU-KEYS: the STARS ring — view switcher + five spokes,
+  // The STARS ring — view switcher + five spokes,
   // per the pad lock: left/right picks a stop, up/down adjusts what's
   // highlighted (spoke value 1–5, or the view), Enter saves today under
   // the Save button's own gate, Esc backs out of the well (CompanionPage

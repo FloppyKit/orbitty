@@ -1,4 +1,4 @@
-//! GO-ORBITTY-ATTACH — one file chip for the companion composer.
+//! One file chip for the companion composer.
 //! Original path only (never a staging copy): the chip carries the
 //! path, `companion_send` re-validates and hands it to the mouth on the
 //! prompt, and the agent's own tools read the file there. Cap 25 MB

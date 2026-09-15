@@ -1,4 +1,4 @@
-//! orbittyctl — GO-ORBITTY-CONTROL-PLANE-0 CLI for the Orbitty control
+//! orbittyctl — CLI for the Orbitty control
 //! socket. Pure std client: no Tauri, no WebView, no model, no shell.
 //! One newline-JSON request → one reply.
 //!
@@ -65,28 +65,28 @@ flags:
   --sock PATH   socket override (else $ORBITTY_CONTROL_SOCK, else
                 ~/Library/Application Support/space.orbitty.mac/control.sock)
 
-GO-ORBITTY-MCP-WRITE: the four write verbs (kanban add/move, needed open,
+The four write verbs (kanban add/move, needed open,
 log append) mutate through the app's one save door — the UI live-updates.
 ACL: control.json profile full, or a named custom allowlist entry; read /
 companion are denied (exit 4).
 
-GO-ORBITTY-CARD-BLURB: kanban add takes --notes (the board row's one-line
+kanban add takes --notes (the board row's one-line
 summary; first line paints, the drawer edits the rest) and kanban notes
 sets/clears it on an existing card — same save door, same write ACL.
 
-GO-ORBITTY-PROJECT-ADD: project add / rm / rename mint, kill, and rename
+project add / rm / rename mint, kill, and rename
 planets through the same save door (habitat paints whatever projects[]
 holds). Empty --name refused; duplicate display names allowed (ids are
 unique). project rm keeps cards' projectId and live claims — walkers
 vanish with the disc on the next habitat sync. Same ACL as kanban.add.
 
-GO-ORBITTY-ACTION-FILE: action list is read-safe; the companion profile
+action list is read-safe; the companion profile
 may action add / action run (Spark mints named recipes — never a raw
 shell); action rm needs full or a custom entry naming it (or \"action.*\").
 Combos register globally on persist; reserved (cmd+shift+o, cmd+space) or
 taken chords show [conflict] in action list.
 
-GO-ORBITTY-AGENT-PLANET: agent add mints a row (--harness required —
+agent add mints a row (--harness required —
 cursor|goose|grok|hermes, never a silent default), agent pin sets its
 planet, kanban assign writes the card's assignedAgentId (empty --agent
 unassigns), and agent pickup moves the oldest assigned todo to doing and
@@ -94,7 +94,7 @@ launches the row's harness with that title (every harness lights the dock
 LED while the run is live). agent list is read-safe; the rest are writes
 (full / named custom).
 
-GO-ORBITTY-NEEDED-RULES-OPEN: needed answer --id n-… -- \"text\" applies an
+needed answer --id n-… -- \"text\" applies an
 answer through the same needed-answer event path as the composer (the
 watch dispatches on it) — scripts never need the UI. needed open itself
 now consults the user-minted standing rules first: a can-run hit is born
@@ -120,7 +120,7 @@ struct Opts {
     combo: Option<String>,
     mode: Option<String>,
     who: Option<String>,
-    // GO-ORBITTY-AGENT-PLANET: agent roster flags. `md` is repeatable.
+    // Agent roster flags. `md` is repeatable.
     harness: Option<String>,
     profile: Option<String>,
     model: Option<String>,
@@ -298,7 +298,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         }
         // `companion play nod` and `companion play -- nod` both land here.
         ["companion", "play", ..] => Ok(("companion.play", json!({ "clip": payload(o)? }))),
-        // GO-ORBITTY-MODE-SPLIT: the bus verbs. Fail CLOSED on an unknown
+        // The bus verbs. Fail CLOSED on an unknown
         // mode client-side — a typo never reaches the app as a silent
         // spark. The server re-validates anyway.
         ["companion", "mode"] => {
@@ -312,7 +312,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                 )),
             }
         }
-        // GO-ORBITTY-MOUTH-HOP leftover: the Free Mode switch — same
+        // Leftover: the Free Mode switch — same
         // companion.* ACL as companion.mode. Fail CLOSED on an unknown
         // verb — a typo never flips the lane router.
         ["companion", "free-mode"] => {
@@ -337,7 +337,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             }
             Ok(("companion.note", a))
         }
-        // GO-ORBITTY-DOCK-HACK: the dock LED flag. Fail CLOSED on an
+        // The dock LED flag. Fail CLOSED on an
         // unknown verb — a typo never leaves a stuck light. `--who` may
         // ride either side of `--` (after it, it's tail text we parse).
         // AGENT-PLANET leftover: `--project` rides the same way — the
@@ -380,7 +380,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             Ok(("companion.hack", a))
         }
         ["kanban", "open"] => Ok(("kanban.open", json!({}))),
-        // GO-ORBITTY-MCP-WRITE: write verbs. The server validates values
+        // Write verbs. The server validates values
         // (status enums, unknown ids) and owns the honest errors.
         ["kanban", "add"] => {
             let mut a = json!({ "title": need_flag(&o.title, "--title")? });
@@ -390,13 +390,13 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             if let Some(s) = opt(&o.status) {
                 a["status"] = json!(s);
             }
-            // GO-ORBITTY-CARD-BLURB: blank --notes = absent (none minted).
+            // Blank --notes = absent (none minted).
             if let Some(n) = opt(&o.notes) {
                 a["notes"] = json!(n);
             }
             Ok(("kanban.add", a))
         }
-        // GO-ORBITTY-CARD-BLURB: set/clear a card's one-line summary. The
+        // Set/clear a card's one-line summary. The
         // text is the `--` payload; `-- ""` clears (payload keeps Some("")),
         // so the clear always reaches the server as an empty string.
         ["kanban", "notes"] => Ok((
@@ -407,7 +407,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             "kanban.move",
             json!({ "id": need_id(o)?, "status": need_flag(&o.status, "--status")? }),
         )),
-        // GO-ORBITTY-AGENT-PLANET: assign a card to an agent row (id or
+        // Assign a card to an agent row (id or
         // name server-side). `--agent ""` unassigns — the flag itself is
         // required so a bare `kanban assign --id` never silently clears.
         ["kanban", "assign"] => {
@@ -417,7 +417,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                 .ok_or("missing --agent <agent> (pass --agent \"\" to unassign)".to_string())?;
             Ok(("kanban.assign", json!({ "id": need_id(o)?, "agent": agent })))
         }
-        // GO-ORBITTY-AGENT-PLANET: the agent roster. The harness is
+        // The agent roster. The harness is
         // required on add and fails CLOSED here — a typo never reaches
         // the app (the server re-validates anyway).
         ["agent", "list"] => Ok(("agent.list", json!({}))),
@@ -472,7 +472,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                 Err("missing --id <id> or --name <name>".to_string())
             }
         }
-        // GO-ORBITTY-PROJECT-ADD: planet control plane. need_flag trims and
+        // Planet control plane. need_flag trims and
         // refuses an empty --name; the server owns unknown-id errors.
         ["project", "add"] => Ok((
             "project.add",
@@ -483,7 +483,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             "project.rename",
             json!({ "id": need_id(o)?, "name": need_flag(&o.name, "--name")? }),
         )),
-        // GO-ORBITTY-ACTION-FILE: the action recipe file. The server owns
+        // The action recipe file. The server owns
         // validation (parse, reserved chords, unknown ids) and the ACL.
         ["action", "list"] => Ok(("action.list", json!({}))),
         ["action", "add"] => {
@@ -519,7 +519,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             }
             Ok(("needed.open", a))
         }
-        // GO-ORBITTY-NEEDED-RULES-OPEN: answer a Needed from the CLI —
+        // Answer a Needed from the CLI —
         // the same needed-answer event path as the composer, so the watch
         // dispatches on it. The answer text is the `--` payload.
         ["needed", "answer"] => Ok((
@@ -708,7 +708,7 @@ fn print_human(tool: &str, data: &Value) {
             data["id"].as_str().unwrap_or("?"),
             data["status"].as_str().unwrap_or("?")
         ),
-        // GO-ORBITTY-CARD-BLURB printer. The reply is the card; notes
+        // The reply is the card; notes
         // absent = cleared back to title-only.
         "kanban.notes" => {
             let id = data["id"].as_str().unwrap_or("?");
@@ -717,7 +717,7 @@ fn print_human(tool: &str, data: &Value) {
                 None => println!("notes cleared {id}"),
             }
         }
-        // GO-ORBITTY-AGENT-PLANET printers.
+        // Agent roster printers.
         "kanban.assign" => {
             let id = data["id"].as_str().unwrap_or("?");
             let title = data["title"].as_str().unwrap_or("");

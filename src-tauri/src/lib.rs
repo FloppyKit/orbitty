@@ -107,7 +107,7 @@ fn close_window(id: String) -> Result<(), String> {
     windows::close_window(&id)
 }
 
-/// GO-ORBITTY-RAIL-ROW-MENU — rail row left-click: an Orbitty-owned,
+/// Rail row left-click: an Orbitty-owned,
 /// ignore-mouse, non-activating ring around the window's AX frame (~500ms).
 /// Never focuses, never AX-raises.
 #[tauri::command]
@@ -115,7 +115,7 @@ fn locate_window(id: String) -> Result<(), String> {
     windows::locate_window(&id)
 }
 
-/// GO-ORBITTY-RAIL-ROW-MENU — `habitat:locate` for a claimed window: stroke
+/// `habitat:locate` for a claimed window: stroke
 /// the walker's frame on its planet for ~500ms (glow only).
 #[tauri::command]
 fn locate_walker(app: tauri::AppHandle, entry_id: String) -> Result<(), String> {
@@ -129,7 +129,7 @@ fn locate_planet(app: tauri::AppHandle, id: String) -> Result<(), String> {
     habitat::locate_planet(app, id)
 }
 
-/// GO-ORBITTY-PROJECT-ADD leftover (inspector rm): the rail/sheet × door —
+/// Leftover (inspector rm): the rail/sheet × door —
 /// the SAME save door as ctl (`board::project_rm`): atomic save, claim
 /// diff, `state:changed` emit. Cards keep their projectId; walkers vanish
 /// with the disc on the next habitat sync. Unknown id = honest error.
@@ -182,7 +182,7 @@ fn needed_answer(
     Err("needed.answer: unix only".into())
 }
 
-/// GO-ORBITTY-NEEDED-RULES-ANSWER — the "if this again" row's Save.
+/// The "if this again" row's Save.
 /// Thin door: the rules.json write stays the python CLI's job
 /// (`orbitty-needed rule add` — validation, 48 cap, atomic save, log);
 /// this only builds argv and returns the minted rule, or the CLI's
@@ -208,7 +208,7 @@ fn needed_rule_add(
     Err("needed.rule_add: unix only".into())
 }
 
-/// GO-ORBITTY-CHARS — deterministic roll: the Being editor's reroll mints a
+/// Deterministic roll: the Being editor's reroll mints a
 /// seed, this maps it to a Kind+Palette (same function the habitat draws
 /// from when a claim has no explicit look yet).
 #[tauri::command]
@@ -216,7 +216,7 @@ fn roll_char_look(seed: u64) -> chars::CharLook {
     chars::look_from_seed(seed)
 }
 
-/// GO-ORBITTY-S1-BITTYS — the Season 1 crew for the Being editor: 11 kinds,
+/// The Season 1 crew for the Being editor: 11 kinds,
 /// each with its 4 palette names (default + 3 recolors). These are the only
 /// silhouette controls; the old glyph-layer cyclers are gone.
 #[tauri::command]
@@ -224,7 +224,7 @@ fn bitty_catalog() -> Vec<chars::BittyKind> {
     chars::bitty_catalog()
 }
 
-/// GO-ORBITTY-S1-BITTYS — fill/clamp a look's kind+palette (legacy pre-S1
+/// Fill/clamp a look's kind+palette (legacy
 /// looks map via chars::resolve), so the Being editor always edits concrete
 /// indices. Persisted only when the editor commits.
 #[tauri::command]
@@ -234,7 +234,7 @@ fn normalize_char_look(look: chars::CharLook) -> chars::CharLook {
     look
 }
 
-/// GO-ORBITTY-CHARS — WYSIWYG preview: the same grid/palette the planet
+/// WYSIWYG preview: the same grid/palette the planet
 /// draws, rasterized to a base64 PNG (macOS; the editor hides the preview
 /// frame when this errors elsewhere).
 #[tauri::command]
@@ -259,9 +259,9 @@ fn prompt_accessibility() -> bool {
 
 /// Bring the rail back. Always show + front; a rail that has drifted off
 /// every display is re-homed on the primary (left inset).
-/// GO-ORBITTY-INSPECTOR: the tray Inspector item is the caller — the rail
+/// The tray Inspector item is the caller — the rail
 /// is the inspector, summoned on purpose (rail delete is forbidden).
-/// GO-ORBITTY-INSPECTOR-HOST: embedded pop-out also invokes this.
+/// Embedded pop-out also invokes this.
 #[tauri::command]
 fn show_rail(app: tauri::AppHandle) {
     show_rail_inner(&app);
@@ -291,22 +291,22 @@ fn bring_planet_front(id: String) {
     habitat::bring_planet_front(&id);
 }
 
-/// S4.2: the Kanban board lives in its own window, never in the rail column.
-/// GO-ORBITTY-SLIM-PANES: created on first open (transparent, so the opacity
+/// The Kanban board lives in its own window, never in the rail column.
+/// Created on first open (transparent, so the opacity
 /// slider applies there too), then kept warm — this shows + focuses it.
 /// Same SPA bundle as the rail — the frontend mounts KanbanPage when the
 /// window label matches.
-/// GO-ORBITTY-BOARD-STARS: the 780×520 pane is now shared — this shows it
+/// The 780×520 pane is shared — this shows it
 /// in board mode (KanbanPage).
 #[tauri::command]
 fn open_kanban(app: tauri::AppHandle) -> Result<(), String> {
     panes::show_shared_pane(&app, "board")
 }
 
-/// GO-ORBITTY-YARD-WARN: Settings → Appearance → Herding Cats… pops the
+/// Settings → Appearance → Herding Cats… pops the
 /// confirm into its own small window (same trick as Settings), so ⌘⇧Y
 /// works with Settings closed. Close / × / Esc hides, never destroys.
-/// GO-ORBITTY-HERDING-CATS: while the clowder is out, the Settings row is
+/// While the clowder is out, the Settings row is
 /// a scoop-all (the exits table: Esc, ⌘⇧Y, Settings while on) — the pane
 /// and the yard never coexist.
 #[tauri::command]
@@ -317,7 +317,7 @@ fn open_yard_warn_window(app: tauri::AppHandle) -> Result<(), String> {
     panes::show_labeled(&app, "yard-warn")
 }
 
-/// GO-ORBITTY-HERDING-CATS: the warn pane's Drop button. Rains the
+/// The warn pane's Drop button. Rains the
 /// current unclaimed set as bitty cats (one overlay per display). No-op
 /// on an already-on yard — never double-spawn.
 #[tauri::command]
@@ -337,7 +337,7 @@ fn yard_status() -> bool {
     yard::active()
 }
 
-/// GO-ORBITTY-NEXT-CARD leftover: own small card window. Dock pip and
+/// Leftover: own small card window. Dock pip and
 /// ⌘⇧N toggle. Click-off / Esc / × hide. Not a dest chip.
 #[tauri::command]
 fn toggle_next_card_window(app: tauri::AppHandle) -> Result<(), String> {
@@ -425,10 +425,10 @@ pub(crate) fn main_thread_async<F: FnOnce() + Send + 'static>(f: F) {
     }
 }
 
-/// S4.4: re-apply the transparency surgery on the overlay windows. The
+/// Re-apply the transparency surgery on the overlay windows. The
 /// frontend invokes this on mount (post-load), so a WKWebView that came up
 /// with the default white backing gets its drawsBackground killed for real.
-/// GO-ORBITTY-PANE-MATCH: drawers take the same transparent path as the
+/// Drawers take the same transparent path as the
 /// rail — never an opaque slab — so --bg-fill alpha shows the desk.
 #[tauri::command]
 fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
@@ -502,19 +502,19 @@ fn load_state(app: tauri::AppHandle) -> Result<state::PersistedState, String> {
 
 #[tauri::command]
 fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result<(), String> {
-    // GO-ORBITTY-EVENT-LOG: this command is the one native writer of
+    // This command is the one native writer of
     // `claims` — diff disk-before against the incoming snapshot and emit
     // claim/unclaim (best-effort; a dead log never fails the save). A
     // missing/corrupt old file skips the diff rather than inventing churn.
     let before = state::load_state(&app).ok();
-    // GO-ORBITTY-MOUTH-HOP leftover: whole-state writers never OWN
+    // Leftover: whole-state writers never OWN
     // companion.free_mode — the set_companion_free_mode command (Settings
     // toggle / companion.free_mode ctl tool) is the only door. Carry the
     // disk value forward so a stale or omitted incoming flag can never
     // strip Free Mode back off (the agentRuns strip-trap).
     if let Some(b) = before.as_ref() {
         state.companion.free_mode = b.companion.free_mode;
-        // GO-ORBITTY-MOUTH-ACK: same strip-trap for the conductor pair —
+        // Same strip-trap for the conductor pair —
         // the set_companion_conductor* commands are the only doors.
         state.companion.conductor_on = b.companion.conductor_on;
         state.companion.conductor_model = b.companion.conductor_model.clone();
@@ -524,14 +524,14 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
     state::save_state(&app, &state)?;
     if let Some(before) = before.as_ref() {
         event_log::diff_claims(&app, &before.claims, &state.claims);
-        // GO-ORBITTY-DOING-FIRE / WALKER: after the save returns so the
+        // After the save returns so the
         // board column is not waiting on Needed mint + extra saves.
         #[cfg(unix)]
         doing_fire::spawn_fire_and_attach(&app, before.clone(), state.clone());
     }
     // Keep the separate Kanban window in sync with the rail's writes.
     let _ = app.emit("state:changed", ());
-    // GO-ORBITTY-ACTION-FILE: every persist re-syncs action combo
+    // Every persist re-syncs action combo
     // registrations (best-effort — a collision marks conflict, never errs).
     actions::sync_combos(&app, &state.action_shortcuts);
     Ok(())
@@ -625,7 +625,7 @@ pub fn run() {
             coordinator::open_soul_in_editor,
         ])
         .setup(|app| {
-            // GO-LS-TAURI-CUTOVER: one-time app-support migration
+            // One-time app-support migration
             // (app.livesprite.mac → space.orbitty.mac) before anything
             // reads/writes state under the new identifier.
             state::migrate_app_support(app.handle());
@@ -634,12 +634,12 @@ pub fn run() {
             // (scaleV flag — never twice), before any window reads state.
             state::migrate_stars_scale(app.handle());
 
-            // GO-ORBITTY-CARD-BLURB: one-time backfill — exact-token
+            // One-time backfill — exact-token
             // GO-ORBITTY-* todos with empty notes get the locked one-liner
             // (never overwrites a note Matt typed). Best-effort.
             board::backfill_go_card_notes(app.handle());
 
-            // GO-ORBITTY-CONTROL-PLANE-0: local Unix control socket (0600)
+            // Local Unix control socket (0600)
             // serving the same handlers as invoke. Bind failure is logged
             // once and the app runs on without it.
             #[cfg(unix)]
@@ -659,7 +659,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             for label in ["main", "kanban", "companion", "stars", "settings", "sky"] {
                 if let Some(w) = app.get_webview_window(label) {
-                    // GO-ORBITTY-PANE-MATCH: one recipe for every pane —
+                    // One recipe for every pane —
                     // clear background + transparency surgery (the rail
                     // recipe); drawers never get an opaque slab.
                     let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
@@ -673,10 +673,10 @@ pub fn run() {
                 }
             }
 
-            // S4.4: sprite-pack drop folder + README (local import only).
+            // Sprite-pack drop folder + README (local import only).
             packs::ensure_packs_dir(app.handle());
 
-            // GO-ORBITTY-SUMMON: ⌘⇧O raises the companion and focuses its
+            // ⌘⇧O raises the companion and focuses its
             // type field. Not a toggle — an already-visible companion stays
             // up and just takes focus; "main" is never touched here.
             #[cfg(target_os = "macos")]
@@ -695,10 +695,10 @@ pub fn run() {
                         let _ = handle.emit_to("companion", "orbitty:companion-summon", ());
                     })?;
 
-                // GO-ORBITTY-YARD-WARN: ⌘⇧Y opens the Herding Cats confirm
+                // ⌘⇧Y opens the Herding Cats confirm
                 // (its own small window — works with Settings closed); a
                 // press while the confirm is up scoops it (hide = Cancel).
-                // GO-ORBITTY-HERDING-CATS: while the clowder is out, ⌘⇧Y
+                // While the clowder is out, ⌘⇧Y
                 // scoops all with no second warning (the exits table) —
                 // the pane toggle resumes once the yard is off. ⌘⇧O stays
                 // summon — never touched; actions.rs reserves both chords.
@@ -724,7 +724,7 @@ pub fn run() {
                         }
                     })?;
 
-                // GO-ORBITTY-NEXT-CARD leftover: ⌘⇧N toggles the next-card
+                // Leftover: ⌘⇧N toggles the next-card
                 // window. Reserved in actions.rs so a user combo cannot steal it.
                 let next_card = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyN);
                 let next_handle = app.handle().clone();
@@ -737,16 +737,16 @@ pub fn run() {
                     })?;
             }
 
-            // GO-ORBITTY-TILE-CHORDS: ⌘⌥1/2/3 = the dest chips (drop /
+            // ⌘⌥1/2/3 = the dest chips (drop /
             // yaw / dismiss toggle), ⌘⌥←/→ yaw the ring while hosted.
             // Registered before action combos so a colliding user combo
             // loses (actions.rs also refuses these as reserved).
             tilechords::register(app.handle());
 
-            // GO-ORBITTY-ACTION-FILE: register persisted action combos on
+            // Register persisted action combos on
             // load (same plugin as the summon above). Every later persist
             // re-syncs via the save_state command / action.* tools.
-            // GO-ORBITTY-ACTIONS-BAKE: seed the real first-run set and
+            // Seed the real first-run set and
             // drop the TextEdit toys first, so a fresh install boots with
             // the companion/kanban/stars chords, not empty/toys.
             let boot_actions = actions::bake_defaults(app.handle());
@@ -757,7 +757,7 @@ pub fn run() {
             // the tray menu alone; windows (and their transparency) survive
             // reopens. The companion additionally persists its bounds
             // (throttled) on move/resize and its visibility on hide —
-            // restore-on-launch reads that slice. GO-ORBITTY-SLIM-PANES: only
+            // restore-on-launch reads that slice. Only
             // the rail exists at launch; lazy panes get the same wiring from
             // ensure_window at create time.
             for label in ["main", "kanban", "companion", "stars", "settings", "sky"] {
@@ -767,7 +767,7 @@ pub fn run() {
                 }
             }
 
-            // GO-ORBITTY-PANE-WARM: build the three chrome drawer
+            // Build the three chrome drawer
             // webviews now — still hidden, still click-through — so the
             // first rail click is show + orderFront of an already-created
             // WKWebView, not a WebviewWindowBuilder on the click path
@@ -777,7 +777,7 @@ pub fn run() {
             // by a real show_drawer. STARS shares the kanban pane; sky
             // stays lazy. ensure_window wires events + glass itself, so
             // this must stay AFTER the rail-only wiring loops above.
-            // GO-ORBITTY-PANE-STAY: park each fresh hidden pane on a real
+            // Park each fresh hidden pane on a real
             // display through the same honor-or-slot law as show_drawer —
             // Tauri's hidden create leaves it on an arbitrary monitor
             // (this desk: s2 @2x) and every later place inherited that
@@ -791,7 +791,7 @@ pub fn run() {
                 drawers::park_warm_drawer(app.handle(), label);
             }
 
-            // GO-LS-TAURI-AVATAR-LARGE S2.1: the companion launches with the
+            // The companion launches with the
             // app — show when `visible` is true OR missing (state.rs defaults
             // a missing key to true, so first run opens it). After that the
             // native hide/show handlers persist the last choice. Bounds come
@@ -803,7 +803,7 @@ pub fn run() {
                 let _ = panes::show_companion(app.handle());
             }
 
-            // GO-ORBITTY-TRAY-REMOTE: the tray is a remote for the
+            // The tray is a remote for the
             // companion, not the rail. Left click raises the companion
             // (caret in the field, same as ⌘⇧O); the right-click menu is
             // chrome — Launchpad/STARS enter the companion's host well,
@@ -862,7 +862,7 @@ pub fn run() {
                         app.exit(0);
                     }
                     "show_companion" => {
-                        // GO-ORBITTY-RAIL-CLOSE: second click hides —
+                        // Second click hides —
                         // talk-stop + persist hidden ride hide_window.
                         // The caret summon fires on the show edge only;
                         // left-click / ⌘⇧O / dock Reopen stay raise-only
@@ -883,7 +883,7 @@ pub fn run() {
                         let _ = app.emit_to("companion", "orbitty:enter-host", mode);
                     }
                     "settings" => {
-                        // GO-ORBITTY-RAIL-CLOSE: same rule as the dock
+                        // Same rule as the dock
                         // gear — a click while visible hides.
                         let _ = rail_toggle::toggle(app, "settings");
                     }
@@ -937,7 +937,7 @@ pub fn run() {
                 }
                 #[cfg(unix)]
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
-                    // GO-ORBITTY-HERDING-CATS: kill the meow + tear the
+                    // Kill the meow + tear the
                     // overlay on quit (boombox-kill law — no orphan audio).
                     let _ = yard::stop();
                     habitat::persist_now();

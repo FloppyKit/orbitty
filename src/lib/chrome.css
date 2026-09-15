@@ -27,7 +27,7 @@
   background: var(--panel-fill, var(--panel));
 }
 
-/* GO-ORBITTY-WORDMARK: ochre i-dot / ink O / accent ty. Slight bevel on
+/* Wordmark: ochre i-dot / ink O / accent ty. Slight bevel on
    the wordmark only — pane names stay plain --ink. */
 .mark {
   text-shadow:

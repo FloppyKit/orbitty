@@ -1,4 +1,4 @@
-//! GO-ORBITTY-NEEDED-RULES-OPEN — Needed standing rules: read / classify /
+//! Needed standing rules: read / classify /
 //! match / can-run against `~/.buzz/ops/needed-bus/rules.json` (the STORE
 //! stage's file). Lock: `~/.buzz/PLANS/ORBITTY_NEEDED_RULES_LOCK_v0.md`.
 //!
@@ -17,7 +17,7 @@
 //! Match is the small AND param list (unspecified = wildcard) — no model.
 //! Log: append-only `rules.log` JSONL (titles only, no PHI).
 //!
-//! GO-ORBITTY-NEEDED-RULES-ANSWER: `rule_add` is the Answer chrome's Save
+//! `rule_add` is the Answer chrome's Save
 //! ("if this again" row). Still no writes from Rust — it shells out to
 //! `orbitty-needed rule add`, so the python CLI keeps owning rules.json
 //! (validation, the 48 cap, atomic save, log). This builds argv (no
@@ -545,7 +545,7 @@ pub fn decide(title: &str, project_id: &str, why: &str, projects: &[Project]) ->
     }
 }
 
-// ---------- GO-ORBITTY-NEEDED-RULES-ANSWER: the Answer chrome's Save ----------
+// ---------- The Answer chrome's Save ----------
 
 /// `~/.local/bin/orbitty-needed` (a symlink into the scripts repo).
 fn cli_path() -> PathBuf {

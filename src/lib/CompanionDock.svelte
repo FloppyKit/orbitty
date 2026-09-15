@@ -1,20 +1,20 @@
 <script lang="ts">
-  // GO-ORBITTY-CLEAN-COMPANION-DOCK: the dock — agent pick, Prompts,
+  // The dock — agent pick, Prompts,
   // dests Launchpad/STARS/Planets (hover chips, diagonal rocket), Speak,
   // Full/Head sprite toggle, Expand, ⚙ last after Expand (GEAR-DOCK),
   // composer. Paint + presses only: CompanionPage owns all state, the
   // sends (the field still calls companion_send), and the well. Planets
-  // dest L-click = toggleDest("inspector"). GO-ORBITTY-PLANETS-STRIP:
-  // no dest right-click menu — planet tabs live in the well / Launchpad.
+  // dest L-click = toggleDest("inspector").
+  // No dest right-click menu — planet tabs live in the well / Launchpad.
   // × stays a CompanionPage corner.
-  // GO-ORBITTY-DOCK-HACK: the live LED sits immediately left of the agent
+  // The live LED sits immediately left of the agent
   // pick (sending || hackLive); the pick hugs its labels (46% cap dead).
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import NeededRuleRow from "./NeededRuleRow.svelte";
   import type { KanbanCard } from "./persist";
 
-  // GO-ORBITTY-FOURCAST-RECAST: chrome labels only. The option value stays
+  // Chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
   // untouched; an unknown stem fails open to the raw id.
   const AGENT_LABELS: Record<string, string> = {
@@ -25,7 +25,7 @@
   };
   const agentLabel = (id: string) => AGENT_LABELS[id] ?? id;
 
-  // GO-ORBITTY-DOCK-HACK: one 7px LED immediately left of the agent pick
+  // One 7px LED immediately left of the agent pick
   // — lit while ANY agent is working: the Spark mouth (sending) or the
   // ctl hack flag (companion.hackLive; a harness opts in). Off = not in
   // the DOM, never a dim grey. Not a button, not a count.
@@ -39,7 +39,7 @@
 
   type HostMode = "off" | "launchpad" | "stars" | "inspector";
 
-  // GO-ORBITTY-ATTACH: one chip = name + size. Original path rides
+  // One chip = name + size. Original path rides
   // companion_send; never a copy.
   type AttachChip = { path: string; name: string; size: number };
   const fmtSize = (n: number) =>
@@ -121,7 +121,7 @@
     neededCard?: KanbanCard | null;
     draft: string;
     fieldEl: HTMLTextAreaElement | null;
-    // GO-ORBITTY-ATTACH: the one-file chip (name + size, × to drop).
+    // The one-file chip (name + size, × to drop).
     // CompanionPage owns it; the dock only paints and reports presses.
     attach?: AttachChip | null;
     onPickAttach: () => void;
@@ -196,7 +196,7 @@
   // COMPOSER-WRAP: the one-line field is a wrapping textarea now (Grok
   // web composer). Enter sends, Shift+Enter newline, ⌘↩/Ctrl+↩ send.
   // Auto-grows from scrollHeight (WKWebView-safe — no field-sizing).
-  // GO-ORBITTY-COLLAPSE-CC: collapsed drops the 6-line cap — never an
+  // Collapsed drops the 6-line cap — never an
   // inner scroll; the WINDOW grows instead (composerExtra rides up to
   // CompanionPage's hug / grow-down report). Expanded / hosted keep the
   // 6-line cap so the field never eats the transcript / well. Empty
@@ -290,7 +290,7 @@
   });
 </script>
 
-<!-- GO-ORBITTY-GHOST-DOCK: agentrow + composer ride in one wrap — the
+<!-- Agentrow + composer ride in one wrap — the
      ghost's outlined bottom slab. × stays a floating corner; ⚙ is on
      the dock after Expand (GEAR-DOCK). -->
 <div class="ghostdock" onmousedown={onDockMouseDown}>
@@ -308,7 +308,7 @@
   <!-- Agent row: left cluster / dests (star at window center) / right. -->
   <div class="agentrow">
     <div class="agentleft">
-    <!-- GO-ORBITTY-DOCK-HACK leftover: always-on purple well left of
+    <!-- Always-on purple well left of
          the agent pick. Glow/pulse only while sending or hackLive.
          Not a button: it drags with the dock chrome like any gap. -->
     <span
@@ -618,7 +618,7 @@
     }}
   >
     {#if attach}
-      <!-- GO-ORBITTY-ATTACH: the one chip — name + size, × to drop.
+      <!-- The one chip — name + size, × to drop.
            Vanishes on send (CompanionPage clears it); an honest send
            error brings it back. -->
       <div class="chiprow">
@@ -775,7 +775,7 @@
 </div>
 
 <style>
-  /* GO-ORBITTY-GHOST-DOCK: one wrap around agentrow + composer. Ghost
+  /* One wrap around agentrow + composer. Ghost
      paints it as the small outlined bottom slab — same paint as the
      expanded window (--bg-fill, radius 12, 1px --edge) — floating just
      off the window edges. TILE-DROP leftover: hosted dests (Launchpad /
@@ -857,7 +857,7 @@
     justify-content: flex-end;
   }
 
-  /* GO-ORBITTY-DOCK-HACK: the 46% max-width was artificially wide — the
+  /* The 46% max-width was artificially wide — the
      pick now hugs the labels (Spark / Work / Chat / Hold), making room
      for the hack LED on its left. Dests still give first at the 280px
      hug; the icon hit targets are never stolen. */
@@ -917,7 +917,7 @@
     border-color: var(--focus, #6e4db0);
   }
 
-  /* GO-ORBITTY-DOCK-HACK leftover: always-on 7px well, dock focus
+  /* Always-on 7px well, dock focus
      purple (#6e4db0) not theme teal. Dim when idle; glow+pulse when
      sending or companion.hackLive. */
   .hackled {
@@ -972,7 +972,7 @@
     justify-self: center;
   }
 
-  /* GO-ORBITTY-DEST-CHROME + DOCK-TWEAK: dests wear the same outlined
+  /* Dests wear the same outlined
      pill as the other dock icon buttons — --panel-fill, 1px --edge,
      8px radius like .expandbtn — so Expand does not eat the rings. */
   .dest {
@@ -1068,10 +1068,10 @@
   }
 
   /* Icon toggles: same pill as the old text buttons, squared up for a
-     16px glyph. GO-ORBITTY-COMPANION-BRAND: the on state is per-toggle
+     16px glyph. The on state is per-toggle
      brand — Prompts sparkle = ochre --mark, Speak = violet --focus,
      Head silhouette = --ink (never teal). Idle icons stay --ink.
-     GO-ORBITTY-HABITAT-BRAND: every on/hover RING is the deeper violet
+     Every on/hover RING is the deeper violet
      --focus #6e4db0 — the sparkle FILL stays ochre, pinky #c793e6 is
      --bloom (words/tags), never the ring. */
   .iconbtn {
@@ -1170,7 +1170,7 @@
 
   /* Composer: field with the mic parked inside its right edge + Send
      outside. Ghost chrome gaps drag (DOCK-GRIP); field / mic / Send
-     never do. GO-ORBITTY-ATTACH: the chip row wraps above the row. */
+     never do. The chip row wraps above the row. */
   .composer {
     display: flex;
     flex-wrap: wrap;
@@ -1179,7 +1179,7 @@
     padding: 8px 10px 10px;
   }
 
-  /* GO-ORBITTY-ATTACH: one chip — name + size, × to drop. Same outlined
+  /* One chip — name + size, × to drop. Same outlined
      pill language as the dock icon buttons, full row above the field. */
   .chiprow {
     flex: 1 1 100%;

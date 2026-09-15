@@ -1,4 +1,4 @@
-//! GO-ORBITTY-MOUTH-FOREVER: the companion mouth never tuckers.
+//! The companion mouth never tuckers.
 //!
 //! The bubble is ONE continuous thread (tmux); a backend session may still
 //! die (context-dead / session-dead / empty-after-resume). When it does,

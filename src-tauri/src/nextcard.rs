@@ -1,4 +1,4 @@
-//! GO-ORBITTY-NEXT-CARD leftover: click-off.
+//! Leftover: click-off.
 //!
 //! Tauri `onFocusChanged` does not fire on this borderless always-on-top
 //! pane (same-app clicks stay inside Orbitty; desktop clicks often never

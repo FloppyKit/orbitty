@@ -34,10 +34,10 @@
   } from "./persist";
 
   // Rail brain — mounted when +page.svelte dispatches the `main` window,
-  // and again embedded in the companion inspector well
-  // (GO-ORBITTY-INSPECTOR-HOST). Overlay windows never load this file.
+  // and again embedded in the companion inspector well.
+  // Overlay windows never load this file.
 
-  // GO-ORBITTY-INSPECTOR-HOST: embedded mounts this page in the companion's
+  // Embedded mounts this page in the companion's
   // inspector well — × calls onClose (never hide_window), the banner
   // title is Planets, and a pop-out control (onPopout) hands the
   // chrome back to the real rail window. The overlay passes nothing.
@@ -76,7 +76,7 @@
   }
 
   // System-first: the primary pair keeps the Tahoe semantic fills and wears
-  // the Orbitty brand triad for accent/mark/focus (GO-ORBITTY-COMPANION-BRAND).
+  // the Orbitty brand triad for accent/mark/focus.
   // S4.2 retired Clear — translucency is the Background opacity slider, not a
   // theme. Custom holds Terminal only; the seven old palette skins are gone.
   const THEMES: Theme[] = [
@@ -154,7 +154,7 @@
   let hideTitles = $state(false);
   let hideAppIcons = $state(false);
   let spriteScale = $state(1);
-  // GO-ORBITTY-MARBLE-DRIFT: Settings owns the toggle; the rail round-trips
+  // Settings owns the toggle; the rail round-trips
   // it and rides it to the native habitat on the snapshot.
   let marbleDrift = $state(false);
 
@@ -162,13 +162,13 @@
   // persist() never strips the arrays.
   let actionShortcuts = $state<ActionShortcut[]>([]);
   let agentShortcuts = $state<AgentShortcut[]>([]);
-  // GO-ORBITTY-DOING-WALKER: the doing-run rows (agent walkers). The
+  // The doing-run rows (agent walkers). The
   // native attach door owns mint/done/drop; the rail round-trips the
   // slice, mirrors it into the habitat snapshot, and evicts the done row
   // on habitat:walked-off.
   let agentRuns = $state<AgentRun[]>([]);
 
-  // GO-LS-TAURI-AVATAR-LARGE: companion slice, round-tripped opaquely (the
+  // Companion slice, round-tripped opaquely (the
   // companion window and the native side own the contents).
   let companionState = $state<CompanionSlice>({
     visible: false,
@@ -179,7 +179,7 @@
     // the flag (default off) so persist() can never omit it.
     freeMode: false,
   });
-  // GO-ORBITTY-AGENT-PLANET leftover: the planet an agent is writing on
+  // Leftover: the planet an agent is writing on
   // (companion.hackLive + that agent's pinned projectId) glows a little
   // in the planet menus — the On planets sheet heads only, never the
   // habitat discs, never the walkers.
@@ -187,17 +187,17 @@
     companionState?.hackLive ? (companionState?.hackProjectId ?? null) : null,
   );
 
-  // GO-LS-STARS-STATUS / S1.1: the STARS window owns check-ins (Save today)
+  // The STARS window owns check-ins (Save today)
   // and the Prompts toggle; the companion rides promptsOptIn/promptsAck
   // through native commands. The rail only round-trips the slice — loaded
   // once, adopted on state:changed, written back untouched by persist().
   let starsState = $state<StarsSlice>({ promptsOptIn: false, checkins: {} });
 
-  // GO-ORBITTY-WORD-SKY: the Sky window owns the mute list; the rail only
+  // The Sky window owns the mute list; the rail only
   // round-trips it so persist() never strips the slice.
   let skyState = $state<SkySlice>({ muted: [] });
 
-  // GO-ORBITTY-RAIL-DRAWER: the native leash owns dock/pluck state; the
+  // The native leash owns dock/pluck state; the
   // rail only round-trips it so persist() never strips the slice.
   let drawersState = $state<Record<string, DrawerSlice>>({});
 
@@ -306,7 +306,7 @@
   function todosFor(projectId: string): KanbanCard[] {
     return kanbanCards
       .filter(
-        // GO-ORBITTY-LP-NEEDED: Needed cards never count as rail todos.
+        // Needed cards never count as rail todos.
         (c) =>
           c.kind !== "needed" &&
           c.status !== "done" &&
@@ -334,7 +334,7 @@
     const live = windows.filter((w) =>
       liveClaims.some((c) => c.windowId === w.id && c.projectId === projectId),
     );
-    // GO-ORBITTY-SLEEPERS: a claimed window that closed stays listed as an
+    // A claimed window that closed stays listed as an
     // asleep row, synthesized from the claim fingerprint (icon may be gone —
     // that's fine). Done/Unclaim is the only way it leaves.
     const sleepers: WindowInfo[] = liveClaims
@@ -389,7 +389,7 @@
     persist();
   }
 
-  // GO-ORBITTY-PLANETS-STRIP: the hosted well (embedded) is a top strip of
+  // The hosted well (embedded) is a top strip of
   // planet tabs (Unclaimed · orbs · +) and one body. Windows only: no
   // Agents lane, tags, +To-do, Actions, or being editor in the well (the
   // pop-out rail keeps the full inspector). + Planet is the one mint.
@@ -449,7 +449,7 @@
     invoke("focus_window", { id: w.id }).catch(() => {});
   }
 
-  // GO-ORBITTY-MENU-KEYS: the Planets-pop ring — orb tabs across the
+  // The Planets-pop ring — orb tabs across the
   // top, window rows under the selected tab. Left/right walks the strip,
   // down drops into the rows, up climbs back to the tab; Enter is the
   // click (tab = select + raise/locate the disc, row = focus the window,
@@ -568,7 +568,7 @@
       titleOverrides.find((o) => o.windowId === w.id)?.title ?? w.title;
   }
 
-  // GO-ORBITTY-RAIL-ROW-MENU: the row menu — Assign to… / Rename /
+  // The row menu — Assign to… / Rename /
   // Minimize XOR Restore / Close window / × Unclaim (claimed only).
   let ctxAssignOpen = $state(false);
 
@@ -705,11 +705,11 @@
   // reach the habitat — only home claims make sprites. Zombie `gone` claims
   // (21+ days untouched) stay listed in the rail but leave the planet; a
   // project whose claims all went gone loses its (now ghost) planet until
-  // something is touched again. GO-ORBITTY-SLEEPERS: sleepers (closed claimed
+  // something is touched again. Sleepers (closed claimed
   // windows) are the exception — `gone` never evicts a sleeper; it stays on
   // its planet, asleep and dim, until Done/Unclaim.
   let lastHabitatSig = "";
-  // GO-ORBITTY-SLEEPERS / CADENCE-FIX: one sleeper row from a claim
+  // One sleeper row from a claim
   // fingerprint — a closed claim keeps a dim, still walker until
   // Done/Unclaim (without it the body outlived its row on the planet:
   // the drag-into-hang ghost). Shared by the live snapshot's orphan
@@ -730,7 +730,7 @@
     };
   }
 
-  // GO-ORBITTY-WORLD-TOWN: the back-board's ticks — this project's
+  // The back-board's ticks — this project's
   // kanban (Needed cards never land), capped ~12: oldest open first,
   // then recent done. Ids + columns only; titles never ride.
   function boardCardsFor(p: Project) {
@@ -759,7 +759,7 @@
 
   function habitatEntryFor(w: WindowInfo, p: Project) {
     const c = liveClaims.find((x) => x.windowId === w.id);
-    // GO-ORBITTY-CADENCE: the window's board truth rides the snapshot
+    // The window's board truth rides the snapshot
     // (one channel — sync_habitat). The window-linked card wins for
     // this window id: an open card first, else the latest done one
     // (so the walk-off still shows between Complete and the rail's
@@ -794,7 +794,7 @@
       age: ageClass(w.id),
       asleep: !!w.sleeping,
       spritePackId: c?.spritePackId ?? "",
-      // GO-ORBITTY-CHARS: the generated being + per-walker size ride
+      // The generated being + per-walker size ride
       // the snapshot; 0 scale = inherit the gear's global slider.
       charSeed: c?.charSeed ?? 0,
       charLook: c?.charLook ?? null,
@@ -802,13 +802,13 @@
       cardStatus: card?.status ?? "",
       cardKind: card?.kind ?? "",
       neededState: needed ? (needed.neededState ?? "open") : "",
-      // GO-ORBITTY-DOING-WALKER: window walkers never bake the droid —
+      // Window walkers never bake the droid —
       // the empty seed keeps one entry shape for the sig.
       agentSeed: "",
     };
   }
 
-  // GO-ORBITTY-DOING-WALKER: one pseudo-entry per doing-run on this
+  // One pseudo-entry per doing-run on this
   // planet — the agent walker. The pose rides the SAME card fields as a
   // window walker (one channel, sync_habitat): working/starting → the
   // disc; a blocked run → sit the near rim; done → the far-rim walk-off
@@ -904,7 +904,7 @@
             .map(sleeperRowFor),
         ],
       }))
-      // GO-ORBITTY-PROJECT-ADD leftover: NO empty-planet filter — a mint
+      // Leftover: NO empty-planet filter — a mint
       // with zero claims still rides the snapshot (entries: []) so the
       // native side gives it a disc (empty town / marble). Filtering here
       // tore the panel down and the name "vanished" on the dest click.
@@ -976,7 +976,7 @@
     }
   }
 
-  // GO-ORBITTY-RAIL-ROW-MENU: row left-click = locate (glow only — never
+  // Row left-click = locate (glow only — never
   // focus, never wake, never the Being editor). Open window → Orbitty
   // overlay ring on its AX frame; minimized claimed → walker stroke on its
   // planet; sleeper → the dim walker if it still has a planet, else a CSS
@@ -1031,7 +1031,7 @@
     await tick();
   }
 
-  // GO-ORBITTY-SLEEPERS: click an asleep row → wake through the claim's
+  // Click an asleep row → wake through the claim's
   // stamps (live → file → Hermes session → recipe → app). One honest line
   // comes back either way; the click counts as claim activity.
   let wakeNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -1067,7 +1067,7 @@
     return Math.min(2.5, Math.max(0.4, n));
   }
 
-  // GO-ORBITTY-BOARD-STARS: Board and STARS share the one 780×520 `kanban`
+  // Board and STARS share the one 780×520 `kanban`
   // overlay — the native side persists the mode, shows the pane, and emits
   // the swap; this webview (when it IS the pane) mounts KanbanPage.
   async function openKanban() {
@@ -1078,7 +1078,7 @@
     }
   }
 
-  // GO-ORBITTY-RAIL-REVIEW: the rail no longer opens the Sky window — the
+  // The rail no longer opens the Sky window — the
   // word field lives inside STARS Review. The sky webview itself stays
   // (hide-not-destroy).
 
@@ -1254,7 +1254,7 @@
     return `${bundle}|${c.titleAtClaim}|${c.titleIndex}`;
   }
 
-  // GO-ORBITTY-SLEEPERS: Hermes-class = the bundle id or app name says so.
+  // Hermes-class = the bundle id or app name says so.
   function isHermesClass(w: WindowInfo): boolean {
     return /hermes/i.test(w.bundleId ?? "") || /hermes/i.test(w.appName);
   }
@@ -1276,7 +1276,7 @@
     };
   }
 
-  // GO-ORBITTY-CHARS: a fresh roll seed for a brand-new claim (u32 range —
+  // A fresh roll seed for a brand-new claim (u32 range —
   // the native side takes u64). The look derives from it until the Being
   // editor materializes explicit picks.
   function rollCharSeed(): number {
@@ -1290,7 +1290,7 @@
     const w = windows.find((x) => x.id === windowId);
     // The sprite pick / generated being / per-walker size are per-window
     // preferences — re-claiming into another project keeps them; a
-    // first-time claim rolls a fresh person (GO-ORBITTY-CHARS).
+    // first-time claim rolls a fresh person.
     const prev = liveClaims.find((c) => c.windowId === windowId);
     claims = [
       ...liveClaims.filter((c) => c.windowId !== windowId),
@@ -1302,7 +1302,7 @@
         charSeed: prev?.charSeed ?? rollCharSeed(),
         charLook: prev?.charLook ?? null,
         spriteScale: prev?.spriteScale ?? null,
-        // GO-ORBITTY-CLAIM-ONE: claiming (rail Assign or walker
+        // Claiming (rail Assign or walker
         // Assign-to-planet — same door) clears any leftover teleport
         // home. Occupancy is projectId only.
         walkerHome: null,
@@ -1442,7 +1442,7 @@
         },
       ];
     }
-    // GO-ORBITTY-CADENCE: the claim SURVIVES the complete so the walker can
+    // The claim SURVIVES the complete so the walker can
     // walk off the north rim — the card's done status rides the snapshot and
     // the native side narrates the walk. The eviction itself is unchanged:
     // the habitat:walked-off listener below unclaims once the walker is off
@@ -1502,7 +1502,7 @@
     }, 240);
   }
 
-  // GO-ORBITTY-BOARD-PROOFS: a loose-todo mint is a kind-420 board proof
+  // A loose-todo mint is a kind-420 board proof
   // (`t=orbitty`) — the log_event match arm kinds "board-add". Fire-and-
   // forget in the same tick as the save: a log failure never blocks a mint.
   function logEvent(eType: string, content: Record<string, unknown>, projectId?: string) {
@@ -1546,13 +1546,13 @@
     openKanbanFocus(id);
   }
 
-  // Sprite assignment (GO-ORBITTY-RAIL-ROW-MENU): the pack id lives on the
+  // Sprite assignment: the pack id lives on the
   // claim and rides the habitat snapshot; null/"" = the generated being.
   // The picker UI is the planet walker's right-click NSMenu — the rail
   // receives `habitat:walker-pack` and writes the claim here.
-  // GO-ORBITTY-CLAIM-ONE: one windowId, one projectId — occupancy IS the
+  // One windowId, one projectId — occupancy IS the
   // claim. The walkerHome occupancy teleport is gone; the field stays on
-  // Claim only so pre-CLAIM-ONE saves still load, and nothing reads it.
+  // Claim only so old saves still load, and nothing reads it.
   function occupancyOf(c: Claim): string {
     return c.projectId;
   }
@@ -1564,9 +1564,9 @@
     persist();
   }
 
-  // ---------- Being editor (GO-ORBITTY-CHARS) ----------
+  // ---------- Being editor ----------
   // The door is the planet walker's right-click menu → "Open being…"
-  // (habitat:being, GO-ORBITTY-RAIL-ROW-MENU). Every change writes the
+  // (habitat:being). Every change writes the
   // claim straight away (persist → syncHabitat), so the planet redraws
   // live; there is no Save/Cancel. Double-click on the walker still
   // restores the window.
@@ -1662,7 +1662,7 @@
     editorPreview = "";
   }
 
-  // Kind + Palette are the only cyclers (GO-ORBITTY-S1-BITTYS). Indices
+  // Kind + Palette are the only cyclers. Indices
   // wrap mod the table sizes; the palette index carries across kinds (every
   // kind has exactly 4 palettes).
   function beingKindIndex(): number {
@@ -1762,7 +1762,7 @@
     }
   }
 
-  // GO-ORBITTY-PROJECT-ADD leftover (inspector rm click): the × on a planet
+  // Leftover (inspector rm click): the × on a planet
   // row arms an in-sheet confirm — WKWebView JS dialogs (confirm/alert) do
   // not surface on the companion overlay window, so window.confirm swallowed
   // the press and window.alert had the same hole (S4.6 law: the confirm
@@ -1908,7 +1908,7 @@
     }
   }
 
-  // GO-LS-TAURI-USER-PACKS reboot rematch. Live ids are pid:cgWindowID —
+  // Reboot rematch. Live ids are pid:cgWindowID —
   // they die on reboot. Claims carry a bundle+title fingerprint; when a
   // claim's id is gone, adopt the best unused live window (exact stableKey,
   // else same bundle+title first unused) and rewrite the id everywhere.
@@ -1995,7 +1995,7 @@
     nudgeSuppressed = nudgeSuppressed.map((id) => (id === oldId ? w.id : id));
   }
 
-  // GO-ORBITTY-WORLD-PROPS leftover: orphan window-card heal. An open
+  // Leftover: orphan window-card heal. An open
   // kind:"window" card with a windowId but no live claim is invisible
   // everywhere except the billboard tick — todosFor skips windowId cards,
   // Launchpad hides kind:"window", the habitat only draws claims. Heal:
@@ -2039,7 +2039,7 @@
   // window asks once — pick or create a home, or dismiss. After that the
   // window id is silent forever (persisted). Never auto-claim.
   //
-  // GO-LS-TAURI-USER-PACKS: windows ALREADY minimized on the first poll after
+  // Windows ALREADY minimized on the first poll after
   // launch never nudge — their ids AND stableKeys go straight to
   // nudgeSuppressed (the stableKey keeps them silent across reboots too).
   // After that, only a visible → minimized transition can nudge, once per id.
@@ -2143,7 +2143,7 @@
   let unlistenCheckin: (() => void) | undefined;
   let unlistenState: (() => void) | undefined;
 
-  // GO-ORBITTY-RAIL-ROW-MENU: walker right-click menu pick. `kind` = import
+  // Walker right-click menu pick. `kind` = import
   // first ("image" / "folder"); `packId` = direct pick (null = Generated).
   interface WalkerPackPick {
     entryId: string;
@@ -2185,7 +2185,7 @@
       claims = (s.claims ?? []).map((c) =>
         c.lastTouchedAt > 0 ? c : { ...c, lastTouchedAt: firstSeen },
       );
-      // GO-ORBITTY-CHARS: pre-GO saves have no charSeed — roll one per claim
+      // Old saves have no charSeed — roll one per claim
       // so every existing walker keeps a stable being from here on.
       {
         let seeded = false;
@@ -2234,7 +2234,7 @@
     unlistenCollapse = await listen<string>("habitat:collapse", (e) => {
       if (!isCollapsed(e.payload)) toggleCollapse(e.payload);
     });
-    // GO-ORBITTY-RAIL-ROW-MENU: the walker right-click menu's "Open
+    // The walker right-click menu's "Open
     // being…" is the Being editor's only door (walker single-click is the
     // locate stroke now).
     unlistenBeing = await listen<string>("habitat:being", (e) => {
@@ -2265,7 +2265,7 @@
         setSpritePack(entryId, packId ?? null);
       },
     );
-    // GO-ORBITTY-CLAIM-ONE: walker Assign-to-planet IS the rail claim —
+    // Walker Assign-to-planet IS the rail claim —
     // the same persist door. claim() rewrites projectId (exclusive per
     // windowId), moves the open kanban window card with it, and the sprite
     // follows the claim. No occupancy teleport, no dual home.
@@ -2275,7 +2275,7 @@
         claim(e.payload.entryId, e.payload.projectId);
       },
     );
-    // GO-ORBITTY-HERDING-CATS: a yard cat's right-click "Assign to planet"
+    // A yard cat's right-click "Assign to planet"
     // lands here — the SAME claim() door as the walker menu (one windowId,
     // one planet; persist + habitat sync follow). The yard native side
     // never writes claims; its cat leaves on the pick and the next yard
@@ -2287,7 +2287,7 @@
         claim(e.payload.windowId, e.payload.projectId);
       },
     );
-    // GO-ORBITTY-CADENCE: a Done walker crossed the north rim (or had no
+    // A Done walker crossed the north rim (or had no
     // walker to walk off — marble / open dot). The walk-off is narration;
     // THIS is the existing Done eviction: unclaim, same as the pre-cadence
     // complete path. Idempotent (the native side re-emits while a done
@@ -2310,7 +2310,7 @@
     });
     unlistenWalkedOff = await listen<string>("habitat:walked-off", (e) => {
       const windowId = e.payload;
-      // GO-ORBITTY-DOING-WALKER: an agent walker's far-rim exit evicts
+      // An agent walker's far-rim exit evicts
       // the run row (the droid has no claim to unclaim). Idempotent —
       // the native side re-delivers while a walker lingers.
       if (windowId.startsWith("agent:")) {
@@ -2329,7 +2329,7 @@
       claims = liveClaims.filter((c) => c.windowId !== windowId);
       persist();
     });
-    // GO-ORBITTY-WORLD-CHECKIN: a Todo walker touched the near lip of
+    // A Todo walker touched the near lip of
     // the board — the board walk IS the check-in. If that window's card
     // is still todo, flip it to doing and persist; syncHabitat then
     // sends Work and the walker leaves the board for the field on its
@@ -2348,7 +2348,7 @@
       );
       persist();
     });
-    // GO-ORBITTY-WORLD-PROPS leftover (town usable): a walker dropped on
+    // Leftover (town usable): a walker dropped on
     // the Todo column returns its card to todo — the drop on the board
     // IS the status move. doing→todo only: a todo card stays (no-op), a
     // done card's walk-off ritual owns it. The native side already spent
@@ -2376,7 +2376,7 @@
         const s = await invoke<PersistedState>("load_state");
         kanbanCards = s.kanbanCards ?? [];
         pointsLedger = s.pointsLedger ?? [];
-        // GO-ORBITTY-DOING-WALKER: the native attach door's mints/dones
+        // The native attach door's mints/dones
         // land here; the rail round-trips the slice so persist() never
         // strips a live run.
         agentRuns = s.agentRuns ?? [];
@@ -2569,7 +2569,7 @@
   </li>
 {/snippet}
 
-<!-- GO-ORBITTY-PROJECT-ADD leftover (inspector rm click): the × arms an
+<!-- Leftover (inspector rm click): the × arms an
      in-sheet confirm chip (no window.confirm — JS dialogs don't surface on
      the companion overlay). stopPropagation on mousedown AND click so the
      companion pane-drag and the section-head collapse toggle can't steal
@@ -2609,7 +2609,7 @@
   {/if}
 {/snippet}
 
-<!-- GO-ORBITTY-PLANETS-STRIP: hosted well — top orb strip, one body.
+<!-- Hosted well — top orb strip, one body.
      Extra rows scroll inside the selected tab, not the tile. -->
 {#snippet planetsSheet()}
   <div class="sheet">
@@ -2850,7 +2850,7 @@
     </header>
 
     {#if !embedded}
-      <!-- GO-ORBITTY-RAIL-CLOSE: the window stack (STARS / Sky / Board /
+      <!-- The window stack (STARS / Sky / Board /
            Companion / ⚙) — toggle_labeled, show+focus then hide. Own
            file (module law); the embedded Planets well keeps the dock's
            dest chips instead. -->
@@ -3336,7 +3336,7 @@
     border-radius: 12px;
   }
 
-  /* GO-ORBITTY-INSPECTOR-HOST: fill the well pane; square corners inside
+  /* Fill the well pane; square corners inside
      the companion's rounded clip. */
   .rail.embedded {
     height: 100%;
@@ -3448,7 +3448,7 @@
     letter-spacing: 0.04em;
   }
 
-  /* GO-ORBITTY-RAIL-REVIEW: the wordmark IS Home — bringAllFront, not a
+  /* The wordmark IS Home — bringAllFront, not a
      seventh stack button. */
   .wordmark {
     font: inherit;
@@ -3469,7 +3469,7 @@
     color: var(--dim);
   }
 
-  /* Being editor (GO-ORBITTY-CHARS): popover card above the rail. */
+  /* Being editor: popover card above the rail. */
   .being-editor {
     position: fixed;
     right: 10px;
@@ -3779,7 +3779,7 @@
     outline-offset: 1px;
   }
 
-  /* GO-ORBITTY-PROJECT-ADD leftover (inspector rm): head + × share one
+  /* Leftover (inspector rm): head + × share one
      row — the head keeps the flex, the × stays out of the collapse
      toggle so a remove can never misclick-expand. */
   .head-row {
@@ -3861,7 +3861,7 @@
     color: var(--dim);
   }
 
-  /* GO-ORBITTY-PLANET-MARK: the list wears the disc's marble color. */
+  /* The list wears the disc's marble color. */
   .planet-chip {
     flex-shrink: 0;
     width: 11px;
@@ -3870,7 +3870,7 @@
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
   }
 
-  /* GO-ORBITTY-AGENT-PLANET leftover: a small glow in the planet's own
+  /* Leftover: a small glow in the planet's own
      color while its agent is writing (hackLive + projectId). The inset
      ring stays; menus only — never the habitat discs. */
   .planet-chip.live {
@@ -3887,7 +3887,7 @@
     padding: 0 0.35rem;
   }
 
-  /* GO-ORBITTY-PLANETS-SHEET: hosted well — one sheet, two sections. */
+  /* Hosted well — one sheet, two sections. */
   .sheet-sec {
     margin-bottom: 10px;
   }
@@ -3954,7 +3954,7 @@
     gap: 5px;
   }
 
-  /* GO-ORBITTY-PLANETS-STRIP: orbs across the top, one selected body.
+  /* Orbs across the top, one selected body.
      Extra rows scroll in .sheet-body, not the tile. */
   .sheet {
     flex: 1;
@@ -4244,7 +4244,7 @@
     outline: none;
   }
 
-  /* GO-ORBITTY-WORLD-PROPS leftover: a minimized window is stowed, not
+  /* Leftover: a minimized window is stowed, not
      asleep — the walker still walks its planet, so the row stays readable
      (0.85), never a ghost. Zombie age classes (.rowwrap.zpark/.zgone)
      still dim harder, and true sleepers keep .row.sleeping's 0.6. */
@@ -4327,7 +4327,7 @@
     opacity: 0.8;
   }
 
-  /* GO-ORBITTY-SLEEPERS: a closed claimed window keeps an obvious asleep
+  /* A closed claimed window keeps an obvious asleep
      row — dimmed, italic title, dashed "asleep" tag — never a ghost hole. */
   .row.sleeping {
     opacity: 0.6;
@@ -4592,7 +4592,7 @@
     background: var(--edge);
   }
 
-  /* GO-ORBITTY-RAIL-ROW-MENU: sleeper-without-walker locate fallback —
+  /* Sleeper-without-walker locate fallback —
      a ~500ms row flash (the walker stroke / overlay ring are native). */
   @keyframes locate-flash {
     0%,
