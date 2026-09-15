@@ -81,3 +81,52 @@ fn toggle_shared(app: &tauri::AppHandle, label: &str) -> Result<bool, String> {
 pub fn toggle_labeled(app: tauri::AppHandle, label: String) -> Result<bool, String> {
     toggle(&app, &label)
 }
+
+/// Dock dest chips: Launchpad / STARS / inspector as lightswitches.
+/// Visible in that mode → hide; else show and order front.
+#[tauri::command]
+pub fn dest_toggle(app: tauri::AppHandle, dest: String) -> Result<bool, String> {
+    match dest.as_str() {
+        "launchpad" => toggle(&app, "kanban"),
+        "stars" => toggle(&app, "stars"),
+        "inspector" => {
+            if visible(&app, "main") {
+                crate::panes::hide_window(app, "main".into())?;
+                Ok(false)
+            } else {
+                crate::show_rail_inner(&app);
+                Ok(true)
+            }
+        }
+        _ => Err(format!("dest_toggle: unknown dest {dest}")),
+    }
+}
+
+/// Raise-only (tray / leftover host events). Never hides.
+#[tauri::command]
+pub fn dest_show(app: tauri::AppHandle, dest: String) -> Result<(), String> {
+    match dest.as_str() {
+        "launchpad" => crate::panes::show_shared_pane(&app, "board"),
+        "stars" => crate::panes::show_shared_pane(&app, "stars"),
+        "inspector" => {
+            crate::show_rail_inner(&app);
+            Ok(())
+        }
+        _ => Err(format!("dest_show: unknown dest {dest}")),
+    }
+}
+
+/// Chip highlight: which dest windows are up.
+#[tauri::command]
+pub fn dest_open_state(app: tauri::AppHandle) -> serde_json::Value {
+    let kanban = visible(&app, "kanban");
+    let mode = crate::state::load_state(&app)
+        .ok()
+        .map(|s| s.shared_pane_mode)
+        .unwrap_or_else(|| "board".into());
+    serde_json::json!({
+        "launchpad": kanban && mode == "board",
+        "stars": kanban && mode == "stars",
+        "inspector": visible(&app, "main"),
+    })
+}

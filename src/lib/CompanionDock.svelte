@@ -55,6 +55,7 @@
     hackWho,
     prompts,
     hosted,
+    destOpen = { launchpad: false, stars: false, inspector: false },
     speak,
     speakVolume = 1,
     headShowing,
@@ -100,6 +101,7 @@
     hackWho: string;
     prompts: boolean;
     hosted: HostMode;
+    destOpen?: { launchpad: boolean; stars: boolean; inspector: boolean };
     speak: boolean;
     speakVolume?: number;
     headShowing: boolean;
@@ -371,11 +373,13 @@
     <span class="dests" role="group" aria-label="Destinations">
       <button
         class="dest iconbtn"
-        class:on={hosted === "launchpad"}
+        class:on={destOpen.launchpad}
         onclick={() => toggleDest("launchpad")}
         aria-label="Launchpad"
         data-chip="Launchpad"
-        title="Launchpad in the well — click again to dismiss"
+        title={destOpen.launchpad
+          ? "Launchpad is open — click to hide"
+          : "Launchpad — click to open"}
       >
         <!-- DEST-CHROME: the same ship flying ↗ — the blessed rocket
              rotated 45° so the nose rides upper-right, never the
@@ -394,11 +398,13 @@
       </button>
       <button
         class="dest iconbtn"
-        class:on={hosted === "stars"}
+        class:on={destOpen.stars}
         onclick={() => toggleDest("stars")}
         aria-label="STARS"
         data-chip="STARS"
-        title="STARS in the well — click again to dismiss"
+        title={destOpen.stars
+          ? "STARS is open — click to hide"
+          : "STARS — click to open"}
       >
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M12 3 L14.1 9.1 L20.6 9.2 L15.4 13.1 L17.3 19.3 L12 15.6 L6.7 19.3 L8.6 13.1 L3.4 9.2 L9.9 9.1 Z" />
@@ -406,18 +412,18 @@
       </button>
       <button
         class="dest iconbtn planetsdest"
-        class:on={hosted === "inspector"}
+        class:on={destOpen.inspector}
         class:muted={planetsHidden}
         onclick={onPlanetsClick}
         oncontextmenu={(e) => {
           e.preventDefault();
           togglePlanetsHidden();
         }}
-        aria-label="Planets"
+        aria-label="Inspector"
         data-chip="Planets"
-        title={planetsHidden
-          ? "Planets hidden on the desk — right-click to show. Click opens Planets"
-          : "Click: Planets in the well · Right-click: hide planets on the desk"}
+        title={destOpen.inspector
+          ? "Inspector is open — click to hide. Right-click hides planets on the desk"
+          : "Inspector — click to open. Right-click hides planets on the desk"}
       >
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <circle cx="12" cy="12" r="5" />

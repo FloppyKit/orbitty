@@ -254,6 +254,7 @@
   // "inspector" = RailPage embedded (pop-out to the rail window).
   type HostMode = "off" | "launchpad" | "stars" | "inspector";
   let hosted = $state<HostMode>("off");
+  let destOpen = $state({ launchpad: false, stars: false, inspector: false });
   // TILE-CHORDS leftover (⌘⌥↑): the last dest lowered through dismissHost
   // (dest-chip toggle, well ×, Escape, ⌘⌥↓ all land there). Session memory
   // only — never state.json; null = none lowered yet → ⌘⌥↑ opens Launchpad.
@@ -1110,14 +1111,29 @@
     }
   }
 
-  // Dest strip: Launchpad/STARS/Planets toggle the well (click again
-  // dismisses — the spirit gets the full stage back). A visible kanban
-  // overlay is absorbed: the native enter hides it. Never invoke
-  // open_kanban / open_stars / show_rail here — those are the overlay /
-  // rail window, not the well.
+  async function refreshDestOpen() {
+    try {
+      destOpen = await invoke<{
+        launchpad: boolean;
+        stars: boolean;
+        inspector: boolean;
+      }>("dest_open_state");
+    } catch {
+      /* chip paint retries on the next pane-vis */
+    }
+  }
+
+  // Dest chips are lightswitches for real windows. The companion
+  // stays idle — never enterHost. Click while open hides; click
+  // again shows and orders front.
   async function toggleDest(mode: "launchpad" | "stars" | "inspector") {
-    if (hosted === mode) await dismissHost();
-    else await enterHost(mode);
+    if (hosted !== "off") await dismissHost();
+    try {
+      await invoke("dest_toggle", { dest: mode });
+    } catch (e) {
+      sendNote = `${e}`;
+    }
+    await refreshDestOpen();
   }
 
   // PLANETS-STRIP: dest L-click toggles the well. Planet tabs in the well
@@ -1325,6 +1341,7 @@
       stars = s.stars ?? { promptsOptIn: false, checkins: {} };
       prompts = stars.promptsOptIn ?? false;
       cards = s.kanbanCards ?? [];
+      void refreshDestOpen();
     } catch {
       // keep last good state; next state:changed retries
     } finally {
@@ -1443,6 +1460,7 @@
 
   let unlistenState: (() => void) | undefined;
   let unlistenVis: (() => void) | undefined;
+  let unlistenDestVis: (() => void) | undefined;
   let unlistenSummon: (() => void) | undefined;
   let unlistenEnterHost: (() => void) | undefined;
   let unlistenToggleHost: (() => void) | undefined;
@@ -1466,6 +1484,7 @@
       hugObserver.observe(mainEl);
     }
     await loadState();
+    await refreshDestOpen();
     await loadAgents();
     if (!artLoaded) await loadArt();
     window.addEventListener("keydown", onPaneKey);
@@ -1475,6 +1494,9 @@
     // on hide — the blink resumes from the last frame, and the sheets are
     // never reloaded on a hide/show cycle. Reduce Motion still holds
     // frame 0 (restartTimer is a no-op there).
+    unlistenDestVis = await listen<import("./paneVis").PaneVis>("orbitty:pane-vis", () => {
+      void refreshDestOpen();
+    });
     unlistenVis = await listenPaneVis("companion", (visible) => {
       if (visible) {
         restartTimer();
@@ -1507,7 +1529,9 @@
     // never toggleDest (the dest buttons still own toggling).
     unlistenEnterHost = await listen<string>("orbitty:enter-host", (e) => {
       const m = e.payload;
-      if (m === "launchpad" || m === "stars" || m === "inspector") void enterHost(m);
+      if (m === "launchpad" || m === "stars" || m === "inspector") {
+        void invoke("dest_show", { dest: m }).then(() => refreshDestOpen());
+      }
     });
     // ⌘⌥1/2/3 are the dest chips — toggleDest,
     // so the same chord while that dest is hosted dismisses (the page
@@ -1538,8 +1562,9 @@
     // ⌘⌥↑: raise the last lowered dest (Launchpad when none this
     // session). Already hosted = a menu is up — no-op.
     unlistenRaiseLastHost = await listen("orbitty:raise-last-host", () => {
-      if (hosted !== "off") return;
-      void enterHost(lastDest ?? "launchpad");
+      void invoke("dest_show", { dest: lastDest ?? "launchpad" }).then(() =>
+        refreshDestOpen(),
+      );
     });
     unlistenCheat = await listen("orbitty:toggle-cheatsheet", () => {
       cheatOpen = !cheatOpen;
@@ -1590,6 +1615,7 @@
     window.removeEventListener("keydown", onPaneKey);
     unlistenState?.();
     unlistenVis?.();
+    unlistenDestVis?.();
     unlistenSummon?.();
     unlistenEnterHost?.();
     unlistenToggleHost?.();
@@ -1857,6 +1883,7 @@
     onDropAttach={dropAttach}
     {onAgentChange}
     {togglePrompts}
+    destOpen={destOpen}
     {toggleDest}
     {nextCount}
     {toggleNextCard}

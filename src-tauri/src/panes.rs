@@ -321,8 +321,7 @@ pub(crate) fn show_shared_pane(app: &tauri::AppHandle, mode: &str) -> Result<(),
     let _ = app.emit_to("kanban", "orbitty:shared-pane-mode", mode);
     show_labeled(app, "kanban")?;
     let _ = app.emit_to("kanban", "orbitty:shared-pane-mode", mode);
-    // PARK is dead — the overlay never moves the
-    // companion. The companion hosts Launchpad/STARS in its own well now.
+    // Dest chips lightswitch this overlay; the companion stays idle.
     Ok(())
 }
 

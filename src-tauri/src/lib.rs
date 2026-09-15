@@ -268,7 +268,7 @@ fn show_rail(app: tauri::AppHandle) {
     show_rail_inner(&app);
 }
 
-fn show_rail_inner(app: &tauri::AppHandle) {
+pub(crate) fn show_rail_inner(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -568,6 +568,9 @@ pub fn run() {
             yard_status,
             toggle_next_card_window,
             rail_toggle::toggle_labeled,
+            rail_toggle::dest_toggle,
+            rail_toggle::dest_show,
+            rail_toggle::dest_open_state,
             drawers::companion_drag_begin,
             companion::companion_frames,
             companion::companion_glb_url,
@@ -875,13 +878,10 @@ pub fn run() {
                     "hide_dock" => {
                         let _ = panes::hide_window(app.clone(), "companion".to_string());
                     }
-                    // Raise-only: show + grow the frame native-side + ask
-                    // the page to flip the well (hosted is page $state).
-                    // Never a toggle — the dest buttons still own toggling.
+                    // Raise-only windows — dest chips on the dock toggle.
                     mode @ ("launchpad" | "stars") => {
-                        let _ = panes::show_companion(app);
-                        let _ = panes::set_companion_host(app.clone(), mode.to_string());
-                        let _ = app.emit_to("companion", "orbitty:enter-host", mode);
+                        let pane = if mode == "stars" { "stars" } else { "board" };
+                        let _ = panes::show_shared_pane(app, pane);
                     }
                     "settings" => {
                         // Same rule as the dock
