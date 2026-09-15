@@ -34,13 +34,14 @@
 </script>
 
 <script lang="ts">
-  // Needed pile. Launchpad strip: idle is a one-line count; open is a
-  // SPLIT band — pile list left, the selected card (question / why /
-  // Answer·Later·Skip) right — height-capped (needed-split.css) so the
-  // Todo/Doing/Done columns stay on screen. The 42vh accordion that
-  // covered the board was the miss. Why is mdLite so **bold**, `paths`,
-  // and lists read as prose, not raw markdown. Parent owns
-  // mutate/logEvent so persist stays one door.
+  // Needed pile. Launchpad kanban-row COLUMN in front of Todo: the
+  // header toggles it; open paints the pile titles in a top box (cap
+  // four rows, scrolls) and the selected tile (question / why /
+  // Answer·Later·Skip) in the lower preview box (needed-split.css) —
+  // the Todo/Doing/Done columns stay on screen. The split band above
+  // the board (a menu within the Needed menu) was the miss. Why is
+  // mdLite so **bold**, `paths`, and lists read as prose, not raw
+  // markdown. Parent owns mutate/logEvent so persist stays one door.
   // open/selectedId are bindable so the Launchpad
   // ring can walk the pile; ringActiveId paints the one focus ring.
   import { mdLite } from "./mdLite";
@@ -235,73 +236,73 @@
         </div>
       {/if}
       {#if neededNow.length > 0}
-        <!-- LP-SPLIT: pile list beside the selected card, band height
-             capped in needed-split.css — the board columns never leave
-             the screen while a Needed is read/answered. -->
-        <div class="kn-split">
-          <ul class="kn-list" aria-label="Needed pile">
-            {#each neededNow as card (card.id)}
-              {@const p = projOf(card)}
-              <li
-                class="kn-item"
-                class:sel={selectedId === card.id}
-                class:mkey-sel={ringActiveId === `needed-${card.id}`}
-                data-mkey={`needed-${card.id}`}
-                onclick={() => (selectedId = card.id)}
-              >
-                {#if p}
-                  <span
-                    class="kn-chip"
-                    style="background: {planetCss(p.id)}"
-                    title={p.name}
-                    aria-hidden="true"
-                  ></span>
-                {/if}
-                <span class="kn-item-title">{card.title}</span>
-              </li>
-            {/each}
-          </ul>
-          {#if selCard}
-            {@const sc = selCard}
-            {@const sp = projOf(sc)}
-            <div class="kn-card">
-              {#if sp}
-                <div class="kn-card-head">
-                  <span
-                    class="kn-chip"
-                    style="background: {planetCss(sp.id)}"
-                    aria-hidden="true"
-                  ></span>
-                  <span class="kn-pname">{sp.name}</span>
-                </div>
+        <!-- LP-SPLIT leftover: pile titles in the top box (cap four
+             rows, scrolls), the selected tile's preview in the lower
+             box — a column in the board row, so the Todo/Doing/Done
+             columns never leave the screen while a Needed is
+             read/answered. -->
+        <ul class="kn-list" aria-label="Needed pile">
+          {#each neededNow as card (card.id)}
+            {@const p = projOf(card)}
+            <li
+              class="kn-item"
+              class:sel={selectedId === card.id}
+              class:mkey-sel={ringActiveId === `needed-${card.id}`}
+              data-mkey={`needed-${card.id}`}
+              onclick={() => (selectedId = card.id)}
+            >
+              {#if p}
+                <span
+                  class="kn-chip"
+                  style="background: {planetCss(p.id)}"
+                  title={p.name}
+                  aria-hidden="true"
+                ></span>
               {/if}
-              <p class="kn-q">{sc.title}</p>
-              {#if sc.neededWhy}
-                <div class="kn-why kn-card-why">{@html mdLite(sc.neededWhy)}</div>
-              {/if}
-              <div class="kn-acts">
-                {#if onNeededAnswer}
-                  <button
-                    class="mini"
-                    onclick={() => answerNeeded(sc)}
-                    title="Answer in the composer — the next typed line lands on this Needed"
-                    >Answer</button
-                  >
-                {/if}
-                <button
-                  class="mini ghost"
-                  onclick={() => laterNeeded(sc)}
-                  title="Drop to the bottom of the stack">Later</button
-                >
-                <button
-                  class="mini ghost"
-                  onclick={() => skipNeeded(sc)}
-                  title="Delete this Needed">Skip</button
-                >
+              <span class="kn-item-title">{card.title}</span>
+            </li>
+          {/each}
+        </ul>
+        {#if selCard}
+          {@const sc = selCard}
+          {@const sp = projOf(sc)}
+          <div class="kn-card">
+            {#if sp}
+              <div class="kn-card-head">
+                <span
+                  class="kn-chip"
+                  style="background: {planetCss(sp.id)}"
+                  aria-hidden="true"
+                ></span>
+                <span class="kn-pname">{sp.name}</span>
               </div>
+            {/if}
+            <p class="kn-q">{sc.title}</p>
+            {#if sc.neededWhy}
+              <div class="kn-why kn-card-why">{@html mdLite(sc.neededWhy)}</div>
+            {/if}
+            <div class="kn-acts">
+              {#if onNeededAnswer}
+                <button
+                  class="mini"
+                  onclick={() => answerNeeded(sc)}
+                  title="Answer in the composer — the next typed line lands on this Needed"
+                  >Answer</button
+                >
+              {/if}
+              <button
+                class="mini ghost"
+                onclick={() => laterNeeded(sc)}
+                title="Drop to the bottom of the stack">Later</button
+              >
+              <button
+                class="mini ghost"
+                onclick={() => skipNeeded(sc)}
+                title="Delete this Needed">Skip</button
+              >
             </div>
-          {/if}
-        </div>
+          </div>
+        {/if}
       {/if}
     {/if}
   </section>
@@ -334,16 +335,15 @@
 {/if}
 
 <style>
-  .k-needed {
-    flex-shrink: 0;
-    padding: 4px 12px 8px;
-    border-bottom: 1px solid var(--edge);
-  }
-
+  /* The column root (.k-needed) and the open boxes (kn-list / kn-item /
+     kn-card) live in needed-split.css — the split band above the board
+     was the miss; the kanban-row column replaced it. */
   .kn-head {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 4px;
+    padding: 2px 6px 0;
   }
 
   .kn-toggle {
@@ -396,9 +396,9 @@
     line-height: 1.5;
   }
 
-  /* LP-SPLIT: the open band (kn-split / kn-list / kn-item / kn-card)
-     lives in needed-split.css — the 42vh accordion rows were the miss
-     and are deleted, not piled on. */
+  /* LP-SPLIT leftover: the open column boxes (kn-list / kn-item /
+     kn-card) live in needed-split.css — the split band above the board
+     was the miss and is deleted, not piled on. */
   .kn-q {
     margin: 0;
     font-size: 0.92rem;
@@ -490,7 +490,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 4px 8px;
+    padding: 4px 8px 8px;
   }
 
   .ka-form input {

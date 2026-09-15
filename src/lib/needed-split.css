@@ -1,24 +1,33 @@
-/* GO-ORBITTY-LAUNCHPAD-SPLIT: the open Needed strip is a SPLIT band —
-   pile list left, selected card (question / why / Answer·Later·Skip)
-   right — capped at a fixed height so the Todo/Doing/Done columns below
-   never leave the screen. The 42vh accordion that covered the board was
-   the miss. NeededInbox.svelte owns this paint; board chrome stays in
-   KanbanPage. Global (chrome.css precedent), kn-* namespaced. */
+/* GO-ORBITTY-LAUNCHPAD-SPLIT leftover: the open Needed pane is a
+   kanban-row COLUMN in front of Todo — pile titles in a top box (cap
+   four rows, scrolls), the selected tile (question / why /
+   Answer·Later·Skip) in the lower preview box — so the Todo/Doing/Done
+   columns never leave the screen. The split band above the board (a
+   menu within the Needed menu) was the miss. NeededInbox.svelte owns
+   this paint; board chrome stays in KanbanPage. Global (chrome.css
+   precedent), kn-* namespaced. */
 
-.kn-split {
+/* The column root — a grid item in KanbanPage's .b-cols, painted like a
+   board column. Closed it is a slim header rail (the grid track is
+   `auto` there); open it carries the two boxes below. */
+.k-needed {
+  min-height: 0;
   display: flex;
-  gap: 10px;
-  height: 168px;
-  padding-top: 4px;
+  flex-direction: column;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--panel-fill, var(--panel));
+  overflow: hidden;
 }
 
-/* Left half: the pile, one compact row per Needed. */
+/* Top box: the pile titles — one compact row per Needed, capped at four
+   rows; scrolls past that. */
 .kn-list {
   list-style: none;
-  margin: 0;
+  margin: 2px 6px 0;
   padding: 0 2px 0 0;
-  flex: 0 0 38%;
-  min-width: 132px;
+  flex: 0 1 auto;
+  max-height: 7.4rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -39,11 +48,11 @@
 }
 
 .kn-item:hover {
-  background: var(--panel-fill, var(--panel));
+  background: var(--bg-fill, var(--bg));
 }
 
 .kn-item.sel {
-  background: var(--panel-fill, var(--panel));
+  background: var(--bg-fill, var(--bg));
   border-color: var(--focus, #6e4db0);
 }
 
@@ -65,18 +74,19 @@
   white-space: nowrap;
 }
 
-/* Right half: the selected card. Fixed band height → why scrolls
-   inside, actions pin to the bottom edge. */
+/* Lower preview box: the selected tile. The column height is the board
+   row's — why scrolls inside, actions pin to the bottom edge. */
 .kn-card {
   flex: 1;
-  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin: 6px;
   padding: 10px 12px;
   border: 1px solid var(--edge);
   border-radius: 10px;
-  background: var(--panel-fill, var(--panel));
+  background: var(--bg-fill, var(--bg));
   overflow: hidden;
 }
 

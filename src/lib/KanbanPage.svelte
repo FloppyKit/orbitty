@@ -3,8 +3,9 @@
   // with drag-between-columns status moves. Clicking a card opens a
   // Habitica-thin detail drawer. Same state.json discipline: every
   // mutation is load → mutate → save so rail-owned slices are never
-  // clobbered. Needed stays its own strip (questions, not quests). Mint
-  // a todo from the companion composer (`todo: … -planet --agent`).
+  // clobbered. Needed stays its own column in front of Todo (questions,
+  // not quests). Mint a todo from the companion composer
+  // (`todo: … -planet --agent`).
   import { invoke } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
@@ -123,6 +124,10 @@
     projects.some((p) => p.id === selected) ? selected : "",
   );
   const neededRows = $derived(neededFor(kanbanCards, neededProjectId));
+  // LP-SPLIT leftover: the Needed pane rides the board row as a column
+  // in front of Todo — slim header rail closed, titles top box + tile
+  // preview lower box open. The grid tracks below follow this flag.
+  const neededCol = $derived(neededRows.length > 0 || addingNeeded);
   // Tracks the drawer surface's push/pop pairing on the ring.
   let drawerOnRing = false;
 
@@ -1271,23 +1276,6 @@
     >
   </header>
 
-  <!-- LP-SPLIT: idle this is the one-line Needed count; open it is the
-       split band (pile | card) — the board columns stay on screen. -->
-  <NeededInbox
-    variant="strip"
-    cards={kanbanCards}
-    {projects}
-    projectId={neededProjectId}
-    {mutate}
-    {logEvent}
-    bind:addingNeeded
-    bind:open={neededOpen}
-    bind:selectedId={neededSelectedId}
-    ringActiveId={menuRing.activeId}
-    {onNeededFocus}
-    {onNeededAnswer}
-  />
-
   <div class="planet-strip" role="tablist" aria-label="Lists and planets">
     <button
       type="button"
@@ -1385,7 +1373,29 @@
         </div>
       {/if}
 
-      <div class="b-cols">
+      <div
+        class="b-cols"
+        class:with-needed={neededCol}
+        class:needed-open={neededCol && neededOpen}
+      >
+        <!-- LP-SPLIT leftover: the Needed pane is a board-row column in
+             front of Todo — pile titles in a top box, the selected
+             tile's preview in the lower box. The board columns never
+             leave the screen while a Needed is read/answered. -->
+        <NeededInbox
+          variant="strip"
+          cards={kanbanCards}
+          {projects}
+          projectId={neededProjectId}
+          {mutate}
+          {logEvent}
+          bind:addingNeeded
+          bind:open={neededOpen}
+          bind:selectedId={neededSelectedId}
+          ringActiveId={menuRing.activeId}
+          {onNeededFocus}
+          {onNeededAnswer}
+        />
         {#each COLUMNS as col (col.id)}
           <section
             class="b-col"
@@ -2171,6 +2181,16 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  /* LP-SPLIT leftover: the Needed column rides the row in front of
+     Todo — a slim header rail closed, a titles+preview column open. */
+  .b-cols.with-needed {
+    grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  }
+
+  .b-cols.with-needed.needed-open {
+    grid-template-columns: minmax(220px, 1.15fr) repeat(3, minmax(0, 1fr));
   }
 
   .b-col {
