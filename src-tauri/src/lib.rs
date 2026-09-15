@@ -25,6 +25,7 @@ mod event_log;
 mod gate_caps;
 mod glass;
 mod mouth_ack;
+mod mouth_blip;
 mod mouth_hop;
 mod mouth_roll;
 mod needed_rules;

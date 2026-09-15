@@ -1728,7 +1728,7 @@ pub(crate) fn grok_args(sid: &str, minted: bool, soul: &str, line: &str) -> Vec<
     args.push(sid.to_string());
     args.extend([
         "--output-format".into(),
-        "json".into(),
+        "streaming-json".into(),
         "--always-approve".into(),
         "--no-subagents".into(),
         "--disable-web-search".into(),
@@ -1760,70 +1760,44 @@ fn run_grok_reply(
     let sid = plug.grok_session_id.clone().unwrap_or_default();
 
     let args = grok_args(&sid, plug.grok_session_minted, soul, line);
-    // Every `--resume` spawn runs under the stderr
-    // watch — a dead id 404s in ~0.5s but grok STAYS ALIVE, so the kill
-    // lands on the line, never on the 180s timeout. First sends (`-s`
-    // creates) stay unwatched: their failures are honest, never a corpse
-    // resume.
-    let raw = match if plug.grok_session_minted {
-        run_mouth_cli_watched(
-            "Grok",
-            bin,
+    // streaming-json: thought/tool lines splash the wait slot;
+    // assembled text is the reply. Dead resume still 404s on stderr
+    // in ~0.5s — kill_on is the same door as before.
+    let streamed = |args: &[String], watch: Option<&dyn Fn(&str) -> bool>| {
+        crate::mouth_blip::run_streamed(app, "Grok", bin, args, 180, watch)
+    };
+    let text = match if plug.grok_session_minted {
+        streamed(
             &args,
-            &[],
-            180,
             Some(&crate::mouth_roll::grok_session_gone_line),
         )
     } else {
-        run_mouth_cli("Grok", bin, &args, &[], 180)
+        streamed(&args, None)
     } {
         Ok(r) => r,
         Err(e) if !plug.grok_session_minted && e.to_ascii_lowercase().contains("session") => {
-            // The `-s` create may have landed server-side despite the
-            // error — heal: mark minted and retry once as a resume (also
-            // watched: if the create never landed, the resume 404s fast
-            // instead of hanging out the timeout).
             plug.grok_session_minted = true;
             save_plug(&plug);
             let retry = grok_args(&sid, true, soul, line);
-            run_mouth_cli_watched(
-                "Grok",
-                bin,
+            streamed(
                 &retry,
-                &[],
-                180,
                 Some(&crate::mouth_roll::grok_session_gone_line),
             )?
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_session_gone(&e) => {
-            // A dead resume id fails FAST (grok
-            // 404s in ~0.5s) — never wait out a 180s kill for it. Mint a
-            // fresh id, `-s`, save plug.json; no fork of a corpse. The
-            // reply still lands on the same turns; the bubble is never
-            // cleared.
             let handoff = crate::mouth_roll::handoff_prompt(app, line);
-            return crate::mouth_roll::grok_fresh_rollover(bin, soul, &mut plug, &handoff);
+            return crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff);
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_context_dead(&e) => {
-            // Context-full / session-death on
-            // a live id. Roll onto a fresh id (fork when the old one
-            // still resumes) with a handoff — the reply still lands on
-            // the same turns; the bubble is never cleared. A 180s
-            // timeout is a slow generate, not death — it never lands
-            // here (grok_context_dead keeps the kill line out).
             let handoff = crate::mouth_roll::handoff_prompt(app, line);
-            return crate::mouth_roll::grok_rollover(bin, soul, &mut plug, &handoff);
+            return crate::mouth_roll::grok_rollover(app, bin, soul, &mut plug, &handoff);
         }
         Err(e) => return Err(e),
     };
-
-    // --output-format json: the assistant text is the top-level "text"
-    // field. Never dump the whole JSON blob into the bubble.
-    let text = grok_reply_text(&raw);
     if text.is_empty() && plug.grok_session_minted {
         // Empty after a resume = a thin/dead session — same rollover.
         let handoff = crate::mouth_roll::handoff_prompt(app, line);
-        return crate::mouth_roll::grok_rollover(bin, soul, &mut plug, &handoff);
+        return crate::mouth_roll::grok_rollover(app, bin, soul, &mut plug, &handoff);
     }
     if text.is_empty() {
         return Err("Grok sent back an empty reply.".into());

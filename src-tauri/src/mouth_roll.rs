@@ -16,8 +16,8 @@
 use std::path::Path;
 
 use crate::coordinator::{
-    PlugState, capture_goose_session, goose_args, grok_args, grok_reply_text, is_uuid, mint_uuid,
-    run_mouth_cli, run_mouth_cli_watched, save_plug,
+    PlugState, capture_goose_session, goose_args, grok_args, is_uuid, mint_uuid, run_mouth_cli,
+    save_plug,
 };
 
 /// Streaming kill matcher for a grok `--resume` spawn: the dead-resume
@@ -140,7 +140,7 @@ fn grok_fork_args(old_sid: &str, new_sid: &str, soul: &str, line: &str) -> Vec<S
     args.push(new_sid.to_string());
     args.extend([
         "--output-format".into(),
-        "json".into(),
+        "streaming-json".into(),
         "--always-approve".into(),
         "--no-subagents".into(),
         "--disable-web-search".into(),
@@ -155,6 +155,7 @@ fn grok_fork_args(old_sid: &str, new_sid: &str, soul: &str, line: &str) -> Vec<S
 /// fresh `-s` where the handoff IS the context. plug.json always lands the
 /// new id, marked minted. One shot — a failing rollover stays an honest Err.
 pub fn grok_rollover(
+    app: &tauri::AppHandle,
     bin: &Path,
     soul: &str,
     plug: &mut PlugState,
@@ -167,10 +168,14 @@ pub fn grok_rollover(
         // The fork RESUMES the old id — under the watch a corpse 404s in
         // ~0.5s and falls through to the fresh rollover, instead of
         // hanging out the 180s first.
-        if let Ok(raw) =
-            run_mouth_cli_watched("Grok", bin, &args, &[], 180, Some(&grok_session_gone_line))
-        {
-            let text = grok_reply_text(&raw);
+        if let Ok(text) = crate::mouth_blip::run_streamed(
+            app,
+            "Grok",
+            bin,
+            &args,
+            180,
+            Some(&grok_session_gone_line),
+        ) {
             if !text.is_empty() {
                 plug.grok_session_id = Some(new_sid);
                 plug.grok_session_minted = true;
@@ -180,7 +185,7 @@ pub fn grok_rollover(
         }
         // Fork missed (resume target gone/thin) — fall through to fresh.
     }
-    grok_fresh_rollover(bin, soul, plug, handoff)
+    grok_fresh_rollover(app, bin, soul, plug, handoff)
 }
 
 /// Fresh `-s` rollover, no fork attempt: the resume target is known gone
@@ -188,6 +193,7 @@ pub fn grok_rollover(
 /// id, send the handoff on it (the handoff IS the context), save
 /// plug.json marked minted. One shot — a failure stays an honest Err.
 pub fn grok_fresh_rollover(
+    app: &tauri::AppHandle,
     bin: &Path,
     soul: &str,
     plug: &mut PlugState,
@@ -195,8 +201,7 @@ pub fn grok_fresh_rollover(
 ) -> Result<String, String> {
     let new_sid = mint_uuid()?;
     let args = grok_args(&new_sid, false, soul, handoff);
-    let raw = run_mouth_cli("Grok", bin, &args, &[], 180)?;
-    let text = grok_reply_text(&raw);
+    let text = crate::mouth_blip::run_streamed(app, "Grok", bin, &args, 180, None)?;
     if text.is_empty() {
         return Err("Grok sent back an empty reply.".into());
     }
