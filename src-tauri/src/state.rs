@@ -96,6 +96,10 @@ pub struct PersistedState {
     /// Default on. Old lines stay unsigned. Missing key loads as on.
     #[serde(default = "signed_locally_default")]
     pub signed_locally: bool,
+    /// ctl `shift on` — 15s supervisor ticker. Default off.
+    /// Spark/Chat never auto-pickup; Work/Hold does.
+    #[serde(default)]
+    pub shift_on: bool,
 }
 
 fn needed_split_default() -> f64 {
@@ -234,6 +238,7 @@ impl Default for PersistedState {
             todo_trees: Vec::new(),
             tree_grow_days: 14.0,
             signed_locally: true,
+            shift_on: false,
         }
     }
 }

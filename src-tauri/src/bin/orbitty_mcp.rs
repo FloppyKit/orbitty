@@ -71,6 +71,10 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "agent.rm", description: "Remove an agent row by id; cards keep their assignedAgentId (project.rm law)", args: "id" },
     ToolDef { name: "agent.pin", description: "Pin an agent row to a planet (project id or unique planet name)", args: "agent_pin" },
     ToolDef { name: "agent.pickup", description: "Pick the oldest assigned open Todo (the row's planet when pinned), move it doing, and launch the row's harness with the card title; no match = honest empty, no spawn", args: "agent_pickup" },
+    ToolDef { name: "shift.status", description: "Humming supervisor snapshot: on/off, mode, runner cap, agentRuns, next assigned pickups", args: "none" },
+    ToolDef { name: "shift.tick", description: "One supervisor pass: park ghost working rows, Needed-escalate blocked, pickup next assigned todo if Work/Hold", args: "none" },
+    ToolDef { name: "shift.on", description: "Turn the 15s shift ticker on (Work/Hold pickups; Spark/Chat never auto-pickup)", args: "none" },
+    ToolDef { name: "shift.off", description: "Turn the 15s shift ticker off", args: "none" },
     ToolDef { name: "kanban.assign", description: "Assign a card to an agent row (agent id or unique name); empty agent unassigns", args: "kanban_assign" },
 ];
 

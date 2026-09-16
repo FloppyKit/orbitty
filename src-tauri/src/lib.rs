@@ -40,6 +40,8 @@ mod todo_trees;
 mod packs;
 mod rail_toggle;
 #[cfg(unix)]
+mod shift;
+#[cfg(unix)]
 mod shift_continue;
 mod state;
 mod talk;
@@ -565,6 +567,8 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
         // the set_companion_conductor* commands are the only doors.
         state.companion.conductor_on = b.companion.conductor_on;
         state.companion.conductor_model = b.companion.conductor_model.clone();
+        // ctl `shift on|off` is the only door.
+        state.shift_on = b.shift_on;
     }
     #[cfg(unix)]
     crate::agent_runs::reconcile_incoming(&mut state);
@@ -713,6 +717,8 @@ pub fn run() {
             // once and the app runs on without it.
             #[cfg(unix)]
             control::start(app.handle());
+            #[cfg(unix)]
+            shift::boot(app.handle());
 
             habitat::start(app.handle().clone());
             coordinator::heal_stuck_hack(app.handle());

@@ -207,6 +207,7 @@ const READ_TOOLS: &[&str] = &[
     // The roster is the read face; add / rm /
     // pin / pickup / kanban.assign stay write-class (full / named custom).
     "agent.list",
+    "shift.status",
 ];
 
 fn allowed(acl: &Acl, tool: &str) -> bool {
@@ -577,6 +578,10 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
+        "shift.status" => crate::shift::status(app).map_err(tool_err),
+        "shift.tick" => crate::shift::tick(app).map_err(tool_err),
+        "shift.on" => crate::shift::set_on(app, true).map_err(tool_err),
+        "shift.off" => crate::shift::set_on(app, false).map_err(tool_err),
         "needed.open" => {
             let title = arg_str(args, "title")?;
             let project = arg_opt(args, "projectId").unwrap_or_default();

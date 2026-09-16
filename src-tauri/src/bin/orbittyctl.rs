@@ -46,6 +46,9 @@ commands:
   agent rm --id <id>
   agent pin --id <id> --project P
   agent pickup --id <id> | --name <name> [--card <card>]
+  shift status
+  shift tick
+  shift on|off
   project add --name N
   project rm --id <id>
   project rename --id <id> --name <new>
@@ -97,6 +100,11 @@ unassigns), and agent pickup moves the oldest assigned todo to doing and
 launches the row's harness with that title (every harness lights the dock
 LED while the run is live). agent list is read-safe; the rest are writes
 (full / named custom).
+
+shift status is read-safe. shift tick parks ghost working
+rows (they eat the runner cap), Needed-escalates blocked, and pickups
+the next assigned todo while Work/Hold is on. shift on starts a 15s
+ticker; off stops it. Spark/Chat never auto-pickup.
 
 needed answer --id n-… -- \"text\" applies an
 answer through the same needed-answer event path as the composer (the
@@ -497,6 +505,10 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             }
             Ok(("agent.pickup", a))
         }
+        ["shift", "status"] => Ok(("shift.status", json!({}))),
+        ["shift", "tick"] => Ok(("shift.tick", json!({}))),
+        ["shift", "on"] => Ok(("shift.on", json!({}))),
+        ["shift", "off"] => Ok(("shift.off", json!({}))),
         // Planet control plane. need_flag trims and
         // refuses an empty --name; the server owns unknown-id errors.
         ["project", "add"] => Ok((
@@ -838,6 +850,65 @@ fn print_human(tool: &str, data: &Value) {
                 );
             }
         }
+        "shift.status" => {
+            let on = data["on"].as_bool().unwrap_or(false);
+            let mode = data["mode"].as_str().unwrap_or("?");
+            let live = data["runners"]["live"].as_u64().unwrap_or(0);
+            let cap = data["runners"]["cap"].as_u64().unwrap_or(0);
+            let ax = data["axTrusted"].as_bool().unwrap_or(false);
+            println!(
+                "shift {} · mode {mode} · runners {live}/{cap} · AX {}",
+                if on { "on" } else { "off" },
+                if ax { "trusted" } else { "NOT trusted" }
+            );
+            if let Some(runs) = data["runs"].as_array() {
+                for r in runs {
+                    let ghost = if r["ghost"].as_bool().unwrap_or(false) {
+                        " ghost"
+                    } else {
+                        ""
+                    };
+                    println!(
+                        "  {}  {}  {}{ghost}",
+                        r["state"].as_str().unwrap_or("?"),
+                        r["cardId"].as_str().unwrap_or("?"),
+                        r["title"].as_str().unwrap_or("")
+                    );
+                }
+            }
+            if let Some(next) = data["next"].as_array() {
+                for n in next {
+                    println!(
+                        "  next {} — {} ({})",
+                        n["agent"].as_str().unwrap_or("?"),
+                        n["title"].as_str().unwrap_or(""),
+                        n["cardId"].as_str().unwrap_or("?")
+                    );
+                }
+            }
+        }
+        "shift.tick" => {
+            let parked = data["parked"].as_array().map(|a| a.len()).unwrap_or(0);
+            let escalated = data["escalated"].as_array().map(|a| a.len()).unwrap_or(0);
+            let picked = data["picked"].as_array().map(|a| a.len()).unwrap_or(0);
+            println!("tick · parked {parked} · stuck {escalated} · picked {picked}");
+            if let Some(notes) = data["notes"].as_array() {
+                for n in notes {
+                    if let Some(s) = n.as_str() {
+                        println!("  {s}");
+                    }
+                }
+            }
+        }
+        "shift.on" => println!(
+            "shift on{}",
+            if data["tick"].is_object() {
+                " · ticked"
+            } else {
+                ""
+            }
+        ),
+        "shift.off" => println!("shift off"),
         "project.add" => println!(
             "added {} — {}",
             data["id"].as_str().unwrap_or("?"),

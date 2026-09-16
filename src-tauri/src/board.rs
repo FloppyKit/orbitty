@@ -384,6 +384,7 @@ const GO_CARD_BLURBS: &[(&str, &str)] = &[
     ("GO-ORBITTY-MOUTH-HOP", "Thin router: local → OpenRouter free → paid Grok. Same bubble."),
     ("GO-ORBITTY-KANBAN-GRAB", "Shift+Enter grab, arrows move, Enter drop, Esc ungrab."),
     ("GO-ORBITTY-CARD-BLURB", "Board row shows a one-line runner summary (`notes`)."),
+    ("GO-ORBITTY-SHIFT", "Humming supervisor via ctl: watch board + agentRuns + AX, cap runners, park stuck, next pickup, Needed escalate. No LLM in habitat_mac."),
 ];
 
 /// A backfillable GO title is exactly the token — `GO-ORBITTY-FOO`, never
