@@ -827,20 +827,23 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
         let base_y = decor.frame.max_y();
         match decor.kind {
             DecorKind::Plant => {
-                let (art, scale) = plant_metrics(decor.t);
-                draw_pixel_art(
-                    cx,
-                    base_y,
-                    art,
-                    scale,
-                    &[
-                        (b'L', (0.30, 0.62, 0.32)),
-                        (b'S', (0.16, 0.45, 0.22)),
-                        (b'G', (0.30, 0.62, 0.32)),
-                        (b'T', (0.35, 0.22, 0.12)),
-                    ],
-                    1.0,
-                );
+                let ph = ((decor.t * 7.0).floor() as usize).min(7);
+                if !super::todo_tree::paint_phase(cx, base_y, d.radius, ph) {
+                    let (art, scale) = plant_metrics(decor.t);
+                    draw_pixel_art(
+                        cx,
+                        base_y,
+                        art,
+                        scale,
+                        &[
+                            (b'L', (0.30, 0.62, 0.32)),
+                            (b'S', (0.16, 0.45, 0.22)),
+                            (b'G', (0.30, 0.62, 0.32)),
+                            (b'T', (0.35, 0.22, 0.12)),
+                        ],
+                        1.0,
+                    );
+                }
             }
             DecorKind::Mushroom => {
                 // The laid-out frame bounds the whole cluster; each mini

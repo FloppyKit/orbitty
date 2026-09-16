@@ -1,18 +1,22 @@
 //! 8 stills + plant/harvest walks.
-//! WORLD-YARD Place-plant glyphs stay in draw.rs.
+//! Sheet: brand/grove/tree.png (8×128). Ascii PHASES stay as fallback.
 
 #![allow(unexpected_cfgs)]
 
 use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
-use tauri::Emitter;
+use std::sync::OnceLock;
+use tauri::{Emitter, Manager};
 
 use super::{
-    app_handle, ns_color, radius_y, set_fill, NSPoint, NSRect, Planet, Pose, STATION_BOARD,
-    VIEW_PADDING,
+    app_handle, ns_color, ns_string, radius_y, set_fill, NSPoint, NSRect, Planet, Pose,
+    STATION_BOARD, VIEW_PADDING,
 };
 use crate::habitat::TodoTreeTick;
 use crate::todo_trees::{growth_t, phase};
+
+const SHEET_FRAME: f64 = 128.0;
+const SHEET_COUNT: isize = 8;
 
 /// 8 NES-honest stills. `.` clear; `L` leaf, `S` stem, `T` trunk, `G` canopy, `F` fruit.
 const PHASES: [&[&str]; 8] = [
@@ -43,6 +47,68 @@ const GREENS: [(u8, (f64, f64, f64)); 4] = [
     (b'T', (0.36, 0.22, 0.12)),
 ];
 const FRUIT: (u8, (f64, f64, f64)) = (b'F', (0.78, 0.28, 0.22));
+
+fn sheet_frames() -> &'static [usize] {
+    static FRAMES: OnceLock<Vec<usize>> = OnceLock::new();
+    FRAMES.get_or_init(|| unsafe { load_sheet() })
+}
+
+unsafe fn load_sheet() -> Vec<usize> {
+    let Some(app) = app_handle() else {
+        return Vec::new();
+    };
+    let Ok(dir) = app.path().resource_dir() else {
+        return Vec::new();
+    };
+    let Ok(bytes) = std::fs::read(dir.join("grove/tree.png")) else {
+        return Vec::new();
+    };
+    let rep = super::bitmap_rep_from_bytes(&bytes);
+    if rep.is_null() {
+        return Vec::new();
+    }
+    super::slice_rep_frames(rep, SHEET_FRAME as isize, SHEET_FRAME as isize, SHEET_COUNT)
+}
+
+fn dest_rect(cx: f64, base_y: f64, radius: f64, ph: usize) -> NSRect {
+    let t = (ph as f64 / 7.0).clamp(0.0, 1.0);
+    let s = (radius * 0.82 * (0.38 + 0.62 * t)).clamp(22.0, 68.0);
+    NSRect::new(cx - s / 2.0, base_y - s, s, s)
+}
+
+/// Paint one growth frame. False = sheet missing, caller may use glyphs.
+pub(crate) unsafe fn paint_phase(cx: f64, base_y: f64, radius: f64, ph: usize) -> bool {
+    let frames = sheet_frames();
+    let Some(&ptr) = frames.get(ph.min(7)) else {
+        return false;
+    };
+    if ptr == 0 {
+        return false;
+    }
+    draw_nearest(ptr as *mut Object, dest_rect(cx, base_y, radius, ph.min(7)));
+    true
+}
+
+unsafe fn draw_nearest(img: *mut Object, dest: NSRect) {
+    let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+    let ctx: *mut Object = msg_send![class!(NSGraphicsContext), currentContext];
+    if !ctx.is_null() {
+        // NSImageInterpolationNone — keep the 8-frame pixel sheet crisp.
+        let _: () = msg_send![ctx, setImageInterpolation: 1usize];
+    }
+    let key = ns_string("NSImageHintInterpolation");
+    let val: *mut Object = msg_send![class!(NSNumber), numberWithInteger: 1isize];
+    let hints: *mut Object = msg_send![class!(NSDictionary), dictionaryWithObject: val forKey: key];
+    let zero = NSRect::default();
+    let _: () = msg_send![img,
+        drawInRect: dest
+        fromRect: zero
+        operation: 2usize
+        fraction: 1.0
+        respectFlipped: true
+        hints: hints];
+    let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ChoreKind {
@@ -98,18 +164,20 @@ pub(crate) fn layout(planet: &mut Planet) {
             now(),
             planet.tree_grow_days,
         ));
-        let h = PHASES[ph].len() as f64;
-        let w = PHASES[ph][0].len() as f64;
-        let scale = (r * 0.045).clamp(6.0, 12.0);
-        planet.todo_tree_frames.push((
-            t.card_id.clone(),
+        let frame = if sheet_frames().get(ph).copied().unwrap_or(0) != 0 {
+            dest_rect(cx, base_y, r, ph)
+        } else {
+            let h = PHASES[ph].len() as f64;
+            let w = PHASES[ph][0].len() as f64;
+            let scale = (r * 0.045).clamp(6.0, 12.0);
             NSRect::new(
                 cx - w * scale / 2.0,
                 base_y - h * scale,
                 w * scale,
                 h * scale,
-            ),
-        ));
+            )
+        };
+        planet.todo_tree_frames.push((t.card_id.clone(), frame));
     }
 }
 
@@ -142,11 +210,13 @@ pub(crate) unsafe fn paint_ticks(
         }
         let tnorm = growth_t(t.planted_at, t.due_at, now_epoch, grow_days);
         let ph = phase(tnorm);
-        let art = PHASES[ph];
-        let scale = (r * 0.045).clamp(6.0, 12.0);
         let cx = center.x + t.x * r;
         let base_y = center.y + t.y * ry;
-        blit(cx, base_y, art, scale);
+        if !paint_phase(cx, base_y, r, ph) {
+            let art = PHASES[ph];
+            let scale = (r * 0.045).clamp(6.0, 12.0);
+            blit(cx, base_y, art, scale);
+        }
     }
 }
 
