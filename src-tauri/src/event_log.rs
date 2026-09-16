@@ -144,20 +144,26 @@ pub fn append(
         .filter(|a| !a.is_empty())
         .unwrap_or("user")
         .to_string();
+    let created_at = unix_now();
+    let tags = vec![
+        // t=publishable stays illegal — local file only.
+        ["t".into(), "local-only".into()],
+        ["trace".into(), trace.clone()],
+        ["e-type".into(), e_type.to_string()],
+        ["project".into(), project],
+        ["actor".into(), actor],
+    ];
+    let content = serde_json::to_string(content).unwrap_or_else(|_| "{}".into());
+    let (id, pubkey, sig) = identity(app, created_at, KIND, &tags, &content);
+    let _ = local_only;
     let line = EventLine {
-        id: uuid_v4_hex(),
-        pubkey: String::new(),
-        created_at: unix_now(),
+        id,
+        pubkey,
+        created_at,
         kind: KIND,
-        tags: vec![
-            ["t".into(), if local_only { "local-only" } else { "publishable" }.into()],
-            ["trace".into(), trace.clone()],
-            ["e-type".into(), e_type.to_string()],
-            ["project".into(), project],
-            ["actor".into(), actor],
-        ],
-        content: serde_json::to_string(content).unwrap_or_else(|_| "{}".into()),
-        sig: String::new(),
+        tags,
+        content,
+        sig,
     };
     let text = serde_json::to_string(&line).map_err(|e| format!("serialize event: {e}"))?;
     write_line(&path, &text).map_err(|e| format!("append {}: {e}", path.display()))?;
@@ -191,9 +197,9 @@ pub fn append_best(
 /// One board column proof: a mint or move to
 /// todo/doing/done is kind 420/421/422 with `t=orbitty` (never a 31200
 /// board-move/board-add line). `d` = card id; doing chains `e` → the
-/// card's newest 420, done chains `e` → the newest 420 and 421. Same
-/// envelope as 31200 (uuid id, empty pubkey/sig, small JSON content) and
-/// the same contract: a log failure never fails the board action.
+/// card's newest 420, done chains `e` → the newest 420 and 421. New
+/// lines fill NIP-01 id/pubkey/sig when Settings → signed locally is
+/// on; a sign failure writes unsigned instead of failing the board.
 pub fn append_board_proof(
     app: &tauri::AppHandle,
     card_id: &str,
@@ -245,14 +251,17 @@ pub fn append_board_proof(
     tags.push(["project".into(), project]);
     tags.push(["actor".into(), actor]);
     tags.push(["trace".into(), trace.clone()]);
+    let created_at = unix_now();
+    let content = serde_json::to_string(content).unwrap_or_else(|_| "{}".into());
+    let (id, pubkey, sig) = identity(app, created_at, kind, &tags, &content);
     let line = EventLine {
-        id: uuid_v4_hex(),
-        pubkey: String::new(),
-        created_at: unix_now(),
+        id,
+        pubkey,
+        created_at,
         kind,
         tags,
-        content: serde_json::to_string(content).unwrap_or_else(|_| "{}".into()),
-        sig: String::new(),
+        content,
+        sig,
     };
     let text = serde_json::to_string(&line).map_err(|e| format!("serialize event: {e}"))?;
     write_line(&path, &text).map_err(|e| format!("append {}: {e}", path.display()))?;
@@ -303,6 +312,12 @@ fn board_chain_links(path: &Path, card_id: &str, want: &[u64]) -> Vec<[String; 2
             continue;
         }
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        // Signed lines must verify; unsigned pre-keys lines still chain.
+        // Corrupt never fails the board write — skip the link.
+        if crate::event_keys::classify_value(&v) == crate::event_keys::LineClass::Corrupt {
+            warn_once("event line corrupt, skipped");
             continue;
         };
         let Some(kind) = v.get("kind").and_then(|k| k.as_u64()) else {
@@ -492,5 +507,26 @@ pub fn diff_claims(
             true,
             &serde_json::json!({ "windowId": c.window_id, "projectId": c.project_id }),
         );
+    }
+}
+
+/// id/pubkey/sig for a new line. Off or a sign failure → uuid-v4,
+/// empty pubkey/sig, same as pre-keys. Never fails the caller.
+fn identity(
+    app: &tauri::AppHandle,
+    created_at: u64,
+    kind: u64,
+    tags: &[[String; 2]],
+    content: &str,
+) -> (String, String, String) {
+    if !crate::event_keys::signed_locally(app) {
+        return (uuid_v4_hex(), String::new(), String::new());
+    }
+    match crate::event_keys::sign_new(app, created_at, kind, tags, content) {
+        Ok(s) => (s.id, s.pubkey, s.sig),
+        Err(e) => {
+            warn_once(&format!("sign failed, writing unsigned: {e}"));
+            (uuid_v4_hex(), String::new(), String::new())
+        }
     }
 }

@@ -20,6 +20,7 @@ mod coordinator;
 #[cfg(unix)]
 mod doing_fire;
 mod drawers;
+mod event_keys;
 mod event_log;
 #[cfg(unix)]
 mod gate_caps;

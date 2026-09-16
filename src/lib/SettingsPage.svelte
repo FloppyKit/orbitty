@@ -92,6 +92,7 @@
   let spendCapEnabled = $state(true);
   let runnerCap = $state(2);
   let treeGrowDays = $state(14);
+  let signedLocally = $state(true);
 
   let packs = $state<PackInfo[]>([]);
   let packsDir = $state("");
@@ -139,6 +140,7 @@
       runnerCap = Math.min(4, Math.max(1, Number.isFinite(rc) ? rc : 2));
       const gd = Number(s.treeGrowDays ?? 14);
       treeGrowDays = Number.isFinite(gd) && gd > 0 ? gd : 14;
+      signedLocally = s.signedLocally ?? true;
     } catch {
       themeId = osThemeId();
     }
@@ -173,6 +175,7 @@
       s.spendCapEnabled = spendCapEnabled;
       s.runnerCap = runnerCap;
       s.treeGrowDays = treeGrowDays;
+      s.signedLocally = signedLocally;
       await invoke("save_state", { state: s });
     } catch {
       /* next mutation retries */
@@ -219,6 +222,10 @@
   }
   function toggleCheatHint() {
     cheatSheetHint = !cheatSheetHint;
+    persistSettings();
+  }
+  function toggleSignedLocally() {
+    signedLocally = !signedLocally;
     persistSettings();
   }
 
@@ -658,6 +665,19 @@
         </div>
         <p class="help">
           Default $20/day and 2 runners (hard 4). Needed is the gate — no toast.
+        </p>
+        <p class="block-label">Event log</p>
+        <div class="setting-row">
+          <button
+            class="mini"
+            class:active={signedLocally}
+            aria-pressed={signedLocally}
+            onclick={toggleSignedLocally}
+            title="New 420/421/422 and journal lines get a NIP-01 id and a device signature. Old lines stay unsigned. Local file only — not a relay, not the wallet."
+          >Signed locally</button>
+        </div>
+        <p class="help">
+          New log lines are signed on this Mac. Off writes unsigned again. History is never rewritten.
         </p>
         <p class="block-label">Mouth</p>
         <div class="setting-row">

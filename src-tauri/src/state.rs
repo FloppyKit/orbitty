@@ -92,6 +92,10 @@ pub struct PersistedState {
     /// Days to full canopy when the todo has no due. Default 14.
     #[serde(default = "tree_grow_days_default")]
     pub tree_grow_days: f64,
+    /// Settings: new events.jsonl lines get a NIP-01 id + device sig.
+    /// Default on. Old lines stay unsigned. Missing key loads as on.
+    #[serde(default = "signed_locally_default")]
+    pub signed_locally: bool,
 }
 
 fn needed_split_default() -> f64 {
@@ -100,6 +104,10 @@ fn needed_split_default() -> f64 {
 
 fn tree_grow_days_default() -> f64 {
     14.0
+}
+
+fn signed_locally_default() -> bool {
+    true
 }
 
 /// One unbound-todo tree on a planet disc.
@@ -225,6 +233,7 @@ impl Default for PersistedState {
             open_subtask_ids: Vec::new(),
             todo_trees: Vec::new(),
             tree_grow_days: 14.0,
+            signed_locally: true,
         }
     }
 }

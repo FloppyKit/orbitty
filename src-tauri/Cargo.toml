@@ -47,6 +47,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # the classic sprite-pack zip; no crypto/other codecs. GO-ORBITTY-CHARS:
 # no HTTP client — sprite art is generated (chars.rs) or imported locally.
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# GO-ORBITTY-EVENT-KEYS: local NIP-01 id + schnorr. No relay, no sqlite.
+sha2 = "0.10"
+secp256k1 = { version = "0.29", default-features = false, features = ["std", "alloc"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"

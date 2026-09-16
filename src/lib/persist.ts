@@ -343,6 +343,9 @@ export interface PersistedState {
   todoTrees?: TodoTree[];
   // Days to full canopy when the todo has no due. Default 14.
   treeGrowDays?: number;
+  // New jsonl lines get a NIP-01 id + device sig. Default on.
+  // Old lines stay unsigned. Optional so older whole-state writers type-check.
+  signedLocally?: boolean;
   companion: CompanionSlice;
   stars: StarsSlice;
   sky: SkySlice;
