@@ -93,6 +93,7 @@
   let runnerCap = $state(2);
   let treeGrowDays = $state(14);
   let signedLocally = $state(true);
+  let privateRelay = $state(false);
 
   let packs = $state<PackInfo[]>([]);
   let packsDir = $state("");
@@ -141,6 +142,7 @@
       const gd = Number(s.treeGrowDays ?? 14);
       treeGrowDays = Number.isFinite(gd) && gd > 0 ? gd : 14;
       signedLocally = s.signedLocally ?? true;
+      privateRelay = s.privateRelay ?? false;
     } catch {
       themeId = osThemeId();
     }
@@ -176,6 +178,7 @@
       s.runnerCap = runnerCap;
       s.treeGrowDays = treeGrowDays;
       s.signedLocally = signedLocally;
+      s.privateRelay = privateRelay;
       await invoke("save_state", { state: s });
     } catch {
       /* next mutation retries */
@@ -226,6 +229,10 @@
   }
   function toggleSignedLocally() {
     signedLocally = !signedLocally;
+    persistSettings();
+  }
+  function togglePrivateRelay() {
+    privateRelay = !privateRelay;
     persistSettings();
   }
 
@@ -675,9 +682,16 @@
             onclick={toggleSignedLocally}
             title="New 420/421/422 and journal lines get a NIP-01 id and a device signature. Old lines stay unsigned. Local file only — not a relay, not the wallet."
           >Signed locally</button>
+          <button
+            class="mini"
+            class:active={privateRelay}
+            aria-pressed={privateRelay}
+            onclick={togglePrivateRelay}
+            title="Signed 420/421/422 with t=orbitty also EVENT to the loopback sidecar. Default off. Failures never fail the board. Journal 31200 stays file-only."
+          >Private relay</button>
         </div>
         <p class="help">
-          New log lines are signed on this Mac. Off writes unsigned again. History is never rewritten.
+          New log lines are signed on this Mac. Off writes unsigned again. History is never rewritten. Private relay copies signed board proofs to the sidecar on this Mac; off is jsonl only.
         </p>
         <p class="block-label">Mouth</p>
         <div class="setting-row">

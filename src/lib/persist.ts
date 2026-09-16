@@ -346,6 +346,8 @@ export interface PersistedState {
   // New jsonl lines get a NIP-01 id + device sig. Default on.
   // Old lines stay unsigned. Optional so older whole-state writers type-check.
   signedLocally?: boolean;
+  // Best-effort EVENT of signed 420/421/422 to the loopback sidecar. Default off.
+  privateRelay?: boolean;
   // ctl `shift on` ticker. Default off. Optional so older writers type-check.
   shiftOn?: boolean;
   companion: CompanionSlice;

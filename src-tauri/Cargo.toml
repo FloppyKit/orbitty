@@ -56,7 +56,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # GO-ORBITTY-EVENT-KEYS: local NIP-01 id + schnorr. No relay, no sqlite.
 sha2 = "0.10"
 secp256k1 = { version = "0.29", default-features = false, features = ["std", "alloc"] }
-# Loopback websocket for orbitty-relay. Habitat does not use this.
+# Loopback websocket: orbitty-relay server, habitat best-effort EVENT client.
 tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

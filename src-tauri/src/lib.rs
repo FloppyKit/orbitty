@@ -25,6 +25,7 @@ mod doing_fire;
 mod drawers;
 mod event_keys;
 mod event_log;
+mod event_relay;
 #[cfg(unix)]
 mod gate_caps;
 mod glass;

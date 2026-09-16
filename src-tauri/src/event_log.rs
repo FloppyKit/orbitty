@@ -265,6 +265,10 @@ pub fn append_board_proof(
     };
     let text = serde_json::to_string(&line).map_err(|e| format!("serialize event: {e}"))?;
     write_line(&path, &text).map_err(|e| format!("append {}: {e}", path.display()))?;
+    // Signed 420/421/422 may EVENT to the sidecar. Never 31200.
+    if let Ok(v) = serde_json::from_str(&text) {
+        crate::event_relay::publish_best(app, &v);
+    }
     Ok(Appended {
         id: line.id,
         created_at: line.created_at,
