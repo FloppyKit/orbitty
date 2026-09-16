@@ -4,12 +4,12 @@ use crate::state::{KanbanCard, PersistedState, TodoTree};
 
 pub const DEFAULT_GROW_DAYS: f64 = 14.0;
 
-// Grove: east of the grass west edge, north of disc center (y < 0).
-// Never west into the cabin. May nibble the board when grown.
+// Grove: east of grass west, north of the grass pad (y < YARD_NORTH).
+// Never on the paddock. Never west into the cabin. May nibble the board.
 const GROVE_WEST: f64 = -0.364; // YARD_WEST
 const GROVE_EAST: f64 = 0.50;
 const GROVE_NORTH: f64 = -0.70; // toward the board; negative y is north
-const GROVE_SOUTH: f64 = -0.02;
+const GROVE_SOUTH: f64 = -0.46; // just north of YARD_NORTH (-0.45)
 
 /// Unbound = a real todo, no window, no assigned agent, not Needed.
 pub fn is_unbound(c: &KanbanCard) -> bool {
@@ -182,7 +182,7 @@ mod tests {
             let (x, y) = default_spot(id);
             assert!(x >= GROVE_WEST && x <= GROVE_EAST, "x={x}");
             assert!(y >= GROVE_NORTH && y <= GROVE_SOUTH, "y={y}");
-            assert!(y < 0.0, "north of center y={y}");
+            assert!(y < -0.45, "off the grass pad y={y}");
         }
     }
 }
