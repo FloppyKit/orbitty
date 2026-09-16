@@ -33,6 +33,7 @@ mod nextcard;
 mod panes;
 mod habitat;
 mod herdr;
+mod droid_inspect;
 mod todo_trees;
 mod packs;
 mod rail_toggle;

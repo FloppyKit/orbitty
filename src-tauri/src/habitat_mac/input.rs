@@ -342,6 +342,8 @@ enum BeingAction {
     /// droid double-click — no window to restore;
     /// raise the run's planet (the pane/TTY raise is HERDR-ADAPTER's).
     Planet(String),
+    /// droid single-click leftover: focus herdr pane (caption already set).
+    Inspect(String),
 }
 
 
@@ -417,11 +419,21 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                 // droid single — the same locate
                 // stroke as a window walker; the caption names the run.
                 (true, false, _, true) => {
-                    set_caption(planet, format!("{label} · agent"));
+                    let cap = app_handle()
+                        .map(|app| crate::droid_inspect::capsule(&app, &entry_id))
+                        .unwrap_or_default();
+                    set_caption(
+                        planet,
+                        if cap.is_empty() {
+                            format!("{label} · agent")
+                        } else {
+                            format!("{label} · {cap}")
+                        },
+                    );
                     if !dragged {
                         locate_id = Some(entry_id.clone());
                     }
-                    None
+                    Some(BeingAction::Inspect(entry_id.clone()))
                 }
                 // Droid double: no window to restore — front the planet
                 // (the pane/TTY raise lands with HERDR-ADAPTER).
@@ -471,9 +483,12 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                 let _ = crate::windows::minimize_window(&id);
             }
             Some(BeingAction::Planet(pid)) => {
-                // Droid double-click: front the run's planet (cheap; the
-                // pane/TTY raise is HERDR-ADAPTER's, not this phrase).
                 crate::habitat::bring_planet_front(&pid);
+            }
+            Some(BeingAction::Inspect(id)) => {
+                if let Some(app) = app_handle() {
+                    crate::droid_inspect::focus(&app, &id);
+                }
             }
             Some(BeingAction::Wake(id)) => {
                 let msg = match app_handle() {
