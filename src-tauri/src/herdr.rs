@@ -28,8 +28,28 @@ pub enum Branch {
 /// launch door. `Err` carries `code: message` from the error envelope
 /// (or the honest transport failure) — the caller decides skip vs
 /// blocked; this fn never retries.
-fn run_json(bin: &Path, args: &[&str], timeout_ms: u64) -> Result<Value, String> {
-    let mut child = Command::new(bin)
+pub(crate) fn herdr_cmd(bin: &Path) -> Command {
+    let mut c = Command::new(bin);
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut path = std::env::var("PATH").unwrap_or_default();
+    for p in [
+        format!("{home}/.local/bin"),
+        "/opt/homebrew/bin".into(),
+        "/usr/local/bin".into(),
+    ] {
+        if !p.is_empty() && !path.split(':').any(|x| x == p) {
+            path = format!("{p}:{path}");
+        }
+    }
+    c.env("PATH", path);
+    if !home.is_empty() {
+        c.env("HOME", home);
+    }
+    c
+}
+
+pub(crate) fn run_json(bin: &Path, args: &[&str], timeout_ms: u64) -> Result<Value, String> {
+    let mut child = herdr_cmd(bin)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -43,9 +63,17 @@ fn run_json(bin: &Path, args: &[&str], timeout_ms: u64) -> Result<Value, String>
                 let out = child
                     .wait_with_output()
                     .map_err(|e| format!("output: {e}"))?;
-                let text = String::from_utf8_lossy(&out.stdout);
-                let v: Value = serde_json::from_str(text.trim())
-                    .map_err(|e| format!("bad json ({}): {e}", out.status))?;
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let text = stdout.trim();
+                let v: Value = serde_json::from_str(text).map_err(|e| {
+                    let tail = if text.is_empty() {
+                        stderr.trim().to_string()
+                    } else {
+                        text.chars().take(180).collect()
+                    };
+                    format!("bad json ({}): {e} {tail}", out.status)
+                })?;
                 if let Some(err) = v.get("error") {
                     let code = err.get("code").and_then(Value::as_str).unwrap_or("error");
                     let msg = err.get("message").and_then(Value::as_str).unwrap_or("");
@@ -161,12 +189,12 @@ fn resolve_run(st: &PersistedState, shortcut: &AgentShortcut, titles: &[String])
         if let Some(c) = st.kanban_cards.iter().find(|c| {
             is_doing(c)
                 && &c.title == t
-                && has_row(&c.id)
                 && (c.assigned_agent_id.as_deref() == Some(shortcut.id.as_str())
                     || st
                         .agent_runs
                         .iter()
-                        .any(|r| r.card_id == c.id && r.agent_shortcut_id == shortcut.id))
+                        .any(|r| r.card_id == c.id && r.agent_shortcut_id == shortcut.id)
+                    || !has_row(&c.id))
         }) {
             return Some(c.clone());
         }
@@ -209,17 +237,23 @@ fn skip_line(app: &tauri::AppHandle, shortcut: &AgentShortcut, reason: &str) {
 fn persist_run(app: &tauri::AppHandle, card: Option<&KanbanCard>, rec: AgentRunHerdr, state: &str) {
     let Some(card) = card else { return };
     let Ok(before) = crate::state::load_state(app) else { return };
-    if !before.agent_runs.iter().any(|r| r.card_id == card.id) {
-        return;
-    }
     let mut after = before.clone();
     if let Some(r) = after.agent_runs.iter_mut().find(|r| r.card_id == card.id) {
         r.herdr = Some(rec);
-        // The card's doing→done drag owns done — the branch never
-        // resurrects a walked-off row.
         if r.state != "done" {
             r.state = state.into();
         }
+        if r.agent_shortcut_id.is_empty() {
+            r.agent_shortcut_id = card.assigned_agent_id.clone().unwrap_or_default();
+        }
+    } else {
+        after.agent_runs.push(crate::state::AgentRun {
+            card_id: card.id.clone(),
+            planet_id: card.project_id.clone(),
+            agent_shortcut_id: card.assigned_agent_id.clone().unwrap_or_default(),
+            state: state.into(),
+            herdr: Some(rec),
+        });
     }
     let _ = crate::board::save_with_events(app, &before, &after);
 }
@@ -423,7 +457,35 @@ pub fn branch(
         agent_name: agent_name.clone(),
         kind: kind.into(),
     };
-    match run_json(&bin, &["agent", "start", &agent_name, "--kind", kind, "--pane", &pane], 45_000)
+    std::thread::sleep(Duration::from_millis(400));
+    let grok = crate::coordinator::find_on_path("grok");
+    let grok_s = grok.as_ref().map(|p| p.to_string_lossy().into_owned());
+    let mut start: Vec<&str> = vec![
+        "agent",
+        "start",
+        &agent_name,
+        "--kind",
+        kind,
+        "--pane",
+        &pane,
+        "--timeout",
+        "30000",
+    ];
+    if kind == "grok" {
+        if let Some(g) = grok_s.as_deref() {
+            start.push("--");
+            start.push(g);
+        }
+    }
+    let mut started = Err("agent start not attempted".into());
+    for i in 0..5 {
+        started = run_json(&bin, &start, 45_000);
+        if started.is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(250 * (i + 1)));
+    }
+    match started
     {
         Ok(_) => {
             persist_run(app, card.as_ref(), rec, "working");
