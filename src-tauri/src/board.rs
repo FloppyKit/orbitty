@@ -193,6 +193,8 @@ pub fn kanban_add_as(
         parent_id: None,
         rating: None,
         trackers: None,
+        task_id: None,
+        task_reason: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
@@ -301,6 +303,13 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
         }
     }
     save_with_events(app, &before, &after)?;
+    if target == "done" || target == "todo" {
+        crate::task::end_card(
+            app,
+            &after.kanban_cards[idx],
+            if target == "done" { "done" } else { "cancelled" },
+        );
+    }
     event_log::append_board_proof_best(
         app,
         id,
@@ -482,6 +491,7 @@ pub fn project_add(app: &tauri::AppHandle, name: &str) -> Result<Project, String
         id: new_id("p"),
         name: name.to_string(),
         trackers: None,
+        workspace_root: None,
     };
     let mut after = before.clone();
     after.projects.push(project.clone());
@@ -625,6 +635,8 @@ pub fn needed_open(
         parent_id: None,
         rating: None,
         trackers: None,
+        task_id: None,
+        task_reason: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());

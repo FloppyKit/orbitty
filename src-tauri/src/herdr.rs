@@ -34,6 +34,7 @@ pub(crate) fn herdr_cmd(bin: &Path) -> Command {
     let mut path = std::env::var("PATH").unwrap_or_default();
     for p in [
         format!("{home}/.local/bin"),
+        format!("{home}/.grok/bin"),
         "/opt/homebrew/bin".into(),
         "/usr/local/bin".into(),
     ] {
@@ -184,7 +185,6 @@ fn is_doing(c: &KanbanCard) -> bool {
 /// newest doing card whose row names this shortcut. Never mints — the
 /// DOING-WALKER attach door owns the row; this only FINDS it.
 fn resolve_run(st: &PersistedState, shortcut: &AgentShortcut, titles: &[String]) -> Option<KanbanCard> {
-    let has_row = |id: &str| st.agent_runs.iter().any(|r| r.card_id == id);
     if let Some(t) = titles.first() {
         if let Some(c) = st.kanban_cards.iter().find(|c| {
             is_doing(c)
@@ -193,8 +193,7 @@ fn resolve_run(st: &PersistedState, shortcut: &AgentShortcut, titles: &[String])
                     || st
                         .agent_runs
                         .iter()
-                        .any(|r| r.card_id == c.id && r.agent_shortcut_id == shortcut.id)
-                    || !has_row(&c.id))
+                        .any(|r| r.card_id == c.id && r.agent_shortcut_id == shortcut.id))
         }) {
             return Some(c.clone());
         }
@@ -358,6 +357,54 @@ fn spawn_watch(app: &tauri::AppHandle, bin: &Path, card: Option<&KanbanCard>, ag
     });
 }
 
+/// `herdr agent start` argv. `--kind` picks the executable. Anything
+/// after `--` is AGENT_ARG (grok treats the first positional as the
+/// initial prompt) — never the grok binary path.
+fn agent_start_args<'a>(name: &'a str, kind: &'a str, pane: &'a str) -> Vec<&'a str> {
+    vec![
+        "agent",
+        "start",
+        name,
+        "--kind",
+        kind,
+        "--pane",
+        pane,
+        "--timeout",
+        "30000",
+    ]
+}
+
+/// After start is ready, submit the query file. Fail → pane still up,
+/// one log line, no Terminal dual-launch. Login-wall starts never call this.
+fn submit_query(
+    app: &tauri::AppHandle,
+    bin: &Path,
+    planet_id: &str,
+    agent_name: &str,
+    query: Option<&Path>,
+) {
+    let Some(path) = query else { return };
+    let Ok(text) = std::fs::read_to_string(path) else { return };
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    if let Err(why) = run_json(bin, &["agent", "prompt", agent_name, text], 15_000) {
+        crate::event_log::append_best(
+            app,
+            "herdr-prompt-fail",
+            None,
+            Some(planet_id),
+            Some("agent"),
+            true,
+            &serde_json::json!({
+                "agent": agent_name,
+                "reason": why,
+            }),
+        );
+    }
+}
+
 /// The Herdr branch of `launch_agent`. One attempt, no retries; every
 /// skip logs exactly one line. Called only from the grok / opencode
 /// doors — every other harness keeps its old launcher, silently.
@@ -366,6 +413,7 @@ pub fn branch(
     shortcut: &AgentShortcut,
     project_name: Option<&str>,
     titles: &[String],
+    query: Option<&Path>,
 ) -> Branch {
     // Kind law: grok is always a herdr kind; opencode is detect-only
     // (on PATH = legal, missing = skip that kind — never prompt-
@@ -458,25 +506,7 @@ pub fn branch(
         kind: kind.into(),
     };
     std::thread::sleep(Duration::from_millis(400));
-    let grok = crate::coordinator::find_on_path("grok");
-    let grok_s = grok.as_ref().map(|p| p.to_string_lossy().into_owned());
-    let mut start: Vec<&str> = vec![
-        "agent",
-        "start",
-        &agent_name,
-        "--kind",
-        kind,
-        "--pane",
-        &pane,
-        "--timeout",
-        "30000",
-    ];
-    if kind == "grok" {
-        if let Some(g) = grok_s.as_deref() {
-            start.push("--");
-            start.push(g);
-        }
-    }
+    let start = agent_start_args(&agent_name, kind, &pane);
     let mut started = Err("agent start not attempted".into());
     for i in 0..5 {
         started = run_json(&bin, &start, 45_000);
@@ -490,6 +520,7 @@ pub fn branch(
         Ok(_) => {
             persist_run(app, card.as_ref(), rec, "working");
             spawn_watch(app, &bin, card.as_ref(), &agent_name);
+            submit_query(app, &bin, &planet_id, &agent_name, query);
             crate::event_log::append_best(
                 app,
                 "herdr-launch",
@@ -570,6 +601,8 @@ mod tests {
             parent_id: None,
             rating: None,
             trackers: None,
+            task_id: None,
+            task_reason: None,
         }
     }
 
@@ -640,9 +673,11 @@ mod tests {
         // No titles → the shortcut's newest doing row.
         let fb = resolve_run(&st, &shortcut("a-1"), &[]);
         assert_eq!(fb.map(|c| c.id), Some("c-2".to_string()));
-        // A card with no run row never resolves on title alone, and an
-        // unknown shortcut has no fallback.
+        // Assigned doing with no run row still title-matches THIS shortcut
+        // (persist_run mints the row). An unknown shortcut has no fallback.
         st.kanban_cards.push(card("c-4", "doing", "GO-ORBITTY-NOROW", Some("a-1")));
+        let minted = resolve_run(&st, &shortcut("a-1"), &["GO-ORBITTY-NOROW".to_string()]);
+        assert_eq!(minted.map(|c| c.id), Some("c-4".to_string()));
         let none = resolve_run(&st, &shortcut("a-9"), &["GO-ORBITTY-NOROW".to_string()]);
         assert!(none.is_none());
     }
@@ -655,6 +690,7 @@ mod tests {
             id: "p-1".into(),
             name: "orbitty".into(),
             trackers: None,
+            workspace_root: None,
         }];
         st.claims = vec![
             claim("p-1", 1.0, Some("/definitely/gone")),
@@ -673,6 +709,26 @@ mod tests {
         assert_eq!(planet_cwd(Some(&st), "p-9", Some("mars")), home);
         // No state at all → HOME.
         assert_eq!(planet_cwd(None, "p-1", Some("mars")), home);
+    }
+
+    #[test]
+    fn agent_start_args_never_pass_the_grok_binary() {
+        let args = agent_start_args("c-1", "grok", "w2:p1");
+        assert_eq!(
+            args,
+            vec![
+                "agent",
+                "start",
+                "c-1",
+                "--kind",
+                "grok",
+                "--pane",
+                "w2:p1",
+                "--timeout",
+                "30000",
+            ]
+        );
+        assert!(!args.iter().any(|a| *a == "--" || a.contains("/grok") || a.ends_with("bin/grok")));
     }
 
     #[test]

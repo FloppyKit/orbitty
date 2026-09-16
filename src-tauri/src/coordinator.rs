@@ -2620,7 +2620,22 @@ pub(crate) fn run_action_logged(
         true,
         &serde_json::json!({ "n": command.chars().count() }),
     );
+    let pid = crate::task::project_for_cwd(app, cwd.as_deref());
+    let task_id = pid
+        .as_deref()
+        .and_then(|p| crate::task::start(app, p, None));
     let out = run_action_inner(command, cwd);
+    if let Some(tid) = task_id.as_deref() {
+        crate::task::end(
+            app,
+            tid,
+            if out.as_ref().map(|r| r.ok).unwrap_or(false) {
+                "done"
+            } else {
+                "failed"
+            },
+        );
+    }
     #[cfg(unix)]
     if let Ok(r) = &out {
         if let Some(usd) = crate::gate_caps::parse_usage_usd(&r.stdout)
@@ -2819,12 +2834,26 @@ pub fn launch_agent(
 ) -> Result<String, String> {
     #[cfg(unix)]
     crate::gate_caps::check(&app)?;
+    let pid = shortcut.project_id.clone().unwrap_or_default();
+    let card_id = crate::state::load_state(&app).ok().and_then(|st| {
+        titles.first().and_then(|t| {
+            st.kanban_cards.iter().find(|c| {
+                &c.title == t && (pid.is_empty() || c.project_id == pid)
+            }).map(|c| c.id.clone())
+        })
+    });
+    let task_id = if pid.is_empty() {
+        None
+    } else {
+        crate::task::start(&app, &pid, card_id.as_deref())
+    };
     let (query, skipped) = write_agent_query(&app, &shortcut, project_name.as_deref(), &titles)?;
     let skip_note = if skipped > 0 {
         format!(" Skipped {skipped} unreadable md path(s).")
     } else {
         String::new()
     };
+    let out: Result<String, String> = (|| {
     match shortcut.harness.trim().to_ascii_lowercase().as_str() {
         "cursor" => {
             let Some(bin) = find_on_path("cursor-agent") else {
@@ -2880,7 +2909,7 @@ pub fn launch_agent(
             // pane first, agent second, when herdr is present + up.
             // Skip falls through to the Terminal launcher unchanged
             // (one skip line was already logged; never a dual-launch).
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m) | crate::herdr::Branch::Blocked(m) => {
                     return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
@@ -2950,7 +2979,7 @@ pub fn launch_agent(
         // — legal with `opencode` on PATH, never prompt-installed, never
         // `opencode serve`d as the mouth. No Terminal door exists for it,
         // so a skip is an honest error, not a fall-through.
-        "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles) {
+        "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
             crate::herdr::Branch::Up(m) | crate::herdr::Branch::Blocked(m) => {
                 Ok(format!("{m} Query: {}.{skip_note}", query.display()))
             }
@@ -2963,6 +2992,11 @@ pub fn launch_agent(
             "unknown harness {other:?} — cursor | goose | grok | hermes (set per agent row; never a silent hermes)"
         )),
     }
+    })();
+    if let (Some(tid), Err(_)) = (task_id.as_deref(), &out) {
+        crate::task::end(&app, tid, "failed");
+    }
+    out
 }
 
 #[cfg(target_os = "macos")]

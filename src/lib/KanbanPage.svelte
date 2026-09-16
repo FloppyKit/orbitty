@@ -1145,6 +1145,15 @@
     });
   }
 
+  async function undoThisTask(card: KanbanCard) {
+    try {
+      await invoke("undo_task", { cardId: card.id });
+      await loadState();
+    } catch {
+      /* no before snapshot */
+    }
+  }
+
   function saveNotes(card: KanbanCard, raw: string) {
     const notes = raw.trim();
     if (notes === (card.notes ?? "")) return;
@@ -2539,6 +2548,15 @@
             <option value={a.id}>{a.name}</option>
           {/each}
         </select>
+
+        {#if card.taskId}
+          <button
+            type="button"
+            class="mini"
+            onclick={() => undoThisTask(card)}
+            title="Restore this planet's workspace root to the snapshot taken when the task started"
+          >Undo this task</button>
+        {/if}
 
         <label class="d-label" for="d-notes">Notes</label>
         <textarea

@@ -162,6 +162,8 @@ mod tests {
             parent_id: None,
             rating: None,
             trackers: None,
+            task_id: None,
+            task_reason: None,
         }
     }
 

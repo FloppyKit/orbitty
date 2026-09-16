@@ -34,6 +34,7 @@ mod panes;
 mod habitat;
 mod herdr;
 mod droid_inspect;
+mod task;
 mod todo_trees;
 mod packs;
 mod rail_toggle;
@@ -380,6 +381,21 @@ fn agent_pickup(
     )
 }
 
+#[tauri::command]
+fn undo_task(app: tauri::AppHandle, card_id: String) -> Result<(), String> {
+    crate::task::undo(&app, &card_id)
+}
+
+#[tauri::command]
+fn set_workspace_root(app: tauri::AppHandle, project_id: String, path: String) -> Result<(), String> {
+    crate::task::set_workspace_root(&app, &project_id, &path)
+}
+
+#[tauri::command]
+fn task_has_before(app: tauri::AppHandle, card_id: String) -> bool {
+    crate::task::has_before(&app, &card_id)
+}
+
 /// Run `f` on the main thread and BLOCK until it finishes. Inline when
 /// already on the main thread (dispatch_sync of the main queue from the
 /// main thread deadlocks). A panic inside `f` is swallowed — a native
@@ -659,6 +675,9 @@ pub fn run() {
             coordinator::ack_stars_prompt,
             coordinator::speak_reply,
             coordinator::run_action,
+            undo_task,
+            set_workspace_root,
+            task_has_before,
             coordinator::wake_sleeper,
             coordinator::load_soul,
             coordinator::save_soul,
@@ -679,6 +698,7 @@ pub fn run() {
             // GO-ORBITTY-* todos with empty notes get the locked one-liner
             // (never overwrites a note Matt typed). Best-effort.
             board::backfill_go_card_notes(app.handle());
+            crate::task::boot(app.handle());
 
             // Local Unix control socket (0600)
             // serving the same handlers as invoke. Bind failure is logged

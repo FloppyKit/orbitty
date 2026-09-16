@@ -671,6 +671,9 @@ pub struct Project {
     /// Named counters for this planet. Additive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trackers: Option<Vec<Tracker>>,
+    /// Absolute planet workspace root. Absent = no task snapshot. Void never has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_root: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -803,6 +806,10 @@ pub struct KanbanCard {
     /// the planet; the key stays so old saves do not strip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trackers: Option<Vec<Tracker>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_reason: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

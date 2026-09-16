@@ -667,6 +667,17 @@
     renamingId = null;
   }
 
+  async function setWorkspaceRoot(projectId: string, path: string) {
+    try {
+      await invoke("set_workspace_root", { projectId, path });
+      projects = projects.map((p) =>
+        p.id === projectId ? { ...p, workspaceRoot: path.trim() || undefined } : p,
+      );
+    } catch {
+      /* void refuses a root */
+    }
+  }
+
   async function persist() {
     if (!stateLoaded) return;
     const state: PersistedState = {
@@ -3199,6 +3210,15 @@
                 <p class="rm-err" role="alert">{rmErrorFor.msg}</p>
               {/if}
               {#if !isCollapsed(p.id)}
+                {#if p.name.trim().toLowerCase() !== "void"}
+                  <input
+                    class="root-path"
+                    value={p.workspaceRoot ?? ""}
+                    placeholder="workspace root"
+                    title="Planet workspace root — task snapshots clone this path"
+                    onchange={(e) => setWorkspaceRoot(p.id, e.currentTarget.value)}
+                  />
+                {/if}
                 <ul class="wins">
                   {#each visibleRows(rows) as w (w.id)}
                     {@render winRow(w, p)}
@@ -3991,6 +4011,19 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--dim);
+  }
+
+  .root-path {
+    display: block;
+    width: calc(100% - 16px);
+    margin: 0 8px 6px;
+    font: inherit;
+    font-size: 0.68rem;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 3px 6px;
   }
 
   /* The list wears the disc's marble color. */

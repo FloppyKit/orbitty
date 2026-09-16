@@ -23,6 +23,7 @@ export interface Project {
   name: string;
   // Named counters for this planet. Additive.
   trackers?: Tracker[];
+  workspaceRoot?: string | null;
 }
 
 export interface TodoTree {
@@ -120,6 +121,8 @@ export interface KanbanCard {
   // migrates any leftover onto the planet; the key stays so saves
   // do not strip old rows.
   trackers?: Tracker[];
+  taskId?: string | null;
+  taskReason?: string | null;
 }
 
 export interface PointsEntry {
