@@ -27,6 +27,12 @@ path = "src/bin/orbittyctl.rs"
 name = "orbitty-mcp"
 path = "src/bin/orbitty_mcp.rs"
 
+# GO-ORBITTY-RELAY-SIDECAR: loopback NIP-01 sidecar. Never links the
+# habitat; jsonl SoT stays in the app. No rusqlite in this crate.
+[[bin]]
+name = "orbitty-relay"
+path = "src/bin/orbitty_relay/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 cc = "1"
@@ -50,6 +56,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # GO-ORBITTY-EVENT-KEYS: local NIP-01 id + schnorr. No relay, no sqlite.
 sha2 = "0.10"
 secp256k1 = { version = "0.29", default-features = false, features = ["std", "alloc"] }
+# Loopback websocket for orbitty-relay. Habitat does not use this.
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"

@@ -120,6 +120,56 @@ codesign --force --sign "$IDENTITY" --timestamp=none "$MCP_SRC"
 echo "==> Installing orbitty-mcp to $CTL_DIR"
 cp "$MCP_SRC" "$CTL_DIR/orbitty-mcp"
 
+# GO-ORBITTY-RELAY-SIDECAR: loopback NIP-01 sidecar. Kitchen LaunchAgent
+# only (space.orbitty.mac). Demo profiles do not get this job.
+RELAY_SRC="src-tauri/target/release/orbitty-relay"
+echo "==> Building orbitty-relay"
+(cd src-tauri && cargo build --release --bin orbitty-relay)
+if [[ ! -x "$RELAY_SRC" ]]; then
+  echo "error: expected orbitty-relay at $RELAY_SRC" >&2
+  exit 1
+fi
+codesign --force --sign "$IDENTITY" --timestamp=none "$RELAY_SRC"
+echo "==> Installing orbitty-relay to $CTL_DIR"
+cp "$RELAY_SRC" "$CTL_DIR/orbitty-relay"
+RELAY_PLIST="$HOME/Library/LaunchAgents/space.orbitty.relay.plist"
+RELAY_LOG="$HOME/Library/Application Support/space.orbitty.mac/relay"
+mkdir -p "$RELAY_LOG"
+cat > "$RELAY_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.orbitty.relay</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$CTL_DIR/orbitty-relay</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$RELAY_LOG/relay.log</string>
+  <key>StandardErrorPath</key>
+  <string>$RELAY_LOG/relay.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>$HOME</string>
+    <key>PATH</key>
+    <string>$CTL_DIR:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
+PLIST
+UID_NUM="$(id -u)"
+launchctl bootout "gui/${UID_NUM}/space.orbitty.relay" >/dev/null 2>&1 || true
+if ! launchctl bootstrap "gui/${UID_NUM}" "$RELAY_PLIST"; then
+  echo "WARNING: launchctl bootstrap space.orbitty.relay failed — binary is installed" >&2
+fi
+
 echo "==> Writing Goose orbitty seat (idempotent merge)"
 "$PWD/scripts/write-goose-orbitty-seat.sh" || echo "WARNING: Goose seat write failed — MCP binary is still installed" >&2
 
@@ -146,4 +196,8 @@ Done. Dogfood rules:
      Goose seat auto-merged into ~/.config/goose/config.yaml
      (idempotent; backup first). Manual fallback:
        docs/ORBITTY_MCP_GOOSE_SNIPPET.md
+  8. orbitty-relay (loopback NIP-01 sidecar) installed to:
+       $CTL_DIR/orbitty-relay
+     LaunchAgent space.orbitty.relay KeepAlive · 127.0.0.1:13120
+     Smoke: orbitty-relay smoke
 EOF
