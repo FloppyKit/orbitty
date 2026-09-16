@@ -854,6 +854,30 @@
     );
   }
 
+  function agentRowsFor(projectId: string) {
+    return agentRuns.filter(
+      (r) =>
+        r.planetId === projectId &&
+        r.state !== "done" &&
+        runIsSeated(r) &&
+        kanbanCards.some((k) => k.id === r.cardId),
+    );
+  }
+
+  async function locateAgent(r: AgentRun) {
+    const entryId = `agent:${r.cardId}`;
+    try {
+      await invoke("locate_walker", { entryId });
+    } catch {
+      /* habitat may be mid-sync */
+    }
+    try {
+      await invoke("inspect_droid", { entryId });
+    } catch {
+      /* no herdr pane yet */
+    }
+  }
+
   function agentEntriesFor(p: Project) {
     return agentRuns
       .filter(
@@ -2632,6 +2656,29 @@
   </li>
 {/snippet}
 
+{#snippet agentRow(r: AgentRun)}
+  {@const agent = agentShortcuts.find((a) => a.id === r.agentShortcutId)}
+  {@const card = kanbanCards.find((k) => k.id === r.cardId)}
+  {@const harness = (agent?.harness || r.herdr?.kind || "agent").toLowerCase()}
+  <li>
+    <div class="rowwrap" role="group" title="Live agent — click glows the droid and focuses Herdr">
+      <button
+        class="row"
+        class:locate-flash={locateFlashIds.includes(`agent:${r.cardId}`)}
+        onclick={() => locateAgent(r)}
+        ondblclick={() => locateAgent(r)}
+      >
+        <span class="app-icon fallback" aria-hidden="true">{harness.charAt(0).toUpperCase()}</span>
+        <span class="wtitle">{agent?.name ?? harness}{card?.title ? ` — ${card.title}` : ""}</span>
+        <span class="tag wtag">{harness}</span>
+        {#if r.state === "blocked"}<span class="tag sleeptag">blocked</span>
+        {:else if r.state === "working" || r.state === "starting"}<span class="tag front-tag">{r.state}</span>
+        {/if}
+      </button>
+    </div>
+  </li>
+{/snippet}
+
 {#snippet todoRow(card: KanbanCard)}
   <li class="todo-row">
     <button
@@ -3118,6 +3165,7 @@
         <ul class="wins">
           {#each projects as p (p.id)}
             {@const rows = rowsFor(p.id)}
+            {@const agents = agentRowsFor(p.id)}
             <li
               class="section"
               class:drop-ok={dropTarget === p.id}
@@ -3143,7 +3191,7 @@
                     aria-hidden="true"
                   ></span>
                   <span class="section-name">{p.name}</span>
-                  <span class="section-count">{visibleRows(rows).length + todosFor(p.id).length}</span>
+                  <span class="section-count">{visibleRows(rows).length + agents.length + todosFor(p.id).length}</span>
                 </button>
                 {@render planetRm(p)}
               </div>
@@ -3155,10 +3203,13 @@
                   {#each visibleRows(rows) as w (w.id)}
                     {@render winRow(w, p)}
                   {/each}
+                  {#each agents as r (r.cardId)}
+                    {@render agentRow(r)}
+                  {/each}
                   {#each todosFor(p.id) as card (card.id)}
                     {@render todoRow(card)}
                   {/each}
-                  {#if visibleRows(rows).length === 0 && todosFor(p.id).length === 0}
+                  {#if visibleRows(rows).length === 0 && agents.length === 0 && todosFor(p.id).length === 0}
                     <li class="section-empty">
                       {tagFilter
                         ? "No windows with this tag"

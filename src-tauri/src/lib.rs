@@ -125,6 +125,11 @@ fn locate_walker(app: tauri::AppHandle, entry_id: String) -> Result<(), String> 
     habitat::locate_walker(app, entry_id)
 }
 
+#[tauri::command]
+fn inspect_droid(app: tauri::AppHandle, entry_id: String) {
+    crate::droid_inspect::focus(&app, &entry_id);
+}
+
 /// Dest-menu find: glow that planet ~1.4s (marble saturn ring / expanded
 /// rim + center name). Glow only — `bring_planet_front` is a separate raise.
 #[tauri::command]
@@ -576,6 +581,7 @@ pub fn run() {
             close_window,
             locate_window,
             locate_walker,
+            inspect_droid,
             locate_planet,
             project_rm,
             sync_habitat,
