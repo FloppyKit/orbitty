@@ -647,6 +647,8 @@
     <button
       type="button"
       class="thinbtn"
+      onmousedown={(e) => e.stopPropagation()}
+      onpointerdown={(e) => e.stopPropagation()}
       onclick={() => onThin?.()}
       disabled={sending}
       aria-label="Thin — label this chat"
@@ -656,6 +658,8 @@
       <button
         type="button"
         class="fieldplus"
+        onmousedown={(e) => e.stopPropagation()}
+        onpointerdown={(e) => e.stopPropagation()}
         onclick={onPickAttach}
         disabled={sending}
         aria-label="Attach one file"
@@ -1368,6 +1372,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
     font: inherit;
     font-size: 1.05rem;
     line-height: 1;

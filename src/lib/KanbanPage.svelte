@@ -314,12 +314,35 @@
 
   function onPlanetPointerDown(e: PointerEvent, id: string) {
     if (e.button !== 0) return;
+    if (!(e.currentTarget instanceof HTMLElement)) return;
+    e.stopPropagation();
+    const tab = e.currentTarget;
+    const strip = tab.closest(".strip-planets");
     const x0 = e.clientX;
     const y0 = e.clientY;
+    const scroll0 = strip instanceof HTMLElement ? strip.scrollLeft : 0;
     let dragging = false;
+    let armed = true;
+    const SLOP = 16;
     const onMove = (ev: PointerEvent) => {
+      if (!armed) return;
+      const dx = ev.clientX - x0;
+      const dy = ev.clientY - y0;
       if (!dragging) {
-        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+        if (Math.hypot(dx, dy) < SLOP) return;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          armed = false;
+          cleanup();
+          return;
+        }
+        if (
+          strip instanceof HTMLElement &&
+          Math.abs(strip.scrollLeft - scroll0) > 2
+        ) {
+          armed = false;
+          cleanup();
+          return;
+        }
         dragging = true;
         planetDidDrag = true;
         planetDragId = id;
@@ -329,16 +352,30 @@
       reorderPlanetsLive(id, before);
     };
     const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      armed = false;
       if (dragging) persistPlanetOrder();
       planetDragId = null;
       planetDropId = null;
+      cleanup();
     };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+    const cleanup = () => {
+      try {
+        tab.releasePointerCapture(e.pointerId);
+      } catch {
+        /* capture is best-effort */
+      }
+      tab.removeEventListener("pointermove", onMove);
+      tab.removeEventListener("pointerup", onUp);
+      tab.removeEventListener("pointercancel", onUp);
+    };
+    try {
+      tab.setPointerCapture(e.pointerId);
+    } catch {
+      /* capture is best-effort */
+    }
+    tab.addEventListener("pointermove", onMove);
+    tab.addEventListener("pointerup", onUp);
+    tab.addEventListener("pointercancel", onUp);
   }
 
   function toggleDoneChip() {

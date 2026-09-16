@@ -8,9 +8,17 @@ const SLOP = 8;
 const IGNORE =
   "button, input, a, select, textarea, option, .field, .volpop, .agentbubble, .agentopt, .b-card, .kn-item, .k-doing";
 
+/** Clicking a button's text node is a Text target — closest() is not on it. */
+export function eventElement(e: Event): Element | null {
+  const t = e.target;
+  if (t instanceof Element) return t;
+  if (t instanceof CharacterData) return t.parentElement;
+  return null;
+}
+
 export function startPaneDrag(e: MouseEvent | PointerEvent): void {
   if (e.button !== 0) return;
-  const t = e.target as HTMLElement | null;
+  const t = eventElement(e);
   if (t?.closest(IGNORE)) return;
   const x0 = e.screenX;
   const y0 = e.screenY;

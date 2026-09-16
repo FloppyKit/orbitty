@@ -19,6 +19,7 @@
   import Companion3D from "./Companion3D.svelte";
   import CaptionPane from "./CaptionPane.svelte";
   import CompanionDock from "./CompanionDock.svelte";
+  import { eventElement } from "./dragPane";
 
   import type {
     CompanionSlice,
@@ -1266,7 +1267,7 @@
 
   function onDockMouseDown(e: MouseEvent | PointerEvent) {
     if (e.button !== 0) return;
-    const t = e.target as HTMLElement | null;
+    const t = eventElement(e);
     if (
       t?.closest(
         "button, input, a, select, textarea, option, .field, .volpop, .agentbubble, .agentopt",
