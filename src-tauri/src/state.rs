@@ -149,10 +149,43 @@ pub struct PersistedState {
     /// Parent todo ids with nested subtasks expanded on Launchpad.
     #[serde(default)]
     pub open_subtask_ids: Vec<String>,
+    /// Unbound-todo trees on planets. Additive.
+    #[serde(default)]
+    pub todo_trees: Vec<TodoTree>,
+    /// Days to full canopy when the todo has no due. Default 14.
+    #[serde(default = "tree_grow_days_default")]
+    pub tree_grow_days: f64,
 }
 
 fn needed_split_default() -> f64 {
     0.28
+}
+
+fn tree_grow_days_default() -> f64 {
+    14.0
+}
+
+/// One unbound-todo tree on a planet disc.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TodoTree {
+    pub card_id: String,
+    pub project_id: String,
+    pub x: f64,
+    pub y: f64,
+    pub planted_at: f64,
+}
+
+impl Default for TodoTree {
+    fn default() -> Self {
+        Self {
+            card_id: String::new(),
+            project_id: String::new(),
+            x: 0.0,
+            y: 0.1,
+            planted_at: 0.0,
+        }
+    }
 }
 
 /// The only labels that can be drawers. The rail
@@ -253,6 +286,8 @@ impl Default for PersistedState {
             spend_usd: 0.0,
             needed_split: 0.28,
             open_subtask_ids: Vec::new(),
+            todo_trees: Vec::new(),
+            tree_grow_days: 14.0,
         }
     }
 }

@@ -220,6 +220,18 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
             }
             return;
         }
+        if let Some(planet) = h.planets.get(&pid) {
+            if let Some(card_id) = super::todo_tree::hit(planet, local) {
+                let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+                h.drag = Some(Drag::TodoTree {
+                    project_id: pid,
+                    card_id,
+                    start: mouse,
+                    moved: 0.0,
+                });
+                return;
+            }
+        }
         // WORLD-TOUCH leftover (town usable): the billboard is a BOARD —
         // all three tick columns eat the mouse, never a panel-drag start
         // from the sign. Done keeps today's complete door

@@ -83,7 +83,9 @@ pub(crate) fn save_with_events(
     before: &PersistedState,
     after: &PersistedState,
 ) -> Result<(), String> {
-    crate::state::save_state(app, after)?;
+    let mut next = after.clone();
+    crate::todo_trees::reconcile(&mut next);
+    crate::state::save_state(app, &next)?;
     event_log::diff_claims(app, &before.claims, &after.claims);
     let _ = app.emit("state:changed", ());
     Ok(())

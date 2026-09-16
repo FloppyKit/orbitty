@@ -65,6 +65,7 @@ mod input;
 mod draw;
 mod boombox_hud;
 mod droid;
+mod todo_tree;
 
 pub use tick::{persist_now, start};
 
@@ -813,7 +814,7 @@ struct DecorPoint {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-enum Projection {
+pub(crate) enum Projection {
     Flat,
     Oblique,
 }
@@ -1132,6 +1133,11 @@ pub(crate) struct Planet {
     /// titles), mirrored from the snapshot. Drawn as the three-column
     /// board blit; marbles never draw it.
     board_cards: Vec<crate::habitat::BoardCardTick>,
+    /// Unbound-todo trees (not WORLD-YARD Place-plant).
+    todo_trees: Vec<crate::habitat::TodoTreeTick>,
+    todo_tree_frames: Vec<(String, NSRect)>,
+    tree_grow_days: f64,
+    tree_chores: Vec<todo_tree::TreeChore>,
 }
 
 /// Any Planet drop (stale teardown, marble-budget cap, map clear) ends its
@@ -1169,6 +1175,12 @@ enum Drag {
     /// remembered volume. No click/drag question on release.
     BoomboxSlider {
         project_id: String,
+    },
+    TodoTree {
+        project_id: String,
+        card_id: String,
+        start: NSPoint,
+        moved: f64,
     },
 }
 
@@ -2899,6 +2911,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         collapsed,
         entries,
         board_cards,
+        todo_trees,
     } in &snapshot.planets
     {
         // Effective collapse: the snapshot's flag, or a cap-3 victim this
@@ -2998,6 +3011,10 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             // so this dirties the view on its own (pose-only path too).
             let board_changed = planet.board_cards != *board_cards;
             planet.board_cards = board_cards.clone();
+            planet.tree_grow_days = snapshot.tree_grow_days;
+            todo_tree::sync_chores(planet, project_id, todo_trees);
+            planet.todo_trees = todo_trees.clone();
+            todo_tree::layout(planet);
             let want_proj = locked_projection(collapsed_eff);
             let proj_changed = planet.projection != want_proj;
             planet.projection = want_proj;
@@ -3186,8 +3203,13 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 walker_entries: walker_entries.iter().map(|e| (*e).clone()).collect(),
                 dot_entries: dot_entries.iter().map(|e| (*e).clone()).collect(),
                 board_cards: board_cards.clone(),
+                todo_trees: todo_trees.clone(),
+                todo_tree_frames: Vec::new(),
+                tree_grow_days: snapshot.tree_grow_days,
+                tree_chores: Vec::new(),
             };
             layout_beings(&mut planet);
+            todo_tree::layout(&mut planet);
             let Some(cls) = world_view_class() else {
                 // Class registration failed — skip this planet and leave the
                 // rail (list/focus/stow) fully usable.

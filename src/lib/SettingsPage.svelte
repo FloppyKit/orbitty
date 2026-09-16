@@ -91,6 +91,8 @@
   let spendCapUsd = $state(20);
   let spendCapEnabled = $state(true);
   let runnerCap = $state(2);
+  let treeGrowDays = $state(14);
+  let treeGrowDays = $state(14);
 
   let packs = $state<PackInfo[]>([]);
   let packsDir = $state("");
@@ -136,6 +138,8 @@
       spendCapEnabled = s.spendCapEnabled ?? true;
       const rc = Number(s.runnerCap ?? 2);
       runnerCap = Math.min(4, Math.max(1, Number.isFinite(rc) ? rc : 2));
+      const gd = Number(s.treeGrowDays ?? 14);
+      treeGrowDays = Number.isFinite(gd) && gd > 0 ? gd : 14;
     } catch {
       themeId = osThemeId();
     }
@@ -169,6 +173,7 @@
       s.spendCapUsd = spendCapUsd;
       s.spendCapEnabled = spendCapEnabled;
       s.runnerCap = runnerCap;
+      s.treeGrowDays = treeGrowDays;
       await invoke("save_state", { state: s });
     } catch {
       /* next mutation retries */
@@ -634,6 +639,23 @@
             }}
           />
           <span class="opacity-val">{runnerCap} / 4</span>
+        </div>
+        <div class="opacity-row">
+          <label for="tree-grow">Todo tree (days to full)</label>
+          <input
+            id="tree-grow"
+            type="number"
+            min="1"
+            max="365"
+            step="1"
+            bind:value={treeGrowDays}
+            onchange={() => {
+              const n = Number(treeGrowDays);
+              treeGrowDays = Number.isFinite(n) && n > 0 ? n : 14;
+              persistSettings();
+            }}
+          />
+          <span class="opacity-val">{treeGrowDays}d</span>
         </div>
         <p class="help">
           Default $20/day and 2 runners (hard 4). Needed is the gate — no toast.

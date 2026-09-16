@@ -169,6 +169,8 @@
   let agentRuns = $state<AgentRun[]>([]);
   let neededSplit = $state(0.28);
   let openSubtaskIds = $state<string[]>([]);
+  let todoTrees = $state<import("./persist").TodoTree[]>([]);
+  let treeGrowDays = $state(14);
 
   // Companion slice, round-tripped opaquely (the
   // companion window and the native side own the contents).
@@ -691,6 +693,8 @@
       agentRuns,
       neededSplit: neededSplit,
       openSubtaskIds,
+      todoTrees,
+      treeGrowDays,
       companion: companionState,
       stars: starsState,
       sky: skyState,
@@ -863,6 +867,19 @@
       name: p.name,
       collapsed: isCollapsed(p.id),
       boardCards: boardCardsFor(p),
+      todoTrees: todoTrees
+        .filter((t) => t.projectId === p.id)
+        .map((t) => {
+          const card = kanbanCards.find((k) => k.id === t.cardId);
+          return {
+            cardId: t.cardId,
+            x: t.x,
+            y: t.y,
+            plantedAt: t.plantedAt,
+            dueAt: card?.dueAt ?? null,
+            status: card?.status ?? "todo",
+          };
+        }),
       entries: [
         ...rows.map((w) => habitatEntryFor(w, p)),
         ...agentEntriesFor(p),
@@ -878,6 +895,7 @@
       spriteScale,
       marbleDrift,
       allPlanets: projects.map((p) => ({ projectId: p.id, name: p.name })),
+      treeGrowDays,
     };
   }
 
@@ -920,6 +938,7 @@
         p.projectId,
         p.collapsed,
         p.boardCards,
+        p.todoTrees,
         p.entries.map((e) => [
           e.id,
           e.minimized,
@@ -2146,6 +2165,8 @@
   let unlistenBoardTodo: (() => void) | undefined;
   let unlistenCheckin: (() => void) | undefined;
   let unlistenState: (() => void) | undefined;
+  let unlistenTreeMove: (() => void) | undefined;
+  let unlistenTreeGone: (() => void) | undefined;
 
   // Walker right-click menu pick. `kind` = import
   // first ("image" / "folder"); `packId` = direct pick (null = Generated).
@@ -2219,6 +2240,8 @@
       agentRuns = s.agentRuns ?? [];
       neededSplit = s.neededSplit ?? 0.28;
       openSubtaskIds = s.openSubtaskIds ?? [];
+      todoTrees = s.todoTrees ?? [];
+      treeGrowDays = s.treeGrowDays ?? 14;
       companionState = s.companion ?? companionState;
       starsState = s.stars ?? { promptsOptIn: false, checkins: {} };
       skyState = s.sky ?? { muted: [] };
@@ -2269,6 +2292,23 @@
           return;
         }
         setSpritePack(entryId, packId ?? null);
+      },
+    );
+    unlistenTreeMove = await listen<{ cardId: string; x: number; y: number }>(
+      "habitat:todo-tree-move",
+      (e) => {
+        const { cardId, x, y } = e.payload;
+        todoTrees = todoTrees.map((t) =>
+          t.cardId === cardId ? { ...t, x, y } : t,
+        );
+        persist();
+      },
+    );
+    unlistenTreeGone = await listen<{ cardId: string }>(
+      "habitat:todo-tree-gone",
+      (e) => {
+        todoTrees = todoTrees.filter((t) => t.cardId !== e.payload.cardId);
+        persist();
       },
     );
     // Walker Assign-to-planet IS the rail claim —
@@ -2381,6 +2421,8 @@
       try {
         const s = await invoke<PersistedState>("load_state");
         kanbanCards = s.kanbanCards ?? [];
+        todoTrees = s.todoTrees ?? [];
+        treeGrowDays = s.treeGrowDays ?? 14;
         pointsLedger = s.pointsLedger ?? [];
         // The native attach door's mints/dones
         // land here; the rail round-trips the slice so persist() never
@@ -2472,6 +2514,8 @@
     unlistenBoardTodo?.();
     unlistenCheckin?.();
     unlistenState?.();
+    unlistenTreeMove?.();
+    unlistenTreeGone?.();
     osMedia.removeEventListener("change", onOsThemeChange);
   });
 </script>

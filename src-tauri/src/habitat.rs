@@ -86,6 +86,9 @@ pub struct HabitatPlanet {
     /// first, then recent done.
     #[serde(default)]
     pub board_cards: Vec<BoardCardTick>,
+    /// Unbound-todo trees on this disc. Ids + disc coords only.
+    #[serde(default)]
+    pub todo_trees: Vec<TodoTreeTick>,
 }
 
 /// One board tick — a card's id (hashed for the
@@ -99,6 +102,20 @@ pub struct BoardCardTick {
     /// "doing" until that walker touches the board (WalkOff + via_board).
     #[serde(default)]
     pub window_id: Option<String>,
+}
+
+/// One unbound-todo tree for the native painter.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoTreeTick {
+    pub card_id: String,
+    pub x: f64,
+    pub y: f64,
+    pub planted_at: f64,
+    #[serde(default)]
+    pub due_at: Option<f64>,
+    #[serde(default)]
+    pub status: String,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -116,6 +133,13 @@ pub struct HabitatSnapshot {
     /// submenu can list destinations that currently have no walkers.
     #[serde(default)]
     pub all_planets: Vec<HabitatPlanetName>,
+    /// Settings: days to a full tree when the todo has no due. Default 14.
+    #[serde(default = "default_tree_grow_days")]
+    pub tree_grow_days: f64,
+}
+
+fn default_tree_grow_days() -> f64 {
+    14.0
 }
 
 #[derive(Deserialize, Clone, Debug)]

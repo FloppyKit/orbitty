@@ -377,6 +377,12 @@ fn drag_tick() {
                 Drag::BoomboxSlider { project_id } => {
                     (project_id.clone(), 0.0, 4u8, String::new())
                 }
+                Drag::TodoTree {
+                    project_id,
+                    card_id,
+                    moved,
+                    ..
+                } => (project_id.clone(), *moved, 5u8, card_id.clone()),
             };
             h.drag = None;
             // GO-ORBITTY-MARBLE-HOST: drift paused while this drag held
@@ -430,6 +436,13 @@ fn drag_tick() {
             } else if kind == 4 {
                 // HUD slider: the value was applied live during the
                 // stroke; set_volume's worlds_dirty persists at 10Hz.
+            } else if kind == 5 {
+                if let Some(planet) = h.planets.get(&project_id) {
+                    if let Some(t) = planet.todo_trees.iter().find(|t| t.card_id == entry_id)
+                    {
+                        super::todo_tree::emit_moved(&entry_id, t.x, t.y);
+                    }
+                }
             } else if moved >= 4.0 {
                 // kind == 2 (walker): a real drag, not a click — the
                 // pending click dies. PROPS leftover (town usable): the
@@ -608,6 +621,34 @@ fn drag_tick() {
                         r.ty = y;
                     }
                     layout_beings(planet);
+                    let view = planet.view as *mut Object;
+                    let _: () = msg_send![view, setNeedsDisplay: true];
+                }
+            }
+            Some(Drag::TodoTree {
+                project_id,
+                card_id,
+                start,
+                moved,
+            }) => {
+                *moved = moved.max((mouse.x - start.x).hypot(mouse.y - start.y));
+                let pid = project_id.clone();
+                let cid = card_id.clone();
+                if let Some(planet) = h.planets.get_mut(&pid) {
+                    let panel = planet.panel as *mut Object;
+                    let frame: NSRect = msg_send![panel, frame];
+                    let local = NSPoint {
+                        x: mouse.x - frame.origin.x,
+                        y: frame.origin.y + frame.size.height - mouse.y,
+                    };
+                    let side = (planet.radius + VIEW_PADDING) * 2.0;
+                    let center = NSPoint { x: side / 2.0, y: side / 2.0 };
+                    let (x, y) = view_to_disc(center, planet.radius, planet.projection, local);
+                    if let Some(t) = planet.todo_trees.iter_mut().find(|t| t.card_id == cid) {
+                        t.x = x.clamp(-0.7, 0.7);
+                        t.y = y.clamp(-0.55, 0.55);
+                    }
+                    super::todo_tree::layout(planet);
                     let view = planet.view as *mut Object;
                     let _: () = msg_send![view, setNeedsDisplay: true];
                 }
@@ -859,6 +900,13 @@ fn anim_tick() {
             // Done card still walks a sleeper off: the complete ritual
             // closes the window, and the walk-off narrates the eviction.
             if asleep && pose != Pose::WalkOff {
+                continue;
+            }
+            if planet
+                .tree_chores
+                .iter()
+                .any(|c| c.walker_id == *id)
+            {
                 continue;
             }
             match pose {
@@ -1224,6 +1272,9 @@ fn anim_tick() {
         // amble moves every tick (layout reruns there, law 4); the
         // ball-on dart moves only between dwells. A move implies a
         // display refresh.
+        if super::todo_tree::tick(planet, dt, pid) {
+            moved = true;
+        }
         if moved {
             layout_beings(planet);
             dirty = true;

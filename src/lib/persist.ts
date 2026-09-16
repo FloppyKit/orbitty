@@ -23,6 +23,14 @@ export interface Project {
   name: string;
 }
 
+export interface TodoTree {
+  cardId: string;
+  projectId: string;
+  x: number;
+  y: number;
+  plantedAt: number;
+}
+
 export interface CharLook {
   body: number;
   clothes: number;
@@ -314,6 +322,10 @@ export interface PersistedState {
   neededSplit?: number;
   // Parent todo ids whose nested subtasks are expanded.
   openSubtaskIds?: string[];
+  // Unbound-todo trees on planets. Additive.
+  todoTrees?: TodoTree[];
+  // Days to full canopy when the todo has no due. Default 14.
+  treeGrowDays?: number;
   companion: CompanionSlice;
   stars: StarsSlice;
   sky: SkySlice;

@@ -429,6 +429,8 @@ struct DrawData {
     /// GO-ORBITTY-BOOMBOX leftover (click): the open boombox HUD —
     /// geometry + live slider/mute state. None = closed.
     hud: Option<boombox_hud::HudDraw>,
+    todo_trees: Vec<crate::habitat::TodoTreeTick>,
+    tree_grow_days: f64,
 }
 
 pub(crate) extern "C" fn draw_rect(this: &Object, _cmd: Sel, _dirty: NSRect) {
@@ -676,6 +678,8 @@ fn draw_rect_guarded(this: &Object) {
                     }
                 }),
                 hud,
+                todo_trees: p.todo_trees.clone(),
+                tree_grow_days: p.tree_grow_days,
             }
         })
     };
@@ -884,6 +888,15 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
                 }
             }
         }
+    }
+    if !d.is_marble {
+        super::todo_tree::paint_ticks(
+            &d.todo_trees,
+            d.radius,
+            d.projection,
+            d.tree_grow_days,
+            now_epoch(),
+        );
     }
 
     let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];

@@ -33,6 +33,7 @@ mod nextcard;
 mod panes;
 mod habitat;
 mod herdr;
+mod todo_trees;
 mod packs;
 mod rail_toggle;
 #[cfg(unix)]
@@ -522,6 +523,7 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
     }
     #[cfg(unix)]
     crate::agent_runs::reconcile_incoming(&mut state);
+    crate::todo_trees::reconcile(&mut state);
     state::save_state(&app, &state)?;
     if let Some(before) = before.as_ref() {
         event_log::diff_claims(&app, &before.claims, &state.claims);
