@@ -1,16 +1,4 @@
-//! Orbitty walkers — the Season 1 bitty crew (lock: ORBITTY_BITTY_CREW_v0).
-//!
-//! Default planet walkers are the blessed Season 1 bitty crew:
-//! `brand/bitty-crew/packs/orbitty-bitty-<kind>[-<palette>]` — 11 kinds,
-//! each a default sheet plus 3 named recolors. Orbitty PLAYS those frames;
-//! it does not invent pixels. The glyph grid below (guy1 / cats.jpg) is
-//! kept only as the last-resort fallback when no pack art exists on disk,
-//! and for the legacy persist contract.
-//!
-//! Persist: pre-S1 claims carry only the legacy layer fields (species 0 =
-//! person, 1–8 = cats; body/clothes/eyes/mouth/hat/colors). Those map onto
-//! the nearest Kind+Palette (`resolve`); the first Being-editor touch
-//! materializes `kind`/`palette` onto the claim. Old saves load unchanged.
+//! Bitty-crew walkers. Glyph grid is last-resort fallback only.
 
 use serde::{Deserialize, Serialize};
 

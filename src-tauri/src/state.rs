@@ -341,35 +341,7 @@ pub struct StarsCheckin {
     pub self_: u8,
 }
 
-/// Companion slice. Bounds are physical pixels
-/// (written by the native move/resize/hide handlers, restored on show).
-/// `image_pack_id`: None = blessed spirit (default). Some ids (e.g.
-/// `companion-jacob`) are temp companion bodies in packs/ with
-/// `role: companion`. Never a planet walker.
-/// `visible` defaults TRUE: first run (no prior key) opens the companion
-/// with the app; after that the native hide/show handlers persist it.
-/// `last_user_line` is the composer's latest sent line (true CC —
-/// one caption row, not a transcript), written by `companion_send`.
-/// `last_bot_line` is the companion backend reply;
-/// `agent_profile` is the companion soul label — Berd agent stem under
-/// `~/.agents/agents` (default backend) or Hermes profile when
-/// `ORBITTY_COMPANION_BACKEND=hermes` ("" = unset → grok when present);
-/// `expanded` persists the transcript view; `turns` is the capped
-/// transcript (last 40) the expanded view scrolls.
-/// `speak_replies` (default false) — read bot replies aloud via
-/// macOS `say`.
-/// `view_collapsed` / `view_expanded` are
-/// the per-surface Full/Head prefs ("full" | "head") — collapsed defaults
-/// "full", expanded defaults "head". Two keys, never one global bool;
-/// writing one surface never touches the other. Head draws the pack's
-/// bust_* set; a missing bust sits on full (no 128px crop fallback).
-/// `sprite` (default true) hides the sprite art on
-/// every surface while chat stays; the Full/Head prefs survive Off
-/// untouched, so turning the sprite back on restores each surface's view.
-/// `mode` ("spark" default | "chat" | "work" |
-/// "hold") + `threads` (mode → capped transcript). `turns` remains the
-/// ACTIVE thread; serde defaults load old saves, `heal_modes` parks a
-/// pre-split transcript under spark.
+/// Companion persist slice. Additive keys; old saves load.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CompanionState {

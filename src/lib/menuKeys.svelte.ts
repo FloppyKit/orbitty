@@ -1,29 +1,8 @@
 import { untrack } from "svelte";
 import "./menuKeys.css";
 
-// The ONE focus ring for the hosted well.
-// Pad grammar lock (ORBITTY_PAD_GRAMMAR_LOCK_v0) mimicked on the
-// keyboard: arrows = D-pad (move the highlight), Enter = A (open /
-// select), Esc = B (close the innermost menu, then the well — the well
-// half lives in CompanionPage's bubble Esc, which this capture handler
-// never eats unless the page claimed it first). Menus only: Launchpad
-// Needed/todo pile, STARS spokes/switcher, Planets pop. Never habitat
-// walkers. KANBAN-GRAB rides this same ring: Shift+Enter = X (grab the
-// focused Todo) is the ONE chord the ring owns — the handleKey carve-out
-// below. A real gamepad points at these verbs.
-// KANBAN-GRAB leftover (arrows in charge): surfaces. Enter (pad A) can
-// descend into a nested surface (the card drawer); Esc (pad B) backs one
-// level. pushSurface suspends the current stops/highlight/onEscape and
-// popSurface restores them, so a mouse click or a backed-out surface
-// never parks the ring into page scroll.
-//
-// Hold-repeat is the OS key repeat: every keydown is handled, e.repeat
-// included, so a held arrow walks at the native delay/rate.
-//
-// One live ring at a time: the TILE-YAW dest swap mounts the outgoing
-// and incoming faces together for ~400ms — the last attach() wins and
-// the outgoing instance's handler goes inert (its detach never clears
-// a successor).
+// Hosted-well focus ring. Arrows move, Enter opens, Esc backs.
+// Shift+Enter grabs a Todo. One live ring; last attach() wins.
 
 export type RingDir = "left" | "right" | "up" | "down";
 

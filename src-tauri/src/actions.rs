@@ -1,16 +1,4 @@
-//! An action is a named shell recipe plus an
-//! optional key combo. Spark (or a human) writes rows through the control
-//! plane (`orbittyctl action add`); the face is the Settings list, not a
-//! Launchpad well. SoT stays whole-object `state.json`.
-//!
-//! Combos ride the same `tauri_plugin_global_shortcut` as the ⌘⇧O summon.
-//! Registrations re-sync on load and on every persist of
-//! `actionShortcuts` (the `save_state` command and the `action.*` control
-//! tools all call `sync_combos`). Reserved chords (⌘⇧O summon, ⌘Space
-//! Spotlight, the ⌘⌥1/2/3 + ⌘⌥←/→ tile chords) are refused; an
-//! OS/other-app collision skips registration
-//! and marks the row `conflict` in the list — never a crash. Empty combo
-//! = Spirit-only (chat intercept or a Settings name click).
+//! Named shell recipes plus optional combos. Reserved chords refused.
 
 use serde_json::{json, Value};
 use std::collections::BTreeMap;

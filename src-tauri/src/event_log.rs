@@ -1,16 +1,4 @@
-//! One append-only Nostr-shaped log on disk.
-//! Relay is not in the write path: `sig` and `pubkey` stay empty, `id` is
-//! uuid-v4 hex (real Nostr id hashing waits for keys). Runtime events are
-//! kind 31200 with the type in the `e-type` tag — EXCEPT board column
-//! proofs: todo/doing/done are kinds
-//! 420/421/422 with `t=orbitty`, the original map. NCH compute keeps the
-//! same three numbers under `t=nch` — the two chains never merge. `t` is
-//! `local-only` (default) or `publishable` — nothing is publishable yet.
-//!
-//! Path: `app_data/events.jsonl` (same dir as state.json / control.sock),
-//! mode 0600 on create. Append-only: never rewrite, never delete a line.
-//! A write failure is logged to stderr once per process and swallowed —
-//! the log never fails the user action that produced the event.
+//! Append-only events.jsonl. A log failure never fails the user action.
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};

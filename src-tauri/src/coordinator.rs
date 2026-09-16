@@ -1,15 +1,4 @@
-//! Coordinator + soul.md.
-//!
-//! Orbitty launches/focuses an EXISTING Hermes (app or CLI) and hands it
-//! a titles-only context file. No model, no agent loop inside the sprite
-//! engine — this module never embeds an LLM.
-//!
-//! Context: `app_data/context/{projectId}.md` — overwritten on each launch;
-//! project name + claimed window titles + open to-do titles only (no file
-//! contents, no PHI).
-//! Soul:    `app_data/souls/{projectId}/soul.md` — read always; the ONLY
-//! writers are the explicit Save button (`save_soul`) or the human in
-//! $EDITOR ("Open in editor"). Never auto-summarized from window titles.
+//! Coordinator + soul.md. Titles-only context. No LLM in this module.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

@@ -1,18 +1,4 @@
-//! S4.4 glass — make the webview windows actually show the desktop through.
-//!
-//! tao/wry already aim at transparency (NSWindow opaque=false + clear color,
-//! drawsBackground=NO on the WKWebViewConfiguration), but the observed
-//! white/grey wash says some link in that chain doesn't stick on Tahoe, so
-//! this module does the surgery explicitly on the live objects:
-//!   NSWindow.isOpaque = false, backgroundColor = clear
-//!   WKWebView drawsBackground = NO (private KVC) + underPageBackgroundColor = clear
-//! Applied at setup and re-applied on every `ensure_glass` invoke (the
-//! frontend calls it on mount, after the page is up). No-op off macOS.
-//!
-//! The transparency surgery runs on drawers too.
-//! The SPA hydrates now, so the PAINT-era opaque slab (ensure_opaque +
-//! under-page paint) is retired — the CSS --bg-fill alpha (Settings
-//! slider) owns the fill on every pane, same as the rail.
+//! Force window/webview clear so CSS --bg-fill alpha is the fill.
 
 #[cfg(target_os = "macos")]
 mod imp {

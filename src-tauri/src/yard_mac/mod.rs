@@ -1,30 +1,5 @@
 //! Unclaimed windows as session-only cats. One panel per display.
-//! Never persist. Never steal a claimed walker.
-//!
-//! Hits (leftover: hits — cats match the walkers' locate-then-open
-//! split): single click says the cat's app name only (~2s chip above
-//! the sprite, never a focus/restore/open); click-hold drags the cat
-//! SPRITE (≥4px slop, same as walkers — a real drag is not a click);
-//! a drop in the top fifth of THAT screen rains the cat back to the
-//! bottom of that display (the existing rain gait — a visible fall,
-//! never a teleport), any other drop leaves it where it was let go;
-//! double-click focuses/restores the window (the existing AX path);
-//! right-click opens the cat menu — Assign to planet (emits
-//! `yard:assign`; the rail's claim() is the one claim writer), Close
-//! window (AX close press, never a pid kill), Scoop this cat (hidden, the
-//! window stays). The hit machine lives in input.rs (module law); the
-//! hop's release catch and mouseUp run the SAME verdict, first taker
-//! wins — a sub-slop release is a click, never a silent drop.
-//! Esc (global monitor for other apps key, local monitor
-//! for Orbitty key), ⌘⇧Y, and the Settings row while on all scoop all.
-//! Last cat gone = overlay gone, mode off. Drop on an already-on yard is
-//! a no-op (never double-spawn).
-//!
-//! Threading mirrors the habitat: ONE worker thread (33ms) does the
-//! off-main work (AX window poll + state.json read) and POSTS a coalesced
-//! hop to the main queue; every AppKit / AVAudioPlayer touch happens on
-//! the main thread inside the hop. Raw ObjC pointers are usize inside the
-//! mutex and only dereferenced on the main thread.
+//! Never persist. Never steal a claimed walker. Hits live in input.rs.
 
 // objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
 // rustc flags; harmless upstream noise (same allowance as habitat_mac).

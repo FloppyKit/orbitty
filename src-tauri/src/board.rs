@@ -1,19 +1,4 @@
-//! Board write helpers for the control-plane write
-//! tools (`kanban.add` / `kanban.move` / `kanban.notes` / `needed.open`).
-//! `kanban.add` takes an optional `notes` (the board
-//! row's one-line summary), `kanban.notes` sets/clears it on an existing
-//! card, and `backfill_go_card_notes` (startup) pre-fills the locked
-//! one-liners on exact-token GO-ORBITTY-* todos whose notes are empty.
-//! One mutate path:
-//! `load_state` → change cards → `save_state` through the SAME door the
-//! Tauri `save_state` command uses (disk-before claim diff + `state:changed`
-//! emit), so Launchpad / STARS / planets live-update on an agent write
-//! exactly as on a UI write. No claim/unclaim tools here: a done-move keeps
-//! the claim so the walk-off still narrates (the rail's habitat:walked-off
-//! handler unclaims, same as the checkbox).
-//! The planet control plane (`project.add` /
-//! `project.rm` / `project.rename`) — same one save door; habitat paints
-//! whatever `projects[]` holds, no tick/draw changes here.
+//! Board write helpers. One save door, same as the UI.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Emitter;

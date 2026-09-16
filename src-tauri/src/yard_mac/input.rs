@@ -1,30 +1,5 @@
-//! Yard hits — the cat hit
-//! machine: press / drag / click / double-click on the overlay's only
-//! hot pixels. Cats match the walkers' locate-then-open split:
-//!
-//! - Single click says the cat's APP NAME only — a ~2s chip above the
-//!   sprite (the walker locate stroke's yard form). Never a focus,
-//!   never a restore, never an open.
-//! - Click-hold drags the cat SPRITE (≥4px slop, same as walkers — a
-//!   real drag is not a click), never the underlying window.
-//! - A drop in the top fifth of THAT screen (the panel the cat is on,
-//!   never the global desktop union) rains the cat back to the bottom
-//!   of that display — the existing rain gait, a visible fall from the
-//!   drop point, land, then amble. Any other drop leaves the cat where
-//!   it was let go; the stroll resumes from there.
-//! - Double-click is the open/focus/restore AX path (today's old
-//!   left-click act, moved behind clickCount).
-//!
-//! Right-click (the claim menu) stays in mod.rs. Release is watched two
-//! ways, same as the habitat: mouseUp on the view, and press_tick's
-//! pressedMouseButtons poll from the 33ms hop. FIRST TAKER WINS (the
-//! press is take()n) and both takers run the SAME verdict — a sub-slop
-//! release is a CLICK, never a drop. The hop can beat the up event when
-//! the main thread is busy (the fullscreen blits are the load); eating
-//! a click as a drop there is what bounced the click leftover. The
-//! press anchors its slop and clickCount from the DOWN EVENT ITSELF,
-//! never a fresh mouseLocation at dispatch time: a late-dispatched
-//! down must still measure the drag from where the finger landed.
+//! Cat hits: click names the app, hold drags the sprite, double opens.
+//! First taker wins. Sub-slop release is a click, never a drop.
 
 #![allow(unexpected_cfgs)]
 

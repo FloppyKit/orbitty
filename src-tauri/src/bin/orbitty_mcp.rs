@@ -1,22 +1,4 @@
-//! orbitty-mcp — thin stdio adapter.
-//!
-//! Speaks MCP JSON-RPC 2.0 on stdin/stdout (newline JSON for Goose/rmcp;
-//! Content-Length still accepted for the Pixel smoke test).
-//! Forwards tools/call to the Orbitty Unix control socket using the
-//! same newline-JSON protocol as orbittyctl. Never links Tauri, never
-//! opens a WebView, never binds TCP, never writes goose config.
-//!
-//! Lists the four write tools (kanban.add /
-//! kanban.move / needed.open / log.append) alongside the v0 read/open
-//! surface — same one Unix round-trip per tools/call, same control.json
-//! ACL (writes: full / named custom only).
-//! kanban.notes (set/clear the board-row
-//! summary) and the optional `notes` arg on kanban.add — same write ACL.
-//! The planet control plane (project.add /
-//! project.rm / project.rename) next to the kanban writes — same ACL.
-//! The agent roster (agent.list / agent.add /
-//! agent.rm / agent.pin / agent.pickup) plus kanban.assign — agent.list is
-//! read-safe, the rest are writes (full / named custom only).
+//! orbitty-mcp — stdio adapter to the local control socket. No TCP.
 
 #[cfg(unix)]
 mod imp {

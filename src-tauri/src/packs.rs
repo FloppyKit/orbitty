@@ -1,18 +1,4 @@
-//! User sprite packs: local folder/zip/image
-//! import, pack listing for the Gear → Packs UI, and frame sources for the
-//! habitat. Law: LIVESPRITE_SPRITE_PACKS_LOCK_v0.md — missing/unclear
-//! license warns but never blocks, user packs stay on the user's machine.
-//! The website-download path (itch/Kenney directory) is
-//! gone — a sprite exists by generation (chars.rs) or by local import,
-//! never by fetching from a website.
-//!
-//! Layout:
-//! ```text
-//! packs/<slug>/
-//!   manifest.json   optional { name, license, frames?: ["a.png"],
-//!                              sheet?: {file, frameW, frameH, count} }
-//!   *.png
-//! ```
+//! Local sprite packs only. Never fetch from a website.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

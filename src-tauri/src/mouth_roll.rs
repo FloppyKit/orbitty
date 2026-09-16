@@ -1,17 +1,5 @@
-//! The companion mouth never tuckers.
-//!
-//! The bubble is ONE continuous thread (tmux); a backend session may still
-//! die (context-dead / session-dead / empty-after-resume). When it does,
-//! the mouth ROLLS OVER: a fresh session id lands in plug.json and the
-//! first prompt on the new session is a handoff block — the last ~6 turns
-//! of the one companion transcript plus the pocket/desk-wrapped user
-//! line. The reply still appends to the same `turns`; the handoff is
-//! never persisted as a you-row and `companion.turns` is never wiped.
-//!
-//! Grok: `--fork-session` (resume the old id, name the fork) when the old
-//! session may still exist, else a fresh `-s` UUID. Goose: a new `--name`
-//! session, the real id re-captured from `goose session list`. The
-//! 180s/300s guards stay PER-SEND timeouts — never a `--max-turns` cap.
+//! Session roll: new backend session, same bubble. Never wipe turns.
+//! Timeouts are per-send, never a max-turns cap.
 
 use std::path::Path;
 
