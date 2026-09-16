@@ -359,6 +359,21 @@ fn toggle_cheatsheet(app: tauri::AppHandle) -> Result<(), String> {
     panes::toggle_cheatsheet(app)
 }
 
+#[tauri::command]
+fn agent_pickup(
+    app: tauri::AppHandle,
+    id: Option<String>,
+    name: Option<String>,
+    card_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    agents::agent_pickup(
+        &app,
+        id.as_deref(),
+        name.as_deref(),
+        card_id.as_deref(),
+    )
+}
+
 /// Run `f` on the main thread and BLOCK until it finishes. Inline when
 /// already on the main thread (dispatch_sync of the main queue from the
 /// main thread deadlocks). A panic inside `f` is swallowed — a native
@@ -594,6 +609,7 @@ pub fn run() {
             set_planets_hidden,
             needed_answer,
             needed_rule_add,
+            agent_pickup,
             bring_all_front,
             bring_planet_front,
             ensure_glass,

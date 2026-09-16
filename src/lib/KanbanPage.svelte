@@ -115,26 +115,7 @@
 
   let detailId = $state<string | null>(null);
 
-  // The Launchpad ring — Needed pile, the planet
-  // strip (a row: left/right walk it), then the board piles
-  // column-major. Up/down walk the pile, left/right hop the highlight
-  // to the same row in the next non-empty column (wraps); Enter selects
-  // a Needed row (the composer answers it), selects a list tab, or
-  // descends into a card's detail drawer. Esc backs one surface, then
-  // the well (CompanionPage's bubble Esc). Embedded only — the overlay
-  // Lists window keeps its mouse habits.
-  // Shift+Enter (pad X) grabs the focused card —
-  // it paints held at the grab cursor while arrows move it (left/right =
-  // column, clamped at the ends, empty columns legal; up/down = row in
-  // the column). Enter (pad A) drops through moveCard — the ONE save
-  // door a mouse drag takes, so doing-fire still owns a GO-* todo →
-  // doing. Esc (pad B) lets go: nothing ever mutated, the card is still
-  // in its pre-grab column.
-  // GRAB leftover (arrows in charge): the ring never parks. The drawer
-  // is a pushed SURFACE on this one ring — not an empty stops list — so
-  // after any mouse click (a card, a column, well chrome) arrows keep
-  // walking the current surface's selectables instead of falling back
-  // to page scroll, and Esc pops back to the board with its highlight.
+  // Launchpad ring: arrows walk, Enter opens, Esc backs, Shift+Enter grabs.
   const menuRing = new MenuRing();
   let neededSelectedId = $state<string | null>(null);
   // LP-SPLIT: the Needed pane filters with the planet tab — Inbox and
@@ -1035,10 +1016,24 @@
     planetDdOpen = false;
   }
 
-  function toggleDoing(card: KanbanCard, e: MouseEvent) {
+  async function toggleDoing(card: KanbanCard, e: MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    moveCard(card, card.status === "doing" ? "todo" : "doing");
+    if (card.status === "doing") {
+      moveCard(card, "todo");
+      return;
+    }
+    const agentId = (card.assignedAgentId || "").trim();
+    if (agentId) {
+      try {
+        await invoke("agent_pickup", { id: agentId, cardId: card.id });
+        await loadState();
+        return;
+      } catch {
+        // Harness miss still parks the card so the walker can mint.
+      }
+    }
+    moveCard(card, "doing");
   }
 
   function skipNeededCard(card: KanbanCard) {

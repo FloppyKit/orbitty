@@ -45,7 +45,7 @@ commands:
             [--model M] [--md PATH]... [--extra TEXT] [--project P]
   agent rm --id <id>
   agent pin --id <id> --project P
-  agent pickup --id <id> | --name <name>
+  agent pickup --id <id> | --name <name> [--card <card>]
   project add --name N
   project rm --id <id>
   project rename --id <id> --name <new>
@@ -129,6 +129,7 @@ struct Opts {
     md: Vec<String>,
     extra: Option<String>,
     agent: Option<String>,
+    card: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
 }
@@ -158,6 +159,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         md: Vec::new(),
         extra: None,
         agent: None,
+        card: None,
         words: Vec::new(),
         tail: Vec::new(),
     };
@@ -208,6 +210,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--extra" => o.extra = Some(it.next().ok_or("--extra needs a value")?.clone()),
             // Kept as Some("") when passed empty — kanban assign unassigns.
             "--agent" => o.agent = Some(it.next().ok_or("--agent needs a value")?.clone()),
+            "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 exit(0);
@@ -479,13 +482,18 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             json!({ "id": need_id(o)?, "projectId": need_flag(&o.project, "--project")? }),
         )),
         ["agent", "pickup"] => {
+            let mut a = json!({});
             if let Some(id) = opt(&o.id) {
-                Ok(("agent.pickup", json!({ "id": id })))
+                a["id"] = json!(id);
             } else if let Some(n) = opt(&o.name) {
-                Ok(("agent.pickup", json!({ "name": n })))
+                a["name"] = json!(n);
             } else {
-                Err("missing --id <id> or --name <name>".to_string())
+                return Err("missing --id <id> or --name <name>".to_string());
             }
+            if let Some(c) = opt(&o.card) {
+                a["cardId"] = json!(c);
+            }
+            Ok(("agent.pickup", a))
         }
         // Planet control plane. need_flag trims and
         // refuses an empty --name; the server owns unknown-id errors.

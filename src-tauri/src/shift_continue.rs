@@ -64,7 +64,7 @@ pub fn on_agent_walked_off(app: &tauri::AppHandle, card_id: &str) {
         return;
     };
 
-    match crate::agents::agent_pickup(app, Some(&agent_id), None) {
+    match crate::agents::agent_pickup(app, Some(&agent_id), None, None) {
         Ok(v) if v.get("picked").and_then(|x| x.as_bool()) == Some(true) => {
             let next = v
                 .get("title")

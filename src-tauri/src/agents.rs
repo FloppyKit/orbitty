@@ -1,19 +1,5 @@
-//! Mint an agent row, pin it to a planet,
-//! assign Todos, pick up: the oldest assigned open Todo moves `doing` and
-//! the row's harness launches with the card title as the query. Orbitty
-//! never hosts the model — the harness CLI on PATH does the work
-//! (`coordinator::launch_agent` owns the doors).
-//!
-//! Harness is per row and required on add (cursor | goose | grok |
-//! hermes) — an unknown harness is an honest error, never a silent hermes.
-//! Session tweaks (`profile` / `model` / `mdPaths` / `extra`) live on the
-//! row; pickup's query file concatenates md paths + extra + the todo title
-//! (coordinator's write_agent_query). No Settings tab, no soul factory.
-//!
-//! ACL (control.rs): `agent.list` rides read; add / rm / pin / pickup and
-//! `kanban.assign` are writes — full / named custom only, never
-//! companion.*. `agent rm` drops the row; cards keep `assignedAgentId`
-//! (same law as project.rm keeping cards).
+//! Agent roster. Pickup moves one assigned todo to doing and launches
+//! that row's harness. Orbitty never hosts the model.
 
 use serde_json::{json, Value};
 
@@ -251,17 +237,14 @@ pub fn kanban_assign(app: &tauri::AppHandle, card_id: &str, agent: &str) -> Resu
     }))
 }
 
-/// `agent.pickup` — ONE card: the oldest `kind=todo` / `status=todo` with
-/// this agent's `assignedAgentId` (and the pinned planet, when the row has
-/// one). The card moves `doing` through the board's own door, then the
-/// row's harness launches with `titles = [card.title]`.
-/// EVERY harness lights the
-/// dock LED — `companion hack -- on --who <harness>` (+ the pinned planet
-/// for the menu glow) lands BEFORE the harness is up, the same door as
-/// cursor-go; the launcher owns off-on-exit (coordinator's doors), and a
-/// failed launch turns it back off here. No matching card = honest empty,
-/// no hack on, no spawn. Logs `agent-pickup`.
-pub fn agent_pickup(app: &tauri::AppHandle, id: Option<&str>, name: Option<&str>) -> Result<Value, String> {
+/// Pickup one assigned open todo and launch the row's harness.
+/// `card_id` = that card (Start). Absent = oldest assigned (ctl).
+pub fn agent_pickup(
+    app: &tauri::AppHandle,
+    id: Option<&str>,
+    name: Option<&str>,
+    card_id: Option<&str>,
+) -> Result<Value, String> {
     let before = crate::state::load_state(app)?;
     let agent = if let Some(id) = id {
         before
@@ -281,21 +264,38 @@ pub fn agent_pickup(app: &tauri::AppHandle, id: Option<&str>, name: Option<&str>
         .as_deref()
         .map(str::trim)
         .filter(|p| !p.is_empty());
-    let card = before
-        .kanban_cards
-        .iter()
-        .filter(|c| c.kind.as_deref() == Some("todo") && c.status == "todo")
-        .filter(|c| c.assigned_agent_id.as_deref() == Some(agent.id.as_str()))
-        .filter(|c| match pin {
-            Some(pid) => c.project_id == pid,
-            None => true,
-        })
-        .min_by(|a, b| {
-            a.created_at
-                .partial_cmp(&b.created_at)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .cloned();
+    let assigned = |c: &crate::state::KanbanCard| {
+        c.kind.as_deref() == Some("todo")
+            && c.status == "todo"
+            && c.assigned_agent_id.as_deref() == Some(agent.id.as_str())
+            && match pin {
+                Some(pid) => c.project_id == pid,
+                None => true,
+            }
+    };
+    let card = if let Some(cid) = card_id.map(str::trim).filter(|s| !s.is_empty()) {
+        let c = before
+            .kanban_cards
+            .iter()
+            .find(|c| c.id == cid)
+            .cloned()
+            .ok_or_else(|| format!("agent.pickup: unknown card {cid}"))?;
+        if !assigned(&c) {
+            return Err("agent.pickup: card is not an open todo assigned to this agent".into());
+        }
+        Some(c)
+    } else {
+        before
+            .kanban_cards
+            .iter()
+            .filter(|c| assigned(c))
+            .min_by(|a, b| {
+                a.created_at
+                    .partial_cmp(&b.created_at)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .cloned()
+    };
     let Some(card) = card else {
         return Ok(json!({
             "picked": false,

@@ -572,7 +572,8 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         "agent.pickup" => {
             let id = arg_opt(args, "id");
             let name = arg_opt(args, "name");
-            crate::agents::agent_pickup(app, id.as_deref(), name.as_deref())
+            let card = arg_opt(args, "cardId");
+            crate::agents::agent_pickup(app, id.as_deref(), name.as_deref(), card.as_deref())
                 .map(to_data)
                 .map_err(tool_err)
         }
