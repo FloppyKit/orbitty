@@ -82,6 +82,8 @@ const SIT: [&str; H] = [
 pub(crate) struct DroidAtlas {
     pub walk: [usize; 2],
     pub sit: usize,
+    pub sit_blocked: usize,
+    pub sit_needed: usize,
 }
 
 /// Seeded body hue — six droid colors, picked by the run's seed so two
@@ -102,13 +104,21 @@ fn shade(c: (f64, f64, f64), f: f64) -> (f64, f64, f64) {
     (c.0 * f, c.1 * f, c.2 * f)
 }
 
-fn glyph_color(ch: u8, body: (f64, f64, f64)) -> Option<(f64, f64, f64)> {
+fn antenna(glance: u8) -> (f64, f64, f64) {
+    match glance {
+        1 => (0.92, 0.22, 0.22), // blocked — red
+        2 => (0.90, 0.62, 0.24), // needs-you — ochre
+        _ => (0.95, 0.85, 0.35), // working — warm pip
+    }
+}
+
+fn glyph_color(ch: u8, body: (f64, f64, f64), glance: u8) -> Option<(f64, f64, f64)> {
     match ch {
-        b'a' => Some((0.95, 0.85, 0.35)), // antenna — fixed warm pip
-        b'h' => Some(shade(body, 1.25)),  // head — light
-        b'e' => Some((0.10, 0.12, 0.16)), // eyes — near-black
-        b'b' => Some(body),               // body
-        b'l' => Some(shade(body, 0.55)),  // legs — dark
+        b'a' => Some(antenna(glance)),
+        b'h' => Some(shade(body, 1.25)),
+        b'e' => Some((0.10, 0.12, 0.16)),
+        b'b' => Some(body),
+        b'l' => Some(shade(body, 0.55)),
         _ => None,
     }
 }
@@ -117,7 +127,7 @@ fn glyph_color(ch: u8, body: (f64, f64, f64)) -> Option<(f64, f64, f64)> {
 /// (row 0 = top, alpha only ever 0/255 so premultiplication is a
 /// non-question), wrapped at pixel size — the walker's blit path scales
 /// it nearest-neighbor like any pack frame.
-unsafe fn bake_frame(grid: &[&str; H], body: (f64, f64, f64)) -> *mut Object {
+unsafe fn bake_frame(grid: &[&str; H], body: (f64, f64, f64), glance: u8) -> *mut Object {
     let rep: *mut Object = msg_send![class!(NSBitmapImageRep), alloc];
     let rep: *mut Object = msg_send![rep,
         initWithBitmapDataPlanes: std::ptr::null_mut::<*mut u8>()
@@ -141,7 +151,7 @@ unsafe fn bake_frame(grid: &[&str; H], body: (f64, f64, f64)) -> *mut Object {
     std::ptr::write_bytes(data, 0, W * H * 4);
     for (row, line) in grid.iter().enumerate() {
         for (col, ch) in line.bytes().enumerate() {
-            let Some(c) = glyph_color(ch, body) else {
+            let Some(c) = glyph_color(ch, body, glance) else {
                 continue;
             };
             let o = (row * W + col) * 4;
@@ -172,16 +182,23 @@ pub(crate) fn ensure_baked(h: &mut Habitat, seed: u64) {
         return;
     }
     let body = body_color(seed);
-    let (walk_a, walk_b, sit) = unsafe {
+    let (walk_a, walk_b, sit, sit_blocked, sit_needed) = unsafe {
         (
-            bake_frame(&WALK_A, body),
-            bake_frame(&WALK_B, body),
-            bake_frame(&SIT, body),
+            bake_frame(&WALK_A, body, 0),
+            bake_frame(&WALK_B, body, 0),
+            bake_frame(&SIT, body, 0),
+            bake_frame(&SIT, body, 1),
+            bake_frame(&SIT, body, 2),
         )
     };
-    if walk_a.is_null() || walk_b.is_null() || sit.is_null() {
+    if walk_a.is_null()
+        || walk_b.is_null()
+        || sit.is_null()
+        || sit_blocked.is_null()
+        || sit_needed.is_null()
+    {
         unsafe {
-            for img in [walk_a, walk_b, sit] {
+            for img in [walk_a, walk_b, sit, sit_blocked, sit_needed] {
                 if !img.is_null() {
                     let _: () = msg_send![img as *mut Object, release];
                 }
@@ -194,6 +211,8 @@ pub(crate) fn ensure_baked(h: &mut Habitat, seed: u64) {
         DroidAtlas {
             walk: [walk_a as usize, walk_b as usize],
             sit: sit as usize,
+            sit_blocked: sit_blocked as usize,
+            sit_needed: sit_needed as usize,
         },
     );
 }
@@ -210,12 +229,17 @@ pub(crate) fn frame_ptr(
     cycling: bool,
     anim_frame: u64,
     walker_index: usize,
+    glance: u8,
 ) -> usize {
     let Some(atlas) = h.droids.get(&seed) else {
         return 0;
     };
     if pose == Pose::Sit {
-        return atlas.sit;
+        return match glance {
+            1 => atlas.sit_blocked,
+            2 => atlas.sit_needed,
+            _ => atlas.sit,
+        };
     }
     if cycling {
         return atlas.walk[((anim_frame / 2) as usize + walker_index) % 2];

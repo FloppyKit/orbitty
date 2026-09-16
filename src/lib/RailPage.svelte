@@ -829,15 +829,43 @@
   // on this planet must not steal a WORKING droid off the disc. Needed
   // wins over Doing for WINDOW walkers only (the CADENCE sit in
   // habitatEntryFor is unchanged). Blocked still sits; done still exits.
+  function runIsSeated(r: AgentRun): boolean {
+    return (
+      !!(r.agentShortcutId || "").trim() || !!(r.herdr?.agentName || "").trim()
+    );
+  }
+
+  function goToken(title: string): string | null {
+    const m = title.match(/GO-[A-Z0-9]+(?:-[A-Z0-9]+)*/i);
+    return m ? m[0].toUpperCase() : null;
+  }
+
+  function goNeededOnPlanet(card: KanbanCard | undefined, planetId: string): boolean {
+    if (!card) return false;
+    const go = goToken(card.title);
+    if (!go) return false;
+    return kanbanCards.some(
+      (c) =>
+        c.kind === "needed" &&
+        (c.neededState === "open" || c.neededState === "later") &&
+        (c.projectId || "") === planetId &&
+        ((c.title || "").toUpperCase().includes(go) ||
+          (c.neededWhy || "").toUpperCase().includes(go)),
+    );
+  }
+
   function agentEntriesFor(p: Project) {
     return agentRuns
       .filter(
         (r) =>
-          r.planetId === p.id && kanbanCards.some((k) => k.id === r.cardId),
+          r.planetId === p.id &&
+          kanbanCards.some((k) => k.id === r.cardId) &&
+          (runIsSeated(r) || r.state === "done"),
       )
       .map((r) => {
         const card = kanbanCards.find((k) => k.id === r.cardId);
         const agent = agentShortcuts.find((a) => a.id === r.agentShortcutId);
+        const needsYou = goNeededOnPlanet(card, p.id);
         return {
           id: `agent:${r.cardId}`,
           appName: agent?.name ?? "agent",
@@ -853,9 +881,10 @@
           spriteScale: 0,
           cardStatus: r.state === "done" ? "done" : "doing",
           cardKind: "todo",
-          // blocked sits the near rim; a working run reports no Needed,
-          // so the pose table's Needed-wins law never fires for it.
-          neededState: r.state === "blocked" ? "open" : "",
+          // GO-ORBITTY-DROID-GLANCE: blocked vs needs-you vs working.
+          // Window walkers still use open/later for planet Neededs.
+          neededState:
+            r.state === "blocked" ? "blocked" : needsYou ? "open" : "",
           agentSeed: `${r.planetId}:${r.cardId}`,
         };
       });

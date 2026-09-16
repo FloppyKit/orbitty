@@ -350,6 +350,22 @@ pub(crate) enum Pose {
 /// agent walker's needed_state is its own run's blocked signal — a
 /// working droid never reports a planet Needed, so it keeps the disc.
 fn pose_for(entry: &HabitatEntry) -> Pose {
+    let droid = !entry.agent_seed.is_empty();
+    if droid {
+        // GO-ORBITTY-DROID-GLANCE: sit blocked and needs-you; work
+        // while writing; walk off when the run is done. NES walkers
+        // keep the table below (Needed wins over Doing).
+        if entry.needed_state == "open"
+            || entry.needed_state == "later"
+            || entry.needed_state == "blocked"
+        {
+            return Pose::Sit;
+        }
+        return match entry.card_status.as_str() {
+            "done" => Pose::WalkOff,
+            _ => Pose::Work,
+        };
+    }
     if entry.needed_state == "open" || entry.needed_state == "later" {
         return Pose::Sit;
     }
@@ -358,6 +374,18 @@ fn pose_for(entry: &HabitatEntry) -> Pose {
         "doing" => Pose::Work,
         "done" => Pose::WalkOff,
         _ => Pose::Roam,
+    }
+}
+
+/// 0 working, 1 blocked, 2 needs-you. Window walkers stay 0.
+fn droid_glance(entry: &HabitatEntry) -> u8 {
+    if entry.agent_seed.is_empty() {
+        return 0;
+    }
+    match entry.needed_state.as_str() {
+        "blocked" => 1,
+        "open" | "later" => 2,
+        _ => 0,
     }
 }
 
@@ -974,6 +1002,8 @@ pub(crate) struct Being {
     /// blits the baked droid atlas (droid.rs) instead of the pack/person
     /// art. The seed hashes the run's `planetId:cardId`.
     droid: Option<u64>,
+    /// GO-ORBITTY-DROID-GLANCE: 0 working, 1 blocked, 2 needs-you.
+    droid_glance: u8,
 }
 
 /// Which decor item a frame belongs to (plants[i], mushrooms[i], boombox).
@@ -2659,6 +2689,7 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
         sprite_pack_id: entry.sprite_pack_id.clone(),
         pose,
         droid,
+        droid_glance: droid_glance(entry),
     }
 }
 
@@ -3078,6 +3109,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                     let mut any_pose = false;
                     for (b, e) in planet.walkers.iter_mut().zip(walker_entries.iter()) {
                         let next = sticky_pose(b.pose, pose_for(e));
+                        let glance = droid_glance(e);
                         if next != b.pose {
                             pose_events.push((
                                 project_id.clone(),
@@ -3086,6 +3118,10 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                                 next,
                             ));
                             b.pose = next;
+                            any_pose = true;
+                        }
+                        if glance != b.droid_glance {
+                            b.droid_glance = glance;
                             any_pose = true;
                         }
                     }

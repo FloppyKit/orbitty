@@ -379,6 +379,8 @@ struct WalkerDraw {
     scale: f64,
     /// GO-ORBITTY-RAIL-ROW-MENU locate: stroke a ring around this walker.
     locate: bool,
+    /// GO-ORBITTY-DROID-GLANCE: 0 working, 1 blocked, 2 needs-you.
+    droid_glance: u8,
 }
 
 struct DecorDraw {
@@ -527,7 +529,15 @@ fn draw_rect_guarded(this: &Object) {
                         // walk frames) — window walkers keep the bitty
                         // sheets / generated person below.
                         pack_frame: if let Some(seed) = b.droid {
-                            droid::frame_ptr(&h, seed, b.pose, cycling && !sleeper_still, h.anim_frame, i)
+                            droid::frame_ptr(
+                                &h,
+                                seed,
+                                b.pose,
+                                cycling && !sleeper_still,
+                                h.anim_frame,
+                                i,
+                                b.droid_glance,
+                            )
                         } else if sleeper_still {
                             pack_frame_still(&h, b.pack)
                         } else {
@@ -549,6 +559,7 @@ fn draw_rect_guarded(this: &Object) {
                             Projection::Oblique => 1.0 + 0.25 * y,
                             Projection::Flat => 1.0,
                         },
+                        droid_glance: b.droid_glance,
                     })
                 })
                 .collect::<Vec<_>>();

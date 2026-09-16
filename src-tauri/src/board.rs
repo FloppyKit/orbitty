@@ -383,6 +383,7 @@ const GO_CARD_BLURBS: &[(&str, &str)] = &[
     ("GO-ORBITTY-CHEATSHEET", "⌘? one-screen keys after cockpit mails."),
     ("GO-ORBITTY-BOARD-PROOFS", "Todo/doing/done as Nostr 420/421/422 (`t=orbitty`). Journal stays 31200."),
     ("GO-ORBITTY-DOING-WALKER", "Drag doing → android on that planet. Needed/blocked → near rim."),
+    ("GO-ORBITTY-DROID-GLANCE", "Droids read working / blocked / needs-you at a glance. NES walkers stay open/sleep/done."),
     ("GO-ORBITTY-HERDR-ADAPTER", "Herdr if present (skip+URL). OpenCode detect-only."),
     ("GO-ORBITTY-MOUTH-HOP", "Thin router: local → OpenRouter free → paid Grok. Same bubble."),
     ("GO-ORBITTY-KANBAN-GRAB", "Shift+Enter grab, arrows move, Enter drop, Esc ungrab."),
