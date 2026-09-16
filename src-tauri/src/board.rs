@@ -385,6 +385,8 @@ const GO_CARD_BLURBS: &[(&str, &str)] = &[
     ("GO-ORBITTY-KANBAN-GRAB", "Shift+Enter grab, arrows move, Enter drop, Esc ungrab."),
     ("GO-ORBITTY-CARD-BLURB", "Board row shows a one-line runner summary (`notes`)."),
     ("GO-ORBITTY-SHIFT", "Humming supervisor via ctl: watch board + agentRuns + AX, cap runners, park stuck, next pickup, Needed escalate. No LLM in habitat_mac."),
+    ("GO-ORBITTY-ATTACH-MD", "MarkItDown sidecar for PDF/Word/Excel/PPT if on PATH. Path-only if missing. No nag."),
+    ("GO-ORBITTY-ATTACH-VISION", "Photos via mouth vision first (Grok --prompt-json). OCR not every image."),
 ];
 
 /// A backfillable GO title is exactly the token — `GO-ORBITTY-FOO`, never

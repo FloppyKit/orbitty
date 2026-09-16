@@ -1688,24 +1688,23 @@ async fn companion_send_inner(
     // on the raw line). Every mouth gets the wrapped prompt; persist +
     // event log below keep the raw `line`.
     let prompt = wrap_with_pocket(&app, &line);
-    // Hand the chip's ORIGINAL path to the mouth —
-    // the agent's own tools read it there. Never a staging copy, never
-    // an upload, no convert/OCR.
-    let prompt = match &attach {
+    // Chip: original path always. Office may add MarkItDown markdown
+    // (sidecar, detect-only). Images may ride Grok --prompt-json.
+    let (prompt, vision_path) = match &attach {
         Some(a) => {
-            let note = format!(
-                "[file: {} ({}, {}) — read it at that exact path with your tools.]",
-                a.path,
-                a.name,
-                crate::attach::human_size(a.size)
-            );
-            if prompt.is_empty() {
-                note
-            } else {
-                format!("{prompt}\n\n{note}")
+            let a = a.clone();
+            let p = prompt.clone();
+            let b = backend.clone();
+            match tauri::async_runtime::spawn_blocking(move || {
+                crate::attach_send::prepare(&a, &p, &b)
+            })
+            .await
+            {
+                Ok(prep) => (prep.prompt, prep.vision_path),
+                Err(_) => (prompt, None),
             }
         }
-        None => prompt,
+        None => (prompt, None),
     };
     // Desk wrap only when the line looks like a board mint — not every
     // "hi". Planet ids stay available for todo: intercept without a chew.
@@ -1721,7 +1720,9 @@ async fn companion_send_inner(
         // The grok lane runs through the router —
         // Free Mode skips paid Grok; a cooked lane hops Ollama →
         // OpenRouter free with the hop packet. Same bubble either way.
-        "grok" => crate::mouth_hop::send_with_hops(&app, &line, &prompt).await?,
+        "grok" => {
+            crate::mouth_hop::send_with_hops(&app, &line, &prompt, vision_path.as_deref()).await?
+        }
         "hermes" => companion_send_hermes(&app, &prompt).await?,
         "berd" => companion_send_berd(&prompt).await?,
         other => {
@@ -1908,7 +1909,11 @@ pub(crate) fn capture_goose_session(bin: &Path) {
 /// Honest error when grok is missing — no silent Berd fallback.
 /// pub(crate): mouth_hop wraps this — Grok is the paid lane of the
 /// router; a cooked lane (429/402/quota/session-wall) hops free lanes.
-pub(crate) async fn companion_send_grok(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
+pub(crate) async fn companion_send_grok(
+    app: &tauri::AppHandle,
+    line: &str,
+    vision_path: Option<String>,
+) -> Result<String, String> {
     let bin = find_grok().ok_or(
         "`grok` not found — install the Grok CLI or put it on PATH (also checks ~/.grok/bin/grok).",
     )?;
@@ -1917,7 +1922,7 @@ pub(crate) async fn companion_send_grok(app: &tauri::AppHandle, line: &str) -> R
     let line = line.to_string();
     let roll_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        run_grok_reply(&bin, &soul, plug, &line, &roll_app)
+        run_grok_reply(&bin, &soul, plug, &line, vision_path.as_deref(), &roll_app)
     })
     .await
     .map_err(|e| format!("send task: {e}"))?
@@ -1929,8 +1934,12 @@ pub(crate) fn grok_args(
     soul: &str,
     line: &str,
     tools_ok: bool,
+    vision_json: Option<&str>,
 ) -> Vec<String> {
-    let mut args: Vec<String> = vec!["-p".into(), line.to_string()];
+    let mut args: Vec<String> = match vision_json {
+        Some(j) => vec!["--prompt-json".into(), j.to_string()],
+        None => vec!["-p".into(), line.to_string()],
+    };
     if minted {
         args.push("--resume".into());
     } else {
@@ -1961,6 +1970,7 @@ fn run_grok_reply(
     soul: &str,
     mut plug: PlugState,
     line: &str,
+    vision_path: Option<&str>,
     app: &tauri::AppHandle,
 ) -> Result<String, String> {
     // Mint a fresh product UUID — never the probe's, never Berd's.
@@ -1989,12 +1999,14 @@ fn run_grok_reply(
         return Ok(text);
     }
 
+    let vision_json = vision_path.map(|p| crate::attach_vision::prompt_json(line, p));
     let args = grok_args(
         &sid,
         plug.grok_session_minted,
         soul,
         line,
         companion_mode_tools(app),
+        vision_json.as_deref(),
     );
     // streaming-json: thought/tool lines splash the wait slot;
     // assembled text is the reply. Dead resume still 404s on stderr
@@ -2014,7 +2026,14 @@ fn run_grok_reply(
         Err(e) if !plug.grok_session_minted && e.to_ascii_lowercase().contains("session") => {
             plug.grok_session_minted = true;
             save_plug(&plug);
-            let retry = grok_args(&sid, true, soul, line, companion_mode_tools(app));
+            let retry = grok_args(
+                &sid,
+                true,
+                soul,
+                line,
+                companion_mode_tools(app),
+                vision_json.as_deref(),
+            );
             streamed(
                 &retry,
                 Some(&crate::mouth_roll::grok_session_gone_line),

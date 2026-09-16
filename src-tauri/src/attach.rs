@@ -3,7 +3,8 @@
 //! path, `companion_send` re-validates and hands it to the mouth on the
 //! prompt, and the agent's own tools read the file there. Cap 25 MB
 //! with an honest error over. Orbitty does not index, embed, convert,
-//! or keep a library — Spark is the front door.
+//! or keep a library — Spark is the front door. Office convert and
+//! image vision live in attach_md / attach_vision (sidecars).
 
 use serde::Serialize;
 

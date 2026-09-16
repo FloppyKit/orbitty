@@ -212,6 +212,7 @@ pub fn grok_fresh_rollover(
         soul,
         handoff,
         crate::coordinator::companion_mode_tools(app),
+        None,
     );
     let text = crate::mouth_blip::run_streamed(app, "Grok", bin, &args, 180, None)?;
     if text.is_empty() {

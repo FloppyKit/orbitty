@@ -1,5 +1,8 @@
 mod actions;
 mod attach;
+mod attach_md;
+mod attach_send;
+mod attach_vision;
 #[cfg(unix)]
 mod agent_runs;
 #[cfg(unix)]

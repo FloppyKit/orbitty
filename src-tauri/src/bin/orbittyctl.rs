@@ -25,7 +25,7 @@ commands:
   windows list
   windows focus|minimize|restore|close --id <id>
   companion open
-  companion send -- \"line\"
+  companion send [--file PATH] -- \"line\"
   companion agents
   companion set-agent -- <profile>
   companion play -- <clip>         idle · think · nod · look-left · look-right
@@ -140,6 +140,7 @@ struct Opts {
     extra: Option<String>,
     agent: Option<String>,
     card: Option<String>,
+    file: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
 }
@@ -170,6 +171,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         extra: None,
         agent: None,
         card: None,
+        file: None,
         words: Vec::new(),
         tail: Vec::new(),
     };
@@ -221,6 +223,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             // Kept as Some("") when passed empty — kanban assign unassigns.
             "--agent" => o.agent = Some(it.next().ok_or("--agent needs a value")?.clone()),
             "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
+            "--file" => o.file = Some(it.next().ok_or("--file needs a path")?.clone()),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 exit(0);
@@ -252,6 +255,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.profile = Some(s["--profile=".len()..].to_string())
             }
             s if s.starts_with("--model=") => o.model = Some(s["--model=".len()..].to_string()),
+            s if s.starts_with("--file=") => o.file = Some(s["--file=".len()..].to_string()),
             s if s.starts_with("--md=") => o.md.push(s["--md=".len()..].to_string()),
             s if s.starts_with("--extra=") => o.extra = Some(s["--extra=".len()..].to_string()),
             s if s.starts_with("--agent=") => o.agent = Some(s["--agent=".len()..].to_string()),
@@ -306,7 +310,13 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["windows", "restore"] => Ok(("windows.restore", json!({ "id": need_id(o)? }))),
         ["windows", "close"] => Ok(("windows.close", json!({ "id": need_id(o)? }))),
         ["companion", "open"] => Ok(("companion.open", json!({}))),
-        ["companion", "send"] => Ok(("companion.send", json!({ "line": payload(o)? }))),
+        ["companion", "send"] => {
+            let mut a = json!({ "line": payload(o)? });
+            if let Some(p) = opt(&o.file) {
+                a["path"] = json!(p);
+            }
+            Ok(("companion.send", a))
+        }
         ["companion", "agents"] => Ok(("companion.agents", json!({}))),
         ["companion", "set-agent"] => {
             Ok(("companion.set_agent", json!({ "profile": payload(o)? })))

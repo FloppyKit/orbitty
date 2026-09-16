@@ -464,6 +464,7 @@ pub async fn send_with_hops(
     app: &tauri::AppHandle,
     raw_line: &str,
     prompt: &str,
+    vision_path: Option<&str>,
 ) -> Result<String, String> {
     let free_mode = crate::state::load_state(app)
         .map(|s| s.companion.free_mode)
@@ -474,7 +475,8 @@ pub async fn send_with_hops(
             .await
             .map_err(|e| format!("hop task: {e}"))?;
     }
-    match crate::coordinator::companion_send_grok(app, prompt).await {
+    let vision = vision_path.map(str::to_string);
+    match crate::coordinator::companion_send_grok(app, prompt, vision).await {
         Ok(r) => Ok(r),
         Err(e) if lane_cooked(&e) => {
             let note = format!("grok: {}", e.chars().take(80).collect::<String>());

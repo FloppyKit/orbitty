@@ -348,7 +348,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             tauri::async_runtime::block_on(crate::coordinator::companion_send(
                 app.clone(),
                 line,
-                None, // ctl send stays line-only; the file chip is the composer's
+                arg_opt(args, "path"),
             ))
             .map(|reply| json!({ "reply": reply }))
             .map_err(tool_err)
