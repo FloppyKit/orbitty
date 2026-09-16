@@ -1,9 +1,15 @@
-//! GO-ORBITTY-TODO-TREES — unbound todos grow a tree on their planet.
-//! Not WORLD-YARD decor (those stay Place-plant glyphs). New surface.
+//! Unbound todos grow a tree on their planet.
 
 use crate::state::{KanbanCard, PersistedState, TodoTree};
 
 pub const DEFAULT_GROW_DAYS: f64 = 14.0;
+
+// Grove: east of the grass west edge, north of disc center (y < 0).
+// Never west into the cabin. May nibble the board when grown.
+const GROVE_WEST: f64 = -0.364; // YARD_WEST
+const GROVE_EAST: f64 = 0.50;
+const GROVE_NORTH: f64 = -0.70; // toward the board; negative y is north
+const GROVE_SOUTH: f64 = -0.02;
 
 /// Unbound = a real todo, no window, no assigned agent, not Needed.
 pub fn is_unbound(c: &KanbanCard) -> bool {
@@ -39,12 +45,20 @@ fn hash_str(s: &str) -> u64 {
     h
 }
 
-/// Grass paddock around STATION_FIELD — not the board, not the igloo.
 pub fn default_spot(card_id: &str) -> (f64, f64) {
     let h = hash_str(card_id);
-    let x = -0.18 + ((h % 40) as f64) * 0.009;
-    let y = 0.08 + (((h >> 8) % 28) as f64) * 0.008;
-    (x.clamp(-0.28, 0.28), y.clamp(0.04, 0.32))
+    let xw = GROVE_EAST - GROVE_WEST;
+    let yh = GROVE_SOUTH - GROVE_NORTH;
+    let x = GROVE_WEST + ((h % 40) as f64) / 39.0 * xw;
+    let y = GROVE_NORTH + (((h >> 8) % 28) as f64) / 27.0 * yh;
+    (
+        x.clamp(GROVE_WEST, GROVE_EAST),
+        y.clamp(GROVE_NORTH, GROVE_SOUTH),
+    )
+}
+
+fn in_grove(x: f64, y: f64) -> bool {
+    x >= GROVE_WEST && x <= GROVE_EAST && y >= GROVE_NORTH && y <= GROVE_SOUTH
 }
 
 pub fn grow_days(st: &PersistedState) -> f64 {
@@ -83,6 +97,13 @@ pub fn reconcile(st: &mut PersistedState) {
         .map(|c| c.id.clone())
         .collect();
     st.todo_trees.retain(|t| live.contains(&t.card_id));
+    for t in &mut st.todo_trees {
+        if !in_grove(t.x, t.y) {
+            let (x, y) = default_spot(&t.card_id);
+            t.x = x;
+            t.y = y;
+        }
+    }
     let have: std::collections::HashSet<String> =
         st.todo_trees.iter().map(|t| t.card_id.clone()).collect();
     for c in &st.kanban_cards {
@@ -153,5 +174,15 @@ mod tests {
         assert_eq!(phase(0.0), 0);
         assert_eq!(phase(1.0), 7);
         assert_eq!(phase(0.5), 3);
+    }
+
+    #[test]
+    fn grove_is_east_of_grass_west_and_north_of_center() {
+        for id in ["c-1", "c-2", "c-grove", "c-mu3hzb2l-us8rqx"] {
+            let (x, y) = default_spot(id);
+            assert!(x >= GROVE_WEST && x <= GROVE_EAST, "x={x}");
+            assert!(y >= GROVE_NORTH && y <= GROVE_SOUTH, "y={y}");
+            assert!(y < 0.0, "north of center y={y}");
+        }
     }
 }
