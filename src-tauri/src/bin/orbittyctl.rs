@@ -49,6 +49,8 @@ commands:
   project add --name N
   project rm --id <id>
   project rename --id <id> --name <new>
+  project set-root --id <id> --cwd PATH
+  task undo --id <card>
   action list
   action add --name N --cmd \"C\" [--cwd D] [--combo cmd+alt+m]
   action run --id <id> | --name <name>
@@ -506,6 +508,14 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             "project.rename",
             json!({ "id": need_id(o)?, "name": need_flag(&o.name, "--name")? }),
         )),
+        ["project", "set-root"] => Ok((
+            "project.set_root",
+            json!({
+                "id": need_id(o)?,
+                "path": need_flag(&o.cwd, "--cwd")?,
+            }),
+        )),
+        ["task", "undo"] => Ok(("task.undo", json!({ "id": need_id(o)? }))),
         // The action recipe file. The server owns
         // validation (parse, reserved chords, unknown ids) and the ACL.
         ["action", "list"] => Ok(("action.list", json!({}))),

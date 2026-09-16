@@ -2621,20 +2621,29 @@ pub(crate) fn run_action_logged(
         &serde_json::json!({ "n": command.chars().count() }),
     );
     let pid = crate::task::project_for_cwd(app, cwd.as_deref());
-    let task_id = pid
-        .as_deref()
-        .and_then(|p| crate::task::start(app, p, None));
-    let out = run_action_inner(command, cwd);
-    if let Some(tid) = task_id.as_deref() {
-        crate::task::end(
-            app,
-            tid,
-            if out.as_ref().map(|r| r.ok).unwrap_or(false) {
-                "done"
+    let card_id = pid.as_deref().and_then(|p| {
+        let title: String = {
+            let t = command.trim();
+            if t.chars().count() > 48 {
+                format!("task: {}…", t.chars().take(47).collect::<String>())
             } else {
-                "failed"
-            },
-        );
+                format!("task: {t}")
+            }
+        };
+        crate::board::kanban_add_as(app, &title, p, "doing", "action", None)
+            .ok()
+            .map(|c| c.id)
+    });
+    let task_id = pid.as_deref().and_then(|p| {
+        crate::task::start(app, p, card_id.as_deref())
+    });
+    let out = run_action_inner(command, cwd);
+    let ok = out.as_ref().map(|r| r.ok).unwrap_or(false);
+    if let Some(tid) = task_id.as_deref() {
+        crate::task::end(app, tid, if ok { "done" } else { "failed" });
+    }
+    if let Some(cid) = card_id.as_deref() {
+        let _ = crate::board::kanban_move(app, cid, if ok { "done" } else { "todo" });
     }
     #[cfg(unix)]
     if let Ok(r) = &out {

@@ -620,6 +620,19 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
+        "project.set_root" => {
+            let id = arg_str(args, "id")?;
+            let path = arg_str(args, "path")?;
+            crate::task::set_workspace_root(app, &id, &path)
+                .map(|_| to_data(serde_json::json!({ "projectId": id, "path": path })))
+                .map_err(tool_err)
+        }
+        "task.undo" => {
+            let id = arg_str(args, "id")?;
+            crate::task::undo(app, &id)
+                .map(|_| to_data(serde_json::json!({ "cardId": id, "ok": true })))
+                .map_err(tool_err)
+        }
         "log.append" => {
             let e_type = arg_str(args, "eType")?;
             let content = match args.get("content") {
