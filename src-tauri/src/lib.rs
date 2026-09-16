@@ -568,6 +568,13 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
     #[cfg(unix)]
     crate::agent_runs::reconcile_incoming(&mut state);
     crate::todo_trees::reconcile(&mut state);
+    if let Some(b) = before.as_ref() {
+        for c in &b.kanban_cards {
+            if c.task_id.is_some() && !state.kanban_cards.iter().any(|x| x.id == c.id) {
+                state.kanban_cards.push(c.clone());
+            }
+        }
+    }
     state::save_state(&app, &state)?;
     if let Some(before) = before.as_ref() {
         event_log::diff_claims(&app, &before.claims, &state.claims);

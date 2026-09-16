@@ -207,16 +207,20 @@ pub fn end_card(app: &AppHandle, card: &KanbanCard, reason: &str) {
 /// Restore `before` onto the planet root. Hidden if no clone.
 pub fn undo(app: &AppHandle, card_id: &str) -> Result<(), String> {
     let st = crate::state::load_state(app)?;
-    let card = st
+    let task_id = st
         .kanban_cards
         .iter()
         .find(|c| c.id == card_id)
+        .and_then(|c| c.task_id.clone())
+        .or_else(|| {
+            if card_id.starts_with("t-") {
+                Some(card_id.to_string())
+            } else {
+                None
+            }
+        })
         .ok_or_else(|| format!("unknown card {card_id}"))?;
-    let task_id = card
-        .task_id
-        .as_deref()
-        .ok_or_else(|| "no task on this card".to_string())?;
-    let dir = tasks_root(app)?.join(task_id);
+    let dir = tasks_root(app)?.join(&task_id);
     let before_path = dir.join("before");
     if !before_path.is_dir() {
         return Err("no before snapshot".into());
