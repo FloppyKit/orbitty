@@ -634,8 +634,9 @@ fn drag_tick() {
                     let center = NSPoint { x: side / 2.0, y: side / 2.0 };
                     let (x, y) = view_to_disc(center, planet.radius, planet.projection, local);
                     if let Some(t) = planet.todo_trees.iter_mut().find(|t| t.card_id == cid) {
-                        t.x = x.clamp(-0.7, 0.7);
-                        t.y = y.clamp(-0.55, 0.55);
+                        let (cx, cy) = crate::todo_trees::clamp_to_grove(x, y);
+                        t.x = cx;
+                        t.y = cy;
                     }
                     super::todo_tree::layout(planet);
                     let view = planet.view as *mut Object;

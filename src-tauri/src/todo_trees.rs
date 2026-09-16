@@ -4,12 +4,14 @@ use crate::state::{KanbanCard, PersistedState, TodoTree};
 
 pub const DEFAULT_GROW_DAYS: f64 = 14.0;
 
-// Grove: east of grass west, north of the grass pad (y < YARD_NORTH).
-// Never on the paddock. Never west into the cabin. May nibble the board.
-const GROVE_WEST: f64 = -0.364; // YARD_WEST
-const GROVE_EAST: f64 = 0.50;
-const GROVE_NORTH: f64 = -0.70; // toward the board; negative y is north
-const GROVE_SOUTH: f64 = -0.46; // just north of YARD_NORTH (-0.45)
+// Grass pad (same numbers as habitat YARD_*). Negative y is north.
+const YARD_WEST: f64 = -0.364;
+const YARD_EAST: f64 = 0.54;
+const YARD_NORTH: f64 = -0.45;
+const DISC_EAST: f64 = 0.78;
+const DISC_NORTH: f64 = -0.78;
+const CENTER_Y: f64 = 0.0;
+const EPS: f64 = 0.012;
 
 /// Unbound = a real todo, no window, no assigned agent, not Needed.
 pub fn is_unbound(c: &KanbanCard) -> bool {
@@ -47,18 +49,43 @@ fn hash_str(s: &str) -> u64 {
 
 pub fn default_spot(card_id: &str) -> (f64, f64) {
     let h = hash_str(card_id);
-    let xw = GROVE_EAST - GROVE_WEST;
-    let yh = GROVE_SOUTH - GROVE_NORTH;
-    let x = GROVE_WEST + ((h % 40) as f64) / 39.0 * xw;
-    let y = GROVE_NORTH + (((h >> 8) % 28) as f64) / 27.0 * yh;
-    (
-        x.clamp(GROVE_WEST, GROVE_EAST),
-        y.clamp(GROVE_NORTH, GROVE_SOUTH),
-    )
+    if h & 1 == 0 {
+        let x = YARD_WEST + ((h % 40) as f64) / 39.0 * (DISC_EAST - YARD_WEST);
+        let y = DISC_NORTH + (((h >> 8) % 28) as f64) / 27.0 * (YARD_NORTH - EPS - DISC_NORTH);
+        clamp_to_grove(x, y)
+    } else {
+        let x = YARD_EAST + EPS + ((h % 40) as f64) / 39.0 * (DISC_EAST - YARD_EAST - EPS);
+        let y = DISC_NORTH + (((h >> 8) % 28) as f64) / 27.0 * (CENTER_Y - DISC_NORTH);
+        clamp_to_grove(x, y)
+    }
 }
 
-fn in_grove(x: f64, y: f64) -> bool {
-    x >= GROVE_WEST && x <= GROVE_EAST && y >= GROVE_NORTH && y <= GROVE_SOUTH
+/// L around the grass: north of the pad (east of grass-west to the rim),
+/// plus east of the pad from disc-center north to the rim. Never on grass.
+pub fn in_grove(x: f64, y: f64) -> bool {
+    if x < YARD_WEST || x > DISC_EAST || y < DISC_NORTH || y > CENTER_Y {
+        return false;
+    }
+    let on_grass = x <= YARD_EAST && y >= YARD_NORTH;
+    if on_grass {
+        return false;
+    }
+    y < YARD_NORTH || x > YARD_EAST
+}
+
+pub fn clamp_to_grove(mut x: f64, mut y: f64) -> (f64, f64) {
+    x = x.clamp(YARD_WEST, DISC_EAST);
+    y = y.clamp(DISC_NORTH, CENTER_Y);
+    if x <= YARD_EAST && y >= YARD_NORTH {
+        let to_north = y - (YARD_NORTH - EPS);
+        let to_east = (YARD_EAST + EPS) - x;
+        if to_east <= to_north {
+            x = (YARD_EAST + EPS).min(DISC_EAST);
+        } else {
+            y = YARD_NORTH - EPS;
+        }
+    }
+    (x, y)
 }
 
 pub fn grow_days(st: &PersistedState) -> f64 {
@@ -177,12 +204,23 @@ mod tests {
     }
 
     #[test]
-    fn grove_is_east_of_grass_west_and_north_of_center() {
-        for id in ["c-1", "c-2", "c-grove", "c-mu3hzb2l-us8rqx"] {
+    fn grove_is_the_l_around_the_grass() {
+        for id in ["c-1", "c-2", "c-grove", "c-mu3hzb2l-us8rqx", "c-east"] {
             let (x, y) = default_spot(id);
-            assert!(x >= GROVE_WEST && x <= GROVE_EAST, "x={x}");
-            assert!(y >= GROVE_NORTH && y <= GROVE_SOUTH, "y={y}");
-            assert!(y < -0.45, "off the grass pad y={y}");
+            assert!(in_grove(x, y), "spot ({x},{y})");
+            assert!(x >= YARD_WEST, "west of grass west x={x}");
+            assert!(y <= CENTER_Y, "south of center y={y}");
+            let on_grass = x <= YARD_EAST && y >= YARD_NORTH && y <= 0.42;
+            assert!(!on_grass, "on grass ({x},{y})");
         }
+        assert!(in_grove(0.0, -0.60));
+        assert!(in_grove(0.65, -0.20));
+        assert!(!in_grove(0.0, 0.10));
+        assert!(!in_grove(0.0, -0.20));
+        let (x, y) = clamp_to_grove(0.70, -0.10);
+        assert!(in_grove(x, y));
+        let (x, y) = clamp_to_grove(0.0, 0.20);
+        assert!(in_grove(x, y));
+        assert!(x > YARD_EAST || y < YARD_NORTH);
     }
 }
