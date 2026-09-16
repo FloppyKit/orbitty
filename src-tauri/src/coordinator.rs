@@ -144,7 +144,7 @@ pub fn launch_coordinator(
     route_to_hermes(&ctx, &query)
 }
 
-// ---------- Companion: plug map ----------
+// Companion: plug map
 // The mouth is a plug map now — off the Berd/Goose combo. Default mouth is
 // **Goose** (`goose run` + plug.json session); `grok` is a mouth; `hermes`
 // is compat; `berd` (`berdctl` + ~/.agents/companions/orbitty-primary) is
@@ -443,7 +443,7 @@ fn update_soul_pointer(agent_stem: &str) {
     let _ = std::fs::write(p, serde_json::to_string_pretty(&v).unwrap_or_default() + "\n");
 }
 
-// ---------- Goose/grok mouths + plug.json sessions ----------
+// Goose/grok mouths + plug.json sessions
 
 /// Persisted plug sessions: `companions/orbitty-primary/plug.json`.
 /// Product sessions only — NEVER the Berd `session.json` id (`20260825_2`)
@@ -954,7 +954,7 @@ pub fn companion_now(
 /// clears the who. Persisted on the companion slice (a flag, never a
 /// transcript); state:changed re-paints the dock. Off when every source
 /// is idle — a stuck on-light is a leftover, not a feature.
-/// Leftover: `project_id` is the live agent's
+/// `project_id` is the live agent's
 /// pinned planet (pickup passes it) so the dest/planet menus glow that
 /// one planet; cleared on off like the who.
 pub fn set_companion_hack(
@@ -1115,7 +1115,7 @@ pub fn set_companion_sprite(
     Ok(())
 }
 
-// ---------- S2.7 speak replies: macOS `say`, default system voice ----------
+// S2.7 speak replies: macOS `say`, default system voice
 
 /// The in-flight `say` child (at most one). A finished child stays in the
 /// slot until the next kill — killing a dead child is a harmless Err.
@@ -1171,7 +1171,7 @@ pub fn set_companion_captions(app: tauri::AppHandle, enabled: bool) -> Result<()
     Ok(())
 }
 
-// ---------- STARS prompts opt-in + strip ack ----------
+// STARS prompts opt-in + strip ack
 // The companion window never writes state.json wholesale; these two
 // load-modify-save commands are its only STARS writes. The rail's STARS
 // pane writes checkins through its own full persist.
@@ -1247,7 +1247,7 @@ pub fn speak_reply(app: tauri::AppHandle, text: String) -> Result<(), String> {
     }
 }
 
-// ---------- A typed line can name a Launchpad Action ----------
+// A typed line can name a Launchpad Action
 
 /// `Run` carries the shortcut plus `keep_you`: prefix/command chrome never
 /// persists a you-line; a bare name typed as a sentence keeps it.
@@ -1353,7 +1353,7 @@ fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &st
     }
 }
 
-// ---------- GO-MH-2-APP: leftover map inject (read-only, fail open) ----------
+// GO-MH-2-APP: leftover map inject (read-only, fail open)
 
 /// Tiny structs with serde defaults — a hand-edited map with extra or
 /// missing keys still parses. Schema: leftover_item.schema.json.
@@ -1857,7 +1857,7 @@ fn run_goose_reply(
 
     // Config is `smart_approve` and the bubble has no yes/no UI — without
     // always_allow, tool calls would hang or be denied.
-    // Leftover: 300s (berd's 5 min) — with extensions actually
+    // 300s (berd's 5 min) — with extensions actually
     // loaded, 180s killed real tool runs mid-reply. Grok/Hermes keep 180.
     // A dead resume rolls the mouth onto a fresh
     // session with a handoff — the bubble is one thread, never cleared.
@@ -2421,7 +2421,7 @@ pub fn open_soul_in_editor(
     }
 }
 
-// ---------- Wake a closed claimed window ----------
+// Wake a closed claimed window
 
 fn non_empty(s: Option<&str>) -> Option<&str> {
     s.map(str::trim).filter(|s| !s.is_empty())
@@ -2551,7 +2551,7 @@ pub fn wake_sleeper(app: tauri::AppHandle, id: String) -> Result<String, String>
     wake_sleeper_with(&app, &id)
 }
 
-// ---------- Actions lane: user-authored shell shortcuts ----------
+// Actions lane: user-authored shell shortcuts
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2694,7 +2694,7 @@ fn run_action_inner(command: String, cwd: Option<String>) -> Result<ActionResult
     }
 }
 
-// ---------- Agents lane: harness shortcuts (no LLM inside Orbitty) ----------
+// Agents lane: harness shortcuts (no LLM inside Orbitty)
 
 pub(crate) fn find_on_path(bin: &str) -> Option<PathBuf> {
     let path = std::env::var("PATH").unwrap_or_default();
@@ -2784,7 +2784,7 @@ fn write_agent_query(
 /// into `$prompt`), opened as a fresh Terminal window. `exec_line` is the
 /// harness's own command line — run as a CHILD, never `exec`: exec would
 /// replace the shell and skip the EXIT trap.
-/// Leftover (dock LED): the trap turns the dock
+/// the trap turns the dock
 /// LED off when the harness exits (the same idea as writer-done-needed —
 /// a stuck on-light is a leftover, not a feature); HUP (Terminal window
 /// closed) exits through the same trap. Silent + best-effort: a missing
@@ -2910,7 +2910,7 @@ pub fn launch_agent(
             ))
         }
         // Hermes door: hermes -p <profile> chat with the query file.
-        // Leftover (dock LED): no Terminal
+        // no Terminal
         // launcher here, so a waiter thread owns the off — the dock LED
         // goes dark when the hermes process exits (the Terminal doors do
         // it through the .command EXIT trap). Detached stdio, never a

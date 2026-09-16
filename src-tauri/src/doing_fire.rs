@@ -1,20 +1,5 @@
-//! Moving a `GO-*` **todo** `todo` → `doing` is
-//! the go. The habitat mints (or reuses) the ONE Needed titled exactly
-//! `Who runs this doing GO?` with a machine-parseable why —
-//! `card=<id> go=<GO-…> planet=<project name or id>` — and Matt teaches
-//! the standing answer once (`<harness> on this planet` + a `RULE:`
-//! line). After that, OPEN born-answers each new phrase and the bus
-//! dispatch runs that harness on that planet. Lock:
-//! `~/.buzz/PLANS/ORBITTY_DOING_FIRE_LOCK_v0.md`.
-//!
-//! Wired from the kanban-move doors only (`board::kanban_move` and the
-//! UI's whole-state `save_state` command) as a before/after card diff:
-//! `kind = todo`, `todo` → `doing`, title carries the bus's GO token.
-//! Neededs, Dogfood cards, fresh `doing` mints, and every other title
-//! are a no-op. Best-effort: a fire never fails the save that carried
-//! the move. An already-open card with the same title is REUSED with its
-//! why replaced (latest drag wins) — never a second walker, never a
-//! `companion send`.
+//! `GO-*` todo→doing mints/reuses `Who runs this doing GO?`.
+//! Neededs and Dogfood titles are a no-op. Never companion send.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

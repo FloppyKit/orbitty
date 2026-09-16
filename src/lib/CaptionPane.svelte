@@ -51,7 +51,7 @@
     onOverlayChange?: (open: boolean, wantWin?: number) => void;
   } = $props();
 
-  // ---------- Collapsed pager ------
+  // Collapsed pager
   // Only the collapsed view pages, and only the reply arriving right now
   // — primed/lastTailSig separate a fresh tail from a state reload, so
   // persisted history never pages. The paged turn is bound by index
@@ -235,7 +235,7 @@
   // never the old in-stack pop-down that clipped and sprouted a window
   // scrollbar. Anchored above the dock when there is room; the
   // sprite-off bar (no room) is covered whole.
-  // COLLAPSE-CC leftover (popup hug): at open the overlay's CONTENT
+  // at open the overlay's CONTENT
   // height is measured and the wanted WINDOW height rides up via
   // onOverlayChange — the parent grows the companion window (the same
   // door as the typing composer) until the reply fits whole. No inner

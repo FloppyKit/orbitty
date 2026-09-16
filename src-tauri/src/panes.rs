@@ -62,7 +62,7 @@ pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(
         // window (like Settings) so ⌘⇧Y works with Settings closed. Plain
         // pane, not a drawer — a confirm never docks on the rail.
         "yard-warn" => Some(("", 400.0, 330.0, None)),
-        // Leftover: own small card window, not dock chrome.
+        // own small card window, not dock chrome.
         "next-card" => Some(("", 340.0, 260.0, Some((280.0, 180.0)))),
         "cheatsheet" => Some(("", 360.0, 420.0, Some((280.0, 240.0)))),
         _ => None,
@@ -148,7 +148,7 @@ pub(crate) fn ensure_window(
     // bar plus the in-SPA banner was two drag sources — grab failed
     // or the window ran ahead of the cursor. Borderless; JS
     // startDragging on the banner is the one handle. Rail stays Overlay.
-    // Leftover: the companion joins them — its
+    // the companion joins them — its
     // Overlay strip flashed on the host grow / sprite-hug resize (a
     // titlebar blink that moved the screen). The JS dock grip + spirit
     // drag stay the one handle; the grow itself stays instant
@@ -389,7 +389,7 @@ pub(crate) fn hug_companion(app: &tauri::AppHandle, hug_height: Option<f64>) {
     if !w.is_visible().unwrap_or(false) {
         return;
     }
-    // Leftover (summon clamp): never hug from a rect
+    // never hug from a rect
     // whose dock already hangs below every display — the keep-bottom bar
     // would inherit the sunk bottom and strand the dock unclickable.
     // Rescue first so the bar math below bases on a clickable rect; runs
@@ -438,7 +438,7 @@ pub(crate) fn unhug_companion(app: &tauri::AppHandle) {
             h: tall.h,
         };
         crate::drawers::place_logical_rect(&w, "companion", &r);
-        // Leftover (summon clamp): the keep-bottom
+        // the keep-bottom
         // restore inherits the bar's bottom — rescue if that leaves the
         // dock sunk below every display.
         crate::drawers::ensure_companion_dock_onscreen(&w);
@@ -693,7 +693,7 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
         let pinned = crate::drawers::pin_bottom_center(cur, grown.w, enter_h);
         let placed = crate::drawers::clamp_on_displays_keep_bottom(pinned).unwrap_or(pinned);
         crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
-        // Leftover (summon clamp): the keep-bottom
+        // the keep-bottom
         // grow must not leave the dock sunk below every display (a
         // low-parked idle pins a sunk bottom; a fully-off pinned rect
         // survives the unwrap_or) — rescue onto the display.
@@ -718,7 +718,7 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
         let restore = crate::drawers::pin_bottom_center(pin_from, rw, rh);
         let placed = crate::drawers::clamp_on_host_display(live, restore);
         crate::drawers::place_logical_rect_keep_bottom(&w, "companion", &placed);
-        // Leftover (summon clamp): never dismiss into
+        // never dismiss into
         // a rect whose dock is sunk — rescue BEFORE the persist so the
         // saved idle place is clickable too.
         crate::drawers::ensure_companion_dock_onscreen(&w);
@@ -757,7 +757,7 @@ pub(crate) fn unhost_before_persist(app: &tauri::AppHandle) {
 pub(crate) fn show_companion(app: &tauri::AppHandle) -> Result<(), String> {
     // Docked companions take the inboard slot;
     // plucked ones restore bounds inside show_drawer.
-    // FRONT-HOLD leftover: an already-visible summon is raise-only —
+    // an already-visible summon is raise-only —
     // rewriting companion.visible + emitting state:changed on every ⌘⇧O
     // reloaded every pane and beach-balled the desk.
     let already = app

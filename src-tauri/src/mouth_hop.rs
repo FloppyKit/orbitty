@@ -1,31 +1,6 @@
-//! Thin lane router for the Spark mouth.
-//!
-//! Orbitty owns the ledger — the bubble is ONE continuous thread and
-//! `companion.turns` is never wiped. Paid Grok is today's mouth (session
-//! continuity via plug.json + mouth_roll). When Grok answers cooked —
-//! 429 / 402 / quota / session-wall — the mouth HOPS instead of dying:
-//! the hop packet (soul + last ~6 turns + the wrapped line) rehydrates
-//! the SAME thread into the next healthy lane, and the reply lands in
-//! the same bubble. No "new chat who dis."
-//!
-//! Lane order (lock): local Ollama if up → OpenRouter `openrouter/free`
-//! (or an explicit `:free` model id — NEVER `openrouter/auto`) → paid
-//! Grok. Free Mode (`companion.free_mode`, Settings toggle) runs the
-//! free lanes only — paid Grok stays off, so no surprise bill; no free
-//! lane up = one honest skip line as a them-row.
-//!
-//! OpenRouter is failover + a free lane, never identity. The BYOK key
-//! lives in `companions/orbitty-primary/openrouter.key` (0600) or
-//! OPENROUTER_API_KEY — never in state.json (whole-object saves would
-//! leak it into backups). When a key exists the lane GETs quota
-//! (`/api/v1/auth/key`) before spending a request: cooked → hop.
-//!
-//! HTTP rides `/usr/bin/curl` (always on macOS; Orbitty.app has a thin
-//! PATH) — the crate carries no HTTP client on purpose (Cargo.toml).
-//! The bearer key never touches argv (`ps`): it rides a 0600 curl
-//! config file; the prompt body rides a 0600 temp file. Both are
-//! unlinked on drop. Not this GO: `opencode serve`, Vercel harness,
-//! OpenCode Zen as the mouth.
+//! Spark mouth lane hop. One bubble; never wipe `companion.turns`.
+//! Lanes: local Ollama → OpenRouter `:free` (never `openrouter/auto`) →
+//! paid Grok. Key never in state.json. Bearer never on argv.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -46,7 +21,7 @@ const OPENROUTER_BASE: &str = "https://openrouter.ai/api/v1";
 /// forbidden by the lock — the free lane is explicit.
 const OPENROUTER_FREE_MODEL: &str = "openrouter/free";
 
-// ---------- hop packet ----------
+// hop packet
 
 /// Soul (system) + the last few turns of the ACTIVE thread + the
 /// wrapped line, as chat messages for a stateless lane. The just-saved
@@ -100,7 +75,7 @@ fn hop_messages(app: &tauri::AppHandle, soul: &str, raw_line: &str, prompt: &str
     messages
 }
 
-// ---------- curl (the crate's only HTTP — no client dep on purpose) ----------
+// curl (the crate's only HTTP — no client dep on purpose)
 
 fn curl_bin() -> PathBuf {
     let sys = PathBuf::from("/usr/bin/curl");
@@ -224,7 +199,7 @@ fn json_error_note(body: &str) -> String {
     msg.trim().chars().take(80).collect()
 }
 
-// ---------- lane 1: local Ollama ----------
+// lane 1: local Ollama
 
 /// Up = the HTTP server answers /api/version. The `ollama` bin is not
 /// required — Orbitty talks HTTP, never shells the model.
@@ -281,7 +256,7 @@ fn ollama_chat(messages: &[Value]) -> Result<String, String> {
         .to_string())
 }
 
-// ---------- lane 2: OpenRouter free (BYOK, failover — never identity) ----------
+// lane 2: OpenRouter free (BYOK, failover — never identity)
 
 fn key_path() -> PathBuf {
     crate::coordinator::companions_root().join("openrouter.key")
@@ -368,7 +343,7 @@ fn openrouter_chat(key: &str, messages: &[Value]) -> Result<String, String> {
         .to_string())
 }
 
-// ---------- the router ----------
+// the router
 
 /// True when a mouth failure says the LANE is cooked — rate limit
 /// (429), payment/quota (402), or a session wall — so a fresh Grok
@@ -512,7 +487,7 @@ pub async fn send_with_hops(
     }
 }
 
-// ---------- Settings surface (Free Mode toggle + BYOK key) ----------
+// Settings surface (Free Mode toggle + BYOK key)
 
 /// Free Mode toggle — the same load-modify-save + emit pattern as the
 /// other companion switches. Default off (paid Grok is today's mouth).

@@ -17,7 +17,7 @@ use super::{
     VIEW_PADDING, YARD_EAST, YARD_NORTH, YARD_SOUTH, YARD_WEST,
 };
 
-// GO-ORBITTY-WORLD-PROPS: the sign's blank face inside the punched PNG
+// the sign's blank face inside the punched PNG
 // (brand/town/sign.png), measured as fractions of the cropped sprite.
 // The blit is bottom-pinned at STATION_BOARD and scaled so the face is
 // SIGN_FACE_W disc units wide; the three tick columns live on the face.
@@ -39,7 +39,7 @@ const SIGN_FACE_W: f64 = 0.144;
 /// midpoint.
 const SIGN_POST_X: f64 = 0.1606;
 
-// GO-ORBITTY-WORLD-PROPS: the punched igloo (brand/town/igloo.png,
+// the punched igloo (brand/town/igloo.png,
 // flipped so the door faces east). IGLOO_DOOR is the door-base point as
 // a fraction of the sprite; the doorstep pins to STATION_HOUSE (spawn /
 // home is the door, not the centroid). PROPS leftover: fixed width
@@ -93,7 +93,7 @@ fn sign_face_rect(radius: f64, projection: Projection, marble_scale: f64) -> NSR
 /// Planet board columns (todo / doing / done), view-local, same math as
 /// the blit. `None` if marble. Done is column 2.
 ///
-/// GO-ORBITTY-WORLD-PROPS: the columns live on the sign's painted face
+/// the columns live on the sign's painted face
 /// (recomputed from the face rect, not the old 9×30 glyph).
 pub(crate) fn board_column_rects(
     radius: f64,
@@ -208,7 +208,7 @@ const BOOMBOX: [&str; 7] = [
     "BBBBBBBB",
 ];
 
-// GO-ORBITTY-WORLD-YARD leftover: the beach ball — orange/white panels
+// the beach ball — orange/white panels
 // on the same cheap pixel painter as the decor, never a PNG hunt.
 // O orange panel, W white panel.
 const BALL: [&str; 7] = [
@@ -221,7 +221,7 @@ const BALL: [&str; 7] = [
     "..OOO..",
 ];
 
-// GO-ORBITTY-WORLD-TOWN: the town blits — cheap pixel glyphs on the same
+// the town blits — cheap pixel glyphs on the same
 // painter as the plants, never sprite packs. I ice, D door. The igloo is
 // the home station (spawn / Done's door), NOT the user HOUSE shack.
 // WORLD-PROPS: the bundled PNG is the igloo now — this glyph is the
@@ -237,7 +237,7 @@ const IGLOO: [&str; 8] = [
     "IIIIDDDDDIII",
 ];
 
-// GO-ORBITTY-WORLD-PROPS leftover: the paddock reads as GRASS — NES-ish
+// the paddock reads as GRASS — NES-ish
 // blade tufts (same painter as the plant glyphs) scattered across the
 // four-edge yard AABB (offsets from STATION_FIELD), over a faint darker
 // dirt underlay. g dark blade, m mid, G light.
@@ -377,9 +377,9 @@ struct WalkerDraw {
     flip: bool,
     /// 2.5D front-arc emphasis; 1.0 in flat projection.
     scale: f64,
-    /// GO-ORBITTY-RAIL-ROW-MENU locate: stroke a ring around this walker.
+    /// MENU locate: stroke a ring around this walker.
     locate: bool,
-    /// GO-ORBITTY-DROID-GLANCE: 0 working, 1 blocked, 2 needs-you.
+    /// 0 working, 1 blocked, 2 needs-you.
     droid_glance: u8,
 }
 
@@ -414,10 +414,10 @@ struct DrawData {
     /// caption is live.
     hover_name: bool,
     decor: Vec<DecorDraw>,
-    /// GO-ORBITTY-WORLD-TOWN: board ticks per column (todo/doing/done),
+    /// board ticks per column (todo/doing/done),
     /// colors pre-hashed from card ids. Empty on marbles (no town).
     board: [Vec<(f64, f64, f64)>; 3],
-    /// GO-ORBITTY-WORLD-PROPS: retained town NSImages (0 = missing →
+    /// retained town NSImages (0 = missing →
     /// glyph fallback). Loaded once per session by ensure_town_art.
     town_igloo: usize,
     town_sign: usize,
@@ -425,10 +425,10 @@ struct DrawData {
     town_ball: usize,
     /// Dest-menu find: 0 just armed, 1 expired. None = no glow.
     locate_t: Option<f64>,
-    /// GO-ORBITTY-WORLD-YARD leftover: the beach ball's view-local center
+    /// the beach ball's view-local center
     /// this frame. None = hidden (toggle off / < 2 Doing / marble).
     ball: Option<(f64, f64)>,
-    /// GO-ORBITTY-BOOMBOX leftover (click): the open boombox HUD —
+    /// the open boombox HUD —
     /// geometry + live slider/mute state. None = closed.
     hud: Option<boombox_hud::HudDraw>,
     todo_trees: Vec<crate::habitat::TodoTreeTick>,
@@ -448,7 +448,7 @@ fn draw_rect_guarded(this: &Object) {
     let data = {
         let mut h = lock();
         ensure_town_art(&mut h);
-        // GO-ORBITTY-DOING-WALKER: bake this view's droid atlases BEFORE
+        // bake this view's droid atlases BEFORE
         // the immutable draw pass — once per seed, then frame_ptr only
         // reads. Never a per-frame procgen.
         let droid_seeds = h
@@ -465,7 +465,7 @@ fn draw_rect_guarded(this: &Object) {
         let town_boombox = h.town_boombox;
         let town_ball = h.town_ball;
         let now = now_epoch();
-        // WORLD-YARD leftover (ball in view space): per-pack still-frame
+        // per-pack still-frame
         // aspects for the keep-up head math (0.0 = generated person).
         let pack_aspects: Vec<f64> = h
             .pack_frames
@@ -479,7 +479,7 @@ fn draw_rect_guarded(this: &Object) {
                 .enumerate()
                 .filter_map(|(i, b)| {
                     let roam = p.roam.get(&b.entry_id);
-                    // GO-ORBITTY-CADENCE: a Done walker past the hide line is
+                    // a Done walker past the hide line is
                     // gone from the world (off the left rim, WORLD-TOWN)
                     // until the rail's eviction lands — never drawn
                     // mid-padding.
@@ -524,7 +524,7 @@ fn draw_rect_guarded(this: &Object) {
                         } else {
                             0
                         },
-                        // GO-ORBITTY-DOING-WALKER: a droid blits its baked
+                        // a droid blits its baked
                         // atlas (Sit = seated frame; cycling = the two
                         // walk frames) — window walkers keep the bitty
                         // sheets / generated person below.
@@ -628,7 +628,7 @@ fn draw_rect_guarded(this: &Object) {
                     board[col].push(card_color(&c.id));
                 }
             }
-            // GO-ORBITTY-WORLD-YARD leftover (ball in view space): the
+            // the
             // keep-up ball's view-pixel point this frame. ball_pos returns
             // it ready to blit — heads come from the blit's own math
             // (walker_head_view), so there is NO second projection here.
@@ -787,7 +787,7 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
         ry * 0.34,
     ));
 
-    // GO-ORBITTY-WORLD-PROPS: the paddock is a grass patch, never fence
+    // the paddock is a grass patch, never fence
     // posts. Leftover: no more filled-green blotch — a faint darker dirt
     // underlay in the same four-edge AABB (west/south edges PINNED;
     // east pulled back to the shack's LEFT wall, north to the tuft
@@ -920,7 +920,7 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
     let _: () = msg_send![ring, setLineWidth: if d.is_marble { 1.0 } else { 1.5 }];
     let _: () = msg_send![ring, stroke];
 
-    // GO-ORBITTY-WORLD-PROPS: the town at real scale — bundled PNGs
+    // the town at real scale — bundled PNGs
     // drawn UNCLIPPED like the walkers (buildings stand on the disc
     // stage: the sign rises past the back rim; the igloo sits fully
     // on-disc since the leftover). Marbles skip town blits. The cheap
@@ -1111,7 +1111,7 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
         }
     }
 
-    // GO-ORBITTY-WORLD-YARD leftover: the beach ball, drawn with the
+    // the beach ball, drawn with the
     // walkers above the grass. Bundled PNG when present; cheap orange/
     // white panels as fallback. Marbles never carry one (ball_pos gates).
     // Head-kiss leftover: bottom-anchored ON the kiss point (sprite top
@@ -1154,7 +1154,7 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
         draw_caption(center, ry, text);
     }
 
-    // GO-ORBITTY-PLANET-MARK: an expanded planet wears its name under the
+    // an expanded planet wears its name under the
     // oval — always on, no hover hunt. Marbles stay bare (hover pill).
     if !d.is_marble {
         draw_under_label(center, ry, &d.name);
@@ -1162,7 +1162,7 @@ unsafe fn draw_world(this: &Object, d: &DrawData) {
 
     draw_planet_locate(d, center, r, ry, rect);
 
-    // GO-ORBITTY-BOOMBOX leftover (click): the boombox HUD floats over
+    // the boombox HUD floats over
     // everything — caption, under-label, locate glow, walkers.
     if let Some(hud) = &d.hud {
         boombox_hud::draw(hud);

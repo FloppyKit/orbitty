@@ -1,27 +1,6 @@
-//! Needed standing rules: read / classify /
-//! match / can-run against `~/.buzz/ops/needed-bus/rules.json` (the STORE
-//! stage's file). Lock: `~/.buzz/PLANS/ORBITTY_NEEDED_RULES_LOCK_v0.md`.
-//!
-//! Rules are ALWAYS user-minted (Matt) — this module never writes one.
-//! `board::needed_open` consults `decide()` before minting, so ctl, MCP,
-//! and the python wrapper all ride the same door (MCP cannot bypass):
-//!   0 hits / collide / cannot-run / unreadable store → `Decision::Open`
-//!     (mint `open` as today — Matt gets pinged)
-//!   1 hit (or many with the SAME answer) + can-run → `Decision::Apply` —
-//!     the card is born `answered` with `actor: "rule"` in the same save
-//!     and `needed-answer` is emitted, so the existing watch → nest clerk
-//!     / writer dispatch acts as if Matt typed it. No walker, no
-//!     NEXT-CARD (neededState is never `open`), no companion send.
-//! Fail-open is the lock: empty answer, writer seat + missing prompt file,
-//! writer seat + issue already running/shipped, unreadable JSON → ping.
-//! Match is the small AND param list (unspecified = wildcard) — no model.
-//! Log: append-only `rules.log` JSONL (titles only, no PHI).
-//!
-//! `rule_add` is the Answer chrome's Save
-//! ("if this again" row). Still no writes from Rust — it shells out to
-//! `orbitty-needed rule add`, so the python CLI keeps owning rules.json
-//! (validation, the 48 cap, atomic save, log). This builds argv (no
-//! shell) and hands back the minted rule or the CLI's refusal verbatim.
+//! Needed standing rules. User-minted only — this module never writes
+//! a rule. Unreadable store / collide / cannot-run → mint open (fail
+//! open). Titles only, no PHI.
 
 use std::path::{Path, PathBuf};
 
@@ -139,7 +118,7 @@ pub fn classify(title: &str, project: &str, why: &str) -> Classified {
     }
 }
 
-// ---------- store (read-only here; writes are the python CLI's job) ----------
+// store (read-only here; writes are the python CLI's job)
 
 #[derive(Deserialize)]
 pub struct Rule {
@@ -201,7 +180,7 @@ fn log_event(ev: serde_json::Value) {
     }
 }
 
-// ---------- when.issued (same read as the bus `issued` check) ----------
+// when.issued (same read as the bus `issued` check)
 
 /// `os.kill(pid, 0)` semantics without a libc dep.
 fn pid_alive(pid: i64) -> bool {
@@ -252,7 +231,7 @@ pub fn issued_state(go: &str, prompt: &str) -> String {
     "absent".into()
 }
 
-// ---------- prompt resolution (mirrors the python wrapper) ----------
+// prompt resolution (mirrors the python wrapper)
 
 fn expand_home(raw: &str) -> PathBuf {
     if let Some(rest) = raw.strip_prefix("~/") {
@@ -337,7 +316,7 @@ fn newest_plans_prompt(slug: &str) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
-// ---------- match ----------
+// match
 
 /// Lock: `project` matches the planet id OR the exact name.
 fn project_matches(rule_value: &str, card_project: &str, projects: &[Project]) -> bool {
@@ -427,7 +406,7 @@ fn prompt_for(go: &str, kind: Option<&str>) -> Option<PathBuf> {
     }
 }
 
-// ---------- can-run (fail-open list from the lock) ----------
+// can-run (fail-open list from the lock)
 
 /// Same seat words as the bus's `seat_from_answer`.
 fn seat_of(answer: &str) -> Option<&'static str> {
@@ -479,7 +458,7 @@ fn can_run(rule: &Rule, card: &Classified) -> Result<(), String> {
     Ok(())
 }
 
-// ---------- the gate ----------
+// the gate
 
 /// Classify + match + can-run for one `needed.open`. Logs the outcome
 /// (hit applied true/false, collide, miss) to `rules.log`. `why` is the
@@ -545,7 +524,7 @@ pub fn decide(title: &str, project_id: &str, why: &str, projects: &[Project]) ->
     }
 }
 
-// ---------- The Answer chrome's Save ----------
+// The Answer chrome's Save
 
 /// `~/.local/bin/orbitty-needed` (a symlink into the scripts repo).
 fn cli_path() -> PathBuf {

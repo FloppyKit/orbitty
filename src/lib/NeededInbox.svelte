@@ -187,7 +187,7 @@
       </span>
     </div>
     {#if neededNow.length > 0}
-      <!-- LP-SPLIT leftover: pile titles in the top box (cap four
+      <!-- pile titles in the top box (cap four
            rows, scrolls), the selected tile's preview in the lower
            box — an always-open column in the board row, so the
            Todo/Doing/Done columns never leave the screen while a
@@ -303,7 +303,7 @@
     line-height: 1.5;
   }
 
-  /* LP-SPLIT leftover: the open column boxes (kn-list / kn-item /
+  /* the open column boxes (kn-list / kn-item /
      kn-card) live in needed-split.css — the split band above the board
      was the miss and is deleted, not piled on. */
   .kn-q {

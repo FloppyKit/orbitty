@@ -1,23 +1,6 @@
-// Orbitty host theme packs.
-//
-// Law: never invent primary palettes for the System pair. macOS values are
-// the Tahoe semantic table (live aqua dump on Tahoe 26.5 + documented dark
-// semantics — the CLI dark dump never resolved, so dark trusts the docs).
-// Brand lock (2026-08-29) overrides that law for
-// accent / onAccent / mark / focus ONLY: the System pair wears the Orbitty
-// brand triad (planet teal accent, ochre mark, violet focus). bg / panel /
-// ink / dim / edge stay the Tahoe table.
-// Habitat brand lock (2026-08-29) splits the purple: focus is now
-// the deeper violet #6e4db0 (selected/hover outline), and the pair gains
-// bloom #c793e6 (pinky — words/tags/secondary chips, never the ring) plus
-// field #0b1020 (dark habitat pane body; Light keeps Tahoe chrome).
-// S4.2 retired Clear: translucency is now the windowOpacity slider fading
-// the theme --bg fill, never an NSVisualEffect material.
-//
-// Linux rows are RESERVED design-time fallbacks (no window module yet),
-// keyed by XDG_CURRENT_DESKTOP later: Adwaita / Yaru / Breeze only.
-// No WhiteSur, no McMojave, no KWin, never macOS hex on Linux.
-// Custom skins (Terminal only for now) stay secondary and live in CSS.
+// Host theme packs. System pair: Tahoe table for bg/panel/ink/dim/edge.
+// Brand triad only on accent / onAccent / mark / focus. Never invent
+// palettes. Translucency is windowOpacity, not NSVisualEffect.
 
 export interface HostTokens {
   bg: string;
@@ -77,7 +60,6 @@ export function systemTokens(id: string): HostTokens | null {
   return (MAC_SYSTEM_TOKENS as Record<string, HostTokens>)[id] ?? null;
 }
 
-// ---------------------------------------------------------------------------
 // RESERVED — Linux DE defaults (not this slice).
 // Design-time hex fallback only; at implement time prefer semantic sources
 // (libadwaita CSS variables, KColorScheme, portal accent-color) and read the
@@ -85,7 +67,6 @@ export function systemTokens(id: string): HostTokens | null {
 //   1. XDG_CURRENT_DESKTOP → pack below
 //   2. portal org.freedesktop.appearance accent-color when present
 //   3. fallback: Adwaita (widest GTK/libadwaita footprint)
-// ---------------------------------------------------------------------------
 
 export interface LinuxDePack {
   lightBg: string;

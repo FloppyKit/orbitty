@@ -11,7 +11,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 use tauri::Emitter;
 
-/// FRONT-HOLD leftover: popUpContextMenu runs a nested loop. Arm the
+/// popUpContextMenu runs a nested loop. Arm the
 /// companion poll quiet so setLevel hops cannot beach-ball the menu.
 struct MenuQuiet;
 impl MenuQuiet {
@@ -42,12 +42,12 @@ use super::{
     Planet, MIN_RADIUS, VIEW_PADDING,
 };
 
-/// GO-ORBITTY-BOOMBOX leftover (click): press-release on the boombox
+/// press-release on the boombox
 /// under this distance is a click (toggles the HUD); past it the stroke
 /// is a drag — the same ≥4px law as walkers. A drag is not a click.
 pub(crate) const BOOMBOX_CLICK_SLOP: f64 = 4.0;
 
-// ---------- hit tests + mouse ----------
+// hit tests + mouse
 
 
 fn planet_for_view<'a>(
@@ -61,7 +61,7 @@ fn planet_for_view<'a>(
 /// the planet disc, else click-through. Returns the entry id and whether the
 /// being is a walker — the click matrix differs per kind.
 fn hit_being(planet: &Planet, local: NSPoint) -> Option<(String, bool)> {
-    // GO-ORBITTY-CADENCE: a walker hidden off the north rim (Done, waiting
+    // a walker hidden off the north rim (Done, waiting
     // on the rail's eviction) is not a hit target — nothing invisible
     // swallows a click.
     if let Some(b) = planet
@@ -158,7 +158,7 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
                 hit_board_column(planet, local),
             )
         };
-        // GO-ORBITTY-BOOMBOX leftover (click): an open boombox HUD owns
+        // an open boombox HUD owns
         // the next down on its planet — slider/speaker/pill eat it, the
         // backer swallows it, anything else dismisses the HUD and falls
         // through to its normal hit. The boombox sprite itself falls
@@ -339,7 +339,7 @@ enum BeingAction {
     /// Sleeper double: wake via the claim's stamps (live → file → session →
     /// recipe → app) — a dead pid:cgid would only fail restore_window.
     Wake(String),
-    /// GO-ORBITTY-DOING-WALKER: droid double-click — no window to restore;
+    /// droid double-click — no window to restore;
     /// raise the run's planet (the pane/TTY raise is HERDR-ADAPTER's).
     Planet(String),
 }
@@ -408,13 +408,13 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                 return;
             }
             let entry_id = pending.entry_id.clone();
-            // GO-ORBITTY-RAIL-ROW-MENU: walker single-click is the locate
+            // walker single-click is the locate
             // stroke (glow only) — the Being editor moved to the walker
             // right-click menu's "Open being…". A real drag (≥4px) is not a
             // click: the walker just moved house.
             let mut locate_id: Option<String> = None;
             let action = match (pending.walker, clicks >= 2, asleep, droid) {
-                // GO-ORBITTY-DOING-WALKER: droid single — the same locate
+                // droid single — the same locate
                 // stroke as a window walker; the caption names the run.
                 (true, false, _, true) => {
                     set_caption(planet, format!("{label} · agent"));
@@ -497,7 +497,7 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
     }
 }
 
-// ---------- scroll zoom + right-click menu ----------
+// scroll zoom + right-click menu
 
 pub(crate) extern "C" fn scroll_wheel(this: &Object, _cmd: Sel, event: *mut Object) {
     if let Err(p) = catch_unwind(AssertUnwindSafe(|| unsafe { scroll_wheel_inner(this, event) })) {
@@ -615,14 +615,14 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         let mut h = lock();
         boombox_hud::close(&mut h);
     }
-    // GO-ORBITTY-RAIL-ROW-MENU: a walker hit gets the sprite-assignment
+    // a walker hit gets the sprite-assignment
     // menu; dots fall through to the planet menu (no walker menu on dots).
     let (walker_hit, boombox_hit) = {
         let mut h = lock();
         let Some((_, planet)) = planet_for_view(&mut h, view_ptr) else {
             return;
         };
-        // GO-ORBITTY-DOING-WALKER: a droid has no claim, no Being editor,
+        // a droid has no claim, no Being editor,
         // no pack picks — its right-click is the planet menu.
         let being = hit_being(planet, local).filter(|(id, walker)| {
             !*walker
@@ -650,7 +650,7 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         }
         (project_id.clone(), planet.is_marble)
     };
-    // GO-ORBITTY-BOOMBOX leftover (click): the sprite's right-click is
+    // the sprite's right-click is
     // EMPTY — no menu, and it never falls through to the disc menu.
     if boombox_hit {
         return;
@@ -728,7 +728,7 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         build_left > 0,
     );
     add_separator(menu);
-    // GO-ORBITTY-BOOMBOX: live toggle — Place arms the drop-next-click
+    // live toggle — Place arms the drop-next-click
     // path, Remove clears the placed box. Always enabled. Choose music
     // stays on the disc too so a miss of the sprite still has a door.
     add_menu_item(
@@ -749,7 +749,7 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         None,
         true,
     );
-    // GO-ORBITTY-WORLD-YARD leftover: per-planet beach-ball keep-up — a
+    // per-planet beach-ball keep-up — a
     // checkable toggle persisted on the world slice next to the boombox.
     // Marbles have no walkers: no ball.
     add_menu_item(
@@ -767,7 +767,7 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
 }
 
 
-// ---------- walker right-click menu (GO-ORBITTY-RAIL-ROW-MENU) ----------
+// walker right-click menu (GO-ORBITTY-RAIL-ROW-MENU)
 
 /// What the rail does with a walker-menu pick. `kind` = import first
 /// ("image" / "folder"); `pack_id` = direct pick (None = Generated).
@@ -893,7 +893,7 @@ unsafe fn walker_context_menu(this: &Object, event: *mut Object, entry_id: &str)
         let _: () = msg_send![look, release];
     }
     add_separator(menu);
-    // GO-ORBITTY-CLAIM-ONE: Assign to planet IS the rail claim — the pick
+    // Assign to planet IS the rail claim — the pick
     // emits habitat:walker-assign and the rail rewrites projectId through
     // the same persist door (one windowId, one planet; the open kanban
     // card and the sprite follow the claim). No occupancy teleport.
@@ -1145,7 +1145,7 @@ pub(crate) extern "C" fn menu_toggle_boombox(_this: &Object, _cmd: Sel, sender: 
     }));
 }
 
-/// GO-ORBITTY-WORLD-YARD leftover: the planet menu's checkable beach-ball
+/// the planet menu's checkable beach-ball
 /// toggle. Persisted on the world slice (the same worlds_dirty →
 /// cursor_tick save door as the boombox); the live planet mirrors it and
 /// a toggle-off hides the ball at once. Planet menu only — never

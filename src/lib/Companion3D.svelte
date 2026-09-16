@@ -1,12 +1,12 @@
 <script lang="ts">
-  // GO-ORBITTY-COMPANION-3D: a bundled 3D body (Tang / Female) living in
+  // a bundled 3D body (Tang / Female) living in
   // the exact slots SpiritStage owns — idle stage, hosted wellhead,
   // 96×96 corner — with the same .stage/.floatwrap markup so window
   // drag stays on the figure. three.js
   // is dynamically imported ONLY here, so the rail / kanban / settings
   // first paint never loads it. Plays the glTF `idle` clip looping; a
   // send in flight crossfades to `think` when the file carries it.
-  // GO-ORBITTY-COMPANION-PLAY: `companion.play` off the control socket
+  // `companion.play` off the control socket
   // lands here as `companion:play` and runs the five allowlisted gestures
   // (idle · think · nod · look-left · look-right) — file clips first,
   // bone envelopes only where a name is missing. A slow camera orbit
@@ -145,7 +145,7 @@
     if (reduceMotion || hidden) renderOnce();
   }
 
-  // ---------- GO-ORBITTY-COMPANION-PLAY: named gestures, one at a time ----------
+  // GO-ORBITTY-COMPANION-PLAY: named gestures, one at a time
   // Allowlist (lock): idle · think · nod · look-left · look-right. Grade 1
   // is the glTF clip by animations[].name — idle/think/nod ship in both
   // GLBs (brand/companion/3d/CLIPS.md). Bone envelopes are the fallback

@@ -255,7 +255,7 @@ pub fn kanban_assign(app: &tauri::AppHandle, card_id: &str, agent: &str) -> Resu
 /// this agent's `assignedAgentId` (and the pinned planet, when the row has
 /// one). The card moves `doing` through the board's own door, then the
 /// row's harness launches with `titles = [card.title]`.
-/// Leftover (dock LED): EVERY harness lights the
+/// EVERY harness lights the
 /// dock LED — `companion hack -- on --who <harness>` (+ the pinned planet
 /// for the menu glow) lands BEFORE the harness is up, the same door as
 /// cursor-go; the launcher owns off-on-exit (coordinator's doors), and a
@@ -315,7 +315,7 @@ pub fn agent_pickup(app: &tauri::AppHandle, id: Option<&str>, name: Option<&str>
         .iter()
         .find(|p| p.id == card.project_id)
         .map(|p| p.name.clone());
-    // Leftover (dock LED): light the dock BEFORE
+    // light the dock BEFORE
     // the harness is up — every harness (cursor | goose | grok | hermes),
     // the same door as cursor-go. The pinned planet rides along so the
     // dest/planet menus glow it while the run is live. Off lands with the

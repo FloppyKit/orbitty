@@ -40,7 +40,7 @@ pub struct PersistedState {
     /// Settings → Appearance toggle. Default OFF —
     /// collapsed marbles sit where they were left until opted in.
     pub marble_drift: bool,
-    /// Leftover: the Herding Cats confirm's source
+    /// the Herding Cats confirm's source
     /// checkboxes — independent on/off, at least one must be on before
     /// Drop can arm. Tabs stay disabled in the pane until Tabbity lands.
     /// The legacy `yardSource` radio key is no longer written; old saves
@@ -307,7 +307,7 @@ pub struct StarsState {
     pub average_window: String,
     pub average_from: String,
     pub average_to: String,
-    /// GO-ORBITTY-STARS-FIVE: spoke scale version. 0/absent = legacy 0–4
+    /// spoke scale version. 0/absent = legacy 0–4
     /// (migrate n→n+1 once at setup), 2 = 1–5. The flag is what stops a
     /// double migration — a migrated save has no zeros left to sniff for.
     pub scale_v: u8,
@@ -444,7 +444,7 @@ pub struct CompanionState {
     /// Names the live source for the LED title
     /// ("cursor", "goose", …). "" = unknown; cleared on off.
     pub hack_who: String,
-    /// Leftover: the live agent's pinned planet
+    /// the live agent's pinned planet
     /// (pickup writes it) — the dest/planet menus glow that one planet
     /// while the run is live. None = no pin / not a pickup; cleared on
     /// off. Never a transcript.
@@ -918,7 +918,7 @@ pub fn save_state(app: &tauri::AppHandle, state: &PersistedState) -> Result<(), 
     Ok(())
 }
 
-/// GO-ORBITTY-STARS-FIVE one-time migration: legacy checkins are 0–4, the
+/// FIVE one-time migration: legacy checkins are 0–4, the
 /// scale is now 1–5. Every saved spoke shifts n → n+1 exactly once — the
 /// `scale_v` flag guards it, never zero-sniffing (a migrated save has no
 /// zeros) — then the migrated shape is written back so no window ever

@@ -116,7 +116,7 @@ export interface KanbanCard {
   parentId?: string | null;
   // Optional 1–7 rating (not difficulty, not points).
   rating?: number | null;
-  // Leftover: trackers used to live on the card. Launchpad
+  // trackers used to live on the card. Launchpad
   // migrates any leftover onto the planet; the key stays so saves
   // do not strip old rows.
   trackers?: Tracker[];
@@ -239,14 +239,14 @@ export interface CompanionSlice {
   // live source for the LED title. A flag, never a transcript.
   hackLive?: boolean;
   hackWho?: string;
-  // Leftover: the live agent's pinned planet
+  // the live agent's pinned planet
   // (pickup writes it) — the dest/planet menus glow that one planet
   // while hackLive is on. null/undefined = no pin; cleared on off.
   hackProjectId?: string | null;
   // Free Mode — free lanes only (local Ollama →
   // OpenRouter free); paid Grok stays off. The BYOK key never lives in
   // state — native keeps it 0600 under companions/orbitty-primary.
-  // Leftover: REQUIRED — an omitted key heals to false on the native
+  // REQUIRED — an omitted key heals to false on the native
   // save and silently strips the mode (the agentRuns strip-trap). Page
   // state loaded from disk defaults it false; never leave it undefined.
   freeMode: boolean;
@@ -276,7 +276,7 @@ export interface StarsSlice {
   averageWindow?: AverageWindow;
   averageFrom?: string;
   averageTo?: string;
-  // GO-ORBITTY-STARS-FIVE: 2 = spokes are 1–5; absent = legacy 0–4, which
+  // 2 = spokes are 1–5; absent = legacy 0–4, which
   // native setup migrates n→n+1 once before any window reads state.
   scaleV?: number;
 }
@@ -311,7 +311,7 @@ export interface PersistedState {
   hideAppIcons: boolean;
   spriteScale: number;
   marbleDrift: boolean;
-  // Leftover: Herding Cats confirm source checkboxes
+  // Herding Cats confirm source checkboxes
   // — independent bools, at least one on before Drop can arm. Tabs stay
   // disabled until Tabbity lands. The old `yardSource` radio key is no
   // longer written; a save that predates the bools heals to windows on /

@@ -49,7 +49,7 @@ const DRAG_SLOP: f64 = 4.0;
 /// (view-local flipped y; 0 = that screen's top edge).
 const RAIN_DROP_TOP: f64 = 0.2;
 
-// ---------- mouseDown: arm the press ----------
+// mouseDown: arm the press
 
 pub(crate) extern "C" fn mouse_down(this: &Object, _cmd: Sel, event: *mut Object) {
     if let Err(p) = catch_unwind(AssertUnwindSafe(|| unsafe { mouse_down_inner(this, event) })) {
@@ -94,7 +94,7 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
     });
 }
 
-// ---------- mouseUp: click, double-click, or the drop ----------
+// mouseUp: click, double-click, or the drop
 
 pub(crate) extern "C" fn mouse_up(this: &Object, _cmd: Sel, event: *mut Object) {
     if let Err(p) = catch_unwind(AssertUnwindSafe(|| unsafe { mouse_up_inner(this, event) })) {
@@ -169,7 +169,7 @@ fn arm_caption(y: &mut Yard, window_id: &str) {
     y.caption = Some((window_id.to_string(), Instant::now()));
 }
 
-// ---------- the hop's drag step ----------
+// the hop's drag step
 
 /// Runs from the 33ms hop (main thread): slides a dragged cat with the
 /// pointer once past click slop, and catches a release whose mouseUp
@@ -278,7 +278,7 @@ fn release_press(y: &mut Yard, press: &CatPress) {
     }
 }
 
-// ---------- the app-name chip ----------
+// the app-name chip
 
 /// Single-click feedback: dark rounded backer + white 11pt app name,
 /// centered above the cat (flips below when the cat hugs the top edge).

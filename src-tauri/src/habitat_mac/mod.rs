@@ -31,7 +31,7 @@ mod todo_tree;
 
 pub use tick::{persist_now, start};
 
-// ---------- geometry ----------
+// geometry
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
@@ -100,8 +100,8 @@ unsafe impl objc::Encode for NSRect {
     }
 }
 
-// ---------- pixel sprite art ----------
-// GO-ORBITTY-CHARS: walkers are generated people (chars.rs 12×12 glyph
+// pixel sprite art
+// walkers are generated people (chars.rs 12×12 glyph
 // grids, composited body/clothes/eyes/mouth/hat + palette) drawn per frame
 // below. The old blob/cat/robot templates are retired — an empty pack id
 // means "generated being", never a blank.
@@ -110,7 +110,7 @@ const DOT_SIZE: f64 = 12.0;
 const VIEW_PADDING: f64 = 30.0;
 pub(crate) const EXPANDED_RADIUS: f64 = 72.0;
 const MARBLE_RADIUS: f64 = 18.0;
-/// GO-ORBITTY-PLANET-BUDGET desk budget: at most 3 expanded planets (a 4th
+/// BUDGET desk budget: at most 3 expanded planets (a 4th
 /// expand collapses the least-recently focused of the rest) and at most 12
 /// collapsed marble panels (13th+ projects stay on the rail list, no panel).
 const MAX_EXPANDED: usize = 3;
@@ -155,7 +155,7 @@ pub(crate) const YARD_WEST: f64 = -0.364; // PINNED
 pub(crate) const YARD_EAST: f64 = 0.54;
 pub(crate) const YARD_NORTH: f64 = -0.45;
 pub(crate) const YARD_SOUTH: f64 = 0.42;
-/// GO-ORBITTY-WORLD-YARD: interior inset so sprites stay on the green —
+/// interior inset so sprites stay on the green —
 /// the wander AABB is the pad shrunk by this inward on every edge:
 /// x ∈ [-0.324, 0.50], y ∈ [-0.41, 0.38]. The box never reaches the
 /// igloo (x ≤ -0.50) or the sign footprint (the face sits at
@@ -222,7 +222,7 @@ pub(crate) enum Pose {
 fn pose_for(entry: &HabitatEntry) -> Pose {
     let droid = !entry.agent_seed.is_empty();
     if droid {
-        // GO-ORBITTY-DROID-GLANCE: sit blocked and needs-you; work
+        // sit blocked and needs-you; work
         // while writing; walk off when the run is done. NES walkers
         // keep the table below (Needed wins over Doing).
         if entry.needed_state == "open"
@@ -293,7 +293,7 @@ pub(crate) fn station_target(pose: Pose, entry_id: &str) -> (f64, f64) {
 }
 
 /// FNV-1a for stable per-walker offsets (tick.rs has its own for tracks).
-/// GO-ORBITTY-DOING-WALKER: also hashes the droid's bake seed string.
+/// also hashes the droid's bake seed string.
 pub(crate) fn hash_str(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in s.as_bytes() {
@@ -303,7 +303,7 @@ pub(crate) fn hash_str(s: &str) -> u64 {
     h
 }
 
-/// GO-ORBITTY-WORLD-YARD: per-walker wander stream seed — FNV-1a over
+/// per-walker wander stream seed — FNV-1a over
 /// the entry id, never 0 (0 is the roam entry's "not armed yet"
 /// sentinel). Two Doing bodies get different streams: no shared pixel,
 /// no conga line.
@@ -334,7 +334,7 @@ pub(crate) fn yard_pick(seed: &mut u64) -> (f64, f64) {
     )
 }
 
-/// WORLD-YARD leftover (smooth wander): the next grass point, preferring
+/// the next grass point, preferring
 /// a heading that is NOT a reverse of the walker's current one — a pick
 /// whose dot with (dx, dy) is ≤ −0.5 (a ≥ 120° about-face) is skipped,
 /// up to 3 stream steps; the stream always advances, so a cornered
@@ -386,7 +386,7 @@ pub(crate) fn yard_clamp(x: f64, y: f64) -> (f64, f64) {
     )
 }
 
-// ---------- GO-ORBITTY-WORLD-YARD leftover: beach-ball keep-up ----------
+// GO-ORBITTY-WORLD-YARD leftover: beach-ball keep-up
 
 // Ball in VIEW SPACE (leftover: ball in the air). The old disc-unit
 // BALL_HEAD / BALL_ARC lerped disc x,y and bulged disc −y — on the 2.5D
@@ -535,7 +535,7 @@ pub(crate) fn ball_pos(
     ))
 }
 
-/// GO-ORBITTY-WORLD-TOWN: where a board-bound walker comes FROM — the
+/// where a board-bound walker comes FROM — the
 /// igloo station, always. User-placed `planet.buildings` stay sandbox
 /// décor and are never a spawn. Stand/Work roams (and returns from
 /// hide) start here and walk to the station; Sit never spawns here
@@ -561,7 +561,7 @@ fn sticky_pose(prev: Pose, next: Pose) -> Pose {
     }
 }
 
-/// GO-ORBITTY-WORLD-TOWN: WalkOff always aims past the LEFT rim onto
+/// WalkOff always aims past the LEFT rim onto
 /// the panel — Done goes home to the igloo, then off the west edge.
 /// Hashed y (±0.12) so two Done walkers don't overlap. `x` is clamped
 /// so a target is never more EAST than the walker already is — x only
@@ -602,7 +602,7 @@ pub(crate) fn emit_walked_off(entry_id: &str) {
     }
 }
 
-/// GO-ORBITTY-WORLD-CHECKIN: a Todo walker touched the near lip of the
+/// a Todo walker touched the near lip of the
 /// board — the rail's listener flips that window's card todo→doing
 /// (only if still todo; a human drag always wins). Fire-and-forget;
 /// PROPS leftover: anim_tick re-fires on a ~0.5s throttle while the
@@ -633,7 +633,7 @@ fn decor_budget(first_seen: f64, now: f64) -> (usize, usize) {
     )
 }
 
-// ---------- projection geometry ----------
+// projection geometry
 
 /// Vertical radius: oblique (2.5D) squashes the disc to an ellipse.
 fn radius_y(radius: f64, projection: Projection) -> f64 {
@@ -652,7 +652,7 @@ pub(crate) fn max_radius() -> f64 {
     (w.min(h) * 1.35 / 2.0).max(MAX_RADIUS_FLOOR)
 }
 
-/// GO-ORBITTY-WORLD-PROPS: town at real scale — the walker shrinks so
+/// town at real scale — the walker shrinks so
 /// 10–12 fit on a planet. (PROPS leftover: the igloo dropped the 1.6×
 /// grow off this cap — a fixed disc-relative width keeps it on-disc.)
 fn walker_fit(radius: f64, user_scale: f64) -> f64 {
@@ -691,7 +691,7 @@ fn clamp_disc(x: f64, y: f64) -> (f64, f64) {
 }
 
 
-// ---------- persisted world positions ----------
+// persisted world positions
 
 /// One placed plant/mushroom: disc-local unit coords (-1..1) + birth time
 /// for the 7-day growth curve.
@@ -723,7 +723,7 @@ impl Default for Projection {
     }
 }
 
-/// GO-ORBITTY-PROJ-LOCK: expanded planets are always 2.5D; marbles are
+/// expanded planets are always 2.5D; marbles are
 /// always 2D. Not a persisted per-planet switch.
 fn locked_projection(is_marble: bool) -> Projection {
     if is_marble {
@@ -764,7 +764,7 @@ pub(crate) struct WorldState {
     /// full volume — the container `default` would give 0.0.
     #[serde(default = "default_boombox_volume")]
     boombox_volume: f32,
-    /// GO-ORBITTY-BOOMBOX leftover (click): the HUD speaker's hard mute.
+    /// the HUD speaker's hard mute.
     /// The player is kept, faded to 0; unmute returns to the slider's
     /// remembered multiplier. Container default keeps old saves unmuted.
     boombox_muted: bool,
@@ -778,7 +778,7 @@ pub(crate) struct WorldState {
     mushrooms: Vec<DecorItem>,
     buildings: Vec<DecorItem>,
     boombox_pos: Option<DecorPoint>,
-    /// GO-ORBITTY-WORLD-YARD leftover: per-planet beach-ball keep-up
+    /// per-planet beach-ball keep-up
     /// toggle (planet right-click menu, checkable). Default off — the
     /// container `default` gives pre-leftover saves false. Live flight
     /// state is in-memory only (`Planet::ball`).
@@ -834,7 +834,7 @@ struct WorldsFile {
     worlds: HashMap<String, WorldState>,
 }
 
-// ---------- habitat state (main thread only) ----------
+// habitat state (main thread only)
 
 pub(crate) struct Being {
     entry_id: String,
@@ -845,7 +845,7 @@ pub(crate) struct Being {
     bob: f64,
     /// Retained NSImage, or 0. Owned by the session icon cache.
     icon: usize,
-    /// GO-ORBITTY-CHARS: the generated person's layer picks (resolved at
+    /// the generated person's layer picks (resolved at
     /// sync from the claim's charLook, else derived from charSeed).
     look: crate::chars::CharLook,
     /// Per-walker size multiplier from the claim (1.0 = follow the gear's
@@ -857,22 +857,22 @@ pub(crate) struct Being {
     /// Zombie fade (TS-7): 1.0 fresh, dimmed for 7+ days untouched. Parked
     /// entries never become walkers — they occupy like dots (see do_sync).
     dim: f64,
-    /// GO-ORBITTY-SLEEPERS: the claim's window is closed. The walker sleeps
+    /// the claim's window is closed. The walker sleeps
     /// (idle frame 0, dimmed, no roam/bounce) and double-click wakes it via
     /// coordinator::wake_sleeper_with instead of a dead restore_window.
     asleep: bool,
     /// The claim's raw spritePackId ("" = generated being) — the walker
     /// right-click menu checks the current pick against this.
     sprite_pack_id: String,
-    /// GO-ORBITTY-CADENCE: the board-driven pose, resolved from the
+    /// the board-driven pose, resolved from the
     /// snapshot's card fields at sync. Rebuilt every sync; the roam state
     /// (position) lives outside so a re-sync never teleports anyone.
     pose: Pose,
-    /// GO-ORBITTY-DOING-WALKER: Some(seed) = an agent walker — the draw
+    /// Some(seed) = an agent walker — the draw
     /// blits the baked droid atlas (droid.rs) instead of the pack/person
     /// art. The seed hashes the run's `planetId:cardId`.
     droid: Option<u64>,
-    /// GO-ORBITTY-DROID-GLANCE: 0 working, 1 blocked, 2 needs-you.
+    /// 0 working, 1 blocked, 2 needs-you.
     droid_glance: u8,
 }
 
@@ -902,7 +902,7 @@ struct RoamState {
     ty: f64,
     pause_end: Option<Instant>,
     facing_left: bool,
-    /// GO-ORBITTY-CADENCE: the walked-off emit fired (walker hidden off the
+    /// the walked-off emit fired (walker hidden off the
     /// north rim). Reset whenever the pose leaves WalkOff so a re-claimed
     /// walker's next Done emits again.
     off_emitted: bool,
@@ -915,7 +915,7 @@ struct RoamState {
     /// Emit only after this. Reset whenever the pose leaves WalkOff.
     /// Never a left-rim curtain (`HOME_OFF` stays dead).
     via_home: bool,
-    /// GO-ORBITTY-WORLD-CHECKIN: "user dropped on the board, don't
+    /// "user dropped on the board, don't
     /// auto-flip" — set ONLY by the drag-drop column paths (a drop on
     /// Todo parks the walker at the lip with no auto re-check-in; a drop
     /// on Doing spends the manual check-in). The walked auto check-in
@@ -929,14 +929,14 @@ struct RoamState {
     /// todo — a missed rail (or AX-untrusted no-op sync) used to park
     /// the walker at the lip forever. None = not fired yet this roam.
     checkin_emit_at: Option<Instant>,
-    /// GO-ORBITTY-WORLD-YARD: the Doing wander stream — 0 = not armed
+    /// the Doing wander stream — 0 = not armed
     /// (never Doing yet this roam); seeded from the entry id on the
     /// first Doing tick, advanced on every grass-point / dwell pick so
     /// two Doing bodies never conga. Kept across pose flips.
     wander_seed: u64,
 }
 
-/// GO-ORBITTY-MARBLE-SOLAR: a marble's in-memory track membership.
+/// a marble's in-memory track membership.
 /// sun_key names the sun: HOST_PREFIX + the expanded planet's id, or
 /// BARY_PREFIX + the cluster's sorted member ids. A key change (host
 /// switch, cluster recapture) re-arms the join ease from the live panel
@@ -956,7 +956,7 @@ struct MarbleOrbit {
     front: bool,
 }
 
-/// GO-ORBITTY-MARBLE-SOLAR: a frozen barycenter capture, keyed by
+/// a frozen barycenter capture, keyed by
 /// BARY_PREFIX + the sorted member ids. home is the cluster's live
 /// centroid captured ONCE at (re)capture — membership change means a
 /// new key and a new capture; the home is never recomputed from live
@@ -982,12 +982,12 @@ pub(crate) struct Planet {
     dots: Vec<Being>,
     /// Transient native caption pill (single-click feedback), ~2s.
     caption: Option<(String, Instant)>,
-    /// GO-ORBITTY-PLANET-MARK: the cursor is over a marble's disc — draw
+    /// the cursor is over a marble's disc — draw
     /// the planet name as the caption pill whenever no click caption is
     /// live. Set by the cursor watcher (panels ignore mouse events
     /// off-disc, so AppKit tracking areas would never see the enter).
     hover_name: bool,
-    /// GO-ORBITTY-MARBLE-SOLAR: sun membership + join ease; cleared by
+    /// sun membership + join ease; cleared by
     /// isolation and when motion is stilled. The track itself (radius,
     /// phase, period) is hashed from the marble's id on the fly — these
     /// fields only carry the sun key and the ease-in window.
@@ -996,7 +996,7 @@ pub(crate) struct Planet {
     /// scale-throb — this stays 1.0; the field remains so the draw and
     /// hit-test paths keep one expression. In-memory only.
     marble_scale: f64,
-    /// GO-ORBITTY-MARBLE-ORBIT: the dropped marble sits until this
+    /// the dropped marble sits until this
     /// instant, then may rejoin its ring. Drag wins.
     pin_until: Option<Instant>,
     /// Decor placements, mirrored from the world state at sync/mutation.
@@ -1006,7 +1006,7 @@ pub(crate) struct Planet {
     boombox_pos: Option<DecorPoint>,
     /// Boombox playing flag, mirrored from the world state.
     boombox: bool,
-    /// GO-ORBITTY-WORLD-YARD leftover: beach-ball keep-up toggle,
+    /// beach-ball keep-up toggle,
     /// mirrored from the world state (planet right-click menu).
     beach_ball: bool,
     /// Live beach-ball flight; Some only while the toggle is on AND ≥ 2
@@ -1029,7 +1029,7 @@ pub(crate) struct Planet {
     /// every Being — no icon re-decode, roam state untouched.
     walker_entries: Vec<HabitatEntry>,
     dot_entries: Vec<HabitatEntry>,
-    /// GO-ORBITTY-WORLD-TOWN: the back-board's ticks (id + column, no
+    /// the back-board's ticks (id + column, no
     /// titles), mirrored from the snapshot. Drawn as the three-column
     /// board blit; marbles never draw it.
     board_cards: Vec<crate::habitat::BoardCardTick>,
@@ -1112,7 +1112,7 @@ pub(crate) struct Habitat {
     pending_click: Option<PendingClick>,
     /// WORLD-TOUCH leftover: mouse-down on the planet board's Done column.
     pending_board_done: Option<String>,
-    /// GO-ORBITTY-RAIL-ROW-MENU: the locate stroke — (entry id, armed at).
+    /// the locate stroke — (entry id, armed at).
     /// Drawn as a ~500ms ring around the walker's frame; cursor_tick
     /// expires it (10Hz, so Reduce Motion can't pin it on).
     locate: Option<(String, Instant)>,
@@ -1121,17 +1121,17 @@ pub(crate) struct Habitat {
     locate_planet: Option<(String, Instant)>,
     /// Armed by the Place menu items; the next empty-disc click drops it.
     placement: Option<Placement>,
-    /// GO-ORBITTY-BOOMBOX leftover (click): the planet whose boombox HUD
+    /// the planet whose boombox HUD
     /// is open (slider + speaker + `new track` pill). In-memory; the HUD
     /// dies with the box (cursor_tick self-heal).
     boombox_hud: Option<String>,
     bob_phase: f64,
     last_anim: Option<Instant>,
     reduce_motion: bool,
-    /// GO-ORBITTY-MARBLE-DRIFT: Settings → Appearance toggle, mirrored
+    /// Settings → Appearance toggle, mirrored
     /// from the rail's snapshot (default false = marbles sit).
     marble_drift: bool,
-    /// GO-ORBITTY-MARBLE-SOLAR: frozen barycenter homes, keyed by the
+    /// frozen barycenter homes, keyed by the
     /// bary sun_key (BARY_PREFIX + sorted member ids). In-memory only;
     /// entries are dropped the tick after their cluster dissolves.
     clusters: HashMap<String, ClusterState>,
@@ -1144,7 +1144,7 @@ pub(crate) struct Habitat {
     sprite_scale: f64,
     /// R-click Planets dest: hide every disc. In-memory; persist is companion.planetsHidden.
     planets_hidden: bool,
-    /// GO-ORBITTY-WALKER-CONTEXT: named destinations for Assign to planet.
+    /// named destinations for Assign to planet.
     planet_names: Vec<(String, String)>,
     icon_cache: HashMap<String, usize>, // bundleId/appName → NSImage
     /// User-pack art (GO-LS-TAURI-USER-PACKS): (pack folder id, frames) per
@@ -1155,7 +1155,7 @@ pub(crate) struct Habitat {
     /// until an expanded planet wears the pack (GO-ORBITTY-PLANET-BUDGET).
     pack_frames: Vec<(String, PackFrames)>,
     packs_loaded: bool,
-    /// GO-ORBITTY-WORLD-PROPS: bundled town art (Resources/town/*),
+    /// bundled town art (Resources/town/*),
     /// loaded once into retained NSImages on the first world draw.
     /// 0 = missing → the cheap glyph fallback draws instead.
     town_igloo: usize,
@@ -1166,12 +1166,12 @@ pub(crate) struct Habitat {
     /// Global walk-cycle counter, +1 per anim tick (20Hz); walkers advance
     /// pack frames at half that rate.
     anim_frame: u64,
-    /// GO-ORBITTY-CADENCE-FIX: Done entries with no walker to walk off
+    /// Done entries with no walker to walk off
     /// (marble planet, parked dot) already fast-forward-emitted
     /// `habitat:walked-off` — once per Done spell, never per sync. Pruned
     /// when the entry leaves Done so a re-Done emits again.
     walkoff_fast: std::collections::HashSet<String>,
-    /// GO-ORBITTY-DOING-WALKER: baked droid atlases, keyed by the run's
+    /// baked droid atlases, keyed by the run's
     /// seed hash. Baked ONCE on first draw (droid.rs), session-cached like
     /// the icon cache — never a per-frame procgen.
     droids: HashMap<u64, droid::DroidAtlas>,
@@ -1180,7 +1180,7 @@ pub(crate) struct Habitat {
 pub(crate) struct PackFrames {
     walk: Vec<usize>,
     idle: Vec<usize>,
-    /// GO-ORBITTY-PLANET-BUDGET lazy packs: the on-disk art source (paths
+    /// BUDGET lazy packs: the on-disk art source (paths
     /// only). No bitmap is decoded until an expanded planet wears the pack
     /// (`loaded` flips on first wear); the bitmap drops when the last
     /// expanded wearer collapses. Marbles never load a pack.
@@ -1225,7 +1225,7 @@ fn app_handle() -> Option<&'static AppHandle> {
     app_handle_cell().get()
 }
 
-// ---------- small objc helpers ----------
+// small objc helpers
 
 /// Toll-free-bridged NSString, intentionally leaked (used as a constant).
 pub(crate) unsafe fn ns_string(s: &str) -> *mut Object {
@@ -1256,7 +1256,7 @@ fn color_for(project_id: &str) -> (f64, f64, f64) {
     hsv(hue, 0.55, 0.80)
 }
 
-/// GO-ORBITTY-WORLD-TOWN: stable per-card tick color for the board blit —
+/// stable per-card tick color for the board blit —
 /// the same golden-angle idea as color_for, one hue per card id.
 pub(crate) fn card_color(card_id: &str) -> (f64, f64, f64) {
     let sum: u32 = card_id.bytes().map(|b| b as u32).sum();
@@ -1280,7 +1280,7 @@ fn hsv(h: f64, s: f64, v: f64) -> (f64, f64, f64) {
     }
 }
 
-// ---------- base64 (icons arrive as PNG base64 from the rail) ----------
+// base64 (icons arrive as PNG base64 from the rail)
 
 fn base64_decode(s: &str) -> Option<Vec<u8>> {
     fn val(b: u8) -> Option<u32> {
@@ -1343,7 +1343,7 @@ unsafe fn bitmap_rep_from_bytes(bytes: &[u8]) -> *mut Object {
     msg_send![class!(NSBitmapImageRep), imageRepWithData: data]
 }
 
-// ---------- user-pack frames (GO-LS-TAURI-USER-PACKS) ----------
+// user-pack frames (GO-LS-TAURI-USER-PACKS)
 
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
@@ -1362,7 +1362,7 @@ pub fn reload_pack_frames() {
     lock().packs_loaded = false;
 }
 
-/// GO-ORBITTY-WORLD-PROPS: load the bundled town PNGs (Resources/town/*)
+/// load the bundled town PNGs (Resources/town/*)
 /// once into retained NSImages — same bundle mapping as the spirit, but
 /// drawn by the habitat painter, not the webview. A missing file stays 0
 /// so the glyph fallback draws instead of re-reading disk every frame.
@@ -1422,7 +1422,7 @@ fn load_pack_frames(h: &mut Habitat) {
     }
 }
 
-/// GO-ORBITTY-PLANET-BUDGET: decode a pack's frames on first expanded
+/// decode a pack's frames on first expanded
 /// wear. Idempotent; a failed decode stays failed (walk empty → the
 /// generated being draws) instead of re-reading disk every sync.
 fn ensure_pack_loaded(h: &mut Habitat, idx: usize) {
@@ -1442,7 +1442,7 @@ fn ensure_pack_loaded(h: &mut Habitat, idx: usize) {
     pf.idle = idle;
 }
 
-/// GO-ORBITTY-PLANET-BUDGET: drop a decoded pack's bitmaps once no
+/// drop a decoded pack's bitmaps once no
 /// expanded planet wears it (the last wearer collapsed or left). The art
 /// paths stay, so a re-expand re-decodes. Cheap: a per-sync scan of the
 /// expanded walkers' pack indices.
@@ -1573,7 +1573,7 @@ unsafe fn slice_rep_frames(rep: *mut Object, fw: isize, fh: isize, total: isize)
 }
 
 
-// ---------- being-editor preview (GO-ORBITTY-CHARS) ----------
+// being-editor preview (GO-ORBITTY-CHARS)
 
 fn base64_encode(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1700,7 +1700,7 @@ fn char_preview_grid(look: crate::chars::CharLook, px: u32) -> Result<String, St
     }
 }
 
-// ---------- screens ----------
+// screens
 
 unsafe fn screens() -> Vec<(String, NSRect)> {
     let arr: *mut Object = msg_send![class!(NSScreen), screens];
@@ -1790,7 +1790,7 @@ fn panel_frame(state: &WorldState, side: f64) -> NSRect {
     )
 }
 
-// ---------- spawn ring (GO-ORBITTY-PLANET-SPAWN) ----------
+// spawn ring (GO-ORBITTY-PLANET-SPAWN)
 //
 // New worlds appear on a ring around the rail, not mid-right of the
 // display. Center = the `main` window's outer-frame center, converted into
@@ -1969,7 +1969,7 @@ fn now_epoch() -> f64 {
         .unwrap_or(0.0)
 }
 
-// ---------- worlds.json ----------
+// worlds.json
 
 fn worlds_path() -> Option<std::path::PathBuf> {
     let app = app_handle()?;
@@ -2026,7 +2026,7 @@ fn effective_radius(world: Option<&WorldState>, collapsed: bool) -> f64 {
     }
 }
 
-// ---------- the world view class ----------
+// the world view class
 
 /// None means the class couldn't be registered; callers skip planet
 /// creation so a habitat failure leaves the rail usable.
@@ -2135,7 +2135,7 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
         sel!(planetChooseMusic:),
         audio::menu_choose_music as extern "C" fn(&Object, Sel, *mut Object),
     );
-    // GO-ORBITTY-BOOMBOX: boombox sprite menu + volume steps.
+    // boombox sprite menu + volume steps.
     decl.add_method(
         sel!(planetBoomboxPlayPause:),
         input::menu_boombox_play_pause as extern "C" fn(&Object, Sel, *mut Object),
@@ -2152,7 +2152,7 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
         sel!(planetBoomboxSlider:),
         input::menu_boombox_slider as extern "C" fn(&Object, Sel, *mut Object),
     );
-    // GO-ORBITTY-WORLD-YARD leftover: per-planet beach-ball toggle.
+    // per-planet beach-ball toggle.
     decl.add_method(
         sel!(planetToggleBeachBall:),
         input::menu_toggle_beach_ball as extern "C" fn(&Object, Sel, *mut Object),
@@ -2161,7 +2161,7 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
         sel!(planetPlaceBuilding:),
         input::menu_place_building as extern "C" fn(&Object, Sel, *mut Object),
     );
-    // GO-ORBITTY-RAIL-ROW-MENU: walker right-click menu actions.
+    // walker right-click menu actions.
     decl.add_method(
         sel!(walkerUseImage:),
         input::walker_use_image as extern "C" fn(&Object, Sel, *mut Object),
@@ -2313,7 +2313,7 @@ pub(crate) fn world_entry<'a>(h: &'a mut Habitat, project_id: &str) -> &'a mut W
 }
 
 
-// ---------- panels ----------
+// panels
 
 unsafe fn make_panel() -> *mut Object {
     let panel: *mut Object = msg_send![class!(NSPanel), alloc];
@@ -2359,7 +2359,7 @@ fn layout_beings(planet: &mut Planet) {
         // WORLD-PLACES: a fresh board-pose roam starts at the house.
         let house = house_spawn(planet, id);
         planet.roam.entry(id.clone()).or_insert_with(|| {
-            // GO-ORBITTY-WORLD-TOWN: a fresh roam for a board pose seeds
+            // a fresh roam for a board pose seeds
             // AT THE IGLOO (STATION_HOUSE — user buildings stay décor)
             // and walks to the station — the world narrates
             // igloo → board/field instead of popping in at the column.
@@ -2469,7 +2469,7 @@ fn layout_beings(planet: &mut Planet) {
 }
 
 fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
-    // GO-ORBITTY-DOING-WALKER: an agent entry carries a bake seed, not a
+    // an agent entry carries a bake seed, not a
     // window — no icon decode, no pack wear; the draw blits the baked
     // droid atlas. Everything else (pose, roam, stations) stays generic.
     let droid = if entry.agent_seed.is_empty() {
@@ -2504,7 +2504,7 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
     if label.chars().count() > 56 {
         label = label.chars().take(55).collect::<String>() + "…";
     }
-    // GO-ORBITTY-CHARS: explicit editor picks win; otherwise the persisted
+    // explicit editor picks win; otherwise the persisted
     // seed derives the same person every launch.
     let look = entry
         .char_look
@@ -2563,7 +2563,7 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
     }
 }
 
-// ---------- sync (port of OverlayController.relayout) ----------
+// sync (port of OverlayController.relayout)
 
 /// True on the AppKit main thread. The Tauri command handler for
 /// `sync_habitat` runs there, so this is the common path.
@@ -2693,7 +2693,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         return;
     };
 
-    // GO-ORBITTY-PLANET-BUDGET cap 3 expanded: habitat:expand /
+    // BUDGET cap 3 expanded: habitat:expand /
     // click-to-expand always succeeds — when a 4th world is expanded, the
     // least-recently focused of the rest takes the marble (stable snapshot
     // order breaks recency ties). The rail owns the collapsed flag: the
@@ -2745,7 +2745,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         }
     }
 
-    // GO-ORBITTY-PLANET-BUDGET cap 12 marbles: at most 12 collapsed
+    // BUDGET cap 12 marbles: at most 12 collapsed
     // NSPanels. Extra collapsed projects stay on the rail list with no
     // panel; a slot frees when one expands or is unclaimed (the stale
     // teardown above). The count uses the EFFECTIVE collapse state (post
@@ -2832,7 +2832,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         });
         // Zombie aging (TS-7): 14+ days untouched parks the sprite down to
         // marble-scale occupancy; faded ones still walk but draw dimmed.
-        // GO-ORBITTY-SLEEPERS: sleepers (closed claimed windows) always
+        // sleepers (closed claimed windows) always
         // walk — asleep and dim — and are never parked into dots or culled
         // for age `gone`; only Done/Unclaim evicts them.
         let (parked, walking): (Vec<&HabitatEntry>, Vec<&HabitatEntry>) = sorted
@@ -2845,7 +2845,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 (walking, parked)
             };
 
-        // GO-ORBITTY-CADENCE: a Done entry that gets no walker to walk off
+        // a Done entry that gets no walker to walk off
         // (marble planet, or a parked dot) evicts immediately — fast-
         // forward, never a phantom walk. Walkers holding a Done card walk
         // off visibly; anim_tick emits at the rim. CADENCE-FIX: the fast-
@@ -2935,7 +2935,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                     planet.buildings = w.buildings;
                     planet.boombox_pos = w.boombox_pos;
                     planet.boombox = w.boombox;
-                    // WORLD-YARD leftover: the beach-ball toggle rides the
+                    // the beach-ball toggle rides the
                     // same mirror; a sync that turns it off hides the live
                     // ball at once.
                     planet.beach_ball = w.beach_ball;
@@ -3009,7 +3009,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                     }
                 }
                 Some((mut walkers, dots)) => {
-                    // GO-ORBITTY-CADENCE: one event per pose transition (first
+                    // one event per pose transition (first
                     // appearances stay silent — the claim event already exists, and
                     // a restart never replays a backlog into the log).
                     let prev_poses: HashMap<String, Pose> = planet
@@ -3153,7 +3153,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 audio::start_audio(&mut planet, &state.music, live);
             }
             h.planets.insert(project_id.clone(), planet);
-            // GO-ORBITTY-PROJECT-ADD leftover: a fresh panel must not
+            // a fresh panel must not
             // debut behind the user's windows — orderFrontRegardless ran
             // above; arm the locate glow so the first blits ring the disc
             // (project_add arms pre-sync too; this is the guarantee).
@@ -3162,7 +3162,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
                 marble_panels += 1;
             }
         }
-        // GO-ORBITTY-PROJ-LOCK: heal worlds.json so a leftover "flat"
+        // heal worlds.json so a leftover "flat"
         // expanded save does not linger. Live disc never reads this.
         if let Some(w) = h.worlds.get_mut(project_id) {
             let want = locked_projection_str(collapsed_eff);
@@ -3172,7 +3172,7 @@ fn do_sync(snapshot: &HabitatSnapshot) {
             }
         }
     }
-    // GO-ORBITTY-CADENCE: walked-off re-delivery + Reduce Motion
+    // walked-off re-delivery + Reduce Motion
     // fast-forward. anim_tick emits when a Done walker crosses the hide
     // line; this pass re-emits on every sync while one lingers hidden (the
     // rail's handler is idempotent, so a missed first emit heals here).
@@ -3305,7 +3305,7 @@ unsafe fn panel_set_frame(panel: *mut Object, frame: NSRect, display: bool) {
     let _: () = msg_send![panel, setFrame: frame display: display];
 }
 
-/// GO-ORBITTY-RAIL-ROW-MENU: the rail's `habitat:locate` — stroke the
+/// the rail's `habitat:locate` — stroke the
 /// walker's frame for ~500ms. Glow only: no focus, no raise, no wake.
 pub fn locate_walker(app: AppHandle, entry_id: String) -> Result<(), String> {
     let app = app.clone();
@@ -3343,7 +3343,7 @@ pub fn locate_planet(app: AppHandle, project_id: String) -> Result<(), String> {
     Ok(())
 }
 
-// ---------- rail Home button ----------
+// rail Home button
 
 /// Order every planet panel front. Peer surfaces keep their relative order;
 /// this just lifts the whole set above whatever covered it.
@@ -3405,7 +3405,7 @@ pub fn bring_planet_front(project_id: &str) {
     });
 }
 
-// ---------- yard meow gate (GO-ORBITTY-HERDING-CATS) ----------
+// yard meow gate (GO-ORBITTY-HERDING-CATS)
 
 /// Is any planet's boombox actually playing right now? The yard's meow
 /// loop skips while this is true — voices never stack. Read-only; called
@@ -3431,7 +3431,7 @@ pub fn boombox_playing() -> bool {
     false
 }
 
-// ---------- tray escape hatch ----------
+// tray escape hatch
 
 /// Bring back every minimized window that has a home (Swift restoreAll).
 /// Parked zombies sit in `dots` (marble-scale occupancy) but are still real

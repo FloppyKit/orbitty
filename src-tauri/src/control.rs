@@ -403,7 +403,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             .map(to_data)
             .map_err(tool_err)
         }
-        // Leftover: the Free Mode switch — same
+        // the Free Mode switch — same
         // companion.* ACL as companion.mode. `enabled` must be a real
         // bool (fail closed, same as companion.hack's `live`).
         "companion.free_mode" => {
@@ -423,7 +423,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         // The dock LED flag — companion.* ACL like
         // play/send. `live` must be a real bool (fail closed); `who` is
         // an optional source label ("cursor", "goose", …) for the title.
-        // AGENT-PLANET leftover: optional `projectId` — the live agent's
+        // optional `projectId` — the live agent's
         // pinned planet, so the dest/planet menus glow it while live.
         "companion.hack" => {
             let live = args

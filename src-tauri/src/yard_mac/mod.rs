@@ -1,15 +1,5 @@
-//! The yard.
-//!
-//! Unclaimed windows rain onto the desktop as bitty cats and amble until
-//! each is claimed, closed, or scooped. One fullscreen borderless NSPanel
-//! PER DISPLAY (floating level, all spaces), click-through except cat
-//! hit-rects — the companion-ghost pattern, never one panel per cat.
-//!
-//! Population = the inspector's Unclaimed set, same formula as RailPage /
-//! YardWarnPage: `list_windows` (already drops Orbitty/LiveSprite) minus
-//! claims whose project still exists. Claimed windows stay on their
-//! planets; the yard never steals a walker. Cats are SESSION ONLY — no
-//! state.json, no worlds.json, no persistence of any kind.
+//! Unclaimed windows as session-only cats. One panel per display.
+//! Never persist. Never steal a claimed walker.
 //!
 //! Hits (leftover: hits — cats match the walkers' locate-then-open
 //! split): single click says the cat's app name only (~2s chip above
@@ -57,8 +47,8 @@ use tauri::{AppHandle, Emitter};
 mod input;
 mod meow;
 
-// ---------- geometry (habitat stays crate-private; these are the same
-// handful of POD helpers) ----------
+// geometry (habitat stays crate-private; these are the same
+// handful of POD helpers)
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
@@ -127,7 +117,7 @@ unsafe impl objc::Encode for CGSize {
     }
 }
 
-// ---------- tuning ----------
+// tuning
 
 /// Bitty cat frames are 32×32; drawn at 2× on the desktop (Neko size).
 const CAT: f64 = 64.0;
@@ -156,7 +146,7 @@ const CAT_PACKS: [&str; 4] = [
     "orbitty-bitty-cat-gray",
 ];
 
-// ---------- state ----------
+// state
 
 #[derive(Clone, Copy, PartialEq)]
 enum Gait {
@@ -301,7 +291,7 @@ fn app_handle() -> Option<&'static AppHandle> {
 /// Coalesces main-queue hops: at most one queued-or-running.
 static HOP_PENDING: AtomicBool = AtomicBool::new(false);
 
-// ---------- small objc helpers ----------
+// small objc helpers
 
 /// Toll-free-bridged NSString, intentionally leaked (used as a constant).
 unsafe fn ns_string(s: &str) -> *mut Object {
@@ -348,7 +338,7 @@ fn panic_msg(payload: &(dyn std::any::Any + Send)) -> String {
     }
 }
 
-// ---------- screens ----------
+// screens
 
 unsafe fn screens() -> Vec<(String, NSRect)> {
     let arr: *mut Object = msg_send![class!(NSScreen), screens];
@@ -400,7 +390,7 @@ fn walk_rect(frame: &NSRect, vis: &NSRect) -> NSRect {
     )
 }
 
-// ---------- cat art (pack frames; habitat's loaders stay crate-private) ----------
+// cat art (pack frames; habitat's loaders stay crate-private)
 
 /// NSImage from encoded bytes — initWithData decodes png/gif/webp alike.
 /// Returns a retained image (caller releases).
@@ -564,7 +554,7 @@ unsafe fn slice_sheet(path: &std::path::Path, spec: &crate::packs::SheetSpec) ->
     out
 }
 
-// ---------- the yard view class ----------
+// the yard view class
 
 fn yard_view_class() -> Option<&'static Class> {
     static CLS: OnceLock<Option<&'static Class>> = OnceLock::new();
@@ -670,7 +660,7 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
     Some(decl.register())
 }
 
-// ---------- panels ----------
+// panels
 
 /// One fullscreen click-through panel. Same recipe as the habitat's
 /// make_panel, but floating (Neko/Shimeji visibility: cats walk OVER
@@ -827,7 +817,7 @@ fn clamp_cat(cat: &mut Cat, walk: &NSRect) {
     }
 }
 
-// ---------- spawn / motion ----------
+// spawn / motion
 
 /// Hash-stable display pick: the clowder spreads across every display
 /// instead of piling on the primary.
@@ -964,7 +954,7 @@ fn motion_step(y: &mut Yard, dt: f64) {
     }
 }
 
-// ---------- the unmapped poll (worker thread; no AppKit here) ----------
+// the unmapped poll (worker thread; no AppKit here)
 
 /// The inspector's Unclaimed set, native side: `list_windows` (already
 /// drops Orbitty/LiveSprite) minus claims whose project still exists —
@@ -1018,7 +1008,7 @@ fn apply_unmapped(y: &mut Yard, unmapped: Vec<crate::windows::WindowInfo>) {
     }
 }
 
-// ---------- worker + main hop ----------
+// worker + main hop
 
 fn spawn_worker() {
     std::thread::spawn(|| {
@@ -1181,7 +1171,7 @@ fn hit_cat(y: &Yard, view_ptr: usize, local: NSPoint) -> Option<String> {
         .map(|c| c.window_id.clone())
 }
 
-// ---------- view callbacks (main thread) ----------
+// view callbacks (main thread)
 
 extern "C" fn draw_rect(this: &Object, _cmd: Sel, _dirty: NSRect) {
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe { draw_inner(this) }))
@@ -1285,7 +1275,7 @@ extern "C" fn right_mouse_down(this: &Object, _cmd: Sel, event: *mut Object) {
     .map_err(|p| eprintln!("yard: rightMouseDown panicked: {}", panic_msg(&*p)));
 }
 
-// ---------- cat menu ----------
+// cat menu
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -1507,7 +1497,7 @@ extern "C" fn menu_scoop_all(_this: &Object, _cmd: Sel, _sender: *mut Object) {
         .map_err(|p| eprintln!("yard: scoop-all panicked: {}", panic_msg(&*p)));
 }
 
-// ---------- Esc monitor (scoop all) ----------
+// Esc monitor (scoop all)
 
 /// Capture-less global block for the NSEvent monitor — the same ABI
 /// trick as the boombox picker's completion handler.
@@ -1652,7 +1642,7 @@ unsafe fn remove_esc_monitor(y: &mut Yard) {
     }
 }
 
-// ---------- public door ----------
+// public door
 
 pub fn active() -> bool {
     lock().on

@@ -1,4 +1,4 @@
-//! GO-ORBITTY-DOING-WALKER — the agent walker's body: a seeded 2D
+//! the agent walker's body: a seeded 2D
 //! android baked ONCE per run (the seed hashes `planetId:cardId`) into
 //! three retained NSImages (walk A / walk B / sit), then blitted like a
 //! pack PNG. Per-frame procgen is cope; the bitty-crew sheets stay for

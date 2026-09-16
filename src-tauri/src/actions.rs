@@ -297,7 +297,7 @@ fn combo_statuses() -> BTreeMap<String, String> {
     BTreeMap::new()
 }
 
-// ---------- control plane (`action.*` tools; unix socket only) ----------
+// control plane (`action.*` tools; unix socket only)
 
 /// `action.list` — the persisted rows plus runtime combo status
 /// ("ok" | "conflict" | null = Spirit-only). Read-profile safe.

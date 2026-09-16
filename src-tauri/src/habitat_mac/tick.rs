@@ -211,10 +211,10 @@ fn display_link_stop() {
     }
 }
 
-// ---------- tick thread: drag 60Hz · animation 20Hz · cursor 10Hz ----------
+// tick thread: drag 60Hz · animation 20Hz · cursor 10Hz
 // (Motion rides CVDisplayLink when it's up — see drift_tick.)
 //
-// GO-ORBITTY-MARBLE-YIELD: the worker POSTS each tick to the main queue
+// the worker POSTS each tick to the main queue
 // (dispatch_async_f — the same hop the DisplayLink clock uses) and
 // returns at once; the blocking run_on_main_thread here WAS the
 // remaining 1-2-3-4-pause (a busy main stalled the 16ms clock, then the
@@ -276,7 +276,7 @@ fn tick(n: u64) {
     }
     drift_tick(n);
     if n % 6 == 0 {
-        // GO-ORBITTY-MARBLE-YIELD: a queued marble motion hop outranks
+        // a queued marble motion hop outranks
         // cursor work. Skip this cursor turn (hit-test/save ride the next
         // one) so the vsync hop runs now — drop cursor, never drift_pass
         // / drift_motion.
@@ -286,7 +286,7 @@ fn tick(n: u64) {
     }
 }
 
-/// GO-ORBITTY-MARBLE-RIM hitch law: a move is NEVER skipped (the old
+/// RIM hitch law: a move is NEVER skipped (the old
 /// n % 6 == 0 hole was the 1-2-3-pause Matt saw on glass). CVDisplayLink
 /// is the motion clock when it's up — the 16ms thread then keeps
 /// drag/anim/cursor only and must not also call drift_pass (two motion
@@ -374,7 +374,7 @@ fn drag_tick() {
                 } => (project_id.clone(), *moved, 5u8, card_id.clone()),
             };
             h.drag = None;
-            // GO-ORBITTY-MARBLE-HOST: drift paused while this drag held
+            // drift paused while this drag held
             // but the shared clock kept ticking — re-arm every orbit lerp
             // at the live frame so marbles ease back onto their rings
             // instead of snapping to the advanced θ.
@@ -396,7 +396,7 @@ fn drag_tick() {
                 let panel_and_marble = h.planets.get(&project_id).map(|p| (p.panel, p.is_marble));
                 if let Some((panel, is_marble)) = panel_and_marble {
                     persist_position(&mut h, &project_id, panel);
-                    // GO-ORBITTY-MARBLE-HOME: drag wins — the dropped
+                    // drag wins — the dropped
                     // marble sits ~2s, then eases in polar onto whatever
                     // ring its cluster describes at the drop spot. Orbit
                     // state is KEPT so the 220/280 hysteresis still
@@ -701,7 +701,7 @@ fn anim_tick() {
         .unwrap_or(0.05)
         .min(0.25);
     h.last_anim = Some(now);
-    // GO-ORBITTY-MARBLE-ORBIT: motion off (toggle or Reduce Motion) →
+    // motion off (toggle or Reduce Motion) →
     // marbles sit at default size and orbit state clears, so a re-enable
     // re-seeds from the live frame. Runs before the Reduce Motion early
     // return so stilling also restores size.
@@ -714,7 +714,7 @@ fn anim_tick() {
     h.bob_phase += dt;
     h.anim_frame = h.anim_frame.wrapping_add(1);
     let bob_phase = h.bob_phase;
-    // GO-ORBITTY-PLANET-BUDGET still-planet law: an expanded planet dirties
+    // BUDGET still-planet law: an expanded planet dirties
     // its view ONLY on real motion this tick — a roam step or pause flip,
     // a bob change, a live locate stroke, or a visible caption. An
     // all-sleeper / empty planet paints nothing per tick; sleepers never
@@ -734,7 +734,7 @@ fn anim_tick() {
         }) => Some((project_id.clone(), entry_id.clone())),
         _ => None,
     };
-    // WORLD-YARD leftover (ball in view space): per-pack still-frame
+    // per-pack still-frame
     // aspects for the keep-up head math, snapshotted before the planet
     // loop (0.0 = no decoded frames → the generated person's height).
     let pack_aspects: Vec<f64> = h
@@ -759,10 +759,10 @@ fn anim_tick() {
         let mut moved = false;
         let now_i = Instant::now();
         let ids: Vec<String> = planet.walkers.iter().map(|b| b.entry_id.clone()).collect();
-        // GO-ORBITTY-IDLE-STILL: bob only on a tick the walker actually
+        // bob only on a tick the walker actually
         // steps (pause_end None and dist >= 0.025). Paused and asleep
         // walkers stand at bob 0; sleepers never enter the step branch.
-        // GO-ORBITTY-WORLD-YARD leftover: a Doing walker bobs while
+        // a Doing walker bobs while
         // WALKING the grass. Ball OFF the smooth amble never parks, so
         // the bob never stands on the green; ball ON the dart dwell
         // (600–1400 ms) stands at bob 0 between darts — the keep-up
@@ -776,7 +776,7 @@ fn anim_tick() {
             .walkers
             .iter()
             .any(|b| !b.asleep && matches!(b.pose, Pose::Work | Pose::Sit));
-        // GO-ORBITTY-WORLD-YARD leftover (keep-up cadence): the beach
+        // the beach
         // ball flips the Doing footwork — OFF keeps the smooth amble,
         // ON restores the exact pre-amble dart (the dwell-and-dart IS
         // the keep-up footwork). Captured once per planet per tick.
@@ -795,7 +795,7 @@ fn anim_tick() {
                 .get(i)
                 .map(|b| (b.pose, b.asleep))
                 .unwrap_or((Pose::Roam, false));
-            // WORLD-PLACES leftover: create/get the roam BEFORE the
+            // create/get the roam BEFORE the
             // sleeper continue — a new/asleep claim must not miss its
             // house roam this tick. The seed is pose-aware (the old 0.2
             // cos/sin circle fallback is gone): Stand/Work come from the
@@ -921,7 +921,7 @@ fn anim_tick() {
                     if roam.x < HOME_HIDE_X {
                         roam.x = house.0;
                         roam.y = house.1;
-                        // GO-ORBITTY-WORLD-CHECKIN: the return from hide
+                        // the return from hide
                         // is a fresh claim journey — re-arm the board
                         // check-in so this claim touches the board too.
                         roam.via_checkin = false;
@@ -954,7 +954,7 @@ fn anim_tick() {
                     let mut dx = roam.tx - roam.x;
                     let mut dy = roam.ty - roam.y;
                     let mut dist = (dx * dx + dy * dy).sqrt();
-                    // GO-ORBITTY-WORLD-CHECKIN (+ PROPS leftover retry): a
+                    // CHECKIN (+ PROPS leftover retry): a
                     // Stand (Todo) walker at the near lip of the board
                     // checks in — the rail flips that window's card
                     // todo→doing and the next sync walks it to the field
@@ -1250,7 +1250,7 @@ fn anim_tick() {
                 dirty = true;
             }
         }
-        // GO-ORBITTY-WORLD-YARD leftover (ball in view space): beach-ball
+        // beach-ball
         // keep-up. The per-planet toggle (right-click menu, persisted
         // next to the boombox) plus ≥ 2 awake Doing walkers → the ball
         // hops head to head IN VIEW PIXELS — TOUCH walker A's head, pop
@@ -1422,7 +1422,7 @@ fn drift_pass(h: &mut Habitat) {
     let pad = MARBLE_RADIUS + 8.0;
     // Barycenter keys still alive this tick — stale homes drop at the end.
     let mut live_bary_keys: Vec<String> = Vec::new();
-    // ---- Sun 1: the nearest expanded planet on the same screen --------
+    // Sun 1: the nearest expanded planet on the same screen
     // (marble index, sun key, sun center) for hosted marbles; the rest
     // fall through to the barycenter pool.
     let mut hosted: Vec<(usize, String, NSPoint)> = Vec::new();
@@ -1474,7 +1474,7 @@ fn drift_pass(h: &mut Habitat) {
             None => free.push(i),
         }
     }
-    // ---- Sun 2: the frozen barycenter of the unhosted cluster ---------
+    // Sun 2: the frozen barycenter of the unhosted cluster
     // Union-find over hysteresis edges among FREE marbles: ≤ join always
     // links; ≤ leave links only pairs that shared a sun last tick.
     let rn = free.len();
@@ -1569,7 +1569,7 @@ fn drift_pass(h: &mut Habitat) {
             false,
         ));
     }
-    // ---- Tracks: every marble onto its own path around its sun -------
+    // Tracks: every marble onto its own path around its sun
     for (sun_key, sun_raw, idxs, is_host) in groups {
         let rot = sun_rot(&sun_key);
         // Hosted tracks take the live-radius circle — only phase0 /
@@ -1822,8 +1822,8 @@ fn oval_offset(r: f64, theta: f64, rot: f64) -> (f64, f64) {
     (ex * rc - ey * rs, ex * rs + ey * rc)
 }
 
-/// GO-ORBITTY-MARBLE-RIM, standoff cut to two widths in
-/// GO-ORBITTY-MARBLE-HITCH: the hosted ring radius — a CIRCLE around the
+/// RIM, standoff cut to two widths in
+/// the hosted ring radius — a CIRCLE around the
 /// planet center at the LIVE (scroll-zoomed) radius + two
 /// marble-widths + the marble radius. Bigger chip → bigger ring, always
 /// ~2 widths off the live edge. Constant r: no accordion, no back tuck.
@@ -1831,7 +1831,7 @@ fn host_ring_r(live_radius: f64) -> f64 {
     live_radius + 2.0 * (2.0 * MARBLE_RADIUS) + MARBLE_RADIUS
 }
 
-/// GO-ORBITTY-MARBLE-RIM: screen-space offset on the hosted CIRCLE at
+/// screen-space offset on the hosted CIRCLE at
 /// angle θ — constant r around the PLANET center, rotated in the plane
 /// by the sun's hashed orientation (front/back is the plane's sin θ,
 /// not screen-down; the same θ drives the front/back boolean). No oval
@@ -1853,7 +1853,7 @@ fn fnv1a(key: &str) -> u64 {
     hash
 }
 
-/// GO-ORBITTY-MARBLE-SOLAR: one marble's own track, FNV-1a over the
+/// one marble's own track, FNV-1a over the
 /// marble's id — radius ∈ r_min–r_max (bary tracks only, 70–140pt;
 /// hosted tracks take the r(θ) halo law instead), period ∈ 90–140s,
 /// independent phase0 and direction. Every marble on a sun gets a
@@ -1884,7 +1884,7 @@ fn sun_rot(sun_key: &str) -> f64 {
     std::f64::consts::TAU * ((fnv1a(sun_key) & 0xffff) as f64 / 65535.0)
 }
 
-/// GO-ORBITTY-MARBLE-SOLAR: motion off (toggle or Reduce Motion) →
+/// motion off (toggle or Reduce Motion) →
 /// marbles sit and drift state drops, so a re-enable re-seeds from the
 /// live frame. Positions are untouched — worlds.json keeps the live
 /// x/y either way.
@@ -2057,7 +2057,7 @@ fn cursor_tick() {
             let over =
                 contains_interactive(planet, local, hud_open.as_deref() == Some(project_id));
             let _: () = msg_send![panel, setIgnoresMouseEvents: !over];
-            // GO-ORBITTY-PLANET-MARK: marble hover names the planet. Done
+            // marble hover names the planet. Done
             // here in the cursor watcher — the panel ignores mouse events
             // off-disc, so a tracking area would never see the enter. The
             // draw falls back to the name only when no click caption is

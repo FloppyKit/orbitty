@@ -220,7 +220,7 @@
   // COLLAPSE-CC: the fixed reply overlay opened/closed — re-report ghost
   // hits so it catches (open) / releases (close) its pixels. Lives out
   // here because the caption snippet's `hosted` param shadows HostMode.
-  // COLLAPSE-CC leftover (popup hug): wantWin is the overlay's wanted
+  // wantWin is the overlay's wanted
   // WINDOW height — the hug (sprite-off) / composer grow (sprite-on)
   // grows the companion window so the reply fits whole, and the close
   // snaps it back. overlayBaseH latches on the FIRST report of an open,
@@ -320,7 +320,7 @@
       if (r.height >= 2 && r.top < top) top = r.top;
     });
     let h = Math.round(dockR.bottom - top + 8);
-    // COLLAPSE-CC leftover (popup hug): the open reply overlay rides the
+    // the open reply overlay rides the
     // hug — grow the bar to its wanted window height so the fixed popup
     // fits whole (it covers the bar), never clipped to the idle bar.
     // The native side still clamps to the tall idle rect — that clamp is
@@ -361,7 +361,7 @@
   // native side owns the gate (collapsed + sprite on + not hosted +
   // shown) and the ungrow on expand / host / sprite-off / hide, so this
   // is a plain report of the dock-measured extra.
-  // COLLAPSE-CC leftover (popup hug): the open reply overlay's extra
+  // the open reply overlay's extra
   // rides the SAME channel — the window grows down until the popup fits
   // whole, and snaps back when it closes. (Sprite-off rides reportHug;
   // the native gate turns this report into a no-op there.)
@@ -462,7 +462,7 @@
     }
   }
 
-  // ---------- Prompts strip + hold-to-talk ----------
+  // Prompts strip + hold-to-talk
 
   const STARS_SPOKES = [
     { key: "sleep", label: "Sleep" },
@@ -839,7 +839,7 @@
     // the native host frame (1080×620) stays up.
   }
 
-  // ---------- The hosted well ----------
+  // The hosted well
   // One host window = this companion. The native set_companion_host owns
   // the frame (stash the idle rect → 1080×620 on enter, restore on off);
   // this JS state only owns WHICH component sits in the well.
@@ -1297,7 +1297,7 @@
     tick().then(() => reportHug());
   });
 
-  // PLANETS-STRIP leftover: hug to the STARS ruler on dest change. Do
+  // hug to the STARS ruler on dest change. Do
   // not watch Launchpad lists — those scroll inside the tab.
   $effect(() => {
     if (hosted === "off" || expanded) {
@@ -1362,7 +1362,7 @@
     invoke("ensure_glass").catch(() => {});
     if (mainEl && typeof ResizeObserver !== "undefined") {
       hugObserver = new ResizeObserver(() => {
-        // COLLAPSE-CC leftover (popup hug): a resize after the overlay
+        // a resize after the overlay
         // closed is the snap-back landing — release the bottom-pack so
         // the bar owns the column again.
         if (ccSnap) ccSnap = false;
@@ -1605,7 +1605,7 @@
           style:--prism-r="{prismR}px"
           bind:this={wellpaneEl}
         >
-          <!-- TILE-YAW leftover (triangular prism): on a hosted dest swap
+          <!-- on a hosted dest swap
                the outgoing page mounts as a second face (swapPrev) and
                both faces ride a ±120deg rotateY around the card's
                vertical axis — the crease between them is the read. Each
@@ -1842,7 +1842,7 @@
     background: transparent;
   }
 
-  /* COLLAPSE-CC leftover (popup hug): while the reply overlay holds the
+  /* while the reply overlay holds the
      sprite-off window taller than the bar (the hug grew keep-bottom),
      bottom-pack the CC + dock so the grow — and the snap-back — never
      hops the dock. A no-op once the bar refills the window (flex-end ==
@@ -2046,7 +2046,7 @@
     }
   }
 
-  /* Leftover: the swap verb is a TRIANGULAR PRISM
+  /* the swap verb is a TRIANGULAR PRISM
      turn (Matt: not a recipe-card deal, not a book, not an X, not a 90°
      cube). The three dests are the three faces of a triangular prism
      rotating around a vertical axis through the card — the step is

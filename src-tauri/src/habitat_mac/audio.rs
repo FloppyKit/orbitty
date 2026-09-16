@@ -158,7 +158,7 @@ pub(crate) fn stop_audio(planet: &mut Planet) {
     }
 }
 
-// ---------- choose-music picker (GO-ORBITTY-BOOMBOX-KILL) ----------
+// choose-music picker (GO-ORBITTY-BOOMBOX-KILL)
 
 /// While true, DisplayLink posts nothing and cursor_tick skips boombox
 /// starts. The old beachball was runModal *during* vsync setFrameOrigin.

@@ -79,7 +79,7 @@
   let titleOverrides = $state<TitleOverride[]>([]);
   let agentShortcuts = $state<AgentShortcut[]>([]);
   let agentRuns = $state<AgentRun[]>([]);
-  // AGENT-PLANET leftover: writer on a planet glows that chip in the
+  // writer on a planet glows that chip in the
   // Launchpad strip (same flag the inspector sheet tabs already read).
   let hackProjectId = $state<string | null>(null);
   let selectedBeforeDone = $state("inbox");
@@ -660,7 +660,7 @@
     return card.pointsAwarded > 0 ? `+${card.pointsAwarded}` : "cap";
   }
 
-  // ---- row meta (notes snippet, difficulty pip, due chip, sub count) ----
+  // row meta (notes snippet, difficulty pip, due chip, sub count)
 
   function notesSnippet(card: KanbanCard): string {
     const first = (card.notes ?? "").split("\n")[0].trim();
@@ -1022,7 +1022,7 @@
     logEvent("board-move", { from: card.status, to: target, cardId: card.id }, card.projectId);
   }
 
-  // ---- detail drawer mutations (all additive on the card) ----
+  // detail drawer mutations (all additive on the card)
 
   function openDetail(card: KanbanCard) {
     if (card.kind !== "needed") {
@@ -1472,7 +1472,7 @@
     });
   }
 
-  // ---- board drag handlers ----
+  // board drag handlers
 
   function onCardDragStart(e: DragEvent, _card: KanbanCard) {
     // Pointer path owns the mouse. Prevent native WK drag so it cannot
@@ -3329,7 +3329,7 @@
     transform: rotate(90deg);
   }
 
-  /* ---- S4.4 Board. Column counts live in boardStack.css. ---- */
+  /* S4.4 Board. Column counts live in boardStack.css. ---- */
   .b-cols {
     flex: 1;
     min-height: 0;

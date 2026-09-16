@@ -1009,7 +1009,7 @@
     border-color: var(--focus, #6e4db0);
   }
 
-  /* NEXT-CARD leftover: quiet ochre pip, not a dest chip, not red. */
+  /* quiet ochre pip, not a dest chip, not red. */
   .nextpip {
     flex: none;
     position: relative;

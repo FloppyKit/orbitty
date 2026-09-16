@@ -12,7 +12,7 @@ fn main() {
             .file("src/objc_try.m")
             .flag("-fobjc-arc")
             .compile("orbitty_objc_try");
-        // GO-ORBITTY-ATTACH: one-file NSOpenPanel for the composer chip.
+        // one-file NSOpenPanel for the composer chip.
         cc::Build::new()
             .file("src/attach_mac.m")
             .flag("-fobjc-arc")

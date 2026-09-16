@@ -131,7 +131,7 @@ fn locate_planet(app: tauri::AppHandle, id: String) -> Result<(), String> {
     habitat::locate_planet(app, id)
 }
 
-/// Leftover (inspector rm): the rail/sheet × door —
+/// the rail/sheet × door —
 /// the SAME save door as ctl (`board::project_rm`): atomic save, claim
 /// diff, `state:changed` emit. Cards keep their projectId; walkers vanish
 /// with the disc on the next habitat sync. Unknown id = honest error.
@@ -339,7 +339,7 @@ fn yard_status() -> bool {
     yard::active()
 }
 
-/// Leftover: own small card window. Dock pip and
+/// own small card window. Dock pip and
 /// ⌘⇧N toggle. Click-off / Esc / × hide. Not a dest chip.
 #[tauri::command]
 fn toggle_next_card_window(app: tauri::AppHandle) -> Result<(), String> {
@@ -516,7 +516,7 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
     // claim/unclaim (best-effort; a dead log never fails the save). A
     // missing/corrupt old file skips the diff rather than inventing churn.
     let before = state::load_state(&app).ok();
-    // Leftover: whole-state writers never OWN
+    // whole-state writers never OWN
     // companion.free_mode — the set_companion_free_mode command (Settings
     // toggle / companion.free_mode ctl tool) is the only door. Carry the
     // disk value forward so a stale or omitted incoming flag can never
@@ -648,7 +648,7 @@ pub fn run() {
             // reads/writes state under the new identifier.
             state::migrate_app_support(app.handle());
 
-            // GO-ORBITTY-STARS-FIVE: one-time 0–4 → 1–5 checkin shift
+            // one-time 0–4 → 1–5 checkin shift
             // (scaleV flag — never twice), before any window reads state.
             state::migrate_stars_scale(app.handle());
 
@@ -743,7 +743,7 @@ pub fn run() {
                         }
                     })?;
 
-                // Leftover: ⌘⇧N toggles the next-card
+                // ⌘⇧N toggles the next-card
                 // window. Reserved in actions.rs so a user combo cannot steal it.
                 let next_card = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyN);
                 let next_handle = app.handle().clone();

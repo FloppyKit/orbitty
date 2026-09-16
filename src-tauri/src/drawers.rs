@@ -78,7 +78,7 @@ struct VisibleFrame {
     h: f64,
 }
 
-// ---------- Drawer clamp / sheet-click / sheet-front ----------
+// Drawer clamp / sheet-click / sheet-front
 // One on-screen law for every drawer label (companion / kanban /
 // settings), used on the already-visible path and the slot fallback.
 // There is no plucked restore and no bounds writer —
@@ -274,7 +274,7 @@ fn drawer_order_front(app: &tauri::AppHandle, w: &tauri::WebviewWindow, label: &
     }
 }
 
-// ---------- Created-at stamps ----------
+// Created-at stamps
 
 /// When ensure_window actually BUILT the pane — stamped there, never on a
 /// cache hit. The mount check reads this to tell a still-hydrating first
@@ -298,7 +298,7 @@ fn window_created_at(label: &str) -> Option<std::time::Instant> {
     created_at_stamps().lock().ok()?.get(label).copied()
 }
 
-// ---------- The SPA must actually mount ----------
+// The SPA must actually mount
 
 /// After a verified drawer show, the webview must grow an AXWebArea — the
 /// same "is the SPA really mounted" truth Pixel reads. The empty-glass
@@ -922,7 +922,7 @@ fn clamp_to_frame(b: state::CompanionBounds, vf: &VisibleFrame) -> state::Compan
     }
 }
 
-/// HOST-DOCK leftover: same handle law, but keep `b`'s bottom when that
+/// same handle law, but keep `b`'s bottom when that
 /// still leaves a 24px handle on `vf`. Dest buttons sit on the bottom
 /// dock — a y-shift of the whole rect walks them. Top/sides may move.
 fn clamp_to_frame_keep_bottom(
@@ -994,7 +994,7 @@ pub(crate) fn clamp_on_displays(b: state::CompanionBounds) -> Option<state::Comp
     clamp_drawer_rect(b, &points_frames(&screen_visible_frames()))
 }
 
-/// HOST-DOCK leftover: same every-display clamp, but the dest dock's
+/// same every-display clamp, but the dest dock's
 /// bottom stays put when a handle still fits.
 pub(crate) fn clamp_on_displays_keep_bottom(
     b: state::CompanionBounds,
@@ -1043,7 +1043,7 @@ pub(crate) fn clamp_on_host_display(
     }
 }
 
-/// Leftover (summon clamp): the companion's dock must
+/// the companion's dock must
 /// stay clickable — a keep-bottom place whose bottom edge already hangs
 /// below every display (the dock-click drop, a hug from a low-parked
 /// idle, a host grow pinned to a sunk bottom) strands the window with no
@@ -1155,7 +1155,7 @@ pub(crate) fn pin_bottom_center(
     }
 }
 
-/// HOST-DOCK leftover: place `r`, then if macOS constrainFrameRect slid
+/// place `r`, then if macOS constrainFrameRect slid
 /// the frame, put the bottom back so dests stay.
 pub(crate) fn place_logical_rect_keep_bottom(
     w: &tauri::WebviewWindow,
@@ -1652,7 +1652,7 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
                     .unwrap_or(false)
             })
             .unwrap_or(false);
-    // Leftover (summon clamp): a visible pane with no
+    // a visible pane with no
     // 24px handle on ANY display is lost, not "already visible" — fall
     // through to the place path so the summon actually recovers it (for
     // the companion, raise_now then clamps the dock back on-screen).

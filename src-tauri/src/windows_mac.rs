@@ -157,7 +157,7 @@ extern "C" {
     static kSecCodeInfoCertificates: CFRef;
 }
 
-// ---------- AX helpers (port of AXHelpers.swift) ----------
+// AX helpers (port of AXHelpers.swift)
 
 /// Copy rule: caller owns the returned ref.
 unsafe fn ax_copy(element: AXUIElementRef, attribute: CFRef) -> Option<CFRef> {
@@ -295,7 +295,7 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-// ---------- AppKit via objc runtime ----------
+// AppKit via objc runtime
 
 unsafe fn ns_to_string(obj: *mut Object) -> Option<String> {
     if obj.is_null() {
@@ -315,7 +315,7 @@ struct RunningApp {
     icon_base64: Option<String>,
 }
 
-// ---------- app icons ----------
+// app icons
 
 const B64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -510,7 +510,7 @@ unsafe fn activate(app: *mut Object) {
     }
 }
 
-// ---------- enumeration (port of WindowCatalog) ----------
+// enumeration (port of WindowCatalog)
 
 unsafe fn enumerate() -> Vec<WindowInfo> {
     let mut result = Vec::new();
@@ -638,7 +638,7 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
     }
 }
 
-// ---------- focus (port of WindowFocuser) ----------
+// focus (port of WindowFocuser)
 
 pub fn focus_window(id: &str) -> Result<(), String> {
     if !unsafe { AXIsProcessTrusted() } {
@@ -828,7 +828,7 @@ pub fn close_window(id: &str) -> Result<(), String> {
     }
 }
 
-// ---------- Locate ring ----------
+// Locate ring
 
 // GCD main-queue hops (same binding trick as habitat_mac): the SDK's
 // dispatch_get_main_queue() is a header inline returning &_dispatch_main_q.
@@ -1027,7 +1027,7 @@ unsafe fn focus_in_app(ax_app: AXUIElementRef, rest: &str) -> Result<(), String>
     Ok(())
 }
 
-// ---------- permission gate (port of PermissionGate) ----------
+// permission gate (port of PermissionGate)
 
 pub fn accessibility_status() -> AccessibilityStatus {
     let trusted = unsafe { AXIsProcessTrusted() };

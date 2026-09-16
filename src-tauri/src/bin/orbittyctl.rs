@@ -314,7 +314,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                 )),
             }
         }
-        // Leftover: the Free Mode switch — same
+        // the Free Mode switch — same
         // companion.* ACL as companion.mode. Fail CLOSED on an unknown
         // verb — a typo never flips the lane router.
         ["companion", "free-mode"] => {
@@ -355,7 +355,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         // The dock LED flag. Fail CLOSED on an
         // unknown verb — a typo never leaves a stuck light. `--who` may
         // ride either side of `--` (after it, it's tail text we parse).
-        // AGENT-PLANET leftover: `--project` rides the same way — the
+        // `--project` rides the same way — the
         // live agent's pinned planet, for the dest/planet menu glow.
         ["companion", "hack", ..] => {
             let p = payload(o)?;

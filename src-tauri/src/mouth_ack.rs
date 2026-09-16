@@ -1,28 +1,6 @@
-//! The conductor — a slim local fast-ack layer in
-//! front of the hop mouth. Matt: the box should feel awake. Every Spark
-//! send (the you-row is already persisted by the coordinator) gets a
-//! one-line ack + a verb in hundreds of ms — local Ollama first
-//! (user-picked small model; blank = first pulled), a built-in non-LLM
-//! classifier when Ollama is down or slow. `chat` (and anything unknown
-//! — the allowlist is `chat` · `do-go` · `run-action` · `ask-needed` ·
-//! `none`) splashes the ack over the wait mark via `companion:ack`
-//! (NEVER a saved turn — MOUTH-LIVE: the final reply is the only
-//! them-row that persists) and the hop mouth lands the real English
-//! reply in the same bubble. Any other verb's ack IS the them-row — no
-//! mouth spend, and the fixed lines point at the doors that already
-//! exist (doing-fire / pickup, baked Actions, the Needed answer): the
-//! conductor invents no rules and no Actions.
-//!
-//! Propose-don't-save: a "save this as an action" line never mints. A
-//! quoted command arms ONE parked proposal (in-memory only — never
-//! state.json, never rules.json) and the them-row asks; only Matt's
-//! "yes" runs the existing `action add` door. A no, a changed subject,
-//! the toggle going off, or a restart all drop it. No silent mint.
-//!
-//! Settings: `companion.conductor_on` / `companion.conductor_model` —
-//! own commands plus the save_state strip-trap carry, same as
-//! free_mode. Off = today's mouth only. Not this GO: a second mouth,
-//! hosted conductor models, new rules.json writes, OpenCode anything.
+//! Fast-ack in front of the hop mouth. Ack is never a saved turn for
+//! `chat`. Other verbs' ack is the them-row (no mouth spend). Never
+//! silent-mint an Action.
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -40,7 +18,7 @@ pub enum Step {
     Final(String),
 }
 
-// ---------- the parked Action proposal (in-memory, never persisted) ----------
+// the parked Action proposal (in-memory, never persisted)
 
 struct PendingAction {
     name: String,
@@ -53,7 +31,7 @@ fn lock_pending() -> MutexGuard<'static, Option<PendingAction>> {
     PENDING_ACTION.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-// ---------- Ollama probe cache (the conductor runs on EVERY send) ----------
+// Ollama probe cache (the conductor runs on EVERY send)
 
 static OLLAMA_PROBE: Mutex<Option<(bool, std::time::Instant)>> = Mutex::new(None);
 
@@ -76,7 +54,7 @@ fn ollama_up_cached() -> bool {
     up
 }
 
-// ---------- the door ----------
+// the door
 
 /// The conductor pass for one Spark send. None = conductor off (today's
 /// mouth only). Runs the blocking curl on a worker thread.
@@ -175,7 +153,7 @@ fn mint_action(_app: &tauri::AppHandle, _name: &str, _command: &str) -> String {
     "Actions mint on the mac build only.".into()
 }
 
-// ---------- yes / no (only consulted with a proposal parked) ----------
+// yes / no (only consulted with a proposal parked)
 
 fn bare(line: &str) -> &str {
     line.trim()
@@ -222,7 +200,7 @@ fn is_no(line: &str) -> bool {
     )
 }
 
-// ---------- propose-don't-save scan (deterministic — never the model) ----------
+// propose-don't-save scan (deterministic — never the model)
 
 enum Mint {
     No,
@@ -327,7 +305,7 @@ fn slug(s: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
-// ---------- classify: slim local first ----------
+// classify: slim local first
 
 const CONDUCTOR_SYS: &str = "You are Orbitty's conductor — a fast triage layer in front of the mouth. \
 Read Matt's line and answer with EXACTLY one line, no quotes, no explanation:\n\
@@ -484,7 +462,7 @@ fn fixed_ack(verb: &str) -> String {
     }
 }
 
-// ---------- Settings surface (conductor on/off + model id) ----------
+// Settings surface (conductor on/off + model id)
 
 /// Conductor toggle — the same load-modify-save + emit pattern as the
 /// other companion switches. Default off = today's mouth only. Off also

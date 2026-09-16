@@ -1,33 +1,5 @@
-//! The agent-walker join. A `kind=todo` card
-//! dragged `todo` → `doing` already launches its worker (doing-fire /
-//! agent pickup / `launch_agent` own the processes); this door only
-//! ATTACHES the `agentRuns` row the habitat mirrors as the seeded droid
-//! walker on that planet — never a second spawn, never a process at all.
-//! Locks: `~/.buzz/PLANS/ORBITTY_HERDR_PATH_LOCK_v0.md` (the
-//! DOING-WALKER slice) + `~/Downloads/ORBITTY_HERDR_RUNNER_v0.md`.
-//!
-//! Additive persist on the one state.json (no second schema):
-//! todo→doing mints/refreshes `{cardId, planetId, agentShortcutId,
-//! state: "working"}`; doing→done marks the row `done` (the far-rim
-//! walk-off narrates, then the rail's walked-off door evicts the row);
-//! doing→todo (or the card vanishing) drops the row. One row per card —
-//! a re-drag upserts, never twins. Best-effort like doing-fire: a failure
-//! here never fails the save that carried the move.
-//!
-//! Wired from the same two move doors as doing-fire (`board::kanban_move`
-//! and the UI's whole-state `save_state` command) as a before/after card
-//! diff. `state: "blocked"` / `"starting"` are read-supported in the
-//! snapshot mapping and written by the Herdr adapter (`herdr.rs`);
-//! `"starting"` stays read-supported only — this phrase writes neither.
-//!
-//! Leftover (no droid): the strip-trap heal. A stale whole-state persist
-//! (the rail's in-memory `agentRuns` predating the mint, doing-fire's
-//! Who-runs save riding a pre-attach snapshot) writes an `agentRuns`
-//! subset over a live run, and the bare card diff never remints — the
-//! card already reads Doing. `stripped` re-carries any row the incoming
-//! save dropped while its card is still Doing, so NO save door can take
-//! the walker off the board. `agent-run-attach` fires only after the
-//! save lands: the event means the row is on disk, never before.
+//! Attach `agentRuns` for the habitat droid. Never a second spawn.
+//! One row per card. A save must not strip a live Doing run.
 
 use serde_json::json;
 

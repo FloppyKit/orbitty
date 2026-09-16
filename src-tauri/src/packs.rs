@@ -44,7 +44,7 @@ Rules (locked in LIVESPRITE_SPRITE_PACKS_LOCK_v0.md):
 App data: ~/Library/Application Support/space.orbitty.mac/packs/
 ";
 
-// ---------- manifest ----------
+// manifest
 
 #[derive(Deserialize, Default, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
@@ -415,7 +415,7 @@ fn collect_images(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     }
 }
 
-// ---------- paths ----------
+// paths
 
 fn packs_dir_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -467,7 +467,7 @@ fn valid_pack_id(id: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-// ---------- commands ----------
+// commands
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]

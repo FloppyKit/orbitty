@@ -1,30 +1,6 @@
-//! The Herdr branch of the ONE spawn hook
-//! (`coordinator::launch_agent`; doing-fire / pickup funnel there).
-//! Herdr is first-class IF PRESENT: `herdr` on PATH + its server up →
-//! the run gets a herdr workspace + pane (`workspace create --cwd
-//! <planet cwd> --label <planet>` then `agent start <name> --kind
-//! grok|opencode --pane <root>`) and the doing-run row carries
-//! `agentRun.herdr`. Missing / server down → ONE skip line (the install
-//! URL when herdr itself is absent) and the caller's old launcher
-//! (Goose/Grok Terminal, `cursor-go`) still fires; the DOING-WALKER row
-//! still mints. Never a second kernel, never a dual-launch — the cursor
-//! harness never enters this branch.
-//!
-//! `agent_not_ready` / a login wall on start → the row goes `blocked`
-//! (the walker stands the near rim) and STOPS: no retry loop — the
-//! human looks at the pane. The watch (`agent wait` / `agent get`) only
-//! paints walker state (blocked ↔ working); `done` stays owned by the
-//! card's doing→done drag (DOING-WALKER law), and the watch owns the
-//! dock-LED off for the run it launched (the Terminal doors' EXIT-trap
-//! job). OpenCode is detect-only: kind `opencode` is legal only with
-//! `opencode` on PATH — never prompt-installed, never `opencode serve`
-//! as the mouth, never sub-agent fans as planet children.
-//!
-//! CLI JSON in / JSON out only: envelopes `{"id", "result"|"error"}`
-//! (`herdr api schema`); an error envelope or unparseable answer is an
-//! honest skip/block, never a guess. Locks:
-//! `~/.buzz/PLANS/ORBITTY_HERDR_PATH_LOCK_v0.md` +
-//! `~/Downloads/ORBITTY_HERDR_RUNNER_v0.md`.
+//! Herdr branch of `launch_agent` for grok / opencode (detect-only).
+//! Present + server up → pane. Else one skip line and the old launcher.
+//! Cursor never enters this branch. No dual-launch, no retry loop.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

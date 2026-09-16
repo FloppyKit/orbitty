@@ -1,4 +1,4 @@
-//! GO-ORBITTY-TODO-TREES — 8 stills + plant/harvest walks.
+//! 8 stills + plant/harvest walks.
 //! WORLD-YARD Place-plant glyphs stay in draw.rs.
 
 #![allow(unexpected_cfgs)]

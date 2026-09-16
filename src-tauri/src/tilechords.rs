@@ -1,26 +1,5 @@
-//! Global chords for the dest tiles, riding the
-//! same `tauri_plugin_global_shortcut` as the ⌘⇧O summon and the action
-//! combos. These are NOT user `actionShortcuts` — reserved like summon
-//! (actions.rs `is_reserved` refuses them for action rows, so a
-//! collision marks the action `conflict` and the tile chord wins).
-//!
-//!   ⌘⌥1 / ⌘⌥2 / ⌘⌥3   Launchpad / STARS / Planets — the same move as
-//!                     the dest chips: drop from idle, yaw from a hosted
-//!                     sibling, dismiss when that dest is already up.
-//!                     The page owns `hosted`, so the toggle lives there.
-//!   ⌘⌥← / ⌘⌥→         While hosted: yaw the ring (Launchpad → STARS →
-//!                     Planets → Launchpad). Idle: no-op — never summon.
-//!   ⌘⌥↓               Dismiss whichever dest is hosted (Launchpad,
-//!                     STARS, or Planets). Idle: no-op — never summon,
-//!                     same as the yaws.
-//!   ⌘⌥↑               Raise the last dest that was lowered (Launchpad
-//!                     if none this session). This one DOES summon from
-//!                     idle — same posture as ⌘⌥1/2/3 — but no-ops while
-//!                     a dest is already up (a menu is already up).
-//!
-//! ⌘Space stays Spotlight; Super-only Mac menu chords stay refused
-//! (actions.rs reserved list); ⌘⌥+letter stays the action lane — dests
-//! are never registered as letters.
+//! Dest chords (⌘⌥1/2/3, arrows, ↓/↑). Not user actionShortcuts.
+//! Idle yaws/↓ do not summon. ⌘⌥↑ from idle raises the last dest.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};

@@ -26,7 +26,7 @@ use super::{
     NSRect, Planet, EXPANDED_RADIUS, VIEW_PADDING,
 };
 
-// ---------- geometry ----------
+// geometry
 
 /// HUD geometry, all view-local flipped (y down). Derived from the
 /// boombox decor frame at draw/hit time, so layout_decor stays the one
@@ -162,7 +162,7 @@ pub(crate) fn contains_hud(planet: &Planet, local: NSPoint) -> bool {
     r.panel.inset(-2.0).contains(local) || r.pill.inset(-2.0).contains(local)
 }
 
-// ---------- open / close ----------
+// open / close
 
 pub(crate) fn toggle(h: &mut Habitat, project_id: &str) {
     if h.boombox_hud.as_deref() == Some(project_id) {
@@ -197,7 +197,7 @@ pub(crate) fn close(h: &mut Habitat) {
     }
 }
 
-// ---------- controls ----------
+// controls
 
 /// Slider write: the remembered multiplier (persisted through
 /// worlds_dirty), then the live player fades in place — same door as
@@ -266,7 +266,7 @@ pub(crate) fn toggle_mute(h: &mut Habitat, project_id: &str) {
     }
 }
 
-// ---------- draw ----------
+// draw
 
 /// Everything drawRect needs, copied under the lock (DrawData rides
 /// lock-free after).
@@ -401,7 +401,7 @@ unsafe fn draw_speaker(rect: NSRect, muted: bool, white: *mut Object) {
     }
 }
 
-// ---------- Esc / click-away monitors (yard block pattern) ----------
+// Esc / click-away monitors (yard block pattern)
 
 /// NSEventMask: keyDown (1<<10) | leftMouseDown (1<<1) | rightMouseDown
 /// (1<<2). Installed only while the HUD is open.

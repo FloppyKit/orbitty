@@ -179,11 +179,11 @@
     bounds: null,
     imagePackId: null,
     state: "idle",
-    // MOUTH-HOP leftover: required key — a constructed slice must carry
+    // required key — a constructed slice must carry
     // the flag (default off) so persist() can never omit it.
     freeMode: false,
   });
-  // Leftover: the planet an agent is writing on
+  // the planet an agent is writing on
   // (companion.hackLive + that agent's pinned projectId) glows a little
   // in the planet menus — the On planets sheet heads only, never the
   // habitat discs, never the walkers.
@@ -824,7 +824,7 @@
   // row). agentSeed marks the entry as the baked droid (bitty sheets
   // stay on window walkers); the native side bakes the atlas once off
   // its hash.
-  // Leftover (doing orbit): the agent walker's neededState is its OWN
+  // the agent walker's neededState is its OWN
   // run's blocked signal, never the planet NeededInbox — an open Needed
   // on this planet must not steal a WORKING droid off the disc. Needed
   // wins over Doing for WINDOW walkers only (the CADENCE sit in
@@ -881,7 +881,7 @@
           spriteScale: 0,
           cardStatus: r.state === "done" ? "done" : "doing",
           cardKind: "todo",
-          // GO-ORBITTY-DROID-GLANCE: blocked vs needs-you vs working.
+          // blocked vs needs-you vs working.
           // Window walkers still use open/later for planet Neededs.
           neededState:
             r.state === "blocked" ? "blocked" : needsYou ? "open" : "",
@@ -955,7 +955,7 @@
             .map(sleeperRowFor),
         ],
       }))
-      // Leftover: NO empty-planet filter — a mint
+      // NO empty-planet filter — a mint
       // with zero claims still rides the snapshot (entries: []) so the
       // native side gives it a disc (empty town / marble). Filtering here
       // tore the panel down and the name "vanished" on the dest click.
@@ -1616,7 +1616,7 @@
     persist();
   }
 
-  // ---------- Being editor ----------
+  // Being editor
   // The door is the planet walker's right-click menu → "Open being…"
   // (habitat:being). Every change writes the
   // claim straight away (persist → syncHabitat), so the planet redraws
@@ -1814,7 +1814,7 @@
     }
   }
 
-  // Leftover (inspector rm click): the × on a planet
+  // the × on a planet
   // row arms an in-sheet confirm — WKWebView JS dialogs (confirm/alert) do
   // not surface on the companion overlay window, so window.confirm swallowed
   // the press and window.alert had the same hole (S4.6 law: the confirm
@@ -2047,7 +2047,7 @@
     nudgeSuppressed = nudgeSuppressed.map((id) => (id === oldId ? w.id : id));
   }
 
-  // Leftover: orphan window-card heal. An open
+  // orphan window-card heal. An open
   // kind:"window" card with a windowId but no live claim is invisible
   // everywhere except the billboard tick — todosFor skips windowId cards,
   // Launchpad hides kind:"window", the habitat only draws claims. Heal:
@@ -2423,7 +2423,7 @@
       );
       persist();
     });
-    // Leftover (town usable): a walker dropped on
+    // a walker dropped on
     // the Todo column returns its card to todo — the drop on the board
     // IS the status move. doing→todo only: a todo card stays (no-op), a
     // done card's walk-off ritual owns it. The native side already spent
@@ -2650,7 +2650,7 @@
   </li>
 {/snippet}
 
-<!-- Leftover (inspector rm click): the × arms an
+<!-- the × arms an
      in-sheet confirm chip (no window.confirm — JS dialogs don't surface on
      the companion overlay). stopPropagation on mousedown AND click so the
      companion pane-drag and the section-head collapse toggle can't steal
@@ -3860,7 +3860,7 @@
     outline-offset: 1px;
   }
 
-  /* Leftover (inspector rm): head + × share one
+  /* head + × share one
      row — the head keeps the flex, the × stays out of the collapse
      toggle so a remove can never misclick-expand. */
   .head-row {
@@ -3951,7 +3951,7 @@
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
   }
 
-  /* Leftover: a small glow in the planet's own
+  /* a small glow in the planet's own
      color while its agent is writing (hackLive + projectId). The inset
      ring stays; menus only — never the habitat discs. */
   .planet-chip.live {
@@ -4325,7 +4325,7 @@
     outline: none;
   }
 
-  /* Leftover: a minimized window is stowed, not
+  /* a minimized window is stowed, not
      asleep — the walker still walks its planet, so the row stays readable
      (0.85), never a ghost. Zombie age classes (.rowwrap.zpark/.zgone)
      still dim harder, and true sleepers keep .row.sleeping's 0.6. */
