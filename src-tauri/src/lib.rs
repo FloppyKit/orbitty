@@ -354,6 +354,11 @@ fn toggle_next_card_window(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+fn toggle_cheatsheet(app: tauri::AppHandle) -> Result<(), String> {
+    panes::toggle_cheatsheet(app)
+}
+
 /// Run `f` on the main thread and BLOCK until it finishes. Inline when
 /// already on the main thread (dispatch_sync of the main queue from the
 /// main thread deadlocks). A panic inside `f` is swallowed — a native
@@ -439,7 +444,7 @@ fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
         // AppKit view surgery must happen on the main thread.
         let handle = app.clone();
         app.run_on_main_thread(move || {
-            for label in ["main", "kanban", "companion", "stars", "settings", "sky"] {
+            for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"] {
                 if let Some(w) = handle.get_webview_window(label) {
                     glass::ensure_transparent(&w);
                     glass::hide_traffic_lights(&w);
@@ -499,7 +504,9 @@ fn set_vibrancy(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 fn load_state(app: tauri::AppHandle) -> Result<state::PersistedState, String> {
-    state::load_state(&app)
+    let mut st = state::load_state(&app)?;
+    crate::todo_trees::reconcile(&mut st);
+    Ok(st)
 }
 
 #[tauri::command]
@@ -569,6 +576,7 @@ pub fn run() {
             yard_stop,
             yard_status,
             toggle_next_card_window,
+            toggle_cheatsheet,
             rail_toggle::toggle_labeled,
             rail_toggle::dest_toggle,
             rail_toggle::dest_show,
@@ -578,6 +586,7 @@ pub fn run() {
             companion::companion_frames,
             companion::companion_glb_url,
             panes::hide_window,
+            panes::arm_companion_mouth,
             panes::set_companion_host,
             panes::set_companion_composer_grow,
             panes::set_companion_host_hug,
@@ -606,6 +615,8 @@ pub fn run() {
             coordinator::companion_agents,
             coordinator::set_companion_agent,
             coordinator::set_companion_mode,
+            coordinator::companion_thin,
+            coordinator::companion_now,
             coordinator::set_companion_pack,
             coordinator::set_companion_expanded,
             coordinator::set_companion_view,
@@ -653,6 +664,7 @@ pub fn run() {
             control::start(app.handle());
 
             habitat::start(app.handle().clone());
+            coordinator::heal_stuck_hack(app.handle());
 
             // Companion z-order poll (10Hz): shown pane stays floating.
             companion_clear::start(app.handle().clone());
@@ -664,7 +676,7 @@ pub fn run() {
             // S4.4: plus explicit surgery on the live NSWindow/WKWebView —
             // the config-level chain alone still washed white/grey.
             #[cfg(target_os = "macos")]
-            for label in ["main", "kanban", "companion", "stars", "settings", "sky"] {
+            for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"] {
                 if let Some(w) = app.get_webview_window(label) {
                     // One recipe for every pane —
                     // clear background + transparency surgery (the rail
@@ -767,7 +779,7 @@ pub fn run() {
             // restore-on-launch reads that slice. Only
             // the rail exists at launch; lazy panes get the same wiring from
             // ensure_window at create time.
-            for label in ["main", "kanban", "companion", "stars", "settings", "sky"] {
+            for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"] {
                 if let Some(window) = app.get_webview_window(label) {
                     panes::wire_pane_events(app.handle(), &window, label == "companion");
                     drawers::wire_drawer_events(app.handle(), &window, label);

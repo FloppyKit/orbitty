@@ -42,9 +42,9 @@ fn hash_str(s: &str) -> u64 {
 /// Grass paddock around STATION_FIELD — not the board, not the igloo.
 pub fn default_spot(card_id: &str) -> (f64, f64) {
     let h = hash_str(card_id);
-    let x = -0.22 + ((h % 50) as f64) * 0.009;
-    let y = 0.02 + (((h >> 8) % 36) as f64) * 0.008;
-    (x.clamp(-0.35, 0.35), y.clamp(-0.15, 0.35))
+    let x = -0.18 + ((h % 40) as f64) * 0.009;
+    let y = 0.08 + (((h >> 8) % 28) as f64) * 0.008;
+    (x.clamp(-0.28, 0.28), y.clamp(0.04, 0.32))
 }
 
 pub fn grow_days(st: &PersistedState) -> f64 {

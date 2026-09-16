@@ -100,7 +100,7 @@ pub(crate) fn layout(planet: &mut Planet) {
         ));
         let h = PHASES[ph].len() as f64;
         let w = PHASES[ph][0].len() as f64;
-        let scale = (r * 0.018).clamp(2.0, 4.5);
+        let scale = (r * 0.045).clamp(6.0, 12.0);
         planet.todo_tree_frames.push((
             t.card_id.clone(),
             NSRect::new(
@@ -143,7 +143,7 @@ pub(crate) unsafe fn paint_ticks(
         let tnorm = growth_t(t.planted_at, t.due_at, now_epoch, grow_days);
         let ph = phase(tnorm);
         let art = PHASES[ph];
-        let scale = (r * 0.018).clamp(2.0, 4.5);
+        let scale = (r * 0.045).clamp(6.0, 12.0);
         let cx = center.x + t.x * r;
         let base_y = center.y + t.y * ry;
         blit(cx, base_y, art, scale);

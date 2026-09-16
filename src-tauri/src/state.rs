@@ -1,11 +1,11 @@
 //! Persistence — explicit claim state, JSON file under the app data dir.
-//! Shape: `{ themeId, windowOpacity, projects: [{id,name}],
+//! Shape: `{ themeId, windowOpacity, projects: [{id,name,trackers?}],
 //! claims: [{windowId,projectId,lastTouchedAt}],
 //! tags: [{id,name,color?}], windowTags: [{windowId,tagIds}],
 //! collapsedSectionIds: [sectionId], nudgeSuppressedWindowIds: [windowId],
 //! kanbanCards: [{id,title,projectId,windowId?,kind?,status,createdAt,
 //! lastTouchedAt,completedAt?,goalAligned,clinicalOrMaster,pointsAwarded,
-//! starred, notes?, difficulty?, subtasks?, dueAt?, tagIds?,
+//! starred, notes?, difficulty?, rating?, trackers?, subtasks?, dueAt?, tagIds?,
 //! neededState?, neededWhy?, neededAnswer?, actor?}],
 //! pointsLedger: [{id,cardId,amount,day,at,actor?}],
 //! titleOverrides: [{windowId,title}] }`.
@@ -488,17 +488,15 @@ pub struct CompanionState {
     #[serde(default = "companion_sprite_default")]
     pub sprite: bool,
     /// The active companion mode — "spark"
-    /// (default) | "chat" | "work" | "hold". A SECOND axis next to the
-    /// four-cast agent pick (spark/grok/chaos-gremlin/fkt-homie stems
-    /// stay): mode owns the transcript + the bus target, never a stem
-    /// recast. Chat/Hold never get the GO bus.
+    /// (default) | "chat" | "work" | "hold". Job law only (desk / join /
+    /// build / parked). ONE transcript in `turns`. Mode does not park a
+    /// second brain. Four-cast stem pick is still a second axis.
     #[serde(default = "companion_mode_default")]
     pub mode: String,
-    /// Mode → parked transcript (cap 40 each).
-    /// `turns` stays the ACTIVE thread (CaptionPane reads it); a mode
-    /// switch parks turns under the old mode and loads the new mode's
-    /// thread. Healed on load: missing map + a pre-split transcript →
-    /// copied under "spark" (first run lands the old chat on Spark).
+    /// Legacy parked-per-mode map. No longer the live transcript —
+    /// `turns` is the one companion thread. Kept on disk so old saves
+    /// load; heal copies a non-empty parked thread into `turns` only
+    /// when `turns` is empty. Mode switch does not swap this.
     #[serde(default)]
     pub threads: std::collections::BTreeMap<String, Vec<CompanionTurn>>,
     /// Ctl-lit "agent working" flag for the dock
@@ -608,22 +606,32 @@ pub fn cap_companion_turns(turns: &mut Vec<CompanionTurn>) {
 }
 
 impl CompanionState {
-    /// Heal, run on every native load: an unknown /
-    /// missing mode snaps to spark, and a pre-split save (no threads map,
-    /// existing turns) parks its transcript under spark so the first run
-    /// shows the old chat on the Spark chip.
+    /// Heal, run on every native load: unknown mode → spark.
+    /// One transcript: if `turns` is empty and a parked thread has
+    /// lines, lift the longest parked thread so MODE-SPLIT history is
+    /// not dropped. Do not swap on later mode changes.
     pub fn heal_modes(&mut self) {
         if normalize_companion_mode(&self.mode).is_none() {
             self.mode = companion_mode_default();
         }
+        if self.turns.is_empty() {
+            if let Some((_, t)) = self
+                .threads
+                .iter()
+                .max_by_key(|(_, v)| v.len())
+                .filter(|(_, v)| !v.is_empty())
+            {
+                self.turns = t.clone();
+            }
+        }
         if self.threads.is_empty() && !self.turns.is_empty() {
-            self.threads.insert(companion_mode_default(), self.turns.clone());
+            self.threads
+                .insert(self.mode.clone(), self.turns.clone());
         }
     }
 
-    /// Append one turn to the ACTIVE thread and its parked copy under the
-    /// current mode — the two never drift, so a mode switch mid-thread
-    /// loses nothing. Both capped at 40.
+    /// Append one turn to the single companion thread. Shadow-copy under
+    /// the current mode so old readers of `threads[mode]` still see it.
     pub fn push_turn(&mut self, role: &str, text: &str) {
         let t = CompanionTurn {
             role: role.into(),
@@ -632,18 +640,14 @@ impl CompanionState {
         self.turns.push(t.clone());
         cap_companion_turns(&mut self.turns);
         let thread = self.threads.entry(self.mode.clone()).or_default();
-        thread.push(t);
-        cap_companion_turns(thread);
+        *thread = self.turns.clone();
     }
 
-    /// Switch the active mode: park the current turns under the old mode,
-    /// load the new mode's thread (empty when never visited). Chat lines
-    /// never leak into Spark — each mode's transcript is its own.
+    /// Job switch only. Same `turns`. Never parks a second transcript.
     pub fn switch_mode(&mut self, new_mode: &str) {
-        let parked = std::mem::take(&mut self.turns);
-        self.threads.insert(self.mode.clone(), parked);
-        self.turns = self.threads.get(new_mode).cloned().unwrap_or_default();
         self.mode = new_mode.to_string();
+        self.threads
+            .insert(self.mode.clone(), self.turns.clone());
     }
 }
 
@@ -755,6 +759,9 @@ pub struct TitleOverride {
 pub struct Project {
     pub id: String,
     pub name: String,
+    /// Named counters for this planet. Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trackers: Option<Vec<Tracker>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -880,6 +887,22 @@ pub struct KanbanCard {
     /// Another todo this card is nested under. Additive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+    /// Optional 1–7 rating. Metadata only — never points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rating: Option<u8>,
+    /// Leftover card-level trackers. Launchpad migrates these onto
+    /// the planet; the key stays so old saves do not strip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trackers: Option<Vec<Tracker>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Tracker {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub value: i32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

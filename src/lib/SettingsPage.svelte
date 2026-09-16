@@ -92,7 +92,6 @@
   let spendCapEnabled = $state(true);
   let runnerCap = $state(2);
   let treeGrowDays = $state(14);
-  let treeGrowDays = $state(14);
 
   let packs = $state<PackInfo[]>([]);
   let packsDir = $state("");
