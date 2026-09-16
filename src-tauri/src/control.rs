@@ -1,56 +1,6 @@
-//! Local control socket (Unix only).
-//!
-//! A side-path into the running app: newline-JSON requests on
-//! `app_data/control.sock` (mode 0600), dispatched to the SAME functions
-//! the Tauri invoke handlers call. No model, no TCP, no shadow behavior.
-//!
-//! Auth: socket mode 0600 is half one. Half two is an optional token —
-//! required when `ORBITTY_CONTROL_TOKEN` is set or `control.token` exists
-//! next to the sock; a mismatch is code 3. `control.json` is an optional
-//! allowlist (`{"profile":"read"|"companion"|"full"}` or
-//! `{"allow":[tool,...]}`); missing file = full, unreadable file = fail
-//! closed (code 4). Exit-code contract lives in `docs/
-//! ACCEPTANCE-ORBITTY-CONTROL-PLANE-0.md`: 2 not-running (ctl-side), 3
-//! auth, 4 denied, 5 AX/degraded, 1 other.
-//!
-//! The four write tools (kanban.add /
-//! kanban.move / needed.open / log.append). Writes are never in
-//! READ_TOOLS and never match companion.*, so only `full` or a named
-//! `custom` allowlist reaches them; `read` / `companion` deny (4).
-//! kanban.notes (set/clear a card's one-line
-//! summary) and the optional `notes` arg on kanban.add — same write ACL.
-//!
-//! The action recipe file (action.list /
-//! action.add / action.run / action.rm). `action.list` is read-profile
-//! safe; the companion profile (Spark) may `action.run` + `action.add` —
-//! it mints and runs named recipes, never a raw shell; `action.rm` needs
-//! `full` or a custom allowlist naming the tool or the `action.*` prefix.
-//!
-//! The planet control plane (project.add /
-//! project.rm / project.rename). Same ACL class as the kanban writes:
-//! never in READ_TOOLS, never companion.* — `full` or a named `custom`
-//! entry only; `read` / `companion` deny (4).
-//!
-//! companion.hack — the ctl-lit "agent
-//! working" flag behind the dock LED. companion.* ACL like play/send;
-//! `live` must be a real bool, so a malformed request fails closed and
-//! never leaves a stuck light.
-//!
-//! The agent roster (agent.list / agent.add /
-//! agent.rm / agent.pin / agent.pickup) plus kanban.assign. `agent.list`
-//! rides READ_TOOLS; the rest are writes — full / named custom only,
-//! never companion.* (Spark never spawns a harness).
-//!
-//! needed.answer (same path as the
-//! Tauri needed_answer — the watch sees the event) and puts the
-//! user-minted standing rules in front of needed.open: one hit + can-run
-//! mints the card already answered (actor "rule"); miss / collide /
-//! cannot-run / unreadable store mints open as today. Write-class ACL.
-//!
-//! Leftover: companion.free_mode — the Free
-//! Mode switch through the one control door, so dogfood/automation
-//! toggles it without poking state.json. companion.* ACL like
-//! companion.mode; `enabled` must be a real bool (fail closed).
+//! Local control socket (Unix only). Same functions as Tauri invoke.
+//! Sock 0600 + optional token. Unreadable allowlist = fail closed.
+//! Writes are never companion.* (Spark does not spawn a harness).
 
 use serde::Deserialize;
 use serde_json::{json, Value};

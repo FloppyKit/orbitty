@@ -1,87 +1,7 @@
 <script lang="ts">
-  // The large companion window. One silent
-  // spirit: the blessed ghost.png sheet / idle_0…7 slices, 8 frames @
-  // 140 ms, nearest-neighbor, hard alpha. Default body is the blessed
-  // spirit. A Body picker can swap a `role: companion` pack (Jacob
-  // temp bake) via imagePackId — no CSS bounce, no import UI. No points,
-  // no editor tabs. The opt-in prompts strip (one
-  // menu, never a loop) and hold-to-talk — nothing is ever drawn on the
-  // spirit itself.
-  // REAL send via native companion_send.
-  // The mouth is a plug map — default backend is
-  // Goose (`goose run`, plug.json session); ORBITTY_COMPANION_BACKEND
-  // picks grok | hermes (compat) | berd (hidden escape). Never Cursor.
-  // Async — Send disables while in flight. Never hosts a model here.
-  // Agent picker lists ~/.agents/agents stems (four-cast) by default.
-  // OPTIMISTIC you — the bubble lands on Send (before the agent
-  // answers), the field clears, the transcript pins to the bottom, and a
-  // pending them bubble holds until the reply; a failed send keeps
-  // the you bubble. Expanded transcript = SMS bubbles (you right on
-  // accent, them left muted, no you:/them: prefixes). Collapsed = true
-  // CC (latest you / latest them). Expanded parks the surface view as a
-  // 96×96 portrait absolute upper-right (CORNER); drag moves to that
-  // portrait so the transcript can scroll. Missing art fails obvious
-  // ("spirit missing").
-  // Collapsed CC gets the same SMS energy — you right on accent,
-  // them left on panel+edge, prefixes gone everywhere.
-  // While a send is in flight the spirit itself (and
-  // the expanded head crop) plays the thinking v9 loop
-  // (companion/spirit/thinking, 8 frames @ 140 ms, fail soft to rest),
-  // then snaps back to the blessed v5 rest idle when the reply lands.
-  // Wait-in-slot: the bare Orbitty mark (no bubble, no fill, no
-  // border) lives IN the agent-text slot — the last left-aligned
-  // transcript row expanded, the bot CC slot collapsed — right where
-  // the reply will land. Never floating under the stage / head.
-  // Speak toggle (off by default, persisted
-  // companion.speakReplies) reads bot replies aloud via macOS `say`
-  // with the default system voice; a new reply or toggling off kills
-  // the in-flight `say`. No wake word, no second TTS stack.
-  // The 128px .head crop is dead. Each
-  // surface has its own persisted view — companion.viewCollapsed
-  // (default "full") and companion.viewExpanded (default "head") —
-  // written by the one Full/Head control near Expand, current surface
-  // only. Head draws the body's bust_* set (head+neck+collar, hard
-  // alpha, nearest-neighbor) on the same tick as idle/think, with a
-  // tiny float and a small yaw/roll on send that settles; Reduce
-  // Motion stills both. A body with no bust art sits on Full with
-  // Head disabled — never a crop fallback, never a neck shear.
-  // Collapsed CC. Speak off = small scroll
-  // (no paging). Speak on = fitPages to that small box so say can flip.
-  // Click the bot text = transient in-window full overlay. Enter/Space
-  // page leftover only while Speak on. User bubbles never page.
-  // Idle collapsed gets a tight spirit + a bottom
-  // dock. .ghost .stage .floatwrap shrinks to a centered square; agentrow
-  // + composer ride in one .ghostdock slab (paint: --bg-fill, radius 12,
-  // 1px --edge). The companion is a real window — mouse always on.
-  // mousedown on dock chrome (not a control) drags
-  // like the spirit; startPaneDrag waits 6px so a click is not a drag.
-  // The Full/Head button hides the sprite
-  // (persisted companion.sprite, default true — one flag for collapsed,
-  // expanded, hosted) while chat stays. Off draws no stage / exphead /
-  // wellhead, and the hosted well pane takes the full width.
-  // L-click hides/shows the sprite; R-click is
-  // Full ↔ Head. Per-surface view prefs survive Off.
-  // While !sprite the Full/Head glyph wears the
-  // Speak-pattern slash, and idle collapsed + off hugs the window to the
-  // measured CC+dock bar — the NATIVE side resizes (never a frontend
-  // set_size), keeping the bottom edge so the dock doesn't jump. The
-  // tall idle rect is stashed apart from HOST_STASH and is the only
-  // rect ever persisted; sprite on / expand / host restore it first.
-  // bodyId "tang"/"female" (reserved ids, never
-  // pack folders) mounts Companion3D — a three.js glTF body playing its
-  // `idle` clip — in the same three slots SpiritStage owns. Spirit stays
-  // the default; the spirit art still loads underneath as the warm
-  // fallback, and any WebGL/loader/404 miss reverts the pick to spirit
-  // (persisted) with one quiet line. three.js is dynamically imported
-  // only while a 3D body is selected.
-  // The .ghostdock slab (agent pick,
-  // Prompts, dests, Speak, sprite/view, Expand, ⚙, composer) lives in
-  // CompanionDock.svelte — paint + presses only. All state, sends (the
-  // field still calls companion_send), the well, and the × corner stay
-  // here.
-  // companion.hackLive/hackWho ride loadState down
-  // to the dock LED (lit when ctl-live OR sending); the write door is
-  // set_companion_hack via orbittyctl, never this page.
+  // Spark mouth + Spirit. No model in this page. Native resize only
+  // (never frontend set_size). Persist the whole companion object.
+  // Spirit is default; 3D mounts only while a 3D body is picked.
   import { invoke } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
   import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -168,13 +88,8 @@
   // (bound up from the dock). Sprite-off rides reportHug; sprite-on grows
   // the window down via set_companion_composer_grow.
   let composerExtra = $state(0);
-  // COLLAPSE-CC leftover (popup hug): the open reply overlay's wanted
-  // WINDOW height (0 = closed or fits already), reported up from
-  // CaptionPane. Sprite-off: measureHugHeight grows the bar to it.
-  // Sprite-on: overlayExtra rides the composer-grow channel, latched
-  // against the open-time window height (overlayBaseH) so the grow the
-  // report causes never feeds back into it. ccSnap keeps the sprite-off
-  // bar bottom-packed until the snap-back resize lands (no dock hop).
+  // Caption overlay wanted window height. Latch overlayBaseH so the
+  // grow does not feed back into the next report.
   let overlayWinH = $state(0);
   let overlayExtra = $state(0);
   let overlayBaseH = 0;
@@ -261,19 +176,8 @@
   // only — never state.json; null = none lowered yet → ⌘⌥↑ opens Launchpad.
   let lastDest = $state<"launchpad" | "stars" | "inspector" | null>(null);
 
-  // The card drops in INSIDE the natively-grown
-  // frame — the grow itself stays instant (keep-bottom), never a
-  // set_size / set_position interpolation. set_companion_host lands
-  // FIRST, with the idle ghost chrome display:none'd under tilePre —
-  // the stretched ghost / CC never lay out or paint into the grown
-  // frame (that stretch-then-swap was the dock hitch, sprite-off
-  // included); only then does the well mount, tilePre holding the seed
-  // from-state, and tileEnter plays the drop in the grown frame.
-  // tileLeave plays the reverse and only when the CSS ends does the
-  // native side restore the idle rect.
-  // tileGen lets a fresh enter/swap supersede a mid-flight leave.
-  // TILE-DROP: card rises from the dock (2D). Face is mounted the
-  // whole flight. No 3D.
+  // Host grow is native keep-bottom. Hide idle chrome (tilePre) before
+  // the well mounts so ghost/CC never layout into the grown frame.
   const TILE_ENTER_MS = 280;
   const TILE_LEAVE_MS = 200;
   let tilePre = $state(false);
@@ -284,26 +188,8 @@
   // FLIP (translate + scale) into the column — full body the whole way.
   let spiritHold = $state(false);
 
-  // Leftover: the hosted dest swap is a TRIANGULAR
-  // PRISM turn (Matt: not a recipe-card deal, not a book, not an X).
-  // Launchpad / STARS / Planets are the three faces of a triangular
-  // prism rotating around a vertical axis through the card — the step
-  // is ±120deg, never 22/34/90. A dest chip to a *different* dest while
-  // hosted mounts the outgoing page as a second face; both faces ride
-  // the turn for 400ms (the crease between them IS the read), then the
-  // outgoing face unmounts — the well never flashes blank. Ring
-  // direction picks which way the prism turns (forward = the next face
-  // comes around from the right, back = from the left). The WHOLE TILE
-  // turns: for the 400ms the pane's own chrome goes transparent and
-  // each face IS the glass card — fill, 1px --edge, 12px radius,
-  // content — yawing over the desk. No static frame around spinning
-  // pages, and Spark / dock / CC never transform. Each face sits at
-  // translateZ(r) with r = paneWidth / (2·tan(π/3)) — the triangular
-  // apothem measured from the pane at swap start — and pulls back by
-  // the same r so the front face lands exactly on the card plane (no
-  // magnify pop at the start or end of the turn). The native side
-  // still gets its one host_changed assert — no second grow, no
-  // re-place. Reduced motion: crossfade only (no rotate).
+  // Dest swap is a ±120° triangular prism. Same dest does not turn.
+  // Reduced motion: crossfade. Spark/dock never transform.
   const DEST_RING: readonly HostMode[] = ["launchpad", "stars", "inspector"];
   const TILE_YAW_MS = 400;
   let swapPrev = $state<HostMode | null>(null);
@@ -359,12 +245,8 @@
     }
   }
 
-  // HOST-CC: hosted + expanded — Escape collapses the overlay only.
-  // CaptionPane owns ccOpen Escape and Enter/Space paging.
-  // TILE-DROP: hosted + no overlay — Escape dismisses the host (the
-  // reverse drop plays first; see dismissHost). CaptionPane's ccOpen
-  // Escape stopImmediatePropagation fires ahead of this listener, so an
-  // open CC overlay still eats its own Escape.
+  // Hosted+expanded Escape collapses the overlay only. CaptionPane
+  // owns ccOpen Escape. Hosted with no overlay: dismissHost.
   function onPaneKey(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
     // Lock law: a focused field owns Esc first —
@@ -969,18 +851,10 @@
   async function enterHost(mode: "launchpad" | "stars" | "inspector") {
     const gen = ++tileGen; // a fresh enter/swap supersedes any in-flight leave
     if (hosted !== "off") {
-      // Launchpad ↔ STARS swap: flip the well AND still invoke
-      // set_companion_host — rust re-asserts HOSTED / the slab
-      // (host_changed only: no second stash, no re-place, no re-grow).
-      // TILE-DROP: no drop replay here — the hosted swap motion is
-      // TILE-YAW's, not this phrase. A mid-flight leave is cancelled;
-      // the frame never restored, so the card simply stays.
+      // Swap dests: re-assert host (no second grow). Same dest does not turn.
       tileReset();
       const prev = hosted;
-      // TILE-YAW leftover: a chip to a *different* dest turns the prism
-      // — ring direction (forward = next, back = prev) picks which way
-      // (±120deg). A same-dest re-assert (focus-card, tray raise) never
-      // turns.
+      // Different dest turns the prism; same dest (tray raise) does not.
       if (prev !== mode) {
         const from = DEST_RING.indexOf(prev);
         swapDir = DEST_RING.indexOf(mode) === (from + 1) % DEST_RING.length ? 1 : -1;
@@ -1016,28 +890,8 @@
       }
       return;
     }
-    // TILE-DROP (corner seed + still chrome): grow FIRST — but land the
-    // tilePre class BEFORE the native grow (the await tick below), so
-    // the idle ghost chrome is display:none'd while the frame grows:
-    // ghost / CC never lay out or paint into the grown 1080×620 frame
-    // (that stretch-then-swap was the hitch). The dock alone rides the
-    // grow, bottom-pinned by the keep-bottom native place. The well
-    // mounts after, already in the grown frame, tilePre holding the
-    // seed from-state; then the drop plays — the dock never transforms.
-    // Mounting the tile in the idle-sized window and growing after was
-    // the push-in stutter — sprite-off included, where the hugged bar
-    // jumped.
-    // TILE-YAW leftover (spirit first): NO hold overlay — pinning the
-    // idle full figure over the growing frame, then cutting to the
-    // hosted column, was the push-in + snap-right glitch. Measure the
-    // idle spirit box NOW (window-local; the keep-bottom grow preserves
-    // the bottom offset, pin_bottom_center preserves the center-x) so
-    // the hosted spirit can reappear TRANSLATED onto that box at mount
-    // and EASE ASIDE into the right column AHEAD of the tile — a smooth
-    // translate only, never a scale about the feet. The aside starts
-    // the instant the enter lands; the cube starts far/small so Spark
-    // still reads first. Works for the 3D bodies too — .stage
-    // .floatwrap is their box as well.
+    // Measure the idle spirit box before native grow; hosted spirit
+    // translates onto that box. Never scale about the feet.
     const idleSpirit =
       !expanded && sprite
         ? (mainEl
@@ -1125,10 +979,8 @@
     // A mid-drop dismiss supersedes the enter timeout; the spirit is
     // already in the hosted column (no hold overlay to release).
     swapPrev = null; // a mid-turn dismiss drops the outgoing face
-    // TILE-DROP: reverse the drop INSIDE the still-grown frame — the
-    // native idle restore waits for the CSS to end (timeout = duration).
-    // The idle size is never restored mid-animation. Reduced motion:
-    // 0 wait, a snap.
+    // Reverse the drop in the grown frame; native idle restore waits
+    // for CSS. Never restore mid-animation.
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!reduce) {
       tileLeave = true;

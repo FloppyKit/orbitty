@@ -1,45 +1,7 @@
-//! macOS habitat — port of OverlayController + HabitatViews.swift to Rust/objc.
+//! macOS habitat — one NSPanel per claimed planet.
 //!
-//! One borderless NSPanel per claimed project, at the NORMAL window level:
-//! planets are peer surfaces — click/drag orders front, other apps can cover
-//! them later. Panels default to ignoresMouseEvents=true; a cursor watcher
-//! flips interactivity on only while the pointer is over the planet disc or
-//! one of its sprites/dots, so the transparent corners stay click-through.
-//!
-//! Claimed home windows walk the planet as pixel sprites — open or
-//! minimized, a claim is a walker (CADENCE-FIX v1.1: open-vs-minimized no
-//! longer decides walker vs dot); only age-`park` zombies sit as occupancy
-//! dots on the inner ring. Click matrix (NSEvent
-//! clickCount): walker single = locate stroke (~500ms ring around the
-//! being, GO-ORBITTY-RAIL-ROW-MENU), double = restore + focus; dot single =
-//! focus + caption, double = stow back to the planet. The Being editor's
-//! door is the walker right-click menu's "Open being…". Captions
-//! are small native pills on the planet (~2s, titles only). Marble
-//! (collapsed rail section) click expands via `habitat:expand` to the rail.
-//!
-//! GO-ORBITTY-CHARS: the default walker is a generated Orbitty person
-//! (chars.rs layers drawn straight in drawRect) — no itch zip needed. A
-//! picked image pack still wins the draw.
-//!
-//! GO-ORBITTY-SLEEPERS: a claimed window that closes stays on its planet as
-//! a sleeping walker (idle frame 0, dim, no bounce/roam) until Done or
-//! Unclaim — close is not complete. Sleeper single-click = caption +
-//! locate stroke; double-click = wake_sleeper (live → file → Hermes session → recipe →
-//! app), never a bare restore_window on a dead pid:cgid.
-//!
-//! All AppKit objects live on the main thread: the sync command hops through
-//! `run_on_main_thread`; the 16ms tick thread and the CVDisplayLink vsync
-//! clock both POST to the main queue via `dispatch_async_f` and return at
-//! once (neither worker ever blocks on the UI thread), each coalesced by its
-//! own pending flag. Raw ObjC pointers are stored as usize inside the mutex
-//! and only dereferenced on the main thread.
-//!
-//! GO-ORBITTY-PLANET-BUDGET: the desk runs ≤3 expanded planets (a 4th
-//! expand collapses the least-recently focused of the rest — never refused)
-//! and ≤12 marble panels (13th+ collapsed projects stay on the rail list,
-//! no panel). Sprite packs decode lazily — only while an expanded planet
-//! wears them — and an expanded planet with no motion (all sleepers, no
-//! caption/locate) never dirties its view on the anim tick.
+//! Click-through off the disc. Close is a sleeper, not Done. AppKit on
+//! the main thread only. Desk cap: ≤3 expanded, ≤12 marbles.
 
 // objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
 // rustc flags; harmless upstream noise.
@@ -158,59 +120,10 @@ pub(crate) const MIN_RADIUS: f64 = 18.0;
 const MAX_RADIUS_FLOOR: f64 = 220.0;
 const BASE_SPIN: f64 = std::f64::consts::TAU / 45.0; // one turn per 45s
 
-// GO-ORBITTY-MARBLE-RIM (part 1j, rewrites MARBLE-GLASS hosted track +
-// hitch clock): collapsed marbles on the same screen take SLOW WIDE
-// TRACKS around a sun that is not them — planets floating in a solar
-// system, not water-blobs. They do not seek each other, never kiss,
-// never rush. The sun is, in priority: (1) the nearest EXPANDED planet
-// on that screen (a sitting disc; expanded planets never translate under
-// drift) — each in-range marble (join/leave measured off the LIVE disc
-// edge: center dist − live radius vs HOST_JOIN_DIST/HOST_LEAVE_DIST, so
-// a zoomed chip keeps its ring at any size) gets its OWN phase and
-// direction and a hashed 90–140s period from its id, with ONE hashed
-// in-plane rotation per sun; an established host holds unless another
-// expanded planet on that screen is ≥ HOST_SWITCH_CLOSER pt closer to
-// the marble (hysteresis, so the sun never flickers). The hosted track
-// is a CIRCLE around the planet center at the LIVE (scroll-zoomed)
-// radius + two marble-widths + the marble radius — bigger chip →
-// bigger ring, always ~2 widths off the live edge. Constant r: no
-// accordion, no back tuck, no graze dip. The disc itself is a COLLIDER
-// LAW, never a window and never drawn: a marble center may not sit
-// closer than live radius + MARBLE_RADIUS from an expanded planet
-// center — an unconstrained point inside is pushed out along the
-// bearing from the planet, so marbles go AROUND the disc, never
-// through (join leftovers and bary clips included). Joining eases
-// POLAR along that marble's own ring (θ and r from the armed live
-// frame) over ~6s ease-IN — never a cartesian straight line through
-// the chip. Z is a per-marble BOOLEAN vs its OWN host only: front/back
-// from sin θ with a deadband at the equator, applied with
-// orderWindow:relativeTo: only when the bit flips — never a group
-// restack. (2) Else the INVISIBLE FROZEN BARYCENTER of the nearby
-// marble cluster (bary hysteresis 220/280, marble↔marble): home = the
-// live centroid captured ONCE at (re)capture and never walked; each
-// member gets an independent radius 70–140pt and phase0 hashed from its
-// id — large independent rings, NOT opposite ends of a stick, NOT one
-// shared θ — on a mild almost-round oval (OVAL_RATIO 0.88). All tracks
-// run at even speed (constant dθ — no Kepler). Drawn scale stays 1.0
-// (no throb). Drag wins: after a drop the marble pins for
-// DRIFT_PIN_SECS, then eases back onto its own ring. Screen keep-in
-// nudges the SUN inward per tick (never written back) and only shrinks
-// the figure when the screen can't fit it — a host ring never below
-// one marble-width off the live face; marbles are never clamped
-// independently and (0,0)/visibleFrame.origin is never a target.
-// Isolates with no sun sit. A lone marble with an expanded planet in
-// range still orbits that planet. Clicks land on the disc. The orbit
-// path NEVER dirties worlds.json — live marble x/y persist on
-// pin/drop/toggle/quit only. Motion is clocked by CVDisplayLink (Core
-// Video — NOT CADisplayLink): the vsync callback POSTS drift_pass to
-// the main queue and returns (never waits for the UI thread; at most
-// one hop queued-or-running, so a stall drops a refresh instead of
-// bursting late); the 16ms thread keeps drag/anim/cursor and never
-// also drives motion (two clocks = jitter). If the link fails to
-// create, the 16ms thread runs drift_pass EVERY tick — a move is never
-// skipped (the old n % 6 hole WAS the 1-2-3-pause).
-// GO-ORBITTY-MARBLE-HITCH (part 1k): that post-and-return + coalesce,
-// and the hosted standoff cut from three marble-widths to two.
+// Marbles: own slow track around nearest expanded planet, else a frozen
+// barycenter. Circle at live radius + 2 marble-widths. Go around the
+// disc, never through. Polar join, not a straight line. Orbit path
+// never writes worlds.json. CVDisplayLink posts drift_pass and returns.
 const DRIFT_JOIN_DIST: f64 = 220.0; // bary cluster join (marble↔marble)
 const DRIFT_LEAVE_DIST: f64 = 280.0; // bary cluster leave
 const DRIFT_PIN_SECS: f64 = 2.0;
@@ -230,61 +143,18 @@ const TRACK_T_MAX: f64 = 140.0;
 const HOST_PREFIX: &str = "h\n";
 const BARY_PREFIX: &str = "b\n";
 
-// ---------- GO-ORBITTY-CADENCE: the board drives the walkers ----------
-
-/// The one board → station → pose table. Stations are disc-local anchors,
-/// never Kenney buildings. The world view is flipped (isFlipped = true:
-/// disc +y renders screen-DOWN), so +y = front/south, −y = far/back/top
-/// of the oval, −x = screen LEFT.
-///
-/// GO-ORBITTY-WORLD-TOWN compass: igloo LEFT, board far/BACK, field
-/// middle, Needed front rim. A board-bound walker (Stand/Work) COMES
-/// FROM the igloo (STATION_HOUSE — user-placed buildings stay sandbox
-/// décor, never a spawn) and walks to its station. Sit snaps to the
-/// front rim (bad news skips the queue). Done walks to the near lip
-/// of the board, dwells, walks home to the igloo, then unclaims —
-/// never past the left rim into a hide curtain (the last walker lets
-/// the planet shrink).
-// WORLD-PROPS leftover: nudged east (-0.78 → -0.50) so the fixed-width
-// igloo blit sits fully on the disc (west edge ≈ -0.94); spawn/home is
-// still the DOOR, walkers exit on-planet. Matches the yard law "never
-// enter the igloo (x ≤ -0.50)".
-// Leftover #2: the igloo shrank 25% with the WEST EDGE HELD at
-// ≈ -0.9446, so the door/station moved west (-0.50 → -0.611); east
-// edge ≈ -0.52, still clear of the x > -0.35 fan.
-pub(crate) const STATION_HOUSE: (f64, f64) = (-0.611, 0.05); // igloo — left interior
-// Leftover #2: -0.58 → -0.72 — the blit rides up until the whiteboard
-// top sits ~3px past the back rim (r = 72); the post base stays planted
-// on-disc, and x = 0 pins the wood post (SIGN_POST_X), not the face.
-pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.72); // Todo — far/back board
-// Doing — the grass paddock's named station (the four-edge yard AABB
-// below grows around it, NOT a centered half-extent), not a stand-still
-// pin: WORLD-YARD deleted the in-place march, the YARD leftover deleted
-// the dwell-and-dart — Doing walkers AMBLE random points in the inset
-// yard AABB continuously (the yard_* fns below). The old fan's
-// |y| < 0.22 / x > -0.35 igloo guard is superseded by the box: never
-// the igloo (x <= -0.50), never the sign.
-pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05);
-pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed — front/south rim
-/// GO-ORBITTY-WORLD-PROPS: the grass paddock — four disc-unit edges,
-/// NOT a centered square (a centered YARD_HALF bump would move the west
-/// edge). WORLD-YARD leftover (pad grow, ~+50%): WEST PINNED at -0.364
-/// (keeps the gap to the igloo's east edge ≈ -0.52). 2px-kiss leftover
-/// (pad to shack): EAST pulled back 0.728 → 0.54 so the dirt's right
-/// edge kisses the user-placed HOUSE shack's LEFT wall (glyph cx ≈
-/// 0.55, 8-wide blit — a sliver of overlap is fine; locked from that
-/// landmark, never live `planet.buildings` at runtime); NORTH pulled
-/// back -0.60 → -0.52 to the top of the northern tuft cluster (ty
-/// -0.568 → disc y ≈ -0.518); SOUTH stays 0.49 toward the Needed rim.
-/// touch+pad-inset-y leftover: Y shrunk by ONE beach-ball height off
-/// BOTH edges (ball blit 7 rows × scale clamp 3 = 21 px ≈ 0.07 disc-y
-/// at radius_y = 0.55·r): NORTH -0.52 → -0.45, SOUTH 0.49 → 0.42;
-/// WEST/EAST width unchanged. A painted grass patch, never fence
-/// posts. WORLD-YARD wanders it; PROPS only paints it.
-pub(crate) const YARD_WEST: f64 = -0.364; // PINNED — never moves
-pub(crate) const YARD_EAST: f64 = 0.54; // the shack's LEFT wall (HOUSE cx ≈ 0.55)
-pub(crate) const YARD_NORTH: f64 = -0.45; // one beach-ball (0.07) in off the old top
-pub(crate) const YARD_SOUTH: f64 = 0.42; // one beach-ball (0.07) in off the old bottom
+// Board → station. Disc +y is screen-down (front/south).
+// Igloo left, board far/back, field middle, Needed front rim.
+// Walkers never enter the igloo (x ≤ -0.50).
+pub(crate) const STATION_HOUSE: (f64, f64) = (-0.611, 0.05); // igloo door
+pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.72); // Todo / sign post
+pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05); // grass amble
+pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed
+// Grass AABB — west pinned so the igloo gap stays. Not a centered square.
+pub(crate) const YARD_WEST: f64 = -0.364; // PINNED
+pub(crate) const YARD_EAST: f64 = 0.54;
+pub(crate) const YARD_NORTH: f64 = -0.45;
+pub(crate) const YARD_SOUTH: f64 = 0.42;
 /// GO-ORBITTY-WORLD-YARD: interior inset so sprites stay on the green —
 /// the wander AABB is the pad shrunk by this inward on every edge:
 /// x ∈ [-0.324, 0.50], y ∈ [-0.41, 0.38]. The box never reaches the

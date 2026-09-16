@@ -30,19 +30,8 @@ use super::{
     TRACK_T_MAX, TRACK_T_MIN, VIEW_PADDING, YARD_ARRIVE, YARD_SAIL,
 };
 
-// ---------- CVDisplayLink motion clock (GO-ORBITTY-MARBLE-RIM; post-and-return GO-ORBITTY-MARBLE-HITCH) ----------
-//
-// Core Video's vsync doorbell drives setFrameOrigin / drift_pass — motion
-// lands on real screen refreshes instead of a sleep(16ms) hop. The output
-// callback runs on a DisplayLink thread and POSTS the motion turn to the
-// main queue (dispatch_async_f) and returns immediately — it never waits
-// for the UI thread (the blocking hop WAS the remaining 1-2-3-4-pause:
-// a busy main made vsync callbacks block or miss). At most one motion hop
-// is queued-or-running (coalesce), so a stall never bursts late
-// setFrameOrigins. The hop runs drift_pass ONLY (no cursor_tick, no save,
-// no hit-test). If the link fails to create, the 16ms thread drives
-// drift_pass every tick and a move is STILL never skipped — logged once,
-// no third clock.
+// CVDisplayLink posts drift_pass to main and returns. Coalesce to one hop.
+// If the link fails, the 16ms thread drives drift_pass every tick.
 
 type CVDisplayLinkRef = *mut c_void;
 
@@ -923,20 +912,8 @@ fn anim_tick() {
                     roam.ty = ty;
                     roam.pause_end = None;
                 }
-                // Todo/Doing: Todo walks to the south lip of the white
-                // board — the same point WalkOff touches (PROPS leftover,
-                // town usable) — never STATION_BOARD: the post foot sits
-                // inside/behind the sign PNG, so the walker read as
-                // hidden in the house / vanished into the sign and the
-                // 0.05 check-in never read as a board touch. Stand parks
-                // on arrival — idle frame 0, bob 0. WORLD-YARD leftover:
-                // Doing works the grass paddock — random points in the
-                // inset yard AABB off a per-walker stream; ball OFF a
-                // continuous half-pace amble (the next point picked
-                // BEFORE arrival, no about-face), ball ON the exact
-                // pre-amble dart (0.16·dt, arrive, dwell standing
-                // 600–1400 ms, pick, dart). Never the whole oval, never
-                // moonwalking on one pixel.
+                // Stand walks to the board lip (not the post foot).
+                // Work ambles the grass AABB. Never moonwalk on one pixel.
                 Pose::Stand | Pose::Work => {
                     // Back from off the left rim (re-claim after Done):
                     // the walker was invisible, so re-enter AT THE IGLOO
@@ -955,23 +932,6 @@ fn anim_tick() {
                         roam.ty = lip.1;
                         roam.pause_end = None;
                     } else {
-                        // GO-ORBITTY-WORLD-YARD leftover (keep-up
-                        // cadence): Doing works the grass two ways by
-                        // the beach-ball toggle. Ball OFF — the smooth
-                        // wander stays: continuous, slower, never
-                        // parked. Ball ON — the exact pre-amble dart
-                        // returns: 0.16·dt to a grass point, arrive,
-                        // dwell 600–1400 ms STANDING, pick, dart; that
-                        // darting IS the keep-up footwork. Either way
-                        // the first Doing tick arms the per-walker
-                        // stream — seeded from the entry id, so two
-                        // Doing bodies never land on one pixel and
-                        // never conga — and picks the first random
-                        // point in the inset yard AABB. A target left
-                        // OFF the grass (the Stand lip handoff on a
-                        // todo→doing flip, a hand drop) re-picks the
-                        // same way: every wander target lives in the
-                        // box.
                         if roam.wander_seed == 0 {
                             roam.wander_seed = yard_seed(id);
                             let (tx, ty) = yard_pick(&mut roam.wander_seed);
@@ -1421,55 +1381,8 @@ fn anim_tick() {
     // cadence.
 }
 
-/// GO-ORBITTY-MARBLE-RIM (part 1j, rewrites MARBLE-GLASS hosted track
-/// + hitch clock): every marble rides its OWN large slow track around
-/// a sun that is not it. The sun is the nearest expanded planet on that
-/// screen when one is in range — join/leave measured off the LIVE disc
-/// edge (center dist − live radius vs HOST_JOIN_DIST/HOST_LEAVE_DIST),
-/// so a scroll-zoomed chip keeps its ring at any size; an established
-/// host holds unless a rival is ≥ HOST_SWITCH_CLOSER pt closer — the
-/// planet sits, expanded planets never translate. With no expanded
-/// planet in range, unhosted marbles cluster (bary hysteresis 220/280,
-/// marble↔marble) around an INVISIBLE FROZEN BARYCENTER: home = the
-/// live centroid captured ONCE per membership (the `Habitat::clusters`
-/// key is the sorted member ids, so a join/leave recaptures) and never
-/// walked.
-///
-/// Hosted track — a CIRCLE around the PLANET center at
-/// `live_radius + 2 marble-widths + MARBLE_RADIUS` (ONE hashed in-plane
-/// rotation per sun; front/back is the plane's sin θ, not screen-down).
-/// Constant r: no accordion, no back tuck, no graze dip, no oval
-/// squash on this path. Bigger chip → bigger ring, always ~2 widths
-/// off the live edge. The disc is a COLLIDER LAW, never a window and
-/// never drawn: a marble center stays ≥ live radius + MARBLE_RADIUS
-/// from every expanded planet center on its screen — an unconstrained
-/// point inside is pushed out along the bearing from the planet, so
-/// marbles go AROUND the disc, never through (join leftovers and bary
-/// clips included). Bary tracks keep the 1g law: independent radius
-/// 70–140pt and phase0 hashed from id on a mild almost-round oval
-/// (OVAL_RATIO 0.88) — large independent rings, never opposite ends of
-/// a stick, never one shared θ. All tracks run at even speed (constant
-/// dθ — no Kepler); period ∈ 90–140s hashed from id.
-///
-/// Joining a sun eases POLAR along THAT marble's own ring (θ and r
-/// from the armed live frame) over ~6s ease-IN — never a cartesian
-/// straight line through the chip, never a lerp toward another marble.
-/// Z is a per-marble BOOLEAN vs its OWN host only: front/back from
-/// sin θ with a deadband at the equator, applied with
-/// orderWindow:relativeTo: only when the bit flips — never a group
-/// sin θ sort orderFrontRegardless'ing the solar system (that restack
-/// was both the pop and a hitch). Drawn scale stays 1.0. Drag wins: a
-/// dropped marble pins for DRIFT_PIN_SECS (it sits, ease re-armed at
-/// the live frame), then glides back onto its own ring; the pin never
-/// stills anyone else. Screen keep-in nudges the SUN inward per tick
-/// (never written back) and only shrinks the figure when the screen
-/// can't fit it — a host ring never below one marble-width off the
-/// live face; marbles are never clamped independently, and neither
-/// (0,0) nor visibleFrame.origin is ever a target. Isolates with no
-/// sun sit; a lone marble with an expanded planet in range still
-/// orbits it. The orbit path NEVER dirties worlds.json — live marble
-/// x/y persist on pin/drop/toggle/quit only. Sun keys, homes, θ, and
-/// orientation are never persisted.
+/// One marble drift turn. Track law is on the constants above
+/// (HOST_JOIN_DIST, OVAL_RATIO, DRIFT_PIN_SECS). Never write worlds.json.
 fn drift_pass(h: &mut Habitat) {
     let now = Instant::now();
     // (project_id, global center, screen_id) for every live marble, and
