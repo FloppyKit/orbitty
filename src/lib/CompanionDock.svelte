@@ -649,8 +649,8 @@
       class="thinbtn"
       onclick={() => onThin?.()}
       disabled={sending}
-      aria-label="Thin — new chat needed"
-      title="This chat is thin — stamp and start a new job (⌘⌥T)"
+      aria-label="Thin — label this chat"
+      title="Label this chat thin (⌘⌥T). Mouth keeps going."
     >thin</button>
     <div class="fieldwrap" class:talking>
       <button

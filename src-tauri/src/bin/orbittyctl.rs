@@ -32,6 +32,8 @@ commands:
   companion mode -- spark|chat|work|hold
   companion free-mode -- on|off
   companion note [--mode spark|chat|work|hold] -- \"line\"
+  companion thin                    label this chat thin (mouth keeps going)
+  companion now [-- '{\"job\":\"…\"}']   current-job packet (now.json)
   companion hack -- on|off [--who cursor] [--project P]
   kanban open
   kanban add --title \"t\" [--project P] [--status todo|doing] [--notes \"n\"]
@@ -336,6 +338,19 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                 }
             }
             Ok(("companion.note", a))
+        }
+        ["companion", "thin"] => Ok(("companion.thin", json!({}))),
+        ["companion", "now"] => {
+            let p = payload(o).unwrap_or_default();
+            if p.trim().is_empty() {
+                Ok(("companion.now", json!({})))
+            } else if p.trim().starts_with('{') {
+                let v: Value = serde_json::from_str(&p)
+                    .map_err(|e| format!("companion now JSON: {e}"))?;
+                Ok(("companion.now", v))
+            } else {
+                Ok(("companion.now", json!({ "job": p })))
+            }
         }
         // The dock LED flag. Fail CLOSED on an
         // unknown verb — a typo never leaves a stuck light. `--who` may
@@ -669,6 +684,14 @@ fn print_human(tool: &str, data: &Value) {
             }
         ),
         "companion.note" => println!("noted ({})", data.as_str().unwrap_or("")),
+        "companion.thin" => println!("{}", data.as_str().unwrap_or("thin")),
+        "companion.now" => {
+            if data.is_string() {
+                println!("{}", data.as_str().unwrap_or(""));
+            } else {
+                println!("{}", serde_json::to_string_pretty(&data).unwrap_or_default());
+            }
+        }
         "companion.hack" => {
             let live = data["live"].as_bool().unwrap_or(false);
             let who = data["who"].as_str().unwrap_or("");

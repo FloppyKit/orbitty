@@ -85,6 +85,16 @@ pub async fn conduct(app: &tauri::AppHandle, line: &str) -> Option<Step> {
         .ok()
         .map(|s| (s.companion.conductor_on, s.companion.conductor_model))
         .unwrap_or((false, String::new()));
+    let mode = crate::state::load_state(app)
+        .ok()
+        .map(|s| s.companion.mode.clone())
+        .unwrap_or_else(|| "spark".into());
+    // Chat/hold = join; never classify away. Spark/work = Quick ack on
+    // so "hand to Cursor" does not occupy the mouth for 180s.
+    if matches!(mode.as_str(), "chat" | "hold") {
+        return None;
+    }
+    let on = on || matches!(mode.as_str(), "spark" | "work");
     if !on {
         return None;
     }
@@ -446,6 +456,14 @@ fn fallback_classify(line: &str) -> (&'static str, String) {
             .any(|w| low.contains(w))
     {
         return ("run-action", fixed_ack("run-action"));
+    }
+    // Hand-off to Cursor / pickup — don't occupy the mouth for 180s.
+    if (low.contains("cursor") || low.contains("pickup") || low.contains("pick up"))
+        && ["hand", "open", "take this", "do this", "fix this", "run this"]
+            .iter()
+            .any(|w| low.contains(w))
+    {
+        return ("do-go", fixed_ack("do-go"));
     }
     ("chat", "On it.".into())
 }

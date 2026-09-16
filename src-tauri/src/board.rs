@@ -206,6 +206,8 @@ pub fn kanban_add_as(
         actor: Some(actor.trim().to_string()),
         assigned_agent_id: None,
         parent_id: None,
+        rating: None,
+        trackers: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
@@ -494,6 +496,7 @@ pub fn project_add(app: &tauri::AppHandle, name: &str) -> Result<Project, String
     let project = Project {
         id: new_id("p"),
         name: name.to_string(),
+        trackers: None,
     };
     let mut after = before.clone();
     after.projects.push(project.clone());
@@ -635,6 +638,8 @@ pub fn needed_open(
         actor: Some(if ruled.is_some() { "rule" } else { "agent" }.into()),
         assigned_agent_id: None,
         parent_id: None,
+        rating: None,
+        trackers: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());

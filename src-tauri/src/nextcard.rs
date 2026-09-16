@@ -6,13 +6,21 @@
 //! companion_clear. Arm ~300ms after show so the opening pip click does
 //! not immediately hide.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, Once};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, Once, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
-static ON: AtomicBool = AtomicBool::new(false);
-static ARMED_AT: Mutex<Option<Instant>> = Mutex::new(None);
+fn labels() -> &'static Mutex<HashSet<String>> {
+    static V: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    V.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn armed_at() -> &'static Mutex<HashMap<String, Instant>> {
+    static V: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    V.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 static APP: Mutex<Option<tauri::AppHandle>> = Mutex::new(None);
 
 pub fn bind(app: tauri::AppHandle) {
@@ -23,13 +31,26 @@ pub fn bind(app: tauri::AppHandle) {
 }
 
 pub fn watching(on: bool) {
-    ON.store(on, Ordering::SeqCst);
-    if let Ok(mut g) = ARMED_AT.lock() {
-        *g = if on {
-            Some(Instant::now() + Duration::from_millis(350))
+    watch("next-card", on);
+}
+
+pub fn watch(label: &str, on: bool) {
+    if let Ok(mut g) = labels().lock() {
+        if on {
+            g.insert(label.to_string());
         } else {
-            None
-        };
+            g.remove(label);
+        }
+    }
+    if let Ok(mut g) = armed_at().lock() {
+        if on {
+            g.insert(
+                label.to_string(),
+                Instant::now() + Duration::from_millis(350),
+            );
+        } else {
+            g.remove(label);
+        }
     }
 }
 
@@ -37,18 +58,13 @@ fn start_poll() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         std::thread::spawn(|| loop {
-            if !ON.load(Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(200));
-                continue;
-            }
-            let armed = ARMED_AT
+            let labels: Vec<String> = labels()
                 .lock()
                 .ok()
-                .and_then(|g| *g)
-                .map(|t| Instant::now() >= t)
-                .unwrap_or(false);
-            if !armed {
-                std::thread::sleep(Duration::from_millis(50));
+                .map(|g| g.iter().cloned().collect())
+                .unwrap_or_default();
+            if labels.is_empty() {
+                std::thread::sleep(Duration::from_millis(200));
                 continue;
             }
             let Some(app) = APP.lock().ok().and_then(|g| g.clone()) else {
@@ -57,13 +73,26 @@ fn start_poll() {
             };
             #[cfg(target_os = "macos")]
             {
-                let app = app.clone();
-                crate::main_thread_sync(move || {
-                    if click_outside(&app) {
-                        ON.store(false, Ordering::SeqCst);
-                        let _ = crate::panes::hide_window(app, "next-card".to_string());
+                let now = Instant::now();
+                for label in labels {
+                    let armed = armed_at()
+                        .lock()
+                        .ok()
+                        .and_then(|g| g.get(&label).copied())
+                        .map(|t| now >= t)
+                        .unwrap_or(false);
+                    if !armed {
+                        continue;
                     }
-                });
+                    let app = app.clone();
+                    let lab = label.clone();
+                    crate::main_thread_sync(move || {
+                        if click_outside(&app, &lab) {
+                            watch(&lab, false);
+                            let _ = crate::panes::hide_window(app, lab);
+                        }
+                    });
+                }
             }
             std::thread::sleep(Duration::from_millis(50));
         });
@@ -71,7 +100,7 @@ fn start_poll() {
 }
 
 #[cfg(target_os = "macos")]
-fn click_outside(app: &tauri::AppHandle) -> bool {
+fn click_outside(app: &tauri::AppHandle, label: &str) -> bool {
     use objc::runtime::Object;
     use objc::{class, msg_send, sel, sel_impl};
     #[repr(C)]
@@ -92,7 +121,7 @@ fn click_outside(app: &tauri::AppHandle) -> bool {
         origin: NSPoint,
         size: NSSize,
     }
-    let Some(w) = app.get_webview_window("next-card") else {
+    let Some(w) = app.get_webview_window(label) else {
         return false;
     };
     if !w.is_visible().unwrap_or(false) {

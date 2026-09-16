@@ -530,6 +530,8 @@ mod tests {
             actor: None,
             assigned_agent_id: agent.map(str::to_string),
             parent_id: None,
+            rating: None,
+            trackers: None,
         }
     }
 
@@ -611,7 +613,11 @@ mod tests {
     fn planet_cwd_newest_live_claim_wins() {
         let mut st = PersistedState::default();
         let tmp = std::env::temp_dir().to_string_lossy().to_string();
-        st.projects = vec![Project { id: "p-1".into(), name: "orbitty".into() }];
+        st.projects = vec![Project {
+            id: "p-1".into(),
+            name: "orbitty".into(),
+            trackers: None,
+        }];
         st.claims = vec![
             claim("p-1", 1.0, Some("/definitely/gone")),
             claim("p-1", 2.0, Some(&tmp)),

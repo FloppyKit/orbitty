@@ -134,15 +134,14 @@ pub fn register(app: &tauri::AppHandle) {
     }) {
         eprintln!("tile-chords: ⌘⌥↑ register failed: {e}");
     }
-    // ⌘? (cmd+shift+slash) — cheat sheet overlay on the companion.
+    // ⌘? (cmd+shift+slash) — own cheat-sheet window (click-off hides).
     let chord = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Slash);
     let handle = app.clone();
     if let Err(e) = gs.on_shortcut(chord, move |_app, _s, ev| {
         if ev.state() != ShortcutState::Pressed {
             return;
         }
-        let _ = crate::panes::show_companion(&handle);
-        let _ = handle.emit_to("companion", "orbitty:toggle-cheatsheet", ());
+        let _ = crate::panes::toggle_cheatsheet(handle.clone());
     }) {
         eprintln!("tile-chords: ⌘? register failed: {e}");
     }

@@ -131,6 +131,8 @@ mod tests {
             actor: None,
             assigned_agent_id: None,
             parent_id: None,
+            rating: None,
+            trackers: None,
         }
     }
 

@@ -21,6 +21,8 @@ export interface WindowInfo {
 export interface Project {
   id: string;
   name: string;
+  // Named counters for this planet. Additive.
+  trackers?: Tracker[];
 }
 
 export interface TodoTree {
@@ -76,6 +78,12 @@ export interface Subtask {
   done: boolean;
 }
 
+export interface Tracker {
+  id: string;
+  label: string;
+  value: number;
+}
+
 export interface KanbanCard {
   id: string;
   title: string;
@@ -106,6 +114,12 @@ export interface KanbanCard {
   // Another todo this card is nested under. Hidden from the
   // stack when "Hide subtasks" is on; still a real card.
   parentId?: string | null;
+  // Optional 1–7 rating (not difficulty, not points).
+  rating?: number | null;
+  // Leftover: trackers used to live on the card. Launchpad
+  // migrates any leftover onto the planet; the key stays so saves
+  // do not strip old rows.
+  trackers?: Tracker[];
 }
 
 export interface PointsEntry {

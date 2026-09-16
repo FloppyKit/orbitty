@@ -147,7 +147,10 @@
       );
     });
     logEvent("needed-skip", { cardId: card.id }, card.projectId);
-    if (selectedId === card.id) selectedId = null;
+    if (selectedId === card.id) {
+      selectedId = null;
+      onNeededFocus?.(null, null);
+    }
   }
 
   function laterNeeded(card: KanbanCard) {
@@ -197,7 +200,10 @@
             class:sel={selectedId === card.id}
             class:mkey-sel={ringActiveId === `needed-${card.id}`}
             data-mkey={`needed-${card.id}`}
-            onclick={() => (selectedId = card.id)}
+            onclick={() => {
+              selectedId = card.id;
+              onNeededFocus?.(card.id, card.title);
+            }}
           >
             {#if p}
               <span

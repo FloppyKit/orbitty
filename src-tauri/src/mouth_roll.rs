@@ -4,8 +4,8 @@
 //! die (context-dead / session-dead / empty-after-resume). When it does,
 //! the mouth ROLLS OVER: a fresh session id lands in plug.json and the
 //! first prompt on the new session is a handoff block — the last ~6 turns
-//! of the ACTIVE mode plus the pocket/desk-wrapped user line. The reply
-//! still appends to the same `turns` / `threads[mode]`; the handoff is
+//! of the one companion transcript plus the pocket/desk-wrapped user
+//! line. The reply still appends to the same `turns`; the handoff is
 //! never persisted as a you-row and `companion.turns` is never wiped.
 //!
 //! Grok: `--fork-session` (resume the old id, name the fork) when the old
@@ -81,10 +81,10 @@ pub fn goose_context_dead(err: &str) -> bool {
 }
 
 /// Handoff block for the first prompt on a rolled-over session: the last
-/// ~20 turns of the ACTIVE mode (`companion.turns` IS the active thread —
-/// MODE-SPLIT mirrors it into `threads[mode]`), then the already
-/// pocket/desk-wrapped user line. Persisted nowhere — the send path saves
-/// only the raw line + reply, so the handoff never becomes a you-row.
+/// ~6 turns of the one companion transcript, then the already
+/// pocket/desk-wrapped user line (mode + now.json + pocket already in
+/// that wrap). Persisted nowhere — the send path saves only the raw
+/// line + reply, so the handoff never becomes a you-row.
 /// No history yet (a first send that died) → the wrapped line unchanged.
 pub fn handoff_prompt(app: &tauri::AppHandle, wrapped_line: &str) -> String {
     const HANDOFF_TURNS: usize = 6;
@@ -131,7 +131,13 @@ pub fn handoff_prompt(app: &tauri::AppHandle, wrapped_line: &str) -> String {
 /// dying session but fork it into a fresh id — history carries, the old id
 /// is left alone. (`-s` with `--resume` is valid only with --fork-session;
 /// it names the fork.)
-fn grok_fork_args(old_sid: &str, new_sid: &str, soul: &str, line: &str) -> Vec<String> {
+fn grok_fork_args(
+    old_sid: &str,
+    new_sid: &str,
+    soul: &str,
+    line: &str,
+    tools_ok: bool,
+) -> Vec<String> {
     let mut args: Vec<String> = vec!["-p".into(), line.to_string()];
     args.push("--resume".into());
     args.push(old_sid.to_string());
@@ -144,6 +150,12 @@ fn grok_fork_args(old_sid: &str, new_sid: &str, soul: &str, line: &str) -> Vec<S
         "--always-approve".into(),
         "--no-subagents".into(),
         "--disable-web-search".into(),
+    ]);
+    if !tools_ok {
+        args.push("--disallowed-tools".into());
+        args.push("bash,shell,computer".into());
+    }
+    args.extend([
         // Equals form, one argv — a dash-leading soul stays a value.
         format!("--rules={soul}"),
     ]);
@@ -164,7 +176,13 @@ pub fn grok_rollover(
     let old_sid = plug.grok_session_id.clone().unwrap_or_default();
     let new_sid = mint_uuid()?;
     if is_uuid(&old_sid) {
-        let args = grok_fork_args(&old_sid, &new_sid, soul, handoff);
+        let args = grok_fork_args(
+            &old_sid,
+            &new_sid,
+            soul,
+            handoff,
+            crate::coordinator::companion_mode_tools(app),
+        );
         // The fork RESUMES the old id — under the watch a corpse 404s in
         // ~0.5s and falls through to the fresh rollover, instead of
         // hanging out the 180s first.
@@ -200,7 +218,13 @@ pub fn grok_fresh_rollover(
     handoff: &str,
 ) -> Result<String, String> {
     let new_sid = mint_uuid()?;
-    let args = grok_args(&new_sid, false, soul, handoff);
+    let args = grok_args(
+        &new_sid,
+        false,
+        soul,
+        handoff,
+        crate::coordinator::companion_mode_tools(app),
+    );
     let text = crate::mouth_blip::run_streamed(app, "Grok", bin, &args, 180, None)?;
     if text.is_empty() {
         return Err("Grok sent back an empty reply.".into());
@@ -215,6 +239,7 @@ pub fn grok_fresh_rollover(
 /// `--name` session, then re-capture the real YYYYMMDD_N id into plug.json
 /// (`--name` is not a unique resume key — same capture as the first send).
 pub fn goose_rollover(
+    app: &tauri::AppHandle,
     bin: &Path,
     soul: &str,
     plug: &mut PlugState,
@@ -222,7 +247,12 @@ pub fn goose_rollover(
 ) -> Result<String, String> {
     plug.goose_session_id = None;
     save_plug(plug);
-    let args = goose_args(soul, handoff, None);
+    let args = goose_args(
+        soul,
+        handoff,
+        None,
+        crate::coordinator::companion_mode_tools(app),
+    );
     let reply = run_mouth_cli("Goose", bin, &args, &[("GOOSE_MODE", "always_allow")], 300)?;
     if reply.is_empty() {
         return Err("Goose sent back an empty reply.".into());

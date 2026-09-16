@@ -266,6 +266,8 @@ mod tests {
             actor: None,
             assigned_agent_id: agent.map(str::to_string),
             parent_id: None,
+            rating: None,
+            trackers: None,
         }
     }
 

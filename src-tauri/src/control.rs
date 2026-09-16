@@ -431,6 +431,28 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
+        "companion.thin" => crate::coordinator::companion_thin(app.clone())
+            .map(to_data)
+            .map_err(tool_err),
+        "companion.now" => {
+            let files = args
+                .get("files")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                });
+            crate::coordinator::companion_now(
+                arg_opt(args, "job"),
+                arg_opt(args, "last_error"),
+                arg_opt(args, "last_green"),
+                arg_opt(args, "do_not_retry"),
+                files,
+            )
+            .map(to_data)
+            .map_err(tool_err)
+        }
         // Leftover: the Free Mode switch — same
         // companion.* ACL as companion.mode. `enabled` must be a real
         // bool (fail closed, same as companion.hack's `live`).

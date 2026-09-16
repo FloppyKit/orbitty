@@ -8,6 +8,7 @@
   import SkyPage from "$lib/SkyPage.svelte";
   import YardWarnPage from "$lib/YardWarnPage.svelte";
   import NextCard from "$lib/NextCard.svelte";
+  import CheatSheet from "$lib/CheatSheet.svelte";
   import RailPage from "$lib/RailPage.svelte";
 
   // The same SPA bundle serves the separate Kanban/Companion/STARS/Sky
@@ -44,6 +45,7 @@
   // The Herding Cats confirm — own small window.
   const isYardWarnWindow = $derived(windowLabel === "yard-warn");
   const isNextCardWindow = $derived(windowLabel === "next-card");
+  const isCheatSheetWindow = $derived(windowLabel === "cheatsheet");
   const isRailWindow = $derived(windowLabel === "main");
   // An unrecognized (or not-yet-resolved) label is never treated as the
   // rail — it renders the dark slab at the bottom of the markup.
@@ -55,7 +57,8 @@
       isSettingsWindow ||
       isSkyWindow ||
       isYardWarnWindow ||
-      isNextCardWindow,
+      isNextCardWindow ||
+      isCheatSheetWindow,
   );
 
   // Chrome drawers are opaque windows, not rail
@@ -70,7 +73,8 @@
       isCompanionWindow ||
       isSettingsWindow ||
       isYardWarnWindow ||
-      isNextCardWindow,
+      isNextCardWindow ||
+      isCheatSheetWindow,
   );
   if (
     initialLabel === "kanban" ||
@@ -78,7 +82,8 @@
     initialLabel === "companion" ||
     initialLabel === "settings" ||
     initialLabel === "yard-warn" ||
-    initialLabel === "next-card"
+    initialLabel === "next-card" ||
+    initialLabel === "cheatsheet"
   ) {
     document.documentElement.dataset.drawer = "";
   }
@@ -106,6 +111,8 @@
   <YardWarnPage />
 {:else if isNextCardWindow}
   <NextCard />
+{:else if isCheatSheetWindow}
+  <CheatSheet />
 {:else}
   <RailPage />
 {/if}

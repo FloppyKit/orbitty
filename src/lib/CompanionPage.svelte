@@ -99,10 +99,8 @@
   import Companion3D from "./Companion3D.svelte";
   import CaptionPane from "./CaptionPane.svelte";
   import CompanionDock from "./CompanionDock.svelte";
-  import CheatSheet from "./CheatSheet.svelte";
 
   import type {
-    ActionShortcut,
     CompanionSlice,
     CompanionTurn,
     KanbanCard,
@@ -379,11 +377,6 @@
       e.preventDefault();
       return;
     }
-    if (cheatOpen) {
-      cheatOpen = false;
-      e.preventDefault();
-      return;
-    }
     if (hosted !== "off" && expanded) {
       expanded = false;
       invoke("set_companion_expanded", { expanded: false }).catch(() => {});
@@ -545,8 +538,6 @@
 
   let planetsHidden = $state(false);
   let cheatSheetHint = $state(true);
-  let cheatOpen = $state(false);
-  let actionRows = $state<ActionShortcut[]>([]);
   async function togglePlanetsHidden() {
     const next = !planetsHidden;
     planetsHidden = next;
@@ -774,20 +765,49 @@
 
   let neededFocusId = $state<string | null>(null);
   let neededFocusTitle = $state<string | null>(null);
+  // Plain let so onFocusChanged (registered once) sees the live hook.
+  let mouthHooked = false;
   function onNeededFocus(id: string | null, title: string | null) {
     neededFocusId = id;
     neededFocusTitle = title;
-    if (id) void armMouth();
+    mouthHooked = !!id;
+    if (id) void landCaret();
   }
 
-  async function armMouth() {
+  function composerField(): HTMLTextAreaElement | null {
+    return (
+      fieldEl ??
+      document.querySelector<HTMLTextAreaElement>("textarea.field")
+    );
+  }
+
+  function focusComposer(): boolean {
+    const el = composerField();
+    if (!el) return false;
+    el.focus();
     try {
-      await getCurrentWebviewWindow().setFocus();
+      const n = el.value.length;
+      el.setSelectionRange(n, n);
     } catch {
-      /* pane may already be focused */
+      /* setSelectionRange can throw on a detached node */
     }
+    return document.activeElement === el;
+  }
+
+  // Native raise (arm_companion_mouth / ⌘⇧O show_companion) makes this
+  // the key window; the caret still has to land in .field after that.
+  // One tick is too early — Launchpad just had key, and fieldEl can be
+  // stale until the dock paints the placeholder. Retry until it sticks.
+  async function landCaret() {
     await tick();
-    fieldEl?.focus();
+    await new Promise<void>((r) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => r())),
+    );
+    if (focusComposer()) return;
+    for (const ms of [40, 100, 220, 400]) {
+      await new Promise((r) => setTimeout(r, ms));
+      if (focusComposer()) return;
+    }
   }
 
   // Enter on a Needed row arms the composer
@@ -795,7 +815,7 @@
   // next typed line answers it. Esc blurs back out (onPaneKey), arrows
   // resume the ring.
   function onNeededAnswer() {
-    fieldEl?.focus();
+    void landCaret();
   }
 
 
@@ -1339,7 +1359,6 @@
       sprite = s.companion?.sprite ?? true;
       planetsHidden = s.companion?.planetsHidden ?? false;
       cheatSheetHint = s.companion?.cheatSheetHint ?? true;
-      actionRows = s.actionShortcuts ?? [];
       // DOCK-HACK: missing keys (old saves) = dark LED, unknown source.
       hackLive = s.companion?.hackLive ?? false;
       hackWho = s.companion?.hackWho ?? "";
@@ -1476,13 +1495,13 @@
   let unlistenDestVis: (() => void) | undefined;
   let unlistenSummon: (() => void) | undefined;
   let unlistenNeededFocus: (() => void) | undefined;
+  let unlistenWinFocus: (() => void) | undefined;
   let unlistenKanbanVis: (() => void) | undefined;
   let unlistenEnterHost: (() => void) | undefined;
   let unlistenToggleHost: (() => void) | undefined;
   let unlistenYawHost: (() => void) | undefined;
   let unlistenDismissHost: (() => void) | undefined;
   let unlistenRaiseLastHost: (() => void) | undefined;
-  let unlistenCheat: (() => void) | undefined;
   let unlistenDrop: (() => void) | undefined;
   let unlistenAck: (() => void) | undefined;
   let unlistenTalk: (() => void)[] = [];
@@ -1537,13 +1556,16 @@
     // ⌘⇧O raises this pane native-side, but webview
     // focus alone never lands the caret in .field — the summon event does.
     unlistenSummon = await listen("orbitty:companion-summon", () => {
-      fieldEl?.focus();
+      void landCaret();
     });
     unlistenNeededFocus = await listen<{
       id: string | null;
       title: string | null;
     }>("orbitty:needed-focus", (e) => {
       onNeededFocus(e.payload?.id ?? null, e.payload?.title ?? null);
+    });
+    unlistenWinFocus = await getCurrentWebviewWindow().onFocusChanged((e) => {
+      if (e.payload && mouthHooked) focusComposer();
     });
     unlistenKanbanVis = await listenPaneVis("kanban", (visible) => {
       if (!visible) onNeededFocus(null, null);
@@ -1590,9 +1612,7 @@
         refreshDestOpen(),
       );
     });
-    unlistenCheat = await listen("orbitty:toggle-cheatsheet", () => {
-      cheatOpen = !cheatOpen;
-    });
+
     // The conductor's ack lands mid-send and rides
     // the wait-mark slot until the reply replaces it. Only while sending
     // — a late event after the reply must not resurrect a splash.
@@ -1645,13 +1665,14 @@
     unlistenDestVis?.();
     unlistenSummon?.();
     unlistenNeededFocus?.();
+    unlistenWinFocus?.();
     unlistenKanbanVis?.();
     unlistenEnterHost?.();
     unlistenToggleHost?.();
     unlistenYawHost?.();
     unlistenDismissHost?.();
     unlistenRaiseLastHost?.();
-    unlistenCheat?.();
+
     unlistenDrop?.();
     unlistenAck?.();
     for (const u of unlistenTalk) u();
@@ -1902,7 +1923,9 @@
     {talking}
     neededHint={neededFocusTitle}
     {cheatSheetHint}
-    onCheatSheet={() => (cheatOpen = !cheatOpen)}
+    onCheatSheet={() => {
+      invoke("toggle_cheatsheet").catch(() => {});
+    }}
     bind:draft
     bind:fieldEl
     bind:composerExtra
@@ -1929,11 +1952,6 @@
     {onDockMouseDown}
   />
 
-  <CheatSheet
-    open={cheatOpen}
-    actions={actionRows}
-    onClose={() => (cheatOpen = false)}
-  />
 </main>
 
 <style>

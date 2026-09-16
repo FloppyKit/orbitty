@@ -738,6 +738,8 @@ mod tests {
             actor: None,
             assigned_agent_id: None,
             parent_id: None,
+            rating: None,
+            trackers: None,
         };
         assert_eq!(apply_composer_rule(&c, "cursor on this planet"), "cursor on this planet");
         assert_eq!(apply_composer_rule(&c, "Rule:"), "");
@@ -828,6 +830,7 @@ mod tests {
         let projects = vec![Project {
             id: "p-orb".into(),
             name: "orbitty".into(),
+            trackers: None,
         }];
         let hit = classify(
             "Who runs this doing GO?",

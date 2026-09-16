@@ -1,18 +1,12 @@
 <script lang="ts">
-  // Glass chord book. ⌘? toggles. Click a named action to run it.
+  // Own window (⌘? / dock pip). Click-off hides native-side.
   // Dest chords are listed; they are already global. Not a Settings tab.
   import { invoke } from "@tauri-apps/api/core";
-  import type { ActionShortcut } from "./persist";
-
-  let {
-    open = false,
-    actions = [],
-    onClose,
-  }: {
-    open?: boolean;
-    actions?: ActionShortcut[];
-    onClose: () => void;
-  } = $props();
+  import { listen } from "@tauri-apps/api/event";
+  import { onMount, onDestroy } from "svelte";
+  import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
+  import { startPaneDrag } from "./dragPane";
+  import type { ActionShortcut, PersistedState } from "./persist";
 
   function comboGlyphs(c: string): string {
     return c
@@ -45,8 +39,20 @@
     { chord: "⌘?", label: "This sheet" },
   ];
 
+  let actions = $state<ActionShortcut[]>([]);
   let named = $derived(actions.filter((a) => a.combo && a.combo.trim()));
   let runningId = $state<string | null>(null);
+
+  async function loadState() {
+    try {
+      const s = await invoke<PersistedState>("load_state");
+      applyHostTokens(s.themeId || "");
+      applyWindowOpacity(clampWindowOpacity(s.windowOpacity ?? 1));
+      actions = s.actionShortcuts ?? [];
+    } catch {
+      /* keep last */
+    }
+  }
 
   async function runAction(a: ActionShortcut) {
     if (runningId) return;
@@ -59,98 +65,82 @@
     runningId = null;
   }
 
+  function close() {
+    invoke("hide_window", { label: "cheatsheet" }).catch(() => {});
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
-      onClose();
+      close();
     }
   }
+
+  let unlisten: (() => void) | undefined;
+  onMount(async () => {
+    invoke("ensure_glass").catch(() => {});
+    window.addEventListener("keydown", onKey);
+    await loadState();
+    unlisten = await listen("state:changed", loadState);
+  });
+  onDestroy(() => {
+    window.removeEventListener("keydown", onKey);
+    unlisten?.();
+  });
 </script>
 
-{#if open}
-  <div
-    class="sheet"
-    role="dialog"
-    aria-label="Cheat sheet"
-    tabindex="-1"
-    onkeydown={onKey}
-    onclick={(e) => {
-      if (e.target === e.currentTarget) onClose();
-    }}
-  >
-    <div class="card">
-      <header class="head">
-        <span>Chords</span>
-        <button class="x" onclick={onClose} aria-label="Close">×</button>
-      </header>
-      <ul>
-        {#each FIXED as row}
-          <li>
-            <span class="chord">{row.chord}</span>
-            <span class="lab">{row.label}</span>
-          </li>
-        {/each}
-        {#each named as a (a.id)}
-          <li>
-            <button
-              class="run"
-              class:on={runningId === a.id}
-              onclick={() => runAction(a)}
-              title={a.command}
-            >
-              <span class="chord">{comboGlyphs(a.combo ?? "")}</span>
-              <span class="lab">{a.name}</span>
-            </button>
-          </li>
-        {/each}
-      </ul>
-    </div>
-  </div>
-{/if}
+<main class="sheet" aria-label="Cheat sheet">
+  <header class="head" onmousedown={startPaneDrag}>
+    <span>Chords</span>
+  </header>
+  <ul>
+    {#each FIXED as row}
+      <li>
+        <span class="chord">{row.chord}</span>
+        <span class="lab">{row.label}</span>
+      </li>
+    {/each}
+    {#each named as a (a.id)}
+      <li>
+        <button
+          class="run"
+          class:on={runningId === a.id}
+          onclick={() => runAction(a)}
+          title={a.command}
+        >
+          <span class="chord">{comboGlyphs(a.combo ?? "")}</span>
+          <span class="lab">{a.name}</span>
+        </button>
+      </li>
+    {/each}
+  </ul>
+</main>
 
 <style>
   .sheet {
-    position: absolute;
-    inset: 0;
-    z-index: 20;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    padding: 12px 12px 72px;
-    background: rgb(0 0 0 / 0.18);
-  }
-  .card {
-    width: min(360px, 100%);
-    max-height: 70%;
+    height: 100vh;
+    box-sizing: border-box;
     overflow: auto;
     background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 12px;
     color: var(--ink);
-    box-shadow: 0 12px 40px rgb(0 0 0 / 0.35);
+    border-radius: 12px;
   }
   .head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 12px 6px;
+    padding: 12px 14px 8px;
     font-size: 0.78rem;
     font-weight: 700;
     letter-spacing: 0.04em;
-  }
-  .x {
-    border: none;
-    background: transparent;
-    color: var(--dim);
-    cursor: pointer;
-    font: inherit;
-    font-size: 1rem;
-    line-height: 1;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
   }
   ul {
     list-style: none;
     margin: 0;
-    padding: 0 8px 10px;
+    padding: 0 10px 12px;
   }
   li {
     display: flex;

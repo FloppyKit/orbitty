@@ -32,8 +32,8 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
     if crate::state::DRAWER_LABELS.contains(&label.as_str()) {
         crate::drawers::persist_shown_place(&app, &label);
     }
-    if label == "next-card" {
-        crate::nextcard::watching(false);
+    if label == "next-card" || label == "cheatsheet" {
+        crate::nextcard::watch(&label, false);
         let _ = w.set_always_on_top(false);
     }
     w.hide().map_err(|e| e.to_string())?;
@@ -64,6 +64,7 @@ pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(
         "yard-warn" => Some(("", 400.0, 330.0, None)),
         // Leftover: own small card window, not dock chrome.
         "next-card" => Some(("", 340.0, 260.0, Some((280.0, 180.0)))),
+        "cheatsheet" => Some(("", 360.0, 420.0, Some((280.0, 240.0)))),
         _ => None,
     }
 }
@@ -157,6 +158,7 @@ pub(crate) fn ensure_window(
         || label == "companion"
         || label == "yard-warn"
         || label == "next-card"
+        || label == "cheatsheet"
     {
         config.decorations = false;
         config.maximizable = false;
@@ -271,6 +273,18 @@ pub(crate) fn wire_pane_events(
     });
 }
 
+pub(crate) fn toggle_cheatsheet(app: tauri::AppHandle) -> Result<(), String> {
+    let up = app
+        .get_webview_window("cheatsheet")
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false);
+    if up {
+        hide_window(app, "cheatsheet".to_string())
+    } else {
+        show_labeled(&app, "cheatsheet")
+    }
+}
+
 pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     // The three chrome drawers show through the
     // leash (docked slot / plucked bounds). `sky` and the rail stay plain.
@@ -279,9 +293,9 @@ pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), St
     }
     let w = ensure_window(app, label)?;
     w.show().map_err(|e| e.to_string())?;
-    if label == "next-card" {
+    if label == "next-card" || label == "cheatsheet" {
         let _ = w.set_always_on_top(true);
-        crate::nextcard::watching(true);
+        crate::nextcard::watch(label, true);
     }
     w.set_focus().map_err(|e| e.to_string())?;
     crate::drawers::appkit_order_front(app, &w);
@@ -758,6 +772,26 @@ pub(crate) fn show_companion(app: &tauri::AppHandle) -> Result<(), String> {
     st.companion.visible = true;
     let _ = crate::state::save_state(app, &st);
     let _ = app.emit("state:changed", ());
+    Ok(())
+}
+
+/// Launchpad Needed click: native raise (makeKey + orderFront) then tell
+/// the companion webview which Needed owns the mouth. JS setFocus from
+/// the companion webview cannot steal key from Launchpad — ⌘⇧O already
+/// works because it goes through show_companion first.
+#[tauri::command]
+pub fn arm_companion_mouth(
+    app: tauri::AppHandle,
+    id: Option<String>,
+    title: Option<String>,
+) -> Result<(), String> {
+    show_companion(&app)?;
+    let _ = app.emit_to(
+        "companion",
+        "orbitty:needed-focus",
+        serde_json::json!({ "id": id, "title": title }),
+    );
+    let _ = app.emit_to("companion", "orbitty:companion-summon", ());
     Ok(())
 }
 

@@ -25,6 +25,7 @@
     Claim,
     KanbanCard,
     NeededState,
+    Tracker,
     PersistedState,
     PointsEntry,
     Project,
@@ -88,6 +89,12 @@
   let newTodoTitle = $state("");
   let openSubtaskIds = $state<string[]>([]);
   let newTagName = $state("");
+  let newTrackerLabel = $state("");
+  let newTrackerPlanetId = $state("");
+  let addingTracker = $state(false);
+  let trackerArmed = $state(false);
+  let trackPaneEl: HTMLElement | null = $state(null);
+  let migratingCardTrackers = false;
   let previewEdit = $state(false);
   let planetDdOpen = $state(false);
   let planetDragId = $state<string | null>(null);
@@ -170,6 +177,7 @@
         id: `needed-${c.id}`,
         confirm: () => {
           neededSelectedId = c.id;
+          armNeededMouth(c.id, c.title);
           onNeededAnswer?.();
         },
       });
@@ -260,6 +268,24 @@
   // S5: Hermes launch/focus for the selected project list (titles only).
   let hermesNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
   let selectedProject = $derived(projects.find((p) => p.id === selected));
+  const showTrackers = $derived(selected === "inbox" || !!selectedProject);
+  const visibleTrackers = $derived.by(() => {
+    if (selectedProject) {
+      return (selectedProject.trackers ?? []).map((tr) => ({
+        projectId: selectedProject.id,
+        chip: false,
+        tr,
+      }));
+    }
+    if (selected !== "inbox") return [];
+    return projects.flatMap((p) =>
+      (p.trackers ?? []).map((tr) => ({
+        projectId: p.id,
+        chip: true,
+        tr,
+      })),
+    );
+  });
 
   function raisePlanet(id: string) {
     invoke("bring_planet_front", { id }).catch(() => {});
@@ -428,11 +454,12 @@
   }
 
   let boardCols = $derived.by(() => {
+    // Array order is the persisted lane order (persistColumnOrder).
+    // Age-sort fought drag and the needed-doing pin.
     const scoped = kanbanCards.filter((c) => inScope(c) && !c.parentId);
-    const byAge = (a: KanbanCard, b: KanbanCard) => a.createdAt - b.createdAt;
     return {
-      todo: scoped.filter((c) => c.status === "todo").sort(byAge),
-      doing: scoped.filter((c) => c.status === "doing").sort(byAge),
+      todo: scoped.filter((c) => c.status === "todo"),
+      doing: scoped.filter((c) => c.status === "doing"),
       done: scoped
         .filter((c) => c.status === "done")
         .filter(inDoneFilter)
@@ -450,8 +477,19 @@
   // While held, the card paints at the grab cursor instead of its real
   // column — the board itself is unchanged until the drop. Not held:
   // viewCols IS boardCols (same reference, no churn).
+  // Pointer drag floats the card (grabGhost); the list stays put so
+  // the tile does not jump slot-to-slot. Keyboard grab still paints
+  // the card at the grab cursor.
+  let grabGhost = $state<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+
   let viewCols = $derived.by(() => {
     if (!grabbedId || !grabCol) return boardCols;
+    if (grabGhost) return boardCols;
     const card = kanbanCards.find((c) => c.id === grabbedId);
     if (!card) return boardCols;
     const out: Record<Status, KanbanCard[]> = {
@@ -470,22 +508,33 @@
   });
 
   $effect(() => {
-    const c = neededSelectedId
-      ? kanbanCards.find((x) => x.id === neededSelectedId)
-      : undefined;
-    if (c?.kind === "needed") {
-      onNeededFocus?.(c.id, c.title);
-      emitTo("companion", "orbitty:needed-focus", { id: c.id, title: c.title }).catch(
-        () => {},
-      );
-      emitTo("companion", "orbitty:companion-summon", null).catch(() => {});
-    } else {
-      onNeededFocus?.(null, null);
-      emitTo("companion", "orbitty:needed-focus", { id: null, title: null }).catch(
-        () => {},
-      );
-    }
+    void selected;
+    addingTracker = false;
+    newTrackerLabel = "";
+    newTrackerPlanetId = selectedProject?.id ?? "";
+    trackerArmed = false;
   });
+
+  $effect(() => {
+    if (!trackerArmed) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node | null;
+      if (trackPaneEl && t && !trackPaneEl.contains(t)) trackerArmed = false;
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  });
+
+  // Overlay Launchpad is its own window — the embedded onNeededFocus
+  // prop is not this path. Native raise makes companion key; the
+  // companion webview then lands the caret. Do not fire on boot.
+  function armNeededMouth(id: string | null, title: string | null) {
+    onNeededFocus?.(id, title);
+    emitTo("companion", "orbitty:needed-focus", { id, title }).catch(() => {});
+    if (id) {
+      invoke("arm_companion_mouth", { id, title }).catch(() => {});
+    }
+  }
 
   $effect(() => {
     const pile = [...viewCols.doing, ...viewCols.todo, ...neededRows];
@@ -536,6 +585,7 @@
     grabbedId = null;
     grabCol = null;
     grabIdx = 0;
+    grabGhost = null;
     const card = id ? kanbanCards.find((c) => c.id === id) : undefined;
     if (!card || !target) return;
     if (target !== card.status) {
@@ -570,6 +620,7 @@
     grabbedId = null;
     grabCol = null;
     grabIdx = 0;
+    grabGhost = null;
   }
 
   let detailCard = $derived(
@@ -634,11 +685,29 @@
     return r.state;
   }
 
+  function runIsLive(r: AgentRun): boolean {
+    if (r.state !== "working" && r.state !== "starting" && r.state !== "blocked")
+      return false;
+    // GO→doing mints a working row with an empty seat. That is not a
+    // live writer — companion LED (hackLive) is the other honest signal.
+    return !!(r.agentShortcutId || "").trim() || !!r.herdr?.agentName;
+  }
+
   function isWriting(card: KanbanCard): boolean {
     const r = agentRuns.find((x) => x.cardId === card.id);
-    if (!r || (r.state !== "working" && r.state !== "starting")) return false;
-    // Walker attach on GO→doing leaves working with no seat — leftover glow.
-    return !!r.agentShortcutId;
+    return !!r && runIsLive(r);
+  }
+
+  function planetIsLive(projectId: string | null | undefined): boolean {
+    if (!projectId) return false;
+    if (hackProjectId === projectId) return true;
+    return agentRuns.some((r) => r.planetId === projectId && runIsLive(r));
+  }
+
+  function hasAgent(card: KanbanCard): boolean {
+    if (card.assignedAgentId) return true;
+    const r = agentRuns.find((x) => x.cardId === card.id);
+    return !!r && runIsLive(r);
   }
 
   function goToken(title: string): string | null {
@@ -649,14 +718,60 @@
   function neededForTodo(card: KanbanCard): KanbanCard | undefined {
     const go = goToken(card.title);
     if (!go) return undefined;
+    const planet = card.projectId || "";
     return kanbanCards.find(
       (c) =>
         c.kind === "needed" &&
         (c.neededState === "open" || c.neededState === "later") &&
+        (c.projectId || "") === planet &&
         ((c.title || "").toUpperCase().includes(go) ||
           (c.neededWhy || "").toUpperCase().includes(go)),
     );
   }
+
+  function isDoingRow(c: KanbanCard): boolean {
+    return (
+      c.status === "doing" &&
+      c.kind !== "needed" &&
+      c.kind !== "window" &&
+      !c.parentId
+    );
+  }
+
+  // Needed-doings sit at the top of Doing. A one-off drag may park a
+  // doing above them; a newly attached Needed re-sorts them to the top.
+  let seenNeededDoing = new Set<string>();
+  let neededDoingSortReady = false;
+  $effect(() => {
+    if (grabbedId) return;
+    const doing = kanbanCards.filter(isDoingRow);
+    const withNeed = doing.filter((c) => neededForTodo(c));
+    const ids = withNeed.map((c) => c.id);
+    const grew = ids.some((id) => !seenNeededDoing.has(id));
+    const first = !neededDoingSortReady;
+    neededDoingSortReady = true;
+    seenNeededDoing = new Set(ids);
+    if (!first && !grew) return;
+    const rest = doing.filter((c) => !neededForTodo(c));
+    const desired = [...withNeed, ...rest];
+    if (
+      desired.length === 0 ||
+      doing.every((c, i) => c.id === desired[i]?.id)
+    )
+      return;
+    mutate((s) => {
+      const group = s.kanbanCards.filter(isDoingRow);
+      const needSet = new Set(ids);
+      const next = [
+        ...group.filter((c) => needSet.has(c.id)),
+        ...group.filter((c) => !needSet.has(c.id)),
+      ];
+      let gi = 0;
+      s.kanbanCards = s.kanbanCards.map((c) =>
+        isDoingRow(c) ? next[gi++] : c,
+      );
+    });
+  });
 
   function ageLabel(card: KanbanCard): string {
     const t = card.lastTouchedAt || card.createdAt;
@@ -721,6 +836,27 @@
       hackProjectId = s.companion?.hackLive
         ? (s.companion?.hackProjectId ?? null)
         : null;
+      if (
+        !migratingCardTrackers &&
+        (s.kanbanCards ?? []).some((c) => (c.trackers ?? []).length > 0)
+      ) {
+        migratingCardTrackers = true;
+        await mutate((st) => {
+          for (const c of st.kanbanCards) {
+            const dump = c.trackers ?? [];
+            if (!dump.length || !c.projectId) continue;
+            st.projects = st.projects.map((p) =>
+              p.id === c.projectId
+                ? { ...p, trackers: [...(p.trackers ?? []), ...dump] }
+                : p,
+            );
+          }
+          st.kanbanCards = st.kanbanCards.map((c) =>
+            c.trackers?.length ? { ...c, trackers: undefined } : c,
+          );
+        });
+        migratingCardTrackers = false;
+      }
     } catch {
       // keep last good state; next state:changed retries
     }
@@ -889,7 +1025,10 @@
   // ---- detail drawer mutations (all additive on the card) ----
 
   function openDetail(card: KanbanCard) {
-    if (card.kind !== "needed") neededSelectedId = null;
+    if (card.kind !== "needed") {
+      if (neededSelectedId) armNeededMouth(null, null);
+      neededSelectedId = null;
+    }
     detailId = card.id;
     newTagName = "";
     previewEdit = false;
@@ -988,6 +1127,15 @@
     }
     if ((card.kind === "window" || card.windowId) && winFor(card)) {
       stops.push({ id: "d-win-focus", confirm: () => focusCard(card) });
+    }
+    for (let n = 1; n <= 7; n++) {
+      stops.push({
+        id: `d-rate-${n}`,
+        confirm: () => setRating(card, card.rating === n ? null : n),
+      });
+    }
+    if (card.kind !== "window" && card.kind !== "needed") {
+      stops.push({ id: "d-trash", confirm: () => deleteTodo(card) });
     }
     return stops;
   }
@@ -1219,6 +1367,101 @@
     });
   }
 
+  function deleteTodo(card: KanbanCard) {
+    if (card.kind === "window" || card.kind === "needed") return;
+    const id = card.id;
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards
+        .filter((c) => c.id !== id)
+        .map((c) =>
+          c.parentId === id
+            ? { ...c, parentId: undefined, lastTouchedAt: Date.now() / 1000 }
+            : c,
+        );
+      s.agentRuns = (s.agentRuns ?? []).filter((r) => r.cardId !== id);
+    });
+    logEvent("board-delete", { cardId: id, title: card.title }, card.projectId);
+    previewEdit = false;
+    if (detailId === id) detailId = null;
+    if (neededSelectedId === id) neededSelectedId = null;
+  }
+
+  function setRating(card: KanbanCard, n: number | null) {
+    const rating = n != null && n >= 1 && n <= 7 ? n : null;
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards.map((c) =>
+        c.id === card.id
+          ? { ...c, rating, lastTouchedAt: Date.now() / 1000 }
+          : c,
+      );
+    });
+  }
+
+  function clipTrackLabel(s: string): string {
+    return s.trim().slice(0, 7);
+  }
+
+  function addTracker(projectId: string, raw: string) {
+    const label = clipTrackLabel(raw);
+    if (!label || !projectId) return;
+    const tr: Tracker = {
+      id: `tr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      label,
+      value: 0,
+    };
+    mutate((s) => {
+      s.projects = s.projects.map((p) =>
+        p.id === projectId
+          ? { ...p, trackers: [...(p.trackers ?? []), tr] }
+          : p,
+      );
+    });
+    newTrackerLabel = "";
+    addingTracker = false;
+  }
+
+  function patchTracker(
+    projectId: string,
+    trackerId: string,
+    fn: (t: Tracker) => Tracker,
+  ) {
+    mutate((s) => {
+      s.projects = s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        return {
+          ...p,
+          trackers: (p.trackers ?? []).map((t) =>
+            t.id === trackerId ? fn(t) : t,
+          ),
+        };
+      });
+    });
+  }
+
+  function bumpTracker(projectId: string, trackerId: string, delta: number) {
+    patchTracker(projectId, trackerId, (t) => ({ ...t, value: t.value + delta }));
+  }
+
+  function setTrackerValue(projectId: string, trackerId: string, raw: string) {
+    const n = parseInt(raw.trim(), 10);
+    if (!Number.isFinite(n)) return;
+    const cur = (projects.find((p) => p.id === projectId)?.trackers ?? []).find(
+      (t) => t.id === trackerId,
+    );
+    if (!cur || cur.value === n) return;
+    patchTracker(projectId, trackerId, (t) => ({ ...t, value: n }));
+  }
+
+  function removeTracker(projectId: string, trackerId: string) {
+    mutate((s) => {
+      s.projects = s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const next = (p.trackers ?? []).filter((t) => t.id !== trackerId);
+        return { ...p, trackers: next.length ? next : undefined };
+      });
+    });
+  }
+
   function deleteSubtask(card: KanbanCard, subId: string) {
     mutate((s) => {
       s.kanbanCards = s.kanbanCards.map((c) =>
@@ -1273,14 +1516,45 @@
     dropCol = null;
   }
 
-  // Pointer drag is the grab path (restored to c2997ce). Shift+Enter unchanged.
-  let ptr: { id: string; x: number; y: number; held: boolean } | null = null;
+  // Pointer drag is the grab path. The card floats under the cursor.
+  // Shift+Enter keyboard grab is unchanged.
   let suppressClick = false;
+
+  let ptr: {
+    id: string;
+    x: number;
+    y: number;
+    held: boolean;
+    ox: number;
+    oy: number;
+    w: number;
+    h: number;
+  } | null = null;
 
   function onCardPointerDown(e: PointerEvent, card: KanbanCard) {
     if (e.button !== 0 || grabbedId) return;
+    if (!(e.currentTarget instanceof HTMLElement)) return;
     suppressClick = false;
-    ptr = { id: card.id, x: e.clientX, y: e.clientY, held: false };
+    const row = e.currentTarget.closest(".b-row");
+    const r = (row instanceof HTMLElement
+      ? row
+      : e.currentTarget
+    ).getBoundingClientRect();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* capture is best-effort */
+    }
+    ptr = {
+      id: card.id,
+      x: e.clientX,
+      y: e.clientY,
+      held: false,
+      ox: e.clientX - r.left,
+      oy: e.clientY - r.top,
+      w: r.width,
+      h: r.height,
+    };
     window.addEventListener("pointermove", onPtrMove);
     window.addEventListener("pointerup", onPtrUp);
     window.addEventListener("pointercancel", onPtrCancel);
@@ -1292,17 +1566,30 @@
     const p = ptr;
     if (!p) return;
     if (!p.held) {
-      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 4) return;
+      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 2) return;
       const card = kanbanCards.find((c) => c.id === p.id);
       if (!card) return ptrEnd();
       startGrab(card);
       p.held = true;
+      grabGhost = {
+        x: e.clientX - p.ox,
+        y: e.clientY - p.oy,
+        w: p.w,
+        h: p.h,
+      };
     }
     if (!grabbedId) return;
     const card = kanbanCards.find((c) => c.id === grabbedId);
     if (!card) return;
     grabCol = card.status;
     grabIdx = rowAtPoint(card.status, e.clientY);
+    if (grabGhost) {
+      grabGhost = {
+        ...grabGhost,
+        x: e.clientX - p.ox,
+        y: e.clientY - p.oy,
+      };
+    }
   }
 
   function onPtrUp() {
@@ -1500,25 +1787,10 @@
         loadState();
         refreshWindows();
         startRefreshTimer();
-        const c = neededSelectedId
-          ? kanbanCards.find((x) => x.id === neededSelectedId)
-          : undefined;
-        if (c?.kind === "needed") {
-          emitTo("companion", "orbitty:needed-focus", {
-            id: c.id,
-            title: c.title,
-          }).catch(() => {});
-        } else {
-          emitTo("companion", "orbitty:needed-focus", {
-            id: null,
-            title: null,
-          }).catch(() => {});
-        }
       } else {
         stopRefreshTimer();
-        emitTo("companion", "orbitty:needed-focus", { id: null, title: null }).catch(
-          () => {},
-        );
+        neededSelectedId = null;
+        armNeededMouth(null, null);
       }
     });
     document.addEventListener("visibilitychange", onVisibility);
@@ -1531,15 +1803,67 @@
     unlistenFocus?.();
     unlistenVis?.();
     document.removeEventListener("visibilitychange", onVisibility);
-    emitTo("companion", "orbitty:needed-focus", { id: null, title: null }).catch(
-      () => {},
-    );
+    armNeededMouth(null, null);
   });
 
   function onBannerMouseDown(e: MouseEvent) {
     startPaneDrag(e);
   }
 </script>
+
+{#snippet trackerWidget(projectId: string, tr: Tracker, showChip: boolean)}
+  <div class="k-tracktile" class:armed={trackerArmed} role="group" aria-label={tr.label}>
+    {#if trackerArmed}
+      <button
+        type="button"
+        class="k-track-x"
+        onclick={() => removeTracker(projectId, tr.id)}
+        aria-label="Remove {tr.label}"
+        title="Remove tracker"
+      >×</button>
+    {/if}
+    <div class="k-track-name">
+      {#if showChip}
+        <span
+          class="planet-chip"
+          style="background: {planetCss(projectId)}"
+          title={projectName(projectId)}
+          aria-hidden="true"
+        ></span>
+      {/if}
+      <span class="k-track-lbl">{clipTrackLabel(tr.label)}</span>
+    </div>
+    <div class="k-track-row">
+      <button
+        type="button"
+        class="k-track-nudge"
+        tabindex={trackerArmed ? -1 : 0}
+        onclick={() => bumpTracker(projectId, tr.id, -1)}
+        aria-label="Decrease {tr.label}"
+      >‹</button>
+      <input
+        class="k-track-val"
+        value={tr.value}
+        inputmode="numeric"
+        aria-label={tr.label}
+        readonly={trackerArmed}
+        onmousedown={(e) => e.stopPropagation()}
+        onblur={(e) => setTrackerValue(projectId, tr.id, e.currentTarget.value)}
+        onkeydown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          e.stopPropagation();
+        }}
+      />
+      <button
+        type="button"
+        class="k-track-nudge"
+        tabindex={trackerArmed ? -1 : 0}
+        onclick={() => bumpTracker(projectId, tr.id, 1)}
+        aria-label="Increase {tr.label}"
+      >›</button>
+    </div>
+  </div>
+{/snippet}
 
 {#snippet metaChips(card: KanbanCard)}
   {@const due = dueInfo(card)}
@@ -1550,8 +1874,8 @@
   {#if need}
     <span class="k-needchip" title={need.title}>needed</span>
   {/if}
-  {#if who}
-    <span class="k-bot" title={who} aria-label={who}>
+  {#if hasAgent(card)}
+    <span class="k-bot" title={who || "agent"} aria-label={who || "agent"}>
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <rect x="7" y="9" width="10" height="8" rx="2"/>
         <circle cx="10" cy="13" r="1.2"/>
@@ -1563,11 +1887,11 @@
       </svg>
     </span>
   {/if}
-  {#if card.actor && card.actor !== "user"}
-    <span class="k-actor" title="Actor">{card.actor}</span>
-  {/if}
   {#if card.neededState}
     <span class="k-needst" title="Needed state">{card.neededState}</span>
+  {/if}
+  {#if card.rating}
+    <span class="k-rating" title="Rating {card.rating}">{card.rating}</span>
   {/if}
   {#if due}
     <span class="k-due" class:overdue={due.overdue} title="Due date">{due.label}</span>
@@ -1585,7 +1909,18 @@
 
 {#snippet stackCard(card: KanbanCard)}
   {@const pid = livePlanetId(card)}
-  <div class="b-row" class:child={!!card.parentId}>
+  {@const floating = grabbedId === card.id && !!grabGhost}
+  {#if floating}
+    <div class="b-slot" style="height:{grabGhost.h}px"></div>
+  {/if}
+  <div
+    class="b-row"
+    class:child={!!card.parentId}
+    class:lifted={floating}
+    style={floating && grabGhost
+      ? `position:fixed;left:${grabGhost.x}px;top:${grabGhost.y}px;width:${grabGhost.w}px;z-index:40;margin:0;`
+      : undefined}
+  >
   <button
     type="button"
     class="k-check"
@@ -1632,6 +1967,7 @@
           type="button"
           class="k-doing"
           class:on={card.status === "doing"}
+          class:live={isWriting(card)}
           onclick={(e) => toggleDoing(card, e)}
           onpointerdown={(e) => e.stopPropagation()}
           title={card.status === "doing" ? "Doing — click to park" : "Start — pin to the top"}
@@ -1804,7 +2140,7 @@
       >
         <span
           class="planet-chip"
-          class:live={hackProjectId === p.id}
+          class:live={planetIsLive(p.id)}
           style="background: {planetCss(p.id)}; --pglow: {planetCss(p.id)}"
           aria-hidden="true"
         ></span>
@@ -1820,7 +2156,7 @@
       {#if selectedProject}
         <span
           class="planet-chip"
-          class:live={hackProjectId === selectedProject.id}
+          class:live={planetIsLive(selectedProject.id)}
           style="background: {planetCss(selectedProject.id)}; --pglow: {planetCss(selectedProject.id)}"
           title={selectedProject.name}
           aria-hidden="true"
@@ -1831,7 +2167,6 @@
         {@render doneActorChips()}
       {/if}
     </div>
-    <div class="k-preview-head">Preview:</div>
   </div>
   {#if hermesNote}
     <div class="k-hermesnote" class:err={hermesNote.kind === "err"}>
@@ -1884,6 +2219,7 @@
             bind:addingNeeded
             bind:selectedId={neededSelectedId}
             ringActiveId={menuRing.activeId}
+            onNeededFocus={armNeededMouth}
             {onNeededAnswer}
           />
         </div>
@@ -1974,7 +2310,85 @@
       </div>
     </section>
 
+    <div class="k-east">
+    {#if showTrackers}
+      <section
+        class="k-trackpane"
+        class:armed={trackerArmed}
+        bind:this={trackPaneEl}
+        aria-label="Trackers"
+      >
+        <header class="k-trackpane-head">
+          <span class="k-trackpane-title">Trackers</span>
+          <button
+            type="button"
+            class="ka-plus"
+            onclick={() => {
+              addingTracker = !addingTracker;
+              newTrackerLabel = "";
+              newTrackerPlanetId = selectedProject?.id ?? projects[0]?.id ?? "";
+              trackerArmed = false;
+            }}
+            title={addingTracker ? "Cancel" : "Add a tracker"}
+            aria-label={addingTracker ? "Cancel add tracker" : "Add a tracker"}
+          >{addingTracker ? "×" : "+"}</button>
+        </header>
+        {#if addingTracker}
+          <div class="k-track-addrow">
+            <select
+              class="k-track-planet"
+              bind:value={newTrackerPlanetId}
+              aria-label="Planet for this tracker"
+            >
+              {#each projects as p (p.id)}
+                <option value={p.id}>{p.name}</option>
+              {/each}
+            </select>
+            <input
+              class="k-track-add-field"
+              bind:value={newTrackerLabel}
+              maxlength="7"
+              placeholder="Name (7)…"
+              aria-label="New tracker name"
+              autofocus
+              onkeydown={(e) => {
+                if (e.key === "Enter") addTracker(newTrackerPlanetId, newTrackerLabel);
+                if (e.key === "Escape") {
+                  addingTracker = false;
+                  newTrackerLabel = "";
+                }
+              }}
+            />
+          </div>
+        {/if}
+        {#if visibleTrackers.length}
+          <div class="k-trackgrid">
+            {#each visibleTrackers as row (row.tr.id)}
+              {@render trackerWidget(row.projectId, row.tr, row.chip)}
+            {/each}
+          </div>
+        {:else if !addingTracker}
+          <p class="d-hint">{selected === "inbox" ? "No planet trackers yet." : "No trackers on this planet."}</p>
+        {/if}
+        <button
+          type="button"
+          class="k-track-trash"
+          class:on={trackerArmed}
+          onclick={() => (trackerArmed = !trackerArmed)}
+          aria-label={trackerArmed ? "Done removing trackers" : "Remove trackers"}
+          title={trackerArmed ? "Done" : "Remove trackers"}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M4 7h16" stroke-linecap="round"/>
+            <path d="M9 7V5h6v2"/>
+            <path d="M6 7l1 13h10l1-13"/>
+            <path d="M10 11v6M14 11v6" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </section>
+    {/if}
     <aside class="k-detail" aria-label="Item details">
+      <div class="k-preview-head">Preview:</div>
       {#if detailCard}
       {@const card = detailCard}
         {#if card.kind === "needed"}
@@ -2042,6 +2456,9 @@
           {#if agentName(card)}
             <p class="d-read-line">{agentName(card)}</p>
           {/if}
+          {#if card.rating}
+            <p class="d-read-line">Rating {card.rating}</p>
+          {/if}
           {#if card.notes}
             <div class="d-read-notes">{card.notes}</div>
           {/if}
@@ -2065,7 +2482,27 @@
         {:else}
         <div class="d-read-top">
           <span class="d-label" style="margin:0">Edit</span>
-          <button type="button" class="mini ghost" onclick={() => (previewEdit = false)}>Done</button>
+          <div class="d-edit-acts">
+            {#if card.kind !== "window" && card.kind !== "needed"}
+              <button
+                type="button"
+                class="d-trash"
+                class:mkey-sel={menuRing.activeId === "d-trash"}
+                data-mkey="d-trash"
+                onclick={() => deleteTodo(card)}
+                aria-label="Delete to-do"
+                title="Delete this to-do — does not mark it done"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <path d="M4 7h16" stroke-linecap="round"/>
+                  <path d="M9 7V5h6v2"/>
+                  <path d="M6 7l1 13h10l1-13"/>
+                  <path d="M10 11v6M14 11v6" stroke-linecap="round"/>
+                </svg>
+              </button>
+            {/if}
+            <button type="button" class="mini ghost" onclick={() => (previewEdit = false)}>Done</button>
+          </div>
         </div>
         <label class="d-label" for="d-name">Title</label>
         <input
@@ -2119,6 +2556,21 @@
           value={card.notes ?? ""}
           onchange={(e) => saveNotes(card, e.currentTarget.value)}
         ></textarea>
+
+        <span class="d-label">Rating</span>
+        <div class="d-diff" role="group" aria-label="Rating 1 to 7">
+          {#each [1, 2, 3, 4, 5, 6, 7] as n}
+            <button
+              type="button"
+              class="mini"
+              class:active={card.rating === n}
+              class:mkey-sel={menuRing.activeId === `d-rate-${n}`}
+              data-mkey={`d-rate-${n}`}
+              aria-pressed={card.rating === n}
+              onclick={() => setRating(card, card.rating === n ? null : n)}
+            >{n}</button>
+          {/each}
+        </div>
 
         <label class="d-label" for="d-due">Due date</label>
         <div class="d-duerow">
@@ -2264,6 +2716,7 @@
         <p class="d-hint">Highlight a row to preview it here.</p>
       {/if}
     </aside>
+    </div>
   </div>
 </main>
 
@@ -2360,7 +2813,7 @@
     display: flex;
   }
 
-  .k-body > .k-detail {
+  .k-body > .k-east {
     display: flex;
   }
 
@@ -2445,28 +2898,27 @@
      take layout space (`overlay` with `auto` fallback on the containers). */
   .k-side,
   .k-main,
-  .b-cards,
-  .k-detail {
+  .b-cards {
     overflow-y: overlay;
     scrollbar-width: none;
   }
 
-  :is(.k-side, .k-main, .b-cards, .k-detail)::-webkit-scrollbar {
+  :is(.k-side, .k-main, .b-cards)::-webkit-scrollbar {
     width: 0;
     background: transparent;
   }
 
-  :is(.k-side, .k-main, .b-cards, .k-detail):hover::-webkit-scrollbar,
-  :is(.k-side, .k-main, .b-cards, .k-detail):focus-within::-webkit-scrollbar {
+  :is(.k-side, .k-main, .b-cards):hover::-webkit-scrollbar,
+  :is(.k-side, .k-main, .b-cards):focus-within::-webkit-scrollbar {
     width: 8px;
   }
 
-  :is(.k-side, .k-main, .b-cards, .k-detail)::-webkit-scrollbar-thumb {
+  :is(.k-side, .k-main, .b-cards)::-webkit-scrollbar-thumb {
     background: transparent;
     border-radius: 4px;
   }
 
-  :is(.k-side, .k-main, .b-cards, .k-detail):hover::-webkit-scrollbar-thumb {
+  :is(.k-side, .k-main, .b-cards):hover::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--dim) 55%, transparent);
   }
 
@@ -2587,12 +3039,32 @@
   .k-titlerow {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
   }
 
   .k-titlerow .k-title {
     flex: 1;
     min-width: 0;
+  }
+
+  .k-trackpane-head .ka-plus {
+    flex-shrink: 0;
+  }
+
+  .k-track-add-field {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--focus, #6e4db0);
+    border-radius: 7px;
+    padding: 5px 8px;
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   .k-hermesnote {
@@ -2945,9 +3417,16 @@
      the cursor reuses the drag's drop-ok paint. */
   .b-card.held {
     border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
-    opacity: 0.85;
+    box-shadow: 0 8px 22px rgb(0 0 0 / 0.28);
+    opacity: 0.96;
     cursor: grabbing;
+  }
+
+  .b-slot {
+    margin: 0 10px;
+    border-radius: 8px;
+    border: 1px dashed var(--edge);
+    background: color-mix(in srgb, var(--panel) 70%, transparent);
   }
 
   .b-card.done {
@@ -3008,11 +3487,16 @@
 
   /* Preview tile — same chrome as the mail stack, not a flush wall. */
   .k-detail {
-    flex-shrink: 0;
-    width: 280px;
+    flex: 1;
+    width: 100%;
     box-sizing: border-box;
+    min-width: 0;
     min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    scrollbar-width: thin;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -3020,6 +3504,26 @@
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
     border-radius: 10px;
+  }
+
+  .k-detail::-webkit-scrollbar {
+    width: 0;
+    background: transparent;
+  }
+
+  .k-detail:hover::-webkit-scrollbar,
+  .k-detail:focus-within::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .k-detail::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 4px;
+  }
+
+  .k-detail:hover::-webkit-scrollbar-thumb,
+  .k-detail:focus-within::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--dim) 55%, transparent);
   }
 
   .d-head {
@@ -3064,6 +3568,8 @@
 
   .d-input {
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     box-sizing: border-box;
     font: inherit;
     font-size: 0.8rem;

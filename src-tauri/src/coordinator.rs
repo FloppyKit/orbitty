@@ -464,7 +464,16 @@ pub(crate) struct PlugState {
     pub(crate) grok_session_id: Option<String>,
     #[serde(default)]
     pub(crate) grok_session_minted: bool,
+    /// Successful Grok mouth sends on the current backend session.
+    /// At GROK_ROLL_EVERY we fork+handoff so resume stays thin; the
+    /// bubble is unchanged (forever mouth).
+    #[serde(default)]
+    pub(crate) grok_sends: u32,
 }
+
+/// Backend session roll — not a new bubble. Pocket + last ~6 turns
+/// ride the handoff. Keeps replies fast without dumping leftover map.
+pub(crate) const GROK_ROLL_EVERY: u32 = 16;
 
 fn plug_path() -> PathBuf {
     companions_root().join("plug.json")
@@ -809,10 +818,8 @@ pub fn set_companion_agent(app: tauri::AppHandle, profile: String) -> Result<Str
 }
 
 /// Persist the active companion mode (spark |
-/// chat | work | hold) — the second axis next to the four-cast agent
-/// pick. Switching parks the current turns under the old mode and loads
-/// the new mode's thread into `turns` (CaptionPane never changes).
-/// Unknown mode = honest error, fail closed — never a silent spark.
+/// chat | work | hold). Job law only — same transcript. Unknown mode =
+/// honest error, fail closed — never a silent spark.
 #[tauri::command]
 pub fn set_companion_mode(app: tauri::AppHandle, mode: String) -> Result<String, String> {
     let m = crate::state::normalize_companion_mode(&mode).ok_or_else(|| {
@@ -828,13 +835,9 @@ pub fn set_companion_mode(app: tauri::AppHandle, mode: String) -> Result<String,
     Ok(m)
 }
 
-/// Drop a them-line into a mode's thread — NO
-/// LLM, no send path. The bus (spark_ack) and ctl humans are the
-/// callers. `mode` targets a parked thread; absent = the active mode.
-/// A note into the active mode also lands on `turns` + `last_bot_line`
-/// so CaptionPane shows it immediately; a note into a parked mode only
-/// parks (no caption hijack). Think-play stays with the caller (the bus
-/// already plays think). Returns the mode the note landed on.
+/// Drop a them-line onto the live transcript — NO
+/// LLM, no send path. `mode` is ignored (one companion thread). Returns
+/// the active mode.
 pub fn companion_note(
     app: tauri::AppHandle,
     line: String,
@@ -852,20 +855,98 @@ pub fn companion_note(
         })?,
         None => st.companion.mode.clone(),
     };
-    if target == st.companion.mode {
-        st.companion.last_bot_line = line.clone();
-        st.companion.push_turn("them", &line);
-    } else {
-        let thread = st.companion.threads.entry(target.clone()).or_default();
-        thread.push(crate::state::CompanionTurn {
-            role: "them".into(),
-            text: line,
-        });
-        crate::state::cap_companion_turns(thread);
-    }
+    // One transcript: notes always land on the live thread.
+    let _ = target;
+    st.companion.last_bot_line = line.clone();
+    st.companion.push_turn("them", &line);
     crate::state::save_state(&app, &st)?;
     let _ = app.emit("state:changed", ());
     Ok(target)
+}
+
+/// Human "this chat is thin / new session needed". Snapshots the live
+/// thread, cheap-scans it (vivo_thin.py), notes the bubble. Does not
+/// wipe `turns` (forever mouth). Operator still starts the next job.
+#[tauri::command]
+pub fn companion_thin(app: tauri::AppHandle) -> Result<String, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/dude".into());
+    let script = PathBuf::from(&home)
+        .join(".buzz/RESEARCH/RGL_TESTBED/scripts/vivo_thin.py");
+    let py = PathBuf::from("/opt/homebrew/bin/python3");
+    let py = if py.exists() {
+        py
+    } else {
+        PathBuf::from("python3")
+    };
+    if !script.exists() {
+        let _ = crate::companion::companion_play(&app, "nod");
+        return companion_note(
+            app,
+            "THIN stamped (scanner missing). Start a new job when ready.".into(),
+            None,
+        );
+    }
+    let out = Command::new(&py)
+        .arg(&script)
+        .arg("stamp")
+        .output()
+        .map_err(|e| format!("thin stamp: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = stdout
+        .lines()
+        .next()
+        .unwrap_or("THIN stamped. Start a new job when ready.")
+        .trim()
+        .to_string();
+    let _ = crate::companion::companion_play(&app, "nod");
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return companion_note(
+            app,
+            format!("THIN stamp failed. {err}").chars().take(200).collect(),
+            None,
+        );
+    }
+    let _ = line;
+    if let Ok(st) = crate::state::load_state(&app) {
+        let mut n = load_now();
+        let hint = st.companion.last_user_line.trim();
+        if !hint.is_empty() {
+            n.last_error = clip_now(hint, 160);
+        }
+        save_now(&n);
+    }
+    Ok(stdout.trim().to_string())
+}
+
+/// Overwrite fields of now.json (current job packet). Empty string
+/// clears that field. Missing args leave the field.
+#[tauri::command]
+pub fn companion_now(
+    job: Option<String>,
+    last_error: Option<String>,
+    last_green: Option<String>,
+    do_not_retry: Option<String>,
+    files: Option<Vec<String>>,
+) -> Result<String, String> {
+    let mut n = load_now();
+    if let Some(v) = job {
+        n.job = v;
+    }
+    if let Some(v) = last_error {
+        n.last_error = v;
+    }
+    if let Some(v) = last_green {
+        n.last_green = v;
+    }
+    if let Some(v) = do_not_retry {
+        n.do_not_retry = v;
+    }
+    if let Some(v) = files {
+        n.files = v;
+    }
+    save_now(&n);
+    Ok(serde_json::to_string_pretty(&n).unwrap_or_else(|_| "{}".into()))
 }
 
 /// The ctl-lit half of the dock LED. Any harness
@@ -905,6 +986,33 @@ pub fn set_companion_hack(
         "who": st.companion.hack_who,
         "projectId": st.companion.hack_project_id,
     }))
+}
+
+fn run_is_seated(r: &crate::state::AgentRun) -> bool {
+    !r.agent_shortcut_id.trim().is_empty()
+        || r.herdr
+            .as_ref()
+            .is_some_and(|h| !h.agent_name.trim().is_empty())
+}
+
+/// Pickup lights the dock before the harness is up; a dead process
+/// that never ran its off-hook leaves hackLive stuck. If the flag is
+/// on and no seated run is live, turn it off.
+pub fn heal_stuck_hack(app: &tauri::AppHandle) {
+    let Ok(st) = crate::state::load_state(app) else {
+        return;
+    };
+    if !st.companion.hack_live {
+        return;
+    }
+    let live = st.agent_runs.iter().any(|r| {
+        run_is_seated(r)
+            && matches!(r.state.as_str(), "working" | "starting" | "blocked")
+    });
+    if live {
+        return;
+    }
+    let _ = set_companion_hack(app.clone(), false, None, None);
 }
 
 /// Persist Talk source (`system` | `hotkey`).
@@ -1203,9 +1311,8 @@ fn match_action_line(
 
 /// Intercept persist: them-line always lands; you-line only when the line
 /// read as chat. Same duplicate-you skip + cap 40 as the normal send path.
-/// push_turn lands both on the active `turns` and
-/// the parked `threads[mode]` copy, so the intercept never leaks across
-/// modes either.
+/// push_turn lands on the one companion transcript
+/// (and a shadow copy under the current mode for old readers).
 /// Land the you-row + last_user_line NOW, before the 180s model wait.
 /// Collapsed CC and expanded transcript both read persist; waiting until
 /// the reply meant a hung send showed nothing and state:changed wiped
@@ -1269,18 +1376,110 @@ struct LeftoverItem {
 /// Fail OPEN: missing file / bad JSON / no usable items → the user line
 /// unchanged; a ping is never blocked. The wrap is what the model sees
 /// only — transcript, captions, and the event log keep the raw line.
-fn wrap_with_pocket(line: &str) -> String {
-    const PREPEND_CAP: usize = 600;
-    const MAX_ITEMS: usize = 3;
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+struct NowPacket {
+    #[serde(default)]
+    job: String,
+    #[serde(default)]
+    last_error: String,
+    #[serde(default)]
+    last_green: String,
+    #[serde(default)]
+    do_not_retry: String,
+    #[serde(default)]
+    files: Vec<String>,
+}
+
+fn now_path() -> PathBuf {
+    companions_root().join("now.json")
+}
+
+fn load_now() -> NowPacket {
+    let Ok(raw) = std::fs::read_to_string(now_path()) else {
+        return NowPacket::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn save_now(n: &NowPacket) {
+    let Ok(body) = serde_json::to_string_pretty(n) else {
+        return;
+    };
+    let _ = std::fs::write(now_path(), body + "\n");
+}
+
+fn clip_now(s: &str, n: usize) -> String {
+    let t = s.trim().replace('\n', " ");
+    if t.chars().count() <= n {
+        t
+    } else {
+        t.chars().take(n.saturating_sub(1)).collect::<String>() + "…"
+    }
+}
+
+/// Five-line current-job packet. Empty file = no block. Fail open.
+fn now_block() -> String {
+    let n = load_now();
+    let mut lines: Vec<String> = Vec::new();
+    if !n.job.trim().is_empty() {
+        lines.push(format!("job: {}", clip_now(&n.job, 160)));
+    }
+    if !n.last_error.trim().is_empty() {
+        lines.push(format!("last_error: {}", clip_now(&n.last_error, 160)));
+    }
+    if !n.last_green.trim().is_empty() {
+        lines.push(format!("last_green: {}", clip_now(&n.last_green, 120)));
+    }
+    if !n.do_not_retry.trim().is_empty() {
+        lines.push(format!("do_not_retry: {}", clip_now(&n.do_not_retry, 120)));
+    }
+    let files: Vec<_> = n
+        .files
+        .iter()
+        .map(|f| f.trim())
+        .filter(|f| !f.is_empty())
+        .take(4)
+        .collect();
+    if !files.is_empty() {
+        lines.push(format!("files: {}", files.join(", ")));
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    format!("[now]\n{}\n", lines.join("\n"))
+}
+
+fn mode_job_line(mode: &str) -> &'static str {
+    match mode {
+        "chat" => "join and finesse; stay in the bit; no vaults; THIN drops the bit",
+        "work" => "build/answer; no alliance; no so-close; task-stuck → say so",
+        "hold" => "parked; notes only",
+        _ => "desk light; thin; route heavy work out",
+    }
+}
+
+fn wrap_with_pocket(app: &tauri::AppHandle, line: &str) -> String {
+    const PREPEND_CAP: usize = 900;
+    const MAX_ITEMS: usize = 5;
     const ITEM_TEXT_CAP: usize = 120;
+
+    let mode = crate::state::load_state(app)
+        .ok()
+        .map(|s| s.companion.mode.clone())
+        .unwrap_or_else(|| "spark".into());
+    let mode_line = format!(
+        "[orbitty-mode: {mode}] {}\n{}",
+        mode_job_line(&mode),
+        now_block()
+    );
 
     let raw = match std::fs::read_to_string(companions_root().join("leftovers.json")) {
         Ok(s) => s,
-        Err(_) => return line.to_string(),
+        Err(_) => return format!("{mode_line}\nUSER:\n{line}"),
     };
     let map: LeftoverMap = match serde_json::from_str(&raw) {
         Ok(m) => m,
-        Err(_) => return line.to_string(),
+        Err(_) => return format!("{mode_line}\nUSER:\n{line}"),
     };
 
     let mut items: Vec<&LeftoverItem> = map
@@ -1290,18 +1489,27 @@ fn wrap_with_pocket(line: &str) -> String {
             let text = it.text.trim();
             !text.is_empty() && !text.eq_ignore_ascii_case("desk test")
         })
-        .filter(|it| it.tag.trim().eq_ignore_ascii_case("open"))
+        .filter(|it| {
+            let t = it.tag.trim().to_ascii_lowercase();
+            t == "open" || t == "keep"
+        })
         .collect();
+    // Open first (live), then keep (working set).
+    items.sort_by_key(|it| {
+        if it.tag.trim().eq_ignore_ascii_case("open") {
+            0
+        } else {
+            1
+        }
+    });
     items.truncate(MAX_ITEMS);
+
+    let header = format!("{mode_line}[pocket]\n");
+    let footer = "\nUSER:\n";
     if items.is_empty() {
-        return line.to_string();
+        return format!("{header}{footer}{line}");
     }
 
-    // Budget the whole prepend ("[pocket]\n- …\n\nUSER:\n") ≤ 2048 chars.
-    // Items give way first (dropped from the end); the USER line never
-    // shrinks.
-    let header = "[pocket]\n";
-    let footer = "\n\nUSER:\n";
     let mut budget = PREPEND_CAP.saturating_sub(header.chars().count() + footer.chars().count());
     let mut lines: Vec<String> = Vec::new();
     for it in items {
@@ -1318,7 +1526,7 @@ fn wrap_with_pocket(line: &str) -> String {
         lines.push(item_line);
     }
     if lines.is_empty() {
-        return line.to_string();
+        return format!("{header}{footer}{line}");
     }
     format!("{header}{}{footer}{line}", lines.concat())
 }
@@ -1490,7 +1698,7 @@ async fn companion_send_inner(
     // GO-MH-2-APP: pocket inject AFTER action-intercept (Actions above ran
     // on the raw line). Every mouth gets the wrapped prompt; persist +
     // event log below keep the raw `line`.
-    let prompt = wrap_with_pocket(&line);
+    let prompt = wrap_with_pocket(&app, &line);
     // Hand the chip's ORIGINAL path to the mouth —
     // the agent's own tools read it there. Never a staging copy, never
     // an upload, no convert/OCR.
@@ -1592,18 +1800,26 @@ pub(crate) const GOOSE_SESSION_NAME: &str = "orbitty-companion";
 /// Goose mouth argv: `run -q` + full-tools builtins, soul as --system,
 /// resume by `--session-id ID --resume` when an id is known, else a fresh
 /// `--name` session. Shared by the send path and mouth_roll's rollover.
-pub(crate) fn goose_args(soul: &str, line: &str, resume_id: Option<&str>) -> Vec<String> {
-    // BLOCK-MH-4 `accept_full_goose_tools_v0`: no `--no-profile` — Matt's
-    // default Goose profile loads (developer/shell, computercontroller,
-    // skills, memory, …) so Spark can actually act, not just talk.
-    // PROJECT-ADD leftover: `goose run -q` may still skip the profile, so
-    // the builtins are named explicitly — shell/files are guaranteed even
-    // when the profile load is bypassed.
-    let mut args: Vec<String> = vec![
-        "run".into(),
-        "-q".into(),
-        "--with-builtin=developer,computercontroller".into(),
-    ];
+pub(crate) fn companion_mode_tools(app: &tauri::AppHandle) -> bool {
+    crate::state::load_state(app)
+        .ok()
+        .map(|s| matches!(s.companion.mode.as_str(), "spark" | "work"))
+        .unwrap_or(true)
+}
+
+pub(crate) fn goose_args(
+    soul: &str,
+    line: &str,
+    resume_id: Option<&str>,
+    tools_ok: bool,
+) -> Vec<String> {
+    // Spark/work: Orbitty mechanic — tools on. Chat/hold: talk only.
+    let mut args: Vec<String> = vec!["run".into(), "-q".into()];
+    if tools_ok {
+        args.push("--with-builtin=developer,computercontroller".into());
+    } else {
+        args.push("--no-profile".into());
+    }
     match resume_id {
         Some(id) => {
             args.push("--session-id".into());
@@ -1637,7 +1853,7 @@ fn run_goose_reply(
         .filter(|s| is_goose_session_id(s))
         .map(str::to_string);
     let first_send = resume_id.is_none();
-    let args = goose_args(soul, line, resume_id.as_deref());
+    let args = goose_args(soul, line, resume_id.as_deref(), companion_mode_tools(app));
 
     // Config is `smart_approve` and the bubble has no yes/no UI — without
     // always_allow, tool calls would hang or be denied.
@@ -1649,7 +1865,7 @@ fn run_goose_reply(
         Ok(r) => r,
         Err(e) if !first_send && crate::mouth_roll::goose_context_dead(&e) => {
             let handoff = crate::mouth_roll::handoff_prompt(app, line);
-            return crate::mouth_roll::goose_rollover(bin, soul, &mut plug, &handoff);
+            return crate::mouth_roll::goose_rollover(app, bin, soul, &mut plug, &handoff);
         }
         Err(e) => return Err(e),
     };
@@ -1657,7 +1873,7 @@ fn run_goose_reply(
         // Empty after a resume = a thin/dead session — same rollover.
         if !first_send {
             let handoff = crate::mouth_roll::handoff_prompt(app, line);
-            return crate::mouth_roll::goose_rollover(bin, soul, &mut plug, &handoff);
+            return crate::mouth_roll::goose_rollover(app, bin, soul, &mut plug, &handoff);
         }
         return Err("Goose sent back an empty reply.".into());
     }
@@ -1718,7 +1934,13 @@ pub(crate) async fn companion_send_grok(app: &tauri::AppHandle, line: &str) -> R
     .map_err(|e| format!("send task: {e}"))?
 }
 
-pub(crate) fn grok_args(sid: &str, minted: bool, soul: &str, line: &str) -> Vec<String> {
+pub(crate) fn grok_args(
+    sid: &str,
+    minted: bool,
+    soul: &str,
+    line: &str,
+    tools_ok: bool,
+) -> Vec<String> {
     let mut args: Vec<String> = vec!["-p".into(), line.to_string()];
     if minted {
         args.push("--resume".into());
@@ -1732,6 +1954,12 @@ pub(crate) fn grok_args(sid: &str, minted: bool, soul: &str, line: &str) -> Vec<
         "--always-approve".into(),
         "--no-subagents".into(),
         "--disable-web-search".into(),
+    ]);
+    if !tools_ok {
+        args.push("--disallowed-tools".into());
+        args.push("bash,shell,computer".into());
+    }
+    args.extend([
         // Grok's clap is the same: equals form keeps a dash-leading
         // soul a value, one argv.
         format!("--rules={soul}"),
@@ -1759,7 +1987,26 @@ fn run_grok_reply(
     }
     let sid = plug.grok_session_id.clone().unwrap_or_default();
 
-    let args = grok_args(&sid, plug.grok_session_minted, soul, line);
+    // Thin the backend every N sends so a week-old resume does not
+    // chew every ping. Bubble + leftovers + soul stay; only Grok's
+    // session id forks (same as death-rollover).
+    if plug.grok_session_minted && plug.grok_sends >= GROK_ROLL_EVERY {
+        plug.grok_sends = 0;
+        save_plug(&plug);
+        let handoff = crate::mouth_roll::handoff_prompt(app, line);
+        let text = crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff)?;
+        plug.grok_sends = 1;
+        save_plug(&plug);
+        return Ok(text);
+    }
+
+    let args = grok_args(
+        &sid,
+        plug.grok_session_minted,
+        soul,
+        line,
+        companion_mode_tools(app),
+    );
     // streaming-json: thought/tool lines splash the wait slot;
     // assembled text is the reply. Dead resume still 404s on stderr
     // in ~0.5s — kill_on is the same door as before.
@@ -1778,7 +2025,7 @@ fn run_grok_reply(
         Err(e) if !plug.grok_session_minted && e.to_ascii_lowercase().contains("session") => {
             plug.grok_session_minted = true;
             save_plug(&plug);
-            let retry = grok_args(&sid, true, soul, line);
+            let retry = grok_args(&sid, true, soul, line, companion_mode_tools(app));
             streamed(
                 &retry,
                 Some(&crate::mouth_roll::grok_session_gone_line),
@@ -1786,26 +2033,36 @@ fn run_grok_reply(
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_session_gone(&e) => {
             let handoff = crate::mouth_roll::handoff_prompt(app, line);
-            return crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff);
+            let text = crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff)?;
+            plug.grok_sends = 1;
+            save_plug(&plug);
+            return Ok(text);
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_context_dead(&e) => {
             let handoff = crate::mouth_roll::handoff_prompt(app, line);
-            return crate::mouth_roll::grok_rollover(app, bin, soul, &mut plug, &handoff);
+            let text = crate::mouth_roll::grok_rollover(app, bin, soul, &mut plug, &handoff)?;
+            plug.grok_sends = 1;
+            save_plug(&plug);
+            return Ok(text);
         }
         Err(e) => return Err(e),
     };
     if text.is_empty() && plug.grok_session_minted {
         // Empty after a resume = a thin/dead session — same rollover.
         let handoff = crate::mouth_roll::handoff_prompt(app, line);
-        return crate::mouth_roll::grok_rollover(app, bin, soul, &mut plug, &handoff);
+        let text = crate::mouth_roll::grok_rollover(app, bin, soul, &mut plug, &handoff)?;
+        plug.grok_sends = 1;
+        save_plug(&plug);
+        return Ok(text);
     }
     if text.is_empty() {
         return Err("Grok sent back an empty reply.".into());
     }
     if !plug.grok_session_minted {
         plug.grok_session_minted = true;
-        save_plug(&plug);
     }
+    plug.grok_sends = plug.grok_sends.saturating_add(1);
+    save_plug(&plug);
     Ok(text)
 }
 

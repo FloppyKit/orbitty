@@ -2,9 +2,9 @@
 
 .k-heads {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
-  padding: 4px 16px 8px;
+  padding: 2px 16px 6px;
   flex-shrink: 0;
   cursor: grab;
   user-select: none;
@@ -16,16 +16,26 @@
   min-width: 0;
 }
 
+
+
 .k-preview-head {
   flex-shrink: 0;
-  width: 280px;
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+  margin: 0 0 4px;
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--ink);
+}
+
+.k-east {
+  flex-shrink: 0;
+  width: 280px;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: hidden;
 }
 
 .k-body {
@@ -44,7 +54,7 @@
   padding: 0;
 }
 
-.k-body > .k-detail {
+.k-body > .k-east {
   display: flex;
 }
 
@@ -280,13 +290,13 @@
 .k-bot {
   display: inline-flex;
   align-items: center;
-  color: #fff;
+  color: var(--ink);
   flex-shrink: 0;
 }
 
 .k-bot svg {
-  width: 14px;
-  height: 14px;
+  width: 11px;
+  height: 11px;
   display: block;
 }
 
@@ -328,6 +338,10 @@
   font-weight: 700;
 }
 
+.k-doing.on.live {
+  box-shadow: 0 0 8px 2px var(--focus, #6e4db0);
+}
+
 .k-doing.on .k-doing-ico {
   color: #fff;
   display: inline-flex;
@@ -345,6 +359,217 @@
   border: 1px solid var(--edge);
   border-radius: 999px;
   padding: 0 0.4rem;
+}
+
+.k-rating {
+  font-size: 0.62rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+
+.k-trackpane {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 8px 22px;
+  background: var(--panel-fill, var(--panel));
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+}
+
+.k-trackpane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.k-trackpane-title {
+  flex: 1;
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  text-transform: none;
+}
+
+.k-track-addrow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.k-track-planet {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--ink);
+  background: var(--bg-fill, var(--bg));
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  padding: 4px 6px;
+}
+
+.k-trackgrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.k-tracktile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: max-content;
+  max-width: 5.2rem;
+  padding: 4px 3px 3px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  background: var(--bg-fill, var(--bg));
+}
+
+.k-track-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+}
+
+.k-track-name .planet-chip {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+}
+
+.k-tracktile.armed {
+  opacity: 0.55;
+}
+
+.k-track-lbl {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--dim);
+  max-width: 3.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k-track-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.k-track-nudge {
+  width: 12px;
+  height: 16px;
+  padding: 0;
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: transparent;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.k-tracktile:hover .k-track-nudge,
+.k-tracktile:focus-within .k-track-nudge {
+  color: var(--dim);
+}
+
+.k-tracktile:hover .k-track-nudge:hover,
+.k-tracktile:focus-within .k-track-nudge:hover {
+  color: var(--ink);
+}
+
+.k-tracktile.armed .k-track-nudge {
+  visibility: hidden;
+}
+
+.k-track-val {
+  width: 1.7rem;
+  box-sizing: border-box;
+  text-align: center;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 1px;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.k-tracktile:hover .k-track-val,
+.k-track-val:focus {
+  border-color: var(--edge);
+}
+
+.k-track-val:focus {
+  outline: none;
+  border-color: var(--focus, #6e4db0);
+}
+
+.k-track-x {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: #fff;
+  background: #ff453a;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.k-track-trash {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--dim);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.k-track-trash svg {
+  width: 13px;
+  height: 13px;
+}
+
+.k-track-trash:hover,
+.k-track-trash.on {
+  color: #ff453a;
 }
 
 .k-subs {
@@ -371,17 +596,54 @@
   gap: 8px;
 }
 
+.d-edit-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.d-trash {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--dim);
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.d-trash svg {
+  width: 14px;
+  height: 14px;
+}
+
+.d-trash:hover {
+  color: #ff453a;
+  border-color: #ff453a;
+}
+
 .d-read-top .d-need-title {
   flex: 1;
+  min-width: 0;
   margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .d-read-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 0;
   font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .d-read-line.dim {
@@ -390,9 +652,12 @@
 
 .d-read-notes {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 0.82rem;
   line-height: 1.45;
   flex: 1;
+  min-width: 0;
   min-height: 4rem;
 }
 
@@ -453,4 +718,6 @@
   font-size: 0.88rem;
   font-weight: 650;
   line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
