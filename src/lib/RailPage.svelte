@@ -168,6 +168,7 @@
   // on habitat:walked-off.
   let agentRuns = $state<AgentRun[]>([]);
   let neededSplit = $state(0.28);
+  let previewWidth = $state(280);
   let openSubtaskIds = $state<string[]>([]);
   let todoTrees = $state<import("./persist").TodoTree[]>([]);
   let treeGrowDays = $state(14);
@@ -703,6 +704,7 @@
       agentShortcuts,
       agentRuns,
       neededSplit: neededSplit,
+      previewWidth: previewWidth,
       openSubtaskIds,
       todoTrees,
       treeGrowDays,
@@ -2303,6 +2305,7 @@
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
       neededSplit = s.neededSplit ?? 0.28;
+      previewWidth = s.previewWidth ?? 280;
       openSubtaskIds = s.openSubtaskIds ?? [];
       todoTrees = s.todoTrees ?? [];
       treeGrowDays = s.treeGrowDays ?? 14;
@@ -2493,6 +2496,7 @@
         // strips a live run.
         agentRuns = s.agentRuns ?? [];
         neededSplit = s.neededSplit ?? 0.28;
+        previewWidth = s.previewWidth ?? 280;
         openSubtaskIds = s.openSubtaskIds ?? [];
         companionState = s.companion ?? companionState;
         // STARS: the STARS window's check-in saves and the companion's

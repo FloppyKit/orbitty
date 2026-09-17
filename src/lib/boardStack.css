@@ -29,13 +29,38 @@
 
 .k-east {
   flex-shrink: 0;
-  width: 280px;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
   overflow-x: hidden;
+}
+
+.mail-east-split {
+  flex: 0 0 10px;
+  cursor: col-resize;
+  position: relative;
+  background: transparent;
+  align-self: stretch;
+  touch-action: none;
+}
+
+.mail-east-split::after {
+  content: "";
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  left: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--dim);
+  opacity: 0;
+}
+
+.mail-east-split:hover::after,
+.mail-east-split:active::after {
+  opacity: 0.45;
 }
 
 .k-body {
@@ -47,7 +72,7 @@
 
 .k-main {
   flex: 1;
-  min-width: 0;
+  min-width: 96px;
   min-height: 0;
   display: flex;
   flex-direction: column;

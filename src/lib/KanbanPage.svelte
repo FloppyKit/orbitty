@@ -84,7 +84,9 @@
   let hackProjectId = $state<string | null>(null);
   let selectedBeforeDone = $state("inbox");
   let neededSplit = $state(0.28);
+  let previewWidth = $state(280);
   let mailEl: HTMLDivElement | null = $state(null);
+  let bodyEl: HTMLDivElement | null = $state(null);
   let addingTodo = $state(false);
   let newTodoTitle = $state("");
   let openSubtaskIds = $state<string[]>([]);
@@ -850,6 +852,7 @@
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
       neededSplit = Math.min(0.45, Math.max(0.18, s.neededSplit ?? 0.28));
+      previewWidth = Math.max(160, s.previewWidth ?? 280);
       openSubtaskIds = s.openSubtaskIds ?? [];
       hackProjectId = s.companion?.hackLive
         ? (s.companion?.hackProjectId ?? null)
@@ -1118,6 +1121,74 @@
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   }
+
+  // Left column min = selected planet tab width (the chip+name above
+  // the mail stack). Preview min = one title row like "LED watch dogfood".
+  function mailMinPx(): number {
+    const tab = document.querySelector(
+      ".kanban .planet-strip .planet-tab.sel",
+    ) as HTMLElement | null;
+    if (tab) return Math.max(96, Math.ceil(tab.getBoundingClientRect().width));
+    return 120;
+  }
+
+  function previewMinPx(): number {
+    const probe = document.createElement("span");
+    probe.style.cssText =
+      "position:absolute;left:-9999px;font:400 0.8rem 'SF Pro Text',system-ui,sans-serif;white-space:nowrap";
+    probe.textContent = "LED watch dogfood";
+    document.body.appendChild(probe);
+    const text = probe.getBoundingClientRect().width;
+    probe.remove();
+    return Math.max(160, Math.ceil(text + 11 + 7 + 16));
+  }
+
+  function clampPreview(px: number): number {
+    const body = bodyEl;
+    const prevMin = previewMinPx();
+    if (!body) return Math.max(prevMin, px);
+    const avail = Math.max(body.clientWidth - 22, 1);
+    const maxPreview = Math.max(prevMin, avail - mailMinPx());
+    return Math.min(maxPreview, Math.max(prevMin, px));
+  }
+
+  function onEastSplitDown(e: PointerEvent) {
+    if (!bodyEl) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const startX = e.clientX;
+    const start = previewWidth;
+    const move = (ev: PointerEvent) => {
+      previewWidth = clampPreview(start - (ev.clientX - startX));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const v = previewWidth;
+      mutate((s) => {
+        s.previewWidth = v;
+      });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  function resetPreviewWidth() {
+    previewWidth = clampPreview(280);
+    mutate((s) => {
+      s.previewWidth = previewWidth;
+    });
+  }
+
+  $effect(() => {
+    const el = bodyEl;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      previewWidth = clampPreview(previewWidth);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   // GRAB leftover (arrows in charge): the drawer's ring stops — every
   // selectable on that surface, in paint order. A field confirms by
@@ -2216,7 +2287,7 @@
     </div>
   {/if}
 
-  <div class="k-body">
+  <div class="k-body" bind:this={bodyEl}>
     <section class="k-main" aria-label={listTitle}>
 
       <div class="mail" bind:this={mailEl}>
@@ -2351,7 +2422,16 @@
       </div>
     </section>
 
-    <div class="k-east">
+    <div
+      class="mail-east-split"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize preview"
+      title="Drag to resize preview · double-click resets"
+      onpointerdown={onEastSplitDown}
+      ondblclick={resetPreviewWidth}
+    ></div>
+    <div class="k-east" style="width: {previewWidth}px">
     {#if showTrackers}
       <section
         class="k-trackpane"
@@ -3070,7 +3150,7 @@
 
   .k-main {
     flex: 1;
-    min-width: 0;
+    min-width: 96px;
     min-height: 0;
     display: flex;
     flex-direction: column;

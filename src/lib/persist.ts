@@ -337,6 +337,8 @@ export interface PersistedState {
   spendUsd?: number;
   // Launchpad mail: Needed fraction of column 1 (0.18–0.45). Default 0.28.
   neededSplit?: number;
+  // Launchpad preview column width in px. Default 280. Additive.
+  previewWidth?: number;
   // Parent todo ids whose nested subtasks are expanded.
   openSubtaskIds?: string[];
   // Unbound-todo trees on planets. Additive.

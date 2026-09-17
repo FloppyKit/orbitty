@@ -83,6 +83,9 @@ pub struct PersistedState {
     /// Default 0.28. Additive — old saves load the default.
     #[serde(default = "needed_split_default")]
     pub needed_split: f64,
+    /// Launchpad preview column width (px). Default 280. Additive.
+    #[serde(default = "preview_width_default")]
+    pub preview_width: f64,
     /// Parent todo ids with nested subtasks expanded on Launchpad.
     #[serde(default)]
     pub open_subtask_ids: Vec<String>,
@@ -108,6 +111,10 @@ pub struct PersistedState {
 
 fn needed_split_default() -> f64 {
     0.28
+}
+
+fn preview_width_default() -> f64 {
+    280.0
 }
 
 fn tree_grow_days_default() -> f64 {
@@ -238,6 +245,7 @@ impl Default for PersistedState {
             spend_day: String::new(),
             spend_usd: 0.0,
             needed_split: 0.28,
+            preview_width: 280.0,
             open_subtask_ids: Vec::new(),
             todo_trees: Vec::new(),
             tree_grow_days: 14.0,
