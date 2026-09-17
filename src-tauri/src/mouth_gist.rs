@@ -22,6 +22,18 @@ pub fn is_short_chat(line: &str, has_attach: bool) -> bool {
 
 /// Short is not enough. E4B has no kanban/ctl — a board/planet/todo
 /// ask must hop Grok (Spark tools). Code lane pick, not a 1B harness.
+/// Mint/move/delete — E4B must not write the board. Hop Grok.
+pub fn needs_write_lane(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("add a todo")
+        || l.starts_with("todo:")
+        || l.contains("kanban.add")
+        || l.contains("move to doing")
+        || l.contains("mark done")
+        || l.contains("delete the card")
+        || l.contains("mint a")
+}
+
 pub fn needs_tools_lane(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("todo")
@@ -220,6 +232,10 @@ mod tests {
         assert!(needs_tools_lane("add a todo on fkt: milk"));
         assert!(!needs_tools_lane("ok how about now?"));
         assert!(!needs_tools_lane("ping"));
+        assert!(needs_write_lane("add a todo on fkt: milk"));
+        assert!(!needs_write_lane(
+            "tell me about the todo list on planet orbitty"
+        ));
     }
 
     #[test]

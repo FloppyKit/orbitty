@@ -29,13 +29,22 @@ const OPENROUTER_FREE_MODEL: &str = "openrouter/free";
 /// you-row (== raw_line) is dropped from history so the line lands once
 /// — as the final user message. Compact: newest-first budget fill, same
 /// skip list as mouth_roll's handoff (ack noise never rides the packet).
-fn hop_messages(app: &tauri::AppHandle, soul: &str, raw_line: &str, prompt: &str) -> Vec<Value> {
+fn hop_messages(
+    app: &tauri::AppHandle,
+    soul: &str,
+    raw_line: &str,
+    prompt: &str,
+    with_tools: bool,
+) -> Vec<Value> {
     if crate::mouth_gist::is_gist(prompt) {
+        let mut sys = crate::mouth_gist::hop_system(soul);
+        if with_tools {
+            sys.push_str(
+                "\nIf you need the board, call kanban_list. Then answer in English.",
+            );
+        }
         return vec![
-            json!({
-                "role": "system",
-                "content": crate::mouth_gist::hop_system(soul),
-            }),
+            json!({ "role": "system", "content": sys }),
             json!({ "role": "user", "content": prompt }),
         ];
     }
@@ -256,17 +265,105 @@ fn openai_chat_content(text: &str) -> Result<String, String> {
         .to_string())
 }
 
-fn lmstudio_chat(chat_url: &str, model: &str, messages: &[Value]) -> Result<String, String> {
-    let body = json!({
-        "model": model,
-        "messages": messages,
-        "stream": false,
-    });
-    let (status, text) = curl_json("POST", chat_url, None, Some(&body), 120)?;
-    if !(200..=299).contains(&status) {
-        return Err(format!("http {status}: {}", json_error_note(&text)));
+fn openai_message(text: &str) -> Option<Value> {
+    let v: Value = serde_json::from_str(text).ok()?;
+    v.get("choices")
+        .and_then(Value::as_array)
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("message"))
+        .cloned()
+}
+
+fn lmstudio_chat(
+    app: &tauri::AppHandle,
+    chat_url: &str,
+    model: &str,
+    messages: &[Value],
+    with_tools: bool,
+) -> Result<String, String> {
+    let mut msgs = messages.to_vec();
+    let mut tools_on = with_tools;
+    for round in 0..3 {
+        let mut body = json!({
+            "model": model,
+            "messages": msgs,
+            "stream": false,
+        });
+        if tools_on {
+            body["tools"] = crate::mouth_tools::schemas();
+            body["tool_choice"] = json!("auto");
+        }
+        let (status, text) = curl_json("POST", chat_url, None, Some(&body), 120)?;
+        if tools_on && !(200..=299).contains(&status) {
+            tools_on = false;
+            continue;
+        }
+        if !(200..=299).contains(&status) {
+            return Err(format!("http {status}: {}", json_error_note(&text)));
+        }
+        let Some(msg) = openai_message(&text) else {
+            return openai_chat_content(&text);
+        };
+        let calls = msg
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if calls.is_empty() {
+            let content = msg
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if tools_on && round == 0 {
+                let list = crate::mouth_tools::run(
+                    app,
+                    "kanban_list",
+                    &json!({ "project": "orbitty", "status": "open" }),
+                );
+                if !content.is_empty() {
+                    msgs.push(msg);
+                }
+                msgs.push(json!({
+                    "role": "user",
+                    "content": format!("Board snapshot:\n{list}\nAnswer the ask in English. Do not echo JSON."),
+                }));
+                tools_on = false;
+                continue;
+            }
+            if !content.is_empty() {
+                return Ok(content);
+            }
+            return openai_chat_content(&text);
+        }
+        msgs.push(msg);
+        for call in calls {
+            let id = call
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("call")
+                .to_string();
+            let name = call
+                .get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let args_raw = call
+                .get("function")
+                .and_then(|f| f.get("arguments"))
+                .and_then(Value::as_str)
+                .unwrap_or("{}");
+            let args: Value = serde_json::from_str(args_raw).unwrap_or(json!({}));
+            let out = crate::mouth_tools::run(app, name, &args);
+            msgs.push(json!({
+                "role": "tool",
+                "tool_call_id": id,
+                "content": out,
+            }));
+        }
     }
-    openai_chat_content(&text)
+    Err("tool loop".into())
 }
 
 fn ollama_chat_named(model: &str, messages: &[Value]) -> Result<String, String> {
@@ -298,10 +395,15 @@ fn ollama_chat(messages: &[Value]) -> Result<String, String> {
 
 /// Local reply: chosen Reply id on LM Studio, else Ollama. `want` is
 /// `companion.reply_model` (empty = prefer E4B).
-fn local_chat(want: &str, messages: &[Value]) -> Result<(&'static str, String), String> {
+fn local_chat(
+    app: &tauri::AppHandle,
+    want: &str,
+    messages: &[Value],
+    with_tools: bool,
+) -> Result<(&'static str, String), String> {
     match crate::mouth_scan::pick_local(want) {
         Some(crate::mouth_scan::LocalTarget::LmStudio { chat_url, model }) => {
-            lmstudio_chat(&chat_url, &model, messages).map(|r| ("lmstudio", r))
+            lmstudio_chat(app, &chat_url, &model, messages, with_tools).map(|r| ("lmstudio", r))
         }
         Some(crate::mouth_scan::LocalTarget::Ollama { model }) => {
             ollama_chat_named(&model, messages).map(|r| ("ollama", r))
@@ -454,11 +556,14 @@ fn free_lanes_reply(
     try_or: bool,
 ) -> Option<(&'static str, String)> {
     let soul = crate::coordinator::companion_soul_text(app);
+    let with_tools = crate::mouth_gist::needs_tools_lane(raw_line)
+        && !crate::mouth_gist::needs_write_lane(raw_line);
     let mut messages: Option<Vec<Value>> = None;
     if try_local {
         let want = reply_model(app);
-        let msgs = messages.get_or_insert_with(|| hop_messages(app, &soul, raw_line, prompt));
-        match local_chat(&want, msgs) {
+        let msgs = messages
+            .get_or_insert_with(|| hop_messages(app, &soul, raw_line, prompt, with_tools));
+        match local_chat(app, &want, msgs, with_tools) {
             Ok((lane, r)) if !r.is_empty() => return Some((lane, r)),
             Ok(_) => notes.push("local: empty reply".into()),
             Err(e) => notes.push(format!("local: {e}")),
@@ -469,8 +574,9 @@ fn free_lanes_reply(
             Some(key) => match openrouter_quota_cooked(&key) {
                 Ok(true) => notes.push("openrouter: quota spent".into()),
                 Ok(false) => {
-                    let msgs =
-                        messages.get_or_insert_with(|| hop_messages(app, &soul, raw_line, prompt));
+                    let msgs = messages.get_or_insert_with(|| {
+                        hop_messages(app, &soul, raw_line, prompt, false)
+                    });
                     match openrouter_chat(&key, msgs) {
                         Ok(r) if !r.is_empty() => return Some(("openrouter", r)),
                         Ok(_) => notes.push("openrouter: empty reply".into()),
@@ -562,7 +668,8 @@ pub async fn send_with_hops(
                 "openrouter_free"
             }
         }
-        _ if short && local_up && !crate::mouth_gist::needs_tools_lane(raw_line) => "local",
+        _ if crate::mouth_gist::needs_write_lane(raw_line) => "grok",
+        _ if short && local_up => "local",
         _ => "grok",
     };
     let gist = crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane);
