@@ -1153,7 +1153,7 @@
     const cs = getComputedStyle(body);
     const pad =
       (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-    const avail = Math.max(body.clientWidth - pad - 12, 1);
+    const avail = Math.max(body.clientWidth - pad - 6, 1);
     const maxPreview = Math.max(prevMin, avail - mailMinPx());
     return Math.min(maxPreview, Math.max(prevMin, px));
   }
@@ -2476,8 +2476,11 @@
       <section
         class="k-trackpane"
         class:armed={trackerArmed}
+        class:empty={visibleTrackers.length === 0 && !addingTracker}
         bind:this={trackPaneEl}
-        style="flex: 0 0 {Math.round(trackerSplit * 100)}%"
+        style="flex-basis: {visibleTrackers.length === 0 && !addingTracker
+          ? 'auto'
+          : `${Math.round(trackerSplit * 100)}%`}"
         aria-label="Trackers"
       >
         <header class="k-trackpane-head">
@@ -2548,15 +2551,17 @@
           </svg>
         </button>
       </section>
-      <div
-        class="k-east-split"
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize trackers"
-        title="Drag to resize Trackers · double-click resets"
-        onpointerdown={onTrackSplitDown}
-        ondblclick={resetTrackerSplit}
-      ></div>
+      {#if visibleTrackers.length > 0 || addingTracker}
+        <div
+          class="k-east-split"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize trackers"
+          title="Drag to resize Trackers · double-click resets"
+          onpointerdown={onTrackSplitDown}
+          ondblclick={resetTrackerSplit}
+        ></div>
+      {/if}
     {/if}
     <aside class="k-detail" aria-label="Item details">
       <div class="k-preview-head">Preview:</div>
