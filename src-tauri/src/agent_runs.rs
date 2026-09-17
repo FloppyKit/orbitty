@@ -70,6 +70,13 @@ pub fn reconcile_incoming(incoming: &mut PersistedState) {
             }
         }
     }
+    incoming.agent_runs.retain(|r| {
+        incoming.kanban_cards.iter().any(|c| {
+            c.id == r.card_id
+                && c.kind.as_deref() == Some("todo")
+                && (c.status == "doing" || c.status == "done")
+        })
+    });
 }
 
 /// The strip-trap heal: rows the incoming save DROPPED without moving
@@ -183,6 +190,9 @@ pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &
     // The one save door — claims are untouched, so the diff is silent.
     if crate::board::save_with_events(app, &prev, &cur).is_err() {
         return;
+    }
+    if !drops.is_empty() {
+        crate::coordinator::heal_stuck_hack(app);
     }
     for card in attached {
         crate::event_log::append_best(
@@ -347,6 +357,15 @@ mod tests {
         reconcile_incoming(&mut st);
         assert_eq!(st.agent_runs[0].state, "done");
         st.agent_runs.clear();
+        reconcile_incoming(&mut st);
+        assert!(st.agent_runs.is_empty());
+    }
+
+    #[test]
+    fn reconcile_drops_working_row_on_todo() {
+        let mut st = PersistedState::default();
+        st.kanban_cards = vec![card("c-1", "todo", "todo", "GO-ORBITTY-X", Some("a"))];
+        st.agent_runs = vec![run("c-1", "working")];
         reconcile_incoming(&mut st);
         assert!(st.agent_runs.is_empty());
     }

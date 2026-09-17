@@ -236,6 +236,18 @@ fn skip_line(app: &tauri::AppHandle, shortcut: &AgentShortcut, reason: &str) {
 fn persist_run(app: &tauri::AppHandle, card: Option<&KanbanCard>, rec: AgentRunHerdr, state: &str) {
     let Some(card) = card else { return };
     let Ok(before) = crate::state::load_state(app) else { return };
+    // Launch is slow; doing→todo can land first. Never persist a live
+    // pane onto a card that is already reset — stop the harness instead.
+    let live = before
+        .kanban_cards
+        .iter()
+        .find(|c| c.id == card.id)
+        .map(|c| c.status.as_str() == "doing")
+        .unwrap_or(false);
+    if !live {
+        crate::agent_stop::herdr_stop(&rec);
+        return;
+    }
     let mut after = before.clone();
     if let Some(r) = after.agent_runs.iter_mut().find(|r| r.card_id == card.id) {
         r.herdr = Some(rec);

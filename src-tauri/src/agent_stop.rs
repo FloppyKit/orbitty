@@ -35,10 +35,10 @@ pub fn stop_resets(app: &tauri::AppHandle, before: &PersistedState, drops: &[Str
             terminal_stop(app, sid);
         }
     }
-    crate::coordinator::heal_stuck_hack(app);
+    // LED heal is after the run row is dropped (attach_on_moves save).
 }
 
-fn herdr_stop(h: &AgentRunHerdr) {
+pub(crate) fn herdr_stop(h: &AgentRunHerdr) {
     let Some(bin) = crate::coordinator::find_on_path("herdr") else {
         return;
     };
