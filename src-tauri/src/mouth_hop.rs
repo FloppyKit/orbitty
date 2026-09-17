@@ -562,7 +562,7 @@ pub async fn send_with_hops(
                 "openrouter_free"
             }
         }
-        _ if short && local_up => "local",
+        _ if short && local_up && !crate::mouth_gist::needs_tools_lane(raw_line) => "local",
         _ => "grok",
     };
     let gist = crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane);

@@ -20,6 +20,24 @@ pub fn is_short_chat(line: &str, has_attach: bool) -> bool {
     !has_attach && line.trim().chars().count() <= SHORT_CHAT_CHARS
 }
 
+/// Short is not enough. E4B has no kanban/ctl — a board/planet/todo
+/// ask must hop Grok (Spark tools). Code lane pick, not a 1B harness.
+pub fn needs_tools_lane(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("todo")
+        || l.contains("kanban")
+        || l.contains("board")
+        || l.contains("planet")
+        || l.contains("needed")
+        || l.contains("orbittyctl")
+        || l.contains("leftover")
+        || l.contains("tell me")
+        || l.contains("list the")
+        || l.contains("what's on")
+        || l.contains("whats on")
+        || crate::companion_desk::line_needs_desk(line)
+}
+
 pub fn is_gist(s: &str) -> bool {
     let t = s.trim();
     t.starts_with('{') && t.contains(SCHEMA)
@@ -192,6 +210,16 @@ mod tests {
         assert!(is_short_chat("ping", false));
         assert!(!is_short_chat("ping", true));
         assert!(!is_short_chat(&"x".repeat(161), false));
+    }
+
+    #[test]
+    fn board_ask_needs_tools() {
+        assert!(needs_tools_lane(
+            "ok how about now? tell me about the todo list on planet orbitty"
+        ));
+        assert!(needs_tools_lane("add a todo on fkt: milk"));
+        assert!(!needs_tools_lane("ok how about now?"));
+        assert!(!needs_tools_lane("ping"));
     }
 
     #[test]
