@@ -1750,6 +1750,7 @@ fn pane_drag_apply(app: &tauri::AppHandle, w: &tauri::WebviewWindow, label: &str
             if let Ok(mut g) = companion_drag_grab().lock() {
                 *g = None;
             }
+            let _ = w.emit("pane-drag-end", ());
             if state::DRAWER_LABELS.contains(&label) {
                 persist_shown_place(app, label);
             }
@@ -1815,6 +1816,7 @@ pub fn pane_drag_begin(app: tauri::AppHandle, label: String) {
                     });
                 }
             }
+            let _ = w.emit("pane-drag-begin", ());
         }
     });
     let app = app.clone();

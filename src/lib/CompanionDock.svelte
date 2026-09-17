@@ -11,6 +11,7 @@
   // pick (sending || hackLive); the pick hugs its labels (46% cap dead).
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
 
   // Chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
@@ -266,7 +267,9 @@
     growField();
   });
 
-  onMount(() => {
+  let dockDragging = $state(false);
+
+  onMount(async () => {
     const onDoc = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.closest(".volwrap")) return;
@@ -279,6 +282,21 @@
       agentOpen = false;
     };
     window.addEventListener("mousedown", onDocAgent);
+    const unBegin = await listen("pane-drag-begin", () => {
+      dockDragging = true;
+    });
+    const unEnd = await listen("pane-drag-end", () => {
+      dockDragging = false;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+      for (const el of document.querySelectorAll(".thinbtn, .fieldplus")) {
+        if (!(el instanceof HTMLElement)) continue;
+        el.style.pointerEvents = "none";
+        requestAnimationFrame(() => {
+          el.style.pointerEvents = "";
+        });
+      }
+    });
     measureField();
     // Tile open/close widens the window → rewrap → re-grow without
     // waiting for the next keystroke. RO fires only on real size
@@ -288,6 +306,8 @@
       window.removeEventListener("mousedown", onDoc);
       window.removeEventListener("mousedown", onDocAgent);
       window.removeEventListener("resize", growField);
+      unBegin();
+      unEnd();
     };
   });
 </script>
@@ -295,7 +315,7 @@
 <!-- Agentrow + composer ride in one wrap — the
      ghost's outlined bottom slab. × stays a floating corner; ⚙ is on
      the dock after Expand (GEAR-DOCK). -->
-<div class="ghostdock" onmousedown={onDockMouseDown}>
+<div class="ghostdock" class:dragging={dockDragging} onmousedown={onDockMouseDown}>
   {#if cheatSheetHint}
     <div class="actionrow">
       <button
@@ -1252,6 +1272,13 @@
     color: var(--accent);
     border-color: var(--accent);
   }
+  .ghostdock.dragging .thinbtn,
+  .ghostdock.dragging .thinbtn:hover,
+  .ghostdock.dragging .thinbtn:focus {
+    pointer-events: none;
+    color: var(--dim);
+    border-color: var(--edge, #444);
+  }
   .thinbtn:disabled {
     opacity: 0.45;
     cursor: default;
@@ -1384,6 +1411,12 @@
 
   .fieldplus:hover {
     color: var(--accent);
+  }
+  .ghostdock.dragging .fieldplus,
+  .ghostdock.dragging .fieldplus:hover,
+  .ghostdock.dragging .fieldplus:focus {
+    pointer-events: none;
+    color: var(--dim);
   }
 
   .fieldplus:disabled {
