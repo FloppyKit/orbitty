@@ -80,7 +80,7 @@ pub fn handoff_prompt(app: &tauri::AppHandle, wrapped_line: &str) -> String {
     let (mode, turns) = crate::state::load_state(app)
         .map(|s| (s.companion.mode.clone(), s.companion.turns.clone()))
         .unwrap_or_else(|_| ("spark".into(), Vec::new()));
-    if turns.is_empty() {
+    if turns.is_empty() || crate::mouth_gist::is_gist(wrapped_line) {
         return wrapped_line.to_string();
     }
     let start = turns.len().saturating_sub(HANDOFF_TURNS);

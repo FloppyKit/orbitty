@@ -30,6 +30,15 @@ const OPENROUTER_FREE_MODEL: &str = "openrouter/free";
 /// — as the final user message. Compact: newest-first budget fill, same
 /// skip list as mouth_roll's handoff (ack noise never rides the packet).
 fn hop_messages(app: &tauri::AppHandle, soul: &str, raw_line: &str, prompt: &str) -> Vec<Value> {
+    if crate::mouth_gist::is_gist(prompt) {
+        return vec![
+            json!({
+                "role": "system",
+                "content": crate::mouth_gist::hop_system(soul),
+            }),
+            json!({ "role": "user", "content": prompt }),
+        ];
+    }
     let mut messages = vec![json!({ "role": "system", "content": soul })];
     let turns = crate::state::load_state(app)
         .map(|s| s.companion.turns)
@@ -528,30 +537,80 @@ fn run_free_lanes(
 pub async fn send_with_hops(
     app: &tauri::AppHandle,
     raw_line: &str,
-    prompt: &str,
+    prose: &str,
+    hop_ack: &str,
     vision_path: Option<&str>,
 ) -> Result<String, String> {
-    let lane = effective_reply_lane(app);
-    let skip_grok = lane != "grok";
-    let (try_local, try_or) = match lane.as_str() {
+    let settings = effective_reply_lane(app);
+    let has_attach = vision_path.is_some();
+    let short = crate::mouth_gist::is_short_chat(raw_line, has_attach);
+    let local_up = crate::mouth_scan::pick_local(
+        &crate::state::load_state(app)
+            .map(|s| s.companion.reply_model)
+            .unwrap_or_default(),
+    )
+    .is_some();
+    // Code picks short chat → local when Settings is Grok (default).
+    // Explicit Local / Free / OpenRouter still win.
+    let hop_lane = match settings.as_str() {
+        "local" => "local",
+        "openrouter" => "openrouter_free",
+        "free" => {
+            if local_up {
+                "local"
+            } else {
+                "openrouter_free"
+            }
+        }
+        _ if short && local_up => "local",
+        _ => "grok",
+    };
+    let gist = crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane);
+    let packed = gist.clone().unwrap_or_else(|| prose.to_string());
+    let n = packed.chars().count();
+    crate::event_log::append_best(
+        app,
+        "companion-gist",
+        None,
+        None,
+        Some("agent"),
+        true,
+        &json!({
+            "lane": hop_lane,
+            "short": short,
+            "gist": gist.is_some(),
+            "n": n,
+        }),
+    );
+    let skip_grok = settings != "grok" || hop_lane == "local" || hop_lane == "openrouter_free";
+    let (try_local, try_or) = match settings.as_str() {
         "local" => (true, false),
         "openrouter" => (false, true),
-        _ => (true, true), // grok (on cooked) and free
+        "free" => (true, true),
+        _ if hop_lane == "local" => (true, false),
+        _ => (true, true),
     };
-    if skip_grok {
-        let (a, r, p) = (app.clone(), raw_line.to_string(), prompt.to_string());
+    if skip_grok && hop_lane != "grok" {
+        let (a, r, p) = (app.clone(), raw_line.to_string(), packed);
+        let tl = try_local;
+        let to = try_or;
         return tauri::async_runtime::spawn_blocking(move || {
-            run_free_lanes(a, r, p, true, try_local, try_or, Vec::new())
+            run_free_lanes(a, r, p, true, tl, to, Vec::new())
         })
         .await
         .map_err(|e| format!("hop task: {e}"))?;
     }
+    let grok_prompt = if crate::mouth_gist::is_gist(&packed) {
+        crate::mouth_gist::grok_user_prompt(&packed)
+    } else {
+        packed.clone()
+    };
     let vision = vision_path.map(str::to_string);
-    match crate::coordinator::companion_send_grok(app, prompt, vision).await {
+    match crate::coordinator::companion_send_grok(app, &grok_prompt, vision).await {
         Ok(r) => Ok(r),
         Err(e) if lane_cooked(&e) => {
             let note = format!("grok: {}", e.chars().take(80).collect::<String>());
-            let (a, r, p) = (app.clone(), raw_line.to_string(), prompt.to_string());
+            let (a, r, p) = (app.clone(), raw_line.to_string(), packed);
             tauri::async_runtime::spawn_blocking(move || {
                 run_free_lanes(a, r, p, false, true, true, vec![note])
             })

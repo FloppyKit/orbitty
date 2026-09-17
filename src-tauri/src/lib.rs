@@ -33,6 +33,7 @@ mod gate_caps;
 mod glass;
 mod mouth_ack;
 mod mouth_blip;
+mod mouth_gist;
 mod mouth_hop;
 mod mouth_scan;
 mod mouth_sidecar;

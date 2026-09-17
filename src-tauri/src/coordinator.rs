@@ -1482,7 +1482,7 @@ fn mode_job_line(mode: &str) -> &'static str {
     }
 }
 
-fn wrap_with_pocket(app: &tauri::AppHandle, line: &str) -> String {
+pub(crate) fn wrap_with_pocket(app: &tauri::AppHandle, line: &str) -> String {
     const PREPEND_CAP: usize = 900;
     const MAX_ITEMS: usize = 5;
     const ITEM_TEXT_CAP: usize = 120;
@@ -1703,6 +1703,7 @@ async fn companion_send_inner(
     // real reply in the same bubble; any other verb's ack IS the
     // them-row — no mouth spend. Propose-don't-save lives inside: only
     // Matt's yes reaches action add.
+    let mut hop_ack = "On it.".to_string();
     #[cfg(unix)]
     if attach.is_none() {
         match crate::mouth_ack::conduct(&app, &line).await {
@@ -1711,6 +1712,7 @@ async fn companion_send_inner(
                 return Ok(them);
             }
             Some(crate::mouth_ack::Step::Chat(ack)) => {
+                hop_ack = ack.clone();
                 let _ = app.emit(
                     "companion:ack",
                     serde_json::json!({ "line": ack, "verb": "chat" }),
@@ -1719,9 +1721,10 @@ async fn companion_send_inner(
             None => {}
         }
     }
-    // GO-MH-2-APP: pocket inject AFTER action-intercept (Actions above ran
-    // on the raw line). Every mouth gets the wrapped prompt; persist +
-    // event log below keep the raw `line`.
+    #[cfg(not(unix))]
+    let _ = &hop_ack;
+    // Grok hops get orbitty.hop.v0 (no pocket dump). Other backends
+    // still get the leftover wrap. Persist + event log keep the raw line.
     let prompt = wrap_with_pocket(&app, &line);
     // Chip: original path always. Office may add MarkItDown markdown
     // (sidecar, detect-only). Images may ride Grok --prompt-json.
@@ -1756,7 +1759,14 @@ async fn companion_send_inner(
         // Free Mode skips paid Grok; a cooked lane hops Ollama →
         // OpenRouter free with the hop packet. Same bubble either way.
         "grok" => {
-            crate::mouth_hop::send_with_hops(&app, &line, &prompt, vision_path.as_deref()).await?
+            crate::mouth_hop::send_with_hops(
+                &app,
+                &line,
+                &prompt,
+                &hop_ack,
+                vision_path.as_deref(),
+            )
+            .await?
         }
         "hermes" => companion_send_hermes(&app, &prompt).await?,
         "berd" => companion_send_berd(&prompt).await?,
