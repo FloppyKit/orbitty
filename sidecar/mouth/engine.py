@@ -84,10 +84,11 @@ def _prompt(line: str) -> str:
             "role": "system",
             "content": (
                 "You pick one Orbitty verb for the user line. "
-                "chat=talk, the mouth answers. none=noise/thanks. "
+                "chat=talk, the mouth answers — listing todos/the board is chat. "
+                "none=noise/thanks. "
                 "do-go=fire a GO or hand to Cursor. "
                 "run-action=run a saved Action by name. "
-                "ask-needed=Matt must decide. "
+                "ask-needed=Matt must decide (not a list question). "
                 "Also pick wrap: skip=user line only, job=now.json, "
                 "pocket=leftovers, tight=gist+history. No other words."
             ),

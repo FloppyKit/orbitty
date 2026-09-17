@@ -119,7 +119,7 @@ fn conduct_blocking(app: &tauri::AppHandle, line: &str, model: &str) -> Step {
     // 3. Classify — 1B sidecar if it beats 200ms + P, else keywords.
     //    Never Grok / OpenRouter / LM Studio chat as Quick ack.
     let _ = model;
-    let (verb, ack, via) = match crate::mouth_sidecar::classify(line) {
+    let (mut verb, ack, via) = match crate::mouth_sidecar::classify(line) {
         Some(c) => (c.verb, c.ack, "sidecar"),
         None => {
             crate::mouth_sidecar::clear_harness();
@@ -127,6 +127,13 @@ fn conduct_blocking(app: &tauri::AppHandle, line: &str, model: &str) -> Step {
             (v, a, "keywords")
         }
     };
+    // Listing the board is chat, not a Needed.
+    if verb != "chat"
+        && crate::mouth_gist::needs_tools_lane(line)
+        && !crate::mouth_gist::needs_write_lane(line)
+    {
+        verb = "chat";
+    }
     crate::event_log::append_best(
         app,
         "companion-ack",
