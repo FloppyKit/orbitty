@@ -22,6 +22,21 @@ pub fn schemas() -> Value {
     ])
 }
 
+pub fn project_from_line(line: &str) -> String {
+    let l = line.to_ascii_lowercase();
+    if let Some(i) = l.find("planet ") {
+        let rest = line[i + 7..].trim();
+        let word: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        if word.len() >= 2 {
+            return word;
+        }
+    }
+    "orbitty".into()
+}
+
 pub fn run(app: &tauri::AppHandle, name: &str, args: &Value) -> String {
     match name {
         "kanban_list" => kanban_list(app, args),
@@ -105,5 +120,14 @@ mod tests {
         let arr = s.as_array().expect("arr");
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["function"]["name"], "kanban_list");
+    }
+
+    #[test]
+    fn planet_from_line() {
+        assert_eq!(
+            project_from_line("tell me about the todo list on planet orbitty"),
+            "orbitty"
+        );
+        assert_eq!(project_from_line("ping"), "orbitty");
     }
 }

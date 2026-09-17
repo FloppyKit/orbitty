@@ -37,11 +37,16 @@ fn hop_messages(
     with_tools: bool,
 ) -> Vec<Value> {
     if crate::mouth_gist::is_gist(prompt) {
-        let mut sys = crate::mouth_gist::hop_system(soul);
-        if with_tools {
-            sys.push_str("\nIf you need the board, call kanban_list. Then ");
-            sys.push_str(crate::mouth_gist::BOARD_LIST);
-        }
+        let sys = if with_tools {
+            // Fat spark.md prefill is a big slice of the 25s list hop.
+            format!(
+                "{}\n{}",
+                crate::mouth_gist::CONSUME,
+                crate::mouth_gist::BOARD_LIST
+            )
+        } else {
+            crate::mouth_gist::hop_system(soul)
+        };
         return vec![
             json!({ "role": "system", "content": sys }),
             json!({ "role": "user", "content": prompt }),
@@ -279,15 +284,33 @@ fn lmstudio_chat(
     model: &str,
     messages: &[Value],
     with_tools: bool,
+    raw_line: &str,
 ) -> Result<String, String> {
     let mut msgs = messages.to_vec();
-    let mut tools_on = with_tools;
+    // Board reads: inject the snapshot first. A failed tool round was
+    // a second 10–20s E4B generate. Writes still hop Grok.
+    let mut tools_on = false;
+    if with_tools {
+        let project = crate::mouth_tools::project_from_line(raw_line);
+        let list = crate::mouth_tools::run(
+            app,
+            "kanban_list",
+            &json!({ "project": project, "status": "open" }),
+        );
+        msgs.push(json!({
+            "role": "user",
+            "content": format!("Board snapshot:\n{list}\n{}", crate::mouth_gist::BOARD_LIST),
+        }));
+    }
     for round in 0..3 {
         let mut body = json!({
             "model": model,
             "messages": msgs,
             "stream": false,
         });
+        if with_tools {
+            body["max_tokens"] = json!(400);
+        }
         if tools_on {
             body["tools"] = crate::mouth_tools::schemas();
             body["tool_choice"] = json!("auto");
@@ -402,10 +425,12 @@ fn local_chat(
     want: &str,
     messages: &[Value],
     with_tools: bool,
+    raw_line: &str,
 ) -> Result<(&'static str, String), String> {
     match crate::mouth_scan::pick_local(want) {
         Some(crate::mouth_scan::LocalTarget::LmStudio { chat_url, model }) => {
-            lmstudio_chat(app, &chat_url, &model, messages, with_tools).map(|r| ("lmstudio", r))
+            lmstudio_chat(app, &chat_url, &model, messages, with_tools, raw_line)
+                .map(|r| ("lmstudio", r))
         }
         Some(crate::mouth_scan::LocalTarget::Ollama { model }) => {
             ollama_chat_named(&model, messages).map(|r| ("ollama", r))
@@ -565,7 +590,7 @@ fn free_lanes_reply(
         let want = reply_model(app);
         let msgs = messages
             .get_or_insert_with(|| hop_messages(app, &soul, raw_line, prompt, with_tools));
-        match local_chat(app, &want, msgs, with_tools) {
+        match local_chat(app, &want, msgs, with_tools, raw_line) {
             Ok((lane, r)) if !r.is_empty() => return Some((lane, r)),
             Ok(_) => notes.push("local: empty reply".into()),
             Err(e) => notes.push(format!("local: {e}")),
