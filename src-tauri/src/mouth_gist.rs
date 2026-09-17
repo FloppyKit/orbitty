@@ -6,9 +6,9 @@ use serde_json::{json, Value};
 
 pub const SCHEMA: &str = "orbitty.hop.v0";
 pub const CONSUME: &str =
-    "Consume orbitty.hop.v0. Answer the ask. Do not echo the JSON. If a Board snapshot is present: list every title with its status, count those lines, do not invent what a GO means.";
+    "Consume orbitty.hop.v0. Answer the ask. Do not echo the JSON. If a Board snapshot is present: one kind lead sentence with the counts, then copy TODO / DOING / NEEDED titles. Do not invent status, Open tab, or what a GO means.";
 pub const BOARD_LIST: &str =
-    "Board snapshot is the truth. List each title and status. Count the lines. No extra story.";
+    "Board snapshot is the truth. Open with one kind sentence that names the counts (Okay, Orbitty has N todos right now:). Then copy the titles under TODO, DOING, and NEEDED as given. Skip empty buckets. Do not invent status, Open tab, or extra numbered lines.";
 const GIST_CAP: usize = 800;
 const ASK_CAP: usize = 200;
 const GOAL_CAP: usize = 80;
@@ -428,5 +428,14 @@ mod tests {
         let p = grok_user_prompt(r#"{"schema":"orbitty.hop.v0"}"#);
         assert!(p.starts_with(CONSUME));
         assert!(!p.contains("[pocket]"));
+    }
+
+    #[test]
+    fn board_list_asks_kind_lead() {
+        assert!(BOARD_LIST.contains("kind sentence"));
+        assert!(BOARD_LIST.contains("TODO"));
+        assert!(!BOARD_LIST.contains("No extra story"));
+        assert!(CONSUME.contains("kind lead"));
+        assert!(CONSUME.contains("TODO"));
     }
 }

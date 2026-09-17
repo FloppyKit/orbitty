@@ -48,6 +48,13 @@ fn is_needed(id: &str, kind: Option<&str>) -> bool {
     kind.is_some_and(|k| k.eq_ignore_ascii_case("needed")) || id.starts_with("n-")
 }
 
+fn needed_still_open(needed_state: Option<&str>) -> bool {
+    match needed_state.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+        Some("answered") | Some("skipped") => false,
+        _ => true,
+    }
+}
+
 fn status_ok(filter: &str, stt: &str) -> bool {
     match filter {
         "open" => stt == "todo" || stt == "doing",
@@ -153,6 +160,9 @@ fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
             continue;
         };
         if is_needed(&c.id, c.kind.as_deref()) {
+            if !needed_still_open(c.needed_state.as_deref()) {
+                continue;
+            }
             needed_n += 1;
             push_cap(&mut needed, title);
         } else if stt.eq_ignore_ascii_case("doing") {
@@ -215,5 +225,14 @@ mod tests {
         assert!(out.contains("DOING (1):\nLater: harness pick"));
         assert!(out.contains("NEEDED (1):\nWho runs this doing GO?"));
         assert!(!out.contains("todo\t"));
+    }
+
+    #[test]
+    fn answered_needed_is_not_open() {
+        assert!(!needed_still_open(Some("answered")));
+        assert!(!needed_still_open(Some("skipped")));
+        assert!(needed_still_open(Some("open")));
+        assert!(needed_still_open(Some("later")));
+        assert!(needed_still_open(None));
     }
 }
