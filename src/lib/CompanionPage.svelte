@@ -1270,7 +1270,7 @@
     const t = eventElement(e);
     if (
       t?.closest(
-        "button, input, a, select, textarea, option, .field, .volpop, .agentbubble, .agentopt",
+        "button, input, a, select, textarea, option, .field, .fieldwrap, .volpop, .agentbubble, .agentopt",
       )
     )
       return;

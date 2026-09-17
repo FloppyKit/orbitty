@@ -275,14 +275,19 @@
     dockDragging = true;
     hoverArmed = false;
     const active = document.activeElement;
-    if (active instanceof HTMLElement) active.blur();
+    // Chrome grab only — never the composer. pointerup always unfreezes,
+    // and blurring there killed the caret on a normal field click.
+    if (
+      active instanceof HTMLElement &&
+      !active.closest("textarea, input, .field")
+    ) {
+      active.blur();
+    }
   }
 
   function unfreezeDragHover() {
     dockDragging = false;
     hoverArmed = false;
-    const active = document.activeElement;
-    if (active instanceof HTMLElement) active.blur();
   }
 
   // Window-drag: no control hover. Freeze on chrome grab, not after slop —
@@ -294,7 +299,7 @@
     }
     const t = eventElement(e);
     const onControl = t?.closest(
-      "button, input, a, select, textarea, option, .field, .volpop, .agentbubble, .agentopt",
+      "button, input, a, select, textarea, option, .field, .fieldwrap, .volpop, .agentbubble, .agentopt",
     );
     if (!onControl) freezeDragHover();
     onDockMouseDown(e);
@@ -707,7 +712,12 @@
       aria-label="Thin — label this chat"
       title="Label this chat thin (⌘⌥T). Mouth keeps going."
     >thin</button>
-    <div class="fieldwrap" class:talking>
+    <div
+      class="fieldwrap"
+      class:talking
+      onmousedown={(e) => e.stopPropagation()}
+      onpointerdown={(e) => e.stopPropagation()}
+    >
       <button
         type="button"
         class="fieldplus"
@@ -723,6 +733,8 @@
         rows="1"
         bind:this={fieldEl}
         bind:value={draft}
+        onmousedown={(e) => e.stopPropagation()}
+        onpointerdown={(e) => e.stopPropagation()}
         onkeydown={onFieldKeydown}
         placeholder={neededHint
           ? `answer: ${neededHint}  ·  Rule: … to remember`
