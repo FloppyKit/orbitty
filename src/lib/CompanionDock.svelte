@@ -24,9 +24,8 @@
   const agentLabel = (id: string) => AGENT_LABELS[id] ?? id;
 
   // One 7px LED immediately left of the agent pick
-  // — lit while ANY agent is working: the Spark mouth (sending) or the
-  // ctl hack flag (companion.hackLive; a harness opts in). Off = not in
-  // the DOM, never a dim grey. Not a button, not a count.
+  // — well always there (idle dim); glow/pulse while ANY agent is
+  // working: Spark mouth (sending) or ctl hackLive. Not a button.
   const HACK_WHO_TITLES: Record<string, string> = {
     cursor: "Cursor leftover",
     goose: "Goose",
@@ -902,15 +901,15 @@
   }
 
   /* Always-on 7px well, dock focus
-     purple (#6e4db0) not theme teal. Dim when idle; glow+pulse when
-     sending or companion.hackLive. */
+     purple (#6e4db0) not theme teal. Idle well 0.5 so the on-pulse
+     (floor 0.7) reads brighter than idle. */
   .hackled {
     flex: none;
     width: 10px;
     height: 10px;
     border-radius: 50%;
     background: #6e4db0;
-    opacity: 0.85;
+    opacity: 0.5;
     box-shadow: 0 0 5px 0 #6e4db0;
   }
 
@@ -926,7 +925,7 @@
       opacity: 1;
     }
     50% {
-      opacity: 0.45;
+      opacity: 0.7;
     }
   }
 

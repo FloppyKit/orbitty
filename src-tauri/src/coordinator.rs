@@ -984,24 +984,59 @@ fn run_is_seated(r: &crate::state::AgentRun) -> bool {
             .is_some_and(|h| !h.agent_name.trim().is_empty())
 }
 
+fn seated_live<'a>(st: &'a crate::state::PersistedState) -> Option<&'a crate::state::AgentRun> {
+    st.agent_runs.iter().find(|r| {
+        run_is_seated(r) && matches!(r.state.as_str(), "working" | "starting" | "blocked")
+    })
+}
+
+/// Who lights the dock: the shortcut's harness, else the herdr kind.
+fn who_from_run(st: &crate::state::PersistedState, r: &crate::state::AgentRun) -> Option<String> {
+    if !r.agent_shortcut_id.trim().is_empty() {
+        if let Some(s) = st
+            .agent_shortcuts
+            .iter()
+            .find(|s| s.id == r.agent_shortcut_id)
+        {
+            let h = s.harness.trim();
+            if !h.is_empty() {
+                return Some(h.to_string());
+            }
+        }
+    }
+    r.herdr.as_ref().and_then(|h| {
+        let k = h.kind.trim();
+        if k.is_empty() {
+            None
+        } else {
+            Some(k.to_string())
+        }
+    })
+}
+
 /// Pickup lights the dock before the harness is up; a dead process
-/// that never ran its off-hook leaves hackLive stuck. If the flag is
-/// on and no seated run is live, turn it off.
+/// that never ran its off-hook leaves hackLive stuck. Both ways: seated
+/// working|starting|blocked and dark LED → on (who from shortcut
+/// harness or herdr kind); no seated run and lit LED → off.
 pub fn heal_stuck_hack(app: &tauri::AppHandle) {
     let Ok(st) = crate::state::load_state(app) else {
         return;
     };
-    if !st.companion.hack_live {
-        return;
+    match (seated_live(&st), st.companion.hack_live) {
+        (Some(r), false) => {
+            let who = who_from_run(&st, r);
+            let project_id = if r.planet_id.trim().is_empty() {
+                None
+            } else {
+                Some(r.planet_id.clone())
+            };
+            let _ = set_companion_hack(app.clone(), true, who, project_id);
+        }
+        (None, true) => {
+            let _ = set_companion_hack(app.clone(), false, None, None);
+        }
+        _ => {}
     }
-    let live = st.agent_runs.iter().any(|r| {
-        run_is_seated(r)
-            && matches!(r.state.as_str(), "working" | "starting" | "blocked")
-    });
-    if live {
-        return;
-    }
-    let _ = set_companion_hack(app.clone(), false, None, None);
 }
 
 /// Persist Talk source (`system` | `hotkey`).

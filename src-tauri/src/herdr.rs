@@ -296,12 +296,36 @@ fn paint(app: &tauri::AppHandle, card_id: Option<&str>, state: &str) {
     }
 }
 
+/// `herdr agent wait` flags. If the pane is already idle (prompt
+/// between turns), omit `--until idle` so wait does not return
+/// immediately and burn the 120-slice cap while the run is still live.
+fn wait_args<'a>(agent_name: &'a str, status: Option<&str>) -> Vec<&'a str> {
+    let mut args = vec![
+        "agent",
+        "wait",
+        agent_name,
+        "--until",
+        "working",
+        "--until",
+        "blocked",
+        "--until",
+        "done",
+        "--timeout",
+        "60000",
+    ];
+    if status != Some("idle") {
+        args.extend(["--until", "idle"]);
+    }
+    args
+}
+
 /// The watch: block in `agent wait` (60s slices, ~2h cap), then mirror
 /// the pane state onto the run row — blocked ↔ working only. The
 /// agent's own `done` ends the watch (the card's drag owns the done
-/// paint + the far-rim walk-off); a vanished row/card ends it too. The
-/// watch owns the dock-LED off for the run it launched. Never a retry
-/// loop: one wait at a time, no writes without a transition.
+/// paint + the far-rim walk-off); a vanished row/card ends it too.
+/// Watch exit heals the dock LED from seated runs (never a blind off —
+/// prompt-idle is still live). Never a retry loop: one wait at a time,
+/// no writes without a transition.
 fn spawn_watch(app: &tauri::AppHandle, bin: &Path, card: Option<&KanbanCard>, agent_name: &str) {
     let app = app.clone();
     let bin: PathBuf = bin.to_path_buf();
@@ -325,16 +349,9 @@ fn spawn_watch(app: &tauri::AppHandle, bin: &Path, card: Option<&KanbanCard>, ag
                     break;
                 }
             }
-            let waited = run_json(
-                &bin,
-                &[
-                    "agent", "wait", &agent_name,
-                    "--until", "working", "--until", "idle",
-                    "--until", "blocked", "--until", "done",
-                    "--timeout", "60000",
-                ],
-                65_000,
-            );
+            let status = agent_status(&bin, &agent_name);
+            let args = wait_args(&agent_name, status.as_deref());
+            let waited = run_json(&bin, &args, 65_000);
             match waited {
                 Ok(_) => match agent_status(&bin, &agent_name).as_deref() {
                     Some("blocked") => paint(&app, card_id.as_deref(), "blocked"),
@@ -353,7 +370,7 @@ fn spawn_watch(app: &tauri::AppHandle, bin: &Path, card: Option<&KanbanCard>, ag
                 }
             }
         }
-        let _ = crate::coordinator::set_companion_hack(app, false, None, None);
+        crate::coordinator::heal_stuck_hack(&app);
     });
 }
 
@@ -519,6 +536,7 @@ pub fn branch(
     {
         Ok(_) => {
             persist_run(app, card.as_ref(), rec, "working");
+            crate::coordinator::heal_stuck_hack(app);
             spawn_watch(app, &bin, card.as_ref(), &agent_name);
             submit_query(app, &bin, &planet_id, &agent_name, query);
             crate::event_log::append_best(
@@ -544,6 +562,7 @@ pub fn branch(
             // dual-fire. The watch still rides: a human clearing the
             // wall flips the walker back to working.
             persist_run(app, card.as_ref(), rec, "blocked");
+            crate::coordinator::heal_stuck_hack(app);
             spawn_watch(app, &bin, card.as_ref(), &agent_name);
             crate::event_log::append_best(
                 app,
@@ -709,6 +728,28 @@ mod tests {
         assert_eq!(planet_cwd(Some(&st), "p-9", Some("mars")), home);
         // No state at all → HOME.
         assert_eq!(planet_cwd(None, "p-1", Some("mars")), home);
+    }
+
+    #[test]
+    fn wait_args_skip_until_idle_when_already_idle() {
+        let idle = wait_args("c-1", Some("idle"));
+        assert!(
+            !idle.windows(2).any(|w| w == ["--until", "idle"]),
+            "already-idle wait must not --until idle: {idle:?}"
+        );
+        for until in ["working", "blocked", "done"] {
+            assert!(
+                idle.windows(2).any(|w| w == ["--until", until]),
+                "idle wait still waits for {until}: {idle:?}"
+            );
+        }
+        for status in [None, Some("working"), Some("blocked"), Some("done")] {
+            let args = wait_args("c-1", status);
+            assert!(
+                args.windows(2).any(|w| w == ["--until", "idle"]),
+                "non-idle {status:?} still waits for idle: {args:?}"
+            );
+        }
     }
 
     #[test]
