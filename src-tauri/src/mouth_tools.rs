@@ -85,9 +85,13 @@ fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
         }
     }
     if lines.is_empty() {
-        format!("orbitty planet {pid}: no {status} cards")
+        format!("count=0\norbitty planet {pid}: no {status} cards")
     } else {
-        format!("orbitty planet {pid} ({status}):\n{}", lines.join("\n"))
+        format!(
+            "count={}\norbitty planet {pid} ({status}):\n{}",
+            lines.len(),
+            lines.join("\n")
+        )
     }
 }
 

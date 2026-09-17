@@ -12,6 +12,7 @@ import time
 from typing import Any
 
 VERBS = ["chat", "do-go", "run-action", "ask-needed", "none"]
+HARNESSES = ["skip", "job", "pocket", "tight"]
 ACKS = ["on_it", "heard", "one_sec", "hand_off", "your_call", "got_file", "nope"]
 ACK_BY_VERB = {
     "chat": "on_it",
@@ -87,7 +88,8 @@ def _prompt(line: str) -> str:
                 "do-go=fire a GO or hand to Cursor. "
                 "run-action=run a saved Action by name. "
                 "ask-needed=Matt must decide. "
-                "Then pick one ack id. No other words."
+                "Also pick wrap: skip=user line only, job=now.json, "
+                "pocket=leftovers, tight=gist+history. No other words."
             ),
         },
         {"role": "user", "content": user or "(empty)"},
@@ -142,16 +144,24 @@ def classify(line: str) -> dict[str, Any]:
             "elapsed_ms": (time.perf_counter() - t0) * 1000.0,
         }
     base = _prompt(line)
-    # One forward after prefill — a second ack pass blew the 200ms gate
-    # and picked junk. Ack splash is a table from the verb this GO.
     verbs = _score_choices(base + '{"verb":"', VERBS)
     verb, vprob = verbs[0]
+    verb_ms = (time.perf_counter() - t0) * 1000.0
+    harness, hprob = "job", 0.0
+    try:
+        hs = _score_choices(base + '{"harness":"', HARNESSES)
+        harness, hprob = hs[0]
+    except Exception:
+        pass
     elapsed = (time.perf_counter() - t0) * 1000.0
     return {
         "ok": True,
         "verb": verb,
         "prob": vprob,
         "ack": ACK_BY_VERB.get(verb, "on_it"),
+        "harness": harness,
+        "harness_prob": hprob,
+        "verb_ms": verb_ms,
         "elapsed_ms": elapsed,
         "top": [{"choice": c, "prob": p} for c, p in verbs[:3]],
     }

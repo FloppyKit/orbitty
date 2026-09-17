@@ -39,9 +39,8 @@ fn hop_messages(
     if crate::mouth_gist::is_gist(prompt) {
         let mut sys = crate::mouth_gist::hop_system(soul);
         if with_tools {
-            sys.push_str(
-                "\nIf you need the board, call kanban_list. Then answer in English.",
-            );
+            sys.push_str("\nIf you need the board, call kanban_list. Then ");
+            sys.push_str(crate::mouth_gist::BOARD_LIST);
         }
         return vec![
             json!({ "role": "system", "content": sys }),
@@ -327,7 +326,10 @@ fn lmstudio_chat(
                 }
                 msgs.push(json!({
                     "role": "user",
-                    "content": format!("Board snapshot:\n{list}\nAnswer the ask in English. Do not echo JSON."),
+                    "content": format!(
+                        "Board snapshot:\n{list}\n{}",
+                        crate::mouth_gist::BOARD_LIST
+                    ),
                 }));
                 tools_on = false;
                 continue;
@@ -672,8 +674,34 @@ pub async fn send_with_hops(
         _ if short && local_up => "local",
         _ => "grok",
     };
-    let gist = crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane);
-    let packed = gist.clone().unwrap_or_else(|| prose.to_string());
+    let (oneb, hp) = crate::mouth_sidecar::last_harness()
+        .map(|(h, p)| (Some(h), p))
+        .unwrap_or((None, 0.0));
+    let harness =
+        crate::mouth_gist::pick_harness(app, raw_line, "chat", oneb, hp, short);
+    let gist = match harness {
+        crate::mouth_gist::Harness::Skip => None,
+        crate::mouth_gist::Harness::Job => {
+            crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane, false)
+        }
+        crate::mouth_gist::Harness::Tight => {
+            crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane, true)
+        }
+        crate::mouth_gist::Harness::Pocket => None,
+    };
+    let packed = match harness {
+        crate::mouth_gist::Harness::Skip => {
+            let mode = crate::state::load_state(app)
+                .ok()
+                .map(|s| s.companion.mode)
+                .unwrap_or_else(|| "spark".into());
+            format!("[orbitty-mode: {mode}]\n{raw_line}")
+        }
+        crate::mouth_gist::Harness::Pocket => prose.to_string(),
+        crate::mouth_gist::Harness::Job | crate::mouth_gist::Harness::Tight => gist
+            .clone()
+            .unwrap_or_else(|| prose.to_string()),
+    };
     let n = packed.chars().count();
     crate::event_log::append_best(
         app,
@@ -685,7 +713,8 @@ pub async fn send_with_hops(
         &json!({
             "lane": hop_lane,
             "short": short,
-            "gist": gist.is_some(),
+            "gist": crate::mouth_gist::is_gist(&packed),
+            "harness": harness.as_str(),
             "n": n,
         }),
     );

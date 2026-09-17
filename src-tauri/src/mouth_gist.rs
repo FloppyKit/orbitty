@@ -6,7 +6,9 @@ use serde_json::{json, Value};
 
 pub const SCHEMA: &str = "orbitty.hop.v0";
 pub const CONSUME: &str =
-    "Consume orbitty.hop.v0. Answer the ask. Do not echo the JSON.";
+    "Consume orbitty.hop.v0. Answer the ask. Do not echo the JSON. If a Board snapshot is present: list every title with its status, count those lines, do not invent what a GO means.";
+pub const BOARD_LIST: &str =
+    "Board snapshot is the truth. List each title and status. Count the lines. No extra story.";
 const GIST_CAP: usize = 800;
 const ASK_CAP: usize = 200;
 const GOAL_CAP: usize = 80;
@@ -48,6 +50,122 @@ pub fn needs_tools_lane(line: &str) -> bool {
         || l.contains("what's on")
         || l.contains("whats on")
         || crate::companion_desk::line_needs_desk(line)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Harness {
+    Skip,
+    Job,
+    Pocket,
+    Tight,
+}
+
+impl Harness {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Harness::Skip => "skip",
+            Harness::Job => "job",
+            Harness::Pocket => "pocket",
+            Harness::Tight => "tight",
+        }
+    }
+}
+
+pub fn parse_harness(s: &str) -> Option<Harness> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "skip" => Some(Harness::Skip),
+        "job" => Some(Harness::Job),
+        "pocket" => Some(Harness::Pocket),
+        "tight" => Some(Harness::Tight),
+        _ => None,
+    }
+}
+
+fn leftover_open() -> bool {
+    #[derive(serde::Deserialize, Default)]
+    struct Map {
+        #[serde(default)]
+        items: Vec<Item>,
+    }
+    #[derive(serde::Deserialize, Default)]
+    struct Item {
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        tag: String,
+    }
+    let p = crate::coordinator::companions_root().join("leftovers.json");
+    let map: Map = std::fs::read_to_string(p)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    map.items.iter().any(|it| {
+        let t = it.tag.trim().to_ascii_lowercase();
+        (t == "open" || t == "keep") && !it.text.trim().is_empty()
+    })
+}
+
+fn now_job_set() -> bool {
+    !now_bits().0.is_empty()
+}
+
+/// Code gates. 1B may only break Job/Pocket/Tight ties on spark/work chat.
+pub fn code_harness(
+    mode: &str,
+    verb: &str,
+    line: &str,
+    now_job: bool,
+    pocket: bool,
+    short: bool,
+) -> Harness {
+    if matches!(mode, "chat" | "hold") && !needs_tools_lane(line) {
+        return Harness::Skip;
+    }
+    if verb != "chat" {
+        return Harness::Skip;
+    }
+    if needs_write_lane(line) || needs_tools_lane(line) {
+        return Harness::Tight;
+    }
+    if !now_job && !pocket {
+        return Harness::Skip;
+    }
+    if !short {
+        return Harness::Tight;
+    }
+    if now_job {
+        return Harness::Job;
+    }
+    if pocket {
+        return Harness::Pocket;
+    }
+    Harness::Skip
+}
+
+pub fn merge_harness(code: Harness, oneb: Option<Harness>, p: f64) -> Harness {
+    if matches!(code, Harness::Skip | Harness::Tight) {
+        return code;
+    }
+    match oneb {
+        Some(h) if p >= 0.40 && matches!(h, Harness::Job | Harness::Pocket | Harness::Tight) => h,
+        _ => code,
+    }
+}
+
+pub fn pick_harness(
+    app: &tauri::AppHandle,
+    line: &str,
+    verb: &str,
+    oneb: Option<Harness>,
+    p: f64,
+    short: bool,
+) -> Harness {
+    let mode = crate::state::load_state(app)
+        .ok()
+        .map(|s| s.companion.mode)
+        .unwrap_or_else(|| "spark".into());
+    let code = code_harness(&mode, verb, line, now_job_set(), leftover_open(), short);
+    merge_harness(code, oneb, p)
 }
 
 pub fn is_gist(s: &str) -> bool {
@@ -184,6 +302,7 @@ pub fn build(
     verb: &str,
     ack: &str,
     lane: &str,
+    history_on: bool,
 ) -> Option<String> {
     let mode = crate::state::load_state(app)
         .ok()
@@ -197,6 +316,11 @@ pub fn build(
     } else {
         job
     };
+    let hist = if history_on {
+        history(app, line)
+    } else {
+        Vec::new()
+    };
     let v = json!({
         "schema": SCHEMA,
         "verb": verb,
@@ -207,7 +331,7 @@ pub fn build(
             "paths": paths,
             "ask": clip(line, ASK_CAP),
         },
-        "history": history(app, line),
+        "history": hist,
         "lane": lane,
     });
     encode_capped(v)
@@ -236,6 +360,37 @@ mod tests {
         assert!(!needs_write_lane(
             "tell me about the todo list on planet orbitty"
         ));
+    }
+
+    #[test]
+    fn harness_code_gates() {
+        assert_eq!(
+            code_harness("hold", "chat", "hi", false, false, true),
+            Harness::Skip
+        );
+        assert_eq!(
+            code_harness(
+                "spark",
+                "chat",
+                "tell me about the todo list on planet orbitty",
+                true,
+                false,
+                true
+            ),
+            Harness::Tight
+        );
+        assert_eq!(
+            code_harness("spark", "chat", "ping", true, false, true),
+            Harness::Job
+        );
+        assert_eq!(
+            merge_harness(Harness::Job, Some(Harness::Pocket), 0.7),
+            Harness::Pocket
+        );
+        assert_eq!(
+            merge_harness(Harness::Tight, Some(Harness::Skip), 0.9),
+            Harness::Tight
+        );
     }
 
     #[test]

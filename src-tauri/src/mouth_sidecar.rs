@@ -1,6 +1,8 @@
 //! Loopback 1B mouth sidecar (Harsha constrained decode).
 //! Not LM Studio, not Grok, not in the .app. Fail open → keywords.
 
+use std::sync::Mutex;
+
 use serde::Deserialize;
 use serde_json::json;
 
@@ -16,6 +18,18 @@ pub struct Classify {
     pub ack: String,
     pub prob: f64,
     pub elapsed_ms: f64,
+    pub harness: Option<crate::mouth_gist::Harness>,
+    pub harness_prob: f64,
+}
+
+static LAST_HARNESS: Mutex<Option<(crate::mouth_gist::Harness, f64)>> = Mutex::new(None);
+
+pub fn last_harness() -> Option<(crate::mouth_gist::Harness, f64)> {
+    *LAST_HARNESS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+pub fn clear_harness() {
+    *LAST_HARNESS.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 #[derive(Deserialize)]
@@ -30,6 +44,12 @@ struct SidecarOut {
     prob: f64,
     #[serde(default)]
     elapsed_ms: f64,
+    #[serde(default)]
+    verb_ms: f64,
+    #[serde(default)]
+    harness: String,
+    #[serde(default)]
+    harness_prob: f64,
 }
 
 pub fn splash_for(ack: &str, verb: &str) -> String {
@@ -76,18 +96,34 @@ pub fn classify(line: &str) -> Option<Classify> {
     if !out.ok {
         return None;
     }
-    if out.elapsed_ms > SWAP_IN_MS {
+    let verb_ms = if out.verb_ms > 0.0 {
+        out.verb_ms
+    } else {
+        out.elapsed_ms
+    };
+    if verb_ms > SWAP_IN_MS {
         return None;
     }
     if out.prob < MIN_P {
         return None;
     }
     let verb = normalize_verb(&out.verb)?;
+    let harness = if out.elapsed_ms <= SWAP_IN_MS {
+        crate::mouth_gist::parse_harness(&out.harness)
+    } else {
+        None
+    };
+    let harness_prob = out.harness_prob;
+    if let Some(h) = harness {
+        *LAST_HARNESS.lock().unwrap_or_else(|e| e.into_inner()) = Some((h, harness_prob));
+    }
     Some(Classify {
         verb,
         ack: splash_for(&out.ack, verb),
         prob: out.prob,
         elapsed_ms: out.elapsed_ms,
+        harness,
+        harness_prob,
     })
 }
 

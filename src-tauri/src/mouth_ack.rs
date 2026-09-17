@@ -122,6 +122,7 @@ fn conduct_blocking(app: &tauri::AppHandle, line: &str, model: &str) -> Step {
     let (verb, ack, via) = match crate::mouth_sidecar::classify(line) {
         Some(c) => (c.verb, c.ack, "sidecar"),
         None => {
+            crate::mouth_sidecar::clear_harness();
             let (v, a) = fallback_classify(line);
             (v, a, "keywords")
         }
