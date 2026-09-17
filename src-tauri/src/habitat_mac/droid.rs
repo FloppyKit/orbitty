@@ -2,8 +2,8 @@
 //! android baked ONCE per run (the seed hashes `planetId:cardId`) into
 //! three retained NSImages (walk A / walk B / sit), then blitted like a
 //! pack PNG. Per-frame procgen is cope; the bitty-crew sheets stay for
-//! claimed-WINDOW walkers — this 4-rect-class dummy is the legal agent
-//! art until a real droid pack lands.
+//! claimed-WINDOW walkers. Painted 4-dir kits live in droid_pack.rs;
+//! this dummy is the fallback when those PNGs are missing.
 //!
 //! All AppKit objects are created on the main thread inside drawRect
 //! (ensure_baked runs from draw_rect_guarded's pre-pass) and cached in

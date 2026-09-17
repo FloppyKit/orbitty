@@ -45,6 +45,7 @@
     "resources": {
       "../brand/imagine-walkers/packs": "imagine-walkers/packs",
       "../brand/bitty-crew/packs": "bitty-crew/packs",
+      "../brand/droid-crew/packs": "droid-crew/packs",
       "../brand/yard": "yard",
       "../brand/town/igloo.png": "town/igloo.png",
       "../brand/town/sign.png": "town/sign.png",

@@ -21,6 +21,7 @@ use super::{
     app_handle, app_handle_cell, ball_arc_heads, ball_hop_secs, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings, walkoff_target,
     layout_decor, lock, now_epoch, pack_still_aspect, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
     set_caption, station_target, view_to_disc, visible_frames, walker_head_view, yard_clamp, yard_contains,
+    droid_pack,
     yard_dwell_ms, yard_pick, yard_pick_sailing, yard_seed, BallState, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
     BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, CAPTION_TTL, DRIFT_JOIN_DIST, HOME_HIDE_X,
@@ -816,6 +817,7 @@ fn anim_tick() {
                         ty,
                         pause_end: None,
                         facing_left: false,
+                        facing_dir: 0,
                         off_emitted: false,
                         via_board: false,
                         via_home: false,
@@ -833,6 +835,7 @@ fn anim_tick() {
                         ty,
                         pause_end: None,
                         facing_left: false,
+                        facing_dir: 0,
                         off_emitted: false,
                         via_board: false,
                         via_home: false,
@@ -848,6 +851,7 @@ fn anim_tick() {
                     ty: lip.1,
                     pause_end: None,
                     facing_left: false,
+                        facing_dir: 0,
                     off_emitted: false,
                     via_board: false,
                     via_home: false,
@@ -862,6 +866,7 @@ fn anim_tick() {
                     ty: house.1,
                     pause_end: None,
                     facing_left: false,
+                        facing_dir: 0,
                     off_emitted: false,
                     via_board: false,
                     via_home: false,
@@ -1058,6 +1063,7 @@ fn anim_tick() {
                         roam.x += dx / dist * step;
                         roam.y += dy / dist * step;
                         roam.facing_left = dx < -0.002;
+                        roam.facing_dir = droid_pack::dir_from_delta(dx, dy, roam.facing_dir);
                         stepping[i] = true;
                         moved = true; // walking (to the lip / across the grass)
                     }
@@ -1106,6 +1112,7 @@ fn anim_tick() {
                             roam.x += dx / dist * step;
                             roam.y += dy / dist * step;
                             roam.facing_left = dx < -0.002;
+                        roam.facing_dir = droid_pack::dir_from_delta(dx, dy, roam.facing_dir);
                             stepping[i] = true;
                             moved = true;
                         }
@@ -1141,6 +1148,7 @@ fn anim_tick() {
                             roam.x += dx / dist * step;
                             roam.y += dy / dist * step;
                             roam.facing_left = dx < -0.002;
+                        roam.facing_dir = droid_pack::dir_from_delta(dx, dy, roam.facing_dir);
                             stepping[i] = true;
                             moved = true;
                             continue;
@@ -1174,6 +1182,7 @@ fn anim_tick() {
                             roam.x += dx / dist * step;
                             roam.y += dy / dist * step;
                             roam.facing_left = dx < -0.002;
+                        roam.facing_dir = droid_pack::dir_from_delta(dx, dy, roam.facing_dir);
                             stepping[i] = true;
                             moved = true;
                             continue;
@@ -1221,6 +1230,7 @@ fn anim_tick() {
                         roam.x += dx / dist * step;
                         roam.y += dy / dist * step;
                         roam.facing_left = dx < -0.002;
+                        roam.facing_dir = droid_pack::dir_from_delta(dx, dy, roam.facing_dir);
                         stepping[i] = true;
                         moved = true; // roam stepped
                     }
@@ -1352,6 +1362,11 @@ fn anim_tick() {
                     let ball_x = from_x + (hx - from_x) * f;
                     if let Some(r) = planet.roam.get_mut(&to_id) {
                         r.facing_left = ball_x < hx;
+                        r.facing_dir = if ball_x < hx {
+                            droid_pack::DIR_W
+                        } else {
+                            droid_pack::DIR_E
+                        };
                     }
                 }
             }

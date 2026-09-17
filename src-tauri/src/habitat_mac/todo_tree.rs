@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use tauri::{Emitter, Manager};
 
 use super::{
-    app_handle, ns_color, ns_string, radius_y, set_fill, NSPoint, NSRect, Planet, Pose,
+    app_handle, droid_pack, ns_color, ns_string, radius_y, set_fill, NSPoint, NSRect, Planet, Pose,
     STATION_BOARD, VIEW_PADDING,
 };
 use crate::habitat::TodoTreeTick;
@@ -362,6 +362,7 @@ pub(crate) fn tick(planet: &mut Planet, dt: f64, project_id: &str) -> bool {
         roam.x += dx / dist * step;
         roam.y += dy / dist * step;
         roam.facing_left = dx < -0.002;
+        roam.facing_dir = droid_pack::dir_from_delta(dx, dy, roam.facing_dir);
         moved = true;
         i += 1;
     }

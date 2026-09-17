@@ -27,6 +27,7 @@ mod input;
 mod draw;
 mod boombox_hud;
 mod droid;
+mod droid_pack;
 mod todo_tree;
 
 pub use tick::{persist_now, start};
@@ -902,6 +903,9 @@ struct RoamState {
     ty: f64,
     pause_end: Option<Instant>,
     facing_left: bool,
+    /// 0 east, 1 south (toward camera), 2 west, 3 north. Droids pick a
+    /// 4-dir sheet from this; NES walkers still only read facing_left.
+    facing_dir: u8,
     /// the walked-off emit fired (walker hidden off the
     /// north rim). Reset whenever the pose leaves WalkOff so a re-claimed
     /// walker's next Done emits again.
@@ -1175,6 +1179,9 @@ pub(crate) struct Habitat {
     /// seed hash. Baked ONCE on first draw (droid.rs), session-cached like
     /// the icon cache — never a per-frame procgen.
     droids: HashMap<u64, droid::DroidAtlas>,
+    /// 4-dir painted kits (droid_pack.rs). None until first draw loads
+    /// the PNGs; dummy 12×14 still draws if load fails.
+    droid_kits: Option<droid_pack::DroidKits>,
 }
 
 pub(crate) struct PackFrames {
@@ -1311,7 +1318,7 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
 }
 
 /// NSImage from encoded bytes — initWithData decodes png/gif/webp alike.
-unsafe fn ns_image_from_bytes(bytes: &[u8]) -> *mut Object {
+pub(crate) unsafe fn ns_image_from_bytes(bytes: &[u8]) -> *mut Object {
     if bytes.is_empty() {
         return std::ptr::null_mut();
     }
@@ -2378,6 +2385,7 @@ fn layout_beings(planet: &mut Planet) {
                         ty,
                         pause_end: None,
                         facing_left: false,
+                        facing_dir: 0,
                         off_emitted: false,
                         via_board: false,
                         via_home: false,
@@ -2395,6 +2403,7 @@ fn layout_beings(planet: &mut Planet) {
                         ty,
                         pause_end: None,
                         facing_left: false,
+                        facing_dir: 0,
                         off_emitted: false,
                         via_board: false,
                         via_home: false,
@@ -2410,6 +2419,7 @@ fn layout_beings(planet: &mut Planet) {
                     ty: lip.1,
                     pause_end: None,
                     facing_left: false,
+                        facing_dir: 0,
                     off_emitted: false,
                     via_board: false,
                     via_home: false,
@@ -2427,6 +2437,7 @@ fn layout_beings(planet: &mut Planet) {
                         ty: a.sin() * r,
                         pause_end: None,
                         facing_left: false,
+                        facing_dir: 0,
                         off_emitted: false,
                         via_board: false,
                         via_home: false,

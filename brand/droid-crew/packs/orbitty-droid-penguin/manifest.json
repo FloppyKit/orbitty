@@ -1,0 +1,8 @@
+{
+  "name": "droid-penguin",
+  "license": "Orbitty droid-crew FF7 field 64x64 4-dir",
+  "role": "droid",
+  "canvas": 64,
+  "dirs": ["e", "s", "w", "n"],
+  "frames": ["walk_0.png", "walk_1.png", "walk_2.png", "walk_3.png"]
+}

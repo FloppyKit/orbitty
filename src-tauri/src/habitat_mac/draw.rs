@@ -10,7 +10,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
 use super::{
-    ball_pos, boombox_hud, card_color, droid, ensure_town_art, fill_oval, lock, now_epoch,
+    ball_pos, boombox_hud, card_color, droid, droid_pack, ensure_town_art, fill_oval, lock, now_epoch,
     ns_color, ns_string, pack_still_aspect, panic_msg, radius_y, set_fill, station_anchor,
     walker_fit, walker_hidden, CGSize, DecorKind, Habitat, NSPoint, NSRect, Pose, Projection,
     CAPTION_TTL, LOCATE_TTL, PLANET_LOCATE_TTL, STATION_BOARD, STATION_FIELD, STATION_HOUSE,
@@ -448,6 +448,7 @@ fn draw_rect_guarded(this: &Object) {
     let data = {
         let mut h = lock();
         ensure_town_art(&mut h);
+        droid_pack::ensure_loaded(&mut h);
         // bake this view's droid atlases BEFORE
         // the immutable draw pass — once per seed, then frame_ptr only
         // reads. Never a per-frame procgen.
@@ -457,8 +458,11 @@ fn draw_rect_guarded(this: &Object) {
             .find(|(_, p)| p.view == view_ptr)
             .map(|(_, p)| p.walkers.iter().filter_map(|b| b.droid).collect::<Vec<u64>>())
             .unwrap_or_default();
+        let kits = droid_pack::ready(&h);
         for seed in droid_seeds {
-            droid::ensure_baked(&mut h, seed);
+            if !kits {
+                droid::ensure_baked(&mut h, seed);
+            }
         }
         let town_igloo = h.town_igloo;
         let town_sign = h.town_sign;
@@ -529,31 +533,52 @@ fn draw_rect_guarded(this: &Object) {
                         // walk frames) — window walkers keep the bitty
                         // sheets / generated person below.
                         pack_frame: if let Some(seed) = b.droid {
-                            droid::frame_ptr(
+                            let dir = droid_pack::dir_for(
+                                b.pose,
+                                roam.map(|r| r.facing_dir).unwrap_or(0),
+                            );
+                            let painted = droid_pack::frame_ptr(
                                 &h,
                                 seed,
-                                b.pose,
+                                dir,
                                 cycling && !sleeper_still,
                                 h.anim_frame,
                                 i,
-                                b.droid_glance,
-                            )
+                            );
+                            if painted != 0 {
+                                painted
+                            } else {
+                                droid::frame_ptr(
+                                    &h,
+                                    seed,
+                                    b.pose,
+                                    cycling && !sleeper_still,
+                                    h.anim_frame,
+                                    i,
+                                    b.droid_glance,
+                                )
+                            }
                         } else if sleeper_still {
                             pack_frame_still(&h, b.pack)
                         } else {
                             pack_frame_ptr(&h, b.pack, i, cycling)
                         },
                         dim: b.dim,
-                        flip: match b.pose {
-                            // Sit at the front rim (WORLD-PLACES): the
-                            // anchor is due south (x = 0), so this never
-                            // mirrors — right-facing art stands along the
-                            // rim. (The old east gate flipped to face the
-                            // planet center.)
-                            Pose::Sit => station_anchor(Pose::Sit)
-                                .map(|(ax, _)| ax > 0.0)
-                                .unwrap_or(false),
-                            _ => roam.map(|r| r.facing_left).unwrap_or(false),
+                        flip: if b.droid.is_some() && droid_pack::ready(&h) {
+                            // 4-dir kits ship west as its own sheet.
+                            false
+                        } else {
+                            match b.pose {
+                                // Sit at the front rim (WORLD-PLACES): the
+                                // anchor is due south (x = 0), so this never
+                                // mirrors — right-facing art stands along the
+                                // rim. (The old east gate flipped to face the
+                                // planet center.)
+                                Pose::Sit => station_anchor(Pose::Sit)
+                                    .map(|(ax, _)| ax > 0.0)
+                                    .unwrap_or(false),
+                                _ => roam.map(|r| r.facing_left).unwrap_or(false),
+                            }
                         },
                         scale: match p.projection {
                             Projection::Oblique => 1.0 + 0.25 * y,
