@@ -1,6 +1,7 @@
 //! Spark mouth lane hop. One bubble; never wipe `companion.turns`.
-//! Lanes: local Ollama → OpenRouter `:free` (never `openrouter/auto`) →
-//! paid Grok. Key never in state.json. Bearer never on argv.
+//! Lanes: local (LM Studio `:1234` / Ollama) → OpenRouter `:free`
+//! (never `openrouter/auto`) → paid Grok. Key never in state.json.
+//! Bearer never on argv.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -233,8 +234,33 @@ pub(crate) fn ollama_model() -> Result<String, String> {
         .ok_or_else(|| "no models pulled".to_string())
 }
 
-fn ollama_chat(messages: &[Value]) -> Result<String, String> {
-    let model = ollama_model()?;
+fn openai_chat_content(text: &str) -> Result<String, String> {
+    let v: Value = serde_json::from_str(text).map_err(|e| format!("chat json: {e}"))?;
+    Ok(v.get("choices")
+        .and_then(Value::as_array)
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string())
+}
+
+fn lmstudio_chat(chat_url: &str, model: &str, messages: &[Value]) -> Result<String, String> {
+    let body = json!({
+        "model": model,
+        "messages": messages,
+        "stream": false,
+    });
+    let (status, text) = curl_json("POST", chat_url, None, Some(&body), 120)?;
+    if !(200..=299).contains(&status) {
+        return Err(format!("http {status}: {}", json_error_note(&text)));
+    }
+    openai_chat_content(&text)
+}
+
+fn ollama_chat_named(model: &str, messages: &[Value]) -> Result<String, String> {
     let body = json!({ "model": model, "messages": messages, "stream": false });
     let (status, text) = curl_json(
         "POST",
@@ -247,13 +273,32 @@ fn ollama_chat(messages: &[Value]) -> Result<String, String> {
         return Err(format!("http {status}: {}", json_error_note(&text)));
     }
     let v: Value = serde_json::from_str(&text).map_err(|e| format!("chat json: {e}"))?;
-    Ok(v
-        .get("message")
+    Ok(v.get("message")
         .and_then(|m| m.get("content"))
         .and_then(Value::as_str)
         .unwrap_or("")
         .trim()
         .to_string())
+}
+
+#[allow(dead_code)]
+fn ollama_chat(messages: &[Value]) -> Result<String, String> {
+    let model = ollama_model()?;
+    ollama_chat_named(&model, messages)
+}
+
+/// Local reply: chosen Reply id on LM Studio, else Ollama. `want` is
+/// `companion.reply_model` (empty = prefer E4B).
+fn local_chat(want: &str, messages: &[Value]) -> Result<(&'static str, String), String> {
+    match crate::mouth_scan::pick_local(want) {
+        Some(crate::mouth_scan::LocalTarget::LmStudio { chat_url, model }) => {
+            lmstudio_chat(&chat_url, &model, messages).map(|r| ("lmstudio", r))
+        }
+        Some(crate::mouth_scan::LocalTarget::Ollama { model }) => {
+            ollama_chat_named(&model, messages).map(|r| ("ollama", r))
+        }
+        None => Err("none found — open Ollama or LM Studio.".into()),
+    }
 }
 
 // lane 2: OpenRouter free (BYOK, failover — never identity)
@@ -330,17 +375,7 @@ fn openrouter_chat(key: &str, messages: &[Value]) -> Result<String, String> {
     if !(200..=299).contains(&status) {
         return Err(format!("http {status}: {}", json_error_note(&text)));
     }
-    let v: Value = serde_json::from_str(&text).map_err(|e| format!("chat json: {e}"))?;
-    Ok(v
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|c| c.first())
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("content"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
-        .to_string())
+    openai_chat_content(&text)
 }
 
 // the router
@@ -367,6 +402,37 @@ pub fn lane_cooked(err: &str) -> bool {
         || e.contains("session wall")
 }
 
+fn reply_model(app: &tauri::AppHandle) -> String {
+    crate::state::load_state(app)
+        .map(|s| s.companion.reply_model)
+        .unwrap_or_default()
+}
+
+pub fn normalize_reply_lane(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "local" | "lmstudio" | "ollama" => "local".into(),
+        "openrouter" | "or" => "openrouter".into(),
+        "free" | "freemode" | "free-mode" | "free_mode" | "free mode" => "free".into(),
+        _ => "grok".into(),
+    }
+}
+
+pub fn effective_reply_lane(app: &tauri::AppHandle) -> String {
+    let Ok(s) = crate::state::load_state(app) else {
+        return "grok".into();
+    };
+    let raw = s.companion.reply_lane.trim();
+    if raw.is_empty() {
+        if s.companion.free_mode {
+            "free".into()
+        } else {
+            "grok".into()
+        }
+    } else {
+        normalize_reply_lane(raw)
+    }
+}
+
 /// Walk the free lanes in lock order, hop packet in hand. `notes`
 /// collects one short line per lane tried (the honest skip / all-down
 /// message names them). Some((lane, reply)) on the first healthy lane.
@@ -375,36 +441,37 @@ fn free_lanes_reply(
     raw_line: &str,
     prompt: &str,
     notes: &mut Vec<String>,
+    try_local: bool,
+    try_or: bool,
 ) -> Option<(&'static str, String)> {
     let soul = crate::coordinator::companion_soul_text(app);
     let mut messages: Option<Vec<Value>> = None;
-    // Lane 1 — local Ollama, only when the server is up (2s probe).
-    if ollama_up() {
+    if try_local {
+        let want = reply_model(app);
         let msgs = messages.get_or_insert_with(|| hop_messages(app, &soul, raw_line, prompt));
-        match ollama_chat(msgs) {
-            Ok(r) if !r.is_empty() => return Some(("ollama", r)),
-            Ok(_) => notes.push("ollama: empty reply".into()),
-            Err(e) => notes.push(format!("ollama: {e}")),
+        match local_chat(&want, msgs) {
+            Ok((lane, r)) if !r.is_empty() => return Some((lane, r)),
+            Ok(_) => notes.push("local: empty reply".into()),
+            Err(e) => notes.push(format!("local: {e}")),
         }
-    } else {
-        notes.push("ollama: not running".into());
     }
-    // Lane 2 — OpenRouter free, only with a key and quota left.
-    match openrouter_key() {
-        Some(key) => match openrouter_quota_cooked(&key) {
-            Ok(true) => notes.push("openrouter: quota spent".into()),
-            Ok(false) => {
-                let msgs =
-                    messages.get_or_insert_with(|| hop_messages(app, &soul, raw_line, prompt));
-                match openrouter_chat(&key, msgs) {
-                    Ok(r) if !r.is_empty() => return Some(("openrouter", r)),
-                    Ok(_) => notes.push("openrouter: empty reply".into()),
-                    Err(e) => notes.push(format!("openrouter: {e}")),
+    if try_or {
+        match openrouter_key() {
+            Some(key) => match openrouter_quota_cooked(&key) {
+                Ok(true) => notes.push("openrouter: quota spent".into()),
+                Ok(false) => {
+                    let msgs =
+                        messages.get_or_insert_with(|| hop_messages(app, &soul, raw_line, prompt));
+                    match openrouter_chat(&key, msgs) {
+                        Ok(r) if !r.is_empty() => return Some(("openrouter", r)),
+                        Ok(_) => notes.push("openrouter: empty reply".into()),
+                        Err(e) => notes.push(format!("openrouter: {e}")),
+                    }
                 }
-            }
-            Err(e) => notes.push(format!("openrouter quota: {e}")),
-        },
-        None => notes.push("openrouter: no key".into()),
+                Err(e) => notes.push(format!("openrouter quota: {e}")),
+            },
+            None => notes.push("openrouter: no key".into()),
+        }
     }
     None
 }
@@ -431,14 +498,14 @@ fn run_free_lanes(
     app: tauri::AppHandle,
     raw_line: String,
     prompt: String,
-    free_mode: bool,
+    skip_grok: bool,
+    try_local: bool,
+    try_or: bool,
     mut notes: Vec<String>,
 ) -> Result<String, String> {
-    let hopped = free_lanes_reply(&app, &raw_line, &prompt, &mut notes);
+    let hopped = free_lanes_reply(&app, &raw_line, &prompt, &mut notes, try_local, try_or);
     match hopped {
         Some((lane, reply)) => {
-            // Lane names only — never packet content (events are truth,
-            // not a transcript copy).
             crate::event_log::append_best(
                 &app,
                 "companion-hop",
@@ -446,34 +513,38 @@ fn run_free_lanes(
                 None,
                 Some("agent"),
                 true,
-                &json!({ "lane": lane, "freeMode": free_mode }),
+                &json!({ "lane": lane, "freeMode": skip_grok }),
             );
             Ok(reply)
         }
-        None => Ok(honest_down_line(free_mode, &notes)),
+        None => Ok(honest_down_line(skip_grok, &notes)),
     }
 }
 
-/// The grok-backend send, routed. Normal mode: Grok is the mouth; a
-/// cooked lane (429 / 402 / quota / session-wall) hops Ollama →
-/// OpenRouter free → one honest all-down line. Free Mode: the free
-/// lanes only — paid Grok never runs. Any other Grok failure (slow
-/// generate, honest error) stays an honest Err. The reply — from any
-/// lane — lands on the same `turns`; the bubble is never cleared.
+/// The grok-backend send, routed. Reply lane `grok` (default): Grok is
+/// the mouth; a cooked lane hops local → OpenRouter free. `free` /
+/// `local` / `openrouter` never run paid Grok. The reply lands on the
+/// same `turns`; the bubble is never cleared.
 pub async fn send_with_hops(
     app: &tauri::AppHandle,
     raw_line: &str,
     prompt: &str,
     vision_path: Option<&str>,
 ) -> Result<String, String> {
-    let free_mode = crate::state::load_state(app)
-        .map(|s| s.companion.free_mode)
-        .unwrap_or(false);
-    if free_mode {
+    let lane = effective_reply_lane(app);
+    let skip_grok = lane != "grok";
+    let (try_local, try_or) = match lane.as_str() {
+        "local" => (true, false),
+        "openrouter" => (false, true),
+        _ => (true, true), // grok (on cooked) and free
+    };
+    if skip_grok {
         let (a, r, p) = (app.clone(), raw_line.to_string(), prompt.to_string());
-        return tauri::async_runtime::spawn_blocking(move || run_free_lanes(a, r, p, true, Vec::new()))
-            .await
-            .map_err(|e| format!("hop task: {e}"))?;
+        return tauri::async_runtime::spawn_blocking(move || {
+            run_free_lanes(a, r, p, true, try_local, try_or, Vec::new())
+        })
+        .await
+        .map_err(|e| format!("hop task: {e}"))?;
     }
     let vision = vision_path.map(str::to_string);
     match crate::coordinator::companion_send_grok(app, prompt, vision).await {
@@ -481,9 +552,11 @@ pub async fn send_with_hops(
         Err(e) if lane_cooked(&e) => {
             let note = format!("grok: {}", e.chars().take(80).collect::<String>());
             let (a, r, p) = (app.clone(), raw_line.to_string(), prompt.to_string());
-            tauri::async_runtime::spawn_blocking(move || run_free_lanes(a, r, p, false, vec![note]))
-                .await
-                .map_err(|e| format!("hop task: {e}"))?
+            tauri::async_runtime::spawn_blocking(move || {
+                run_free_lanes(a, r, p, false, true, true, vec![note])
+            })
+            .await
+            .map_err(|e| format!("hop task: {e}"))?
         }
         Err(e) => Err(e),
     }
@@ -491,15 +564,43 @@ pub async fn send_with_hops(
 
 // Settings surface (Free Mode toggle + BYOK key)
 
-/// Free Mode toggle — the same load-modify-save + emit pattern as the
-/// other companion switches. Default off (paid Grok is today's mouth).
+/// Free Mode toggle — also writes reply_lane so the Mouth Reply row
+/// and this door stay one switch. Default off (paid Grok is today's mouth).
 #[tauri::command]
 pub fn set_companion_free_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let mut st = crate::state::load_state(&app)?;
     st.companion.free_mode = enabled;
+    st.companion.reply_lane = if enabled {
+        "free".into()
+    } else if st.companion.reply_lane.trim().eq_ignore_ascii_case("free") {
+        "grok".into()
+    } else {
+        st.companion.reply_lane.clone()
+    };
     crate::state::save_state(&app, &st)?;
     let _ = app.emit("state:changed", ());
     Ok(())
+}
+
+#[tauri::command]
+pub fn set_companion_reply_lane(app: tauri::AppHandle, lane: String) -> Result<String, String> {
+    let lane = normalize_reply_lane(&lane);
+    let mut st = crate::state::load_state(&app)?;
+    st.companion.reply_lane = lane.clone();
+    st.companion.free_mode = lane == "free";
+    crate::state::save_state(&app, &st)?;
+    let _ = app.emit("state:changed", ());
+    Ok(lane)
+}
+
+#[tauri::command]
+pub fn set_companion_reply_model(app: tauri::AppHandle, model: String) -> Result<String, String> {
+    let model = model.trim().chars().take(160).collect::<String>();
+    let mut st = crate::state::load_state(&app)?;
+    st.companion.reply_model = model.clone();
+    crate::state::save_state(&app, &st)?;
+    let _ = app.emit("state:changed", ());
+    Ok(model)
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -569,4 +670,21 @@ pub fn set_openrouter_key(key: String) -> Result<OpenRouterKeyStatus, String> {
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     }
     Ok(key_status())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reply_lane_names() {
+        assert_eq!(normalize_reply_lane("grok"), "grok");
+        assert_eq!(normalize_reply_lane("local"), "local");
+        assert_eq!(normalize_reply_lane("lmstudio"), "local");
+        assert_eq!(normalize_reply_lane("openrouter"), "openrouter");
+        assert_eq!(normalize_reply_lane("free"), "free");
+        assert_eq!(normalize_reply_lane("Free Mode"), "free");
+        assert_eq!(normalize_reply_lane(""), "grok");
+        assert_eq!(normalize_reply_lane("paid"), "grok");
+    }
 }

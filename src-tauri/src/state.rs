@@ -483,10 +483,17 @@ pub struct CompanionState {
     #[serde(default)]
     pub conductor_on: bool,
     /// Conductor model id (an Ollama tag). "" =
-    /// auto — the first pulled model when Ollama is up, the non-LLM
-    /// classifier when it isn't. Local-only, never a hosted id.
+    /// built-in classifier (this GO). Never Grok / OpenRouter / 12B.
     #[serde(default)]
     pub conductor_model: String,
+    /// Reply lane: "grok" | "local" | "openrouter" | "free".
+    /// Empty (old saves) heals from free_mode. Dedicated command.
+    #[serde(default)]
+    pub reply_lane: String,
+    /// Chosen local Reply id from the scan (LM Studio or Ollama).
+    /// Empty = prefer E4B on LM Studio.
+    #[serde(default)]
+    pub reply_model: String,
 }
 
 /// S2.4: one saved companion turn. role: "you" | "them".
@@ -651,6 +658,8 @@ impl Default for CompanionState {
             free_mode: false,
             conductor_on: false,
             conductor_model: String::new(),
+            reply_lane: String::new(),
+            reply_model: String::new(),
         }
     }
 }

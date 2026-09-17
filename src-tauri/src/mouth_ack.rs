@@ -33,12 +33,14 @@ fn lock_pending() -> MutexGuard<'static, Option<PendingAction>> {
 
 // Ollama probe cache (the conductor runs on EVERY send)
 
+#[allow(dead_code)]
 static OLLAMA_PROBE: Mutex<Option<(bool, std::time::Instant)>> = Mutex::new(None);
 
 /// mouth_hop probes per hop; the conductor probes per send, so a down
 /// Ollama must not cost the 2s probe every line — remember the answer
 /// for 15s. A just-started Ollama self-heals within that window (the
 /// fallback classifier covers the gap; chat still reaches the mouth).
+#[allow(dead_code)]
 fn ollama_up_cached() -> bool {
     {
         let g = OLLAMA_PROBE.lock().unwrap_or_else(|e| e.into_inner());
@@ -67,12 +69,11 @@ pub async fn conduct(app: &tauri::AppHandle, line: &str) -> Option<Step> {
         .ok()
         .map(|s| s.companion.mode.clone())
         .unwrap_or_else(|| "spark".into());
-    // Chat/hold = join; never classify away. Spark/work = Quick ack on
-    // so "hand to Cursor" does not occupy the mouth for 180s.
+    // Chat/hold = join; never classify away. Off in Settings is Off —
+    // Spark/work do not force the conductor on.
     if matches!(mode.as_str(), "chat" | "hold") {
         return None;
     }
-    let on = on || matches!(mode.as_str(), "spark" | "work");
     if !on {
         return None;
     }
@@ -115,8 +116,11 @@ fn conduct_blocking(app: &tauri::AppHandle, line: &str, model: &str) -> Step {
         }
         Mint::No => {}
     }
-    // 3. Classify — slim local first, non-LLM fallback.
-    let (verb, ack) = ollama_classify(model, line).unwrap_or_else(|| fallback_classify(line));
+    // 3. Classify — built-in only this GO. A scanned small local may
+    //    show as "next phrase" in Settings; it is not the conductor.
+    //    Never Grok / OpenRouter / LM Studio chat as Quick ack.
+    let (verb, ack) = fallback_classify(line);
+    let _ = model;
     crate::event_log::append_best(
         app,
         "companion-ack",
@@ -307,6 +311,7 @@ fn slug(s: &str) -> String {
 
 // classify: slim local first
 
+#[allow(dead_code)]
 const CONDUCTOR_SYS: &str = "You are Orbitty's conductor — a fast triage layer in front of the mouth. \
 Read Matt's line and answer with EXACTLY one line, no quotes, no explanation:\n\
 VERB|ack\n\
@@ -320,15 +325,17 @@ ack: one short warm line (10 words max), first person as Orbitty, showing you he
 never the answer, never a promise of action. For none the ack is exactly: Heard you.\n\
 Never invent rules or Actions.";
 
+#[allow(dead_code)]
 fn ollama_classify(model: &str, line: &str) -> Option<(&'static str, String)> {
+    // Empty model = built-in classifier (this GO). Do not pick the
+    // first Ollama tag, and never LM Studio, as Quick ack.
+    if model.trim().is_empty() {
+        return None;
+    }
     if !ollama_up_cached() {
         return None;
     }
-    let model = if model.trim().is_empty() {
-        crate::mouth_hop::ollama_model().ok()?
-    } else {
-        model.trim().to_string()
-    };
+    let model = model.trim().to_string();
     let body = json!({
         "model": model,
         "messages": [
@@ -471,6 +478,11 @@ fn fixed_ack(verb: &str) -> String {
 pub fn set_companion_conductor(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let mut st = crate::state::load_state(&app)?;
     st.companion.conductor_on = enabled;
+    if enabled {
+        // This GO: Built-in classifier only. A leftover Ollama tag
+        // must not become Quick ack.
+        st.companion.conductor_model.clear();
+    }
     crate::state::save_state(&app, &st)?;
     if !enabled {
         *lock_pending() = None;
@@ -479,13 +491,20 @@ pub fn set_companion_conductor(app: tauri::AppHandle, enabled: bool) -> Result<(
     Ok(())
 }
 
-/// Conductor model id (an Ollama tag). Blank = auto — the first pulled
-/// model when Ollama is up; the non-LLM classifier when it isn't.
-/// Local-only: a hosted id just fails the probe and lands on the
-/// fallback. Never a key, never a URL.
+/// Conductor model id. This GO Quick ack is off or built-in
+/// (blank). Never Grok / OpenRouter / 12B. A leftover tag is cleared
+/// when Built-in is turned on.
+fn ack_model_forbidden(raw: &str) -> bool {
+    let l = raw.trim().to_ascii_lowercase();
+    l.contains("grok") || l.contains("openrouter") || l.contains("12b")
+}
+
 #[tauri::command]
 pub fn set_companion_conductor_model(app: tauri::AppHandle, model: String) -> Result<(), String> {
     let model = model.trim().chars().take(120).collect::<String>();
+    if ack_model_forbidden(&model) {
+        return Err("Quick ack cannot be Grok, OpenRouter, or a 12B.".into());
+    }
     let mut st = crate::state::load_state(&app)?;
     st.companion.conductor_model = model;
     crate::state::save_state(&app, &st)?;

@@ -14,6 +14,7 @@
     clampWindowOpacity,
   } from "../themes/apply";
   import "./chrome.css";
+  import MouthSettings from "./MouthSettings.svelte";
   import type { PersistedState } from "./persist";
 
   interface PackInfo {
@@ -65,23 +66,6 @@
   let planetIdle = $state("4h");
   let talkSource = $state<"system" | "hotkey">("system");
   let cheatSheetHint = $state(true);
-  // Free Mode toggle + BYOK OpenRouter key. The
-  // key is write-only — the native side stores it 0600 and reports only
-  // set/source/last4; the draft clears on save.
-  let freeMode = $state(false);
-  // Conductor on/off + model id. Blank model =
-  // auto (first pulled Ollama model; non-LLM classifier when Ollama is
-  // down). Both ride their own commands — save_state never owns them.
-  let conductorOn = $state(false);
-  let conductorModel = $state("");
-  let orKeyDraft = $state("");
-  let orKey = $state<{ set: boolean; source: string; tail: string }>({
-    set: false,
-    source: "",
-    tail: "",
-  });
-  let orBusy = $state(false);
-  let orNote = $state<string | null>(null);
   let section = $state<"appearance" | "packs">("appearance");
   // Companion body picker (Appearance): Spirit + role:companion packs.
   // Same persist as the old companion-row select — set_companion_pack
@@ -134,9 +118,6 @@
         : "4h";
       talkSource = normalizeTalk(s.companion?.talkSource);
       cheatSheetHint = s.companion?.cheatSheetHint ?? true;
-      freeMode = s.companion?.freeMode ?? false;
-      conductorOn = s.companion?.conductorOn ?? false;
-      conductorModel = s.companion?.conductorModel ?? "";
       const pack = s.companion?.imagePackId ?? null;
       bodyId = pack && pack.length > 0 ? pack : "spirit";
       spendCapUsd = Number.isFinite(s.spendCapUsd) && (s.spendCapUsd ?? 0) > 0 ? Number(s.spendCapUsd) : 20;
@@ -257,73 +238,6 @@
     }
   }
 
-  // Free Mode persists through its own command
-  // (same load-modify-save as the other companion switches); the key
-  // commands never return the key itself.
-  async function toggleFreeMode() {
-    freeMode = !freeMode;
-    try {
-      await invoke("set_companion_free_mode", { enabled: freeMode });
-    } catch {
-      /* state:changed restores */
-    }
-  }
-
-  // Same own-command pattern as Free Mode.
-  async function toggleConductor() {
-    conductorOn = !conductorOn;
-    try {
-      await invoke("set_companion_conductor", { enabled: conductorOn });
-    } catch {
-      /* state:changed restores */
-    }
-  }
-
-  async function saveConductorModel() {
-    try {
-      await invoke("set_companion_conductor_model", {
-        model: conductorModel.trim(),
-      });
-    } catch {
-      /* state:changed restores */
-    }
-  }
-
-  async function loadKeyStatus() {
-    try {
-      orKey = await invoke<{ set: boolean; source: string; tail: string }>(
-        "openrouter_key_status",
-      );
-    } catch {
-      orKey = { set: false, source: "", tail: "" };
-    }
-  }
-
-  async function saveOrKey() {
-    if (orBusy) return;
-    orBusy = true;
-    orNote = null;
-    try {
-      orKey = await invoke("set_openrouter_key", { key: orKeyDraft.trim() });
-      orKeyDraft = "";
-    } catch (e) {
-      orNote = `${e}`;
-    }
-    orBusy = false;
-  }
-
-  async function clearOrKey() {
-    if (orBusy) return;
-    orBusy = true;
-    orNote = null;
-    try {
-      orKey = await invoke("set_openrouter_key", { key: "" });
-    } catch (e) {
-      orNote = `${e}`;
-    }
-    orBusy = false;
-  }
-
   async function refreshPacks() {
     try {
       packs = await invoke<PackInfo[]>("list_packs");
@@ -427,7 +341,6 @@
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
     await loadState();
-    await loadKeyStatus();
     await refreshPacks();
     unlisten = await listen("state:changed", () => {
       loadState();
@@ -714,94 +627,7 @@
         <p class="help">
           New log lines are signed on this Mac. Off writes unsigned again. History is never rewritten. Private relay copies signed board proofs to the sidecar on this Mac; off is jsonl only.
         </p>
-        <p class="block-label">Mouth</p>
-        <div class="setting-row">
-          <button
-            class="mini"
-            class:active={freeMode}
-            aria-pressed={freeMode}
-            onclick={toggleFreeMode}
-            title="Free lanes only — local Ollama, then OpenRouter free models. Paid Grok stays off."
-          >Free Mode</button>
-        </div>
-        <p class="help">
-          Free lanes only: local Ollama, then OpenRouter
-          <code>openrouter/free</code> — limits apply and some upstreams
-          train on your lines. Paid Grok never runs while this is on; a
-          cooked Grok lane (429/quota) hops the same free lanes either way.
-        </p>
-        <div class="setting-row">
-          <button
-            class="mini"
-            class:active={conductorOn}
-            aria-pressed={conductorOn}
-            onclick={toggleConductor}
-            title="Slim local fast-ack in front of the mouth — one line + a verb in hundreds of ms. Off = today's mouth only."
-          >Conductor</button>
-          <input
-            class="keyin"
-            bind:value={conductorModel}
-            placeholder="conductor model (blank = first Ollama)"
-            aria-label="Conductor model id"
-            onkeydown={(e) => e.key === "Enter" && saveConductorModel()}
-          />
-          <button
-            class="mini"
-            onclick={saveConductorModel}
-            title="Save the conductor model id (an Ollama tag; blank = auto)"
-          >Save</button>
-        </div>
-        <p class="help">
-          Conductor: a slim local layer (a small Ollama model, or the
-          built-in classifier when Ollama is down) answers in hundreds of
-          ms with a one-line ack + a verb — <code>chat</code> falls
-          through to the hop mouth for the real reply in the same bubble.
-          Verbs: <code>chat</code> · <code>do-go</code> ·
-          <code>run-action</code> · <code>ask-needed</code> ·
-          <code>none</code>. It never mints an Action or a rule on its
-          own — a "save this as an action" line only proposes, and your
-          yes is the mint.
-        </p>
-        <div class="setting-row">
-          <input
-            class="keyin"
-            type="password"
-            bind:value={orKeyDraft}
-            placeholder="OpenRouter key (sk-or-…)"
-            aria-label="OpenRouter API key"
-            onkeydown={(e) => e.key === "Enter" && saveOrKey()}
-          />
-          <button
-            class="mini"
-            disabled={orBusy || orKeyDraft.trim().length === 0}
-            onclick={saveOrKey}
-            title="Save the key locally (0600, companions/orbitty-primary) — never in state.json"
-          >Save key</button>
-          {#if orKey.set && orKey.source === "file"}
-            <button
-              class="mini ghost"
-              disabled={orBusy}
-              onclick={clearOrKey}
-              title="Delete the saved key file"
-            >Clear</button>
-          {/if}
-        </div>
-        {#if orNote}
-          <p class="help err">{orNote}</p>
-        {/if}
-        <p class="help">
-          {#if orKey.set}
-            OpenRouter key:
-            {orKey.source === "env"
-              ? "from env OPENROUTER_API_KEY"
-              : "saved locally"}
-            (…{orKey.tail}). Used only for the free lane + quota checks.
-          {:else}
-            Optional BYOK — your own OpenRouter key unlocks the free lane.
-            Stored locally, sent only to openrouter.ai. Orbitty is never
-            the wallet.
-          {/if}
-        </p>
+        <MouthSettings />
         <p class="block-label">Cheat sheet</p>
         <div class="setting-row">
           <button

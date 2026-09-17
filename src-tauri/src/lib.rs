@@ -34,6 +34,7 @@ mod glass;
 mod mouth_ack;
 mod mouth_blip;
 mod mouth_hop;
+mod mouth_scan;
 mod mouth_roll;
 mod needed_rules;
 mod nextcard;
@@ -573,6 +574,8 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
         // the set_companion_conductor* commands are the only doors.
         state.companion.conductor_on = b.companion.conductor_on;
         state.companion.conductor_model = b.companion.conductor_model.clone();
+        state.companion.reply_lane = b.companion.reply_lane.clone();
+        state.companion.reply_model = b.companion.reply_model.clone();
         // ctl `shift on|off` is the only door.
         state.shift_on = b.shift_on;
     }
@@ -683,8 +686,12 @@ pub fn run() {
             coordinator::set_companion_captions,
             coordinator::set_companion_talk_source,
             mouth_hop::set_companion_free_mode,
+            mouth_hop::set_companion_reply_lane,
+            mouth_hop::set_companion_reply_model,
             mouth_hop::set_openrouter_key,
             mouth_hop::openrouter_key_status,
+            mouth_scan::mouth_scan,
+            mouth_scan::pull_mouth_model,
             mouth_ack::set_companion_conductor,
             mouth_ack::set_companion_conductor_model,
             talk::talk_start,

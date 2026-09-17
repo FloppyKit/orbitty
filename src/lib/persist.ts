@@ -260,6 +260,10 @@ export interface CompanionSlice {
   // the set_companion_conductor* commands are the only doors.
   conductorOn?: boolean;
   conductorModel?: string;
+  // Reply lane: grok | local | openrouter | free. Empty heals
+  // from freeMode. Dedicated commands, same strip-trap as conductor.
+  replyLane?: string;
+  replyModel?: string;
 }
 
 export interface StarsCheckin {
