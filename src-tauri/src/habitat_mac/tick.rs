@@ -276,6 +276,7 @@ fn tick(n: u64) {
         anim_tick();
     }
     drift_tick(n);
+    super::planet_idle::maybe_pass();
     if n % 6 == 0 {
         // a queued marble motion hop outranks
         // cursor work. Skip this cursor turn (hit-test/save ride the next

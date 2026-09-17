@@ -353,6 +353,8 @@ export interface PersistedState {
   signedLocally?: boolean;
   // Best-effort EVENT of signed 420/421/422 to the loopback sidecar. Default off.
   privateRelay?: boolean;
+  // Unused expanded planets marble after this idle. "1h"|"4h"|"12h"|"never". Default 4h.
+  planetIdle?: string;
   // ctl `shift on` ticker. Default off. Optional so older writers type-check.
   shiftOn?: boolean;
   companion: CompanionSlice;

@@ -111,6 +111,10 @@ pub struct PersistedState {
     /// Spark/Chat never auto-pickup; Work/Hold does.
     #[serde(default)]
     pub shift_on: bool,
+    /// Unused expanded planets marble after this idle. Default 4h.
+    /// "1h" | "4h" | "12h" | "never". Missing/unknown → 4h.
+    #[serde(default = "planet_idle_default")]
+    pub planet_idle: String,
 }
 
 fn needed_split_default() -> f64 {
@@ -131,6 +135,10 @@ fn tree_grow_days_default() -> f64 {
 
 fn signed_locally_default() -> bool {
     true
+}
+
+fn planet_idle_default() -> String {
+    "4h".into()
 }
 
 /// One unbound-todo tree on a planet disc.
@@ -261,6 +269,7 @@ impl Default for PersistedState {
             signed_locally: true,
             private_relay: false,
             shift_on: false,
+            planet_idle: planet_idle_default(),
         }
     }
 }

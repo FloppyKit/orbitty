@@ -62,6 +62,7 @@
   let hideTitles = $state(false);
   let hideAppIcons = $state(false);
   let marbleDrift = $state(false);
+  let planetIdle = $state("4h");
   let talkSource = $state<"system" | "hotkey">("system");
   let cheatSheetHint = $state(true);
   // Free Mode toggle + BYOK OpenRouter key. The
@@ -128,6 +129,9 @@
       hideTitles = s.hideTitles ?? false;
       hideAppIcons = s.hideAppIcons ?? false;
       marbleDrift = s.marbleDrift ?? false;
+      planetIdle = ["1h", "4h", "12h", "never"].includes(s.planetIdle ?? "")
+        ? (s.planetIdle as "1h" | "4h" | "12h" | "never")
+        : "4h";
       talkSource = normalizeTalk(s.companion?.talkSource);
       cheatSheetHint = s.companion?.cheatSheetHint ?? true;
       freeMode = s.companion?.freeMode ?? false;
@@ -172,6 +176,7 @@
       s.hideTitles = hideTitles;
       s.hideAppIcons = hideAppIcons;
       s.marbleDrift = marbleDrift;
+      s.planetIdle = planetIdle;
       if (s.companion) s.companion.cheatSheetHint = cheatSheetHint;
       s.spendCapUsd = spendCapUsd;
       s.spendCapEnabled = spendCapEnabled;
@@ -221,6 +226,10 @@
   }
   function toggleMarbleDrift() {
     marbleDrift = !marbleDrift;
+    persistSettings();
+  }
+  function pickPlanetIdle(id: string) {
+    planetIdle = id;
     persistSettings();
   }
   function toggleCheatHint() {
@@ -564,6 +573,18 @@
             title="Nearby marbles ring an open planet about two marble-widths off its current size and go around the disc instead of through it. If none is open, they take slow rings around a quiet midpoint. They do not chase each other. Expanded planets never move. Reduce Motion stills everything"
           >Marbles drift</button>
         </div>
+        <p class="block-label">Planet sleep</p>
+        <div class="setting-row" role="group" aria-label="Planet sleep">
+          {#each [["1h", "1 hour"], ["4h", "4 hours"], ["12h", "12 hours"], ["never", "Never"]] as [id, lab]}
+            <button
+              class="mini"
+              class:active={planetIdle === id}
+              aria-pressed={planetIdle === id}
+              onclick={() => pickPlanetIdle(id)}
+            >{lab}</button>
+          {/each}
+        </div>
+        <p class="help">Unused expanded planets shrink to marbles. Never leaves them up.</p>
         <p class="block-label">Companion body</p>
         <div class="setting-row">
           <select

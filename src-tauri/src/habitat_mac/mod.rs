@@ -29,6 +29,7 @@ mod boombox_hud;
 mod droid;
 mod droid_pack;
 mod todo_tree;
+mod planet_idle;
 
 pub use tick::{persist_now, start};
 

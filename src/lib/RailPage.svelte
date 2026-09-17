@@ -157,6 +157,7 @@
   // Settings owns the toggle; the rail round-trips
   // it and rides it to the native habitat on the snapshot.
   let marbleDrift = $state(false);
+  let planetIdle = $state("4h");
 
   // Settings / Launchpad own the writers. Rail only round-trips these so
   // persist() never strips the arrays.
@@ -701,6 +702,7 @@
       hideAppIcons,
       spriteScale,
       marbleDrift,
+      planetIdle,
       actionShortcuts,
       agentShortcuts,
       agentRuns,
@@ -2303,6 +2305,7 @@
       hideAppIcons = s.hideAppIcons ?? false;
       spriteScale = clampSpriteScale(s.spriteScale ?? 1);
       marbleDrift = s.marbleDrift ?? false;
+      planetIdle = s.planetIdle ?? "4h";
       actionShortcuts = s.actionShortcuts ?? [];
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
@@ -2523,6 +2526,7 @@
         hideTitles = s.hideTitles ?? hideTitles;
         hideAppIcons = s.hideAppIcons ?? hideAppIcons;
         marbleDrift = s.marbleDrift ?? marbleDrift;
+        planetIdle = s.planetIdle ?? planetIdle;
         refreshPacks();
         const diskClaims = s.claims ?? [];
         // ORPHAN-CARDS: never strand an open window-card — a local claim
