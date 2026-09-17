@@ -40,7 +40,7 @@ cc = "1"
 [dependencies]
 # protocol-asset: GO-ORBITTY-COMPANION-3D serves the bundled GLBs via
 # convertFileSrc (scope $RESOURCE/companion/3d/**) — never a data-URL.
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
