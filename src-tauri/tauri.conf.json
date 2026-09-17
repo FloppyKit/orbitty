@@ -28,11 +28,7 @@
       }
     ],
     "security": {
-      "csp": null,
-      "assetProtocol": {
-        "enable": true,
-        "scope": ["$RESOURCE/companion/3d/**"]
-      }
+      "csp": null
     }
   },
   "bundle": {
@@ -88,9 +84,7 @@
       "../brand/companion/spirit/thinking/bust_4.png": "companion/spirit/thinking/bust_4.png",
       "../brand/companion/spirit/thinking/bust_5.png": "companion/spirit/thinking/bust_5.png",
       "../brand/companion/spirit/thinking/bust_6.png": "companion/spirit/thinking/bust_6.png",
-      "../brand/companion/spirit/thinking/bust_7.png": "companion/spirit/thinking/bust_7.png",
-      "../brand/companion/spirit/look": "companion/spirit/look",
-      "../brand/companion/3d/tang.glb": "companion/3d/tang.glb"
+      "../brand/companion/spirit/thinking/bust_7.png": "companion/spirit/thinking/bust_7.png"
     }
   }
 }

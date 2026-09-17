@@ -50,19 +50,6 @@ pub struct CompanionArt {
     /// 3D companion bakes: skip nearest-neighbor (spirit stays pixelated).
     #[serde(default)]
     pub smooth: bool,
-    /// GO-ORBITTY-LOOK-AT: 8-dir eye cells (E NE N NW W SW S SE). Empty
-    /// when the set is missing/incomplete, or on a user pack — the
-    /// webview stays on the idle loop (fail soft).
-    #[serde(default)]
-    pub look_frames: Vec<String>,
-    #[serde(default)]
-    pub look_bust_frames: Vec<String>,
-    /// Reaction overlay, order: blink, poke, sleepy, sparkle, delighted,
-    /// dizzy. All-or-nothing (6) or empty.
-    #[serde(default)]
-    pub overlay_frames: Vec<String>,
-    #[serde(default)]
-    pub overlay_bust_frames: Vec<String>,
 }
 
 fn mime_for(p: &Path) -> &'static str {
@@ -105,10 +92,6 @@ fn source_art(src: &crate::packs::ArtSource, frame_ms: u32, smooth: bool) -> Res
                 sheet: None,
                 frame_ms: ms,
                 smooth,
-                look_frames: Vec::new(),
-                look_bust_frames: Vec::new(),
-                overlay_frames: Vec::new(),
-                overlay_bust_frames: Vec::new(),
             })
         }
         crate::packs::ArtSource::Sheet { file, spec } => {
@@ -126,10 +109,6 @@ fn source_art(src: &crate::packs::ArtSource, frame_ms: u32, smooth: bool) -> Res
                 }),
                 frame_ms: ms,
                 smooth,
-                look_frames: Vec::new(),
-                look_bust_frames: Vec::new(),
-                overlay_frames: Vec::new(),
-                overlay_bust_frames: Vec::new(),
             })
         }
     }
@@ -162,51 +141,26 @@ pub fn companion_frames(
         .map_err(|e| format!("resource dir: {e}"))?
         .join("companion")
         .join("spirit");
-    spirit_art_from(&dir)
-}
-
-fn numbered_pngs(dir: &Path, prefix: &str, n: u32) -> Vec<String> {
-    (0..n)
-        .filter_map(|i| data_url(&dir.join(format!("{prefix}{i}.png"))))
-        .collect()
-}
-
-fn overlay_pngs(dir: &Path, prefix: &str) -> Vec<String> {
-    let v: Vec<String> = crate::companion_look::OVERLAY_KINDS
-        .iter()
-        .filter_map(|k| data_url(&dir.join(format!("{prefix}{k}.png"))))
-        .collect();
-    if v.len() == crate::companion_look::OVERLAY_KINDS.len() {
-        v
-    } else {
-        Vec::new()
-    }
-}
-
-fn all_or_nothing(frames: Vec<String>, n: usize) -> Vec<String> {
-    if frames.len() == n {
-        frames
-    } else {
-        Vec::new()
-    }
-}
-
-/// Blessed spirit dir (`companion/spirit`). Look-at / overlay fail soft.
-fn spirit_art_from(dir: &Path) -> Result<CompanionArt, String> {
     // Thinking v9: all-or-nothing — a partial set would hitch the loop, so
     // anything short of 8 slices falls back to rest-only (fail soft).
     let thinking_dir = dir.join("thinking");
-    let thinking_frames = all_or_nothing(numbered_pngs(&thinking_dir, "think_", 8), 8);
+    let thinking: Vec<String> = (0..8)
+        .filter_map(|i| data_url(&thinking_dir.join(format!("think_{i}.png"))))
+        .collect();
+    let thinking_frames = if thinking.len() == 8 { thinking } else { Vec::new() };
     // HEADROOM bust sets: same all-or-nothing rule, same cadence. Missing
     // busts are a quiet miss — the webview sits on Full, Head disabled.
-    let bust_frames = all_or_nothing(numbered_pngs(dir, "bust_", 8), 8);
-    let bust_thinking_frames = all_or_nothing(numbered_pngs(&thinking_dir, "bust_", 8), 8);
-    let look = dir.join("look");
-    let look_frames = all_or_nothing(numbered_pngs(&look, "look_", 8), 8);
-    let look_bust_frames = all_or_nothing(numbered_pngs(&look, "bust_", 8), 8);
-    let overlay_frames = overlay_pngs(&look, "overlay_");
-    let overlay_bust_frames = overlay_pngs(&look, "overlay_bust_");
-    let frames = numbered_pngs(dir, "idle_", 8);
+    let bust: Vec<String> = (0..8)
+        .filter_map(|i| data_url(&dir.join(format!("bust_{i}.png"))))
+        .collect();
+    let bust_frames = if bust.len() == 8 { bust } else { Vec::new() };
+    let bust_think: Vec<String> = (0..8)
+        .filter_map(|i| data_url(&thinking_dir.join(format!("bust_{i}.png"))))
+        .collect();
+    let bust_thinking_frames = if bust_think.len() == 8 { bust_think } else { Vec::new() };
+    let frames: Vec<String> = (0..8)
+        .filter_map(|i| data_url(&dir.join(format!("idle_{i}.png"))))
+        .collect();
     if frames.len() == 8 {
         return Ok(CompanionArt {
             frames,
@@ -216,10 +170,6 @@ fn spirit_art_from(dir: &Path) -> Result<CompanionArt, String> {
             sheet: None,
             frame_ms: FRAME_MS,
             smooth: false,
-            look_frames,
-            look_bust_frames,
-            overlay_frames,
-            overlay_bust_frames,
         });
     }
     // Slices missing: play the blessed sheet, sliced 1:1 in the webview.
@@ -237,10 +187,6 @@ fn spirit_art_from(dir: &Path) -> Result<CompanionArt, String> {
             }),
             frame_ms: FRAME_MS,
             smooth: false,
-            look_frames,
-            look_bust_frames,
-            overlay_frames,
-            overlay_bust_frames,
         });
     }
     Err("spirit missing".into())
@@ -318,51 +264,5 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
 
-    fn brand_spirit() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../brand/companion/spirit")
-    }
 
-    #[test]
-    fn spirit_loads_eight_dir_and_overlay() {
-        let art = spirit_art_from(&brand_spirit()).expect("blessed spirit dir");
-        assert_eq!(art.frames.len(), 8);
-        assert_eq!(art.look_frames.len(), 8, "8-dir look cells");
-        assert_eq!(art.look_bust_frames.len(), 8);
-        assert_eq!(art.overlay_frames.len(), 6, "blink poke sleepy sparkle delighted dizzy");
-        assert_eq!(art.overlay_bust_frames.len(), 6);
-        assert!(art.look_frames[0].starts_with("data:image/png;base64,"));
-        assert_ne!(
-            art.look_frames[0], art.look_frames[4],
-            "east and west cells must differ"
-        );
-        assert_ne!(art.overlay_frames[0], art.overlay_frames[1]);
-    }
-
-    #[test]
-    fn missing_look_dir_fails_soft() {
-        let tmp = std::env::temp_dir().join(format!(
-            "orbitty-look-at-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        std::fs::create_dir_all(&tmp).unwrap();
-        let src = brand_spirit();
-        for i in 0..8 {
-            std::fs::copy(src.join(format!("idle_{i}.png")), tmp.join(format!("idle_{i}.png")))
-                .unwrap();
-        }
-        let art = spirit_art_from(&tmp).unwrap();
-        assert_eq!(art.frames.len(), 8);
-        assert!(art.look_frames.is_empty());
-        assert!(art.overlay_frames.is_empty());
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-}
