@@ -170,6 +170,63 @@ if ! launchctl bootstrap "gui/${UID_NUM}" "$RELAY_PLIST"; then
   echo "WARNING: launchctl bootstrap space.orbitty.relay failed — binary is installed" >&2
 fi
 
+# GO-ORBITTY-1B-SIDECAR: kitchen venv + loopback HTTP. Weights stay
+# on MiniHangar — never ditto into Orbitty.app. Fail open: keywords.
+MOUTH_DIR="$PWD/sidecar/mouth"
+MOUTH_WEIGHTS="/Volumes/MiniHangar/models/orbitty-mouth/mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+if [[ -f "$MOUTH_DIR/setup.sh" ]]; then
+  echo "==> Mouth sidecar venv"
+  bash "$MOUTH_DIR/setup.sh" || echo "WARNING: mouth sidecar venv failed — Quick ack stays keywords" >&2
+fi
+if [[ -x "$MOUTH_DIR/.venv/bin/python" ]]; then
+  MOUTH_PLIST="$HOME/Library/LaunchAgents/space.orbitty.mouth.plist"
+  MOUTH_LOG="$HOME/Library/Application Support/space.orbitty.mac/mouth"
+  mkdir -p "$MOUTH_LOG"
+  cat > "$MOUTH_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.orbitty.mouth</string>
+  <key>WorkingDirectory</key>
+  <string>$MOUTH_DIR</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$MOUTH_DIR/.venv/bin/python</string>
+    <string>$MOUTH_DIR/serve.py</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$MOUTH_LOG/mouth.log</string>
+  <key>StandardErrorPath</key>
+  <string>$MOUTH_LOG/mouth.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>$HOME</string>
+    <key>PATH</key>
+    <string>$MOUTH_DIR/.venv/bin:$CTL_DIR:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>ORBITTY_MOUTH_PORT</key>
+    <string>13121</string>
+    <key>ORBITTY_MOUTH_WEIGHTS</key>
+    <string>$MOUTH_WEIGHTS</string>
+  </dict>
+</dict>
+</plist>
+PLIST
+  UID_NUM="$(id -u)"
+  launchctl bootout "gui/${UID_NUM}/space.orbitty.mouth" >/dev/null 2>&1 || true
+  if ! launchctl bootstrap "gui/${UID_NUM}" "$MOUTH_PLIST"; then
+    echo "WARNING: launchctl bootstrap space.orbitty.mouth failed — keywords stay Quick ack" >&2
+  fi
+else
+  echo "WARNING: sidecar/mouth/.venv missing — Quick ack stays keywords" >&2
+fi
+
 echo "==> Writing Goose orbitty seat (idempotent merge)"
 "$PWD/scripts/write-goose-orbitty-seat.sh" || echo "WARNING: Goose seat write failed — MCP binary is still installed" >&2
 

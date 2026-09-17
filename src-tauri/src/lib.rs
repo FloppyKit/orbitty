@@ -35,6 +35,7 @@ mod mouth_ack;
 mod mouth_blip;
 mod mouth_hop;
 mod mouth_scan;
+mod mouth_sidecar;
 mod mouth_roll;
 mod needed_rules;
 mod nextcard;

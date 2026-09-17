@@ -116,11 +116,16 @@ fn conduct_blocking(app: &tauri::AppHandle, line: &str, model: &str) -> Step {
         }
         Mint::No => {}
     }
-    // 3. Classify — built-in only this GO. A scanned small local may
-    //    show as "next phrase" in Settings; it is not the conductor.
+    // 3. Classify — 1B sidecar if it beats 200ms + P, else keywords.
     //    Never Grok / OpenRouter / LM Studio chat as Quick ack.
-    let (verb, ack) = fallback_classify(line);
     let _ = model;
+    let (verb, ack, via) = match crate::mouth_sidecar::classify(line) {
+        Some(c) => (c.verb, c.ack, "sidecar"),
+        None => {
+            let (v, a) = fallback_classify(line);
+            (v, a, "keywords")
+        }
+    };
     crate::event_log::append_best(
         app,
         "companion-ack",
@@ -128,7 +133,7 @@ fn conduct_blocking(app: &tauri::AppHandle, line: &str, model: &str) -> Step {
         None,
         Some("agent"),
         true,
-        &json!({ "verb": verb, "n": ack.chars().count() }),
+        &json!({ "verb": verb, "n": ack.chars().count(), "via": via }),
     );
     match verb {
         "chat" => Step::Chat(ack),

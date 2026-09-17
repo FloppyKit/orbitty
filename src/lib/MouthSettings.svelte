@@ -299,14 +299,15 @@
         class:active={conductorOn}
         aria-pressed={conductorOn}
         onclick={() => pickAck(true)}
-        title="Built-in classifier, no download. Never Grok."
+        title="1B sidecar if it is up, else a tiny classifier. Never Grok."
       >Built-in</button>
     </div>
     {#if scan?.nextAck}
       <p class="help">Next: {scan.nextAck} — not used as Quick ack yet.</p>
     {/if}
     <p class="help">
-      A fast “heard you” before the real reply. Built-in needs no download. Never Grok.
+      A fast “heard you” before the real reply. Built-in is the 1B sidecar
+      on this Mac when it is hot; otherwise the tiny classifier. Never Grok.
     </p>
   </div>
 </div>

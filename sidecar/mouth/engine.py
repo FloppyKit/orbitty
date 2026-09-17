@@ -1,0 +1,157 @@
+"""Harsha-style constrained classify for Orbitty Quick ack.
+
+Not a chat model. Prefill once, slice logits over a closed verb set
+(and a closed ack set). Weights stay on MiniHangar. Apache-2.0 idea:
+harshatheg parallel constrained decode (logit slice, not JSON-mode).
+"""
+
+from __future__ import annotations
+
+import os
+import time
+from typing import Any
+
+VERBS = ["chat", "do-go", "run-action", "ask-needed", "none"]
+ACKS = ["on_it", "heard", "one_sec", "hand_off", "your_call", "got_file", "nope"]
+ACK_BY_VERB = {
+    "chat": "on_it",
+    "none": "heard",
+    "do-go": "hand_off",
+    "run-action": "nope",
+    "ask-needed": "your_call",
+}
+
+DEFAULT_WEIGHTS = os.path.expanduser(
+    "/Volumes/MiniHangar/models/orbitty-mouth/mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+)
+
+_model = None
+_tokenizer = None
+_mx = None
+_load_err: str | None = None
+
+
+def weights_path() -> str:
+    return os.environ.get("ORBITTY_MOUTH_WEIGHTS", DEFAULT_WEIGHTS).strip() or DEFAULT_WEIGHTS
+
+
+def ready() -> bool:
+    return _model is not None and _tokenizer is not None
+
+
+def load_error() -> str | None:
+    return _load_err
+
+
+def load_model() -> None:
+    global _model, _tokenizer, _mx, _load_err
+    if _model is not None:
+        return
+    path = weights_path()
+    if not os.path.isdir(path):
+        _load_err = f"weights missing: {path}"
+        return
+    try:
+        import mlx.core as mx
+        from mlx_lm import load
+
+        _mx = mx
+        _model, _tokenizer = load(path)
+        _load_err = None
+        # Warm one forward so the first classify is not the compile.
+        _ = _score_choices('{"verb":"', VERBS)
+    except Exception as e:  # noqa: BLE001 — sidecar must stay up
+        _model = None
+        _tokenizer = None
+        _load_err = f"{type(e).__name__}: {e}"
+
+
+def _encode_choice(text: str) -> list[int]:
+    tok = _tokenizer
+    ids = tok.encode(text, add_special_tokens=False)
+    if isinstance(ids, tuple):
+        ids = ids[0]
+    return [int(i) for i in ids]
+
+
+def _prompt(line: str) -> str:
+    user = (line or "").replace("\n", " ").strip()
+    if len(user) > 400:
+        user = user[:399] + "…"
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You pick one Orbitty verb for the user line. "
+                "chat=talk, the mouth answers. none=noise/thanks. "
+                "do-go=fire a GO or hand to Cursor. "
+                "run-action=run a saved Action by name. "
+                "ask-needed=Matt must decide. "
+                "Then pick one ack id. No other words."
+            ),
+        },
+        {"role": "user", "content": user or "(empty)"},
+    ]
+    tok = _tokenizer
+    if hasattr(tok, "apply_chat_template"):
+        return tok.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+    return f"System: {messages[0]['content']}\nUser: {user}\nAssistant: "
+
+
+def _forward_last_logits(prefix: str):
+    mx = _mx
+    ids = _tokenizer.encode(prefix, add_special_tokens=False)
+    if isinstance(ids, tuple):
+        ids = ids[0]
+    arr = mx.array([list(ids)])
+    out = _model(arr)
+    logits = out.logits if hasattr(out, "logits") else out
+    # logits: [B, T, V]
+    return logits[0, -1, :]
+
+
+def _score_choices(prefix: str, choices: list[str]) -> list[tuple[str, float]]:
+    mx = _mx
+    last = _forward_last_logits(prefix)
+    rows: list[tuple[str, Any]] = []
+    for c in choices:
+        ids = _encode_choice(c)
+        if not ids:
+            continue
+        rows.append((c, last[ids[0]]))
+    if not rows:
+        return [(choices[0], 1.0)]
+    z = mx.stack([r[1] for r in rows])
+    p = mx.softmax(z.astype(mx.float32))
+    mx.eval(p)
+    out = [(rows[i][0], float(p[i])) for i in range(len(rows))]
+    out.sort(key=lambda x: x[1], reverse=True)
+    return out
+
+
+def classify(line: str) -> dict[str, Any]:
+    t0 = time.perf_counter()
+    if not ready():
+        load_model()
+    if not ready():
+        return {
+            "ok": False,
+            "error": load_error() or "not ready",
+            "elapsed_ms": (time.perf_counter() - t0) * 1000.0,
+        }
+    base = _prompt(line)
+    # One forward after prefill — a second ack pass blew the 200ms gate
+    # and picked junk. Ack splash is a table from the verb this GO.
+    verbs = _score_choices(base + '{"verb":"', VERBS)
+    verb, vprob = verbs[0]
+    elapsed = (time.perf_counter() - t0) * 1000.0
+    return {
+        "ok": True,
+        "verb": verb,
+        "prob": vprob,
+        "ack": ACK_BY_VERB.get(verb, "on_it"),
+        "elapsed_ms": elapsed,
+        "top": [{"choice": c, "prob": p} for c, p in verbs[:3]],
+    }
