@@ -101,6 +101,9 @@ fn stripped(before: &PersistedState, after: &PersistedState) -> Vec<AgentRun> {
 pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &PersistedState) {
     let (mints, dones, drops) = transitions(before, after);
     let heals = stripped(before, after);
+    if !drops.is_empty() {
+        crate::agent_stop::stop_resets(app, before, &drops);
+    }
     if mints.is_empty() && dones.is_empty() && drops.is_empty() && heals.is_empty() {
         return;
     }

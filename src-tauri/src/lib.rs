@@ -6,6 +6,8 @@ mod attach_vision;
 #[cfg(unix)]
 mod agent_runs;
 #[cfg(unix)]
+mod agent_stop;
+#[cfg(unix)]
 mod agents;
 #[cfg(unix)]
 mod board;

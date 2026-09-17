@@ -16,7 +16,7 @@ fn app_data(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 /// Project ids are app-generated (`p-…`); filter anyway so a hand-edited
 /// state.json can never become a path traversal.
-fn safe_id(project_id: &str) -> String {
+pub(crate) fn safe_id(project_id: &str) -> String {
     project_id
         .chars()
         .map(|c| {
@@ -2861,9 +2861,11 @@ fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
     let ctl = std::env::var("HOME")
         .map(|h| format!("{h}/.local/bin/orbittyctl"))
         .unwrap_or_else(|_| "orbittyctl".into());
+    let pidf = query.with_extension("pid");
     let body = format!(
-        "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\ntrap 'exit' HUP\ntrap '\"{ctl}\" companion hack -- off >/dev/null 2>&1 || true' EXIT\n{exec_line}\n",
+        "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\necho $$ > \"{pid}\"\ntrap 'exit' HUP\ntrap '\"{ctl}\" companion hack -- off >/dev/null 2>&1 || true; rm -f \"{pid}\"' EXIT\n{exec_line}\n",
         q = query.display(),
+        pid = pidf.display(),
     );
     std::fs::write(&script, &body)
         .map_err(|e| format!("write {}: {e}", script.display()))?;
