@@ -12,6 +12,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { eventElement } from "./dragPane";
 
   // Chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
@@ -270,6 +271,35 @@
   let dockDragging = $state(false);
   let hoverArmed = $state(true);
 
+  function freezeDragHover() {
+    dockDragging = true;
+    hoverArmed = false;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+  }
+
+  function unfreezeDragHover() {
+    dockDragging = false;
+    hoverArmed = false;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+  }
+
+  // Window-drag: no control hover. Freeze on chrome grab, not after slop —
+  // a grab next to the field still drifts onto Thin/+.
+  function onChromeDown(e: MouseEvent | PointerEvent) {
+    if (e.button !== 0) {
+      onDockMouseDown(e);
+      return;
+    }
+    const t = eventElement(e);
+    const onControl = t?.closest(
+      "button, input, a, select, textarea, option, .field, .volpop, .agentbubble, .agentopt",
+    );
+    if (!onControl) freezeDragHover();
+    onDockMouseDown(e);
+  }
+
   onMount(async () => {
     const onDoc = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
@@ -283,22 +313,16 @@
       agentOpen = false;
     };
     window.addEventListener("mousedown", onDocAgent);
-    const armHover = () => {
-      if (!dockDragging) hoverArmed = true;
+    const armHover = (ev: PointerEvent) => {
+      if (dockDragging || ev.buttons & 1) return;
+      hoverArmed = true;
     };
     window.addEventListener("pointermove", armHover);
-    const unBegin = await listen("pane-drag-begin", () => {
-      dockDragging = true;
-      hoverArmed = false;
-      const active = document.activeElement;
-      if (active instanceof HTMLElement) active.blur();
-    });
-    const unEnd = await listen("pane-drag-end", () => {
-      dockDragging = false;
-      hoverArmed = false;
-      const active = document.activeElement;
-      if (active instanceof HTMLElement) active.blur();
-    });
+    const onUp = () => unfreezeDragHover();
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    const unBegin = await listen("pane-drag-begin", () => freezeDragHover());
+    const unEnd = await listen("pane-drag-end", () => unfreezeDragHover());
     measureField();
     // Tile open/close widens the window → rewrap → re-grow without
     // waiting for the next keystroke. RO fires only on real size
@@ -308,6 +332,8 @@
       window.removeEventListener("mousedown", onDoc);
       window.removeEventListener("mousedown", onDocAgent);
       window.removeEventListener("pointermove", armHover);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       window.removeEventListener("resize", growField);
       unBegin();
       unEnd();
@@ -322,7 +348,7 @@
     class="ghostdock"
     class:dragging={dockDragging}
     class:hover-armed={hoverArmed}
-    onmousedown={onDockMouseDown}
+    onmousedown={onChromeDown}
   >
   {#if cheatSheetHint}
     <div class="actionrow">
@@ -804,6 +830,15 @@
     margin-bottom: 8px;
     border: 1px solid transparent;
     cursor: grab;
+  }
+
+  /* Window-drag: highlight_text=No. Cover the dock so Thin/+ / Spark
+     cannot :hover as the cursor drifts into the field. */
+  .ghostdock.dragging::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 50;
   }
 
   .ghostdock :is(button, input, select, textarea, .field, a) {
