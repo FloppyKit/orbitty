@@ -11,6 +11,7 @@ mod agents;
 mod board;
 mod chars;
 mod companion;
+mod companion_look;
 mod companion_clear;
 mod companion_desk;
 #[cfg(unix)]

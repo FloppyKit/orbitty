@@ -14,6 +14,14 @@ Matt 2026-08-25: `spirit-idle-thinking-v9` is the **thinking / loading** swap on
 | `bust_0.png`…`bust_7.png` | Head closeup ship path — `bake_spirit_bust.py`, tight camera = the old top-128px closeup of v5 rest tightened to the face, hard alpha, nearest-neighbor (SPIRIT-ROLLBACK 2026-08-28; the head+neck+collar "timid" reframe is dead) |
 | `thinking/bust_0.png`…`bust_7.png` | Head thinking closeup ship path (same tight camera over v9) |
 | `bust_strip.png`, `thinking/bust_strip.png` | Bust review strips — review only, never bundled |
+| `look/look_0.png`…`look_7.png` | GO-ORBITTY-LOOK-AT 8-dir eye cells (E NE N NW W SW S SE) from idle_0 |
+| `look/bust_0.png`…`bust_7.png` | Same 8-dir on the Head bust |
+| `look/overlay_*.png`, `look/overlay_bust_*.png` | Reaction overlay: blink, poke, sleepy, sparkle, delighted, dizzy |
+| `look_strip.png`, `overlay_strip.png` | Look-at review strips — review only, never bundled |
+| `look/look_0.png`…`look_7.png` | GO-ORBITTY-LOOK-AT 8-dir eye cells (E NE N NW W SW S SE) from idle_0 |
+| `look/bust_0.png`…`bust_7.png` | Same 8-dir on the Head bust |
+| `look/overlay_*.png`, `look/overlay_bust_*.png` | Reaction overlay: blink, poke, sleepy, sparkle, delighted, dizzy |
+| `look_strip.png`, `overlay_strip.png` | Look-at review strips — review only, never bundled |
 
 ## Product lock (spark companion only)
 - **Rest:** v5 idle loop (rose rim at rest pose).
