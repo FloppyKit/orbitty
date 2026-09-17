@@ -18,6 +18,7 @@
   import { mdLite } from "./mdLite";
   import "./chrome.css";
   import "./boardStack.css";
+  import "./mdLite.css";
   import type {
     Actor,
     AgentRun,
@@ -2611,7 +2612,7 @@
             {/if}
           </div>
           {#if card.neededWhy}
-            <div class="kn-why">{@html mdLite(card.neededWhy)}</div>
+            <div class="kn-why md-lite">{@html mdLite(card.neededWhy)}</div>
           {/if}
         {:else}
         {#if !previewEdit}
@@ -2636,7 +2637,7 @@
             <p class="d-read-line">Rating {card.rating}</p>
           {/if}
           {#if card.notes}
-            <div class="d-read-notes">{card.notes}</div>
+            <div class="d-read-notes md-lite">{@html mdLite(card.notes)}</div>
           {/if}
           {#if due}
             <p class="d-read-line" class:overdue={due.overdue}>{due.label}</p>

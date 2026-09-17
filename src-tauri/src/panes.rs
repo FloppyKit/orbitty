@@ -63,7 +63,7 @@ pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(
         // pane, not a drawer — a confirm never docks on the rail.
         "yard-warn" => Some(("", 400.0, 330.0, None)),
         // own small card window, not dock chrome.
-        "next-card" => Some(("", 340.0, 260.0, Some((280.0, 180.0)))),
+        "next-card" => Some(("", 360.0, 420.0, Some((280.0, 220.0)))),
         "cheatsheet" => Some(("", 360.0, 420.0, Some((280.0, 240.0)))),
         _ => None,
     }

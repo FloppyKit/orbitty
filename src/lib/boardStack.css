@@ -710,7 +710,6 @@
 }
 
 .d-read-notes {
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
   font-size: 0.82rem;

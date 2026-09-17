@@ -11,6 +11,8 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import { mdLite } from "./mdLite";
+  import "./mdLite.css";
   import type {
     AverageWindow,
     Claim,
@@ -435,7 +437,7 @@
       {#if lpTab === "needed" && neededCard}
         <p class="nc-title">{neededCard.title}</p>
         {#if neededCard.neededWhy}
-          <p class="nc-why">{neededCard.neededWhy}</p>
+          <div class="nc-why md-lite">{@html mdLite(neededCard.neededWhy)}</div>
         {/if}
         <div class="nc-answer">
           <input
@@ -451,6 +453,9 @@
         <button class="nc-defer" onclick={() => laterNeeded(neededCard)}>Not now</button>
       {:else if todoCard}
         <p class="nc-title">{todoCard.title}</p>
+        {#if todoCard.notes}
+          <div class="nc-why md-lite">{@html mdLite(todoCard.notes)}</div>
+        {/if}
         <button class="nc-defer" onclick={() => completeTodo(todoCard)}>Done</button>
       {:else}
         <p class="nc-why">No Needed or todos.</p>
@@ -533,6 +538,9 @@
     flex: 1;
     min-height: 0;
     padding: 4px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   .nc-head {
     display: flex;
@@ -540,6 +548,7 @@
     justify-content: space-between;
     gap: 8px;
     margin-bottom: 4px;
+    flex-shrink: 0;
   }
   .nc-kicker {
     font-size: 0.68rem;
@@ -573,11 +582,15 @@
     margin: 0 0 4px;
     font-size: 0.92rem;
     line-height: 1.3;
+    flex-shrink: 0;
   }
   .nc-why {
     margin: 0 0 6px;
-    font-size: 0.78rem;
-    color: var(--dim);
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    font-size: 0.82rem;
+    color: var(--ink);
   }
   .nc-acts {
     display: flex;
@@ -589,6 +602,7 @@
     display: flex;
     gap: 6px;
     margin: 6px 0 4px;
+    flex-shrink: 0;
   }
   .nc-answer input {
     flex: 1;
@@ -614,6 +628,7 @@
     border: 1px solid var(--ink);
     border-radius: 10px;
     cursor: pointer;
+    flex-shrink: 0;
   }
   .nc-defer:hover {
     background: var(--bg-fill, var(--panel));
