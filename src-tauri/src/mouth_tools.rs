@@ -44,6 +44,64 @@ pub fn run(app: &tauri::AppHandle, name: &str, args: &Value) -> String {
     }
 }
 
+fn is_needed(id: &str, kind: Option<&str>) -> bool {
+    kind.is_some_and(|k| k.eq_ignore_ascii_case("needed")) || id.starts_with("n-")
+}
+
+fn status_ok(filter: &str, stt: &str) -> bool {
+    match filter {
+        "open" => stt == "todo" || stt == "doing",
+        s => stt.eq_ignore_ascii_case(s),
+    }
+}
+
+fn clip_title(title: &str) -> Option<String> {
+    let t = title.trim().replace('\n', " ");
+    if t.is_empty() {
+        None
+    } else {
+        Some(t)
+    }
+}
+
+const BUCKET_CAP: usize = 24;
+
+fn push_cap(dst: &mut Vec<String>, title: String) {
+    if dst.len() < BUCKET_CAP {
+        dst.push(title);
+    }
+}
+
+fn format_blocks(
+    pid: &str,
+    filter: &str,
+    todo: &[String],
+    todo_n: usize,
+    doing: &[String],
+    doing_n: usize,
+    needed: &[String],
+    needed_n: usize,
+) -> String {
+    let count = todo_n + doing_n + needed_n;
+    if count == 0 {
+        return format!("count=0\norbitty planet {pid}: no {filter} cards");
+    }
+    fn block(name: &str, n: usize, titles: &[String]) -> String {
+        let mut s = format!("{name} ({n}):");
+        for t in titles {
+            s.push('\n');
+            s.push_str(t);
+        }
+        s
+    }
+    format!(
+        "count={count}\norbitty planet {pid}:\n{}\n{}\n{}",
+        block("TODO", todo_n, todo),
+        block("DOING", doing_n, doing),
+        block("NEEDED", needed_n, needed)
+    )
+}
+
 fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
     let Ok(st) = crate::state::load_state(app) else {
         return "board unreadable".into();
@@ -77,37 +135,37 @@ fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
         .unwrap_or("open")
         .trim()
         .to_ascii_lowercase();
-    let mut lines: Vec<String> = Vec::new();
+    let mut todo: Vec<String> = Vec::new();
+    let mut doing: Vec<String> = Vec::new();
+    let mut needed: Vec<String> = Vec::new();
+    let mut todo_n = 0usize;
+    let mut doing_n = 0usize;
+    let mut needed_n = 0usize;
     for c in &st.kanban_cards {
         if c.project_id != pid {
             continue;
         }
         let stt = c.status.trim();
-        let ok = match status.as_str() {
-            "open" => stt == "todo" || stt == "doing",
-            s => stt.eq_ignore_ascii_case(s),
+        if !status_ok(&status, stt) {
+            continue;
+        }
+        let Some(title) = clip_title(&c.title) else {
+            continue;
         };
-        if !ok {
-            continue;
-        }
-        let title = c.title.trim().replace('\n', " ");
-        if title.is_empty() {
-            continue;
-        }
-        lines.push(format!("{stt}\t{title}"));
-        if lines.len() >= 24 {
-            break;
+        if is_needed(&c.id, c.kind.as_deref()) {
+            needed_n += 1;
+            push_cap(&mut needed, title);
+        } else if stt.eq_ignore_ascii_case("doing") {
+            doing_n += 1;
+            push_cap(&mut doing, title);
+        } else {
+            todo_n += 1;
+            push_cap(&mut todo, title);
         }
     }
-    if lines.is_empty() {
-        format!("count=0\norbitty planet {pid}: no {status} cards")
-    } else {
-        format!(
-            "count={}\norbitty planet {pid} ({status}):\n{}",
-            lines.len(),
-            lines.join("\n")
-        )
-    }
+    format_blocks(
+        &pid, &status, &todo, todo_n, &doing, doing_n, &needed, needed_n,
+    )
 }
 
 #[cfg(test)]
@@ -129,5 +187,33 @@ mod tests {
             "orbitty"
         );
         assert_eq!(project_from_line("ping"), "orbitty");
+    }
+
+    #[test]
+    fn needed_is_kind_or_n_prefix() {
+        assert!(is_needed("n-abc", None));
+        assert!(is_needed("c-abc", Some("needed")));
+        assert!(is_needed("c-abc", Some("NEEDED")));
+        assert!(!is_needed("c-abc", Some("todo")));
+        assert!(!is_needed("c-abc", None));
+    }
+
+    #[test]
+    fn snapshot_splits_needed_out_of_todo() {
+        let out = format_blocks(
+            "p-orbitty",
+            "open",
+            &["GO-ORBITTY-SLEEP-PRESETS".into()],
+            1,
+            &["Later: harness pick".into()],
+            1,
+            &["Who runs this doing GO?".into()],
+            1,
+        );
+        assert!(out.starts_with("count=3\n"));
+        assert!(out.contains("TODO (1):\nGO-ORBITTY-SLEEP-PRESETS"));
+        assert!(out.contains("DOING (1):\nLater: harness pick"));
+        assert!(out.contains("NEEDED (1):\nWho runs this doing GO?"));
+        assert!(!out.contains("todo\t"));
     }
 }

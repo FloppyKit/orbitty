@@ -54,6 +54,7 @@ struct SidecarOut {
 
 pub fn splash_for(ack: &str, verb: &str) -> String {
     match ack.trim() {
+        "on_it" => "On it.".into(),
         "heard" => "Heard you.".into(),
         "one_sec" => "One sec.".into(),
         "hand_off" => "Handing that off.".into(),
@@ -133,9 +134,13 @@ mod tests {
 
     #[test]
     fn splash_table() {
-        assert_eq!(splash_for("heard", "none"), "Heard you.");
         assert_eq!(splash_for("on_it", "chat"), "On it.");
+        assert_eq!(splash_for("heard", "none"), "Heard you.");
+        assert_eq!(splash_for("one_sec", "chat"), "One sec.");
         assert_eq!(splash_for("hand_off", "do-go"), "Handing that off.");
+        assert_eq!(splash_for("your_call", "ask-needed"), "That call is yours.");
+        assert_eq!(splash_for("got_file", "chat"), "Got the file.");
+        assert_eq!(splash_for("nope", "run-action"), "Not that door.");
     }
 
     #[test]

@@ -21,6 +21,9 @@ ACK_BY_VERB = {
     "run-action": "nope",
     "ask-needed": "your_call",
 }
+# Skip the extra ack decode unless verb_ms leaves >=80 ms under the 200 ms gate.
+ACK_ROOM_MS = 80.0
+SWAP_IN_MS = 200.0
 
 DEFAULT_WEIGHTS = os.path.expanduser(
     "/Volumes/MiniHangar/models/orbitty-mouth/mlx-community/Qwen2.5-1.5B-Instruct-4bit"
@@ -148,6 +151,14 @@ def classify(line: str) -> dict[str, Any]:
     verbs = _score_choices(base + '{"verb":"', VERBS)
     verb, vprob = verbs[0]
     verb_ms = (time.perf_counter() - t0) * 1000.0
+    ack = ACK_BY_VERB.get(verb, "on_it")
+    if verb_ms <= (SWAP_IN_MS - ACK_ROOM_MS):
+        try:
+            acks = _score_choices(base + '{"ack":"', ACKS)
+            if acks:
+                ack = acks[0][0]
+        except Exception:
+            pass
     harness, hprob = "job", 0.0
     try:
         hs = _score_choices(base + '{"harness":"', HARNESSES)
@@ -159,7 +170,7 @@ def classify(line: str) -> dict[str, Any]:
         "ok": True,
         "verb": verb,
         "prob": vprob,
-        "ack": ACK_BY_VERB.get(verb, "on_it"),
+        "ack": ack,
         "harness": harness,
         "harness_prob": hprob,
         "verb_ms": verb_ms,

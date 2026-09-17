@@ -614,4 +614,18 @@ mod tests {
         // A plain mention is not a fire.
         assert_eq!(fallback_classify("what about GO-ORBITTY-MOUTH-ACK?").0, "chat");
     }
+
+    #[test]
+    fn chat_splash_closed_set() {
+        use crate::mouth_sidecar::splash_for;
+        assert_eq!(splash_for("on_it", "chat"), "On it.");
+        assert_eq!(splash_for("heard", "chat"), "Heard you.");
+        assert_eq!(splash_for("one_sec", "chat"), "One sec.");
+        assert_eq!(splash_for("hand_off", "chat"), "Handing that off.");
+        assert_eq!(splash_for("your_call", "chat"), "That call is yours.");
+        assert_eq!(splash_for("got_file", "chat"), "Got the file.");
+        assert_eq!(splash_for("nope", "chat"), "Not that door.");
+        assert!(fixed_ack("do-go").contains("board"));
+        assert!(fixed_ack("none").contains("Heard you."));
+    }
 }
