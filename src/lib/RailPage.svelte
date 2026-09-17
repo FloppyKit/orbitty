@@ -169,6 +169,7 @@
   let agentRuns = $state<AgentRun[]>([]);
   let neededSplit = $state(0.28);
   let previewWidth = $state(280);
+  let trackerSplit = $state(0.20);
   let openSubtaskIds = $state<string[]>([]);
   let todoTrees = $state<import("./persist").TodoTree[]>([]);
   let treeGrowDays = $state(14);
@@ -705,6 +706,7 @@
       agentRuns,
       neededSplit: neededSplit,
       previewWidth: previewWidth,
+      trackerSplit: trackerSplit,
       openSubtaskIds,
       todoTrees,
       treeGrowDays,
@@ -2306,6 +2308,7 @@
       agentRuns = s.agentRuns ?? [];
       neededSplit = s.neededSplit ?? 0.28;
       previewWidth = s.previewWidth ?? 280;
+      trackerSplit = s.trackerSplit ?? 0.20;
       openSubtaskIds = s.openSubtaskIds ?? [];
       todoTrees = s.todoTrees ?? [];
       treeGrowDays = s.treeGrowDays ?? 14;
@@ -2497,6 +2500,7 @@
         agentRuns = s.agentRuns ?? [];
         neededSplit = s.neededSplit ?? 0.28;
         previewWidth = s.previewWidth ?? 280;
+        trackerSplit = s.trackerSplit ?? 0.20;
         openSubtaskIds = s.openSubtaskIds ?? [];
         companionState = s.companion ?? companionState;
         // STARS: the STARS window's check-in saves and the companion's

@@ -85,8 +85,10 @@
   let selectedBeforeDone = $state("inbox");
   let neededSplit = $state(0.28);
   let previewWidth = $state(280);
+  let trackerSplit = $state(0.20);
   let mailEl: HTMLDivElement | null = $state(null);
   let bodyEl: HTMLDivElement | null = $state(null);
+  let eastEl: HTMLDivElement | null = $state(null);
   let addingTodo = $state(false);
   let newTodoTitle = $state("");
   let openSubtaskIds = $state<string[]>([]);
@@ -853,6 +855,7 @@
       agentRuns = s.agentRuns ?? [];
       neededSplit = Math.min(0.45, Math.max(0.18, s.neededSplit ?? 0.28));
       previewWidth = Math.max(160, s.previewWidth ?? 280);
+      trackerSplit = Math.min(0.55, Math.max(0.14, s.trackerSplit ?? 0.20));
       openSubtaskIds = s.openSubtaskIds ?? [];
       hackProjectId = s.companion?.hackLive
         ? (s.companion?.hackProjectId ?? null)
@@ -1147,7 +1150,10 @@
     const body = bodyEl;
     const prevMin = previewMinPx();
     if (!body) return Math.max(prevMin, px);
-    const avail = Math.max(body.clientWidth - 22, 1);
+    const cs = getComputedStyle(body);
+    const pad =
+      (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const avail = Math.max(body.clientWidth - pad - 12, 1);
     const maxPreview = Math.max(prevMin, avail - mailMinPx());
     return Math.min(maxPreview, Math.max(prevMin, px));
   }
@@ -1177,6 +1183,40 @@
     previewWidth = clampPreview(280);
     mutate((s) => {
       s.previewWidth = previewWidth;
+    });
+  }
+
+  function clampTracker(frac: number): number {
+    return Math.min(0.55, Math.max(0.14, frac));
+  }
+
+  function onTrackSplitDown(e: PointerEvent) {
+    const el = eastEl;
+    if (!el) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const startY = e.clientY;
+    const start = trackerSplit;
+    const h = Math.max(el.clientHeight, 1);
+    const move = (ev: PointerEvent) => {
+      trackerSplit = clampTracker(start + (ev.clientY - startY) / h);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const v = trackerSplit;
+      mutate((s) => {
+        s.trackerSplit = v;
+      });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  function resetTrackerSplit() {
+    trackerSplit = 0.20;
+    mutate((s) => {
+      s.trackerSplit = 0.20;
     });
   }
 
@@ -2431,12 +2471,13 @@
       onpointerdown={onEastSplitDown}
       ondblclick={resetPreviewWidth}
     ></div>
-    <div class="k-east" style="width: {previewWidth}px">
+    <div class="k-east" bind:this={eastEl} style="width: {previewWidth}px">
     {#if showTrackers}
       <section
         class="k-trackpane"
         class:armed={trackerArmed}
         bind:this={trackPaneEl}
+        style="flex: 0 0 {Math.round(trackerSplit * 100)}%"
         aria-label="Trackers"
       >
         <header class="k-trackpane-head">
@@ -2507,6 +2548,15 @@
           </svg>
         </button>
       </section>
+      <div
+        class="k-east-split"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize trackers"
+        title="Drag to resize Trackers · double-click resets"
+        onpointerdown={onTrackSplitDown}
+        ondblclick={resetTrackerSplit}
+      ></div>
     {/if}
     <aside class="k-detail" aria-label="Item details">
       <div class="k-preview-head">Preview:</div>
@@ -3621,7 +3671,7 @@
     width: 100%;
     box-sizing: border-box;
     min-width: 0;
-    min-height: 0;
+    min-height: 72px;
     overflow-x: hidden;
     overflow-y: auto;
     overflow-wrap: anywhere;

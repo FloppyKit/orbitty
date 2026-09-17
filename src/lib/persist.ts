@@ -339,6 +339,9 @@ export interface PersistedState {
   neededSplit?: number;
   // Launchpad preview column width in px. Default 280. Additive.
   previewWidth?: number;
+  // Launchpad east: Trackers fraction of the right column (0.14–0.55).
+  // Default 0.20. Additive.
+  trackerSplit?: number;
   // Parent todo ids whose nested subtasks are expanded.
   openSubtaskIds?: string[];
   // Unbound-todo trees on planets. Additive.

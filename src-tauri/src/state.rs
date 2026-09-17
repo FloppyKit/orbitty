@@ -86,6 +86,10 @@ pub struct PersistedState {
     /// Launchpad preview column width (px). Default 280. Additive.
     #[serde(default = "preview_width_default")]
     pub preview_width: f64,
+    /// Launchpad east: Trackers fraction of the right column (0.14–0.55).
+    /// Default 0.20. Additive.
+    #[serde(default = "tracker_split_default")]
+    pub tracker_split: f64,
     /// Parent todo ids with nested subtasks expanded on Launchpad.
     #[serde(default)]
     pub open_subtask_ids: Vec<String>,
@@ -115,6 +119,10 @@ fn needed_split_default() -> f64 {
 
 fn preview_width_default() -> f64 {
     280.0
+}
+
+fn tracker_split_default() -> f64 {
+    0.20
 }
 
 fn tree_grow_days_default() -> f64 {
@@ -246,6 +254,7 @@ impl Default for PersistedState {
             spend_usd: 0.0,
             needed_split: 0.28,
             preview_width: 280.0,
+            tracker_split: 0.20,
             open_subtask_ids: Vec::new(),
             todo_trees: Vec::new(),
             tree_grow_days: 14.0,
