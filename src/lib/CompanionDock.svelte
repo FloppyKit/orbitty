@@ -268,6 +268,7 @@
   });
 
   let dockDragging = $state(false);
+  let hoverArmed = $state(true);
 
   onMount(async () => {
     const onDoc = (e: MouseEvent) => {
@@ -282,20 +283,21 @@
       agentOpen = false;
     };
     window.addEventListener("mousedown", onDocAgent);
+    const armHover = () => {
+      if (!dockDragging) hoverArmed = true;
+    };
+    window.addEventListener("pointermove", armHover);
     const unBegin = await listen("pane-drag-begin", () => {
       dockDragging = true;
+      hoverArmed = false;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
     });
     const unEnd = await listen("pane-drag-end", () => {
       dockDragging = false;
+      hoverArmed = false;
       const active = document.activeElement;
       if (active instanceof HTMLElement) active.blur();
-      for (const el of document.querySelectorAll(".thinbtn, .fieldplus")) {
-        if (!(el instanceof HTMLElement)) continue;
-        el.style.pointerEvents = "none";
-        requestAnimationFrame(() => {
-          el.style.pointerEvents = "";
-        });
-      }
     });
     measureField();
     // Tile open/close widens the window → rewrap → re-grow without
@@ -305,6 +307,7 @@
     return () => {
       window.removeEventListener("mousedown", onDoc);
       window.removeEventListener("mousedown", onDocAgent);
+      window.removeEventListener("pointermove", armHover);
       window.removeEventListener("resize", growField);
       unBegin();
       unEnd();
@@ -315,7 +318,12 @@
 <!-- Agentrow + composer ride in one wrap — the
      ghost's outlined bottom slab. × stays a floating corner; ⚙ is on
      the dock after Expand (GEAR-DOCK). -->
-<div class="ghostdock" class:dragging={dockDragging} onmousedown={onDockMouseDown}>
+<div
+    class="ghostdock"
+    class:dragging={dockDragging}
+    class:hover-armed={hoverArmed}
+    onmousedown={onDockMouseDown}
+  >
   {#if cheatSheetHint}
     <div class="actionrow">
       <button
@@ -800,6 +808,22 @@
 
   .ghostdock :is(button, input, select, textarea, .field, a) {
     cursor: pointer;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Native pane drag swallows mouseleave; WKWebView keeps :hover
+     (Thin / + / Spark) until a real move. Ignore hit-testing until then. */
+  .ghostdock.dragging :is(button, input, textarea, a, .field),
+  .ghostdock:not(.hover-armed) :is(button, input, textarea, a, .field) {
+    pointer-events: none;
+  }
+
+  .ghostdock.dragging .agentpick:hover,
+  .ghostdock.dragging .agentpick:focus,
+  .ghostdock:not(.hover-armed) .agentpick:hover,
+  .ghostdock:not(.hover-armed) .agentpick:focus {
+    box-shadow: none;
   }
 
   .actionrow {
@@ -870,17 +894,23 @@
   }
 
   .agentpick {
+    box-sizing: border-box;
     flex: none;
     min-width: 4.6em;
     width: max-content;
-    padding: 3px 10px;
+    height: 26px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
     font: inherit;
     font-size: 0.78rem;
+    line-height: 1;
     color: var(--accent);
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--focus, #6e4db0);
     border-radius: 8px;
     outline: none;
+    box-shadow: none;
     cursor: pointer;
   }
 
@@ -896,7 +926,7 @@
     background: var(--bg-fill, var(--bg));
     border: 1px solid var(--edge);
     border-radius: 10px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: none;
     white-space: nowrap;
   }
 
@@ -955,7 +985,12 @@
     }
   }
 
-  .agentpick:focus {
+  .agentpick:focus,
+  .agentpick:focus-visible,
+  .agentopt:focus,
+  .agentopt:focus-visible {
+    outline: none;
+    box-shadow: none;
     border-color: var(--focus, #6e4db0);
   }
 
@@ -1026,6 +1061,11 @@
     opacity: 1;
   }
 
+  .ghostdock.dragging .dest::after,
+  .ghostdock:not(.hover-armed) .dest:hover::after {
+    opacity: 0;
+  }
+
   /* HOST-SPLIT: the dest whose well is live. */
   .dest.on {
     color: var(--accent);
@@ -1079,6 +1119,8 @@
      --focus #6e4db0 — the sparkle FILL stays ochre, pinky #c793e6 is
      --bloom (words/tags), never the ring. */
   .iconbtn {
+    box-sizing: border-box;
+    height: 26px;
     padding: 4px 7px;
     display: inline-flex;
     align-items: center;
@@ -1125,13 +1167,21 @@
     background: var(--bg-fill, var(--bg));
     border: 1px solid var(--edge);
     border-radius: 10px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: none;
   }
 
   .volpop input[type="range"] {
     width: 92px;
     margin: 0;
     accent-color: #fff;
+    outline: none;
+    box-shadow: none;
+  }
+
+  .volpop input[type="range"]:focus,
+  .volpop input[type="range"]:focus-visible {
+    outline: none;
+    box-shadow: none;
   }
 
   .viewbtn.on {
@@ -1274,8 +1324,9 @@
   }
   .ghostdock.dragging .thinbtn,
   .ghostdock.dragging .thinbtn:hover,
-  .ghostdock.dragging .thinbtn:focus {
-    pointer-events: none;
+  .ghostdock.dragging .thinbtn:focus,
+  .ghostdock:not(.hover-armed) .thinbtn:hover,
+  .ghostdock:not(.hover-armed) .thinbtn:focus {
     color: var(--dim);
     border-color: var(--edge, #444);
   }
@@ -1414,8 +1465,9 @@
   }
   .ghostdock.dragging .fieldplus,
   .ghostdock.dragging .fieldplus:hover,
-  .ghostdock.dragging .fieldplus:focus {
-    pointer-events: none;
+  .ghostdock.dragging .fieldplus:focus,
+  .ghostdock:not(.hover-armed) .fieldplus:hover,
+  .ghostdock:not(.hover-armed) .fieldplus:focus {
     color: var(--dim);
   }
 
