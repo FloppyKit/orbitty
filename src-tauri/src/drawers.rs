@@ -346,12 +346,38 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
             if drawer_mount_ok(&w) {
                 return;
             }
-            // wry 0.55 `reload()` / `navigate()` both unwrap-panic on a
-            // dead WKWebView (Orbitty then vanishes). Log and stop — do
-            // not touch the webview from this recovery thread.
+            // Reload/navigate MUST run on the main thread. Calling wry
+            // from this worker unwrap-panics (Orbitty vanishes) and left
+            // empty-glass panes on screen. Catch unwind as belt+suspenders.
             eprintln!(
-                "pane-show: {label} no mounted AXWebArea after show — leaving pane (no reload/navigate)"
+                "pane-show: {label} no mounted AXWebArea after show — main-thread reload once"
             );
+            let w_reload = w.clone();
+            crate::main_thread_sync(move || {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let _ = w_reload.reload();
+                }));
+            });
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            if drawer_mount_ok(&w) {
+                return;
+            }
+            let target = handle
+                .get_webview_window("main")
+                .and_then(|rail| rail.url().ok())
+                .filter(|u| u.query().is_none())
+                .or_else(|| tauri::Url::parse("tauri://localhost/index.html").ok());
+            if let Some(url) = target {
+                eprintln!(
+                    "pane-spa: {label} web area still empty after reload — main-thread navigate to {url} once"
+                );
+                let w_nav = w.clone();
+                crate::main_thread_sync(move || {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _ = w_nav.navigate(url);
+                    }));
+                });
+            }
         });
     }
     #[cfg(not(target_os = "macos"))]
