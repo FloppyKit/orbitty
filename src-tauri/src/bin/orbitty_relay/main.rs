@@ -1,5 +1,6 @@
 //! Loopback NIP-01 sidecar for t=orbitty 420/421/422.
-//! Bind 127.0.0.1 only. Device nsec is read for pubkey; never logged.
+//! Default bind 127.0.0.1. Tailscale 100.64/10 ok for one-user VPS.
+//! Never 0.0.0.0. Device nsec is read for pubkey; never logged.
 
 mod nip;
 mod store;
@@ -35,7 +36,7 @@ fn parse_args() -> Result<(PathBuf, String, bool), String> {
             }
             "-h" | "--help" => {
                 eprintln!(
-                    "orbitty-relay [--data-dir DIR] [--bind 127.0.0.1:13120]\n  smoke   AUTH + EVENT 420 + reject 31200/nch"
+                    "orbitty-relay [--data-dir DIR] [--bind 127.0.0.1:13120|100.x.x.x:13120]\n  smoke   AUTH + EVENT 420 + reject 31200/nch\n  (refuses 0.0.0.0 — Tailscale/SSH replica only)"
                 );
                 std::process::exit(0);
             }
@@ -45,13 +46,39 @@ fn parse_args() -> Result<(PathBuf, String, bool), String> {
     Ok((data, bind, smoke))
 }
 
-fn assert_loopback(bind: &str) -> Result<(), String> {
-    let host = bind.rsplit_once(':').map(|(h, _)| h).unwrap_or(bind);
-    if host == "127.0.0.1" || host == "::1" || host == "[::1]" {
-        Ok(())
-    } else {
-        Err(format!("refusing bind {bind} — loopback only"))
+/// Loopback always. Tailscale CGNAT (100.64.0.0/10) for one-user VPS
+/// replicas. Never 0.0.0.0 / :: / other public wildcard listeners.
+fn assert_private_bind(bind: &str) -> Result<(), String> {
+    let host = bind
+        .rsplit_once(':')
+        .map(|(h, _)| h.trim_matches(|c| c == '[' || c == ']'))
+        .unwrap_or(bind);
+    if host == "127.0.0.1" || host == "::1" || host == "localhost" {
+        return Ok(());
     }
+    if host == "0.0.0.0" || host == "::" || host == "*" {
+        return Err(format!("refusing bind {bind} — never 0.0.0.0/::"));
+    }
+    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+        let o = ip.octets();
+        // Tailscale CGNAT 100.64.0.0/10
+        if o[0] == 100 && (o[1] & 0xc0) == 64 {
+            return Ok(());
+        }
+        return Err(format!(
+            "refusing bind {bind} — use 127.0.0.1 or a Tailscale 100.64/10 address (not public)"
+        ));
+    }
+    if host.starts_with("fe80:") || host == "::1" {
+        return Ok(());
+    }
+    Err(format!(
+        "refusing bind {bind} — use 127.0.0.1 or a Tailscale 100.64/10 address (not public)"
+    ))
+}
+
+fn relay_ws_url(bind: &str) -> String {
+    format!("ws://{bind}")
 }
 
 fn main() {
@@ -66,7 +93,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if let Err(e) = assert_loopback(&bind) {
+    if let Err(e) = assert_private_bind(&bind) {
         eprintln!("orbitty-relay: {e}");
         std::process::exit(2);
     }
@@ -92,15 +119,17 @@ fn serve(data_dir: &PathBuf, bind: &str) -> Result<(), String> {
     let store = store::Store::open(&relay_dir)?;
     let store = Arc::new(store);
     let listener = TcpListener::bind(bind).map_err(|e| format!("bind {bind}: {e}"))?;
-    eprintln!("orbitty-relay: listen {bind}");
+    let relay_url = relay_ws_url(bind);
+    eprintln!("orbitty-relay: listen {bind} ({relay_url})");
     for incoming in listener.incoming() {
         let Ok(stream) = incoming else { continue };
         let _ = stream.set_nodelay(true);
         let store = Arc::clone(&store);
         let pk = device.pubkey.clone();
+        let relay_url = relay_url.clone();
         let _ = thread::Builder::new()
             .name("orbitty-relay-conn".into())
-            .spawn(move || ws::handle(stream, store, pk));
+            .spawn(move || ws::handle(stream, store, pk, relay_url));
     }
     Ok(())
 }
@@ -207,4 +236,34 @@ fn run_smoke(data_dir: &PathBuf, bind: &str) -> Result<(), String> {
         return Err(format!("t=nch should reject: {ok}"));
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod bind_tests {
+    use super::assert_private_bind;
+
+    #[test]
+    fn loopback_ok() {
+        assert!(assert_private_bind("127.0.0.1:13120").is_ok());
+        assert!(assert_private_bind("[::1]:13120").is_ok());
+    }
+
+    #[test]
+    fn tailscale_cgnat_ok() {
+        assert!(assert_private_bind("100.64.0.1:13120").is_ok());
+        assert!(assert_private_bind("100.127.1.2:13120").is_ok());
+        assert!(assert_private_bind("100.70.23.74:13120").is_ok());
+    }
+
+    #[test]
+    fn wildcard_and_public_refused() {
+        assert!(assert_private_bind("0.0.0.0:13120").is_err());
+        assert!(assert_private_bind("[::]:13120").is_err());
+        assert!(assert_private_bind("1.2.3.4:13120").is_err());
+        assert!(assert_private_bind("8.8.8.8:13120").is_err());
+        // not Tailscale CGNAT
+        assert!(assert_private_bind("100.63.0.1:13120").is_err());
+        assert!(assert_private_bind("100.128.0.1:13120").is_err());
+    }
 }

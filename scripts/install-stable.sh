@@ -257,4 +257,6 @@ Done. Dogfood rules:
        $CTL_DIR/orbitty-relay
      LaunchAgent space.orbitty.relay KeepAlive · 127.0.0.1:13120
      Smoke: orbitty-relay smoke
+     One-user VPS replica (Tailscale/SSH, never 0.0.0.0):
+       docs/ORBITTY_RELAY_VPS.md
 EOF

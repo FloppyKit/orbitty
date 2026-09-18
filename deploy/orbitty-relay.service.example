@@ -1,0 +1,20 @@
+[Unit]
+Description=Orbitty one-user NIP-01 relay (Tailscale/SSH — not public)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Prefer Path A (127.0.0.1) + SSH -L, or set Bind to your Tailscale IPv4.
+Environment=ORBITTY_RELAY_DISABLE=0
+ExecStart=/usr/local/bin/orbitty-relay --data-dir /var/lib/orbitty-relay --bind 127.0.0.1:13120
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/orbitty-relay
+# Never: --bind 0.0.0.0:13120
+
+[Install]
+WantedBy=multi-user.target

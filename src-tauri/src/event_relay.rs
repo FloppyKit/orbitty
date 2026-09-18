@@ -1,4 +1,5 @@
-//! Best-effort EVENT to the loopback sidecar after a signed board proof.
+//! Best-effort EVENT to the private relay after a signed board proof.
+//! Default ws://127.0.0.1:13120; ORBITTY_RELAY_* for Tailscale replica.
 //! jsonl stays SoT. Failures never fail the board. Never logs the nsec.
 
 use serde_json::{json, Value};
@@ -12,11 +13,20 @@ use tungstenite::{client::client, Message, WebSocket};
 use crate::event_keys;
 use crate::event_log::{KIND_BOARD_DOING, KIND_BOARD_DONE, KIND_BOARD_TODO};
 
-const RELAY_WS: &str = "ws://127.0.0.1:13120";
-const RELAY_ADDR: &str = "127.0.0.1:13120";
+const RELAY_WS_DEFAULT: &str = "ws://127.0.0.1:13120";
+const RELAY_ADDR_DEFAULT: &str = "127.0.0.1:13120";
 const CONNECT_MS: u64 = 400;
 const IO_MS: u64 = 800;
 const KIND_AUTH: u64 = 22242;
+
+/// Default loopback sidecar. Override with ORBITTY_RELAY_WS /
+/// ORBITTY_RELAY_ADDR for a one-user Tailscale replica (never 0.0.0.0).
+fn relay_ws() -> String {
+    std::env::var("ORBITTY_RELAY_WS").unwrap_or_else(|_| RELAY_WS_DEFAULT.to_string())
+}
+fn relay_addr() -> String {
+    std::env::var("ORBITTY_RELAY_ADDR").unwrap_or_else(|_| RELAY_ADDR_DEFAULT.to_string())
+}
 
 static WARNED: AtomicBool = AtomicBool::new(false);
 
@@ -116,7 +126,7 @@ fn publish_now(dir: &Path, line: &Value) -> Result<(), String> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let tags = [
-        ["relay".to_string(), RELAY_WS.to_string()],
+        ["relay".to_string(), relay_ws()],
         ["challenge".to_string(), challenge],
     ];
     let signed = event_keys::sign_with(&key, now, KIND_AUTH, &tags, "")?;
@@ -142,12 +152,28 @@ fn publish_now(dir: &Path, line: &Value) -> Result<(), String> {
     Ok(())
 }
 
+fn addr_allowed(a: SocketAddr) -> bool {
+    match a {
+        SocketAddr::V4(v) => {
+            let ip = v.ip();
+            if ip.is_loopback() {
+                return true;
+            }
+            let o = ip.octets();
+            // Tailscale CGNAT 100.64.0.0/10 — one-user VPS replica only.
+            o[0] == 100 && (o[1] & 0xc0) == 64
+        }
+        SocketAddr::V6(v) => v.ip().is_loopback(),
+    }
+}
+
 fn connect() -> Result<WebSocket<TcpStream>, String> {
-    let addr = RELAY_ADDR
+    let ws_url = relay_ws();
+    let addr = relay_addr()
         .to_socket_addrs()
         .map_err(|e| format!("resolve: {e}"))?
-        .find(|a| matches!(a, SocketAddr::V4(v) if v.ip().is_loopback()))
-        .ok_or_else(|| "not loopback".to_string())?;
+        .find(|a| addr_allowed(*a))
+        .ok_or_else(|| "relay addr not loopback or Tailscale 100.64/10".to_string())?;
     if addr.port() != 13120 {
         return Err("named port 13120 only".into());
     }
@@ -161,7 +187,7 @@ fn connect() -> Result<WebSocket<TcpStream>, String> {
     stream
         .set_write_timeout(timeout)
         .map_err(|e| format!("write timeout: {e}"))?;
-    let (ws, _) = client(RELAY_WS, stream).map_err(|e| format!("ws: {e}"))?;
+    let (ws, _) = client(&ws_url, stream).map_err(|e| format!("ws: {e}"))?;
     Ok(ws)
 }
 

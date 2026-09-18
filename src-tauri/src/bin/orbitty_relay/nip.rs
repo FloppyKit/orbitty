@@ -116,7 +116,13 @@ pub fn auth_ok(v: &Value, device_pubkey: &str, challenge: &str, relay_url: &str)
         return Err("auth-required: bad challenge".into());
     }
     let relays = tag_values(v, "relay");
-    if !relays.iter().any(|r| r.contains("127.0.0.1:13120") || r == relay_url) {
+    // Accept the live relay URL, or the classic loopback form (SSH -L
+    // keeps AUTH tags on 127.0.0.1 even when the process is remote).
+    if !relays.iter().any(|r| {
+        r == relay_url
+            || r.contains("127.0.0.1:13120")
+            || (relay_url.contains("127.0.0.1") && r.contains("127.0.0.1"))
+    }) {
         return Err("auth-required: bad relay tag".into());
     }
     Ok(())

@@ -8,9 +8,12 @@ use tungstenite::{accept, Message, WebSocket};
 use super::nip;
 use super::store::Store;
 
-pub const RELAY_URL: &str = "ws://127.0.0.1:13120";
-
-pub fn handle(stream: TcpStream, store: Arc<Mutex<Store>>, device_pubkey: String) {
+pub fn handle(
+    stream: TcpStream,
+    store: Arc<Mutex<Store>>,
+    device_pubkey: String,
+    relay_url: String,
+) {
     let mut ws = match accept(stream) {
         Ok(w) => w,
         Err(e) => {
@@ -50,7 +53,7 @@ pub fn handle(stream: TcpStream, store: Arc<Mutex<Store>>, device_pubkey: String
                     let _ = send(&mut ws, json!(["NOTICE", "auth-required: missing event"]));
                     continue;
                 };
-                match nip::auth_ok(ev, &device_pubkey, &challenge, RELAY_URL) {
+                match nip::auth_ok(ev, &device_pubkey, &challenge, &relay_url) {
                     Ok(()) => {
                         authed = true;
                         let id = ev.get("id").and_then(Value::as_str).unwrap_or("");
@@ -145,7 +148,7 @@ fn hex16(bytes: &[u8; 16]) -> String {
 pub fn client_connect(url: &str) -> Result<WebSocket<TcpStream>, String> {
     let host = url
         .strip_prefix("ws://")
-        .ok_or("need ws://127.0.0.1:13120")?;
+        .ok_or("need ws://host:port")?;
     let stream = TcpStream::connect(host).map_err(|e| format!("tcp: {e}"))?;
     let (ws, _) = tungstenite::client::client(url, stream).map_err(|e| format!("ws: {e}"))?;
     Ok(ws)
