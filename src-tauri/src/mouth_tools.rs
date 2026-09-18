@@ -79,6 +79,95 @@ fn push_cap(dst: &mut Vec<String>, title: String) {
     }
 }
 
+/// Open board buckets for one planet. Shared by snapshot + them-row.
+#[derive(Clone, Debug)]
+pub struct OpenBuckets {
+    pub pid: String,
+    pub display: String,
+    pub todo: Vec<String>,
+    pub todo_n: usize,
+    pub doing: Vec<String>,
+    pub doing_n: usize,
+    pub needed: Vec<String>,
+    pub needed_n: usize,
+}
+
+/// Collect open cards for `project` (name or id). Err is a them-row string.
+pub fn collect_open(app: &tauri::AppHandle, project: &str) -> Result<OpenBuckets, String> {
+    let st = crate::state::load_state(app).map_err(|_| "board unreadable".to_string())?;
+    let want = project.trim().to_ascii_lowercase();
+    let Some(proj) = st.projects.iter().find(|p| {
+        p.id.eq_ignore_ascii_case(&want) || p.name.trim().eq_ignore_ascii_case(&want)
+    }) else {
+        let names: Vec<_> = st
+            .projects
+            .iter()
+            .map(|p| p.name.trim())
+            .filter(|n| !n.is_empty())
+            .take(12)
+            .collect();
+        return Err(format!("no planet {want:?}. have: {}", names.join(", ")));
+    };
+    let pid = proj.id.clone();
+    let display = {
+        let n = proj.name.trim();
+        if n.is_empty() {
+            want_display(&want)
+        } else {
+            n.to_string()
+        }
+    };
+    let mut todo: Vec<String> = Vec::new();
+    let mut doing: Vec<String> = Vec::new();
+    let mut needed: Vec<String> = Vec::new();
+    let mut todo_n = 0usize;
+    let mut doing_n = 0usize;
+    let mut needed_n = 0usize;
+    for c in &st.kanban_cards {
+        if c.project_id != pid {
+            continue;
+        }
+        let stt = c.status.trim();
+        if !status_ok("open", stt) {
+            continue;
+        }
+        let Some(title) = clip_title(&c.title) else {
+            continue;
+        };
+        if is_needed(&c.id, c.kind.as_deref()) {
+            if !needed_still_open(c.needed_state.as_deref()) {
+                continue;
+            }
+            needed_n += 1;
+            push_cap(&mut needed, title);
+        } else if stt.eq_ignore_ascii_case("doing") {
+            doing_n += 1;
+            push_cap(&mut doing, title);
+        } else {
+            todo_n += 1;
+            push_cap(&mut todo, title);
+        }
+    }
+    Ok(OpenBuckets {
+        pid,
+        display,
+        todo,
+        todo_n,
+        doing,
+        doing_n,
+        needed,
+        needed_n,
+    })
+}
+
+fn want_display(want: &str) -> String {
+    let mut chars = want.chars();
+    match chars.next() {
+        Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => "Orbitty".into(),
+    }
+}
+
 fn format_blocks(
     pid: &str,
     filter: &str,
@@ -110,20 +199,42 @@ fn format_blocks(
 }
 
 fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
-    let Ok(st) = crate::state::load_state(app) else {
-        return "board unreadable".into();
-    };
     let want = args
         .get("project")
         .and_then(Value::as_str)
         .unwrap_or("orbitty")
+        .trim();
+    let status = args
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("open")
         .trim()
         .to_ascii_lowercase();
+    // Snapshot path still supports status filters; them-row uses open only.
+    if status == "open" {
+        return match collect_open(app, want) {
+            Ok(b) => format_blocks(
+                &b.pid,
+                &status,
+                &b.todo,
+                b.todo_n,
+                &b.doing,
+                b.doing_n,
+                &b.needed,
+                b.needed_n,
+            ),
+            Err(e) => e,
+        };
+    }
+    let Ok(st) = crate::state::load_state(app) else {
+        return "board unreadable".into();
+    };
+    let want_l = want.to_ascii_lowercase();
     let pid = st
         .projects
         .iter()
         .find(|p| {
-            p.id.eq_ignore_ascii_case(&want) || p.name.trim().eq_ignore_ascii_case(&want)
+            p.id.eq_ignore_ascii_case(&want_l) || p.name.trim().eq_ignore_ascii_case(&want_l)
         })
         .map(|p| p.id.clone());
     let Some(pid) = pid else {
@@ -134,14 +245,8 @@ fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
             .filter(|n| !n.is_empty())
             .take(12)
             .collect();
-        return format!("no planet {want:?}. have: {}", names.join(", "));
+        return format!("no planet {want_l:?}. have: {}", names.join(", "));
     };
-    let status = args
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("open")
-        .trim()
-        .to_ascii_lowercase();
     let mut todo: Vec<String> = Vec::new();
     let mut doing: Vec<String> = Vec::new();
     let mut needed: Vec<String> = Vec::new();
