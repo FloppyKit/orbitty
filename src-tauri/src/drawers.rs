@@ -346,23 +346,12 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
             if drawer_mount_ok(&w) {
                 return;
             }
-            // wry 0.55 `reload()` can unwrap-panic on a dead WKWebView
-            // (Orbitty then vanishes from the dock). Skip reload — one
-            // navigate to the rail URL is the SPA-law recovery.
+            // wry 0.55 `reload()` / `navigate()` both unwrap-panic on a
+            // dead WKWebView (Orbitty then vanishes). Log and stop — do
+            // not touch the webview from this recovery thread.
             eprintln!(
-                "pane-show: {label} no mounted AXWebArea after show — navigating once (no reload)"
+                "pane-show: {label} no mounted AXWebArea after show — leaving pane (no reload/navigate)"
             );
-            let target = handle
-                .get_webview_window("main")
-                .and_then(|rail| rail.url().ok())
-                .filter(|u| u.query().is_none())
-                .or_else(|| tauri::Url::parse("tauri://localhost/index.html").ok());
-            if let Some(url) = target {
-                eprintln!(
-                    "pane-spa: {label} web area empty — navigating to {url} once"
-                );
-                let _ = w.navigate(url);
-            }
         });
     }
     #[cfg(not(target_os = "macos"))]
