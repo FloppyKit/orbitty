@@ -43,6 +43,11 @@ pub struct PersistedState {
     /// Settings → Appearance toggle. Default OFF —
     /// collapsed marbles sit where they were left until opted in.
     pub marble_drift: bool,
+    /// PEER-CHROME: show companion-dock dest strip + rail window stack
+    /// (STARS·Sky·Board·Comp). Default OFF for demo/new; auto-graduates
+    /// after 3 claims or first Done; Settings can force on/off.
+    #[serde(default)]
+    pub peer_chrome: bool,
     /// the Herding Cats confirm's source
     /// checkboxes — independent on/off, at least one must be on before
     /// Drop can arm. Tabs stay disabled in the pane until Tabbity lands.
@@ -255,6 +260,7 @@ impl Default for PersistedState {
             agent_shortcuts: Vec::new(),
             sprite_scale: 1.0,
             marble_drift: false,
+            peer_chrome: false,
             yard_windows: true,
             yard_tabs: false,
             companion: CompanionState::default(),

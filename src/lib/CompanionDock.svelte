@@ -66,6 +66,7 @@
     viewTitle,
     expanded,
     planetsHidden = false,
+    showDests = false,
     talking,
     neededHint = null,
     draft = $bindable(),
@@ -111,6 +112,8 @@
     viewTitle: string;
     expanded: boolean;
     planetsHidden?: boolean;
+    /** PEER-CHROME: Launchpad/STARS/Planets dest strip. */
+    showDests?: boolean;
     talking: boolean;
     neededHint?: string | null;
     draft: string;
@@ -436,6 +439,7 @@
       </button>
     {/if}
     </div>
+{#if showDests}
     <span class="dests" role="group" aria-label="Destinations">
       <button
         class="dest iconbtn"
@@ -502,6 +506,7 @@
         </svg>
       </button>
     </span>
+{/if}
     <div class="agentright">
     <span class="volwrap">
       <button

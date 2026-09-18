@@ -12,6 +12,7 @@
     clampWindowOpacity,
   } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
+  import { maybeGraduatePeerChrome, peerChromeOn } from "./peerChrome";
   import KanbanPage from "./KanbanPage.svelte";
   import StarsPage from "./StarsPage.svelte";
   import RailPage from "./RailPage.svelte";
@@ -421,6 +422,8 @@
 
   let planetsHidden = $state(false);
   let cheatSheetHint = $state(true);
+  let peerChrome = $state(false);
+  const showDests = $derived(peerChrome);
   async function togglePlanetsHidden() {
     const next = !planetsHidden;
     planetsHidden = next;
@@ -1212,6 +1215,12 @@
       sprite = s.companion?.sprite ?? true;
       planetsHidden = s.companion?.planetsHidden ?? false;
       cheatSheetHint = s.companion?.cheatSheetHint ?? true;
+      if (maybeGraduatePeerChrome(s)) {
+        peerChrome = true;
+        invoke("set_peer_chrome", { on: true }).catch(() => {});
+      } else {
+        peerChrome = peerChromeOn(s);
+      }
       // DOCK-HACK: missing keys (old saves) = dark LED, unknown source.
       hackLive = s.companion?.hackLive ?? false;
       hackWho = s.companion?.hackWho ?? "";
@@ -1842,6 +1851,7 @@
     {viewTitle}
     {expanded}
     {planetsHidden}
+    {showDests}
     {talking}
     neededHint={neededFocusTitle}
     {cheatSheetHint}

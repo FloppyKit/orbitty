@@ -588,6 +588,10 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
         if state.last_claim_project_id.is_none() {
             state.last_claim_project_id = b.last_claim_project_id.clone();
         }
+        // PEER-CHROME: set_peer_chrome is the only door (Settings /
+        // graduate). Rail whole-state writers omit the flag — always
+        // carry disk forward (same pattern as free_mode).
+        state.peer_chrome = b.peer_chrome;
     }
     #[cfg(unix)]
     crate::agent_runs::reconcile_incoming(&mut state);
@@ -615,6 +619,18 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
     Ok(())
 }
 
+
+/// PEER-CHROME door — Settings toggle / demo graduation. Whole-state
+/// save_state strip-traps this flag so rail writers cannot wipe it.
+#[tauri::command]
+fn set_peer_chrome(app: tauri::AppHandle, on: bool) -> Result<(), String> {
+    let mut st = state::load_state(&app)?;
+    st.peer_chrome = on;
+    state::save_state(&app, &st)?;
+    let _ = app.emit("state:changed", ());
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -637,6 +653,7 @@ pub fn run() {
             prompt_accessibility,
             load_state,
             save_state,
+            set_peer_chrome,
             event_log::log_event,
             set_vibrancy,
             open_kanban,

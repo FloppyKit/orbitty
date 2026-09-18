@@ -320,6 +320,8 @@ export interface PersistedState {
   hideAppIcons: boolean;
   spriteScale: number;
   marbleDrift: boolean;
+  /** PEER-CHROME: dock dest strip + rail STARS·Sky·Board·Comp stack. Demo off. */
+  peerChrome?: boolean;
   // Herding Cats confirm source checkboxes
   // — independent bools, at least one on before Drop can arm. Tabs stay
   // disabled until Tabbity lands. The old `yardSource` radio key is no

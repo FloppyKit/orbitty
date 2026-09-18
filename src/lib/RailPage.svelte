@@ -12,6 +12,7 @@
   import { startPaneDrag } from "./dragPane";
   import { MenuRing, type RingStop } from "./menuKeys.svelte";
   import RailStack from "./RailStack.svelte";
+  import { maybeGraduatePeerChrome, peerChromeOn } from "./peerChrome";
   import "./chrome.css";
   import type {
     ActionShortcut,
@@ -156,6 +157,7 @@
   let spriteScale = $state(1);
   // Settings owns the toggle; the rail round-trips
   // it and rides it to the native habitat on the snapshot.
+  let peerChrome = $state(false);
   let marbleDrift = $state(false);
   let planetIdle = $state("4h");
 
@@ -702,6 +704,7 @@
       hideAppIcons,
       spriteScale,
       marbleDrift,
+      peerChrome,
       planetIdle,
       actionShortcuts,
       agentShortcuts,
@@ -2305,6 +2308,12 @@
       hideAppIcons = s.hideAppIcons ?? false;
       spriteScale = clampSpriteScale(s.spriteScale ?? 1);
       marbleDrift = s.marbleDrift ?? false;
+      if (maybeGraduatePeerChrome(s)) {
+        peerChrome = true;
+        void invoke("set_peer_chrome", { on: true }).catch(() => {});
+      } else {
+        peerChrome = peerChromeOn(s);
+      }
       planetIdle = s.planetIdle ?? "4h";
       actionShortcuts = s.actionShortcuts ?? [];
       agentShortcuts = s.agentShortcuts ?? [];
@@ -3005,7 +3014,9 @@
            Companion / ⚙) — toggle_labeled, show+focus then hide. Own
            file (module law); the embedded Planets well keeps the dock's
            dest chips instead. -->
-      <RailStack />
+      {#if peerChrome}
+        <RailStack />
+      {/if}
     {/if}
 
     {#if status?.trusted && stateLoaded && !embedded}

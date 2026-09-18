@@ -16,6 +16,7 @@
   import "./chrome.css";
   import MouthSettings from "./MouthSettings.svelte";
   import type { PersistedState } from "./persist";
+  import { maybeGraduatePeerChrome, peerChromeOn } from "./peerChrome";
 
   interface PackInfo {
     id: string;
@@ -62,6 +63,7 @@
   let autohideRowChrome = $state(true);
   let hideTitles = $state(false);
   let hideAppIcons = $state(false);
+  let peerChrome = $state(false);
   let marbleDrift = $state(false);
   let planetIdle = $state("4h");
   let talkSource = $state<"system" | "hotkey">("system");
@@ -115,6 +117,12 @@
       hideTitles = s.hideTitles ?? false;
       hideAppIcons = s.hideAppIcons ?? false;
       marbleDrift = s.marbleDrift ?? false;
+      if (maybeGraduatePeerChrome(s)) {
+        peerChrome = true;
+        void invoke("set_peer_chrome", { on: true }).catch(() => {});
+      } else {
+        peerChrome = peerChromeOn(s);
+      }
       planetIdle = ["1h", "4h", "12h", "never"].includes(s.planetIdle ?? "")
         ? (s.planetIdle as "1h" | "4h" | "12h" | "never")
         : "4h";
@@ -160,6 +168,7 @@
       s.hideTitles = hideTitles;
       s.hideAppIcons = hideAppIcons;
       s.marbleDrift = marbleDrift;
+      s.peerChrome = peerChrome;
       s.planetIdle = planetIdle;
       if (s.companion) s.companion.cheatSheetHint = cheatSheetHint;
       s.spendCapUsd = spendCapUsd;
@@ -209,6 +218,19 @@
     hideAppIcons = !hideAppIcons;
     persistSettings();
   }
+  function togglePeerChrome() {
+    peerChrome = !peerChrome;
+    void persistPeerChrome();
+  }
+
+  async function persistPeerChrome() {
+    try {
+      await invoke("set_peer_chrome", { on: peerChrome });
+    } catch {
+      /* next open retries */
+    }
+  }
+
   function toggleMarbleDrift() {
     marbleDrift = !marbleDrift;
     persistSettings();
@@ -505,6 +527,16 @@
             onclick={toggleHideIcons}
             title="Hide app icons — rows collapse to title only"
           >Hide icons</button>
+        </div>
+        <p class="block-label">Peer chrome</p>
+        <div class="setting-row">
+          <button
+            class="mini"
+            class:active={peerChrome}
+            aria-pressed={peerChrome}
+            onclick={togglePeerChrome}
+            title="Show companion Launchpad/STARS/Planets strip and the rail STARS·Sky·Board·Comp stack. Off for demo — tray/Dock stay the map. Turns on after 3 claims or first Done."
+          >Peer chrome</button>
         </div>
         <p class="block-label">Marbles</p>
         <div class="setting-row">
