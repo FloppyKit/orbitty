@@ -39,6 +39,12 @@ if ! grep -q "$IDENTITY" <<< "$IDS"; then
 fi
 
 echo "==> Building release bundle"
+# Tauri externalBin expects underscore name; cargo emits hyphen.
+mkdir -p src-tauri/target/release
+ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay
+# Ensure the hyphen binary exists for the link target (built later too).
+(cd src-tauri && cargo build --release --bin orbitty-relay) || true
+
 # The dmg step may fail (hdiutil quirks); the .app is what we install, so a
 # dmg failure is not fatal as long as the .app bundle exists.
 npm run tauri build || echo "WARNING: tauri build failed (dmg?) — continuing if the .app exists" >&2

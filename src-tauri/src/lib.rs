@@ -583,6 +583,11 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
         state.companion.reply_model = b.companion.reply_model.clone();
         // ctl `shift on|off` is the only door.
         state.shift_on = b.shift_on;
+        // Layer-0 claim (tray/Dock/planet) owns lastClaimProjectId.
+        // Rail whole-state writers omit it and would wipe the default.
+        if state.last_claim_project_id.is_none() {
+            state.last_claim_project_id = b.last_claim_project_id.clone();
+        }
     }
     #[cfg(unix)]
     crate::agent_runs::reconcile_incoming(&mut state);
@@ -710,6 +715,7 @@ pub fn run() {
             claim_front::claim_front_undo,
             claim_front::claim_front_change,
             claim_front::claim_front_to,
+            claim_front::claim_front_unclaim,
             set_workspace_root,
             task_has_before,
             coordinator::wake_sleeper,

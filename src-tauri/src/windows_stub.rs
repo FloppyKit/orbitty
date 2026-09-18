@@ -45,3 +45,8 @@ pub fn open_accessibility_settings() {}
 pub fn prompt_accessibility() -> bool {
     false
 }
+
+pub fn frontmost_claimable() -> Result<Option<WindowInfo>, String> {
+    Ok(None)
+}
+

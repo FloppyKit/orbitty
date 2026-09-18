@@ -645,6 +645,12 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(|_| to_data(serde_json::json!({ "projectId": id, "path": path })))
                 .map_err(tool_err)
         }
+        "claim.unclaim" => {
+            let id = arg_str(args, "windowId")?;
+            crate::claim_front::unclaim_window(app, &id)
+                .map(|_| ok_true())
+                .map_err(tool_err)
+        }
         "claim.front" => crate::claim_front::claim_front(app)
             .map(|_| ok_true())
             .map_err(tool_err),

@@ -28,26 +28,6 @@ fn now_secs() -> f64 {
         .unwrap_or(0.0)
 }
 
-fn is_orbitty(w: &WindowInfo) -> bool {
-    matches!(
-        w.bundle_id.as_deref(),
-        Some("space.orbitty.mac") | Some("app.livesprite.mac")
-    ) || w.app_name.eq_ignore_ascii_case("Orbitty")
-        || w.app_name.eq_ignore_ascii_case("LiveSprite")
-}
-
-pub fn frontmost_claimable() -> Result<Option<WindowInfo>, String> {
-    let list = crate::windows::list_windows()?;
-    Ok(list
-        .into_iter()
-        .find(|w| w.is_frontmost && !is_orbitty(w))
-        .or_else(|| {
-            crate::windows::list_windows()
-                .ok()?
-                .into_iter()
-                .find(|w| !is_orbitty(w))
-        }))
-}
 
 fn last_used_project(st: &PersistedState) -> Option<&Project> {
     if let Some(id) = st.last_claim_project_id.as_deref() {
@@ -270,7 +250,7 @@ fn claim_window(
 
 pub fn claim_front(app: &AppHandle) -> Result<(), String> {
     let list = crate::windows::list_windows()?;
-    let Some(w) = frontmost_claimable()? else {
+    let Some(w) = crate::windows::frontmost_claimable()? else {
         return Err("no frontmost window to claim".into());
     };
     let st = crate::state::load_state(app)?;
@@ -289,7 +269,7 @@ pub fn claim_front(app: &AppHandle) -> Result<(), String> {
 
 pub fn claim_front_to_planet(app: &AppHandle, project_id: &str) -> Result<(), String> {
     let list = crate::windows::list_windows()?;
-    let Some(w) = frontmost_claimable()? else {
+    let Some(w) = crate::windows::frontmost_claimable()? else {
         return Err("no frontmost window to claim".into());
     };
     claim_window(app, &w, Some(project_id), &list)
@@ -553,3 +533,28 @@ pub fn install_orbitty_dock_menu(app: AppHandle) {
 
 #[cfg(not(target_os = "macos"))]
 pub fn install_orbitty_dock_menu(_app: AppHandle) {}
+
+
+pub fn unclaim_window(app: &AppHandle, window_id: &str) -> Result<(), String> {
+    let before = crate::state::load_state(app)?;
+    if !before.claims.iter().any(|c| c.window_id == window_id) {
+        return Err("not claimed".into());
+    }
+    let mut after = before.clone();
+    after.claims.retain(|c| c.window_id != window_id);
+    for card in after.kanban_cards.iter_mut() {
+        if card.window_id.as_deref() == Some(window_id) {
+            card.window_id = None;
+            if card.kind.as_deref() == Some("window") {
+                card.kind = Some("todo".into());
+            }
+        }
+    }
+    save_with_events(app, &before, &after)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn claim_front_unclaim(app: AppHandle, window_id: String) -> Result<(), String> {
+    unclaim_window(&app, &window_id)
+}

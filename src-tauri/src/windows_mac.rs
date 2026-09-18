@@ -616,6 +616,133 @@ unsafe fn mark_frontmost(list: &mut [WindowInfo]) {
     CFRelease(system);
 }
 
+fn is_orbitty_win(w: &WindowInfo) -> bool {
+    matches!(
+        w.bundle_id.as_deref(),
+        Some("space.orbitty.mac") | Some("app.livesprite.mac")
+    ) || w.app_name.eq_ignore_ascii_case("Orbitty")
+        || w.app_name.eq_ignore_ascii_case("LiveSprite")
+}
+
+static LAST_OTHER_FRONTMOST: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn note_other_frontmost(list: &[WindowInfo]) {
+    if let Some(w) = list
+        .iter()
+        .find(|w| w.is_frontmost && !w.is_minimized && !is_orbitty_win(w))
+    {
+        if let Ok(mut g) = LAST_OTHER_FRONTMOST.lock() {
+            *g = Some(w.id.clone());
+        }
+    }
+}
+
+pub fn last_other_frontmost_id() -> Option<String> {
+    LAST_OTHER_FRONTMOST.lock().ok().and_then(|g| g.clone())
+}
+
+/// On-screen normal windows, front → back (CGWindowList order).
+/// Used when Orbitty stole AX focus via tray/Dock menu.
+fn cg_on_screen_front_to_back() -> Vec<(i32, u32)> {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFRef;
+    }
+    // kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements
+    const OPT: u32 = (1 << 0) | (1 << 4);
+    unsafe {
+        let arr = CGWindowListCopyWindowInfo(OPT, 0);
+        if arr.is_null() {
+            return Vec::new();
+        }
+        let count = CFArrayGetCount(arr);
+        let mut out = Vec::with_capacity(count as usize);
+        let key_pid = CFString::new("kCGWindowOwnerPID");
+        let key_num = CFString::new("kCGWindowNumber");
+        let key_layer = CFString::new("kCGWindowLayer");
+        for i in 0..count {
+            let dict = CFArrayGetValueAtIndex(arr, i);
+            if dict.is_null() {
+                continue;
+            }
+            // Layer 0 = normal app windows (skip menubar, overlays).
+            let mut layer: i64 = 0;
+            let layer_ref = CFDictionaryGetValue(dict, key_layer.as_concrete_TypeRef() as CFRef);
+            if !layer_ref.is_null() {
+                let _ = CFNumberGetValue(
+                    layer_ref,
+                    K_CF_NUMBER_S_INT64_TYPE,
+                    &mut layer as *mut i64 as *mut c_void,
+                );
+            }
+            if layer != 0 {
+                continue;
+            }
+            let mut pid: i64 = 0;
+            let mut num: i64 = 0;
+            let pid_ref = CFDictionaryGetValue(dict, key_pid.as_concrete_TypeRef() as CFRef);
+            let num_ref = CFDictionaryGetValue(dict, key_num.as_concrete_TypeRef() as CFRef);
+            if pid_ref.is_null() || num_ref.is_null() {
+                continue;
+            }
+            if !CFNumberGetValue(
+                pid_ref,
+                K_CF_NUMBER_S_INT64_TYPE,
+                &mut pid as *mut i64 as *mut c_void,
+            ) {
+                continue;
+            }
+            if !CFNumberGetValue(
+                num_ref,
+                K_CF_NUMBER_S_INT64_TYPE,
+                &mut num as *mut i64 as *mut c_void,
+            ) {
+                continue;
+            }
+            if pid > 0 && num > 0 {
+                out.push((pid as i32, num as u32));
+            }
+        }
+        CFRelease(arr);
+        out
+    }
+}
+
+/// Frontmost claimable window: real AX frontmost if it isn't Orbitty /
+/// minimized; else the top on-screen non-Orbitty window (tray stole
+/// focus); else the last remembered other-frontmost still open.
+pub fn frontmost_claimable() -> Result<Option<WindowInfo>, String> {
+    let list = list_windows()?;
+    if let Some(w) = list
+        .iter()
+        .find(|w| w.is_frontmost && !w.is_minimized && !is_orbitty_win(w))
+    {
+        return Ok(Some(w.clone()));
+    }
+    // Tray / Dock / planet menu made Orbitty AX-frontmost. Walk CG
+    // on-screen order — never alphabetical "first other app" (that
+    // claimed Activity Monitor from the Dock).
+    let order = cg_on_screen_front_to_back();
+    for (pid, cg_id) in order {
+        let id = format!("{pid}:{cg_id}");
+        if let Some(w) = list
+            .iter()
+            .find(|w| w.id == id && !w.is_minimized && !is_orbitty_win(w))
+        {
+            return Ok(Some(w.clone()));
+        }
+    }
+    if let Some(id) = last_other_frontmost_id() {
+        if let Some(w) = list
+            .iter()
+            .find(|w| w.id == id && !w.is_minimized && !is_orbitty_win(w))
+        {
+            return Ok(Some(w.clone()));
+        }
+    }
+    Ok(None)
+}
+
 pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
     if !unsafe { AXIsProcessTrusted() } {
         return Err("accessibility not granted".into());
@@ -623,6 +750,7 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
     unsafe {
         let mut windows = enumerate();
         mark_frontmost(&mut windows);
+        note_other_frontmost(&windows);
         windows.sort_by(|a, b| {
             b.is_frontmost
                 .cmp(&a.is_frontmost)

@@ -53,6 +53,7 @@ commands:
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
   project add --name N
   claim front                         claim frontmost non-Orbitty window
+  claim unclaim --id <windowId>        drop a claim (Layer-0 cleanup)
   claim undo                          undo last claim (~3s window)
   claim to --project <id>             claim front window to a planet
   claim change --project <id>         retarget pending claim
@@ -548,6 +549,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         // Planet control plane. need_flag trims and
         // refuses an empty --name; the server owns unknown-id errors.
         ["claim", "front"] => Ok(("claim.front", json!({}))),
+        ["claim", "unclaim"] => Ok(("claim.unclaim", json!({ "windowId": need_id(o)? }))),
         ["claim", "undo"] => Ok(("claim.undo", json!({}))),
         ["claim", "to"] => Ok((
             "claim.to",

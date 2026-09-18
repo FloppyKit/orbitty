@@ -306,6 +306,8 @@ export interface PersistedState {
   windowOpacity: number;
   projects: Project[];
   claims: Claim[];
+  /** Last planet a Layer-0 (tray/Dock/planet) claim landed on. */
+  lastClaimProjectId?: string | null;
   tags: Tag[];
   windowTags: WindowTags[];
   collapsedSectionIds: string[];
