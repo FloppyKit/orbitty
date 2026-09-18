@@ -532,6 +532,8 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["shift", "on"] => Ok(("shift.on", json!({}))),
         ["shift", "off"] => Ok(("shift.off", json!({}))),
         ["relay", "status"] => Ok(("relay.status", json!({}))),
+        ["relay", "on"] => Ok(("relay.on", json!({}))),
+        ["relay", "off"] => Ok(("relay.off", json!({}))),
         ["relay", "replica"] => {
             let url = o
                 .url

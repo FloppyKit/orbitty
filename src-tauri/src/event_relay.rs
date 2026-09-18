@@ -180,6 +180,14 @@ pub fn status(app: &tauri::AppHandle) -> Result<Value, String> {
     }))
 }
 
+pub fn set_enabled(app: &tauri::AppHandle, on: bool) -> Result<Value, String> {
+    let mut st = crate::state::load_state(app)?;
+    st.private_relay = on;
+    crate::state::save_state(app, &st)?;
+    let _ = app.emit("state:changed", ());
+    Ok(json!({ "on": st.private_relay, "url": st.private_relay_url }))
+}
+
 pub fn set_replica_url(app: &tauri::AppHandle, raw: &str) -> Result<Value, String> {
     let parsed = parse_replica_url(raw)?;
     let stored = parsed

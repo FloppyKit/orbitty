@@ -584,6 +584,10 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         "shift.on" => crate::shift::set_on(app, true).map_err(tool_err),
         "shift.off" => crate::shift::set_on(app, false).map_err(tool_err),
         "relay.status" => crate::event_relay::status(app).map_err(tool_err),
+        "relay.on" => crate::event_relay::set_enabled(app, true)
+            .map_err(tool_err),
+        "relay.off" => crate::event_relay::set_enabled(app, false)
+            .map_err(tool_err),
         "relay.replica" => {
             let url = args
                 .get("url")
