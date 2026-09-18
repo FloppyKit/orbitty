@@ -109,7 +109,10 @@ pub fn classify(line: &str) -> Option<Classify> {
         return None;
     }
     let verb = normalize_verb(&out.verb)?;
-    let harness = if out.elapsed_ms <= SWAP_IN_MS {
+    // Harness is scored after the verb. Total elapsed often lands
+    // 270–300ms while verb_ms stays under the 200ms swap-in gate —
+    // keep harness on the verb clock so 1B can still break job/pocket.
+    let harness = if verb_ms <= SWAP_IN_MS {
         crate::mouth_gist::parse_harness(&out.harness)
     } else {
         None
