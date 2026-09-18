@@ -107,6 +107,10 @@ pub struct PersistedState {
     /// sidecar. Default off. Missing key loads as off.
     #[serde(default)]
     pub private_relay: bool,
+    /// Optional one-user replica URL (`ws://100.x:13120` or SSH tunnel
+    /// `ws://127.0.0.1:port`). Empty = local sidecar only.
+    #[serde(default)]
+    pub private_relay_url: String,
     /// ctl `shift on` — 15s supervisor ticker. Default off.
     /// Spark/Chat never auto-pickup; Work/Hold does.
     #[serde(default)]
@@ -268,6 +272,7 @@ impl Default for PersistedState {
             tree_grow_days: 14.0,
             signed_locally: true,
             private_relay: false,
+            private_relay_url: String::new(),
             shift_on: false,
             planet_idle: planet_idle_default(),
         }

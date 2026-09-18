@@ -1,45 +1,66 @@
 //! Best-effort EVENT to the private relay after a signed board proof.
-//! Default ws://127.0.0.1:13120; ORBITTY_RELAY_* for Tailscale replica.
-//! jsonl stays SoT. Failures never fail the board. Never logs the nsec.
+//! Default local sidecar `ws://127.0.0.1:13120`. Optional replica URL
+//! from Settings/ctl (empty = local only). jsonl stays SoT. Failures
+//! never fail the board. Never logs the nsec.
 
 use serde_json::{json, Value};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tungstenite::{client::client, Message, WebSocket};
 
 use crate::event_keys;
 use crate::event_log::{KIND_BOARD_DOING, KIND_BOARD_DONE, KIND_BOARD_TODO};
 
-const RELAY_WS_DEFAULT: &str = "ws://127.0.0.1:13120";
-const RELAY_ADDR_DEFAULT: &str = "127.0.0.1:13120";
+const LOCAL_WS: &str = "ws://127.0.0.1:13120";
+const LOCAL_ADDR: &str = "127.0.0.1:13120";
 const CONNECT_MS: u64 = 400;
 const IO_MS: u64 = 800;
 const KIND_AUTH: u64 = 22242;
 
-/// Default loopback sidecar. Override with ORBITTY_RELAY_WS /
-/// ORBITTY_RELAY_ADDR for a one-user Tailscale replica (never 0.0.0.0).
-fn relay_ws() -> String {
-    std::env::var("ORBITTY_RELAY_WS").unwrap_or_else(|_| RELAY_WS_DEFAULT.to_string())
-}
-fn relay_addr() -> String {
-    std::env::var("ORBITTY_RELAY_ADDR").unwrap_or_else(|_| RELAY_ADDR_DEFAULT.to_string())
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelayTarget {
+    pub ws: String,
+    pub addr: String,
 }
 
-static WARNED: AtomicBool = AtomicBool::new(false);
-
-fn warn_once(why: &str) {
-    if !WARNED.swap(true, Ordering::Relaxed) {
-        eprintln!("orbitty: private relay publish failed (further failures silent): {why}");
+fn local_target() -> RelayTarget {
+    RelayTarget {
+        ws: LOCAL_WS.to_string(),
+        addr: LOCAL_ADDR.to_string(),
     }
+}
+
+static WARNED_LOCAL: AtomicBool = AtomicBool::new(false);
+static WARNED_REPLICA: AtomicBool = AtomicBool::new(false);
+
+fn warn_target(replica: bool, why: &str) {
+    let flag = if replica {
+        &WARNED_REPLICA
+    } else {
+        &WARNED_LOCAL
+    };
+    if flag.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let which = if replica { "replica" } else { "local" };
+    eprintln!(
+        "orbitty: private relay {which} publish failed (further {which} failures silent): {why}"
+    );
 }
 
 fn private_relay_on(app: &tauri::AppHandle) -> bool {
     crate::state::load_state(app)
         .map(|s| s.private_relay)
         .unwrap_or(false)
+}
+
+fn replica_url_from_state(app: &tauri::AppHandle) -> String {
+    crate::state::load_state(app)
+        .map(|s| s.private_relay_url)
+        .unwrap_or_default()
 }
 
 fn tag_values(v: &Value, name: &str) -> Vec<String> {
@@ -83,8 +104,98 @@ pub fn publishable(line: &Value) -> bool {
     t_tags.iter().any(|t| t == "orbitty")
 }
 
+/// Empty = local sidecar only. Else `ws://` loopback (SSH -L) or
+/// Tailscale CGNAT `100.64/10:13120`. Never `0.0.0.0` / public / `wss`.
+pub fn parse_replica_url(raw: &str) -> Result<Option<RelayTarget>, String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return Ok(None);
+    }
+    let rest = s
+        .strip_prefix("ws://")
+        .ok_or_else(|| "replica URL must be ws://host:port (empty = local only)".to_string())?;
+    let hostport = rest.trim_end_matches('/');
+    if hostport.is_empty() || hostport.contains('/') {
+        return Err("replica URL is ws://host:port only".into());
+    }
+    let (host, port) = split_host_port(hostport)?;
+    if host == "0.0.0.0" || host == "::" || host == "*" {
+        return Err("refusing 0.0.0.0 / :: — Tailscale or loopback only".into());
+    }
+    let loopback = host == "127.0.0.1" || host == "::1" || host == "localhost";
+    let tailscale = match host.parse::<std::net::Ipv4Addr>() {
+        Ok(ip) => {
+            let o = ip.octets();
+            o[0] == 100 && (o[1] & 0xc0) == 64
+        }
+        Err(_) => false,
+    };
+    if !loopback && !tailscale {
+        return Err(
+            "replica host must be 127.0.0.1 (SSH tunnel) or Tailscale 100.64/10".into(),
+        );
+    }
+    if tailscale && port != 13120 {
+        return Err("Tailscale replica uses named port 13120".into());
+    }
+    if port == 0 {
+        return Err("bad port".into());
+    }
+    let addr_host = if host == "localhost" { "127.0.0.1" } else { &host };
+    let addr = if host.contains(':') && !host.starts_with('[') {
+        format!("[{addr_host}]:{port}")
+    } else {
+        format!("{addr_host}:{port}")
+    };
+    Ok(Some(RelayTarget {
+        ws: format!("ws://{hostport}"),
+        addr,
+    }))
+}
+
+fn split_host_port(hostport: &str) -> Result<(String, u16), String> {
+    if let Some(rest) = hostport.strip_prefix('[') {
+        let (host, port) = rest
+            .split_once("]:")
+            .ok_or_else(|| "need [ipv6]:port".to_string())?;
+        let port: u16 = port.parse().map_err(|_| "bad port".to_string())?;
+        return Ok((host.to_string(), port));
+    }
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .ok_or_else(|| "need host:port".to_string())?;
+    if host.is_empty() {
+        return Err("need host:port".into());
+    }
+    let port: u16 = port.parse().map_err(|_| "bad port".to_string())?;
+    Ok((host.to_string(), port))
+}
+
+pub fn status(app: &tauri::AppHandle) -> Result<Value, String> {
+    let st = crate::state::load_state(app)?;
+    Ok(json!({
+        "on": st.private_relay,
+        "url": st.private_relay_url,
+        "local": LOCAL_WS,
+    }))
+}
+
+pub fn set_replica_url(app: &tauri::AppHandle, raw: &str) -> Result<Value, String> {
+    let parsed = parse_replica_url(raw)?;
+    let stored = parsed
+        .as_ref()
+        .map(|t| t.ws.clone())
+        .unwrap_or_default();
+    let mut st = crate::state::load_state(app)?;
+    st.private_relay_url = stored.clone();
+    crate::state::save_state(app, &st)?;
+    let _ = app.emit("state:changed", ());
+    Ok(json!({ "url": stored, "on": st.private_relay }))
+}
+
 /// After a successful jsonl append: if Settings private relay is on and
-/// the line is a signed board proof, fire-and-forget EVENT. No-op otherwise.
+/// the line is a signed board proof, fire-and-forget EVENT. Local
+/// sidecar always; replica URL if set. No-op otherwise.
 pub fn publish_best(app: &tauri::AppHandle, line: &Value) {
     if !private_relay_on(app) || !publishable(line) {
         return;
@@ -92,27 +203,41 @@ pub fn publish_best(app: &tauri::AppHandle, line: &Value) {
     let dir = match app.path().app_data_dir() {
         Ok(d) => d,
         Err(e) => {
-            warn_once(&format!("app data dir: {e}"));
+            warn_target(false, &format!("app data dir: {e}"));
             return;
+        }
+    };
+    let replica = match parse_replica_url(&replica_url_from_state(app)) {
+        Ok(t) => t,
+        Err(e) => {
+            warn_target(true, &e);
+            None
         }
     };
     let line = line.clone();
     if std::thread::Builder::new()
         .name("orbitty-relay-pub".into())
         .spawn(move || {
-            if let Err(e) = publish_now(&dir, &line) {
-                warn_once(&e);
+            if let Err(e) = publish_now(&dir, &line, &local_target()) {
+                warn_target(false, &e);
+            }
+            if let Some(t) = replica {
+                if t.addr != LOCAL_ADDR {
+                    if let Err(e) = publish_now(&dir, &line, &t) {
+                        warn_target(true, &e);
+                    }
+                }
             }
         })
         .is_err()
     {
-        warn_once("thread");
+        warn_target(false, "thread");
     }
 }
 
-fn publish_now(dir: &Path, line: &Value) -> Result<(), String> {
+fn publish_now(dir: &Path, line: &Value, target: &RelayTarget) -> Result<(), String> {
     let key = event_keys::load_or_create_in(dir)?;
-    let mut ws = connect()?;
+    let mut ws = connect(target)?;
     let hello = read_json(&mut ws)?;
     let challenge = hello
         .as_array()
@@ -126,7 +251,7 @@ fn publish_now(dir: &Path, line: &Value) -> Result<(), String> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let tags = [
-        ["relay".to_string(), relay_ws()],
+        ["relay".to_string(), target.ws.clone()],
         ["challenge".to_string(), challenge],
     ];
     let signed = event_keys::sign_with(&key, now, KIND_AUTH, &tags, "")?;
@@ -160,21 +285,20 @@ fn addr_allowed(a: SocketAddr) -> bool {
                 return true;
             }
             let o = ip.octets();
-            // Tailscale CGNAT 100.64.0.0/10 — one-user VPS replica only.
             o[0] == 100 && (o[1] & 0xc0) == 64
         }
         SocketAddr::V6(v) => v.ip().is_loopback(),
     }
 }
 
-fn connect() -> Result<WebSocket<TcpStream>, String> {
-    let ws_url = relay_ws();
-    let addr = relay_addr()
+fn connect(target: &RelayTarget) -> Result<WebSocket<TcpStream>, String> {
+    let addr = target
+        .addr
         .to_socket_addrs()
         .map_err(|e| format!("resolve: {e}"))?
         .find(|a| addr_allowed(*a))
         .ok_or_else(|| "relay addr not loopback or Tailscale 100.64/10".to_string())?;
-    if addr.port() != 13120 {
+    if !addr.ip().is_loopback() && addr.port() != 13120 {
         return Err("named port 13120 only".into());
     }
     let stream = TcpStream::connect_timeout(&addr, Duration::from_millis(CONNECT_MS))
@@ -187,7 +311,7 @@ fn connect() -> Result<WebSocket<TcpStream>, String> {
     stream
         .set_write_timeout(timeout)
         .map_err(|e| format!("write timeout: {e}"))?;
-    let (ws, _) = client(&ws_url, stream).map_err(|e| format!("ws: {e}"))?;
+    let (ws, _) = client(&target.ws, stream).map_err(|e| format!("ws: {e}"))?;
     Ok(ws)
 }
 
@@ -251,5 +375,32 @@ mod tests {
         assert!(!publishable(&line(420, "nch", true)));
         assert!(!publishable(&line(420, "publishable", true)));
         assert!(!publishable(&line(420, "local-only", true)));
+    }
+
+    #[test]
+    fn empty_replica_url_is_local_only() {
+        assert_eq!(parse_replica_url("").unwrap(), None);
+        assert_eq!(parse_replica_url("  ").unwrap(), None);
+    }
+
+    #[test]
+    fn tailscale_and_loopback_replica_ok() {
+        let ts = parse_replica_url("ws://100.64.0.1:13120").unwrap().unwrap();
+        assert_eq!(ts.ws, "ws://100.64.0.1:13120");
+        assert_eq!(ts.addr, "100.64.0.1:13120");
+        let tun = parse_replica_url("ws://127.0.0.1:13122").unwrap().unwrap();
+        assert_eq!(tun.addr, "127.0.0.1:13122");
+        let loc = parse_replica_url("ws://localhost:13120").unwrap().unwrap();
+        assert_eq!(loc.addr, "127.0.0.1:13120");
+    }
+
+    #[test]
+    fn public_and_wildcard_replica_refused() {
+        assert!(parse_replica_url("ws://0.0.0.0:13120").is_err());
+        assert!(parse_replica_url("ws://1.2.3.4:13120").is_err());
+        assert!(parse_replica_url("wss://100.64.0.1:13120").is_err());
+        assert!(parse_replica_url("ws://100.64.0.1:443").is_err());
+        assert!(parse_replica_url("ws://100.63.0.1:13120").is_err());
+        assert!(parse_replica_url("ws://relay.example:13120").is_err());
     }
 }

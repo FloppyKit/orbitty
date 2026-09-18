@@ -35,6 +35,25 @@ pub fn load_device(nsec_path: &Path) -> Result<Device, String> {
     })
 }
 
+/// Allowlist pubkey for serve. Mac kitchen uses `device.nsec` (already
+/// on this Mac). A VPS replica uses `device.npub` only — nsec stays on
+/// the Mac. Never logs the secret.
+pub fn load_allowlist_pubkey(data_dir: &Path) -> Result<String, String> {
+    let nsec = data_dir.join("device.nsec");
+    if nsec.exists() {
+        return Ok(load_device(&nsec)?.pubkey);
+    }
+    let npub = data_dir.join("device.npub");
+    let raw = std::fs::read_to_string(&npub).map_err(|_| {
+        "need device.nsec (Mac) or device.npub (replica — nsec stays on the Mac)".to_string()
+    })?;
+    let hex = raw.trim();
+    if parse_hex32(hex).is_none() {
+        return Err("device.npub malformed".into());
+    }
+    Ok(hex.to_ascii_lowercase())
+}
+
 pub fn sign_event(
     device: &Device,
     created_at: u64,
@@ -314,5 +333,16 @@ mod tests {
         assert!(event_matches(&ev, &json!({ "#d": ["c-1"], "kinds": [420] })));
         assert!(!event_matches(&ev, &json!({ "#d": ["nope"] })));
         assert!(!event_matches(&ev, &json!({ "kinds": [31200] })));
+    }
+
+    #[test]
+    fn npub_file_is_enough_without_nsec() {
+        let dir = std::env::temp_dir().join(format!("orbitty-relay-npub-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pk = "ab".repeat(32);
+        std::fs::write(dir.join("device.npub"), &pk).unwrap();
+        assert_eq!(load_allowlist_pubkey(&dir).unwrap(), pk);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

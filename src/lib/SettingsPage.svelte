@@ -79,6 +79,8 @@
   let treeGrowDays = $state(14);
   let signedLocally = $state(true);
   let privateRelay = $state(false);
+  let privateRelayUrl = $state("");
+  let replicaUrlNote = $state("");
 
   let packs = $state<PackInfo[]>([]);
   let packsDir = $state("");
@@ -128,6 +130,7 @@
       treeGrowDays = Number.isFinite(gd) && gd > 0 ? gd : 14;
       signedLocally = s.signedLocally ?? true;
       privateRelay = s.privateRelay ?? false;
+      privateRelayUrl = s.privateRelayUrl ?? "";
     } catch {
       themeId = osThemeId();
     }
@@ -165,6 +168,7 @@
       s.treeGrowDays = treeGrowDays;
       s.signedLocally = signedLocally;
       s.privateRelay = privateRelay;
+      s.privateRelayUrl = privateRelayUrl;
       await invoke("save_state", { state: s });
     } catch {
       /* next mutation retries */
@@ -223,6 +227,32 @@
   }
   function togglePrivateRelay() {
     privateRelay = !privateRelay;
+    persistSettings();
+  }
+  function replicaUrlLooksOk(raw: string): boolean {
+    if (!raw) return true;
+    try {
+      const u = new URL(raw);
+      if (u.protocol !== "ws:") return false;
+      const host = u.hostname;
+      if (host === "127.0.0.1" || host === "localhost" || host === "::1") return true;
+      const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host);
+      if (!m) return false;
+      const a = Number(m[1]);
+      const b = Number(m[2]);
+      return a === 100 && (b & 0xc0) === 64;
+    } catch {
+      return false;
+    }
+  }
+  function onReplicaUrlCommit() {
+    privateRelayUrl = privateRelayUrl.trim();
+    if (!replicaUrlLooksOk(privateRelayUrl)) {
+      replicaUrlNote =
+        "ws://100.x:13120 or ws://127.0.0.1:port for SSH -L. Empty = local only.";
+      return;
+    }
+    replicaUrlNote = "";
     persistSettings();
   }
 
@@ -624,9 +654,25 @@
             title="Signed 420/421/422 with t=orbitty also EVENT to the loopback sidecar. Default off. Failures never fail the board. Journal 31200 stays file-only."
           >Private relay</button>
         </div>
+        <div class="opacity-row">
+          <label for="relay-replica">Replica URL</label>
+          <input
+            id="relay-replica"
+            class="keyin"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="ws://100.x:13120 — empty = this Mac only"
+            bind:value={privateRelayUrl}
+            onchange={onReplicaUrlCommit}
+          />
+        </div>
         <p class="help">
-          New log lines are signed on this Mac. Off writes unsigned again. History is never rewritten. Private relay copies signed board proofs to the sidecar on this Mac; off is jsonl only.
+          New log lines are signed on this Mac. Off writes unsigned again. History is never rewritten. Private relay copies signed board proofs to the sidecar on this Mac; a replica URL also copies to that one-user Tailscale/SSH box. Empty replica is local only. Failures never fail the board.
         </p>
+        {#if replicaUrlNote}
+          <p class="help err">{replicaUrlNote}</p>
+        {/if}
         <MouthSettings />
         <p class="block-label">Cheat sheet</p>
         <div class="setting-row">

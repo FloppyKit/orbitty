@@ -58,33 +58,18 @@ Unit example: `deploy/orbitty-relay.service.example` (loopback bind).
 
 ## WAIT_EXTERNAL (2026-09-17)
 
-SSH to `do-edge` (`psycharts-edge`, `159.223.190.6`) works. Bind still
-waits:
+Loopback replica on `do-edge` (`psycharts-edge`) is up:
+`127.0.0.1:13120`, not `0.0.0.0`. Allowlist file is `device.npub`
+(nsec removed from the box). Reach it with SSH `-L 13122`.
 
-- Tailscale on that box is **NeedsLogin** — no `100.x` to bind
-- Box is Linux x86_64; this kitchen builds darwin-arm64. No `rustc`/`cargo`
-  on the VPS, no linux-amd64 `orbitty-relay` there
-- `ss` on `:13120` is empty today — do not invent `0.0.0.0:13120`
-- `bazzite-forge` Tailscale offline
-- Shared VPS stack (`CASCADE_VPS_SHARED_STACK_v0.md`) stays **PARKED** —
-  do not park this magnet on Ghost / LiveKit / FKT
+Still waiting:
 
-Local bits shipped. Bind when there is a Linux binary **and** Tailscale
-(or SSH `-R` to loopback) on a box you will start.
+- Tailscale on that box is **NeedsLogin** — no `100.x` bind
+- Kitchen does not ship linux-amd64; the box has no rustc
+- Shared VPS stack stays **PARKED** — do not park this magnet on Ghost /
+  LiveKit / FKT
 
 ## Out of scope
 
 Provisioning a new VPS · public internet listeners · NCH / FKT kinds ·
 rewriting `events.jsonl` · LifeSprite pairing · Buzz community relay
-
-
-## Live install (psycharts-edge)
-
-As of 2026-09-17 CT: `orbitty-relay` runs under systemd on **psycharts-edge**
-(`Host do-edge`), bind `127.0.0.1:13120`, data `/var/lib/orbitty-relay`
-(same `device.nsec` as the Mac). Not public.
-
-```bash
-ssh -N -L 13120:127.0.0.1:13120 do-edge   # or 13129 if local LaunchAgent holds 13120
-systemctl status orbitty-relay            # on the droplet
-```

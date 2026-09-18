@@ -208,6 +208,7 @@ const READ_TOOLS: &[&str] = &[
     // pin / pickup / kanban.assign stay write-class (full / named custom).
     "agent.list",
     "shift.status",
+    "relay.status",
 ];
 
 fn allowed(acl: &Acl, tool: &str) -> bool {
@@ -582,6 +583,14 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         "shift.tick" => crate::shift::tick(app).map_err(tool_err),
         "shift.on" => crate::shift::set_on(app, true).map_err(tool_err),
         "shift.off" => crate::shift::set_on(app, false).map_err(tool_err),
+        "relay.status" => crate::event_relay::status(app).map_err(tool_err),
+        "relay.replica" => {
+            let url = args
+                .get("url")
+                .and_then(Value::as_str)
+                .ok_or_else(|| (ERR_OTHER, "missing arg \"url\"".to_string()))?;
+            crate::event_relay::set_replica_url(app, url).map_err(tool_err)
+        }
         "needed.open" => {
             let title = arg_str(args, "title")?;
             let project = arg_opt(args, "projectId").unwrap_or_default();

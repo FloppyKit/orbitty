@@ -112,9 +112,8 @@ fn main() {
 }
 
 fn serve(data_dir: &PathBuf, bind: &str) -> Result<(), String> {
-    let key_path = data_dir.join("device.nsec");
-    let device = nip::load_device(&key_path)?;
-    eprintln!("orbitty-relay: pubkey {}", device.pubkey);
+    let pk = nip::load_allowlist_pubkey(data_dir)?;
+    eprintln!("orbitty-relay: pubkey {pk}");
     let relay_dir = data_dir.join("relay");
     let store = store::Store::open(&relay_dir)?;
     let store = Arc::new(store);
@@ -125,7 +124,7 @@ fn serve(data_dir: &PathBuf, bind: &str) -> Result<(), String> {
         let Ok(stream) = incoming else { continue };
         let _ = stream.set_nodelay(true);
         let store = Arc::clone(&store);
-        let pk = device.pubkey.clone();
+        let pk = pk.clone();
         let relay_url = relay_url.clone();
         let _ = thread::Builder::new()
             .name("orbitty-relay-conn".into())

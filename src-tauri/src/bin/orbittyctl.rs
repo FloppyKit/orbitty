@@ -49,6 +49,8 @@ commands:
   shift status
   shift tick
   shift on|off
+  relay status
+  relay replica --url ws://100.x:13120   empty --url \"\" = local only
   project add --name N
   project rm --id <id>
   project rename --id <id> --name <new>
@@ -106,6 +108,11 @@ rows (they eat the runner cap), Needed-escalates blocked, and pickups
 the next assigned todo while Work/Hold is on. shift on starts a 15s
 ticker; off stops it. Spark/Chat never auto-pickup.
 
+relay status is read-safe. relay replica --url sets the
+optional one-user VPS URL (Tailscale 100.64/10:13120 or
+ws://127.0.0.1:port for SSH -L). Empty URL = local sidecar only.
+Never 0.0.0.0. Write-class ACL (full / named custom).
+
 needed answer --id n-… -- \"text\" applies an
 answer through the same needed-answer event path as the composer (the
 watch dispatches on it) — scripts never need the UI. needed open itself
@@ -141,6 +148,7 @@ struct Opts {
     agent: Option<String>,
     card: Option<String>,
     file: Option<String>,
+    url: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
 }
@@ -172,6 +180,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         agent: None,
         card: None,
         file: None,
+        url: None,
         words: Vec::new(),
         tail: Vec::new(),
     };
@@ -224,6 +233,8 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--agent" => o.agent = Some(it.next().ok_or("--agent needs a value")?.clone()),
             "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
             "--file" => o.file = Some(it.next().ok_or("--file needs a path")?.clone()),
+            // Kept as Some("") when passed empty — relay replica clears.
+            "--url" => o.url = Some(it.next().ok_or("--url needs a value")?.clone()),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 exit(0);
@@ -259,6 +270,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             s if s.starts_with("--md=") => o.md.push(s["--md=".len()..].to_string()),
             s if s.starts_with("--extra=") => o.extra = Some(s["--extra=".len()..].to_string()),
             s if s.starts_with("--agent=") => o.agent = Some(s["--agent=".len()..].to_string()),
+            s if s.starts_with("--url=") => o.url = Some(s["--url=".len()..].to_string()),
             s if s.starts_with('-') && s.len() > 1 => {
                 return Err(format!("unknown flag {s:?}\n\n{USAGE}"))
             }
@@ -519,6 +531,14 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["shift", "tick"] => Ok(("shift.tick", json!({}))),
         ["shift", "on"] => Ok(("shift.on", json!({}))),
         ["shift", "off"] => Ok(("shift.off", json!({}))),
+        ["relay", "status"] => Ok(("relay.status", json!({}))),
+        ["relay", "replica"] => {
+            let url = o
+                .url
+                .clone()
+                .ok_or("missing --url (pass --url \"\" to clear)".to_string())?;
+            Ok(("relay.replica", json!({ "url": url })))
+        }
         // Planet control plane. need_flag trims and
         // refuses an empty --name; the server owns unknown-id errors.
         ["project", "add"] => Ok((
@@ -919,6 +939,27 @@ fn print_human(tool: &str, data: &Value) {
             }
         ),
         "shift.off" => println!("shift off"),
+        "relay.status" => {
+            let on = data["on"].as_bool().unwrap_or(false);
+            let url = data["url"].as_str().unwrap_or("").trim();
+            let replica = if url.is_empty() {
+                "local only"
+            } else {
+                url
+            };
+            println!(
+                "private relay {} · replica {replica}",
+                if on { "on" } else { "off" }
+            );
+        }
+        "relay.replica" => {
+            let url = data["url"].as_str().unwrap_or("").trim();
+            if url.is_empty() {
+                println!("replica cleared — local only");
+            } else {
+                println!("replica {url}");
+            }
+        }
         "project.add" => println!(
             "added {} — {}",
             data["id"].as_str().unwrap_or("?"),

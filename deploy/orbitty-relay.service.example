@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Prefer Path A (127.0.0.1) + SSH -L, or set Bind to your Tailscale IPv4.
-Environment=ORBITTY_RELAY_DISABLE=0
+# Loopback + SSH -L, or change Bind to this box's Tailscale IPv4.
+# Datadir is that one user. Put device.npub here. Never device.nsec.
 ExecStart=/usr/local/bin/orbitty-relay --data-dir /var/lib/orbitty-relay --bind 127.0.0.1:13120
 Restart=on-failure
 RestartSec=2

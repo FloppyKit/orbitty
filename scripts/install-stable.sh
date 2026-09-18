@@ -257,6 +257,9 @@ Done. Dogfood rules:
        $CTL_DIR/orbitty-relay
      LaunchAgent space.orbitty.relay KeepAlive · 127.0.0.1:13120
      Smoke: orbitty-relay smoke
+     Optional one-user replica: Settings Replica URL or
+       orbittyctl relay replica --url 'ws://100.x:13120'
+     Empty URL = local only. Never 0.0.0.0. nsec stays on this Mac.
      One-user VPS replica (Tailscale/SSH, never 0.0.0.0):
        docs/ORBITTY_RELAY_VPS.md
 EOF
