@@ -331,16 +331,21 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
             if drawer_mount_ok(&w) {
                 return;
             }
-            // A pane built < ~3s ago is still
-            // hydrating its first paint — the one AX read above is all it
-            // gets. A reload() here lands mid-hydrate and IS the
-            // first-show beach ball. A warm pane (alive > 3s) with an
-            // empty WebArea falls through to the one reload + one
-            // navigate below (SPA law). Never hide, never loop.
-            if window_created_at(&label)
-                .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3))
-            {
-                return;
+            // A pane built < ~3s ago is still hydrating — do NOT reload
+            // mid-hydrate (beach ball). Wait out the hydrate window, then
+            // re-check. Returning here used to abandon cold empty glass
+            // forever (first launch after install).
+            if let Some(created) = window_created_at(&label) {
+                let age = created.elapsed();
+                if age < std::time::Duration::from_secs(3) {
+                    let wait = std::time::Duration::from_secs(3)
+                        .saturating_sub(age)
+                        + std::time::Duration::from_millis(500);
+                    std::thread::sleep(wait);
+                    if drawer_mount_ok(&w) {
+                        return;
+                    }
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(1200));
             if drawer_mount_ok(&w) {
@@ -353,10 +358,17 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
                 "pane-show: {label} no mounted AXWebArea after show — main-thread reload once"
             );
             let w_reload = w.clone();
+            let label_reload = label.clone();
             crate::main_thread_sync(move || {
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let _ = w_reload.reload();
-                }));
+                }))
+                .is_err()
+                {
+                    eprintln!(
+                        "pane-show: {label_reload} main-thread reload panicked (caught)"
+                    );
+                }
             });
             std::thread::sleep(std::time::Duration::from_millis(1500));
             if drawer_mount_ok(&w) {
@@ -372,10 +384,17 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
                     "pane-spa: {label} web area still empty after reload — main-thread navigate to {url} once"
                 );
                 let w_nav = w.clone();
+                let label_nav = label.clone();
                 crate::main_thread_sync(move || {
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let _ = w_nav.navigate(url);
-                    }));
+                    }))
+                    .is_err()
+                    {
+                        eprintln!(
+                            "pane-spa: {label_nav} main-thread navigate panicked (caught)"
+                        );
+                    }
                 });
             }
         });
