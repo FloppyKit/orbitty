@@ -1888,6 +1888,7 @@
   let timer: ReturnType<typeof setInterval> | undefined;
   let unlisten: (() => void) | undefined;
   let unlistenFocus: (() => void) | undefined;
+  let unlistenFocusProject: (() => void) | undefined;
   let unlistenVis: (() => void) | undefined;
 
   function startRefreshTimer() {
@@ -1909,6 +1910,15 @@
     unlisten = await listen("state:changed", loadState);
     unlistenFocus = await listen<string>("orbitty:focus-card", (e) => {
       onFocusCard(e.payload);
+    });
+    // BOARD-MARK: habitat billboard Todo/Doing → this planet's list only.
+    unlistenFocusProject = await listen<string>("orbitty:focus-project", (e) => {
+      const id = (e.payload ?? "").trim();
+      if (!id) return;
+      if (id === "inbox" || id === "today" || id === "done" || projects.some((p) => p.id === id)) {
+        selected = id;
+        if (projects.some((p) => p.id === id)) raisePlanet(id);
+      }
     });
     // HOST-SPLIT embedded: do not await load_state / AX on first well
     // mount — that IPC return was painting cards mid-rise and lagging
@@ -1954,6 +1964,7 @@
     detachMenuKeys?.();
     unlisten?.();
     unlistenFocus?.();
+    unlistenFocusProject?.();
     unlistenVis?.();
     document.removeEventListener("visibilitychange", onVisibility);
     armNeededMouth(null, null);

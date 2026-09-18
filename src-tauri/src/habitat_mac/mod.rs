@@ -1117,6 +1117,8 @@ pub(crate) struct Habitat {
     pending_click: Option<PendingClick>,
     /// WORLD-TOUCH leftover: mouse-down on the planet board's Done column.
     pending_board_done: Option<String>,
+    /// BOARD-MARK: mouse-down on Todo/Doing columns → open this planet's Launchpad.
+    pending_board_open: Option<String>,
     /// the locate stroke — (entry id, armed at).
     /// Drawn as a ~500ms ring around the walker's frame; cursor_tick
     /// expires it (10Hz, so Reduce Motion can't pin it on).

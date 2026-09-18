@@ -3,7 +3,7 @@
   // (never frontend set_size). Persist the whole companion object.
   // Spirit is default; 3D mounts only while a 3D body is picked.
   import { invoke } from "@tauri-apps/api/core";
-  import { emitTo, listen } from "@tauri-apps/api/event";
+  import { emit, emitTo, listen } from "@tauri-apps/api/event";
   import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { onMount, onDestroy, tick } from "svelte";
   import {
@@ -1367,6 +1367,7 @@
   } | null>(null);
   let claimToastTimer: ReturnType<typeof setTimeout> | undefined;
   let unlistenClaimToast: (() => void) | undefined;
+  let unlistenBoardOpen: (() => void) | undefined;
 
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
@@ -1474,6 +1475,20 @@
         refreshDestOpen(),
       );
     });
+    unlistenBoardOpen = await listen<string>("habitat:board-open", (e) => {
+      const id = (e.payload ?? "").trim();
+      if (!id) return;
+      void (async () => {
+        try {
+          await enterHost("launchpad");
+          // Embedded Kanban shares this webview; pop-out uses label "kanban".
+          await emit("orbitty:focus-project", id);
+          emitTo("kanban", "orbitty:focus-project", id).catch(() => {});
+        } catch (err) {
+          sendNote = `${err}`;
+        }
+      })();
+    });
     unlistenClaimToast = await listen<{
       projectId: string;
       projectName: string;
@@ -1539,6 +1554,7 @@
 
   onDestroy(() => {
     unlistenClaimToast?.();
+    unlistenBoardOpen?.();
     if (claimToastTimer) clearTimeout(claimToastTimer);
     if (timer) clearInterval(timer);
     hugObserver?.disconnect();

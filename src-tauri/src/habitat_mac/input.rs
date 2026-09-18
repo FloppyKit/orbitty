@@ -235,14 +235,22 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
         // WORLD-TOUCH leftover (town usable): the billboard is a BOARD —
         // all three tick columns eat the mouse, never a panel-drag start
         // from the sign. Done keeps today's complete door
-        // (pending_board_done → mouse-up emits habitat:board-done);
-        // Todo/Doing plain clicks no-op — their status move is
-        // drop-walker (drag_tick's release hit-tests the columns).
+        // (pending_board_done → mouse-up emits habitat:board-done).
+        // Todo/Doing plain click = BOARD-MARK: open THIS planet's
+        // Launchpad only (habitat:board-open). Status move stays
+        // drop-walker (drag_tick release hit-tests the columns).
         if let Some(col) = board_col {
-            h.pending_board_done = if col == 2 { Some(pid) } else { None };
+            if col == 2 {
+                h.pending_board_done = Some(pid);
+                h.pending_board_open = None;
+            } else {
+                h.pending_board_done = None;
+                h.pending_board_open = Some(pid);
+            }
             return;
         }
         h.pending_board_done = None;
+        h.pending_board_open = None;
         let place = h.placement.take();
         if let Some(place) = place {
             if place.project_id == pid && over {
@@ -356,6 +364,7 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
         {
             let mut h = lock();
             if let Some(pid) = h.pending_board_done.take() {
+                h.pending_board_open = None;
                 let still = h.planets.get(&pid).is_some_and(|p| {
                     p.view == view_ptr && hit_board_column(p, local) == Some(2)
                 });
@@ -363,6 +372,27 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                 if still {
                     if let Some(app) = app_handle() {
                         let _ = app.emit("habitat:board-done", pid);
+                    }
+                }
+                return;
+            }
+            if let Some(pid) = h.pending_board_open.take() {
+                let still = h.planets.get(&pid).is_some_and(|p| {
+                    p.view == view_ptr
+                        && matches!(hit_board_column(p, local), Some(0) | Some(1))
+                });
+                if still {
+                    if let Some(planet) = h.planets.get_mut(&pid) {
+                        set_caption(planet, "board".into());
+                    }
+                }
+                drop(h);
+                if still {
+                    if let Some(app) = app_handle() {
+                        // BOARD-MARK: raise companion, then open THIS
+                        // planet's Launchpad only (not STARS / Rail).
+                        let _ = crate::panes::show_companion(app);
+                        let _ = app.emit("habitat:board-open", pid);
                     }
                 }
                 return;
