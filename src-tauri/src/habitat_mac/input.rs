@@ -714,6 +714,15 @@ unsafe fn right_mouse_down_inner(this: &Object, event: *mut Object) {
         None,
         is_marble,
     );
+    add_menu_item(
+        menu,
+        "Put front window here",
+        sel!(planetClaimFront:),
+        target,
+        &project_id,
+        None,
+        true,
+    );
     add_separator(menu);
     add_menu_item(
         menu,
@@ -1064,6 +1073,25 @@ pub(crate) extern "C" fn menu_restore(_this: &Object, _cmd: Sel, sender: *mut Ob
         }
     }));
 }
+
+pub(crate) extern "C" fn menu_claim_front(_this: &Object, _cmd: Sel, sender: *mut Object) {
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+        let Some(id) = sender_project_id(sender) else {
+            return;
+        };
+        if let Some(app) = app_handle() {
+            if let Err(e) = crate::claim_front::claim_front_to_planet(app, &id) {
+                eprintln!("planet-claim-front: {e}");
+                if let Some(planet) = lock().planets.get_mut(&id) {
+                    set_caption(planet, format!("claim: {e}"));
+                }
+            } else if let Some(planet) = lock().planets.get_mut(&id) {
+                set_caption(planet, "claimed here".into());
+            }
+        }
+    }));
+}
+
 
 pub(crate) extern "C" fn menu_toggle_plant(_this: &Object, _cmd: Sel, sender: *mut Object) {
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {

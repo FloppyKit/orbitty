@@ -2128,6 +2128,10 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
         input::menu_restore as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
+        sel!(planetClaimFront:),
+        input::menu_claim_front as extern "C" fn(&Object, Sel, *mut Object),
+    );
+    decl.add_method(
         sel!(planetTogglePlant:),
         input::menu_toggle_plant as extern "C" fn(&Object, Sel, *mut Object),
     );

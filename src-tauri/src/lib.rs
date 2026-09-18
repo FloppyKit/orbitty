@@ -11,6 +11,7 @@ mod agent_stop;
 mod agents;
 #[cfg(unix)]
 mod board;
+mod claim_front;
 mod chars;
 mod companion;
 mod companion_clear;
@@ -705,6 +706,10 @@ pub fn run() {
             coordinator::speak_reply,
             coordinator::run_action,
             undo_task,
+            claim_front::claim_front_window,
+            claim_front::claim_front_undo,
+            claim_front::claim_front_change,
+            claim_front::claim_front_to,
             set_workspace_root,
             task_has_before,
             coordinator::wake_sleeper,
@@ -901,6 +906,20 @@ pub fn run() {
             // (caret in the field, same as ⌘⇧O); the right-click menu is
             // chrome — Launchpad/STARS enter the companion's host well,
             // never the kanban/stars overlay.
+            let claim_front_i = MenuItem::with_id(
+                app,
+                "claim_front",
+                "Claim front window",
+                true,
+                None::<&str>,
+            )?;
+            let claim_undo_i = MenuItem::with_id(
+                app,
+                "claim_undo",
+                "Undo last claim",
+                true,
+                None::<&str>,
+            )?;
             let show_companion_i = MenuItem::with_id(
                 app,
                 "show_companion",
@@ -933,6 +952,8 @@ pub fn run() {
             let menu = Menu::with_items(
                 app,
                 &[
+                    &claim_front_i,
+                    &claim_undo_i,
                     &show_companion_i,
                     &hide_dock_i,
                     &launchpad_i,
@@ -951,6 +972,16 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
+                    "claim_front" => {
+                        if let Err(e) = claim_front::claim_front(app) {
+                            eprintln!("claim-front: {e}");
+                        }
+                    }
+                    "claim_undo" => {
+                        if let Err(e) = claim_front::undo_last(app) {
+                            eprintln!("claim-undo: {e}");
+                        }
+                    }
                     "quit" => {
                         app.exit(0);
                     }
@@ -1011,6 +1042,9 @@ pub fn run() {
                     }
                 }
             });
+
+            #[cfg(target_os = "macos")]
+            claim_front::install_orbitty_dock_menu(app.handle().clone());
 
             Ok(())
         })

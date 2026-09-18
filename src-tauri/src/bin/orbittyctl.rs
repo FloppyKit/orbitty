@@ -52,6 +52,10 @@ commands:
   relay status
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
   project add --name N
+  claim front                         claim frontmost non-Orbitty window
+  claim undo                          undo last claim (~3s window)
+  claim to --project <id>             claim front window to a planet
+  claim change --project <id>         retarget pending claim
   project rm --id <id>
   project rename --id <id> --name <new>
   project set-root --id <id> --cwd PATH
@@ -543,6 +547,16 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         }
         // Planet control plane. need_flag trims and
         // refuses an empty --name; the server owns unknown-id errors.
+        ["claim", "front"] => Ok(("claim.front", json!({}))),
+        ["claim", "undo"] => Ok(("claim.undo", json!({}))),
+        ["claim", "to"] => Ok((
+            "claim.to",
+            json!({ "projectId": need_flag(&o.project, "--project")? }),
+        )),
+        ["claim", "change"] => Ok((
+            "claim.change",
+            json!({ "projectId": need_flag(&o.project, "--project")? }),
+        )),
         ["project", "add"] => Ok((
             "project.add",
             json!({ "name": need_flag(&o.name, "--name")? }),

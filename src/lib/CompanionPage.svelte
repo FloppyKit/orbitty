@@ -1359,6 +1359,15 @@
   let unlistenAck: (() => void) | undefined;
   let unlistenTalk: (() => void)[] = [];
   let hugObserver: ResizeObserver | undefined;
+  let claimToast = $state<{
+    projectId: string;
+    projectName: string;
+    windowId: string;
+    seconds: number;
+  } | null>(null);
+  let claimToastTimer: ReturnType<typeof setTimeout> | undefined;
+  let unlistenClaimToast: (() => void) | undefined;
+
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
     if (mainEl && typeof ResizeObserver !== "undefined") {
@@ -1465,6 +1474,25 @@
         refreshDestOpen(),
       );
     });
+    unlistenClaimToast = await listen<{
+      projectId: string;
+      projectName: string;
+      windowId: string;
+      seconds: number;
+    }>("orbitty:claim-toast", (e) => {
+      const p = e.payload;
+      if (!p?.projectName) return;
+      claimToast = {
+        projectId: p.projectId,
+        projectName: p.projectName,
+        windowId: p.windowId,
+        seconds: p.seconds ?? 3,
+      };
+      if (claimToastTimer) clearTimeout(claimToastTimer);
+      claimToastTimer = setTimeout(() => {
+        claimToast = null;
+      }, (claimToast.seconds || 3) * 1000);
+    });
 
     // The conductor's ack lands mid-send and rides
     // the wait-mark slot until the reply replaces it. Only while sending
@@ -1510,6 +1538,8 @@
   });
 
   onDestroy(() => {
+    unlistenClaimToast?.();
+    if (claimToastTimer) clearTimeout(claimToastTimer);
     if (timer) clearInterval(timer);
     hugObserver?.disconnect();
     window.removeEventListener("keydown", onPaneKey);
@@ -1532,6 +1562,45 @@
     invoke("talk_stop").catch(() => {});
   });
 </script>
+
+{#if claimToast}
+  <div class="claim-toast" role="status">
+    <span>Claimed to {claimToast.projectName}</span>
+    <button
+      type="button"
+      onclick={() => {
+        if (!claimToast) return;
+        void (async () => {
+          try {
+            const s = await invoke<PersistedState>("load_state");
+            const list = s.projects ?? [];
+            if (!list.length) return;
+            const i = list.findIndex((p) => p.id === claimToast!.projectId);
+            const next = list[(i + 1) % list.length];
+            if (!next) return;
+            await invoke("claim_front_change", { projectId: next.id });
+            claimToast = {
+              ...claimToast!,
+              projectId: next.id,
+              projectName: next.name,
+            };
+          } catch {
+            /* ignore */
+          }
+        })();
+      }}>Change</button
+    >
+    <button
+      type="button"
+      onclick={() => {
+        invoke("claim_front_undo").catch(() => {});
+        claimToast = null;
+        if (claimToastTimer) clearTimeout(claimToastTimer);
+      }}>Undo</button
+    >
+  </div>
+{/if}
+
 
 {#snippet caption(expanded: boolean, hosted: boolean)}
   <CaptionPane
@@ -2340,4 +2409,34 @@
   /* Dock styles (.ghostdock, agentrow,
      dests, icon toggles, gear, composer, talk slot) moved to
      CompanionDock.svelte with the markup. */
+
+  .claim-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 80;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: rgba(20, 22, 28, 0.92);
+    color: #f2f4f8;
+    font-size: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .claim-toast button {
+    appearance: none;
+    border: 0;
+    background: rgba(255, 255, 255, 0.12);
+    color: inherit;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .claim-toast button:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
 </style>

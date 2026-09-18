@@ -645,6 +645,24 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(|_| to_data(serde_json::json!({ "projectId": id, "path": path })))
                 .map_err(tool_err)
         }
+        "claim.front" => crate::claim_front::claim_front(app)
+            .map(|_| ok_true())
+            .map_err(tool_err),
+        "claim.undo" => crate::claim_front::undo_last(app)
+            .map(|_| ok_true())
+            .map_err(tool_err),
+        "claim.to" => {
+            let id = arg_str(args, "projectId")?;
+            crate::claim_front::claim_front_to_planet(app, &id)
+                .map(|_| ok_true())
+                .map_err(tool_err)
+        }
+        "claim.change" => {
+            let id = arg_str(args, "projectId")?;
+            crate::claim_front::change_planet(app, &id)
+                .map(|_| ok_true())
+                .map_err(tool_err)
+        }
         "task.undo" => {
             let id = arg_str(args, "id")?;
             crate::task::undo(app, &id)

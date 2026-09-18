@@ -14,6 +14,9 @@ pub struct PersistedState {
     pub window_opacity: f64,
     pub projects: Vec<Project>,
     pub claims: Vec<Claim>,
+    /// Last planet a Layer-0 claim landed on (tray / Dock / planet menu).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_claim_project_id: Option<String>,
     pub tags: Vec<Tag>,
     pub window_tags: Vec<WindowTags>,
     pub collapsed_section_ids: Vec<String>,
@@ -237,6 +240,7 @@ impl Default for PersistedState {
             window_opacity: 1.0,
             projects: Vec::new(),
             claims: Vec::new(),
+            last_claim_project_id: None,
             tags: Vec::new(),
             window_tags: Vec::new(),
             collapsed_section_ids: Vec::new(),
