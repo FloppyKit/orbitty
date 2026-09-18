@@ -114,6 +114,8 @@
 
   // Sidebar selection: a smart filter, Inbox, or a project id. Session-only.
   let selected = $state("inbox");
+  /** BOARD-MARK: apply after loadState / pane show (projects may be empty on first emit). */
+  let pendingFocusProject = $state<string | null>(null);
   // PLANETS-STRIP: rail-owned marble flag, read-only here — tab double-click
   // emits to main; the rail persist is the writer.
   let collapsedSectionIds = $state<string[]>([]);
@@ -276,6 +278,15 @@
   function raisePlanet(id: string) {
     invoke("bring_planet_front", { id }).catch(() => {});
     invoke("locate_planet", { id }).catch(() => {});
+  }
+
+
+  function applyFocusProject(raw: string | null | undefined) {
+    const id = (raw ?? "").trim();
+    if (!id) return;
+    pendingFocusProject = id;
+    selected = id;
+    if (projects.some((p) => p.id === id)) raisePlanet(id);
   }
 
   function onPlanetTabClick(id: string) {
@@ -847,6 +858,10 @@
       themeId = KNOWN_THEMES.has(s.themeId) ? s.themeId : osThemeId();
       windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
       projects = s.projects ?? [];
+      if (pendingFocusProject) {
+        selected = pendingFocusProject;
+        if (projects.some((p) => p.id === pendingFocusProject)) raisePlanet(pendingFocusProject);
+      }
       tags = s.tags ?? [];
       kanbanCards = s.kanbanCards ?? [];
       pointsLedger = s.pointsLedger ?? [];
@@ -1911,14 +1926,9 @@
     unlistenFocus = await listen<string>("orbitty:focus-card", (e) => {
       onFocusCard(e.payload);
     });
-    // BOARD-MARK: habitat billboard Todo/Doing → this planet's list only.
+    // BOARD-MARK: full-page kanban → this planet (do not require projects[] yet).
     unlistenFocusProject = await listen<string>("orbitty:focus-project", (e) => {
-      const id = (e.payload ?? "").trim();
-      if (!id) return;
-      if (id === "inbox" || id === "today" || id === "done" || projects.some((p) => p.id === id)) {
-        selected = id;
-        if (projects.some((p) => p.id === id)) raisePlanet(id);
-      }
+      applyFocusProject(e.payload);
     });
     // HOST-SPLIT embedded: do not await load_state / AX on first well
     // mount — that IPC return was painting cards mid-rise and lagging
@@ -1947,7 +1957,14 @@
     // catches up once, then resumes the poll.
     unlistenVis = await listenPaneVis("kanban", (visible) => {
       if (visible) {
-        loadState();
+        void loadState().then(() => {
+          if (pendingFocusProject) {
+            selected = pendingFocusProject;
+            if (projects.some((p) => p.id === pendingFocusProject)) {
+              raisePlanet(pendingFocusProject);
+            }
+          }
+        });
         refreshWindows();
         startRefreshTimer();
       } else {

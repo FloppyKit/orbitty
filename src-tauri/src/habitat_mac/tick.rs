@@ -480,12 +480,10 @@ fn drag_tick() {
                         }
                         emit_board_checkin(&entry_id);
                     }
-                    // Done column: today's complete door, unchanged.
-                    Some(2) => {
-                        if let Some(app) = app_handle() {
-                            let _ = app.emit("habitat:board-done", project_id.clone());
-                        }
-                    }
+                    // Done column: no longer mass-evicts walkers via
+                    // habitat:board-done (BOARD-MARK). Drop is a no-op;
+                    // complete stays on the board UI / walker Done path.
+                    Some(2) => {}
                     _ => {}
                 }
             }

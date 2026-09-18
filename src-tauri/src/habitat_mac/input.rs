@@ -232,21 +232,12 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
                 return;
             }
         }
-        // WORLD-TOUCH leftover (town usable): the billboard is a BOARD —
-        // all three tick columns eat the mouse, never a panel-drag start
-        // from the sign. Done keeps today's complete door
-        // (pending_board_done → mouse-up emits habitat:board-done).
-        // Todo/Doing plain click = BOARD-MARK: open THIS planet's
-        // Launchpad only (habitat:board-open). Status move stays
-        // drop-walker (drag_tick release hit-tests the columns).
-        if let Some(col) = board_col {
-            if col == 2 {
-                h.pending_board_done = Some(pid);
-                h.pending_board_open = None;
-            } else {
-                h.pending_board_done = None;
-                h.pending_board_open = Some(pid);
-            }
+        // BOARD-MARK: any billboard column click opens the full-page
+        // kanban for THIS planet only — never companion well, never
+        // Done-evict. Walker drag→column status moves stay in drag_tick.
+        if board_col.is_some() {
+            h.pending_board_done = None;
+            h.pending_board_open = Some(pid);
             return;
         }
         h.pending_board_done = None;
@@ -363,23 +354,12 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
         let view_ptr = this as *const Object as usize;
         {
             let mut h = lock();
-            if let Some(pid) = h.pending_board_done.take() {
-                h.pending_board_open = None;
-                let still = h.planets.get(&pid).is_some_and(|p| {
-                    p.view == view_ptr && hit_board_column(p, local) == Some(2)
-                });
-                drop(h);
-                if still {
-                    if let Some(app) = app_handle() {
-                        let _ = app.emit("habitat:board-done", pid);
-                    }
-                }
-                return;
-            }
+            // Stale Done-click latch: clear, never emit board-done
+            // (billboard Done no longer evicts walkers).
+            let _ = h.pending_board_done.take();
             if let Some(pid) = h.pending_board_open.take() {
                 let still = h.planets.get(&pid).is_some_and(|p| {
-                    p.view == view_ptr
-                        && matches!(hit_board_column(p, local), Some(0) | Some(1))
+                    p.view == view_ptr && hit_board_column(p, local).is_some()
                 });
                 if still {
                     if let Some(planet) = h.planets.get_mut(&pid) {
@@ -389,10 +369,9 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                 drop(h);
                 if still {
                     if let Some(app) = app_handle() {
-                        // BOARD-MARK: raise companion, then open THIS
-                        // planet's Launchpad only (not STARS / Rail).
-                        let _ = crate::panes::show_companion(app);
-                        let _ = app.emit("habitat:board-open", pid);
+                        // Full-page kanban (shared pane), this planet only.
+                        let _ = crate::panes::show_shared_pane(app, "board");
+                        let _ = app.emit("orbitty:focus-project", pid);
                     }
                 }
                 return;
