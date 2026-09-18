@@ -1,0 +1,1319 @@
+/* Extracted from RailPage — shared by rail/* modules (DIET-RAIL-SPLIT). */
+
+  /* S4.3: every painted chrome fill is a JS-computed rgba (--bg-fill /
+     --panel-fill = theme color × slider alpha, see themes/apply.ts) so the
+     wallpaper shows through the whole rail. Text, icons, buttons and accent
+     fills never fade; below 50% a slight solid-bg halo keeps ink readable. */
+  .rail {
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    background: var(--bg-fill, var(--bg));
+    border-radius: 12px;
+  }
+
+  /* Fill the well pane; square corners inside
+     the companion's rounded clip. */
+  .rail.embedded {
+    height: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 0;
+  }
+
+  .popout {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .popout:hover {
+    color: var(--accent);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .popout svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  :global(.low-fill) .rail {
+    text-shadow: 0 1px 2px var(--bg-solid, transparent);
+  }
+
+  /* Fixed chrome: banner + window stack + list-head never scroll. The
+     theme/settings panel lives in .scroll so it can never push content off
+     the window. */
+  .chrome {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 12px 8px;
+    border-bottom: 1px solid var(--edge);
+  }
+
+  /* Real scrollport — `overflow-y: overlay` leaves WKWebView without one.
+     Thin scrollbar, thumb fades in on hover. */
+  .scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 12px 0;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--dim) 45%, transparent) transparent;
+  }
+
+  .rail.embedded .scroll {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .scroll::-webkit-scrollbar {
+    width: 5px;
+    background: transparent;
+  }
+
+  .scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+  }
+
+  .scroll:hover::-webkit-scrollbar-thumb,
+  .scroll:focus-within::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--dim) 55%, transparent);
+  }
+
+  /* Overlay titlebar with the traffic lights hidden: the wordmark strip is
+     the window drag surface (× and gear excluded). JS startDragging on
+     the banner is the one source — Overlay's strip is covered. */
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 2px 0 6px;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+  }
+  .banner:active {
+    cursor: grabbing;
+  }
+
+  .banner .winx {
+    margin-left: auto;
+  }
+
+  .banner h1 {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  /* The wordmark IS Home — bringAllFront, not a
+     seventh stack button. */
+  .wordmark {
+    font: inherit;
+    letter-spacing: inherit;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: grab;
+  }
+
+  /* Narrow rail: the clock clips away (min-width 0). */
+  .clock {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 0.68rem;
+    color: var(--dim);
+  }
+
+  /* Being editor: popover card above the rail. */
+  .being-editor {
+    position: fixed;
+    right: 10px;
+    bottom: 10px;
+    z-index: 60;
+    width: 236px;
+    max-height: 82vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    background: var(--bg-fill, var(--bg));
+    box-shadow: 0 8px 28px rgb(0 0 0 / 0.35);
+  }
+
+  .being-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .being-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .being-preview {
+    align-self: center;
+    width: 96px;
+    height: 128px;
+    image-rendering: pixelated;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    background: var(--bg);
+    object-fit: contain;
+  }
+
+  .being-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .being-slot {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 2px 4px;
+  }
+
+  .being-slot .slot-name {
+    font-size: 0.62rem;
+    color: var(--dim);
+  }
+
+  .being-slot .slot-val {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    font-size: 0.66rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .being-scale {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.64rem;
+    color: var(--dim);
+  }
+
+  .being-scale input[type="range"] {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .being-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .card {
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    padding: 14px;
+  }
+
+  .card h2 {
+    margin: 0 0 8px;
+    font-size: 0.92rem;
+    color: var(--accent);
+  }
+
+  .card .body {
+    margin: 0 0 10px;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    color: var(--dim);
+  }
+
+  .path {
+    margin: 0 0 8px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    line-height: 1.45;
+    word-break: break-all;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 8px;
+  }
+
+  .signing {
+    margin: 0 0 12px;
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: var(--accent);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .actions button {
+    font: inherit;
+    font-size: 0.74rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+
+  .actions button:hover {
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .actions .primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 700;
+  }
+
+  .actions .ghost {
+    color: var(--dim);
+  }
+
+  .hint {
+    margin: 10px 0 0;
+    font-size: 0.68rem;
+    line-height: 1.5;
+    color: var(--dim);
+  }
+
+  .list-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .count {
+    font-size: 0.68rem;
+    color: var(--dim);
+  }
+
+  .list-head > .mini {
+    margin-left: auto;
+  }
+
+  .mini {
+    font: inherit;
+    font-size: 0.68rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+
+  .mini:hover {
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .mini.active {
+    border-color: var(--focus, #6e4db0);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .mini.ghost {
+    color: var(--dim);
+  }
+
+  .newproj {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .newproj input {
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 3px 6px;
+    width: 130px;
+  }
+
+  .newproj input:focus {
+    outline: none;
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .empty {
+    color: var(--dim);
+    font-size: 0.82rem;
+    text-align: center;
+    margin-top: 32px;
+  }
+
+  .wins {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 6px;
+    padding: 2px;
+    border: 1px dashed transparent;
+    border-radius: 8px;
+    transition:
+      border-color 0.12s,
+      background 0.12s,
+      box-shadow 0.12s;
+  }
+
+  .section.drop-ok {
+    border: 1px solid var(--accent);
+    background: var(--panel-fill, var(--panel));
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 6px 18px rgba(0, 0, 0, 0.18);
+  }
+
+  /* Section heads are the primary drop targets — keep them tall. The whole
+     head is also the collapse toggle; drop handlers live on the parent
+     section, so claiming into a collapsed folder keeps working. */
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 26px;
+    padding: 4px 8px;
+    font: inherit;
+    text-align: left;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .section-head:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .section-head:focus-visible {
+    outline: 2px solid var(--focus, #6e4db0);
+    outline-offset: 1px;
+  }
+
+  /* head + × share one
+     row — the head keeps the flex, the × stays out of the collapse
+     toggle so a remove can never misclick-expand. */
+  .head-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .head-row .section-head {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .planet-rm {
+    flex-shrink: 0;
+    padding: 1px 6px;
+  }
+
+  /* The armed state: the × becomes an in-sheet confirm chip on the row —
+     WKWebView JS dialogs don't surface on the companion overlay, so the
+     confirm lives in the webview (S4.6 law). */
+  .planet-rm-confirm {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    min-width: 0;
+    font-size: 0.68rem;
+    color: var(--ink);
+  }
+
+  .planet-rm-confirm .rm-q {
+    color: var(--dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
+  }
+
+  .planet-rm-confirm .rm-yes {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Invoke failure stays in-sheet under the row's head — the row stays. */
+  .rm-err {
+    margin: 2px 2px 4px;
+    font-size: 0.68rem;
+    line-height: 1.45;
+    color: var(--accent);
+    word-break: break-all;
+  }
+
+  .chev {
+    flex-shrink: 0;
+    font-size: 0.58rem;
+    color: var(--dim);
+    transition: transform 0.12s;
+  }
+
+  .chev.open {
+    transform: rotate(90deg);
+  }
+
+  .section.drop-ok .section-head {
+    background: var(--bg-fill, var(--bg));
+  }
+
+  .section.drop-ok .section-name {
+    color: var(--accent);
+  }
+
+  .section-name {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+
+  .root-path {
+    display: block;
+    width: calc(100% - 16px);
+    margin: 0 8px 6px;
+    font: inherit;
+    font-size: 0.68rem;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 3px 6px;
+  }
+
+  /* The list wears the disc's marble color. */
+  .planet-chip {
+    flex-shrink: 0;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+
+  /* a small glow in the planet's own
+     color while its agent is writing (hackLive + projectId). The inset
+     ring stays; menus only — never the habitat discs. */
+  .planet-chip.live {
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+      0 0 8px 2px var(--pglow, var(--accent));
+  }
+
+  .section-count {
+    font-size: 0.64rem;
+    color: var(--dim);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 0 0.35rem;
+  }
+
+  /* Hosted well — one sheet, two sections. */
+  .sheet-sec {
+    margin-bottom: 10px;
+  }
+
+  .sheet-h {
+    margin: 2px 2px 6px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+
+  .sheet-empty {
+    margin: 2px 4px;
+    font-size: 0.68rem;
+    color: var(--dim);
+  }
+
+  /* Unclaimed row: icon + title + claim ▸ (not itself clickable — the claim
+     door is the only action). */
+  .sheet-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 8px;
+    border-radius: 8px;
+  }
+
+  .sheet-row:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .sheet-row .wtitle {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .app-icon-slot {
+    flex-shrink: 0;
+    display: inline-flex;
+  }
+
+  .claim-btn {
+    flex-shrink: 0;
+  }
+
+  /* Inline planet picker under an unclaimed row. */
+  .claim-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin: 0 4px 4px;
+    padding: 6px 8px;
+    background: var(--panel-fill, var(--panel));
+    border: 1px dashed var(--edge);
+    border-radius: 6px;
+  }
+
+  .claim-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  /* Orbs across the top, one selected body.
+     Extra rows scroll in .sheet-body, not the tile. */
+  .sheet {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sheet-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 4px 8px;
+    scrollbar-width: thin;
+  }
+
+  .planet-strip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    overflow-x: auto;
+    padding: 4px 8px 8px;
+    scrollbar-width: thin;
+    background: var(--bg-fill, var(--bg));
+  }
+
+  .planet-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    max-width: 9.5rem;
+    min-height: 26px;
+    padding: 4px 8px;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .planet-tab:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .planet-tab.sel {
+    background: var(--panel-fill, var(--panel));
+    color: var(--accent);
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px var(--focus, #6e4db0);
+  }
+
+  .planet-tab.add {
+    color: var(--dim);
+    max-width: none;
+  }
+
+  .planet-tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .planet-strip .newproj.strip-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+  }
+
+  /* Lane tabs on the list-head — the active lane gets the --focus edge. */
+  .lane-tabs {
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  /* Agents lane. */
+  .lane-hint {
+    margin: 2px 2px 8px;
+    font-size: 0.68rem;
+    line-height: 1.5;
+    color: var(--dim);
+  }
+
+  .lane-empty {
+    margin: 12px 2px;
+    padding: 10px 12px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--dim);
+    background: var(--panel-fill, var(--panel));
+    border: 1px dashed var(--edge);
+    border-radius: 8px;
+  }
+
+  .agent-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 26px;
+    padding: 3px 8px;
+  }
+
+  .agent-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .agent-soul {
+    margin-left: 0;
+  }
+
+  /* S5 soul.md panel: read always, Save is the only writer. */
+  .soul-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 2px 0 4px 11px;
+    padding: 6px 8px;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+  }
+
+  .soul-body {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 6px 8px;
+    resize: vertical;
+    min-height: 72px;
+  }
+
+  .soul-body:focus {
+    outline: none;
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .soul-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .soul-msg {
+    font-size: 0.64rem;
+    color: var(--dim);
+  }
+
+  /* S5 Hermes launch/focus result (ok or path-hint error), dismissible. */
+  .hermes-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 2px 8px;
+    padding: 6px 10px;
+    font-size: 0.68rem;
+    line-height: 1.45;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    word-break: break-all;
+  }
+
+  .hermes-note.err {
+    border-color: var(--accent);
+  }
+
+  .hermes-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Empty sections stay a real drop target, not a one-line label. */
+  .section-empty {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+    margin: 2px 4px;
+    padding: 4px 8px 4px 11px;
+    font-size: 0.68rem;
+    color: var(--dim);
+    border: 1px dashed var(--edge);
+    border-radius: 6px;
+  }
+
+  .section.drop-ok .section-empty {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .proj-hint {
+    margin: 4px 2px 8px;
+    padding: 8px 10px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--dim);
+    background: var(--panel-fill, var(--panel));
+    border: 1px dashed var(--edge);
+    border-radius: 8px;
+  }
+
+  .proj-hint b {
+    color: var(--accent);
+  }
+
+  /* Row layout: the title ellipsizes inside .row (flex:1, min-width:0) while
+     the action controls stay visible (flex-shrink:0); if the rail gets too
+     narrow the actions wrap to a second line instead of clipping Done off
+     the right edge. */
+  .rowwrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 2px;
+    border-radius: 4px;
+  }
+
+  .rowwrap.dragging {
+    opacity: 0.45;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    font: inherit;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+
+  .row:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .row.front {
+    border-left-color: var(--focus, #6e4db0);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .row.front .wtitle {
+    font-weight: 700;
+  }
+
+  /* Inline rename: the row swaps its button for an input in the same box. */
+  .row.editing {
+    padding: 4px 8px;
+  }
+
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 0.8rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--focus, #6e4db0);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+
+  .rename-input:focus {
+    outline: none;
+  }
+
+  /* a minimized window is stowed, not
+     asleep — the walker still walks its planet, so the row stays readable
+     (0.85), never a ghost. Zombie age classes (.rowwrap.zpark/.zgone)
+     still dim harder, and true sleepers keep .row.sleeping's 0.6. */
+  .row.min {
+    opacity: 0.85;
+  }
+
+  .app-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    object-fit: contain;
+  }
+
+  .app-icon.fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  /* S4.6 circle-complete: an open circle at the far left of claimed window
+     rows and todo rows — the only door that retires a sprite and can mint
+     points. One click fills it with a check (the fill is the confirm), then
+     the row completes and leaves the rail. */
+  .circle-btn {
+    flex-shrink: 0;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    font: inherit;
+    font-size: 0.62rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--bg);
+    background: transparent;
+    border: 1.5px solid var(--dim);
+    border-radius: 999px;
+    cursor: pointer;
+    transition:
+      background 0.18s,
+      border-color 0.18s;
+  }
+
+  .circle-btn:hover {
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .circle-btn.filling {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* Zombie aging (TS-7): the rail keeps faded rows listed, quietly dimmed;
+     the habitat handles the sprite-side fade/park/cull. */
+  .rowwrap.zfade .row {
+    opacity: 0.75;
+  }
+
+  .rowwrap.zpark .row {
+    opacity: 0.6;
+  }
+
+  .rowwrap.zgone .row {
+    opacity: 0.45;
+  }
+
+  .ztag {
+    font-style: normal;
+    opacity: 0.8;
+  }
+
+  /* A closed claimed window keeps an obvious asleep
+     row — dimmed, italic title, dashed "asleep" tag — never a ghost hole. */
+  .row.sleeping {
+    opacity: 0.6;
+  }
+
+  .row.sleeping .wtitle {
+    font-style: italic;
+  }
+
+  .sleeptag {
+    border-style: dashed;
+    font-style: normal;
+  }
+
+  /* Stowed (minimized, still claimed): quiet solid pill, full-ink text —
+     distinct from the dashed asleep tag it must never be read as. */
+  .stowtag {
+    color: var(--ink);
+  }
+
+  /* S4.6 todo rows: loose project todos listed under the project's windows,
+     same leading circle. The title opens the Lists window. */
+  .todo-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 26px;
+  }
+
+  .todo-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: inherit;
+    font-size: 0.78rem;
+    text-align: left;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 5px 8px;
+    cursor: pointer;
+  }
+
+  .todo-name:hover {
+    color: var(--accent);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .todo-add {
+    display: flex;
+    padding: 2px 4px 2px 25px;
+  }
+
+  .todo-add .newproj {
+    margin-left: 0;
+  }
+
+  /* Claim-first nudge: shown once per unmapped minimized window. */
+  .nudge {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 2px 2px 8px;
+    padding: 8px 10px;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+  }
+
+  .nudge-text {
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+
+  .nudge-text b {
+    color: var(--accent);
+  }
+
+  .nudge-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .nudge-actions .newproj {
+    margin-left: 0;
+  }
+
+  .menu-label {
+    flex-basis: 100%;
+    margin-top: 2px;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+
+  .menu-label:first-child {
+    margin-top: 0;
+  }
+
+  .tag-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  /* min-width keeps tags from crushing the title to 0px — it ellipsizes
+     instead of vanishing. */
+  .wtitle {
+    flex: 1;
+    min-width: 4.5em;
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Hide titles: the title string leaves the layout entirely — icon +
+     chrome only. The row button keeps its height and hit target. */
+  .rail.hide-titles .wtitle {
+    display: none;
+  }
+
+  /* Auto-hide row chrome (default on): the complete-circle stays hidden
+     until the row is hovered or focused within (todo circles follow the
+     same rule on their row). Layout is kept — buttons fade, never reflow. */
+  .rail.autohide .circle-btn {
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity 0.12s,
+      background 0.18s,
+      border-color 0.18s;
+  }
+
+  .rail.autohide .rowwrap:hover .circle-btn,
+  .rail.autohide .rowwrap:focus-within .circle-btn,
+  .rail.autohide .todo-row:hover .circle-btn,
+  .rail.autohide .todo-row:focus-within .circle-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Hide icons: app icons leave the layout entirely (title-only rows). */
+  .rail.hide-icons .app-icon {
+    display: none;
+  }
+
+  .tag {
+    flex-shrink: 0;
+    font-size: 0.64rem;
+    color: var(--dim);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 0 0.4rem;
+  }
+
+  .front-tag {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .wtag {
+    max-width: 72px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: var(--panel-fill, var(--panel));
+  }
+
+  /* Right-click window-title menu: fixed inside the rail, above the list. */
+  .ctx-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: default;
+  }
+
+  .ctx-menu {
+    position: fixed;
+    z-index: 41;
+    display: flex;
+    flex-direction: column;
+    min-width: 140px;
+    padding: 4px;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  }
+
+  .ctx-item {
+    font: inherit;
+    font-size: 0.74rem;
+    text-align: left;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+
+  .ctx-item:hover {
+    color: var(--bg);
+    background: var(--accent);
+  }
+
+  .ctx-item.active {
+    color: var(--accent);
+  }
+
+  .ctx-item.active:hover {
+    color: var(--bg);
+  }
+
+  .ctx-item.danger:hover {
+    color: #fff;
+    background: #b3432b;
+  }
+
+  .ctx-sub {
+    display: flex;
+    flex-direction: column;
+    margin: 1px 0 2px;
+    padding: 2px 0 2px 10px;
+    border-left: 2px solid var(--edge);
+    margin-left: 10px;
+  }
+
+  .ctx-newproj {
+    display: flex;
+    gap: 4px;
+    padding: 3px 6px 3px 10px;
+    align-items: center;
+  }
+
+  .ctx-newproj input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 0.74rem;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--edge);
+    border-radius: 5px;
+    padding: 3px 6px;
+  }
+
+  .ctx-sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--edge);
+  }
+
+  /* Sleeper-without-walker locate fallback —
+     a ~500ms row flash (the walker stroke / overlay ring are native). */
+  @keyframes locate-flash {
+    0%,
+    100% {
+      box-shadow: inset 0 0 0 0 transparent;
+    }
+    25%,
+    75% {
+      box-shadow: inset 0 0 0 2px var(--accent);
+    }
+  }
+
+  .row.locate-flash {
+    border-radius: 7px;
+    animation: locate-flash 0.5s ease-in-out;
+  }
+
+  .foot {
+    flex-shrink: 0;
+    padding: 6px 12px 8px;
+    font-size: 0.66rem;
+    color: var(--dim);
+    text-align: center;
+  }
+
+  .foot a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .foot a:hover {
+    text-decoration: underline;
+  }
