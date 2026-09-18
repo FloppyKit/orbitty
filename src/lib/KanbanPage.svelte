@@ -19,10 +19,6 @@
   import "./chrome.css";
   import "./boardStack.css";
   import "./mdLite.css";
-  import "./board/board.css";
-  import BoardChrome from "./board/Chrome.svelte";
-  import BoardColumns from "./board/Columns.svelte";
-  import BoardPreview from "./board/Preview.svelte";
   import type {
     Actor,
     AgentRun,
@@ -1994,163 +1990,1938 @@
   function onBannerMouseDown(e: MouseEvent) {
     startPaneDrag(e);
   }
-  // DIET-BOARD-SPLIT: surface for board/* modules.
-  const board: import("./board/api").BoardApi = {
-    addTagToCard,
-    addTracker,
-    get addingNeeded() { return addingNeeded; },
-    set addingNeeded(v) { addingNeeded = v; },
-    get addingTodo() { return addingTodo; },
-    set addingTodo(v) { addingTodo = v; },
-    get addingTracker() { return addingTracker; },
-    set addingTracker(v) { addingTracker = v; },
-    ageLabel,
-    agentName,
-    get agentShortcuts() { return agentShortcuts; },
-    set agentShortcuts(v) { agentShortcuts = v; },
-    armNeededMouth,
-    attachChild,
-    bumpTracker,
-    cardHasTag,
-    childrenOf,
-    clipTrackLabel,
-    dateInputValue,
-    deleteSubtask,
-    deleteTodo,
-    detachChild,
-    get detailCard() { return detailCard; },
-    set detailCard(v) { detailCard = v; },
-    get detailId() { return detailId; },
-    set detailId(v) { detailId = v; },
-    displayTitle,
-    get doneFilter() { return doneFilter; },
-    set doneFilter(v) { doneFilter = v; },
-    get dragCardId() { return dragCardId; },
-    set dragCardId(v) { dragCardId = v; },
-    get dropCol() { return dropCol; },
-    set dropCol(v) { dropCol = v; },
-    dueInfo,
-    get eastEl() { return eastEl; },
-    set eastEl(v) { eastEl = v; },
-    get embedded() { return embedded; },
-    set embedded(v) { embedded = v; },
-    focusCard,
-    get grabCol() { return grabCol; },
-    set grabCol(v) { grabCol = v; },
-    get grabGhost() { return grabGhost; },
-    set grabGhost(v) { grabGhost = v; },
-    get grabbedId() { return grabbedId; },
-    set grabbedId(v) { grabbedId = v; },
-    hasAgent,
-    get hermesNote() { return hermesNote; },
-    set hermesNote(v) { hermesNote = v; },
-    invoke,
-    isWriting,
-    get kanbanCards() { return kanbanCards; },
-    set kanbanCards(v) { kanbanCards = v; },
-    linkableTodos,
-    get listTitle() { return listTitle; },
-    set listTitle(v) { listTitle = v; },
-    livePlanetId,
-    get mailEl() { return mailEl; },
-    set mailEl(v) { mailEl = v; },
-    mdLite,
-    menuRing,
-    mintTodo,
-    moveCard,
-    neededForTodo,
-    get neededProjectId() { return neededProjectId; },
-    get neededRows() { return neededRows; },
-    get neededSelectedId() { return neededSelectedId; },
-    set neededSelectedId(v) { neededSelectedId = v; },
-    get neededSplit() { return neededSplit; },
-    set neededSplit(v) { neededSplit = v; },
-    get newTagName() { return newTagName; },
-    set newTagName(v) { newTagName = v; },
-    get newTodoTitle() { return newTodoTitle; },
-    set newTodoTitle(v) { newTodoTitle = v; },
-    get newTrackerLabel() { return newTrackerLabel; },
-    set newTrackerLabel(v) { newTrackerLabel = v; },
-    get newTrackerPlanetId() { return newTrackerPlanetId; },
-    set newTrackerPlanetId(v) { newTrackerPlanetId = v; },
-    onBannerMouseDown,
-    onCardClick,
-    onCardDragEnd,
-    onCardDragStart,
-    onCardPointerDown,
-    get onClose() { return onClose; },
-    set onClose(v) { onClose = v; },
-    onColDragLeave,
-    onColDragOver,
-    onColDrop,
-    onEastSplitDown,
-    onPlanetPointerDown,
-    onPlanetTabClick,
-    onPlanetTabDblClick,
-    get onPopout() { return onPopout; },
-    set onPopout(v) { onPopout = v; },
-    onSplitDown,
-    onTrackSplitDown,
-    openDetail,
-    get openSubtaskIds() { return openSubtaskIds; },
-    set openSubtaskIds(v) { openSubtaskIds = v; },
-    planetCss,
-    get planetDdOpen() { return planetDdOpen; },
-    set planetDdOpen(v) { planetDdOpen = v; },
-    get planetDragId() { return planetDragId; },
-    set planetDragId(v) { planetDragId = v; },
-    get planetDropId() { return planetDropId; },
-    set planetDropId(v) { planetDropId = v; },
-    planetIsLive,
-    get previewEdit() { return previewEdit; },
-    set previewEdit(v) { previewEdit = v; },
-    get previewWidth() { return previewWidth; },
-    set previewWidth(v) { previewWidth = v; },
-    projectName,
-    remainingKids,
-    removeTracker,
-    resetPreviewWidth,
-    resetTrackerSplit,
-    row,
-    saveNotes,
-    saveTitle,
-    get selected() { return selected; },
-    set selected(v) { selected = v; },
-    get selectedProject() { return selectedProject; },
-    set selectedProject(v) { selectedProject = v; },
-    setAgent,
-    setDue,
-    setPlanet,
-    setRating,
-    setTrackerValue,
-    showProj,
-    get showTrackers() { return showTrackers; },
-    sideCount,
-    subProgress,
-    get tags() { return tags; },
-    set tags(v) { tags = v; },
-    toggleCardTag,
-    toggleDoing,
-    toggleDoneChip,
-    toggleOpenSubtasks,
-    toggleSubtask,
-    get trackPaneEl() { return trackPaneEl; },
-    set trackPaneEl(v) { trackPaneEl = v; },
-    get trackerArmed() { return trackerArmed; },
-    set trackerArmed(v) { trackerArmed = v; },
-    undoThisTask,
-    get viewCols() { return viewCols; },
-    set viewCols(v) { viewCols = v; },
-    get visibleTrackers() { return visibleTrackers; },
-    winFor,
-  };
-
 </script>
 
+{#snippet trackerWidget(projectId: string, tr: Tracker, showChip: boolean)}
+  <div class="k-tracktile" class:armed={trackerArmed} role="group" aria-label={tr.label}>
+    {#if trackerArmed}
+      <button
+        type="button"
+        class="k-track-x"
+        onclick={() => removeTracker(projectId, tr.id)}
+        aria-label="Remove {tr.label}"
+        title="Remove tracker"
+      >×</button>
+    {/if}
+    <div class="k-track-name">
+      {#if showChip}
+        <span
+          class="planet-chip"
+          style="background: {planetCss(projectId)}"
+          title={projectName(projectId)}
+          aria-hidden="true"
+        ></span>
+      {/if}
+      <span class="k-track-lbl">{clipTrackLabel(tr.label)}</span>
+    </div>
+    <div class="k-track-row">
+      <button
+        type="button"
+        class="k-track-nudge"
+        tabindex={trackerArmed ? -1 : 0}
+        onclick={() => bumpTracker(projectId, tr.id, -1)}
+        aria-label="Decrease {tr.label}"
+      >‹</button>
+      <input
+        class="k-track-val"
+        value={tr.value}
+        inputmode="numeric"
+        aria-label={tr.label}
+        readonly={trackerArmed}
+        onmousedown={(e) => e.stopPropagation()}
+        onblur={(e) => setTrackerValue(projectId, tr.id, e.currentTarget.value)}
+        onkeydown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          e.stopPropagation();
+        }}
+      />
+      <button
+        type="button"
+        class="k-track-nudge"
+        tabindex={trackerArmed ? -1 : 0}
+        onclick={() => bumpTracker(projectId, tr.id, 1)}
+        aria-label="Increase {tr.label}"
+      >›</button>
+    </div>
+  </div>
+{/snippet}
+
+{#snippet metaChips(card: KanbanCard)}
+  {@const due = dueInfo(card)}
+  {@const sub = subProgress(card)}
+  {@const who = agentName(card)}
+  {@const age = ageLabel(card)}
+  {@const need = neededForTodo(card)}
+  {#if need}
+    <span class="k-needchip" title={need.title}>needed</span>
+  {/if}
+  {#if hasAgent(card)}
+    <span class="k-bot" title={who || "agent"} aria-label={who || "agent"}>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="7" y="9" width="10" height="8" rx="2"/>
+        <circle cx="10" cy="13" r="1.2"/>
+        <circle cx="14" cy="13" r="1.2"/>
+        <rect x="11" y="5" width="2" height="4" rx="1"/>
+        <circle cx="12" cy="4.5" r="1.3"/>
+        <rect x="5" y="11" width="2" height="4" rx="1"/>
+        <rect x="17" y="11" width="2" height="4" rx="1"/>
+      </svg>
+    </span>
+  {/if}
+  {#if card.neededState}
+    <span class="k-needst" title="Needed state">{card.neededState}</span>
+  {/if}
+  {#if card.rating}
+    <span class="k-rating" title="Rating {card.rating}">{card.rating}</span>
+  {/if}
+  {#if due}
+    <span class="k-due" class:overdue={due.overdue} title="Due date">{due.label}</span>
+  {/if}
+  {#if sub}
+    <span class="k-sub" title="Sub-checklist done/total">{sub}</span>
+  {/if}
+  {#if showProj(card)}
+    <span class="k-proj">{projectName(card.projectId)}</span>
+  {/if}
+  {#if age}
+    <span class="k-age" title="Last touched">{age}</span>
+  {/if}
+{/snippet}
+
+{#snippet stackCard(card: KanbanCard)}
+  {@const pid = livePlanetId(card)}
+  {@const floating = grabbedId === card.id && !!grabGhost}
+  {#if floating}
+    <div class="b-slot" style="height:{grabGhost.h}px"></div>
+  {/if}
+  <div
+    class="b-row"
+    class:child={!!card.parentId}
+    class:lifted={floating}
+    style={floating && grabGhost
+      ? `position:fixed;left:${grabGhost.x}px;top:${grabGhost.y}px;width:${grabGhost.w}px;z-index:40;margin:0;`
+      : undefined}
+  >
+  <button
+    type="button"
+    class="k-check"
+    class:checked={card.status === "done"}
+    onclick={(e) => {
+      e.stopPropagation();
+      moveCard(card, card.status === "done" ? "todo" : "done");
+    }}
+    onpointerdown={(e) => e.stopPropagation()}
+    aria-label={card.status === "done" ? "Reopen" : "Mark done"}
+    title={card.status === "done" ? "Reopen" : "Mark done"}
+  >{card.status === "done" ? "✓" : ""}</button>
+  <article
+    class="b-card"
+    class:dragging={dragCardId === card.id}
+    class:held={grabbedId === card.id}
+    class:done={card.status === "done"}
+    class:doing={card.status === "doing"}
+    class:sel={detailId === card.id}
+    class:mkey-sel={menuRing.activeId === `card-${card.id}`}
+    data-mkey={`card-${card.id}`}
+    draggable="true"
+    ondragstart={(e) => onCardDragStart(e, card)}
+    ondragend={onCardDragEnd}
+    onpointerdown={(e) => onCardPointerDown(e, card)}
+    onclick={() => onCardClick(card)}
+    onkeydown={(e) => e.key === "Enter" && !e.shiftKey && openDetail(card)}
+    tabindex="0"
+    title="{displayTitle(card)} — click for details, drag to move"
+  >
+    <div class="b-card-top">
+      {#if pid}
+        <span
+          class="planet-chip"
+          class:live={isWriting(card)}
+          style="background: {planetCss(pid)}; --pglow: {planetCss(pid)}"
+          title={projectName(pid)}
+          aria-hidden="true"
+        ></span>
+      {/if}
+      <span class="b-title" class:strike={card.status === "done"}>{displayTitle(card)}</span>
+      {#if card.status !== "done" && !card.parentId}
+        <button
+          type="button"
+          class="k-doing"
+          class:on={card.status === "doing"}
+          class:live={isWriting(card)}
+          onclick={(e) => toggleDoing(card, e)}
+          onpointerdown={(e) => e.stopPropagation()}
+          title={card.status === "doing" ? "Doing — click to park" : "Start — pin to the top"}
+        >
+          {#if card.status === "doing"}
+            <span class="k-doing-ico"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></span>
+            <span class="k-doing-lbl">doing</span>
+          {:else}
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            start
+          {/if}
+        </button>
+      {/if}
+      {#if !card.parentId && childrenOf(card.id).length > 0}
+        <button
+          type="button"
+          class="k-subs"
+          class:open={openSubtaskIds.includes(card.id)}
+          onclick={(e) => toggleOpenSubtasks(card.id, e)}
+          onpointerdown={(e) => e.stopPropagation()}
+          title={openSubtaskIds.includes(card.id) ? "Hide subtasks" : "Show subtasks"}
+        >
+          <span class="chev" class:open={openSubtaskIds.includes(card.id)}>▸</span>
+          {remainingKids(card.id)}
+        </button>
+      {/if}
+    </div>
+    <div class="b-meta">
+      {@render metaChips(card)}
+    </div>
+  </article>
+  </div>
+{/snippet}
+
+{#snippet doneActorChips()}
+  <!-- Happened split — All default, session-only. -->
+  <div class="actor-chips" role="group" aria-label="Filter Done by who acted">
+    <button
+      class:active={doneFilter === "all"}
+      aria-pressed={doneFilter === "all"}
+      onclick={() => (doneFilter = "all")}>All</button
+    >
+    <button
+      class:active={doneFilter === "mine"}
+      aria-pressed={doneFilter === "mine"}
+      onclick={() => (doneFilter = "mine")}>I did</button
+    >
+    <button
+      class:active={doneFilter === "behalf"}
+      aria-pressed={doneFilter === "behalf"}
+      onclick={() => (doneFilter = "behalf")}>On my behalf</button
+    >
+  </div>
+{/snippet}
+
 <main class="kanban" class:embedded>
-  <BoardChrome {board} />
+  <!-- One drag source: JS startDragging on this banner. Drawers are
+       borderless — no native Overlay strip competing with the click.
+       HOST-SPLIT: embedded, this drags the host companion window. -->
+  <header class="k-banner" onmousedown={onBannerMouseDown}>
+    {#if embedded}
+      <h1>Launchpad</h1>
+      <!-- HOST-SPLIT: pop-out lives on the embedded Launchpad banner only
+           (never STARS, never companion chrome) — the real kanban window
+           becomes the popped Launchpad. -->
+      <button
+        class="popout"
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => onPopout?.()}
+        title="Pop out to the real Lists window — the well closes, the companion stays"
+        aria-label="Pop out Launchpad"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M15 3h6v6" />
+          <path d="M10 14 21 3" />
+          <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+        </svg>
+      </button>
+    {:else}
+      <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">tty</span></span> Lists</h1>
+    {/if}
+    <button
+      class="winx"
+      onmousedown={(e) => e.stopPropagation()}
+      onclick={() =>
+        embedded
+          ? onClose?.()
+          : invoke("hide_window", { label: "kanban" }).catch(() => {})}
+      title={embedded
+        ? "Dismiss the Launchpad well — the companion stays"
+        : "Hide Lists — reopen from the rail or tray"}
+      aria-label={embedded ? "Dismiss Launchpad" : "Hide Lists"}>×</button
+    >
+  </header>
+
+  <div class="planet-strip" role="tablist" aria-label="Lists and planets">
+    <div class="strip-pins">
+      <button
+        type="button"
+        class="planet-tab"
+        class:sel={selected === "inbox"}
+        class:mkey-sel={menuRing.activeId === "listtab-inbox"}
+        data-mkey="listtab-inbox"
+        role="tab"
+        aria-selected={selected === "inbox"}
+        onclick={() => (selected = "inbox")}
+      >
+        <span class="planet-tab-name">Inbox</span>
+        <span class="side-count">{sideCount("inbox")}</span>
+      </button>
+      <button
+        type="button"
+        class="planet-tab"
+        class:sel={selected === "today"}
+        class:mkey-sel={menuRing.activeId === "listtab-today"}
+        data-mkey="listtab-today"
+        role="tab"
+        aria-selected={selected === "today"}
+        onclick={() => (selected = "today")}
+      >
+        <span class="planet-tab-name">Today</span>
+        <span class="side-count">{sideCount("today")}</span>
+      </button>
+      <button
+        type="button"
+        class="planet-tab"
+        class:sel={selected === "done"}
+        class:mkey-sel={menuRing.activeId === "listtab-done"}
+        data-mkey="listtab-done"
+        role="tab"
+        aria-selected={selected === "done"}
+        data-col="done"
+        class:drop-ok={dropCol === "done" || grabCol === "done"}
+        title="Done — click to show completed, click again to return"
+        onclick={() => toggleDoneChip()}
+        ondragover={(e) => onColDragOver(e, "done")}
+        ondragleave={(e) => onColDragLeave(e, "done")}
+        ondrop={(e) => onColDrop(e, "done")}
+      >
+        <span class="planet-tab-name">Done</span>
+        <span class="side-count">{sideCount("done")}</span>
+      </button>
+    </div>
+    <span class="strip-gap" aria-hidden="true"></span>
+    <div class="strip-planets">
+    {#each projects as p (p.id)}
+      <button
+        type="button"
+        class="planet-tab"
+        class:sel={selected === p.id}
+        class:drop-ok={planetDropId === p.id}
+        class:dragging={planetDragId === p.id}
+        class:mkey-sel={menuRing.activeId === `listtab-${p.id}`}
+        data-mkey={`listtab-${p.id}`}
+        data-pid={p.id}
+        role="tab"
+        aria-selected={selected === p.id}
+        title={p.name}
+        onpointerdown={(e) => onPlanetPointerDown(e, p.id)}
+        onclick={() => onPlanetTabClick(p.id)}
+        ondblclick={() => onPlanetTabDblClick(p.id)}
+      >
+        <span
+          class="planet-chip"
+          class:live={planetIsLive(p.id)}
+          style="background: {planetCss(p.id)}; --pglow: {planetCss(p.id)}"
+          aria-hidden="true"
+        ></span>
+        <span class="planet-tab-name">{p.name}</span>
+        <span class="side-count">{sideCount(p.id)}</span>
+      </button>
+    {/each}
+    </div>
+  </div>
+
+  <div class="k-heads" onmousedown={onBannerMouseDown}>
+    <div class="k-titlerow">
+      {#if selectedProject}
+        <span
+          class="planet-chip"
+          class:live={planetIsLive(selectedProject.id)}
+          style="background: {planetCss(selectedProject.id)}; --pglow: {planetCss(selectedProject.id)}"
+          title={selectedProject.name}
+          aria-hidden="true"
+        ></span>
+      {/if}
+      <h2 class="k-title">{listTitle}</h2>
+      {#if selected === "done"}
+        {@render doneActorChips()}
+      {/if}
+    </div>
+  </div>
+  {#if hermesNote}
+    <div class="k-hermesnote" class:err={hermesNote.kind === "err"}>
+      <span class="k-hermestext">{hermesNote.text}</span>
+      <button class="mini ghost" onclick={() => (hermesNote = null)} aria-label="Dismiss">×</button>
+    </div>
+  {/if}
+
   <div class="k-body" bind:this={bodyEl}>
-    <BoardColumns {board} />
-    <BoardPreview {board} />
+    <section class="k-main" aria-label={listTitle}>
+
+      <div class="mail" bind:this={mailEl}>
+        {#if selected === "done"}
+          <section class="mail-todo mail-done" aria-label="Done">
+            <div
+              class="b-zone todo"
+              class:drop-ok={dropCol === "done" || grabCol === "done"}
+              data-col="done"
+              ondragover={(e) => onColDragOver(e, "done")}
+              ondragleave={(e) => onColDragLeave(e, "done")}
+              ondrop={(e) => onColDrop(e, "done")}
+            >
+              <header class="b-head">
+                <span class="b-name">Done</span>
+                <span class="b-count">{viewCols.done.length}</span>
+                {@render doneActorChips()}
+              </header>
+              {#each viewCols.done as card (card.id)}
+                {@render stackCard(card)}
+              {:else}
+                <p class="b-empty">Nothing done yet.</p>
+              {/each}
+            </div>
+          </section>
+        {:else}
+        <div
+          class="mail-needed"
+          class:empty={neededRows.length === 0 && !addingNeeded}
+          style="flex-basis: {neededRows.length === 0 && !addingNeeded
+            ? 'auto'
+            : `${Math.round(neededSplit * 100)}%`}"
+        >
+          <NeededInbox
+            variant="strip"
+            cards={kanbanCards}
+            {projects}
+            projectId={neededProjectId}
+            {mutate}
+            {logEvent}
+            bind:addingNeeded
+            bind:selectedId={neededSelectedId}
+            ringActiveId={menuRing.activeId}
+            onNeededFocus={armNeededMouth}
+            {onNeededAnswer}
+          />
+        </div>
+        {#if neededRows.length > 0 || addingNeeded}
+          <div
+            class="mail-split"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize Needed"
+            title="Drag to resize Needed · double-click resets"
+            onpointerdown={onSplitDown}
+            ondblclick={() => {
+              neededSplit = 0.28;
+              mutate((s) => {
+                s.neededSplit = 0.28;
+              });
+            }}
+          ></div>
+        {/if}
+        <section class="mail-todo" aria-label="Todos">
+          <div
+            class="b-zone todo"
+            class:drop-ok={dropCol === "todo" || grabCol === "todo"}
+            ondragover={(e) => onColDragOver(e, "todo")}
+            ondragleave={(e) => onColDragLeave(e, "todo")}
+            ondrop={(e) => onColDrop(e, "todo")}
+          >
+            <header class="b-head">
+              <span class="mail-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <rect x="4.5" y="4.5" width="15" height="15" rx="3.5"/>
+                  <path d="M8 12.2l2.6 2.6L16.5 9" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span class="b-name">Todo</span>
+              <span class="b-count">{viewCols.doing.length + viewCols.todo.length}</span>
+              <button
+                type="button"
+                class="ka-plus"
+                onclick={() => (addingTodo = !addingTodo)}
+                title={addingTodo ? "Cancel" : "Add a to-do"}
+                aria-label={addingTodo ? "Cancel add to-do" : "Add a to-do"}
+              >{addingTodo ? "×" : "+"}</button>
+            </header>
+            {#if addingTodo}
+              <div class="todo-add">
+                <input
+                  class="d-input"
+                  bind:value={newTodoTitle}
+                  placeholder="New to-do…"
+                  aria-label="New to-do title"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") mintTodo(newTodoTitle);
+                    if (e.key === "Escape") addingTodo = false;
+                  }}
+                />
+                <button class="mini" onclick={() => mintTodo(newTodoTitle)}>Add</button>
+              </div>
+            {/if}
+            <div class="doing-lane" data-col="doing">
+            {#each viewCols.doing as card (card.id)}
+              {@render stackCard(card)}
+              {#if openSubtaskIds.includes(card.id)}
+                {#each childrenOf(card.id) as kid (kid.id)}
+                  {@render stackCard(kid)}
+                {/each}
+              {/if}
+            {/each}
+            </div>
+            <div class="doing-floor" aria-hidden="true"></div>
+            <div class="todo-lane" data-col="todo">
+            {#each viewCols.todo as card (card.id)}
+              {@render stackCard(card)}
+              {#if openSubtaskIds.includes(card.id)}
+                {#each childrenOf(card.id) as kid (kid.id)}
+                  {@render stackCard(kid)}
+                {/each}
+              {/if}
+            {:else}
+              {#if viewCols.doing.length === 0}
+                <p class="b-empty">No to-dos — drag a card here.</p>
+              {/if}
+            {/each}
+            </div>
+          </div>
+        </section>
+        {/if}
+      </div>
+    </section>
+
+    <div
+      class="mail-east-split"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize preview"
+      title="Drag to resize preview · double-click resets"
+      onpointerdown={onEastSplitDown}
+      ondblclick={resetPreviewWidth}
+    ></div>
+    <div class="k-east" bind:this={eastEl} style="width: {previewWidth}px">
+    {#if showTrackers}
+      <section
+        class="k-trackpane"
+        class:armed={trackerArmed}
+        class:empty={visibleTrackers.length === 0 && !addingTracker}
+        bind:this={trackPaneEl}
+        style="flex-basis: {visibleTrackers.length === 0 && !addingTracker
+          ? 'auto'
+          : `${Math.round(trackerSplit * 100)}%`}"
+        aria-label="Trackers"
+      >
+        <header class="k-trackpane-head">
+          <span class="k-trackpane-title">Trackers</span>
+          <button
+            type="button"
+            class="ka-plus"
+            onclick={() => {
+              addingTracker = !addingTracker;
+              newTrackerLabel = "";
+              newTrackerPlanetId = selectedProject?.id ?? projects[0]?.id ?? "";
+              trackerArmed = false;
+            }}
+            title={addingTracker ? "Cancel" : "Add a tracker"}
+            aria-label={addingTracker ? "Cancel add tracker" : "Add a tracker"}
+          >{addingTracker ? "×" : "+"}</button>
+        </header>
+        {#if addingTracker}
+          <div class="k-track-addrow">
+            <select
+              class="k-track-planet"
+              bind:value={newTrackerPlanetId}
+              aria-label="Planet for this tracker"
+            >
+              {#each projects as p (p.id)}
+                <option value={p.id}>{p.name}</option>
+              {/each}
+            </select>
+            <input
+              class="k-track-add-field"
+              bind:value={newTrackerLabel}
+              maxlength="7"
+              placeholder="Name (7)…"
+              aria-label="New tracker name"
+              autofocus
+              onkeydown={(e) => {
+                if (e.key === "Enter") addTracker(newTrackerPlanetId, newTrackerLabel);
+                if (e.key === "Escape") {
+                  addingTracker = false;
+                  newTrackerLabel = "";
+                }
+              }}
+            />
+          </div>
+        {/if}
+        {#if visibleTrackers.length}
+          <div class="k-trackgrid">
+            {#each visibleTrackers as row (row.tr.id)}
+              {@render trackerWidget(row.projectId, row.tr, row.chip)}
+            {/each}
+          </div>
+        {:else if !addingTracker}
+          <p class="d-hint">{selected === "inbox" ? "No planet trackers yet." : "No trackers on this planet."}</p>
+        {/if}
+        <button
+          type="button"
+          class="k-track-trash"
+          class:on={trackerArmed}
+          onclick={() => (trackerArmed = !trackerArmed)}
+          aria-label={trackerArmed ? "Done removing trackers" : "Remove trackers"}
+          title={trackerArmed ? "Done" : "Remove trackers"}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M4 7h16" stroke-linecap="round"/>
+            <path d="M9 7V5h6v2"/>
+            <path d="M6 7l1 13h10l1-13"/>
+            <path d="M10 11v6M14 11v6" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </section>
+      {#if visibleTrackers.length > 0 || addingTracker}
+        <div
+          class="k-east-split"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize trackers"
+          title="Drag to resize Trackers · double-click resets"
+          onpointerdown={onTrackSplitDown}
+          ondblclick={resetTrackerSplit}
+        ></div>
+      {/if}
+    {/if}
+    <aside class="k-detail" aria-label="Item details">
+      <div class="k-preview-head">Preview:</div>
+      {#if detailCard}
+      {@const card = detailCard}
+        {#if card.kind === "needed"}
+          {@const npid = livePlanetId(card)}
+          <p class="d-need-title">{card.title}</p>
+          <label class="d-label">Planet</label>
+          <div class="planet-dd">
+            <button
+              type="button"
+              class="d-input planet-dd-btn"
+              onclick={() => (planetDdOpen = !planetDdOpen)}
+            >
+              {#if npid}
+                <span class="planet-chip" style="background: {planetCss(npid)}"></span>
+                {projectName(npid)}
+              {:else}
+                Inbox
+              {/if}
+            </button>
+            {#if planetDdOpen}
+              <div class="planet-dd-list" role="listbox">
+                <button
+                  type="button"
+                  class="planet-dd-opt"
+                  onclick={() => {
+                    setPlanet(card, "");
+                    planetDdOpen = false;
+                  }}
+                >Inbox</button>
+                {#each projects as p (p.id)}
+                  <button
+                    type="button"
+                    class="planet-dd-opt"
+                    onclick={() => {
+                      setPlanet(card, p.id);
+                      planetDdOpen = false;
+                    }}
+                  >
+                    <span class="planet-chip" style="background: {planetCss(p.id)}"></span>
+                    {p.name}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+          {#if card.neededWhy}
+            <div class="kn-why md-lite">{@html mdLite(card.neededWhy)}</div>
+          {/if}
+        {:else}
+        {#if !previewEdit}
+          {@const pid = livePlanetId(card)}
+          {@const due = dueInfo(card)}
+          <div class="d-read-top">
+            <h3 class="d-need-title">{displayTitle(card)}</h3>
+            <button type="button" class="mini" onclick={() => (previewEdit = true)}>Edit</button>
+          </div>
+          {#if pid}
+            <p class="d-read-line">
+              <span class="planet-chip" style="background: {planetCss(pid)}"></span>
+              {projectName(pid)}
+            </p>
+          {:else}
+            <p class="d-read-line dim">Inbox</p>
+          {/if}
+          {#if agentName(card)}
+            <p class="d-read-line">{agentName(card)}</p>
+          {/if}
+          {#if card.rating}
+            <p class="d-read-line">Rating {card.rating}</p>
+          {/if}
+          {#if card.notes}
+            <div class="d-read-notes md-lite">{@html mdLite(card.notes)}</div>
+          {/if}
+          {#if due}
+            <p class="d-read-line" class:overdue={due.overdue}>{due.label}</p>
+          {/if}
+          {#if childrenOf(card.id).length}
+            <ul class="d-read-subs">
+              {#each childrenOf(card.id) as kid (kid.id)}
+                <li class:strike={kid.status === "done"}>{kid.title}</li>
+              {/each}
+            </ul>
+          {/if}
+          {#if (card.tagIds ?? []).length}
+            <div class="d-tags">
+              {#each tags.filter((t) => cardHasTag(card, t.id)) as t (t.id)}
+                <span class="mini active">{t.name}</span>
+              {/each}
+            </div>
+          {/if}
+        {:else}
+        <div class="d-read-top">
+          <span class="d-label" style="margin:0">Edit</span>
+          <div class="d-edit-acts">
+            {#if card.kind !== "window" && card.kind !== "needed"}
+              <button
+                type="button"
+                class="d-trash"
+                class:mkey-sel={menuRing.activeId === "d-trash"}
+                data-mkey="d-trash"
+                onclick={() => deleteTodo(card)}
+                aria-label="Delete to-do"
+                title="Delete this to-do — does not mark it done"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <path d="M4 7h16" stroke-linecap="round"/>
+                  <path d="M9 7V5h6v2"/>
+                  <path d="M6 7l1 13h10l1-13"/>
+                  <path d="M10 11v6M14 11v6" stroke-linecap="round"/>
+                </svg>
+              </button>
+            {/if}
+            <button type="button" class="mini ghost" onclick={() => (previewEdit = false)}>Done</button>
+          </div>
+        </div>
+        <label class="d-label" for="d-name">Title</label>
+        <input
+          id="d-name"
+          class="d-input"
+          class:mkey-sel={menuRing.activeId === "d-title"}
+          data-mkey="d-title"
+          value={card.title}
+          onchange={(e) => saveTitle(card, e.currentTarget.value)}
+          required
+        />
+
+        <label class="d-label" for="d-planet">Planet</label>
+        <select
+          id="d-planet"
+          class="d-input"
+          class:mkey-sel={menuRing.activeId === "d-planet"}
+          data-mkey="d-planet"
+          value={livePlanetId(card) ?? ""}
+          onchange={(e) => setPlanet(card, e.currentTarget.value)}
+        >
+          <option value="">Inbox</option>
+          {#each projects as p (p.id)}
+            <option value={p.id}>{p.name}</option>
+          {/each}
+        </select>
+
+        <label class="d-label" for="d-agent">Agent</label>
+        <select
+          id="d-agent"
+          class="d-input"
+          class:mkey-sel={menuRing.activeId === "d-agent"}
+          data-mkey="d-agent"
+          value={card.assignedAgentId ?? ""}
+          onchange={(e) => setAgent(card, e.currentTarget.value)}
+        >
+          <option value="">None</option>
+          {#each agentShortcuts as a (a.id)}
+            <option value={a.id}>{a.name}</option>
+          {/each}
+        </select>
+
+        {#if card.taskId}
+          <button
+            type="button"
+            class="mini"
+            onclick={() => undoThisTask(card)}
+            title="Restore this planet's workspace root to the snapshot taken when the task started"
+          >Undo this task</button>
+        {/if}
+
+        <label class="d-label" for="d-notes">Notes</label>
+        <textarea
+          id="d-notes"
+          class="d-input d-textarea d-notes-lg"
+          class:mkey-sel={menuRing.activeId === "d-notes"}
+          data-mkey="d-notes"
+          rows="10"
+          placeholder="Add notes…"
+          value={card.notes ?? ""}
+          onchange={(e) => saveNotes(card, e.currentTarget.value)}
+        ></textarea>
+
+        <span class="d-label">Rating</span>
+        <div class="d-diff" role="group" aria-label="Rating 1 to 7">
+          {#each [1, 2, 3, 4, 5, 6, 7] as n}
+            <button
+              type="button"
+              class="mini"
+              class:active={card.rating === n}
+              class:mkey-sel={menuRing.activeId === `d-rate-${n}`}
+              data-mkey={`d-rate-${n}`}
+              aria-pressed={card.rating === n}
+              onclick={() => setRating(card, card.rating === n ? null : n)}
+            >{n}</button>
+          {/each}
+        </div>
+
+        <label class="d-label" for="d-due">Due date</label>
+        <div class="d-duerow">
+          <input
+            id="d-due"
+            class="d-input"
+            class:mkey-sel={menuRing.activeId === "d-due"}
+            data-mkey="d-due"
+            type="date"
+            value={dateInputValue(card)}
+            onchange={(e) => setDue(card, e.currentTarget.value)}
+          />
+          {#if card.dueAt}
+            <button
+              class="mini ghost"
+              class:mkey-sel={menuRing.activeId === "d-due-clear"}
+              data-mkey="d-due-clear"
+              onclick={() => setDue(card, "")}>Clear</button
+            >
+          {/if}
+        </div>
+
+        <span class="d-label">Subtasks</span>
+        <ul class="d-subs">
+          {#each childrenOf(card.id) as kid (kid.id)}
+            <li class="d-sub">
+              <button
+                class="k-check"
+                class:checked={kid.status === "done"}
+                onclick={() => moveCard(kid, kid.status === "done" ? "todo" : "done")}
+                aria-label={kid.status === "done" ? "Reopen subtask" : "Complete subtask"}
+              >{kid.status === "done" ? "✓" : ""}</button>
+              <button
+                type="button"
+                class="d-subtitle"
+                class:strike={kid.status === "done"}
+                onclick={() => openDetail(kid)}
+              >{kid.title}</button>
+              <button
+                class="d-del"
+                onclick={() => detachChild(kid.id)}
+                aria-label="Unlink subtask"
+                title="Unlink — stays a to-do">×</button
+              >
+            </li>
+          {/each}
+          {#each card.subtasks ?? [] as sub (sub.id)}
+            <li class="d-sub">
+              <button
+                class="k-check"
+                class:checked={sub.done}
+                class:mkey-sel={menuRing.activeId === `d-sub-check-${sub.id}`}
+                data-mkey={`d-sub-check-${sub.id}`}
+                onclick={() => toggleSubtask(card, sub.id)}
+                aria-label={sub.done ? "Reopen subtask" : "Complete subtask"}
+                title={sub.done ? "Reopen" : "Complete"}>{sub.done ? "✓" : ""}</button
+              >
+              <span class="d-subtitle" class:strike={sub.done}>{sub.title}</span>
+              <button
+                class="d-del"
+                class:mkey-sel={menuRing.activeId === `d-sub-del-${sub.id}`}
+                data-mkey={`d-sub-del-${sub.id}`}
+                onclick={() => deleteSubtask(card, sub.id)}
+                aria-label="Delete subtask"
+                title="Delete">×</button
+              >
+            </li>
+          {/each}
+          {#if childrenOf(card.id).length === 0 && !(card.subtasks ?? []).length}
+            <li class="d-hint">No subtasks yet — tag a to-do below.</li>
+          {/if}
+        </ul>
+        {#if linkableTodos(card).length > 0}
+          <select
+            class="d-input"
+            aria-label="Tag an existing to-do as a subtask"
+            onchange={(e) => {
+              attachChild(card, e.currentTarget.value);
+              e.currentTarget.value = "";
+            }}
+          >
+            <option value="">Tag a to-do as subtask…</option>
+            {#each linkableTodos(card) as t (t.id)}
+              <option value={t.id}>{t.title}</option>
+            {/each}
+          </select>
+        {/if}
+
+        <span class="d-label">Tags</span>
+        {#if tags.length > 0}
+          <div class="d-tags">
+            {#each tags as t (t.id)}
+              <button
+                class="mini"
+                class:active={cardHasTag(card, t.id)}
+                class:mkey-sel={menuRing.activeId === `d-tag-${t.id}`}
+                data-mkey={`d-tag-${t.id}`}
+                aria-pressed={cardHasTag(card, t.id)}
+                onclick={() => toggleCardTag(card, t.id)}>{t.name}</button
+              >
+            {/each}
+          </div>
+        {/if}
+        <div class="d-subadd">
+          <input
+            class="d-input"
+            class:mkey-sel={menuRing.activeId === "d-tag-new"}
+            data-mkey="d-tag-new"
+            bind:value={newTagName}
+            placeholder="New tag"
+            onkeydown={(e) => e.key === "Enter" && addTagToCard(card, newTagName)}
+          />
+          <button
+            class="mini"
+            onclick={() => addTagToCard(card, newTagName)}>Add</button
+          >
+        </div>
+
+        {#if card.kind === "window" || card.windowId}
+          {@const w = winFor(card)}
+          <span class="d-label">Linked window</span>
+          <div class="d-win">
+            {#if w?.iconBase64}
+              <img class="k-icon" src="data:image/png;base64,{w.iconBase64}" alt="" />
+            {/if}
+            <span class="d-winname" title={displayTitle(card)}>
+              {card.windowId ? displayTitle(card) : "Not linked"}
+            </span>
+            {#if w}
+              <button
+                class="mini"
+                class:mkey-sel={menuRing.activeId === "d-win-focus"}
+                data-mkey="d-win-focus"
+                onclick={() => focusCard(card)}>Focus</button
+              >
+            {/if}
+          </div>
+          <p class="d-hint">Window links are made by claiming in the rail — read-only here.</p>
+        {/if}
+        {/if}
+        {/if}
+      {:else}
+        <p class="d-hint">Highlight a row to preview it here.</p>
+      {/if}
+    </aside>
+    </div>
   </div>
 </main>
+
+<style>
+  /* Airy Wunderlist shapes on top of the same theme tokens. Every painted
+     fill is the JS-computed rgba var (S4.3) so the slider fades the whole
+     window chrome; text/icons/checkboxes stay full strength. */
+  .kanban {
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border-radius: 12px;
+    font-family:
+      "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
+      BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  }
+
+  :global(.low-fill) .kanban {
+    text-shadow: 0 1px 2px var(--bg-solid, transparent);
+  }
+
+  /* Embedded in the companion's Launchpad well —
+     fill the well pane (the host window owns the outer size), square
+     corners inside the companion's rounded clip. */
+  .kanban.embedded {
+    height: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 0;
+  }
+
+  /* HOST-SPLIT: the Launchpad pop-out control (embedded banner only). */
+  .popout {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .popout:hover {
+    color: var(--accent);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .popout svg {
+    width: 13px;
+    height: 13px;
+    display: block;
+  }
+
+  .k-banner {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 14px 0 10px;
+    border-bottom: 1px solid var(--edge);
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+  }
+  .k-banner:active {
+    cursor: grabbing;
+  }
+
+  .k-banner h1 {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .winx {
+    margin-left: auto;
+  }
+
+  .k-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+
+  .k-body > .k-east {
+    display: flex;
+  }
+
+  /* Planet orbs across the top of Lists. */
+  .planet-strip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    overflow: hidden;
+    padding: 4px 12px 8px;
+  }
+
+  .strip-pins {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .strip-planets {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .planet-tab.drop-ok {
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  .planet-tab.dragging {
+    opacity: 0.45;
+  }
+
+  .planet-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    max-width: 9.5rem;
+    min-height: 26px;
+    padding: 4px 8px;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .planet-tab:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .planet-tab.sel {
+    background: var(--bg-fill, var(--bg));
+    color: var(--accent);
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px var(--focus, #6e4db0);
+  }
+
+  .planet-tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .strip-gap {
+    flex: none;
+    width: 1px;
+    align-self: stretch;
+    margin: 2px 6px;
+    background: var(--edge);
+  }
+
+  /* Overlay scrollbars: zero-width until the scroll area is hovered; never
+     take layout space (`overlay` with `auto` fallback on the containers). */
+  .k-side,
+  .k-main,
+  .b-cards {
+    overflow-y: overlay;
+    scrollbar-width: none;
+  }
+
+  :is(.k-side, .k-main, .b-cards)::-webkit-scrollbar {
+    width: 0;
+    background: transparent;
+  }
+
+  :is(.k-side, .k-main, .b-cards):hover::-webkit-scrollbar,
+  :is(.k-side, .k-main, .b-cards):focus-within::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  :is(.k-side, .k-main, .b-cards)::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 4px;
+  }
+
+  :is(.k-side, .k-main, .b-cards):hover::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--dim) 55%, transparent);
+  }
+
+  .k-side {
+    flex-shrink: 0;
+    width: 200px;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 8px;
+    background: var(--panel-fill, var(--panel));
+    border-right: 1px solid var(--edge);
+  }
+
+  .side-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 0.82rem;
+    text-align: left;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+
+  .side-row:hover {
+    background: var(--bg-fill, var(--bg));
+  }
+
+  .side-row.sel {
+    background: var(--bg-fill, var(--bg));
+    color: var(--accent);
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px var(--focus, #6e4db0);
+  }
+
+  .side-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The list wears the disc's marble color. */
+  .planet-chip {
+    flex-shrink: 0;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+
+  .planet-chip.live {
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+      0 0 8px 2px var(--pglow, var(--accent));
+    animation: pglow 1.6s ease-in-out infinite;
+  }
+
+  @keyframes pglow {
+    0%,
+    100% {
+      box-shadow:
+        inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+        0 0 5px 1px var(--pglow, var(--accent));
+    }
+    50% {
+      box-shadow:
+        inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+        0 0 12px 4px var(--pglow, var(--accent));
+    }
+  }
+
+  .side-count {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .side-row.sel .side-count {
+    color: var(--accent);
+  }
+
+  .side-sep {
+    height: 1px;
+    margin: 6px 10px;
+    background: var(--edge);
+  }
+
+  .k-main {
+    flex: 1;
+    min-width: 96px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .k-title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
+  /* S5: title row with the Hermes launcher (project lists only). */
+  .k-titlerow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .k-titlerow .k-title {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .k-trackpane-head .ka-plus {
+    flex-shrink: 0;
+  }
+
+  .k-track-add-field {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--focus, #6e4db0);
+    border-radius: 7px;
+    padding: 5px 8px;
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .k-hermesnote {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 2px 10px;
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    word-break: break-all;
+  }
+
+  .k-hermesnote.err {
+    border-color: var(--accent);
+  }
+
+  .k-hermestext {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .k-rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .k-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+    padding: 4px 10px;
+    border-radius: 8px;
+  }
+
+  .k-row:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .k-check {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--bg);
+    background: transparent;
+    border: 1.5px solid var(--dim);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+
+  .k-check:hover {
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .k-check.checked {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .k-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    object-fit: contain;
+  }
+
+  .k-icon.fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--dim);
+    font-size: 0.8rem;
+  }
+
+  .k-name {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    overflow: hidden;
+    white-space: nowrap;
+    font: inherit;
+    font-size: 0.88rem;
+    text-align: left;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 2px 2px;
+    cursor: pointer;
+  }
+
+  .k-name:hover .k-title-text {
+    color: var(--accent);
+  }
+
+  .k-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .k-notes {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.72rem;
+    color: var(--dim);
+  }
+
+  .k-name.strike {
+    color: var(--dim);
+    text-decoration: line-through;
+  }
+
+  /* Difficulty pip — metadata only, never points. */
+  .pip {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+  }
+
+  .pip.trivial { background: var(--dim); }
+  .pip.easy { background: #34c759; }
+  .pip.medium { background: #ff9f0a; }
+  .pip.hard { background: #ff453a; }
+
+  .k-due {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    color: var(--dim);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 0 0.4rem;
+  }
+
+  .k-due.overdue {
+    color: #ff453a;
+    border-color: #ff453a;
+  }
+
+  .k-sub {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .k-proj {
+    flex-shrink: 0;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.68rem;
+    color: var(--dim);
+  }
+
+  .k-chip {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .k-chip.cap {
+    color: var(--dim);
+    font-weight: 400;
+  }
+
+  /* Happened chips — All / I did / On my behalf. */
+  .actor-chips {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .actor-chips button {
+    font: inherit;
+    font-size: 0.62rem;
+    line-height: 1.6;
+    color: var(--dim);
+    background: transparent;
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 0 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .actor-chips button:hover {
+    color: var(--ink);
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .actor-chips button.active {
+    color: var(--accent);
+    font-weight: 700;
+    border-color: var(--focus, #6e4db0);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .k-empty {
+    margin: 6px 2px;
+    padding: 12px 14px;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--dim);
+    border: 1px dashed var(--edge);
+    border-radius: 8px;
+  }
+
+  .k-donehead {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 12px 2px 4px;
+    padding: 4px 6px;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .k-donehead:hover {
+    color: var(--accent);
+  }
+
+  .chev {
+    font-size: 0.6rem;
+    transition: transform 0.12s;
+  }
+
+  .chev.open {
+    transform: rotate(90deg);
+  }
+
+  /* S4.4 Board. Column counts live in boardStack.css. ---- */
+  .b-cols {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    gap: 10px;
+  }
+
+  .b-col {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    background: var(--panel-fill, var(--panel));
+    transition:
+      border-color 0.12s,
+      box-shadow 0.12s;
+  }
+
+  .b-col.drop-ok {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  .b-head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 10px 6px;
+  }
+
+  .b-name {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink);
+  }
+
+  .b-col.drop-ok .b-name {
+    color: var(--accent);
+  }
+
+  .b-count {
+    font-size: 0.62rem;
+    color: var(--dim);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 0 0.35rem;
+  }
+
+  .b-cards {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 8px 8px;
+  }
+
+  .b-card {
+    padding: 8px 10px;
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    cursor: pointer;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .b-card:hover {
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .b-card.dragging {
+    opacity: 0.45;
+  }
+
+  /* The held card — accent-lifted, painted at
+     the grab cursor until Enter drops / Esc lets go. The column under
+     the cursor reuses the drag's drop-ok paint. */
+  .b-card.held {
+    border-color: var(--accent);
+    box-shadow: 0 8px 22px rgb(0 0 0 / 0.28);
+    opacity: 0.96;
+    cursor: grabbing;
+  }
+
+  .b-slot {
+    margin: 0 10px;
+    border-radius: 8px;
+    border: 1px dashed var(--edge);
+    background: color-mix(in srgb, var(--panel) 70%, transparent);
+  }
+
+  .b-card.done {
+    opacity: 0.75;
+  }
+
+  .b-card-top {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .b-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.8rem;
+    color: var(--ink);
+  }
+
+  .b-title.strike {
+    color: var(--dim);
+    text-decoration: line-through;
+  }
+
+  .b-notes {
+    margin: 4px 0 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.68rem;
+    color: var(--dim);
+  }
+
+  .b-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .b-meta:empty {
+    display: none;
+  }
+
+  .b-empty {
+    margin: 2px;
+    padding: 10px;
+    font-size: 0.68rem;
+    line-height: 1.5;
+    color: var(--dim);
+    border: 1px dashed var(--edge);
+    border-radius: 8px;
+  }
+
+  /* Preview tile — same chrome as the mail stack, not a flush wall. */
+  .k-detail {
+    flex: 1;
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 72px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    scrollbar-width: thin;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+  }
+
+  .k-detail::-webkit-scrollbar {
+    width: 0;
+    background: transparent;
+  }
+
+  .k-detail:hover::-webkit-scrollbar,
+  .k-detail:focus-within::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .k-detail::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 4px;
+  }
+
+  .k-detail:hover::-webkit-scrollbar-thumb,
+  .k-detail:focus-within::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--dim) 55%, transparent);
+  }
+
+  .d-head {
+    display: flex;
+    align-items: center;
+    margin-bottom: 2px;
+  }
+
+  .d-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--dim);
+  }
+
+  .d-close {
+    margin-left: auto;
+    font: inherit;
+    font-size: 0.9rem;
+    line-height: 1;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 2px 6px;
+    cursor: pointer;
+  }
+
+  .d-close:hover {
+    color: var(--accent);
+  }
+
+  .d-label {
+    margin-top: 6px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--dim);
+  }
+
+  .d-input {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: 0.8rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 6px 8px;
+  }
+
+  .d-input:focus {
+    outline: none;
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .d-textarea {
+    resize: vertical;
+    min-height: 64px;
+    line-height: 1.45;
+  }
+
+  .d-diff,
+  .d-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .d-duerow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .d-subs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .d-sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .d-sub .k-check {
+    width: 16px;
+    height: 16px;
+    font-size: 0.6rem;
+  }
+
+  .d-subtitle {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.78rem;
+    color: var(--ink);
+  }
+
+  .d-subtitle.strike {
+    color: var(--dim);
+    text-decoration: line-through;
+  }
+
+  .d-del {
+    flex-shrink: 0;
+    font: inherit;
+    font-size: 0.78rem;
+    line-height: 1;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 1px 5px;
+    cursor: pointer;
+  }
+
+  .d-del:hover {
+    color: #ff453a;
+  }
+
+  .d-subadd {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .d-hint {
+    margin: 0;
+    font-size: 0.66rem;
+    line-height: 1.5;
+    color: var(--dim);
+  }
+
+  .d-win {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .d-winname {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.74rem;
+    color: var(--ink);
+  }
+
+  .mini {
+    font: inherit;
+    font-size: 0.64rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+
+  .mini:hover {
+    border-color: var(--focus, #6e4db0);
+  }
+
+  .mini.active {
+    border-color: var(--focus, #6e4db0);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .mini.ghost {
+    color: var(--dim);
+  }
+</style>

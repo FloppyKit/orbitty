@@ -20,11 +20,6 @@
   import Companion3D from "./Companion3D.svelte";
   import CaptionPane from "./CaptionPane.svelte";
   import CompanionDock from "./CompanionDock.svelte";
-  import "./companion/page.css";
-  import CompToast from "./companion/Toast.svelte";
-  import CompWell from "./companion/Well.svelte";
-  import CompSpirit from "./companion/Spirit.svelte";
-  import CompNotes from "./companion/Notes.svelte";
   import { eventElement } from "./dragPane";
 
   import type {
@@ -1575,81 +1570,63 @@
     for (const u of unlistenTalk) u();
     invoke("talk_stop").catch(() => {});
   });
-  // DIET-COMPANION-SPLIT: comp surface for companion/* modules.
-  const comp: import("./companion/api").CompanionApi = {
-    get ackLine() { return ackLine; },
-    set ackLine(v) { ackLine = v; },
-    ackStrip,
-    get artSmooth() { return artSmooth; },
-    set artSmooth(v) { artSmooth = v; },
-    get bodyId() { return bodyId; },
-    set bodyId(v) { bodyId = v; },
-    get botLine() { return botLine; },
-    set botLine(v) { botLine = v; },
-    get captionReady() { return captionReady; },
-    set captionReady(v) { captionReady = v; },
-    captions,
-    get claimToast() { return claimToast; },
-    set claimToast(v) { claimToast = v; },
-    get claimToastTimer() { return claimToastTimer; },
-    set claimToastTimer(v) { claimToastTimer = v; },
-    get createPlanetTick() { return createPlanetTick; },
-    set createPlanetTick(v) { createPlanetTick = v; },
-    dismissHost,
-    get draft() { return draft; },
-    set draft(v) { draft = v; },
-    get drawFrames() { return drawFrames; },
-    get expanded() { return expanded; },
-    set expanded(v) { expanded = v; },
-    get frameIdx() { return frameIdx; },
-    set frameIdx(v) { frameIdx = v; },
-    get glbFailed() { return glbFailed; },
-    set glbFailed(v) { glbFailed = v; },
-    get headShowing() { return headShowing; },
-    get hosted() { return hosted; },
-    set hosted(v) { hosted = v; },
-    invoke,
-    get is3D() { return is3D; },
-    get lowestSpoke() { return lowestSpoke; },
-    get missing() { return missing; },
-    set missing(v) { missing = v; },
-    next,
-    onCaptionOverlayChange,
-    onCaptionSpeakError,
-    onDragMouseDown,
-    onGlbFail,
-    onNeededAnswer,
-    onNeededFocus,
-    openSmallestTodo,
-    popoutInspector,
-    popoutLaunchpad,
-    get prismR() { return prismR; },
-    set prismR(v) { prismR = v; },
-    get sendNote() { return sendNote; },
-    set sendNote(v) { sendNote = v; },
-    get sending() { return sending; },
-    set sending(v) { sending = v; },
-    get showPromptStrip() { return showPromptStrip; },
-    get speak() { return speak; },
-    set speak(v) { speak = v; },
-    get spiritHold() { return spiritHold; },
-    set spiritHold(v) { spiritHold = v; },
-    get sprite() { return sprite; },
-    set sprite(v) { sprite = v; },
-    get swapDir() { return swapDir; },
-    set swapDir(v) { swapDir = v; },
-    get swapPrev() { return swapPrev; },
-    set swapPrev(v) { swapPrev = v; },
-    get turns() { return turns; },
-    set turns(v) { turns = v; },
-    get userLine() { return userLine; },
-    set userLine(v) { userLine = v; },
-    get wellpaneEl() { return wellpaneEl; },
-    set wellpaneEl(v) { wellpaneEl = v; },
-  };
 </script>
 
-<CompToast {comp} />
+{#if claimToast}
+  <div class="claim-toast" role="status">
+    <span>Claimed to {claimToast.projectName}</span>
+    <button
+      type="button"
+      onclick={() => {
+        if (!claimToast) return;
+        void (async () => {
+          try {
+            const s = await invoke<PersistedState>("load_state");
+            const list = s.projects ?? [];
+            if (!list.length) return;
+            const i = list.findIndex((p) => p.id === claimToast!.projectId);
+            const next = list[(i + 1) % list.length];
+            if (!next) return;
+            await invoke("claim_front_change", { projectId: next.id });
+            claimToast = {
+              ...claimToast!,
+              projectId: next.id,
+              projectName: next.name,
+            };
+          } catch {
+            /* ignore */
+          }
+        })();
+      }}>Change</button
+    >
+    <button
+      type="button"
+      onclick={() => {
+        invoke("claim_front_undo").catch(() => {});
+        claimToast = null;
+        if (claimToastTimer) clearTimeout(claimToastTimer);
+      }}>Undo</button
+    >
+  </div>
+{/if}
+
+
+{#snippet caption(expanded: boolean, hosted: boolean)}
+  <CaptionPane
+    {expanded}
+    {hosted}
+    {userLine}
+    {botLine}
+    {sending}
+    {ackLine}
+    {turns}
+    {speak}
+    {draft}
+    ready={captionReady}
+    onSpeakError={onCaptionSpeakError}
+    onOverlayChange={onCaptionOverlayChange}
+  />
+{/snippet}
 
 <main
   class="companion"
@@ -1664,9 +1641,195 @@
   class:cc-off={!captions}
   bind:this={mainEl}
 >
-  <CompSpirit {comp} />
-  <CompWell {comp} />
-  <CompNotes {comp} />
+  {#if expanded && sprite}
+    {#if is3D && !glbFailed}
+      {#key bodyId}
+        <Companion3D
+          corner
+          {headShowing}
+          {bodyId}
+          thinking={sending}
+          onDrag={onDragMouseDown}
+          onFail={onGlbFail}
+        />
+      {/key}
+    {:else}
+      <SpiritStage
+        corner
+        {headShowing}
+        {missing}
+        frames={drawFrames}
+        {frameIdx}
+        thinking={sending}
+        smooth={artSmooth}
+        onDrag={onDragMouseDown}
+      />
+    {/if}
+  {/if}
+
+  {#if hosted !== "off"}
+    <!-- HOST-SPLIT + HOST-CC: the well — left ~2/3 is the embedded
+         Launchpad / STARS / Inspector, right 1/3 is the Head spirit
+         stage. The well stays MOUNTED while expanded — the transcript
+         overlays it inside .wellwrap. The two capped CC lines +
+         agentrow + composer stay full-width below the well. -->
+    <div class="wellwrap">
+      <div class="hostwell">
+        <!-- SPRITE-OFF: no .wellhead when the sprite is hidden — the
+             pane takes the full well (the card keeps its ring). -->
+        <div
+          class="wellpane"
+          class:fullwell={!sprite}
+          class:turning={swapPrev !== null}
+          style:--prism-r="{prismR}px"
+          bind:this={wellpaneEl}
+        >
+          <!-- on a hosted dest swap
+               the outgoing page mounts as a second face (swapPrev) and
+               both faces ride a ±120deg rotateY around the card's
+               vertical axis — the crease between them is the read. Each
+               face IS the tile for the turn (fill / 1px edge / 12px
+               radius ride WITH it); the pane's own chrome goes
+               transparent so no static frame rings the moving cards.
+               Both mounted the whole 400ms, so the well never flashes
+               blank. Not turning: one static layer, no 3D, same flex
+               sizing as before. -->
+          {#if swapPrev !== null}
+            <div class="prismface face-out" class:face-back={swapDir === -1}>
+              {#if swapPrev === "launchpad"}
+                <KanbanPage
+                  embedded
+                  onClose={dismissHost}
+                  onPopout={popoutLaunchpad}
+                  {onNeededFocus}
+                  {onNeededAnswer}
+                />
+              {:else if swapPrev === "stars"}
+                <StarsPage embedded onClose={dismissHost} />
+              {:else}
+                <RailPage
+                  embedded
+                  onClose={dismissHost}
+                  onPopout={popoutInspector}
+                  {createPlanetTick}
+                />
+              {/if}
+            </div>
+          {/if}
+          <div
+            class="wellpage"
+            class:face-in={swapPrev !== null}
+            class:face-back={swapPrev !== null && swapDir === -1}
+          >
+            {#if hosted === "launchpad"}
+              <KanbanPage
+                embedded
+                onClose={dismissHost}
+                onPopout={popoutLaunchpad}
+                {onNeededFocus}
+                {onNeededAnswer}
+              />
+            {:else if hosted === "stars"}
+              <StarsPage embedded onClose={dismissHost} />
+            {:else if hosted === "inspector"}
+              <RailPage
+                embedded
+                onClose={dismissHost}
+                onPopout={popoutInspector}
+                {createPlanetTick}
+              />
+            {/if}
+          </div>
+        </div>
+        {#if sprite}
+          <!-- Idle figure is held through native grow, then this column
+               FLIPs (translate + scale, same Head/full as idle). -->
+          <div class="wellhead">
+            {#if !expanded}
+              <div class="spirshift">
+                {#if is3D && !glbFailed}
+                  {#key bodyId}
+                    <Companion3D
+                      headShowing={headShowing}
+                      {bodyId}
+                      thinking={sending}
+                      onDrag={onDragMouseDown}
+                      onFail={onGlbFail}
+                    />
+                  {/key}
+                {:else}
+                  <SpiritStage
+                    headShowing={headShowing}
+                    {missing}
+                    frames={drawFrames}
+                    {frameIdx}
+                    thinking={sending}
+                    smooth={artSmooth}
+                    onDrag={onDragMouseDown}
+                  />
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+      {#if expanded && captions}
+        {@render caption(true, true)}
+      {/if}
+    </div>
+  {:else if expanded && captions}
+    {@render caption(true, false)}
+  {/if}
+  {#if sprite && !expanded && (hosted === "off" || spiritHold)}
+    {#if is3D && !glbFailed}
+      {#key bodyId}
+        <Companion3D
+          {headShowing}
+          {bodyId}
+          thinking={sending}
+          onDrag={onDragMouseDown}
+          onFail={onGlbFail}
+        />
+      {/key}
+    {:else}
+      <SpiritStage
+        {headShowing}
+        {missing}
+        frames={drawFrames}
+        {frameIdx}
+        thinking={sending}
+        smooth={artSmooth}
+        onDrag={onDragMouseDown}
+      />
+    {/if}
+  {/if}
+
+  {#if !expanded && captions}
+    {@render caption(false, hosted !== "off")}
+  {/if}
+
+  {#if sendNote}
+    <div class="note err">
+      <span class="note-text">{sendNote}</span>
+      <button
+        class="note-x"
+        onclick={() => (sendNote = null)}
+        aria-label="Dismiss">×</button
+      >
+    </div>
+  {/if}
+
+  {#if showPromptStrip && lowestSpoke}
+    <div class="starstrip">
+      <span class="starstrip-text">{lowestSpoke.label} is the thin spoke today.</span>
+      <span class="starstrip-chips">
+        <button class="chip" onclick={ackStrip}>Rest</button>
+        <button class="chip" onclick={ackStrip}>Water</button>
+        <button class="chip" onclick={openSmallestTodo}>Smallest todo</button>
+      </span>
+      <button class="starstrip-x" onclick={ackStrip} aria-label="Dismiss">×</button>
+    </div>
+  {/if}
 
   <!-- Agentrow + dests + Speak +
        sprite/view + Expand + ⚙ + composer live in CompanionDock.svelte.
@@ -1721,5 +1884,569 @@
     {onDockMouseDown}
   />
 
-
 </main>
+
+<style>
+  /* Same theme tokens as the rail/Lists: every painted fill is the
+     JS-computed rgba var so the opacity slider fades the whole stage;
+     the spirit pixels are an <img> and stay full strength. S2.4: column
+     layout — ghost (collapsed) or head+transcript (expanded), CC rows,
+     agent row, composer. */
+  .companion {
+    position: relative;
+    height: 100vh;
+    overflow: hidden;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border-radius: 12px;
+    font-family:
+      "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
+      BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  }
+
+  /* Ghost (idle collapsed, not hosted) —
+     the slab fill goes transparent so empty pixels show and click
+     through to the desk; the chrome keeps its own fills and still hits.
+     Slab (expanded / .hosting) keeps today's fill. */
+  .companion.ghost {
+    background: transparent;
+  }
+
+  /* Hosted, the slab fill goes transparent so the
+     desk shows in the gap around the glass card — same family as the
+     ghost dock. The window still eats clicks (no click-through). */
+  .companion.hosting {
+    background: transparent;
+  }
+
+  /* while the reply overlay holds the
+     sprite-off window taller than the bar (the hug grew keep-bottom),
+     bottom-pack the CC + dock so the grow — and the snap-back — never
+     hops the dock. A no-op once the bar refills the window (flex-end ==
+     flex-start when there is no extra space). Sprite-on never needs
+     this: the stage flexes to absorb the grow-down. */
+  .companion.ghost.spriteoff.ccopen {
+    justify-content: flex-end;
+  }
+
+  :global(.low-fill) .companion {
+    text-shadow: 0 1px 2px var(--bg-solid, transparent);
+  }
+
+  /* The only window chrome: one ×, top-LEFT (traffic lights are hidden
+     native-side, so the left corner is free). Hides the window, never
+     quits (tray → Quit). */
+  .winx {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    font: inherit;
+    font-size: 0.82rem;
+    line-height: 1;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+
+  .winx:hover {
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .winx.hosted-hide {
+    display: none;
+  }
+
+  /* The wrap is the overlay's positioning context —
+     the expanded transcript covers the well ONLY (agentrow + composer
+     stay below it, usable). The well keeps its own flex so nothing
+     resizes on Expand. */
+  .wellwrap {
+    position: relative;
+    flex: 1;
+    min-height: 120px;
+    min-width: 0;
+    display: flex;
+    flex-direction: row;
+  }
+
+  /* The hosted well — left ~2/3 embedded
+     Launchpad/STARS, right 1/3 the Head spirit stage. The window grew to
+     1080×620 native-side; the bottom chrome (CC + agentrow + composer)
+     stays full-width under the well. */
+  .hostwell {
+    position: relative;
+    flex: 1;
+    min-height: 120px;
+    min-width: 0;
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  /* The .wellpane wrap IS the glass card — same
+     family as the ghost dock. The 10px ring inside .hostwell lets the
+     desk show around it; radius 12 (same as .ghostdock), --bg-fill,
+     1px --edge all around. The hard border-right divider is dead: the
+     gap to the Spark column is air. Embedded Kanban / Stars / Rail keep
+     their square inner chrome — the wrap is the card, not each page's
+     banner. One tile at a time; no motion in this phrase. */
+  .wellpane {
+    position: relative; /* TILE-YAW: the outgoing overlay anchors here */
+    flex: 1 1 66%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+  }
+
+  /* Hosted spirit sits in the same 96×96 corner as expanded chat so
+     dest screens share one layout and expand does not jump the figure. */
+  .wellhead {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    width: 96px;
+    height: 96px;
+    flex: none;
+    z-index: 3;
+    min-width: 96px;
+    min-height: 96px;
+    display: flex;
+  }
+
+  .companion:not(.spriteoff) .wellpane:not(.fullwell) {
+    margin-left: 116px;
+  }
+
+  /* TILE-DROP: card rises from the dock. Face stays painted. No 3D. */
+  .companion.tile-pre:not(.hosting) {
+    justify-content: flex-end;
+  }
+
+  .companion.tile-pre:not(.hosting) > *:not(.ghostdock):not(.winx):not(.stage) {
+    display: none;
+  }
+
+  /* Idle figure pinned through the grow — keep-bottom, so it does not
+     vanish or stretch. Hands off to the column FLIP on the next frame. */
+  .companion.spirit-hold > :global(.stage) {
+    position: absolute;
+    left: var(--hold-x);
+    bottom: var(--hold-b);
+    width: var(--hold-w);
+    height: var(--hold-h);
+    z-index: 5;
+    flex: none;
+    min-height: 0;
+  }
+
+  .companion.tile-pre .wellwrap,
+  .companion.tile-enter .wellwrap,
+  .companion.tile-leave .wellwrap {
+    overflow: hidden;
+  }
+
+  .companion.tile-pre .wellpane {
+    opacity: 1;
+    transform: translateY(28%);
+  }
+
+  .companion.tile-enter .wellpane {
+    animation: orbitty-tile-drop-in 280ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
+  }
+
+  .companion.tile-leave .wellpane {
+    animation: orbitty-tile-drop-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  }
+
+  @keyframes orbitty-tile-drop-in {
+    0% {
+      transform: translateY(28%);
+    }
+    100% {
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes orbitty-tile-drop-out {
+    0% {
+      transform: translateY(0);
+    }
+    100% {
+      transform: translateY(24%);
+    }
+  }
+  .spirshift {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+  }
+
+  .companion.tile-pre :global(.wellhead .floatwrap),
+  .companion.tile-enter :global(.wellhead .floatwrap) {
+    transform-origin: bottom center;
+    will-change: transform;
+  }
+
+  .companion.tile-pre :global(.wellhead .floatwrap) {
+    transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px))
+      scale(var(--spir-s, 1));
+  }
+
+  .companion.tile-enter :global(.wellhead .floatwrap) {
+    animation: orbitty-spirit-aside 280ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
+  }
+
+  @keyframes orbitty-spirit-aside {
+    0% {
+      transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px))
+        scale(var(--spir-s, 1));
+    }
+    100% {
+      transform: translate(0px, 0px) scale(1);
+    }
+  }
+
+  /* the swap verb is a TRIANGULAR PRISM
+     turn (Matt: not a recipe-card deal, not a book, not an X, not a 90°
+     cube). The three dests are the three faces of a triangular prism
+     rotating around a vertical axis through the card — the step is
+     ±120deg. The WHOLE TILE yaws: .wellpane.turning sheds its own
+     chrome (transparent fill/border, overflow visible) and only
+     supplies the perspective — each FACE is the glass card (fill, 1px
+     --edge, 12px radius, content clipped to the radius) turning over
+     the desk. No static frame rings the moving pages. Each face
+     transform is
+     translateZ(-r) rotateY(θ) translateZ(r) with r = --prism-r (the
+     apothem paneWidth / (2·tan(π/3)), measured JS-side at swap start):
+     the face orbits the prism axis sitting r behind the card plane, so
+     the front face lands exactly 1:1 on the card — no magnify pop at
+     either end of the turn. backface-visibility hides each face once
+     it passes 90°, so the outgoing face exits edge-on and the incoming
+     face grows in from the crease — the user SEES the edge turn. A
+     slight brightness dip on the receding face sells the depth. Both
+     faces stay mounted the whole 400ms (ease-in-out; the JS cleanup
+     timeout matches), so the well never flashes blank. Forward = next
+     in the launchpad → stars → inspector ring: the front face exits
+     left and the next face comes around from the right (.face-back
+     mirrors). The Spark column / dock / CC never transform. */
+  .wellpage {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    transform: none;
+    animation: none;
+  }
+
+  .wellpane.turning {
+    perspective: 1400px;
+    /* Whole-tile turn: the pane sheds its own chrome for the 400ms so
+       no static frame rings the moving tiles — the desk shows around
+       them. border-color (not border-width) keeps the box identical;
+       the faces below carry the card. */
+    background: transparent;
+    border-color: transparent;
+    overflow: visible;
+  }
+
+  /* During the turn both faces are absolute copies of the card box and
+     each IS the tile — the card fill / 1px --edge / 12px radius ride
+     WITH the face as it yaws (content clipped to the radius), opaque,
+     input-blackouted for the 400ms. inset:-1px + border-box puts the
+     face's border exactly where the pane's border sat, so the chrome
+     handoff at cleanup lands on the same box with no 1px pop. No
+     transform here at base — the keyframes own every rotate/translate
+     so reduced motion can simply swap the animation. */
+  .wellpane.turning .prismface,
+  .wellpane.turning .wellpage.face-in {
+    position: absolute;
+    inset: -1px;
+    box-sizing: border-box;
+    pointer-events: none; /* 400ms input blackout on the card — no misclick */
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    overflow: hidden;
+    backface-visibility: hidden;
+  }
+
+  /* The outgoing face: starts at rest on the card plane (identity-net)
+     and orbits away — forward exits left (0 → -120deg). */
+  .wellpane.turning .prismface.face-out {
+    animation: orbitty-prism-out-fwd 400ms ease-in-out both;
+  }
+
+  .wellpane.turning .prismface.face-out.face-back {
+    animation-name: orbitty-prism-out-back;
+  }
+
+  /* The incoming face: starts one face around the prism (±120deg,
+     backface-hidden until it comes around) and lands exactly at rest. */
+  .wellpane.turning .wellpage.face-in {
+    animation: orbitty-prism-in-fwd 400ms ease-in-out both;
+  }
+
+  .wellpane.turning .wellpage.face-in.face-back {
+    animation-name: orbitty-prism-in-back;
+  }
+
+  @keyframes orbitty-prism-out-fwd {
+    0% {
+      filter: brightness(1);
+      transform: translateZ(calc(-1 * var(--prism-r))) rotateY(0deg)
+        translateZ(var(--prism-r));
+    }
+    100% {
+      filter: brightness(0.84);
+      transform: translateZ(calc(-1 * var(--prism-r))) rotateY(-120deg)
+        translateZ(var(--prism-r));
+    }
+  }
+
+  @keyframes orbitty-prism-out-back {
+    0% {
+      filter: brightness(1);
+      transform: translateZ(calc(-1 * var(--prism-r))) rotateY(0deg)
+        translateZ(var(--prism-r));
+    }
+    100% {
+      filter: brightness(0.84);
+      transform: translateZ(calc(-1 * var(--prism-r))) rotateY(120deg)
+        translateZ(var(--prism-r));
+    }
+  }
+
+  @keyframes orbitty-prism-in-fwd {
+    0% {
+      filter: brightness(0.84);
+      transform: translateZ(calc(-1 * var(--prism-r))) rotateY(120deg)
+        translateZ(var(--prism-r));
+    }
+    100% {
+      filter: brightness(1);
+      transform: translateZ(calc(-1 * var(--prism-r))) rotateY(0deg)
+        translateZ(var(--prism-r));
+    }
+  }
+
+  @keyframes orbitty-prism-in-back {
+    0% {
+      filter: brightness(0.84);
+      transform: translateZ(calc(-1 * var(--prism-r))) rotateY(-120deg)
+        translateZ(var(--prism-r));
+    }
+    100% {
+      filter: brightness(1);
+      transform: translateZ(calc(-1 * var(--prism-r))) rotateY(0deg)
+        translateZ(var(--prism-r));
+    }
+  }
+
+  /* Reduced motion: fade or snap — never a translate, never a rotate.
+     Enter fades; the leave wait is 0 JS-side, so dismiss is a snap. The
+     spirit does not glide aside — it simply rests in the column. The
+     prism turn degrades to a short crossfade (the JS cleanup shortens
+     to match): the outgoing face simply fades over the incoming one,
+     which sits at rest — no 3D anywhere. */
+  @media (prefers-reduced-motion: reduce) {
+    .companion.tile-pre .wellpane {
+      transform: none;
+    }
+    .companion.tile-enter .wellpane {
+      animation: orbitty-tile-fade 140ms ease-out both;
+    }
+    .companion.tile-pre :global(.wellhead .floatwrap),
+    .companion.tile-enter :global(.wellhead .floatwrap) {
+      transform: none;
+      animation: none;
+    }
+    .wellpane.turning .prismface.face-out {
+      animation: orbitty-tile-fade-out 140ms ease-out both;
+    }
+    /* face-in stays at rest here — the outgoing fade over it IS the
+       crossfade. */
+    .wellpane.turning .wellpage.face-in {
+      animation: none;
+    }
+  }
+
+  @keyframes orbitty-tile-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes orbitty-tile-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* SPRITE-OFF hosted: no .wellhead — the pane takes the full well. The
+     card keeps its full ring (the old divider drop died with the
+     divider). */
+
+  /* SPRITE-HUG: the old spriteoff ::before flex spacer is dead — the
+     native hug shrinks the idle collapsed frame to the CC+dock bar
+     (keep-bottom), so the frame IS the chrome and there is no tall
+     empty pane left to pin against. The bar stays ghost: empty air in
+     it still clicks through via the reported hit list. */
+
+  /* Transcript / CC / wait mark live
+     in CaptionPane.svelte. */
+
+  /* Prompt strip: one quiet menu when Prompts is On and
+     today's check-in has a thin spoke. Rest/Water/× ack and hide it until
+     the day rolls or a fresh check-in lands — never a loop. */
+  .starstrip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 10px 0;
+    padding: 5px 6px 5px 10px;
+    font-size: 0.68rem;
+    line-height: 1.3;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+  }
+
+  .starstrip-text {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .starstrip-chips {
+    flex: none;
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  .chip {
+    font: inherit;
+    font-size: 0.66rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+
+  .chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .starstrip-x {
+    flex: none;
+    padding: 0 2px;
+    font: inherit;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+
+  .starstrip-x:hover {
+    color: var(--ink);
+  }
+
+  /* Send error — one honest line, dismissible (rail honesty). */
+  .note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 10px 0;
+    padding: 5px 10px;
+    font-size: 0.68rem;
+    line-height: 1.3;
+    color: var(--ink);
+    background: var(--panel-fill, var(--panel));
+    border-radius: 8px;
+  }
+
+  .note-text {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .note-x {
+    flex: none;
+    padding: 0 2px;
+    font: inherit;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+
+  .note-x:hover {
+    color: var(--ink);
+  }
+
+  /* Dock styles (.ghostdock, agentrow,
+     dests, icon toggles, gear, composer, talk slot) moved to
+     CompanionDock.svelte with the markup. */
+
+  .claim-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 80;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: rgba(20, 22, 28, 0.92);
+    color: #f2f4f8;
+    font-size: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .claim-toast button {
+    appearance: none;
+    border: 0;
+    background: rgba(255, 255, 255, 0.12);
+    color: inherit;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .claim-toast button:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+</style>
