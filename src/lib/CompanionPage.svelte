@@ -301,9 +301,9 @@
   }
 
   // SPRITE-OFF: one persisted flag (companion.sprite, default true) for
-  // all three surfaces. DOCK-TWEAK: L-click the Full/Head button toggles
-  // it (R-click is Full ↔ Head, preventDefault — no browser menu). The
-  // per-surface view prefs are never written here, so they survive Off.
+  // all three surfaces. Full/Head button: L-click Full ↔ Head; R-click
+  // toggles sprite (preventDefault — no browser menu). Per-surface view
+  // prefs are never written on sprite-off, so they survive Off.
   // Off draws no stage / exphead / wellhead — chat stays.
   let sprite = $state(true);
 

@@ -377,6 +377,18 @@ fn companion_min_size(w: &tauri::WebviewWindow, hugged: bool) {
 /// grow/shrink the bar from that same bottom (never taller than the
 /// stash, so a first hug with nothing to trim is a no-op). Never hugs
 /// while hosted; never persists the bar.
+
+/// After a hug/unhug resize under a stationary cursor, AppKit/WKWebView
+/// often stop delivering clicks until the mouse moves. Flip ignore-cursor
+/// and re-assert mouse-on so the next press lands without a nudge.
+fn refresh_companion_mouse(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("companion") {
+        let _ = w.set_ignore_cursor_events(true);
+        let _ = w.set_ignore_cursor_events(false);
+    }
+    crate::companion_clear::apply_mode(app);
+}
+
 pub(crate) fn hug_companion(app: &tauri::AppHandle, hug_height: Option<f64>) {
     if host_stash().lock().map(|s| s.is_some()).unwrap_or(false) {
         return;
@@ -421,6 +433,7 @@ pub(crate) fn hug_companion(app: &tauri::AppHandle, hug_height: Option<f64>) {
         h,
     };
     crate::drawers::place_hug_rect(&w, "companion", &bar);
+    refresh_companion_mouse(app);
 }
 
 /// Restore the tall idle from the hug stash at the live origin,
@@ -443,6 +456,7 @@ pub(crate) fn unhug_companion(app: &tauri::AppHandle) {
         // dock sunk below every display.
         crate::drawers::ensure_companion_dock_onscreen(&w);
         companion_min_size(&w, false);
+        refresh_companion_mouse(app);
     }
 }
 

@@ -142,6 +142,10 @@
     <button
       class="expandbtn iconbtn"
       onclick={toggleExpanded}
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        toggleExpanded();
+      }}
       aria-label={expanded ? "Collapse transcript" : "Expand transcript"}
       title={expanded ? "Collapse transcript" : "Expand transcript"}
     >
