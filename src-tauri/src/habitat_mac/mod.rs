@@ -36,6 +36,7 @@ mod pose;
 mod ball;
 mod drift;
 mod roam;
+mod decor;
 
 pub(crate) use geom::{
     clamp_disc, disc_to_view, locked_projection, locked_projection_str,
@@ -64,6 +65,7 @@ pub(crate) use drift::{
 };
 
 pub(crate) use roam::RoamState;
+pub(crate) use decor::{DecorKind, DecorRef};
 
 
 pub use tick::{persist_now, start};
@@ -224,20 +226,7 @@ pub(crate) struct Being {
     droid_glance: u8,
 }
 
-/// Which decor item a frame belongs to (plants[i], mushrooms[i], boombox).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DecorKind {
-    Plant,
-    Mushroom,
-    Building,
-    Boombox,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct DecorRef {
-    kind: DecorKind,
-    index: usize,
-}
+// DecorKind / DecorRef → decor.rs
 
 // Per-walker RoamState → roam.rs
 
