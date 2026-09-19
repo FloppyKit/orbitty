@@ -11,6 +11,14 @@ pub(crate) const STATION_HOUSE: (f64, f64) = (-0.611, 0.05); // igloo door
 pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.72); // Todo / sign post
 pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05); // grass amble
 pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed
+/// Sleeper camp (closed claimed windows only — NOT minimized).
+/// North of the igloo door, west of the grass pad: the gap between the
+/// igloo (x ≤ -0.50) and YARD_WEST. Dim + still. Minimized stays full-
+/// color on the green with everyone else.
+pub(crate) const SLEEPER_WEST: f64 = -0.48;
+pub(crate) const SLEEPER_EAST: f64 = -0.38;
+pub(crate) const SLEEPER_NORTH: f64 = -0.38;
+pub(crate) const SLEEPER_SOUTH: f64 = -0.12;
 // Grass AABB — west pinned so the igloo gap stays. Not a centered square.
 pub(crate) const YARD_WEST: f64 = -0.364; // PINNED
 pub(crate) const YARD_EAST: f64 = 0.54;
@@ -151,6 +159,18 @@ pub(crate) fn station_target(pose: Pose, entry_id: &str) -> (f64, f64) {
     let a = (h % 6283) as f64 / 1000.0; // 0..2π
     let r = 0.02 + (((h >> 16) % 100) as f64 / 100.0) * 0.06; // 0.02..0.08
     (ax + a.cos() * r, ay + a.sin() * r)
+}
+
+/// Stable point in the sleeper camp AABB (north of igloo, west of grass).
+/// Hashed so a stack of closed apps fans across the strip, never the green.
+pub(crate) fn sleeper_target(entry_id: &str) -> (f64, f64) {
+    let h = hash_str(entry_id);
+    let fx = ((h >> 8) & 0xffff) as f64 / 65535.0;
+    let fy = ((h >> 24) & 0xffff) as f64 / 65535.0;
+    (
+        SLEEPER_WEST + fx * (SLEEPER_EAST - SLEEPER_WEST),
+        SLEEPER_NORTH + fy * (SLEEPER_SOUTH - SLEEPER_NORTH),
+    )
 }
 
 /// FNV-1a for stable per-walker offsets (tick.rs has its own for tracks).

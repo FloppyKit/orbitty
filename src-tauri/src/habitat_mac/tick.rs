@@ -20,7 +20,7 @@ use super::input::{boombox_click, contains_interactive, over_disc, BOOMBOX_CLICK
 use super::{
     app_handle, app_handle_cell, ball_arc_heads, ball_hop_secs, default_state, emit_board_checkin, emit_walked_off, house_spawn, layout_beings, walkoff_target,
     layout_decor, lock, now_epoch, pack_still_aspect, panel_frame, panel_set_frame, panic_msg, save_worlds, screens,
-    set_caption, station_target, view_to_disc, visible_frames, walker_head_view, yard_clamp, yard_contains,
+    set_caption, sleeper_target, station_target, view_to_disc, visible_frames, walker_head_view, yard_clamp, yard_contains,
     droid_pack,
     yard_dwell_ms, yard_pick, yard_pick_sailing, yard_seed, BallState, ClusterState,
     DecorKind, DecorPoint, Drag, Habitat, MarbleOrbit, NSPoint, NSRect, Pose, RoamState,
@@ -890,10 +890,21 @@ fn anim_tick() {
             {
                 continue;
             }
-            // Sleepers stand still where they were laid out — no roam. A
-            // Done card still walks a sleeper off: the complete ritual
-            // closes the window, and the walk-off narrates the eviction.
+            // Closed sleepers park in the camp (north of igloo, west of
+            // grass) — dim + still, never the green. Minimized is NOT
+            // asleep (full-color on the green). A Done card still walks
+            // a sleeper off: the complete ritual closes the window, and
+            // the walk-off narrates the eviction.
             if asleep && pose != Pose::WalkOff {
+                let (tx, ty) = sleeper_target(id);
+                if (roam.x - tx).abs() > 1e-9 || (roam.y - ty).abs() > 1e-9 {
+                    roam.x = tx;
+                    roam.y = ty;
+                    moved = true;
+                }
+                roam.tx = tx;
+                roam.ty = ty;
+                roam.pause_end = None;
                 continue;
             }
             if planet

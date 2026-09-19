@@ -42,11 +42,12 @@ pub(crate) use world::{
     default_boombox_volume, migrate_world, DecorItem, DecorPoint, WorldState, WorldsFile,
 };
 pub(crate) use pose::{
-    droid_glance, hash_str, pose_for, pose_name, station_anchor, station_target, sticky_pose,
-    walkoff_target, yard_clamp, yard_contains, yard_dwell_ms, yard_pick, yard_pick_sailing,
-    yard_seed, yard_step, Pose, HOME_HIDE_X, HOME_OFF, STATION_BOARD, STATION_FIELD,
-    STATION_HOUSE, STATION_RIM, YARD_ARRIVE, YARD_DWELL_MAX_MS, YARD_DWELL_MIN_MS, YARD_EAST,
-    YARD_INSET, YARD_NORTH, YARD_SAIL, YARD_SOUTH, YARD_WEST,
+    droid_glance, hash_str, pose_for, pose_name, sleeper_target, station_anchor, station_target,
+    sticky_pose, walkoff_target, yard_clamp, yard_contains, yard_dwell_ms, yard_pick,
+    yard_pick_sailing, yard_seed, yard_step, Pose, HOME_HIDE_X, HOME_OFF, SLEEPER_EAST,
+    SLEEPER_NORTH, SLEEPER_SOUTH, SLEEPER_WEST, STATION_BOARD, STATION_FIELD, STATION_HOUSE,
+    STATION_RIM, YARD_ARRIVE, YARD_DWELL_MAX_MS, YARD_DWELL_MIN_MS, YARD_EAST, YARD_INSET,
+    YARD_NORTH, YARD_SAIL, YARD_SOUTH, YARD_WEST,
 };
 
 pub use tick::{persist_now, start};
@@ -1867,9 +1868,30 @@ fn layout_beings(planet: &mut Planet) {
     let lip = draw::board_near_lip(planet.radius, planet.projection, planet.marble_scale);
     for (i, id) in ids.iter().enumerate() {
         let pose = planet.walkers.get(i).map(|b| b.pose).unwrap_or(Pose::Roam);
+        let asleep = planet.walkers.get(i).map(|b| b.asleep).unwrap_or(false);
         // WORLD-PLACES: a fresh board-pose roam starts at the house.
         let house = house_spawn(planet, id);
         planet.roam.entry(id.clone()).or_insert_with(|| {
+            // Closed sleeper: park in the camp (north of igloo, west of
+            // grass) — never seed on the green. Minimized is not asleep.
+            if asleep && pose != Pose::WalkOff {
+                let (tx, ty) = sleeper_target(id);
+                return RoamState {
+                    x: tx,
+                    y: ty,
+                    tx,
+                    ty,
+                    pause_end: None,
+                    facing_left: false,
+                    facing_dir: 0,
+                    off_emitted: false,
+                    via_board: false,
+                    via_home: false,
+                    via_checkin: false,
+                    checkin_emit_at: None,
+                    wander_seed: 0,
+                };
+            }
             // a fresh roam for a board pose seeds
             // AT THE IGLOO (STATION_HOUSE — user buildings stay décor)
             // and walks to the station — the world narrates
@@ -2051,8 +2073,9 @@ fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
         entry.sprite_scale.clamp(0.5, 1.25)
     };
     // Rail Done AX-closes the window, so the walker is asleep during
-    // WalkOff. Sleeper dim (0.45) is for a closed window standing still —
-    // checkout stays full-bright until they actually leave.
+    // WalkOff. Sleeper dim (0.45) is for a CLOSED window only — minimized
+    // stays full-bright on the green. Checkout stays full-bright until
+    // they actually leave.
     let pose = pose_for(entry);
     Being {
         entry_id: entry.id.clone(),
@@ -2338,8 +2361,9 @@ fn do_sync(snapshot: &HabitatSnapshot) {
         let color = color_for(project_id);
 
         // CADENCE-FIX v1.1: a CLAIMED window is a walker — open or
-        // minimized no longer decides. Dots are parked zombies only.
-        // Marbles stay bare until expanded (click to expand).
+        // minimized no longer decides (both full-color on the green).
+        // Only a CLOSED claim is asleep (dim + still, sleeper camp).
+        // Dots are parked zombies only. Marbles stay bare until expanded.
         let mut sorted = entries.clone();
         sorted.sort_by(|a, b| {
             (a.app_name.to_lowercase() + &a.title.to_lowercase())
