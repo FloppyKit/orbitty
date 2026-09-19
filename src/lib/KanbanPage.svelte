@@ -2106,6 +2106,7 @@
     />
 
     <BoardPreview
+      neededEmpty={neededRows.length === 0 && !addingNeeded}
       bind:addingTracker
       bind:eastEl
       bind:newTagName

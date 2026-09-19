@@ -59,6 +59,7 @@
     undoThisTask,
     visibleTrackers,
     winFor,
+    neededEmpty = false,
   } = $props();
 </script>
 
@@ -133,7 +134,7 @@
         class:armed={trackerArmed}
         class:empty={visibleTrackers.length === 0 && !addingTracker}
         bind:this={trackPaneEl}
-        style="flex-basis: {visibleTrackers.length === 0 && !addingTracker
+        style="flex-basis: {(visibleTrackers.length === 0 && !addingTracker) || neededEmpty
           ? 'auto'
           : `${Math.round(trackerSplit * 100)}%`}"
         aria-label="Trackers"
