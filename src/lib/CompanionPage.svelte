@@ -13,15 +13,12 @@
   } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
   import { maybeGraduatePeerChrome, peerChromeOn } from "./peerChrome";
-  import KanbanPage from "./KanbanPage.svelte";
-  import StarsPage from "./StarsPage.svelte";
-  import RailPage from "./RailPage.svelte";
-  import SpiritStage from "./SpiritStage.svelte";
-  import Companion3D from "./Companion3D.svelte";
   import CaptionPane from "./CaptionPane.svelte";
   import CompanionDock from "./CompanionDock.svelte";
   import CompToast from "./companion/Toast.svelte";
   import CompNotes from "./companion/Notes.svelte";
+  import CompSpirit from "./companion/Spirit.svelte";
+  import CompWell from "./companion/Well.svelte";
   import { eventElement } from "./dragPane";
 
   import type {
@@ -216,7 +213,7 @@
   }
 
   let mainEl: HTMLElement | null = null;
-  let wellpaneEl: HTMLElement | null = null;
+  let wellpaneEl: HTMLElement | null = $state(null);
   let captionReady = $state(false);
   function onCaptionSpeakError(msg: string) {
     sendNote = msg;
@@ -1609,166 +1606,65 @@
   bind:this={mainEl}
 >
   {#if expanded && sprite}
-    {#if is3D && !glbFailed}
-      {#key bodyId}
-        <Companion3D
-          corner
-          {headShowing}
-          {bodyId}
-          thinking={sending}
-          onDrag={onDragMouseDown}
-          onFail={onGlbFail}
-        />
-      {/key}
-    {:else}
-      <SpiritStage
-        corner
-        {headShowing}
-        {missing}
-        frames={drawFrames}
-        {frameIdx}
-        thinking={sending}
-        smooth={artSmooth}
-        onDrag={onDragMouseDown}
-      />
-    {/if}
+    <CompSpirit
+      corner
+      {headShowing}
+      {bodyId}
+      {sending}
+      {is3D}
+      {glbFailed}
+      {missing}
+      {drawFrames}
+      {frameIdx}
+      {artSmooth}
+      {onDragMouseDown}
+      {onGlbFail}
+    />
   {/if}
 
-  {#if hosted !== "off"}
-    <!-- HOST-SPLIT + HOST-CC: the well — left ~2/3 is the embedded
-         Launchpad / STARS / Inspector, right 1/3 is the Head spirit
-         stage. The well stays MOUNTED while expanded — the transcript
-         overlays it inside .wellwrap. The two capped CC lines +
-         agentrow + composer stay full-width below the well. -->
-    <div class="wellwrap">
-      <div class="hostwell">
-        <!-- SPRITE-OFF: no .wellhead when the sprite is hidden — the
-             pane takes the full well (the card keeps its ring). -->
-        <div
-          class="wellpane"
-          class:fullwell={!sprite}
-          class:turning={swapPrev !== null}
-          style:--prism-r="{prismR}px"
-          bind:this={wellpaneEl}
-        >
-          <!-- on a hosted dest swap
-               the outgoing page mounts as a second face (swapPrev) and
-               both faces ride a ±120deg rotateY around the card's
-               vertical axis — the crease between them is the read. Each
-               face IS the tile for the turn (fill / 1px edge / 12px
-               radius ride WITH it); the pane's own chrome goes
-               transparent so no static frame rings the moving cards.
-               Both mounted the whole 400ms, so the well never flashes
-               blank. Not turning: one static layer, no 3D, same flex
-               sizing as before. -->
-          {#if swapPrev !== null}
-            <div class="prismface face-out" class:face-back={swapDir === -1}>
-              {#if swapPrev === "launchpad"}
-                <KanbanPage
-                  embedded
-                  onClose={dismissHost}
-                  onPopout={popoutLaunchpad}
-                  {onNeededFocus}
-                  {onNeededAnswer}
-                />
-              {:else if swapPrev === "stars"}
-                <StarsPage embedded onClose={dismissHost} />
-              {:else}
-                <RailPage
-                  embedded
-                  onClose={dismissHost}
-                  onPopout={popoutInspector}
-                  {createPlanetTick}
-                />
-              {/if}
-            </div>
-          {/if}
-          <div
-            class="wellpage"
-            class:face-in={swapPrev !== null}
-            class:face-back={swapPrev !== null && swapDir === -1}
-          >
-            {#if hosted === "launchpad"}
-              <KanbanPage
-                embedded
-                onClose={dismissHost}
-                onPopout={popoutLaunchpad}
-                {onNeededFocus}
-                {onNeededAnswer}
-              />
-            {:else if hosted === "stars"}
-              <StarsPage embedded onClose={dismissHost} />
-            {:else if hosted === "inspector"}
-              <RailPage
-                embedded
-                onClose={dismissHost}
-                onPopout={popoutInspector}
-                {createPlanetTick}
-              />
-            {/if}
-          </div>
-        </div>
-        {#if sprite}
-          <!-- Idle figure is held through native grow, then this column
-               FLIPs (translate + scale, same Head/full as idle). -->
-          <div class="wellhead">
-            {#if !expanded}
-              <div class="spirshift">
-                {#if is3D && !glbFailed}
-                  {#key bodyId}
-                    <Companion3D
-                      headShowing={headShowing}
-                      {bodyId}
-                      thinking={sending}
-                      onDrag={onDragMouseDown}
-                      onFail={onGlbFail}
-                    />
-                  {/key}
-                {:else}
-                  <SpiritStage
-                    headShowing={headShowing}
-                    {missing}
-                    frames={drawFrames}
-                    {frameIdx}
-                    thinking={sending}
-                    smooth={artSmooth}
-                    onDrag={onDragMouseDown}
-                  />
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
-      {#if expanded && captions}
-        {@render caption(true, true)}
-      {/if}
-    </div>
-  {:else if expanded && captions}
-    {@render caption(true, false)}
-  {/if}
+  <CompWell
+    {hosted}
+    {sprite}
+    {swapPrev}
+    {swapDir}
+    {prismR}
+    bind:wellpaneEl
+    {expanded}
+    {captions}
+    {caption}
+    {dismissHost}
+    {popoutLaunchpad}
+    {popoutInspector}
+    {onNeededFocus}
+    {onNeededAnswer}
+    {createPlanetTick}
+    {headShowing}
+    {bodyId}
+    {sending}
+    {is3D}
+    {glbFailed}
+    {missing}
+    {drawFrames}
+    {frameIdx}
+    {artSmooth}
+    {onDragMouseDown}
+    {onGlbFail}
+  />
+
   {#if sprite && !expanded && (hosted === "off" || spiritHold)}
-    {#if is3D && !glbFailed}
-      {#key bodyId}
-        <Companion3D
-          {headShowing}
-          {bodyId}
-          thinking={sending}
-          onDrag={onDragMouseDown}
-          onFail={onGlbFail}
-        />
-      {/key}
-    {:else}
-      <SpiritStage
-        {headShowing}
-        {missing}
-        frames={drawFrames}
-        {frameIdx}
-        thinking={sending}
-        smooth={artSmooth}
-        onDrag={onDragMouseDown}
-      />
-    {/if}
+    <CompSpirit
+      {headShowing}
+      {bodyId}
+      {sending}
+      {is3D}
+      {glbFailed}
+      {missing}
+      {drawFrames}
+      {frameIdx}
+      {artSmooth}
+      {onDragMouseDown}
+      {onGlbFail}
+    />
   {/if}
 
   {#if !expanded && captions}
