@@ -2012,8 +2012,9 @@
   }
 
 
-  // BOARD-SPLIT-Y: empty shelf = natural one title row (never stretch).
-  // Only when BOTH have content, lock equal pixel heights so bottoms align.
+  // BOARD-SPLIT-Y (locked rule):
+  // - empty shelf → one title row (never stretch)
+  // - both have content → match bottoms to the taller natural height
   $effect(() => {
     const n = neededEl;
     const t = trackPaneEl;
@@ -2044,9 +2045,10 @@
     }
 
     const sync = () => {
-      const parentH = Math.max(mail.clientHeight, 1);
-      const frac = Math.min(0.45, Math.max(0.18, neededSplit));
-      const h = Math.round(parentH * frac);
+      // Measure natural %-basis heights, then equalize to the taller.
+      clear();
+      const h = Math.max(n.offsetHeight, t.offsetHeight);
+      if (h <= 0) return;
       n.style.height = `${h}px`;
       n.style.minHeight = `${h}px`;
       n.style.maxHeight = `${h}px`;
@@ -2055,8 +2057,9 @@
       t.style.maxHeight = `${h}px`;
     };
 
-    sync();
-    const ro = new ResizeObserver(sync);
+    // After layout so % flex-basis has resolved.
+    requestAnimationFrame(sync);
+    const ro = new ResizeObserver(() => requestAnimationFrame(sync));
     ro.observe(mail);
     return () => {
       ro.disconnect();
