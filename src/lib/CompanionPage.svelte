@@ -418,7 +418,18 @@
         : "Click: full body (no bust art) · Right-click: mute avatar",
   );
 
-  const captions = true;
+  let captions = $state(true);
+
+  async function toggleCaptions() {
+    const next = !captions;
+    captions = next;
+    try {
+      await invoke("set_companion_captions", { enabled: next });
+    } catch (err) {
+      captions = !next;
+      sendNote = `${err}`;
+    }
+  }
 
   let planetsHidden = $state(false);
   let cheatSheetHint = $state(true);
@@ -1213,6 +1224,7 @@
         : 1;
       figureView = s.companion?.viewCollapsed === "head" ? "head" : "full";
       sprite = s.companion?.sprite ?? true;
+      captions = s.companion?.captions ?? true;
       planetsHidden = s.companion?.planetsHidden ?? false;
       cheatSheetHint = s.companion?.cheatSheetHint ?? true;
       if (maybeGraduatePeerChrome(s)) {
@@ -1720,6 +1732,7 @@
     {nextCount}
     {toggleNextCard}
     {toggleSpeak}
+    {toggleCaptions}
     {setSpeakVolume}
     {toggleSprite}
     {toggleView}

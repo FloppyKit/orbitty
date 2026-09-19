@@ -387,6 +387,55 @@ fn refresh_companion_mouse(app: &tauri::AppHandle) {
         let _ = w.set_ignore_cursor_events(false);
     }
     crate::companion_clear::apply_mode(app);
+    // Micro-nudge so WKWebView re-hit-tests under a stationary cursor.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use objc::runtime::Object;
+        use objc::{class, msg_send, sel, sel_impl};
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct CGPoint {
+            x: f64,
+            y: f64,
+        }
+        #[repr(C)]
+        struct NSSize {
+            width: f64,
+            height: f64,
+        }
+        #[repr(C)]
+        struct NSRect {
+            origin: CGPoint,
+            size: NSSize,
+        }
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGWarpMouseCursorPosition(newCursorPosition: CGPoint) -> i32;
+            fn CGAssociateMouseAndMouseCursorPosition(connected: bool) -> i32;
+        }
+        let mouse: CGPoint = msg_send![class!(NSEvent), mouseLocation];
+        let all: *mut Object = msg_send![class!(NSScreen), screens];
+        let mut top = 900.0_f64;
+        if !all.is_null() {
+            let n: usize = msg_send![all, count];
+            for i in 0..n {
+                let s: *mut Object = msg_send![all, objectAtIndex: i];
+                let f: NSRect = msg_send![s, frame];
+                top = top.max(f.origin.y + f.size.height);
+            }
+        }
+        let cg = CGPoint {
+            x: mouse.x,
+            y: top - mouse.y,
+        };
+        let _ = CGAssociateMouseAndMouseCursorPosition(false);
+        let _ = CGWarpMouseCursorPosition(CGPoint {
+            x: cg.x + 1.0,
+            y: cg.y,
+        });
+        let _ = CGWarpMouseCursorPosition(cg);
+        let _ = CGAssociateMouseAndMouseCursorPosition(true);
+    }
 }
 
 pub(crate) fn hug_companion(app: &tauri::AppHandle, hug_height: Option<f64>) {

@@ -87,6 +87,7 @@
     nextCount = 0,
     toggleNextCard,
     toggleSpeak,
+    toggleCaptions,
     setSpeakVolume,
     toggleSprite,
     toggleView,
@@ -139,6 +140,7 @@
     nextCount?: number;
     toggleNextCard: () => void;
     toggleSpeak: () => void;
+    toggleCaptions: () => void;
     setSpeakVolume: (v: number) => void;
     toggleSprite: (e: MouseEvent) => void;
     toggleView: () => void;
@@ -175,6 +177,7 @@
   function onPlanetsRight(e: MouseEvent) {
     e.preventDefault();
     togglePlanetsHidden();
+    rehitPointer();
   }
 
   let agentOpen = $state(false);
@@ -195,10 +198,40 @@
     e.stopPropagation();
     volOpen = false;
     toggleSpeak();
+    rehitPointer();
   }
   function onVolInput(e: Event) {
     const v = Number((e.currentTarget as HTMLInputElement).value);
     setSpeakVolume(v / 100);
+  }
+
+  // After a dock R-click toggles UI, WKWebView often drops hover until the
+  // cursor moves. Re-hit the element under the last pointer so rapid R-clicks
+  // register without a nudge.
+  let lastPtr = { x: 0, y: 0 };
+  function trackPtr(e: PointerEvent) {
+    lastPtr = { x: e.clientX, y: e.clientY };
+  }
+  function rehitPointer() {
+    requestAnimationFrame(() => {
+      const el = document.elementFromPoint(lastPtr.x, lastPtr.y) as HTMLElement | null;
+      if (!el) return;
+      el.dispatchEvent(
+        new PointerEvent("pointermove", {
+          clientX: lastPtr.x,
+          clientY: lastPtr.y,
+          bubbles: true,
+        }),
+      );
+    });
+  }
+  function onToggleSprite(e: MouseEvent) {
+    toggleSprite(e);
+    rehitPointer();
+  }
+  function onToggleCaptions() {
+    toggleCaptions();
+    rehitPointer();
   }
 
   // COMPOSER-WRAP: the one-line field is a wrapping textarea now (Grok
@@ -359,6 +392,7 @@
      the dock after Expand (GEAR-DOCK). -->
 <div
     class="ghostdock"
+    onpointermove={trackPtr}
     class:dragging={dockDragging}
     class:hover-armed={hoverArmed}
     onmousedown={onChromeDown}
@@ -404,8 +438,8 @@
       {bustOk}
       {expanded}
       {toggleExpanded}
-      {toggleSprite}
-      {toggleSpeak}
+      toggleSprite={onToggleSprite}
+      toggleCaptions={onToggleCaptions}
     />
   </div>
 
