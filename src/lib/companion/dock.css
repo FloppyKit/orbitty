@@ -71,8 +71,8 @@
     color: var(--ink);
   }
 
-  :global(.ghost) .ghostdock,
-  :global(.hosting) .ghostdock {
+  .ghost .ghostdock,
+  .hosting .ghostdock {
     margin: 4px 8px 8px;
     background: var(--bg-fill, var(--bg));
     border-color: var(--edge);

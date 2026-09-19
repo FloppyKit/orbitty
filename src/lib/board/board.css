@@ -17,7 +17,7 @@
       BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   }
 
-  :global(.low-fill) .kanban {
+  .low-fill .kanban {
     text-shadow: 0 1px 2px var(--bg-solid, transparent);
   }
 

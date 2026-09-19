@@ -45,7 +45,7 @@
     justify-content: flex-end;
   }
 
-  :global(.low-fill) .companion {
+  .low-fill .companion {
     text-shadow: 0 1px 2px var(--bg-solid, transparent);
   }
 
@@ -160,7 +160,7 @@
 
   /* Idle figure pinned through the grow — keep-bottom, so it does not
      vanish or stretch. Hands off to the column FLIP on the next frame. */
-  .companion.spirit-hold > :global(.stage) {
+  .companion.spirit-hold > .stage {
     position: absolute;
     left: var(--hold-x);
     bottom: var(--hold-b);
@@ -214,18 +214,18 @@
     display: flex;
   }
 
-  .companion.tile-pre :global(.wellhead .floatwrap),
-  .companion.tile-enter :global(.wellhead .floatwrap) {
+  .companion.tile-pre .wellhead .floatwrap,
+  .companion.tile-enter .wellhead .floatwrap {
     transform-origin: bottom center;
     will-change: transform;
   }
 
-  .companion.tile-pre :global(.wellhead .floatwrap) {
+  .companion.tile-pre .wellhead .floatwrap {
     transform: translate(var(--spir-dx, 0px), var(--spir-dy, 0px))
       scale(var(--spir-s, 1));
   }
 
-  .companion.tile-enter :global(.wellhead .floatwrap) {
+  .companion.tile-enter .wellhead .floatwrap {
     animation: orbitty-spirit-aside 280ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
   }
 
@@ -389,8 +389,8 @@
     .companion.tile-enter .wellpane {
       animation: orbitty-tile-fade 140ms ease-out both;
     }
-    .companion.tile-pre :global(.wellhead .floatwrap),
-    .companion.tile-enter :global(.wellhead .floatwrap) {
+    .companion.tile-pre .wellhead .floatwrap,
+    .companion.tile-enter .wellhead .floatwrap {
       transform: none;
       animation: none;
     }
