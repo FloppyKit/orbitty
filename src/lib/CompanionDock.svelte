@@ -404,6 +404,7 @@
       {bustOk}
       {expanded}
       {toggleExpanded}
+      {toggleSprite}
     />
   </div>
 

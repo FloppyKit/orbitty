@@ -15,6 +15,7 @@
     bustOk,
     expanded,
     toggleExpanded,
+    toggleSprite,
   }: {
     speak: boolean;
     speakVolume?: number;
@@ -30,6 +31,7 @@
     bustOk: boolean;
     expanded: boolean;
     toggleExpanded: () => void;
+    toggleSprite: (e: MouseEvent) => void;
   } = $props();
 
 </script>
