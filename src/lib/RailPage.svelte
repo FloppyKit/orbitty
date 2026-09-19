@@ -2011,9 +2011,11 @@
   // Reboot rematch. Live ids are pid:cgWindowID —
   // they die on reboot. Claims carry a bundle+title fingerprint; when a
   // claim's id is gone, adopt the best unused live window (exact stableKey,
-  // else same bundle+title first unused) and rewrite the id everywhere.
-  // Two claims never merge onto one window; unmatched claims stay listed as
-  // orphans until their window returns — nothing is deleted.
+  // else same bundle+title, else same documentPath, else the sole unused
+  // window of that bundle — title drifts on browsers/wallets/Finder) and
+  // rewrite the id everywhere. Two claims never merge onto one window;
+  // unmatched claims stay listed as orphans until their window returns —
+  // nothing is deleted.
   function rematchClaims() {
     if (!stateLoaded) return;
     const liveIds = new Set(windows.map((w) => w.id));
@@ -2056,6 +2058,25 @@
             (w.bundleId || w.appName) === bundle &&
             w.title === c.titleAtClaim,
         );
+      }
+      // Document path (Preview / editors): title may drift; the stamped
+      // file is stronger than the AX title.
+      if (!pick && c.filePath) {
+        pick = windows.find(
+          (w) => !used.has(w.id) && w.documentPath === c.filePath,
+        );
+      }
+      // Soft rematch: title often drifts (browser nav, wallet rename,
+      // Finder folder). If exactly one unused live window shares this
+      // claim's bundle, adopt it — otherwise leave the orphan (ambiguous).
+      if (!pick) {
+        const bundle = c.bundleId || c.appName;
+        if (bundle) {
+          const same = windows.filter(
+            (w) => !used.has(w.id) && (w.bundleId || w.appName) === bundle,
+          );
+          if (same.length === 1) pick = same[0];
+        }
       }
       if (!pick) continue; // orphan — waits for its window to return
       used.add(pick.id);

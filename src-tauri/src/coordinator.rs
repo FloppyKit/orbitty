@@ -2541,6 +2541,54 @@ fn wake_sleeper_inner(app: &tauri::AppHandle, id: &str) -> Result<String, String
         }
     }
 
+    // 1b. Rematch candidate already live (title may have drifted since the
+    //     claim stamped) → focus it. The rail's rematchClaims rewrites the
+    //     claim id on the next poll; wake stays read-only on state.
+    if let Ok(wins) = crate::windows::list_windows() {
+        let claimed: std::collections::HashSet<&str> =
+            st.claims.iter().map(|c| c.window_id.as_str()).collect();
+        let unused = |w: &crate::windows::WindowInfo| !claimed.contains(w.id.as_str());
+        let bundle = claim
+            .bundle_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or(claim.app_name.as_deref().filter(|s| !s.is_empty()));
+        let mut pick: Option<&crate::windows::WindowInfo> = None;
+        if let (Some(b), Some(title)) = (bundle, claim.title_at_claim.as_deref()) {
+            pick = wins.iter().find(|w| {
+                unused(w)
+                    && (w.bundle_id.as_deref().unwrap_or(w.app_name.as_str()) == b)
+                    && w.title == title
+            });
+        }
+        if pick.is_none() {
+            if let Some(path) = non_empty(claim.file_path.as_deref()) {
+                pick = wins
+                    .iter()
+                    .find(|w| unused(w) && w.document_path.as_deref() == Some(path));
+            }
+        }
+        if pick.is_none() {
+            if let Some(b) = bundle {
+                let same: Vec<_> = wins
+                    .iter()
+                    .filter(|w| {
+                        unused(w)
+                            && (w.bundle_id.as_deref().unwrap_or(w.app_name.as_str()) == b)
+                    })
+                    .collect();
+                if same.len() == 1 {
+                    pick = Some(same[0]);
+                }
+            }
+        }
+        if let Some(w) = pick {
+            if crate::windows::restore_window(&w.id).is_ok() {
+                return Ok("Woke the rematched window.".into());
+            }
+        }
+    }
+
     // 2. File sleeper: the stamped AX document path, still on disk.
     if let Some(path) = non_empty(claim.file_path.as_deref()) {
         if std::path::Path::new(path).exists() && spawn_detached("open", &[path]) {
