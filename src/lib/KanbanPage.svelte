@@ -875,7 +875,7 @@
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
       // BOARD-SPLIT-Y: one shared band — prefer neededSplit, mirror to trackers.
-      const band = Math.min(0.45, Math.max(0.18, s.neededSplit ?? s.trackerSplit ?? 0.28));
+      const band = clampSharedSplit(s.neededSplit ?? s.trackerSplit ?? 0.28);
       neededSplit = band;
       previewWidth = Math.max(160, s.previewWidth ?? 280);
       trackerSplit = band;
@@ -1136,7 +1136,7 @@
     const start = neededSplit;
     const h = Math.max(el.clientHeight, 1);
     const move = (ev: PointerEvent) => {
-      const v = Math.min(0.45, Math.max(0.18, start + (ev.clientY - startY) / h));
+      const v = clampSharedSplit(start + (ev.clientY - startY) / h);
       neededSplit = v;
       trackerSplit = v;
     };
@@ -1214,8 +1214,10 @@
     });
   }
 
-  function clampTracker(frac: number): number {
-    return Math.min(0.55, Math.max(0.14, frac));
+  // BOARD-SPLIT-Y: Needed + Trackers share one clamp band so mirrored
+  // ratios stay equal (was clampTracker 0.14–0.55 vs needed 0.18–0.45).
+  function clampSharedSplit(frac: number): number {
+    return Math.min(0.45, Math.max(0.18, frac));
   }
 
   function onTrackSplitDown(e: PointerEvent) {
@@ -1227,9 +1229,9 @@
     const start = trackerSplit;
     const h = Math.max(el.clientHeight, 1);
     const move = (ev: PointerEvent) => {
-      const v = clampTracker(start + (ev.clientY - startY) / h);
+      const v = clampSharedSplit(start + (ev.clientY - startY) / h);
       trackerSplit = v;
-      neededSplit = Math.min(0.45, Math.max(0.18, v));
+      neededSplit = v;
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -1237,7 +1239,7 @@
       const v = trackerSplit;
       mutate((s) => {
         s.trackerSplit = v;
-        s.neededSplit = Math.min(0.45, Math.max(0.18, v));
+        s.neededSplit = v;
       });
     };
     window.addEventListener("pointermove", move);
