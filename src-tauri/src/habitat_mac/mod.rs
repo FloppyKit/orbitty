@@ -31,10 +31,14 @@ mod droid_pack;
 mod todo_tree;
 mod planet_idle;
 mod geom;
+mod world;
 
 pub(crate) use geom::{
     clamp_disc, disc_to_view, locked_projection, locked_projection_str,
     radius_y, view_to_disc, walker_fit, CGSize, NSPoint, NSRect, Projection,
+};
+pub(crate) use world::{
+    default_boombox_volume, migrate_world, DecorItem, DecorPoint, WorldState, WorldsFile,
 };
 
 pub use tick::{persist_now, start};
@@ -583,118 +587,7 @@ pub(crate) fn max_radius() -> f64 {
     (w.min(h) * 1.35 / 2.0).max(MAX_RADIUS_FLOOR)
 }
 
-// persisted world positions
-
-/// One placed plant/mushroom: disc-local unit coords (-1..1) + birth time
-/// for the 7-day growth curve.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
-#[serde(rename_all = "camelCase", default)]
-struct DecorItem {
-    x: f64,
-    y: f64,
-    planted_at: f64,
-}
-
-/// Boombox placement (no growth — it just sits there and plays).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
-#[serde(rename_all = "camelCase", default)]
-struct DecorPoint {
-    x: f64,
-    y: f64,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct WorldState {
-    screen_id: String,
-    /// Screen-local, flipped (y down) center coords.
-    x: f64,
-    y: f64,
-    last_used: f64,
-    /// Scroll-zoomed expanded radius; 0 = never zoomed (EXPANDED_RADIUS).
-    radius: f64,
-    /// Pre-GROW toggles, migrated into `plants`/`mushrooms` placements on
-    /// load (true + empty list → one default placement, then cleared).
-    plant: bool,
-    mushroom: bool,
-    /// Boombox playing flag (kept): on + `music` set → AVAudioPlayer loop
-    /// while the planet lives. Placement lives in `boombox_pos`.
-    boombox: bool,
-    music: String,
-    /// GO-ORBITTY-BOOMBOX remembered volume step (Quiet .25 / Low .5 /
-    /// Med .75 / High 1.0). Field-level default keeps pre-fader saves at
-    /// full volume — the container `default` would give 0.0.
-    #[serde(default = "default_boombox_volume")]
-    boombox_volume: f32,
-    /// the HUD speaker's hard mute.
-    /// The player is kept, faded to 0; unmute returns to the slider's
-    /// remembered multiplier. Container default keeps old saves unmuted.
-    boombox_muted: bool,
-    /// Legacy field. Live disc ignores this — GO-ORBITTY-PROJ-LOCK derives
-    /// projection from marble vs expanded. Rewritten on sync to heal.
-    projection: String,
-    /// First time this world was seen; 0 = pre-GROW save (set to now on
-    /// load). The decor budget grows from this.
-    first_seen: f64,
-    plants: Vec<DecorItem>,
-    mushrooms: Vec<DecorItem>,
-    buildings: Vec<DecorItem>,
-    boombox_pos: Option<DecorPoint>,
-    /// per-planet beach-ball keep-up
-    /// toggle (planet right-click menu, checkable). Default off — the
-    /// container `default` gives pre-leftover saves false. Live flight
-    /// state is in-memory only (`Planet::ball`).
-    beach_ball: bool,
-}
-
-fn default_boombox_volume() -> f32 {
-    1.0
-}
-
-/// Additive migration for pre-GROW saves; returns true when it changed
-/// anything (caller persists). Idempotent.
-fn migrate_world(w: &mut WorldState, now: f64) -> bool {
-    let mut dirty = false;
-    if w.first_seen <= 0.0 {
-        w.first_seen = now;
-        dirty = true;
-    }
-    if w.plant {
-        if w.plants.is_empty() {
-            w.plants.push(DecorItem {
-                x: -0.42,
-                y: 0.34,
-                planted_at: now,
-            });
-        }
-        w.plant = false;
-        dirty = true;
-    }
-    if w.mushroom {
-        if w.mushrooms.is_empty() {
-            w.mushrooms.push(DecorItem {
-                x: 0.42,
-                y: 0.34,
-                planted_at: now,
-            });
-        }
-        w.mushroom = false;
-        dirty = true;
-    }
-    // An "on" boombox from before placements becomes a placed boombox that
-    // keeps playing.
-    if w.boombox && w.boombox_pos.is_none() {
-        w.boombox_pos = Some(DecorPoint { x: 0.0, y: 0.62 });
-        dirty = true;
-    }
-    dirty
-}
-
-#[derive(Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
-struct WorldsFile {
-    worlds: HashMap<String, WorldState>,
-}
+// persisted world positions → world.rs
 
 // habitat state (main thread only)
 
