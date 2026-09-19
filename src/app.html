@@ -13,6 +13,23 @@
       ).matches
         ? "systemDark"
         : "systemLight";
+      // Kill WKWebView's default context menu (Reload / Back / Forward / …).
+      // App-owned oncontextmenu handlers still run; AppKit planet menus are
+      // native and untouched. Also refuse ⌘R / Ctrl+R page reload.
+      document.addEventListener(
+        "contextmenu",
+        (e) => e.preventDefault(),
+        true,
+      );
+      document.addEventListener(
+        "keydown",
+        (e) => {
+          if ((e.metaKey || e.ctrlKey) && (e.key === "r" || e.key === "R")) {
+            e.preventDefault();
+          }
+        },
+        true,
+      );
     </script>
     %sveltekit.head%
   </head>
