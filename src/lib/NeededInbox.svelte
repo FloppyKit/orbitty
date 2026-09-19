@@ -272,9 +272,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
-    min-height: 1.2rem;
-    height: 1.2rem;
+    padding: 2px 8px;
+    min-height: 0;
     box-sizing: border-box;
   }
 
@@ -292,7 +291,7 @@
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.04em;
-    line-height: 1.2rem;
+    line-height: 1.25;
     color: var(--ink);
     text-align: left;
   }

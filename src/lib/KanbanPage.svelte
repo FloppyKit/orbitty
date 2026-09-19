@@ -2012,9 +2012,8 @@
   }
 
 
-  // BOARD-SPLIT-Y square: Needed + Trackers always share one pixel band so
-  // FKT / Practice Desk / Orbitty bottoms line up. Empty shelf = title row
-  // at top of that band (or one-line when both empty).
+  // BOARD-SPLIT-Y: empty shelf = natural one title row (never stretch).
+  // Only when BOTH have content, lock equal pixel heights so bottoms align.
   $effect(() => {
     const n = neededEl;
     const t = trackPaneEl;
@@ -2029,7 +2028,6 @@
 
     const neededIsEmpty = neededRows.length === 0 && !addingNeeded;
     const trackersIsEmpty = visibleTrackers.length === 0 && !addingTracker;
-    const bothEmpty = neededIsEmpty && trackersIsEmpty;
 
     const clear = () => {
       n.style.height = "";
@@ -2040,28 +2038,15 @@
       t.style.maxHeight = "";
     };
 
-    const square = () => {
-      if (bothEmpty) {
-        clear();
-        // Let both size to one title row, then match the taller head.
-        requestAnimationFrame(() => {
-          const h = Math.max(n.offsetHeight, t.offsetHeight);
-          if (h <= 0) return;
-          n.style.height = `${h}px`;
-          n.style.minHeight = `${h}px`;
-          n.style.maxHeight = `${h}px`;
-          t.style.height = `${h}px`;
-          t.style.minHeight = `${h}px`;
-          t.style.maxHeight = `${h}px`;
-        });
-        return;
-      }
-      // Shared band from mail column height × split (mirrored ratios).
+    if (neededIsEmpty || trackersIsEmpty) {
+      clear();
+      return;
+    }
+
+    const sync = () => {
       const parentH = Math.max(mail.clientHeight, 1);
       const frac = Math.min(0.45, Math.max(0.18, neededSplit));
-      let h = Math.round(parentH * frac);
-      // Never shorter than a title row.
-      h = Math.max(h, 28);
+      const h = Math.round(parentH * frac);
       n.style.height = `${h}px`;
       n.style.minHeight = `${h}px`;
       n.style.maxHeight = `${h}px`;
@@ -2070,8 +2055,8 @@
       t.style.maxHeight = `${h}px`;
     };
 
-    square();
-    const ro = new ResizeObserver(square);
+    sync();
+    const ro = new ResizeObserver(sync);
     ro.observe(mail);
     return () => {
       ro.disconnect();
