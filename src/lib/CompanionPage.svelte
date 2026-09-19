@@ -425,6 +425,11 @@
     captions = next;
     try {
       await invoke("set_companion_captions", { enabled: next });
+      // Bubbles off with no transcript chrome → collapse the big box.
+      if (!next && expanded) {
+        expanded = false;
+        await invoke("set_companion_expanded", { expanded: false });
+      }
     } catch (err) {
       captions = !next;
       sendNote = `${err}`;
