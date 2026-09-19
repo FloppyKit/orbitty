@@ -1186,12 +1186,21 @@ pub fn set_companion_speak_volume(app: tauri::AppHandle, volume: f32) -> Result<
 }
 
 /// Draw / hide the CC + transcript. Composer stays.
+/// Captions off while expanded also collapses — empty big box is never
+/// a destination (one save, one state:changed, no JS race).
 #[tauri::command]
 pub fn set_companion_captions(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let mut st = crate::state::load_state(&app)?;
     st.companion.captions = enabled;
+    let collapsed = !enabled && st.companion.expanded;
+    if collapsed {
+        st.companion.expanded = false;
+    }
     crate::state::save_state(&app, &st)?;
     let _ = app.emit("state:changed", ());
+    if collapsed {
+        crate::companion_clear::expanded_changed(&app, false);
+    }
     Ok(())
 }
 

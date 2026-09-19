@@ -422,16 +422,17 @@
 
   async function toggleCaptions() {
     const next = !captions;
+    const wasExpanded = expanded;
     captions = next;
+    // Optimistic: muted bubbles never keep the big expanded chrome.
+    if (!next && expanded) expanded = false;
     try {
+      // Native captions=false also clears expanded in one save so
+      // state:changed cannot reload expanded:true and fight us.
       await invoke("set_companion_captions", { enabled: next });
-      // Bubbles off with no transcript chrome → collapse the big box.
-      if (!next && expanded) {
-        expanded = false;
-        await invoke("set_companion_expanded", { expanded: false });
-      }
     } catch (err) {
       captions = !next;
+      if (!next && wasExpanded) expanded = true;
       sendNote = `${err}`;
     }
   }
@@ -853,6 +854,12 @@
 
   function toggleExpanded() {
     expanded = !expanded;
+    // Expanding with bubbles muted would be an empty slab — turn captions
+    // back on with the expand.
+    if (expanded && !captions) {
+      captions = true;
+      invoke("set_companion_captions", { enabled: true }).catch(() => {});
+    }
     invoke("set_companion_expanded", { expanded }).catch(() => {});
     // HOST-CC (overrides HOST-SPLIT): expanding while hosted KEEPS the
     // well — the transcript overlays it dimmed. Never dismissHost here;
