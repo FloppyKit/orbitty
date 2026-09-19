@@ -30,77 +30,14 @@ mod droid;
 mod droid_pack;
 mod todo_tree;
 mod planet_idle;
+mod geom;
+
+pub(crate) use geom::{
+    clamp_disc, disc_to_view, locked_projection, locked_projection_str,
+    radius_y, view_to_disc, walker_fit, CGSize, NSPoint, NSRect, Projection,
+};
 
 pub use tick::{persist_now, start};
-
-// geometry
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Default)]
-struct NSPoint {
-    x: f64,
-    y: f64,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Default)]
-struct CGSize {
-    width: f64,
-    height: f64,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Default)]
-struct NSRect {
-    origin: NSPoint,
-    size: CGSize,
-}
-
-impl NSRect {
-    fn new(x: f64, y: f64, w: f64, h: f64) -> Self {
-        NSRect {
-            origin: NSPoint { x, y },
-            size: CGSize {
-                width: w,
-                height: h,
-            },
-        }
-    }
-    fn mid_x(&self) -> f64 {
-        self.origin.x + self.size.width / 2.0
-    }
-    fn mid_y(&self) -> f64 {
-        self.origin.y + self.size.height / 2.0
-    }
-    fn max_x(&self) -> f64 {
-        self.origin.x + self.size.width
-    }
-    fn max_y(&self) -> f64 {
-        self.origin.y + self.size.height
-    }
-    fn inset(&self, d: f64) -> Self {
-        NSRect::new(
-            self.origin.x + d,
-            self.origin.y + d,
-            self.size.width - 2.0 * d,
-            self.size.height - 2.0 * d,
-        )
-    }
-    fn contains(&self, p: NSPoint) -> bool {
-        p.x >= self.origin.x
-            && p.x <= self.max_x()
-            && p.y >= self.origin.y
-            && p.y <= self.max_y()
-    }
-}
-
-// Lets NSRect appear in a registered method signature (drawRect:); the
-// string must match AppKit's own encoding for CGRect.
-unsafe impl objc::Encode for NSRect {
-    fn encode() -> objc::Encoding {
-        unsafe { objc::Encoding::from_str("{CGRect={CGPoint=dd}{CGSize=dd}}") }
-    }
-}
 
 // pixel sprite art
 // walkers are generated people (chars.rs 12×12 glyph
@@ -635,15 +572,7 @@ fn decor_budget(first_seen: f64, now: f64) -> (usize, usize) {
     )
 }
 
-// projection geometry
-
-/// Vertical radius: oblique (2.5D) squashes the disc to an ellipse.
-fn radius_y(radius: f64, projection: Projection) -> f64 {
-    match projection {
-        Projection::Flat => radius,
-        Projection::Oblique => radius * 0.55,
-    }
-}
+// projection geometry (disc helpers live in geom.rs)
 
 pub(crate) fn max_radius() -> f64 {
     let all = unsafe { screens() };
@@ -653,45 +582,6 @@ pub(crate) fn max_radius() -> f64 {
         .unwrap_or((1440.0, 900.0));
     (w.min(h) * 1.35 / 2.0).max(MAX_RADIUS_FLOOR)
 }
-
-/// town at real scale — the walker shrinks so
-/// 10–12 fit on a planet. (PROPS leftover: the igloo dropped the 1.6×
-/// grow off this cap — a fixed disc-relative width keeps it on-disc.)
-fn walker_fit(radius: f64, user_scale: f64) -> f64 {
-    let scale = if user_scale <= 0.0 {
-        1.0
-    } else {
-        user_scale.clamp(0.5, 1.25)
-    };
-    (radius * 0.18).clamp(40.0, 80.0) * scale
-}
-
-/// Disc-local unit coords (-1..1) → view-local point.
-fn disc_to_view(center: NSPoint, radius: f64, projection: Projection, x: f64, y: f64) -> NSPoint {
-    NSPoint {
-        x: center.x + x * radius,
-        y: center.y + y * radius_y(radius, projection),
-    }
-}
-
-/// View-local point → disc-local unit coords.
-fn view_to_disc(center: NSPoint, radius: f64, projection: Projection, p: NSPoint) -> (f64, f64) {
-    (
-        (p.x - center.x) / radius,
-        (p.y - center.y) / radius_y(radius, projection),
-    )
-}
-
-/// Keep a placed/dragged decor point inside the disc, with a small margin.
-fn clamp_disc(x: f64, y: f64) -> (f64, f64) {
-    let len = (x * x + y * y).sqrt();
-    if len > 0.85 {
-        (x / len * 0.85, y / len * 0.85)
-    } else {
-        (x, y)
-    }
-}
-
 
 // persisted world positions
 
@@ -711,36 +601,6 @@ struct DecorItem {
 struct DecorPoint {
     x: f64,
     y: f64,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Projection {
-    Flat,
-    Oblique,
-}
-
-impl Default for Projection {
-    fn default() -> Self {
-        Projection::Oblique
-    }
-}
-
-/// expanded planets are always 2.5D; marbles are
-/// always 2D. Not a persisted per-planet switch.
-fn locked_projection(is_marble: bool) -> Projection {
-    if is_marble {
-        Projection::Flat
-    } else {
-        Projection::Oblique
-    }
-}
-
-fn locked_projection_str(is_marble: bool) -> &'static str {
-    if is_marble {
-        "flat"
-    } else {
-        "oblique"
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
