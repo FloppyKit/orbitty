@@ -2011,6 +2011,75 @@
     startPaneDrag(e);
   }
 
+
+  // BOARD-SPLIT-Y square: Needed + Trackers always share one pixel band so
+  // FKT / Practice Desk / Orbitty bottoms line up. Empty shelf = title row
+  // at top of that band (or one-line when both empty).
+  $effect(() => {
+    const n = neededEl;
+    const t = trackPaneEl;
+    const mail = mailEl;
+    void neededRows.length;
+    void visibleTrackers.length;
+    void addingNeeded;
+    void addingTracker;
+    void neededSplit;
+    void trackerSplit;
+    if (!n || !t || !mail) return;
+
+    const neededIsEmpty = neededRows.length === 0 && !addingNeeded;
+    const trackersIsEmpty = visibleTrackers.length === 0 && !addingTracker;
+    const bothEmpty = neededIsEmpty && trackersIsEmpty;
+
+    const clear = () => {
+      n.style.height = "";
+      n.style.minHeight = "";
+      n.style.maxHeight = "";
+      t.style.height = "";
+      t.style.minHeight = "";
+      t.style.maxHeight = "";
+    };
+
+    const square = () => {
+      if (bothEmpty) {
+        clear();
+        // Let both size to one title row, then match the taller head.
+        requestAnimationFrame(() => {
+          const h = Math.max(n.offsetHeight, t.offsetHeight);
+          if (h <= 0) return;
+          n.style.height = `${h}px`;
+          n.style.minHeight = `${h}px`;
+          n.style.maxHeight = `${h}px`;
+          t.style.height = `${h}px`;
+          t.style.minHeight = `${h}px`;
+          t.style.maxHeight = `${h}px`;
+        });
+        return;
+      }
+      // Shared band from mail column height × split (mirrored ratios).
+      const parentH = Math.max(mail.clientHeight, 1);
+      const frac = Math.min(0.45, Math.max(0.18, neededSplit));
+      let h = Math.round(parentH * frac);
+      // Never shorter than a title row.
+      h = Math.max(h, 28);
+      n.style.height = `${h}px`;
+      n.style.minHeight = `${h}px`;
+      n.style.maxHeight = `${h}px`;
+      t.style.height = `${h}px`;
+      t.style.minHeight = `${h}px`;
+      t.style.maxHeight = `${h}px`;
+    };
+
+    square();
+    const ro = new ResizeObserver(square);
+    ro.observe(mail);
+    return () => {
+      ro.disconnect();
+      clear();
+    };
+  });
+
+
 </script>
 
 

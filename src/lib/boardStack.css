@@ -131,11 +131,12 @@
 
 .mail-needed {
   flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0;
 }
 
 .mail-needed.empty {
-  /* One header row only (icon+Needed). */
-  flex-basis: auto !important;
+  /* Title row only at top; height squared with Trackers via JS band. */
   flex-shrink: 0;
   min-height: 0;
 }
@@ -151,6 +152,10 @@
   border: none;
   border-radius: 0;
   background: transparent;
+}
+
+.mail-split.hidden {
+  display: none;
 }
 
 .mail-split {
@@ -439,20 +444,20 @@
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
-  gap: 6px;
-  /* Match Needed kn-head padding — was 8/8/12 and looked padded/centered. */
-  padding: 8px 10px 6px;
+  gap: 4px;
+  padding: 4px 8px;
   background: var(--panel-fill, var(--panel));
   border: 1px solid var(--edge);
   border-radius: 10px;
+  box-sizing: border-box;
 }
 
 .k-trackpane.empty {
-  flex-basis: auto !important;
   flex-shrink: 0;
   min-height: 0;
   gap: 0;
-  padding: 8px 10px 6px;
+  padding: 4px 8px;
+  overflow: hidden;
 }
 
 .k-trackpane.empty .d-hint,
@@ -465,19 +470,37 @@
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
-  min-height: 0;
+  min-height: 1.2rem;
+  height: 1.2rem;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .k-trackpane-title {
   flex: 1;
+  min-width: 0;
   margin: 0;
+  padding: 0;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
+  line-height: 1.2rem;
   color: var(--ink);
   text-transform: none;
   text-align: left;
+}
+
+/* + matches mail-ico footprint so Trackers head = Needed head. */
+.k-trackpane-head .ka-plus {
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  line-height: 1;
 }
 
 .k-track-addrow {

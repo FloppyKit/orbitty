@@ -25,9 +25,7 @@
           class="mail-needed"
           bind:this={neededEl}
           class:empty={neededEmpty}
-          style="flex-basis: {neededEmpty
-            ? 'auto'
-            : `${Math.round(neededSplit * 100)}%`}"
+          style="flex-basis: {neededEmpty ? 'auto' : `${Math.round(neededSplit * 100)}%`}"
         >
           <NeededInbox
             variant="strip"
@@ -43,9 +41,9 @@
             onNeededAnswer={onNeededAnswer}
           />
         </div>
-        {#if !neededEmpty}
         <div
             class="mail-split"
+            class:hidden={neededEmpty}
             role="separator"
             aria-orientation="horizontal"
             aria-label="Resize Needed"
@@ -59,4 +57,3 @@
               });
             }}
           ></div>
-        {/if}

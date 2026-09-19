@@ -188,9 +188,8 @@
               {@render trackerWidget(row.projectId, row.tr, row.chip)}
             {/each}
           </div>
-        {:else if !addingTracker}
-          <p class="d-hint">{selected === "inbox" ? "No planet trackers yet." : "No trackers on this planet."}</p>
         {/if}
+        {#if visibleTrackers.length > 0 || addingTracker}
         <button
           type="button"
           class="k-track-trash"
@@ -206,6 +205,7 @@
             <path d="M10 11v6M14 11v6" stroke-linecap="round"/>
           </svg>
         </button>
+        {/if}
       </section>
       {#if visibleTrackers.length > 0 || addingTracker}
         <div

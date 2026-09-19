@@ -271,8 +271,11 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 8px 10px 6px;
+    gap: 6px;
+    padding: 4px 8px;
+    min-height: 1.2rem;
+    height: 1.2rem;
+    box-sizing: border-box;
   }
 
   /* Always open — the header is a label, not a toggle. */
@@ -289,7 +292,9 @@
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.04em;
+    line-height: 1.2rem;
     color: var(--ink);
+    text-align: left;
   }
 
   .kn-count {
