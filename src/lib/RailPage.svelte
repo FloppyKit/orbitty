@@ -2089,6 +2089,9 @@
   // One id swap, all slices: claim (with a refreshed fingerprint and wake
   // trail), cards, tags, title overrides, nudge suppression.
   function rewriteWindowId(oldId: string, w: WindowInfo) {
+    // Rematch / sleeper wake is claim activity — refresh lastTouched so
+    // zombie fade dim clears when the walker comes back live.
+    const touched = nowEpoch();
     claims = claims.map((c) =>
       c.windowId === oldId
         ? {
@@ -2101,6 +2104,7 @@
             filePath: w.documentPath ?? c.filePath ?? null,
             hermesSession:
               isHermesClass(w) && w.title ? w.title : (c.hermesSession ?? null),
+            lastTouchedAt: touched,
           }
         : c,
     );
@@ -2259,6 +2263,7 @@
   let unlistenWalkerAssign: (() => void) | undefined;
   let unlistenYardAssign: (() => void) | undefined;
   let unlistenWalkedOff: (() => void) | undefined;
+  let unlistenSleeperWoke: (() => void) | undefined;
   let unlistenBoardDone: (() => void) | undefined;
   let unlistenBoardTodo: (() => void) | undefined;
   let unlistenCheckin: (() => void) | undefined;
@@ -2489,6 +2494,13 @@
     // own (no idle park waiting for a human drag). claim() still lands
     // Todo; the native side emits once per claim journey, so a manual
     // drag back to Todo stays Todo. Launchpad drags are untouched.
+    unlistenSleeperWoke = await listen<string>("habitat:sleeper-woke", (e) => {
+      const id = e.payload;
+      if (!id) return;
+      // Planet click wake never goes through wakeSleeper() — bump touch
+      // so fade dim clears even before rematch rewrites the id.
+      touchClaim(id, true);
+    });
     unlistenCheckin = await listen<string>("habitat:board-checkin", (e) => {
       const windowId = e.payload;
       const card = kanbanCards.find(
@@ -2620,6 +2632,7 @@
     unlistenWalkerAssign?.();
     unlistenYardAssign?.();
     unlistenWalkedOff?.();
+    unlistenSleeperWoke?.();
     unlistenBoardDone?.();
     unlistenBoardTodo?.();
     unlistenCheckin?.();

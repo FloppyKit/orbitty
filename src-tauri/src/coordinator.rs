@@ -2521,6 +2521,12 @@ pub fn wake_sleeper_with(app: &tauri::AppHandle, id: &str) -> Result<String, Str
         true,
         &serde_json::json!({ "windowId": id, "ok": out.is_ok() }),
     );
+    // Rail bumps lastTouchedAt (zombie fade dim) — planet clicks never
+    // go through wakeSleeper() in Svelte.
+    if out.is_ok() {
+        use tauri::Emitter;
+        let _ = app.emit_to("main", "habitat:sleeper-woke", id.to_string());
+    }
     out
 }
 
