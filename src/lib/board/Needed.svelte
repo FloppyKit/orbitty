@@ -17,13 +17,17 @@
     projects,
     neededEl = $bindable(null),
   } = $props();
+
+  const neededEmpty = $derived(neededRows.length === 0 && !addingNeeded);
 </script>
 
 <div
           class="mail-needed"
           bind:this={neededEl}
-          class:empty={neededRows.length === 0 && !addingNeeded}
-          style="flex-basis: {Math.round(neededSplit * 100)}%"
+          class:empty={neededEmpty}
+          style="flex-basis: {neededEmpty
+            ? 'auto'
+            : `${Math.round(neededSplit * 100)}%`}"
         >
           <NeededInbox
             variant="strip"
@@ -39,6 +43,7 @@
             onNeededAnswer={onNeededAnswer}
           />
         </div>
+        {#if !neededEmpty}
         <div
             class="mail-split"
             role="separator"
@@ -54,4 +59,4 @@
               });
             }}
           ></div>
-        
+        {/if}
