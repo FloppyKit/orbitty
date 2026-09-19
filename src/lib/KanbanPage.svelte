@@ -280,6 +280,15 @@
     );
   });
 
+  // BOARD-SPLIT-Y pair: Needed + Trackers share one Y band whenever
+  // either shelf has content. Only both-empty collapses to one line.
+  const trackersEmpty = $derived(
+    visibleTrackers.length === 0 && !addingTracker,
+  );
+  const bandEmpty = $derived(
+    neededRows.length === 0 && !addingNeeded && trackersEmpty,
+  );
+
   function raisePlanet(id: string) {
     invoke("bring_planet_front", { id }).catch(() => {});
     invoke("locate_planet", { id }).catch(() => {});
@@ -2076,6 +2085,7 @@
       bind:addingNeeded
       bind:neededSelectedId
       bind:neededSplit
+      {bandEmpty}
       bind:neededEl
       {ageLabel}
       {agentName}
@@ -2124,6 +2134,7 @@
 
     <BoardPreview
       neededEmpty={neededRows.length === 0 && !addingNeeded}
+      bandEmpty={bandEmpty}
       bind:addingTracker
       bind:eastEl
       bind:newTagName

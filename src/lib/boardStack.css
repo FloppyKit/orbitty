@@ -134,8 +134,7 @@
 }
 
 .mail-needed.empty {
-  /* Empty Needed collapses to one icon+Needed header line (not a tall %-shelf). */
-  flex-basis: auto !important;
+  /* Content is icon+Needed only; height still pairs with Trackers via %. */
   flex-shrink: 0;
   min-height: 0;
 }
@@ -143,6 +142,12 @@
 .mail-needed.empty .k-needed {
   flex: 0 0 auto;
   min-height: 0;
+}
+
+/* Both shelves empty → one-line heads (no shared %-band). */
+.mail-needed.band-empty {
+  flex-basis: auto !important;
+  flex-shrink: 0;
 }
 
 .mail-needed .k-needed {
@@ -445,16 +450,20 @@
 }
 
 .k-trackpane.empty {
-  flex-basis: auto !important;
+  /* Content head-only; height pairs with Needed via % unless band-empty. */
   flex-shrink: 0;
   min-height: 0;
   padding-bottom: 8px;
 }
 
-/* Empty Trackers: hide hint + trash so the shelf is one header line (+ stays). */
 .k-trackpane.empty .d-hint,
 .k-trackpane.empty .k-track-trash {
   display: none;
+}
+
+.k-trackpane.band-empty {
+  flex-basis: auto !important;
+  flex-shrink: 0;
 }
 
 .k-trackpane-head {

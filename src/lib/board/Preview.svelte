@@ -60,6 +60,7 @@
     visibleTrackers,
     winFor,
     neededEmpty = false,
+    bandEmpty = false,
   } = $props();
 </script>
 
@@ -133,8 +134,9 @@
         class="k-trackpane"
         class:armed={trackerArmed}
         class:empty={visibleTrackers.length === 0 && !addingTracker}
+        class:band-empty={bandEmpty}
         bind:this={trackPaneEl}
-        style="flex-basis: {visibleTrackers.length === 0 && !addingTracker
+        style="flex-basis: {bandEmpty
           ? 'auto'
           : `${Math.round(trackerSplit * 100)}%`}"
         aria-label="Trackers"
@@ -207,7 +209,7 @@
           </svg>
         </button>
       </section>
-      {#if visibleTrackers.length > 0 || addingTracker}
+      {#if !bandEmpty}
         <div
           class="k-east-split"
           role="separator"
