@@ -34,6 +34,7 @@ mod geom;
 mod world;
 mod pose;
 mod ball;
+mod drift;
 
 pub(crate) use geom::{
     clamp_disc, disc_to_view, locked_projection, locked_projection_str,
@@ -53,6 +54,12 @@ pub(crate) use pose::{
 pub(crate) use ball::{
     ball_arc_heads, ball_hop_secs, ball_pos, pack_still_aspect, walker_head_view, BallState,
     BALL_ARC_HEADS_MAX, BALL_ARC_HEADS_MIN,
+};
+
+pub(crate) use drift::{
+    ClusterState, MarbleOrbit, BARY_PREFIX, BARY_R_MAX, BARY_R_MIN, DRIFT_JOIN_DIST,
+    DRIFT_LEAVE_DIST, DRIFT_PIN_SECS, FRONT_DEADBAND, HOST_JOIN_DIST, HOST_LEAVE_DIST,
+    HOST_PREFIX, HOST_SWITCH_CLOSER, JOIN_EASE_SECS, OVAL_RATIO, TRACK_T_MAX, TRACK_T_MIN,
 };
 
 
@@ -78,28 +85,7 @@ pub(crate) const MIN_RADIUS: f64 = 18.0;
 const MAX_RADIUS_FLOOR: f64 = 220.0;
 const BASE_SPIN: f64 = std::f64::consts::TAU / 45.0; // one turn per 45s
 
-// Marbles: own slow track around nearest expanded planet, else a frozen
-// barycenter. Circle at live radius + 2 marble-widths. Go around the
-// disc, never through. Polar join, not a straight line. Orbit path
-// never writes worlds.json. CVDisplayLink posts drift_pass and returns.
-const DRIFT_JOIN_DIST: f64 = 220.0; // bary cluster join (marble↔marble)
-const DRIFT_LEAVE_DIST: f64 = 280.0; // bary cluster leave
-const DRIFT_PIN_SECS: f64 = 2.0;
-const OVAL_RATIO: f64 = 0.88; // bary tracks only — mild oval, almost round
-const JOIN_EASE_SECS: f64 = 6.0; // ease-IN onto your own ring, polar
-const HOST_SWITCH_CLOSER: f64 = 80.0; // host hysteresis: switch only if ≥80pt closer
-const HOST_JOIN_DIST: f64 = 280.0; // expanded-host join, off the LIVE disc edge
-const HOST_LEAVE_DIST: f64 = 360.0; // edge distance — a zoomed chip keeps its ring
-/// Front/back boolean hysteresis: the bit flips only outside ±deadband
-/// on sin θ, so it never chatters at the equator.
-const FRONT_DEADBAND: f64 = 0.08;
-const BARY_R_MIN: f64 = 70.0;
-const BARY_R_MAX: f64 = 140.0;
-const TRACK_T_MIN: f64 = 90.0; // per-marble period ∈ 90–140s, hashed from id
-const TRACK_T_MAX: f64 = 140.0;
-/// sun_key prefixes: an expanded-planet host vs a frozen barycenter.
-const HOST_PREFIX: &str = "h\n";
-const BARY_PREFIX: &str = "b\n";
+// Marble drift consts + MarbleOrbit/ClusterState → drift.rs
 
 // Board → station / Pose / yard → pose.rs
 
@@ -296,37 +282,6 @@ struct RoamState {
     /// first Doing tick, advanced on every grass-point / dwell pick so
     /// two Doing bodies never conga. Kept across pose flips.
     wander_seed: u64,
-}
-
-/// a marble's in-memory track membership.
-/// sun_key names the sun: HOST_PREFIX + the expanded planet's id, or
-/// BARY_PREFIX + the cluster's sorted member ids. A key change (host
-/// switch, cluster recapture) re-arms the join ease from the live panel
-/// position, so joins never teleport. The frozen barycenter homes live
-/// in `Habitat::clusters` keyed by the bary sun_key; a host sun is just
-/// the planet's live panel center (expanded planets never translate
-/// under drift). Never persisted — worlds.json keeps only the live
-/// position; sun, θ, and orientation live in memory only.
-#[derive(Clone, Debug)]
-struct MarbleOrbit {
-    sun_key: String,
-    lerp_start: Instant,
-    lerp_from: NSPoint,
-    /// Last applied z vs this marble's OWN host (true = in front).
-    /// Flips only outside the equator deadband; orderWindow:relativeTo:
-    /// fires on the flip only — never a per-tick restack.
-    front: bool,
-}
-
-/// a frozen barycenter capture, keyed by
-/// BARY_PREFIX + the sorted member ids. home is the cluster's live
-/// centroid captured ONCE at (re)capture — membership change means a
-/// new key and a new capture; the home is never recomputed from live
-/// x/y and never walked. The screen keep-in may shrink radii / nudge
-/// the sun per tick but never writes back.
-#[derive(Clone, Copy, Debug)]
-struct ClusterState {
-    home: NSPoint,
 }
 
 pub(crate) struct Planet {
