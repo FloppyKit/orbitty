@@ -412,10 +412,10 @@
 
   const viewTitle = $derived(
     !sprite
-      ? "Sprite hidden. Click: Head or full body · Right-click: show sprite"
+      ? "Sprite hidden. Click: Head or full body · Right-click: show avatar"
       : bustOk
-        ? "Click: Head or full body · Right-click: hide sprite"
-        : "Click: full body (no bust art) · Right-click: hide sprite",
+        ? "Click: Head or full body · Right-click: mute avatar"
+        : "Click: full body (no bust art) · Right-click: mute avatar",
   );
 
   const captions = true;

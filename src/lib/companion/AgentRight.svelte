@@ -16,6 +16,7 @@
     expanded,
     toggleExpanded,
     toggleSprite,
+    toggleSpeak,
   }: {
     speak: boolean;
     speakVolume?: number;
@@ -32,6 +33,7 @@
     expanded: boolean;
     toggleExpanded: () => void;
     toggleSprite: (e: MouseEvent) => void;
+    toggleSpeak: () => void;
   } = $props();
 
 </script>
@@ -144,10 +146,12 @@
       onclick={toggleExpanded}
       oncontextmenu={(e) => {
         e.preventDefault();
-        toggleExpanded();
+        toggleSpeak();
       }}
       aria-label={expanded ? "Collapse transcript" : "Expand transcript"}
-      title={expanded ? "Collapse transcript" : "Expand transcript"}
+      title={expanded
+        ? "Click: collapse transcript · Right-click: mute conversation"
+        : "Click: expand transcript · Right-click: mute conversation"}
     >
       {#if expanded}
         <svg

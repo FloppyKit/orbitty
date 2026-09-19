@@ -169,12 +169,12 @@
   });
 
   function onPlanetsClick() {
-    togglePlanetsHidden();
+    toggleDest("inspector");
   }
 
   function onPlanetsRight(e: MouseEvent) {
     e.preventDefault();
-    toggleDest("inspector");
+    togglePlanetsHidden();
   }
 
   let agentOpen = $state(false);
@@ -405,6 +405,7 @@
       {expanded}
       {toggleExpanded}
       {toggleSprite}
+      {toggleSpeak}
     />
   </div>
 
