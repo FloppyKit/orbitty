@@ -39,6 +39,7 @@ mod roam;
 mod decor;
 mod colors;
 mod art;
+mod marble_motion;
 
 pub(crate) use geom::{
     clamp_disc, disc_to_view, locked_projection, locked_projection_str,
