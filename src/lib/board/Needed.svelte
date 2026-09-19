@@ -23,9 +23,7 @@
           class="mail-needed"
           bind:this={neededEl}
           class:empty={neededRows.length === 0 && !addingNeeded}
-          style="flex-basis: {neededRows.length === 0 && !addingNeeded
-            ? 'auto'
-            : `${Math.round(neededSplit * 100)}%`}"
+          style="flex-basis: {Math.round(neededSplit * 100)}%"
         >
           <NeededInbox
             variant="strip"
@@ -41,8 +39,7 @@
             onNeededAnswer={onNeededAnswer}
           />
         </div>
-        {#if neededRows.length > 0 || addingNeeded}
-          <div
+        <div
             class="mail-split"
             role="separator"
             aria-orientation="horizontal"
@@ -53,8 +50,8 @@
               neededSplit = 0.28;
               mutate((s) => {
                 s.neededSplit = 0.28;
+                s.trackerSplit = 0.28;
               });
             }}
           ></div>
-        {/if}
         

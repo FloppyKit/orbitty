@@ -874,9 +874,11 @@
       collapsedSectionIds = s.collapsedSectionIds ?? [];
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
-      neededSplit = Math.min(0.45, Math.max(0.18, s.neededSplit ?? 0.28));
+      // BOARD-SPLIT-Y: one shared band — prefer neededSplit, mirror to trackers.
+      const band = Math.min(0.45, Math.max(0.18, s.neededSplit ?? s.trackerSplit ?? 0.28));
+      neededSplit = band;
       previewWidth = Math.max(160, s.previewWidth ?? 280);
-      trackerSplit = Math.min(0.55, Math.max(0.14, s.trackerSplit ?? 0.20));
+      trackerSplit = band;
       openSubtaskIds = s.openSubtaskIds ?? [];
       hackProjectId = s.companion?.hackLive
         ? (s.companion?.hackProjectId ?? null)
@@ -1124,6 +1126,8 @@
     logEvent("needed-later", { cardId: card.id }, card.projectId);
   }
 
+  // BOARD-SPLIT-Y: Needed + Trackers share one Y band — dragging either
+  // splitter updates both ratios so column 1 and column 2 stay aligned.
   function onSplitDown(e: PointerEvent) {
     const el = mailEl;
     if (!el) return;
@@ -1132,7 +1136,9 @@
     const start = neededSplit;
     const h = Math.max(el.clientHeight, 1);
     const move = (ev: PointerEvent) => {
-      neededSplit = Math.min(0.45, Math.max(0.18, start + (ev.clientY - startY) / h));
+      const v = Math.min(0.45, Math.max(0.18, start + (ev.clientY - startY) / h));
+      neededSplit = v;
+      trackerSplit = v;
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -1140,6 +1146,7 @@
       const v = neededSplit;
       mutate((s) => {
         s.neededSplit = v;
+        s.trackerSplit = v;
       });
     };
     window.addEventListener("pointermove", move);
@@ -1220,7 +1227,9 @@
     const start = trackerSplit;
     const h = Math.max(el.clientHeight, 1);
     const move = (ev: PointerEvent) => {
-      trackerSplit = clampTracker(start + (ev.clientY - startY) / h);
+      const v = clampTracker(start + (ev.clientY - startY) / h);
+      trackerSplit = v;
+      neededSplit = Math.min(0.45, Math.max(0.18, v));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -1228,6 +1237,7 @@
       const v = trackerSplit;
       mutate((s) => {
         s.trackerSplit = v;
+        s.neededSplit = Math.min(0.45, Math.max(0.18, v));
       });
     };
     window.addEventListener("pointermove", move);
@@ -1235,9 +1245,11 @@
   }
 
   function resetTrackerSplit() {
-    trackerSplit = 0.20;
+    trackerSplit = 0.28;
+    neededSplit = 0.28;
     mutate((s) => {
-      s.trackerSplit = 0.20;
+      s.trackerSplit = 0.28;
+      s.neededSplit = 0.28;
     });
   }
 
@@ -1995,37 +2007,6 @@
   function onBannerMouseDown(e: MouseEvent) {
     startPaneDrag(e);
   }
-
-  // NEEDED-EMPTY-ALIGN: when Needed has no rows but Trackers does,
-  // stretch the Needed shelf to the Trackers pane height so both
-  // column tops (and bottoms) share one band.
-  $effect(() => {
-    const empty = neededRows.length === 0 && !addingNeeded;
-    const el = neededEl;
-    const track = trackPaneEl;
-    void visibleTrackers.length;
-    void trackerSplit;
-    if (!el) return;
-    if (!empty || !track || visibleTrackers.length === 0) {
-      el.style.height = "";
-      el.style.minHeight = "";
-      return;
-    }
-    const sync = () => {
-      const h = track.offsetHeight;
-      if (h <= 0) return;
-      el.style.height = `${h}px`;
-      el.style.minHeight = `${h}px`;
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(track);
-    return () => {
-      ro.disconnect();
-      el.style.height = "";
-      el.style.minHeight = "";
-    };
-  });
 
 </script>
 

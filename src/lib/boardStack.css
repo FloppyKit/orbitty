@@ -134,9 +134,9 @@
 }
 
 .mail-needed.empty {
-  flex-basis: auto !important;
+  /* BOARD-SPLIT-Y: keep %-basis (inline) even when empty so Needed +
+     Trackers share the same Y band — do NOT force flex-basis:auto. */
   flex-shrink: 0;
-  min-height: 2.5rem;
 }
 
 .mail-needed .k-needed {
