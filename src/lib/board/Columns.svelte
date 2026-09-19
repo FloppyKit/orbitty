@@ -52,7 +52,6 @@
     neededRows,
     neededSelectedId = $bindable(),
     neededSplit = $bindable(),
-    bandEmpty = false,
     neededEl = $bindable(null),
     onNeededAnswer,
     onSplitDown,
@@ -252,7 +251,6 @@
           bind:addingNeeded
           bind:neededSelectedId
           bind:neededSplit
-          {bandEmpty}
           bind:neededEl
           {armNeededMouth}
           {kanbanCards}

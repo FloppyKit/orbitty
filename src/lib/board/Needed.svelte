@@ -16,8 +16,6 @@
     onSplitDown,
     projects,
     neededEl = $bindable(null),
-    // Paired with Trackers: only both-empty collapses to one line.
-    bandEmpty = false,
   } = $props();
 
   const neededEmpty = $derived(neededRows.length === 0 && !addingNeeded);
@@ -27,8 +25,7 @@
           class="mail-needed"
           bind:this={neededEl}
           class:empty={neededEmpty}
-          class:band-empty={bandEmpty}
-          style="flex-basis: {bandEmpty
+          style="flex-basis: {neededEmpty
             ? 'auto'
             : `${Math.round(neededSplit * 100)}%`}"
         >
@@ -46,7 +43,7 @@
             onNeededAnswer={onNeededAnswer}
           />
         </div>
-        {#if !bandEmpty}
+        {#if !neededEmpty}
         <div
             class="mail-split"
             role="separator"
