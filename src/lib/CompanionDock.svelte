@@ -193,11 +193,20 @@
     e.stopPropagation();
     volOpen = !volOpen;
   }
-  function onSpeakRight(e: MouseEvent) {
+  async function onSpeakRight(e: MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     volOpen = false;
-    toggleSpeak();
+    // UI is muted when !speak OR volume==0. R-click must toggle that
+    // effective mute — flipping speak alone while volume is 0 stays muted
+    // until the slider is opened (the sticky unmute Matt saw).
+    const muted = !speak || speakVolume <= 0;
+    if (muted) {
+      if (speakVolume <= 0) await setSpeakVolume(1);
+      else await toggleSpeak();
+    } else {
+      await toggleSpeak();
+    }
     rehitPointer();
   }
   function onVolInput(e: Event) {
@@ -213,6 +222,7 @@
     lastPtr = { x: e.clientX, y: e.clientY };
   }
   function rehitPointer() {
+    hoverArmed = true;
     requestAnimationFrame(() => {
       const el = document.elementFromPoint(lastPtr.x, lastPtr.y) as HTMLElement | null;
       if (!el) return;
@@ -328,8 +338,15 @@
   }
 
   function unfreezeDragHover() {
-    dockDragging = false;
-    hoverArmed = false;
+    // Only disarm hover after a real chrome drag. A normal button click
+    // also gets pointerup — if we set hoverArmed=false there, dock.css
+    // applies pointer-events:none until the next pointermove (sticky click).
+    if (dockDragging) {
+      dockDragging = false;
+      hoverArmed = false;
+    } else {
+      hoverArmed = true;
+    }
   }
 
   // Window-drag: no control hover. Freeze on chrome grab, not after slop —
