@@ -13,6 +13,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { eventElement } from "./dragPane";
+  import "./companion/dock.css";
 
   // Chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
@@ -828,6 +829,3 @@
   </form>
 </div>
 
-<style>
-  @import "./companion/dock.css";
-</style>

@@ -20,6 +20,8 @@
   import Companion3D from "./Companion3D.svelte";
   import CaptionPane from "./CaptionPane.svelte";
   import CompanionDock from "./CompanionDock.svelte";
+  import CompToast from "./companion/Toast.svelte";
+  import CompNotes from "./companion/Notes.svelte";
   import { eventElement } from "./dragPane";
 
   import type {
@@ -29,6 +31,7 @@
     PersistedState,
     StarsSlice,
   } from "./persist";
+  import "./companion/page.css";
   interface CompanionSheet {
     dataUrl: string;
     frameW: number;
@@ -1572,43 +1575,7 @@
   });
 </script>
 
-{#if claimToast}
-  <div class="claim-toast" role="status">
-    <span>Claimed to {claimToast.projectName}</span>
-    <button
-      type="button"
-      onclick={() => {
-        if (!claimToast) return;
-        void (async () => {
-          try {
-            const s = await invoke<PersistedState>("load_state");
-            const list = s.projects ?? [];
-            if (!list.length) return;
-            const i = list.findIndex((p) => p.id === claimToast!.projectId);
-            const next = list[(i + 1) % list.length];
-            if (!next) return;
-            await invoke("claim_front_change", { projectId: next.id });
-            claimToast = {
-              ...claimToast!,
-              projectId: next.id,
-              projectName: next.name,
-            };
-          } catch {
-            /* ignore */
-          }
-        })();
-      }}>Change</button
-    >
-    <button
-      type="button"
-      onclick={() => {
-        invoke("claim_front_undo").catch(() => {});
-        claimToast = null;
-        if (claimToastTimer) clearTimeout(claimToastTimer);
-      }}>Undo</button
-    >
-  </div>
-{/if}
+<CompToast bind:claimToast bind:claimToastTimer />
 
 
 {#snippet caption(expanded: boolean, hosted: boolean)}
@@ -1808,28 +1775,13 @@
     {@render caption(false, hosted !== "off")}
   {/if}
 
-  {#if sendNote}
-    <div class="note err">
-      <span class="note-text">{sendNote}</span>
-      <button
-        class="note-x"
-        onclick={() => (sendNote = null)}
-        aria-label="Dismiss">×</button
-      >
-    </div>
-  {/if}
-
-  {#if showPromptStrip && lowestSpoke}
-    <div class="starstrip">
-      <span class="starstrip-text">{lowestSpoke.label} is the thin spoke today.</span>
-      <span class="starstrip-chips">
-        <button class="chip" onclick={ackStrip}>Rest</button>
-        <button class="chip" onclick={ackStrip}>Water</button>
-        <button class="chip" onclick={openSmallestTodo}>Smallest todo</button>
-      </span>
-      <button class="starstrip-x" onclick={ackStrip} aria-label="Dismiss">×</button>
-    </div>
-  {/if}
+  <CompNotes
+    bind:sendNote
+    {showPromptStrip}
+    {lowestSpoke}
+    {ackStrip}
+    {openSmallestTodo}
+  />
 
   <!-- Agentrow + dests + Speak +
        sprite/view + Expand + ⚙ + composer live in CompanionDock.svelte.
@@ -1886,6 +1838,3 @@
 
 </main>
 
-<style>
-  @import "./companion/page.css";
-</style>
