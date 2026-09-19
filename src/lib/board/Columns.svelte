@@ -52,6 +52,7 @@
     neededRows,
     neededSelectedId = $bindable(),
     neededSplit = $bindable(),
+    neededEl = $bindable(null),
     onNeededAnswer,
     onSplitDown,
     projects,
@@ -250,6 +251,7 @@
           bind:addingNeeded
           bind:neededSelectedId
           bind:neededSplit
+          bind:neededEl
           {armNeededMouth}
           {kanbanCards}
           {logEvent}

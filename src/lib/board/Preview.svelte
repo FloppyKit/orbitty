@@ -127,14 +127,14 @@
       onpointerdown={onEastSplitDown}
       ondblclick={resetPreviewWidth}
     ></div>
-    <div class="k-east" bind:this={eastEl} style="width: {previewWidth}px">
+    <div class="k-east" class:needed-empty={neededEmpty} bind:this={eastEl} style="width: {previewWidth}px">
     {#if showTrackers}
       <section
         class="k-trackpane"
         class:armed={trackerArmed}
         class:empty={visibleTrackers.length === 0 && !addingTracker}
         bind:this={trackPaneEl}
-        style="flex-basis: {(visibleTrackers.length === 0 && !addingTracker) || neededEmpty
+        style="flex-basis: {visibleTrackers.length === 0 && !addingTracker
           ? 'auto'
           : `${Math.round(trackerSplit * 100)}%`}"
         aria-label="Trackers"

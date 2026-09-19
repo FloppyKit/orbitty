@@ -103,6 +103,7 @@
   let addingTracker = $state(false);
   let trackerArmed = $state(false);
   let trackPaneEl: HTMLElement | null = $state(null);
+  let neededEl: HTMLDivElement | null = $state(null);
   let migratingCardTrackers = false;
   let previewEdit = $state(false);
   let planetDdOpen = $state(false);
@@ -1994,6 +1995,38 @@
   function onBannerMouseDown(e: MouseEvent) {
     startPaneDrag(e);
   }
+
+  // NEEDED-EMPTY-ALIGN: when Needed has no rows but Trackers does,
+  // stretch the Needed shelf to the Trackers pane height so both
+  // column tops (and bottoms) share one band.
+  $effect(() => {
+    const empty = neededRows.length === 0 && !addingNeeded;
+    const el = neededEl;
+    const track = trackPaneEl;
+    void visibleTrackers.length;
+    void trackerSplit;
+    if (!el) return;
+    if (!empty || !track || visibleTrackers.length === 0) {
+      el.style.height = "";
+      el.style.minHeight = "";
+      return;
+    }
+    const sync = () => {
+      const h = track.offsetHeight;
+      if (h <= 0) return;
+      el.style.height = `${h}px`;
+      el.style.minHeight = `${h}px`;
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(track);
+    return () => {
+      ro.disconnect();
+      el.style.height = "";
+      el.style.minHeight = "";
+    };
+  });
+
 </script>
 
 
@@ -2060,6 +2093,7 @@
       bind:addingNeeded
       bind:neededSelectedId
       bind:neededSplit
+      bind:neededEl
       {ageLabel}
       {agentName}
       {childrenOf}

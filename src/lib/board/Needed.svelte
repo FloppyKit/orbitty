@@ -15,11 +15,13 @@
     onNeededAnswer,
     onSplitDown,
     projects,
+    neededEl = $bindable(null),
   } = $props();
 </script>
 
 <div
           class="mail-needed"
+          bind:this={neededEl}
           class:empty={neededRows.length === 0 && !addingNeeded}
           style="flex-basis: {neededRows.length === 0 && !addingNeeded
             ? 'auto'
