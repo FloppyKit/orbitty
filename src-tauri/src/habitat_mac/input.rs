@@ -63,12 +63,15 @@ fn planet_for_view<'a>(
 fn hit_being(planet: &Planet, local: NSPoint) -> Option<(String, bool)> {
     // a walker hidden off the north rim (Done, waiting
     // on the rail's eviction) is not a hit target — nothing invisible
-    // swallows a click.
-    if let Some(b) = planet
-        .walkers
-        .iter()
-        .find(|b| !walker_hidden(planet, b) && b.frame.inset(-3.0).contains(local))
-    {
+    // swallows a click. Sleepers get a fatter hit (−10) — the camp is a
+    // tight strip next to the igloo and double-click was too fiddly.
+    if let Some(b) = planet.walkers.iter().find(|b| {
+        if walker_hidden(planet, b) {
+            return false;
+        }
+        let pad = if b.asleep { -10.0 } else { -3.0 };
+        b.frame.inset(pad).contains(local)
+    }) {
         return Some((b.entry_id.clone(), true));
     }
     planet
@@ -405,8 +408,9 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                         && !(pending.walker && walker_hidden(planet, b))
                 })
                 .map(|b| {
+                    let pad = if b.asleep { -10.0 } else { -3.0 };
                     (
-                        b.frame.inset(-3.0).contains(local),
+                        b.frame.inset(pad).contains(local),
                         b.label.clone(),
                         b.asleep,
                         b.droid.is_some(),
@@ -456,19 +460,17 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                     }
                     None
                 }
-                // Sleeper single: caption + locate stroke — never the
-                // editor, never a restore attempt on a dead window.
-                (true, false, true, _) => {
-                    set_caption(planet, format!("{label} · asleep — double-click to wake"));
-                    if !dragged {
+                // Sleeper single OR double: wake through the claim's
+                // stamps. Camp sprites are small — requiring a double
+                // made reopen feel broken. Locate still glows on single.
+                (true, false, true, _) | (true, true, true, _) => {
+                    if !dragged && clicks < 2 {
                         locate_id = Some(entry_id.clone());
                     }
-                    None
+                    Some(BeingAction::Wake(entry_id))
                 }
                 // Walker double: restore + focus (window comes back bigger).
                 (true, true, false, _) => Some(BeingAction::Focus(entry_id)),
-                // Sleeper double: wake through the claim's stamps.
-                (true, true, true, _) => Some(BeingAction::Wake(entry_id)),
                 // Dot single: focus the open window + caption.
                 (false, false, _, _) => {
                     set_caption(planet, format!("{label} · open"));

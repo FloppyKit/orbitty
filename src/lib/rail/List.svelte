@@ -23,7 +23,7 @@
       ondragstart={(e) => rail.onDragStart(e, w)}
       ondragend={rail.onDragEnd}
       title={sleeping
-        ? "Asleep — the window is closed; double-click to wake it. Drag still re-homes."
+        ? "Asleep — the window is closed; click to wake it. Drag still re-homes."
         : "Drag onto a project to claim"}
     >
       {#if project}
@@ -59,12 +59,16 @@
           class:min={w.isMinimized}
           class:sleeping
           class:locate-flash={rail.locateFlashIds.includes(w.id)}
-          onclick={() => rail.locateRow(w)}
+          onclick={() => (sleeping ? rail.wakeSleeper(w) : rail.locateRow(w))}
           ondblclick={() =>
-            sleeping ? rail.wakeSleeper(w) : w.isMinimized ? rail.restore(w) : rail.stow(w)}
+            sleeping
+              ? rail.wakeSleeper(w)
+              : w.isMinimized
+                ? rail.restore(w)
+                : rail.stow(w)}
           oncontextmenu={(e) => rail.openCtxMenu(e, w)}
           title={sleeping
-            ? `${w.appName} — ${w.title} · asleep — click glows, double-click wakes`
+            ? `${w.appName} — ${w.title} · asleep — click wakes`
             : w.isMinimized
               ? `${w.appName} — ${w.title} · click glows, double-click restores`
               : `${w.appName} — ${w.title} · click glows, double-click minimizes`}

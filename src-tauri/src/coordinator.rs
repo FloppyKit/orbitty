@@ -2634,10 +2634,25 @@ fn wake_sleeper_inner(app: &tauri::AppHandle, id: &str) -> Result<String, String
         return Ok("Ran the stamped recipe in Terminal.".into());
     }
 
-    // 5. App fallback: back to the app, not the corpse.
+    // 5. App fallback: open a NEW instance when nothing unused was free to
+    //    rematch (another planet often already owns the only live window of
+    //    this bundle — plain `open -b` would only focus theirs). `-n -b`
+    //    mints a window the rail can soft-rematch on the next poll.
     if let Some(bundle) = non_empty(claim.bundle_id.as_deref()) {
+        if spawn_detached("open", &["-n", "-b", bundle]) {
+            return Ok(format!("Opened a new {bundle} window — rematch on next poll."));
+        }
+        // Some apps refuse -n; fall back to activate.
         if spawn_detached("open", &["-b", bundle]) {
             return Ok(format!("Reopened the app ({bundle})."));
+        }
+    }
+    if let Some(name) = non_empty(claim.app_name.as_deref()) {
+        if spawn_detached("open", &["-na", name]) {
+            return Ok(format!("Opened a new {name} window — rematch on next poll."));
+        }
+        if spawn_detached("open", &["-a", name]) {
+            return Ok(format!("Reopened {name}."));
         }
     }
 

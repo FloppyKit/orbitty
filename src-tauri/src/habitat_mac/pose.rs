@@ -15,10 +15,10 @@ pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed
 /// North of the igloo door, west of the grass pad: the gap between the
 /// igloo (x ≤ -0.50) and YARD_WEST. Dim + still. Minimized stays full-
 /// color on the green with everyone else.
-pub(crate) const SLEEPER_WEST: f64 = -0.48;
-pub(crate) const SLEEPER_EAST: f64 = -0.38;
-pub(crate) const SLEEPER_NORTH: f64 = -0.38;
-pub(crate) const SLEEPER_SOUTH: f64 = -0.12;
+pub(crate) const SLEEPER_WEST: f64 = -0.46;
+pub(crate) const SLEEPER_EAST: f64 = -0.37; // just west of YARD_WEST (−0.364)
+pub(crate) const SLEEPER_NORTH: f64 = -0.36;
+pub(crate) const SLEEPER_SOUTH: f64 = -0.08;
 // Grass AABB — west pinned so the igloo gap stays. Not a centered square.
 pub(crate) const YARD_WEST: f64 = -0.364; // PINNED
 pub(crate) const YARD_EAST: f64 = 0.54;
