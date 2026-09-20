@@ -28,6 +28,7 @@ mod mouse;
 mod walker_menu;
 mod planet_menu;
 mod board_geom;
+mod decor_art;
 mod draw;
 mod boombox_hud;
 mod droid;
