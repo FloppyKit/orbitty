@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use super::{
     ball_arc_heads, ball_hop_secs, droid_pack, emit_board_checkin, emit_walked_off, house_spawn,
-    layout_beings, lock, pack_still_aspect, sleeper_target, station_target, walkoff_target,
+    hash_str, layout_beings, lock, pack_still_aspect, sleeper_target, station_target, walkoff_target,
     walker_head_view, yard_clamp, yard_contains, yard_dwell_ms, yard_pick, yard_pick_sailing,
     yard_seed, BallState, Drag, Pose, RoamState, CAPTION_TTL, HOME_HIDE_X, LOCATE_TTL,
     PLANET_LOCATE_TTL, YARD_ARRIVE, YARD_SAIL,
@@ -181,20 +181,24 @@ pub(crate) fn anim_tick() {
                     checkin_emit_at: None,
                     wander_seed: 0,
                 },
-                Pose::Roam => RoamState {
-                    x: house.0,
-                    y: house.1,
-                    tx: house.0,
-                    ty: house.1,
-                    pause_end: None,
-                    facing_left: false,
+                Pose::Roam => {
+                    let mut seed = hash_str(id);
+                    let (x, y) = yard_pick(&mut seed);
+                    RoamState {
+                        x,
+                        y,
+                        tx: x,
+                        ty: y,
+                        pause_end: None,
+                        facing_left: false,
                         facing_dir: 0,
-                    off_emitted: false,
-                    via_board: false,
-                    via_home: false,
-                    via_checkin: false,
-                    checkin_emit_at: None,
-                    wander_seed: 0,
+                        off_emitted: false,
+                        via_board: false,
+                        via_home: false,
+                        via_checkin: false,
+                        checkin_emit_at: None,
+                        wander_seed: seed,
+                    }
                 },
             });
             // A walker that left WalkOff (re-claimed) re-arms its emit so
@@ -427,6 +431,15 @@ pub(crate) fn anim_tick() {
                         .get(i)
                         .and_then(|b| b.droid)
                         .is_some();
+                    // Bare / kind:window Done: skip board lip — home then off.
+                    // Real kind:todo keeps the checkout parade.
+                    let checkout_board = planet
+                        .walker_entries
+                        .iter()
+                        .any(|e| &e.id == id && e.card_kind == "todo");
+                    if !checkout_board {
+                        roam.via_board = true;
+                    }
                     if is_droid {
                         let (tx, ty) = walkoff_target(id, roam.x, roam.y);
                         let dx = tx - roam.x;

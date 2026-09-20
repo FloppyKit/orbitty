@@ -7,7 +7,7 @@
 use super::art::{base64_decode, fallback_pack_index, ns_image_from_bytes};
 use super::draw;
 use super::geom::{disc_to_view, walker_fit};
-use super::pose::{droid_glance, hash_str, pose_for, sleeper_target, station_target};
+use super::pose::{droid_glance, hash_str, pose_for, sleeper_target, station_target, yard_pick};
 use super::roam::RoamState;
 use super::{
     house_spawn, Being, DecorKind, DecorRef, Habitat, HabitatEntry, NSPoint, NSRect, Planet, Pose,
@@ -174,13 +174,14 @@ pub(crate) fn layout_beings(planet: &mut Planet) {
                     wander_seed: 0,
                 },
                 Pose::Roam => {
-                    let a = i as f64 * 2.3;
-                    let r = 0.32;
+                    // Bare claim: appear ON the grass — never igloo→board lip.
+                    let mut seed = hash_str(id);
+                    let (x, y) = yard_pick(&mut seed);
                     RoamState {
-                        x: a.cos() * r,
-                        y: a.sin() * r,
-                        tx: a.cos() * r,
-                        ty: a.sin() * r,
+                        x,
+                        y,
+                        tx: x,
+                        ty: y,
                         pause_end: None,
                         facing_left: false,
                         facing_dir: 0,
@@ -189,7 +190,7 @@ pub(crate) fn layout_beings(planet: &mut Planet) {
                         via_home: false,
                         via_checkin: false,
                         checkin_emit_at: None,
-                        wander_seed: 0,
+                        wander_seed: seed,
                     }
                 }
             }

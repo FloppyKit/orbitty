@@ -1480,21 +1480,43 @@
       existing.kind !== "needed" &&
       existing.status !== "done";
     if (!realTodo) {
-      if (existing && existing.kind === "window" && existing.status !== "done") {
-        // Retire the legacy auto ticket quietly — no points, no walk-off.
+      // Bare claim exit: kind:window Done keeps the claim so the walker
+      // can walk home/off (native skips the board lip for non-todo).
+      // No instant vanish; no sign checkout.
+      if (existing) {
         kanbanCards = kanbanCards.map((c) =>
           c.id === existing.id
             ? {
                 ...c,
+                kind: c.kind === "todo" ? c.kind : ("window" as const),
                 status: "done",
-                windowId: null,
+                windowId: w.id,
+                title: c.title || title,
                 lastTouchedAt: now,
                 completedAt: c.completedAt ?? now,
               }
             : c,
         );
+      } else {
+        kanbanCards = [
+          ...kanbanCards,
+          {
+            id: newCardId(),
+            title,
+            projectId: project.id,
+            windowId: w.id,
+            kind: "window" as const,
+            status: "done" as const,
+            createdAt: now,
+            lastTouchedAt: now,
+            completedAt: now,
+            goalAligned: true,
+            clinicalOrMaster,
+            pointsAwarded: 0,
+            starred: false,
+          },
+        ];
       }
-      claims = liveClaims.filter((c) => c.windowId !== w.id);
       persist();
       try {
         await invoke("close_window", { id: w.id });
