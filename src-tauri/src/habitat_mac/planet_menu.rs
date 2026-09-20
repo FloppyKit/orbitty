@@ -50,23 +50,15 @@ pub(crate) unsafe fn planet_context_menu(
     if menu.is_null() {
         return;
     }
+    // One row toggles marble ↔ expanded (was two disabled-sibling rows).
     add_menu_item(
         menu,
-        "Minimize (marble)",
-        sel!(planetMinimize:),
+        if is_marble { "Expand" } else { "Minimize" },
+        sel!(planetToggleMarble:),
         target,
         &project_id,
         None,
-        !is_marble,
-    );
-    add_menu_item(
-        menu,
-        "Restore",
-        sel!(planetRestore:),
-        target,
-        &project_id,
-        None,
-        is_marble,
+        true,
     );
     add_menu_item(
         menu,
@@ -158,26 +150,35 @@ pub(crate) extern "C" fn menu_place_building(_this: &Object, _cmd: Sel, sender: 
     }));
 }
 
-pub(crate) extern "C" fn menu_minimize(_this: &Object, _cmd: Sel, sender: *mut Object) {
+/// Marble ↔ expanded. Rail owns collapse; next sync applies the size.
+pub(crate) extern "C" fn menu_toggle_marble(_this: &Object, _cmd: Sel, sender: *mut Object) {
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        // The rail owns collapse state; it turns the planet into a marble on
-        // the next sync.
-        if let Some(id) = sender_project_id(sender) {
-            if let Some(app) = app_handle() {
-                let _ = app.emit_to("main", "habitat:collapse", id);
-            }
+        let Some(id) = sender_project_id(sender) else {
+            return;
+        };
+        let is_marble = lock()
+            .planets
+            .get(&id)
+            .map(|p| p.is_marble)
+            .unwrap_or(false);
+        if let Some(app) = app_handle() {
+            let event = if is_marble {
+                "habitat:expand"
+            } else {
+                "habitat:collapse"
+            };
+            let _ = app.emit_to("main", event, id);
         }
     }));
 }
 
-pub(crate) extern "C" fn menu_restore(_this: &Object, _cmd: Sel, sender: *mut Object) {
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        if let Some(id) = sender_project_id(sender) {
-            if let Some(app) = app_handle() {
-                let _ = app.emit_to("main", "habitat:expand", id);
-            }
-        }
-    }));
+/// Kept registered for old OrbittyPlanetMenuTarget slots.
+pub(crate) extern "C" fn menu_minimize(this: &Object, cmd: Sel, sender: *mut Object) {
+    menu_toggle_marble(this, cmd, sender);
+}
+
+pub(crate) extern "C" fn menu_restore(this: &Object, cmd: Sel, sender: *mut Object) {
+    menu_toggle_marble(this, cmd, sender);
 }
 
 pub(crate) extern "C" fn menu_claim_front(_this: &Object, _cmd: Sel, sender: *mut Object) {

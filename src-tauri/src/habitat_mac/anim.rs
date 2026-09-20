@@ -623,10 +623,12 @@ pub(crate) fn anim_tick() {
         // uses — so a touch overlaps the drawn sprite exactly. In flight
         // the ball moves every tick → the view stays dirty.
         if planet.beach_ball {
+            // Bare claims roam; real todos Work. The ball needs bodies on
+            // the grass either way — Work-only hid it after window→Roam.
             let doing: Vec<(String, (f64, f64, f64))> = planet
                 .walkers
                 .iter()
-                .filter(|b| !b.asleep && b.pose == Pose::Work)
+                .filter(|b| !b.asleep && matches!(b.pose, Pose::Work | Pose::Roam))
                 .filter_map(|b| {
                     walker_head_view(&pack_aspects, planet, &b.entry_id)
                         .map(|head| (b.entry_id.clone(), head))
