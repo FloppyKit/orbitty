@@ -109,9 +109,11 @@ pub(crate) fn pose_for(entry: &HabitatEntry) -> Pose {
         return Pose::Sit;
     }
     match entry.card_status.as_str() {
-        // Legacy kind:"window" tickets used to Stand at the board on bare
-        // claim. Board contact is only for a real todo bind (doing) or Done.
+        // Legacy kind:"window" tickets are not board work — bare claim /
+        // leftover window cards roam the grass. Board contact is only for
+        // a real kind:"todo" bind (Stand/Work) or Done.
         "todo" if entry.card_kind == "window" => Pose::Roam,
+        "doing" if entry.card_kind == "window" => Pose::Roam,
         "todo" => Pose::Stand,
         "doing" => Pose::Work,
         "done" => Pose::WalkOff,
