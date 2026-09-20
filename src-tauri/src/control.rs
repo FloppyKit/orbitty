@@ -205,7 +205,7 @@ const READ_TOOLS: &[&str] = &[
     // The list is the read face of the file.
     "action.list",
     // The roster is the read face; add / rm /
-    // pin / pickup / kanban.assign stay write-class (full / named custom).
+    // pin / pickup / kanban.assign / kanban.assign_window stay write-class.
     "agent.list",
     "shift.status",
     "relay.status",
@@ -528,6 +528,26 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             })?;
             crate::agents::kanban_assign(app, &id, agent)
                 .map(to_data)
+                .map_err(tool_err)
+        }
+        "kanban.assign_window" => {
+            let id = arg_str(args, "id")?;
+            let window = args.get("windowId").and_then(Value::as_str).ok_or_else(|| {
+                (
+                    ERR_OTHER,
+                    "kanban.assign_window: need string arg \"windowId\" (empty unassigns)".to_string(),
+                )
+            })?;
+            crate::board::kanban_assign_window(app, &id, window)
+                .map(|c| {
+                    to_data(serde_json::json!({
+                        "id": c.id,
+                        "title": c.title,
+                        "windowId": c.window_id,
+                        "status": c.status,
+                        "projectId": c.project_id,
+                    }))
+                })
                 .map_err(tool_err)
         }
         // The agent roster. list rides read;

@@ -810,9 +810,9 @@ pub struct Claim {
     pub cwd: Option<String>,
 }
 
-/// Local Kanban SoT — cards are born at claim time (`kind: "window"`,
-/// status `doing`) or as freeform `kind: "todo"` from the Lists window.
-/// Unclaim keeps the card as a project todo with `window_id` cleared.
+/// Local Kanban SoT — freeform `kind: "todo"` from Lists, or a todo
+/// assigned to a claimed window (`window_id` set, status `doing`).
+/// Bare claim does not birth a card. Unclaim clears `window_id`.
 /// `starred` is shape-only (no star UI).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]

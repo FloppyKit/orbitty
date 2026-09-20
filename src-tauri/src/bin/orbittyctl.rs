@@ -151,6 +151,8 @@ struct Opts {
     md: Vec<String>,
     extra: Option<String>,
     agent: Option<String>,
+    /// kanban assign --window (empty clears).
+    window: Option<String>,
     card: Option<String>,
     file: Option<String>,
     url: Option<String>,
@@ -183,6 +185,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         md: Vec::new(),
         extra: None,
         agent: None,
+        window: None,
         card: None,
         file: None,
         url: None,
@@ -236,6 +239,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--extra" => o.extra = Some(it.next().ok_or("--extra needs a value")?.clone()),
             // Kept as Some("") when passed empty — kanban assign unassigns.
             "--agent" => o.agent = Some(it.next().ok_or("--agent needs a value")?.clone()),
+            "--window" => o.window = Some(it.next().ok_or("--window needs a value")?.clone()),
             "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
             "--file" => o.file = Some(it.next().ok_or("--file needs a path")?.clone()),
             // Kept as Some("") when passed empty — relay replica clears.
@@ -466,11 +470,20 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         // name server-side). `--agent ""` unassigns — the flag itself is
         // required so a bare `kanban assign --id` never silently clears.
         ["kanban", "assign"] => {
-            let agent = o
-                .agent
-                .clone()
-                .ok_or("missing --agent <agent> (pass --agent \"\" to unassign)".to_string())?;
-            Ok(("kanban.assign", json!({ "id": need_id(o)?, "agent": agent })))
+            let id = need_id(o)?;
+            match (o.agent.clone(), o.window.clone()) {
+                (Some(agent), None) => Ok(("kanban.assign", json!({ "id": id, "agent": agent }))),
+                (None, Some(window)) => Ok((
+                    "kanban.assign_window",
+                    json!({ "id": id, "windowId": window }),
+                )),
+                (Some(_), Some(_)) => Err(
+                    "kanban assign: pass --agent or --window, not both".into(),
+                ),
+                (None, None) => Err(
+                    "kanban assign: need --agent <agent> or --window <windowId> (pass empty \"\" to clear)".into(),
+                ),
+            }
         }
         // The agent roster. The harness is
         // required on add and fails CLOSED here — a typo never reaches

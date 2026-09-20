@@ -8,8 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::board::{self, new_id, save_with_events};
-use crate::state::{Claim, KanbanCard, PersistedState, Project};
+use crate::board::{self, save_with_events};
+use crate::state::{Claim, PersistedState, Project};
 use crate::windows::WindowInfo;
 
 #[derive(Clone)]
@@ -110,6 +110,10 @@ fn apply_claim(st: &mut PersistedState, w: &WindowInfo, project_id: &str, list: 
     } else {
         format!("{} — {}", w.app_name, w.title)
     };
+    // Bare claim = walker on the grass only. A board card is born only
+    // when a todo is assigned to this window (`kanban.assign --window`).
+    // If a non-done card already names this window, keep the link and
+    // retarget the project — never force status back to todo / Stand.
     if let Some(open) = st
         .kanban_cards
         .iter_mut()
@@ -120,40 +124,7 @@ fn apply_claim(st: &mut PersistedState, w: &WindowInfo, project_id: &str, list: 
         if open.title.is_empty() {
             open.title = shown;
         }
-        open.kind = Some("window".into());
-        open.status = "todo".into();
         open.last_touched_at = now;
-    } else {
-        st.kanban_cards.push(KanbanCard {
-            id: new_id("c"),
-            title: shown,
-            project_id: project_id.to_string(),
-            window_id: Some(w.id.clone()),
-            kind: Some("window".into()),
-            status: "todo".into(),
-            created_at: now,
-            last_touched_at: now,
-            completed_at: None,
-            goal_aligned: true,
-            clinical_or_master: false,
-            points_awarded: 0,
-            starred: false,
-            notes: None,
-            difficulty: None,
-            subtasks: None,
-            due_at: None,
-            tag_ids: None,
-            needed_state: None,
-            needed_why: None,
-            needed_answer: None,
-            actor: Some("user".into()),
-            assigned_agent_id: None,
-            parent_id: None,
-            rating: None,
-            trackers: None,
-            task_id: None,
-            task_reason: None,
-        });
     }
 }
 

@@ -418,6 +418,91 @@ fn go_prompt_blurb(title: &str) -> Option<String> {
 /// the one-liner (table first, then the nest prompt file's first `Matt:`
 /// line, else left empty). A note Matt already typed is never overwritten.
 /// Best-effort: a load/save failure only skips the backfill, never boot.
+
+/// Bind a todo to a claimed window (or clear the bind).
+/// Non-empty `window_id`: set `window_id`, move status to `doing`, ensure
+/// a Layer-0 claim on the card's planet. Empty: clear `window_id` and,
+/// if status was `doing`, drop back to `todo` (claim left alone — unclaim
+/// is its own door).
+pub fn kanban_assign_window(
+    app: &tauri::AppHandle,
+    card_id: &str,
+    window_id: &str,
+) -> Result<KanbanCard, String> {
+    let before = crate::state::load_state(app)?;
+    let idx = before
+        .kanban_cards
+        .iter()
+        .position(|c| c.id == card_id.trim())
+        .ok_or_else(|| format!("kanban.assign_window: unknown card id {card_id:?}"))?;
+    let card = &before.kanban_cards[idx];
+    if card.kind.as_deref() == Some("needed") {
+        return Err("kanban.assign_window: Needed cards cannot bind a window".into());
+    }
+    let window_id = window_id.trim();
+    let mut after = before.clone();
+    if window_id.is_empty() {
+        let c = &mut after.kanban_cards[idx];
+        c.window_id = None;
+        if c.status == "doing" {
+            c.status = "todo".into();
+        }
+        if c.kind.as_deref() == Some("window") {
+            c.kind = Some("todo".into());
+        }
+        c.last_touched_at = now_secs();
+    } else {
+        // One open card per window.
+        for (i, c) in after.kanban_cards.iter_mut().enumerate() {
+            if i != idx && c.window_id.as_deref() == Some(window_id) && c.status != "done" {
+                c.window_id = None;
+                if c.status == "doing" {
+                    c.status = "todo".into();
+                }
+            }
+        }
+        let project_id = after.kanban_cards[idx].project_id.clone();
+        {
+            let c = &mut after.kanban_cards[idx];
+            c.window_id = Some(window_id.to_string());
+            c.status = "doing".into();
+            c.completed_at = None;
+            c.last_touched_at = now_secs();
+            // Real todo bind — not the legacy auto window ticket.
+            if c.kind.as_deref() != Some("todo") {
+                c.kind = Some("todo".into());
+            }
+        }
+        // Window must already be claimed (bare claim → grass). Binding a
+        // todo retargets that claim onto the card's planet.
+        if !after.claims.iter().any(|cl| cl.window_id == window_id) {
+            return Err(format!(
+                "kanban.assign_window: window {window_id:?} is not claimed — claim it first"
+            ));
+        }
+        if let Some(cl) = after.claims.iter_mut().find(|cl| cl.window_id == window_id) {
+            cl.project_id = project_id.clone();
+            cl.last_touched_at = now_secs();
+        }
+        after.last_claim_project_id = Some(project_id);
+    }
+    save_with_events(app, &before, &after)?;
+    crate::event_log::append_best(
+        app,
+        "kanban-assign-window",
+        None,
+        Some(&after.kanban_cards[idx].project_id),
+        Some("agent"),
+        true,
+        &serde_json::json!({
+            "cardId": after.kanban_cards[idx].id,
+            "windowId": after.kanban_cards[idx].window_id,
+            "status": after.kanban_cards[idx].status,
+        }),
+    );
+    Ok(after.kanban_cards[idx].clone())
+}
+
 pub fn backfill_go_card_notes(app: &tauri::AppHandle) {
     let before = match crate::state::load_state(app) {
         Ok(s) => s,
