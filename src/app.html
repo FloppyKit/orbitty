@@ -15,9 +15,18 @@
         : "systemLight";
       // Kill WKWebView's default context menu (Reload / Back / Forward / …)
       // AFTER target handlers (bubble, not capture) so dock R-clicks still
-      // fire. AppKit planet menus are native and untouched. Also refuse
-      // ⌘R / Ctrl+R page reload.
-      document.addEventListener("contextmenu", (e) => e.preventDefault());
+      // fire. AppKit planet menus are native and untouched. Highlighted
+      // text R-click copies (Kanban preview + anywhere selectable) instead
+      // of opening Reload. Also refuse ⌘R / Ctrl+R page reload.
+      document.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const sel = window.getSelection();
+        const text =
+          sel && !sel.isCollapsed ? String(sel).replace(/\u00a0/g, " ") : "";
+        if (text) {
+          navigator.clipboard.writeText(text).catch(() => {});
+        }
+      });
       document.addEventListener("keydown", (e) => {
         if ((e.metaKey || e.ctrlKey) && (e.key === "r" || e.key === "R")) {
           e.preventDefault();
