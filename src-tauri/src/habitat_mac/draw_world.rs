@@ -1,135 +1,441 @@
 //! World disc painting (DIET-HABITAT).
 //!
-//! Extracted from habitat_mac/draw.rs — draw_world + pixel/blit helpers.
+//! Extracted from habitat_mac/draw.rs — draw_world paint body.
 
 #![allow(unexpected_cfgs)]
 
 use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
 
-use super::board_geom::{board_column_rects, sign_blit_rect};
-use super::decor_art::{
+use super::super::board_geom::{board_column_rects, sign_blit_rect};
+use super::super::decor_art::{
     plant_metrics, shroom_count, BALL, BOOMBOX, BOOMBOX_SCALE, GRASS_TUFTS, HOUSE, IGLOO, MUSHROOM,
     SHROOM_OFFSETS, SHROOM_SCALE, TUFT, TUFT_GREENS, TUFT_SMALL,
 };
-use super::{
+use super::super::{
     boombox_hud, fill_oval, now_epoch, ns_color, ns_string, radius_y, set_fill, walker_fit, CGSize,
     DecorKind, NSPoint, NSRect, Projection, STATION_FIELD, STATION_HOUSE, YARD_EAST, YARD_NORTH,
     YARD_SOUTH, YARD_WEST,
 };
 
-// the punched igloo (brand/town/igloo.png,
-// flipped so the door faces east). IGLOO_DOOR is the door-base point as
-// a fraction of the sprite; the doorstep pins to STATION_HOUSE (spawn /
-// home is the door, not the centroid). PROPS leftover: fixed width
-// IGLOO_W, ~10% under the PROPS on-screen blit — the old 1.6×-walker
-// grow + MAX_W cap shoved it off the west rim; on-disc wins over
-// "igloo ≥ 1.6× walker", and the station moved east to fit.
-const IGLOO_IMG_W: f64 = 768.0;
-const IGLOO_IMG_H: f64 = 435.0;
-const IGLOO_DOOR: (f64, f64) = (0.78, 0.92);
-/// Drawn blit width in disc units (oval radius = 1).
-/// PROPS leftover #2: 25% smaller (0.57 → 0.4275) with the WEST EDGE
-/// HELD at ≈ -0.9446 — the door (and STATION_HOUSE with it) moved west
-/// to ≈ -0.611; the left rim never drifted.
-const IGLOO_W: f64 = 0.4275;
+#[path = "draw_data.rs"]
+mod draw_data;
+pub(crate) use draw_data::{DecorDraw, DrawData, WalkerDraw};
+use draw_data::{
+    draw_nsimage, shaded, IGLOO_DOOR, IGLOO_IMG_H, IGLOO_IMG_W, IGLOO_W,
+};
 
-fn shaded(color: (f64, f64, f64), factor: f64) -> (f64, f64, f64) {
-    (
-        (color.0 * factor).min(1.0),
-        (color.1 * factor).min(1.0),
-        (color.2 * factor).min(1.0),
-    )
-}
+#[path = "draw_fx.rs"]
+mod draw_fx;
+use draw_fx::*;
 
-/// Draw an NSImage into a flipped world view without inverting it.
-unsafe fn draw_nsimage(img: *mut Object, dest: NSRect, fraction: f64) {
-    let zero = NSRect::default();
-    let _: () = msg_send![img,
-        drawInRect: dest
-        fromRect: zero
-        operation: 2usize
-        fraction: fraction
-        respectFlipped: true
-        hints: std::ptr::null::<Object>()];
-}
+pub(crate) unsafe fn draw_world(this: &Object, d: &DrawData) {
+    let bounds: NSRect = msg_send![this, bounds];
+    let center = NSPoint {
+        x: bounds.mid_x(),
+        y: bounds.mid_y(),
+    };
+    let r = d.radius * d.marble_scale;
+    let ry = radius_y(r, d.projection);
+    let rect = NSRect::new(center.x - r, center.y - ry, r * 2.0, ry * 2.0);
+    let base = d.color;
+    let dark = shaded(base, 0.6);
+    let light = shaded(base, 1.3);
 
-pub(crate) struct WalkerDraw {
-    pub(crate) frame: NSRect,
-    pub(crate) bob: f64,
-    pub(crate) icon: usize,
-    /// Generated-person layer picks (drawn when pack_frame is 0).
-    pub(crate) look: crate::chars::CharLook,
-    /// Per-walker size multiplier from the claim.
-    pub(crate) user_scale: f64,
-    /// 4-step walk cycle (0 = idle / contact).
-    pub(crate) walk_frame: u8,
-    /// Pack-frame NSImage (0 = generated person).
-    pub(crate) pack_frame: usize,
-    pub(crate) dim: f64,
-    /// Facing left (pack frames ship facing right).
-    pub(crate) flip: bool,
-    /// 2.5D front-arc emphasis; 1.0 in flat projection.
-    pub(crate) scale: f64,
-    /// MENU locate: stroke a ring around this walker.
-    pub(crate) locate: bool,
-    /// 0 working, 1 blocked, 2 needs-you.
-    pub(crate) droid_glance: u8,
-}
+    let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+    let shadow: *mut Object = msg_send![class!(NSShadow), alloc];
+    let shadow: *mut Object = msg_send![shadow, init];
+    let _: () = msg_send![shadow, setShadowOffset: CGSize { width: 0.0, height: 3.0 }];
+    let _: () = msg_send![shadow, setShadowBlurRadius: if d.is_marble { 4.0 } else { 8.0 }];
+    let black: *mut Object = msg_send![class!(NSColor), blackColor];
+    let shadow_color: *mut Object = msg_send![black, colorWithAlphaComponent: 0.35f64];
+    let _: () = msg_send![shadow, setShadowColor: shadow_color];
+    let _: () = msg_send![shadow, set];
+    set_fill(ns_color(base.0, base.1, base.2, 1.0));
+    fill_oval(rect);
+    let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
 
-pub(crate) struct DecorDraw {
-    pub(crate) kind: DecorKind,
-    /// Laid-out bounds (same rect hit-tests use).
-    pub(crate) frame: NSRect,
-    /// Growth 0..1 (boombox always 1).
-    pub(crate) t: f64,
-    /// Boombox playing (drawn dim when off).
-    pub(crate) on: bool,
-}
+    let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+    let clip: *mut Object = msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
+    let _: () = msg_send![clip, addClip];
 
-pub(crate) struct DrawData {
-    pub(crate) radius: f64,
-    pub(crate) sprite_scale: f64,
-    pub(crate) is_marble: bool,
-    /// Drawn scale multiplier — always 1.0 since GO-ORBITTY-MARBLE-SOLAR
-    /// (fake Z is z-order only, no scale-throb).
-    pub(crate) marble_scale: f64,
-    pub(crate) color: (f64, f64, f64),
-    pub(crate) rotation: f64,
-    pub(crate) projection: Projection,
-    pub(crate) walkers: Vec<WalkerDraw>,
-    pub(crate) dots: Vec<NSRect>,
-    /// Fresh caption text (expired ones are dropped here, cleared on tick).
-    pub(crate) caption: Option<String>,
-    /// Display name (GO-ORBITTY-PLANET-MARK): under-label on expanded
-    /// planets, hover pill on marbles.
-    pub(crate) name: String,
-    /// Cursor over a marble's disc — pill shows the name when no click
-    /// caption is live.
-    pub(crate) hover_name: bool,
-    pub(crate) decor: Vec<DecorDraw>,
-    /// board ticks per column (todo/doing/done),
-    /// colors pre-hashed from card ids. Empty on marbles (no town).
-    pub(crate) board: [Vec<(f64, f64, f64)>; 3],
-    /// retained town NSImages (0 = missing →
-    /// glyph fallback). Loaded once per session by ensure_town_art.
-    pub(crate) town_igloo: usize,
-    pub(crate) town_sign: usize,
-    pub(crate) town_boombox: usize,
-    pub(crate) town_ball: usize,
-    /// Dest-menu find: 0 just armed, 1 expired. None = no glow.
-    pub(crate) locate_t: Option<f64>,
-    /// the beach ball's view-local center
-    /// this frame. None = hidden (toggle off / < 2 Doing / marble).
-    pub(crate) ball: Option<(f64, f64)>,
-    /// the open boombox HUD —
-    /// geometry + live slider/mute state. None = closed.
-    pub(crate) hud: Option<boombox_hud::HudDraw>,
-    pub(crate) todo_trees: Vec<crate::habitat::TodoTreeTick>,
-    pub(crate) tree_grow_days: f64,
-}
+    if !d.is_marble {
+        let band_y: [f64; 3] = [-0.34, 0.04, 0.38];
+        for i in 0..3 {
+            let phase = d.rotation + (i as f64) * (std::f64::consts::TAU / 3.0);
+            let fx = center.x + phase.sin() * r * 0.55;
+            let fw = r * 0.46 * phase.cos().abs().max(0.18);
+            let fh = ry * 0.22;
+            let fy = center.y + band_y[i] * ry;
+            let c = if i % 2 == 0 { light } else { dark };
+            set_fill(ns_color(c.0, c.1, c.2, 0.30));
+            fill_oval(NSRect::new(fx - fw / 2.0, fy - fh / 2.0, fw, fh));
+        }
+    }
 
+    let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+    let shade: *mut Object = msg_send![black, colorWithAlphaComponent: 0.28f64];
+    let pair = [clear, shade];
+    let colors: *mut Object =
+        msg_send![class!(NSArray), arrayWithObjects: pair.as_ptr() count: 2usize];
+    let locations: [f64; 2] = [0.4, 1.0];
+    let space: *mut Object = msg_send![class!(NSColorSpace), deviceRGBColorSpace];
+    let grad: *mut Object = msg_send![class!(NSGradient), alloc];
+    let grad: *mut Object = msg_send![grad,
+        initWithColors: colors
+        atLocations: locations.as_ptr()
+        colorSpace: space];
+    if !grad.is_null() {
+        let start = NSPoint {
+            x: rect.origin.x + r * 0.3,
+            y: rect.origin.y + ry * 0.3,
+        };
+        let end = NSPoint {
+            x: rect.max_x() - r * 0.15,
+            y: rect.max_y() - ry * 0.15,
+        };
+        let _: () = msg_send![grad, drawFromPoint: start toPoint: end options: 0usize];
+    }
 
-pub(crate) unsafe fn draw_world(_this: &Object, _d: &DrawData) {
-    // stub — replaced in follow-up commit with full peel body
+    let white: *mut Object = msg_send![class!(NSColor), whiteColor];
+    let hl: *mut Object =
+        msg_send![white, colorWithAlphaComponent: if d.is_marble { 0.25 } else { 0.16 }];
+    set_fill(hl);
+    fill_oval(NSRect::new(
+        center.x - r * 0.62,
+        center.y - ry * 0.66,
+        r * 0.6,
+        ry * 0.34,
+    ));
+
+    if !d.is_marble {
+        let gx = center.x + YARD_WEST * r;
+        let gy = center.y + YARD_NORTH * ry;
+        let gw = (YARD_EAST - YARD_WEST) * r;
+        let gh = (YARD_SOUTH - YARD_NORTH) * ry;
+        let corner = 0.10 * r;
+        let dirt: *mut Object = msg_send![class!(NSBezierPath),
+            bezierPathWithRoundedRect: NSRect::new(gx, gy, gw, gh)
+            xRadius: corner
+            yRadius: corner];
+        set_fill(ns_color(0.24, 0.36, 0.20, 0.45));
+        let _: () = msg_send![dirt, fill];
+        let tuft_scale = (0.012 * r).clamp(1.5, 4.0);
+        for (i, &(tx, ty)) in GRASS_TUFTS.iter().enumerate() {
+            let art = if i % 2 == 0 { &TUFT[..] } else { &TUFT_SMALL[..] };
+            draw_pixel_art(
+                center.x + (STATION_FIELD.0 + tx) * r,
+                center.y + (STATION_FIELD.1 + ty) * ry,
+                art,
+                tuft_scale,
+                &TUFT_GREENS[..],
+                0.95,
+            );
+        }
+    }
+
+    for decor in &d.decor {
+        let cx = decor.frame.mid_x();
+        let base_y = decor.frame.max_y();
+        match decor.kind {
+            DecorKind::Plant => {
+                let ph = ((decor.t * 7.0).floor() as usize).min(7);
+                if !super::super::todo_tree::paint_phase(cx, base_y, d.radius, ph) {
+                    let (art, scale) = plant_metrics(decor.t);
+                    draw_pixel_art(
+                        cx,
+                        base_y,
+                        art,
+                        scale,
+                        &[
+                            (b'L', (0.30, 0.62, 0.32)),
+                            (b'S', (0.16, 0.45, 0.22)),
+                            (b'G', (0.30, 0.62, 0.32)),
+                            (b'T', (0.35, 0.22, 0.12)),
+                        ],
+                        1.0,
+                    );
+                }
+            }
+            DecorKind::Mushroom => {
+                let n = shroom_count(decor.t);
+                let mini = 7.0 * SHROOM_SCALE;
+                for (dx, dy) in SHROOM_OFFSETS.iter().take(n) {
+                    draw_pixel_art(
+                        cx + dx,
+                        base_y + dy,
+                        &MUSHROOM[..],
+                        SHROOM_SCALE,
+                        &[(b'R', (0.75, 0.22, 0.22)), (b'W', (0.95, 0.93, 0.88))],
+                        1.0,
+                    );
+                }
+                let _ = mini;
+            }
+            DecorKind::Building => {
+                let scale = 1.6 + decor.t * 1.4;
+                draw_pixel_art(
+                    cx,
+                    base_y,
+                    &HOUSE[..],
+                    scale,
+                    &[
+                        (b'R', (0.62, 0.22, 0.18)),
+                        (b'W', (0.86, 0.78, 0.62)),
+                        (b'D', (0.28, 0.16, 0.10)),
+                    ],
+                    1.0,
+                );
+            }
+            DecorKind::Boombox => {
+                let alpha = if decor.on { 1.0 } else { 0.55 };
+                if d.town_boombox != 0 {
+                    draw_nsimage(
+                        d.town_boombox as *mut Object,
+                        decor.frame,
+                        alpha,
+                    );
+                } else {
+                    draw_pixel_art(
+                        cx,
+                        base_y,
+                        &BOOMBOX[..],
+                        BOOMBOX_SCALE,
+                        &[
+                            (b'H', (0.55, 0.55, 0.60)),
+                            (b'B', (0.18, 0.18, 0.22)),
+                            (b'K', (0.05, 0.05, 0.07)),
+                            (b'W', (0.85, 0.85, 0.90)),
+                        ],
+                        alpha,
+                    );
+                }
+            }
+        }
+    }
+    if !d.is_marble {
+        super::super::todo_tree::paint_ticks(
+            &d.todo_trees,
+            d.radius,
+            d.projection,
+            d.tree_grow_days,
+            now_epoch(),
+        );
+    }
+
+    let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
+
+    let stroke_color = ns_color(dark.0, dark.1, dark.2, 0.8);
+    let _: () = msg_send![stroke_color, setStroke];
+    let ring: *mut Object =
+        msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect.inset(0.75)];
+    let _: () = msg_send![ring, setLineWidth: if d.is_marble { 1.0 } else { 1.5 }];
+    let _: () = msg_send![ring, stroke];
+
+    if !d.is_marble {
+        let blit = sign_blit_rect(d.radius, d.projection, d.marble_scale);
+        if d.town_sign != 0 {
+            draw_nsimage(d.town_sign as *mut Object, blit, 1.0);
+        }
+        let cols = board_column_rects(d.radius, d.projection, d.marble_scale);
+        let rail_tints = [
+            (1.0, 1.0, 1.0, 0.16),
+            (1.0, 0.75, 0.35, 0.22),
+            (0.45, 0.85, 0.50, 0.20),
+        ];
+        let col_w = cols[0].size.width;
+        let col_h = cols[0].size.height;
+        let tick = (col_w * 0.55).clamp(2.0, 6.0);
+        let tick_step = tick * 1.4;
+        let max_ticks =
+            (((col_h - tick * 0.7) / tick_step).floor() as usize).max(1);
+        for (ci, ticks) in d.board.iter().enumerate() {
+            let col = cols[ci];
+            let (tr, tg, tb, ta) = rail_tints[ci];
+            set_fill(ns_color(tr, tg, tb, ta));
+            let rail: *mut Object = msg_send![class!(NSBezierPath),
+                bezierPathWithRoundedRect: col
+                xRadius: 2.0f64
+                yRadius: 2.0f64];
+            let _: () = msg_send![rail, fill];
+            for (ti, &(cr, cg, cb)) in ticks.iter().take(max_ticks).enumerate() {
+                set_fill(ns_color(cr, cg, cb, 0.95));
+                let t: *mut Object = msg_send![class!(NSBezierPath),
+                    bezierPathWithRoundedRect: NSRect::new(
+                        col.origin.x + (col_w - tick) / 2.0,
+                        col.origin.y + tick * 0.35 + ti as f64 * tick_step,
+                        tick,
+                        tick,
+                    )
+                    xRadius: 1.0f64
+                    yRadius: 1.0f64];
+                let _: () = msg_send![t, fill];
+            }
+        }
+        if d.town_igloo != 0 {
+            let blit_w = IGLOO_W * r;
+            let blit_h = blit_w * IGLOO_IMG_H / IGLOO_IMG_W;
+            let door_x = center.x + STATION_HOUSE.0 * r;
+            let door_y = center.y + STATION_HOUSE.1 * ry;
+            draw_nsimage(
+                d.town_igloo as *mut Object,
+                NSRect::new(
+                    door_x - IGLOO_DOOR.0 * blit_w,
+                    door_y - IGLOO_DOOR.1 * blit_h,
+                    blit_w,
+                    blit_h,
+                ),
+                1.0,
+            );
+        } else {
+            let town = (r / 72.0).clamp(0.7, 2.0);
+            let ix = center.x + STATION_HOUSE.0 * r;
+            let iy = center.y + STATION_HOUSE.1 * ry;
+            draw_pixel_art(
+                ix,
+                iy + 4.0 * town,
+                &IGLOO[..],
+                2.8 * town,
+                &[(b'I', (0.88, 0.93, 0.97)), (b'D', (0.20, 0.24, 0.30))],
+                1.0,
+            );
+        }
+    }
+
+    for frame in &d.dots {
+        let white85: *mut Object = msg_send![white, colorWithAlphaComponent: 0.85f64];
+        set_fill(white85);
+        fill_oval(frame.inset(0.5));
+        set_fill(ns_color(base.0, base.1, base.2, 1.0));
+        fill_oval(frame.inset(3.0));
+    }
+
+    for w in &d.walkers {
+        let frame = &w.frame;
+        let mut sprite_rect = *frame;
+        if w.pack_frame != 0 {
+            let img = w.pack_frame as *mut Object;
+            let size: CGSize = msg_send![img, size];
+            let aspect = if size.width > 0.0 && size.height > 0.0 {
+                size.width / size.height
+            } else {
+                1.0
+            };
+            let fit = walker_fit(d.radius, d.sprite_scale * w.user_scale) * w.scale;
+            let (dw, dh) = if aspect >= 1.0 {
+                (fit, fit / aspect)
+            } else {
+                (fit * aspect, fit)
+            };
+            let cx = frame.mid_x();
+            let base_y = frame.max_y() - 2.0 + w.bob;
+            let art = NSRect::new(cx - dw / 2.0, base_y - dh, dw, dh);
+            sprite_rect = art;
+            let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+            let ctx: *mut Object = msg_send![class!(NSGraphicsContext), currentContext];
+            if !ctx.is_null() {
+                let _: () = msg_send![ctx, setImageInterpolation: 1usize];
+            }
+            if w.flip {
+                let tf: *mut Object = msg_send![class!(NSAffineTransform), transform];
+                let _: () = msg_send![tf, translateXBy: cx yBy: 0.0];
+                let _: () = msg_send![tf, scaleXBy: -1.0 yBy: 1.0];
+                let _: () = msg_send![tf, translateXBy: -cx yBy: 0.0];
+                let _: () = msg_send![tf, concat];
+            }
+            draw_nsimage(img, art, w.dim);
+            let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
+        } else {
+            let fit = walker_fit(d.radius, d.sprite_scale * w.user_scale) * w.scale;
+            let px = (fit / crate::chars::H as f64).clamp(1.5, 8.0);
+            let grid = crate::chars::grid(&w.look, w.walk_frame);
+            let pal = crate::chars::palette(&w.look);
+            let cx = frame.mid_x();
+            let base_y = frame.max_y() - 2.0 + w.bob;
+            let ox = cx - (crate::chars::W as f64 * px) / 2.0;
+            let oy = base_y - crate::chars::H as f64 * px;
+            sprite_rect = NSRect::new(ox, oy, crate::chars::W as f64 * px, crate::chars::H as f64 * px);
+            for (row, line) in grid.iter().enumerate() {
+                for (col, ch) in line.iter().enumerate() {
+                    let Some(c) = crate::chars::glyph_color(*ch, &pal) else {
+                        continue;
+                    };
+                    let draw_col = if w.flip { crate::chars::W - 1 - col } else { col };
+                    set_fill(ns_color(c.0, c.1, c.2, w.dim));
+                    let cell = NSRect::new(
+                        ox + draw_col as f64 * px,
+                        oy + row as f64 * px,
+                        px,
+                        px,
+                    );
+                    let _: () = msg_send![class!(NSBezierPath), fillRect: cell];
+                }
+            }
+        }
+        if w.icon != 0 {
+            let bs = 14.0;
+            let badge = NSRect::new(
+                sprite_rect.max_x() - bs + 2.0,
+                sprite_rect.max_y() - bs + 2.0,
+                bs,
+                bs,
+            );
+            let white85: *mut Object =
+                msg_send![white, colorWithAlphaComponent: 0.85f64 * w.dim];
+            set_fill(white85);
+            fill_oval(badge.inset(-1.0));
+            draw_nsimage(w.icon as *mut Object, badge, w.dim);
+        }
+        if w.locate {
+            let ring_color: *mut Object =
+                msg_send![white, colorWithAlphaComponent: 0.85f64];
+            let _: () = msg_send![ring_color, setStroke];
+            let ring: *mut Object = msg_send![class!(NSBezierPath),
+                bezierPathWithRoundedRect: frame.inset(-4.0)
+                xRadius: 6.0f64
+                yRadius: 6.0f64];
+            let _: () = msg_send![ring, setLineWidth: 2.5f64];
+            let _: () = msg_send![ring, stroke];
+        }
+    }
+
+    if let Some((bx, by)) = d.ball {
+        if d.town_ball != 0 {
+            let s = (0.028 * d.radius).clamp(16.0, 20.0);
+            draw_nsimage(
+                d.town_ball as *mut Object,
+                NSRect::new(bx - s / 2.0, by - s, s, s),
+                1.0,
+            );
+        } else {
+            let scale = (0.022 * d.radius).clamp(1.5, 3.0);
+            draw_pixel_art(
+                bx,
+                by,
+                &BALL[..],
+                scale,
+                &[(b'O', (0.95, 0.52, 0.14)), (b'W', (0.96, 0.95, 0.90))],
+                1.0,
+            );
+        }
+    }
+
+    let pill = d.caption.as_ref().or(if d.hover_name {
+        Some(&d.name)
+    } else {
+        None
+    });
+    if let Some(text) = pill {
+        draw_caption(center, ry, text);
+    }
+
+    if !d.is_marble {
+        draw_under_label(center, ry, &d.name);
+    }
+
+    draw_planet_locate(d, center, r, ry, rect);
+
+    if let Some(hud) = &d.hud {
+        boombox_hud::draw(hud);
+    }
 }
