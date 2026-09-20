@@ -331,34 +331,16 @@
           ? `${w.appName} — ${w.title}`
           : w.appName
         : "Window";
+      // Bare claim = no board card (assign-todo-to-window births Doing).
       const open = s.kanbanCards.find(
         (c) => c.windowId === windowId && c.status !== "done",
       );
       if (open) {
         s.kanbanCards = s.kanbanCards.map((c) =>
           c.id === open.id
-            ? { ...c, projectId, windowId, title: c.title || title, kind: c.kind ?? "window", status: "todo" as const, lastTouchedAt: now }
+            ? { ...c, projectId, windowId, title: c.title || title, lastTouchedAt: now }
             : c,
         );
-      } else {
-        s.kanbanCards = [
-          ...s.kanbanCards,
-          {
-            id: newId("c"),
-            title,
-            projectId,
-            windowId,
-            kind: "window" as const,
-            status: "todo" as const,
-            createdAt: now,
-            lastTouchedAt: now,
-            completedAt: null,
-            goalAligned: true,
-            clinicalOrMaster: false,
-            pointsAwarded: 0,
-            starred: false,
-          },
-        ];
       }
     });
   }

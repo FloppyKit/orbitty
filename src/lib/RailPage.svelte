@@ -1417,6 +1417,9 @@
           : {}),
       },
     ];
+    // Bare claim = grass only. A board card is born only when a todo is
+    // assigned to this window. If a non-done card already names it, keep
+    // the link and retarget the project — never force status back to todo.
     const shown = w
       ? titleOverrides.find((o) => o.windowId === w.id)?.title || w.title
       : "";
@@ -1432,32 +1435,11 @@
               projectId,
               windowId,
               title: c.title || title,
-              kind: c.kind ?? "window",
-              status: "todo",
               clinicalOrMaster: c.clinicalOrMaster || isClinicalOrMaster(windowId),
               lastTouchedAt: now,
             }
           : c,
       );
-    } else {
-      kanbanCards = [
-        ...kanbanCards,
-        {
-          id: newCardId(),
-          title,
-          projectId,
-          windowId,
-          kind: "window" as const,
-          status: "todo" as const,
-          createdAt: now,
-          lastTouchedAt: now,
-          completedAt: null,
-          goalAligned: true,
-          clinicalOrMaster: isClinicalOrMaster(windowId),
-          pointsAwarded: 0,
-          starred: false,
-        },
-      ];
     }
     persist();
   }
@@ -1489,47 +1471,57 @@
       kanbanCards.find(
         (c) => c.windowId === w.id && c.projectId === project.id,
       ) ?? kanbanCards.find((c) => c.windowId === w.id);
+    // Board walk-off only when a real todo is bound (kind todo, or any
+    // non-window kind with a windowId). Bare claim / legacy kind:window
+    // tickets: close + unclaim, no Done parade to the sign.
+    const realTodo =
+      !!existing &&
+      existing.kind !== "window" &&
+      existing.kind !== "needed" &&
+      existing.status !== "done";
+    if (!realTodo) {
+      if (existing && existing.kind === "window" && existing.status !== "done") {
+        // Retire the legacy auto ticket quietly — no points, no walk-off.
+        kanbanCards = kanbanCards.map((c) =>
+          c.id === existing.id
+            ? {
+                ...c,
+                status: "done",
+                windowId: null,
+                lastTouchedAt: now,
+                completedAt: c.completedAt ?? now,
+              }
+            : c,
+        );
+      }
+      claims = liveClaims.filter((c) => c.windowId !== w.id);
+      persist();
+      try {
+        await invoke("close_window", { id: w.id });
+      } catch {}
+      await tick();
+      return;
+    }
     // Award once per card (first transition to done only); 1 pt default,
     // 2 if tagged clinical/master; 0 when the daily cap would be exceeded —
     // the card still completes, quietly.
     const firstComplete = !existing?.completedAt;
     const base = clinicalOrMaster ? 2 : 1;
     const award = firstComplete && pointsToday() + base <= DAILY_CAP ? base : 0;
-    const cardId =
-      existing?.id ??
-      `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    if (existing) {
-      kanbanCards = kanbanCards.map((c) =>
-        c.id === cardId
-          ? {
-              ...c,
-              status: "done",
-              title: c.title || title,
-              clinicalOrMaster: c.clinicalOrMaster || clinicalOrMaster,
-              lastTouchedAt: now,
-              completedAt: c.completedAt ?? now,
-              pointsAwarded: c.pointsAwarded + award,
-            }
-          : c,
-      );
-    } else {
-      kanbanCards = [
-        ...kanbanCards,
-        {
-          id: cardId,
-          title,
-          projectId: project.id,
-          windowId: w.id,
-          status: "done",
-          createdAt: now,
-          lastTouchedAt: now,
-          completedAt: now,
-          goalAligned: true,
-          clinicalOrMaster,
-          pointsAwarded: award,
-        },
-      ];
-    }
+    const cardId = existing!.id;
+    kanbanCards = kanbanCards.map((c) =>
+      c.id === cardId
+        ? {
+            ...c,
+            status: "done",
+            title: c.title || title,
+            clinicalOrMaster: c.clinicalOrMaster || clinicalOrMaster,
+            lastTouchedAt: now,
+            completedAt: c.completedAt ?? now,
+            pointsAwarded: c.pointsAwarded + award,
+          }
+        : c,
+    );
     if (award > 0) {
       pointsLedger = [
         ...pointsLedger,
@@ -1542,15 +1534,9 @@
         },
       ];
     }
-    // The claim SURVIVES the complete so the walker can
-    // walk off the north rim — the card's done status rides the snapshot and
-    // the native side narrates the walk. The eviction itself is unchanged:
-    // the habitat:walked-off listener below unclaims once the walker is off
-    // (and a done entry with no walker to walk off — marble, open dot —
-    // emits immediately, so nothing lingers).
+    // Real todo: claim SURVIVES so the walker can walk to the board then
+    // off — habitat:walked-off unclaims once the walker is gone.
     persist();
-    // Complete → close → sync: AX press on the window's own close button.
-    // A refusal (no button, save prompt, app ignores) leaves the card done.
     try {
       await invoke("close_window", { id: w.id });
     } catch {}
