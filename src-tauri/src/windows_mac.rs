@@ -709,8 +709,10 @@ fn cg_on_screen_front_to_back() -> Vec<(i32, u32)> {
 }
 
 /// Frontmost claimable window: real AX frontmost if it isn't Orbitty /
-/// minimized; else the top on-screen non-Orbitty window (tray stole
-/// focus); else the last remembered other-frontmost still open.
+/// minimized; else the last non-Orbitty frontmost we remembered before
+/// tray/Dock stole focus (what you were actually using); else top
+/// on-screen non-Orbitty (CG order). CG-before-memory claimed whichever
+/// app was visually on top (e.g. Proton Mail over Calculator).
 pub fn frontmost_claimable() -> Result<Option<WindowInfo>, String> {
     let list = list_windows()?;
     if let Some(w) = list
@@ -719,12 +721,9 @@ pub fn frontmost_claimable() -> Result<Option<WindowInfo>, String> {
     {
         return Ok(Some(w.clone()));
     }
-    // Tray / Dock / planet menu made Orbitty AX-frontmost. Walk CG
-    // on-screen order — never alphabetical "first other app" (that
-    // claimed Activity Monitor from the Dock).
-    let order = cg_on_screen_front_to_back();
-    for (pid, cg_id) in order {
-        let id = format!("{pid}:{cg_id}");
+    // Tray / Dock / planet menu made Orbitty AX-frontmost — prefer the
+    // window we last saw as other-frontmost (updated every list_windows).
+    if let Some(id) = last_other_frontmost_id() {
         if let Some(w) = list
             .iter()
             .find(|w| w.id == id && !w.is_minimized && !is_orbitty_win(w))
@@ -732,7 +731,10 @@ pub fn frontmost_claimable() -> Result<Option<WindowInfo>, String> {
             return Ok(Some(w.clone()));
         }
     }
-    if let Some(id) = last_other_frontmost_id() {
+    // Fallback: CG on-screen front→back (never alphabetical).
+    let order = cg_on_screen_front_to_back();
+    for (pid, cg_id) in order {
+        let id = format!("{pid}:{cg_id}");
         if let Some(w) = list
             .iter()
             .find(|w| w.id == id && !w.is_minimized && !is_orbitty_win(w))
