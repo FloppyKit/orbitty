@@ -25,6 +25,7 @@ mod audio;
 mod tick;
 mod input;
 mod walker_menu;
+mod planet_menu;
 mod draw;
 mod boombox_hud;
 mod droid;
@@ -691,27 +692,27 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
     let mut decl = ClassDecl::new("OrbittyPlanetMenuTarget", class!(NSObject))?;
     decl.add_method(
         sel!(planetMinimize:),
-        input::menu_minimize as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_minimize as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetRestore:),
-        input::menu_restore as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_restore as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetClaimFront:),
-        input::menu_claim_front as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_claim_front as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetTogglePlant:),
-        input::menu_toggle_plant as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_toggle_plant as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetToggleMushroom:),
-        input::menu_toggle_mushroom as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_toggle_mushroom as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetToggleBoombox:),
-        input::menu_toggle_boombox as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_toggle_boombox as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetChooseMusic:),
@@ -720,28 +721,28 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
     // boombox sprite menu + volume steps.
     decl.add_method(
         sel!(planetBoomboxPlayPause:),
-        input::menu_boombox_play_pause as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_boombox_play_pause as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetRemoveBoombox:),
-        input::menu_remove_boombox as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_remove_boombox as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetBoomboxVolume:),
-        input::menu_boombox_volume as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_boombox_volume as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetBoomboxSlider:),
-        input::menu_boombox_slider as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_boombox_slider as extern "C" fn(&Object, Sel, *mut Object),
     );
     // per-planet beach-ball toggle.
     decl.add_method(
         sel!(planetToggleBeachBall:),
-        input::menu_toggle_beach_ball as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_toggle_beach_ball as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(planetPlaceBuilding:),
-        input::menu_place_building as extern "C" fn(&Object, Sel, *mut Object),
+        planet_menu::menu_place_building as extern "C" fn(&Object, Sel, *mut Object),
     );
     // walker right-click menu actions.
     decl.add_method(
