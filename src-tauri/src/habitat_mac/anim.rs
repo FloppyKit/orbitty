@@ -551,6 +551,67 @@ pub(crate) fn anim_tick() {
                         roam.pause_end = None;
                         continue;
                     }
+                    // Beach ball on: keep-up footwork stays on the grass
+                    // pad (same AABB as Doing). Off: ambient disc circle.
+                    if keep_up {
+                        if roam.wander_seed == 0 {
+                            roam.wander_seed = yard_seed(id);
+                        }
+                        if !yard_contains(roam.x, roam.y) {
+                            let (cx, cy) = yard_clamp(roam.x, roam.y);
+                            roam.x = cx;
+                            roam.y = cy;
+                            moved = true;
+                        }
+                        if !yard_contains(roam.tx, roam.ty) {
+                            let (tx, ty) = yard_pick(&mut roam.wander_seed);
+                            roam.tx = tx;
+                            roam.ty = ty;
+                            roam.pause_end = None;
+                        }
+                        let mut dx = roam.tx - roam.x;
+                        let mut dy = roam.ty - roam.y;
+                        let mut dist = (dx * dx + dy * dy).sqrt();
+                        if dist < YARD_ARRIVE && roam.pause_end.is_none() {
+                            let (cx, cy) = yard_clamp(roam.x, roam.y);
+                            roam.x = cx;
+                            roam.y = cy;
+                            let dwell = yard_dwell_ms(&mut roam.wander_seed);
+                            roam.pause_end =
+                                Some(now_i + Duration::from_millis(dwell));
+                            dirty = true;
+                        }
+                        if let Some(end) = roam.pause_end {
+                            if now_i < end {
+                                continue;
+                            }
+                            roam.pause_end = None;
+                            let (tx, ty) = yard_pick(&mut roam.wander_seed);
+                            roam.tx = tx;
+                            roam.ty = ty;
+                            dx = roam.tx - roam.x;
+                            dy = roam.ty - roam.y;
+                            dist = (dx * dx + dy * dy).sqrt();
+                            dirty = true;
+                        }
+                        if dist >= 0.025 {
+                            let step = (0.16 * dt).min(dist);
+                            roam.x += dx / dist * step;
+                            roam.y += dy / dist * step;
+                            roam.facing_left = dx < -0.002;
+                            roam.facing_dir =
+                                droid_pack::dir_from_delta(dx, dy, roam.facing_dir);
+                            stepping[i] = true;
+                            moved = true;
+                        }
+                        let (cx, cy) = yard_clamp(roam.x, roam.y);
+                        if (cx - roam.x).abs() > 1e-12 || (cy - roam.y).abs() > 1e-12 {
+                            roam.x = cx;
+                            roam.y = cy;
+                            moved = true;
+                        }
+                        continue;
+                    }
                     if let Some(end) = roam.pause_end {
                         if now_i < end {
                             continue;
