@@ -24,6 +24,7 @@ use tauri::{AppHandle, Emitter, Manager};
 mod audio;
 mod tick;
 mod input;
+mod mouse;
 mod walker_menu;
 mod planet_menu;
 mod draw;
@@ -639,11 +640,11 @@ unsafe fn register_world_view_class() -> Option<&'static Class> {
     );
     decl.add_method(
         sel!(mouseDown:),
-        input::mouse_down as extern "C" fn(&Object, Sel, *mut Object),
+        mouse::mouse_down as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(mouseUp:),
-        input::mouse_up as extern "C" fn(&Object, Sel, *mut Object),
+        mouse::mouse_up as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(sel!(isFlipped), is_flipped as extern "C" fn(&Object, Sel) -> bool);
     decl.add_method(
@@ -652,7 +653,7 @@ unsafe fn register_world_view_class() -> Option<&'static Class> {
     );
     decl.add_method(
         sel!(scrollWheel:),
-        input::scroll_wheel as extern "C" fn(&Object, Sel, *mut Object),
+        mouse::scroll_wheel as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(rightMouseDown:),
