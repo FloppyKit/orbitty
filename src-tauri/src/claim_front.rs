@@ -134,6 +134,8 @@ pub struct ClaimToastPayload {
     pub project_id: String,
     pub project_name: String,
     pub window_id: String,
+    /// Short label for the toast — "App — title" or just app name.
+    pub window_title: String,
     pub seconds: u32,
 }
 
@@ -147,13 +149,19 @@ fn arm_undo(before: PersistedState, window_id: &str) {
     }
 }
 
-fn emit_toast(app: &AppHandle, project: &Project, window_id: &str) {
+fn emit_toast(app: &AppHandle, project: &Project, w: &WindowInfo) {
+    let window_title = if w.title.is_empty() {
+        w.app_name.clone()
+    } else {
+        format!("{} — {}", w.app_name, w.title)
+    };
     let _ = app.emit(
         "orbitty:claim-toast",
         ClaimToastPayload {
             project_id: project.id.clone(),
             project_name: project.name.clone(),
-            window_id: window_id.to_string(),
+            window_id: w.id.clone(),
+            window_title,
             seconds: 3,
         },
     );
@@ -214,7 +222,7 @@ fn claim_window(
     apply_claim(&mut after, w, &project.id, list);
     arm_undo(before.clone(), &w.id);
     save_with_events(app, &before, &after)?;
-    emit_toast(app, &project, &w.id);
+    emit_toast(app, &project, &w);
     crate::habitat::bring_planet_front(&project.id);
     Ok(())
 }

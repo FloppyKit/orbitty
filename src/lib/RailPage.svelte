@@ -2583,15 +2583,17 @@
         planetIdle = s.planetIdle ?? planetIdle;
         refreshPacks();
         const diskClaims = s.claims ?? [];
-        // ORPHAN-CARDS: never strand an open window-card — a local claim
-        // stays while its card still exists on disk for the same project.
-        // A claim drops only when disk has neither the claim nor the card
-        // (a real delete, not an orphan-making write).
-        claims = liveClaims.filter(
+        // Adopt disk claims (tray / orbittyctl claim lands here). Keep a
+        // local-only claim only while an open kind:window card still
+        // names it — never drop a brand-new disk claim on the floor.
+        const fromDisk = diskClaims.filter((d) =>
+          (s.projects ?? []).some((p) => p.id === d.projectId),
+        );
+        const localOrphans = liveClaims.filter(
           (c) =>
-            diskClaims.some(
+            !fromDisk.some(
               (d) => d.windowId === c.windowId && d.projectId === c.projectId,
-            ) ||
+            ) &&
             kanbanCards.some(
               (k) =>
                 k.kind === "window" &&
@@ -2600,6 +2602,7 @@
                 (k.projectId ?? "") === c.projectId,
             ),
         );
+        claims = [...fromDisk, ...localOrphans];
         // Adopting disk can reveal (or create) orphans — run the same
         // heal. Main rail only: the embedded sheet never writes claims.
         if (!embedded && healOrphanWindowCards()) persist();

@@ -10,6 +10,7 @@
       projectId: string;
       projectName: string;
       windowId: string;
+      windowTitle?: string;
       seconds: number;
     } | null;
     claimToastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -18,7 +19,7 @@
 
 {#if claimToast}
   <div class="claim-toast" role="status">
-    <span>Claimed to {claimToast.projectName}</span>
+    <span>Claimed {claimToast.windowTitle || "window"} to {claimToast.projectName}</span>
     <button
       type="button"
       onclick={() => {

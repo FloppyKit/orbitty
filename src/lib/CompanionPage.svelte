@@ -1396,6 +1396,7 @@
     projectId: string;
     projectName: string;
     windowId: string;
+    windowTitle?: string;
     seconds: number;
   } | null>(null);
   let claimToastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1511,6 +1512,7 @@
       projectId: string;
       projectName: string;
       windowId: string;
+      windowTitle?: string;
       seconds: number;
     }>("orbitty:claim-toast", (e) => {
       const p = e.payload;
@@ -1519,6 +1521,7 @@
         projectId: p.projectId,
         projectName: p.projectName,
         windowId: p.windowId,
+        windowTitle: p.windowTitle || "",
         seconds: p.seconds ?? 3,
       };
       if (claimToastTimer) clearTimeout(claimToastTimer);
