@@ -24,6 +24,7 @@ use tauri::{AppHandle, Emitter, Manager};
 mod audio;
 mod tick;
 mod input;
+mod walker_menu;
 mod draw;
 mod boombox_hud;
 mod droid;
@@ -745,23 +746,23 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
     // walker right-click menu actions.
     decl.add_method(
         sel!(walkerUseImage:),
-        input::walker_use_image as extern "C" fn(&Object, Sel, *mut Object),
+        walker_menu::walker_use_image as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(walkerUseFolder:),
-        input::walker_use_folder as extern "C" fn(&Object, Sel, *mut Object),
+        walker_menu::walker_use_folder as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(walkerSetPack:),
-        input::walker_set_pack as extern "C" fn(&Object, Sel, *mut Object),
+        walker_menu::walker_set_pack as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(walkerOpenBeing:),
-        input::walker_open_being as extern "C" fn(&Object, Sel, *mut Object),
+        walker_menu::walker_open_being as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(walkerAssign:),
-        input::walker_assign as extern "C" fn(&Object, Sel, *mut Object),
+        walker_menu::walker_assign as extern "C" fn(&Object, Sel, *mut Object),
     );
     Some(decl.register())
 }
