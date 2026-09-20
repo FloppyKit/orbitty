@@ -230,7 +230,7 @@ fn claim_window(
 pub fn claim_front(app: &AppHandle) -> Result<(), String> {
     let list = crate::windows::list_windows()?;
     let Some(w) = crate::windows::frontmost_claimable()? else {
-        return Err("no frontmost window to claim".into());
+        return Err("no window to claim — click the window you want (any display), then Claim again".into());
     };
     let st = crate::state::load_state(app)?;
     if st.projects.is_empty() {
@@ -249,7 +249,7 @@ pub fn claim_front(app: &AppHandle) -> Result<(), String> {
 pub fn claim_front_to_planet(app: &AppHandle, project_id: &str) -> Result<(), String> {
     let list = crate::windows::list_windows()?;
     let Some(w) = crate::windows::frontmost_claimable()? else {
-        return Err("no frontmost window to claim".into());
+        return Err("no window to claim — click the window you want (any display), then Claim again".into());
     };
     claim_window(app, &w, Some(project_id), &list)
 }

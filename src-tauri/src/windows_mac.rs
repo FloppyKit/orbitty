@@ -631,14 +631,85 @@ fn note_other_frontmost(list: &[WindowInfo]) {
         .iter()
         .find(|w| w.is_frontmost && !w.is_minimized && !is_orbitty_win(w))
     {
-        if let Ok(mut g) = LAST_OTHER_FRONTMOST.lock() {
-            *g = Some(w.id.clone());
-        }
+        remember_other_id(w.id.clone());
     }
 }
 
 pub fn last_other_frontmost_id() -> Option<String> {
     LAST_OTHER_FRONTMOST.lock().ok().and_then(|g| g.clone())
+}
+
+fn remember_other_id(id: String) {
+    if let Ok(mut g) = LAST_OTHER_FRONTMOST.lock() {
+        *g = Some(id);
+    }
+}
+
+/// Global (all displays) last non-Orbitty frontmost — NSWorkspace, not
+/// CG z-order on the tray's screen.
+pub fn note_workspace_frontmost() {
+    unsafe {
+        let ws: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+        if ws.is_null() {
+            return;
+        }
+        let app: *mut Object = msg_send![ws, frontmostApplication];
+        if app.is_null() {
+            return;
+        }
+        let bundle: *mut Object = msg_send![app, bundleIdentifier];
+        if !bundle.is_null() {
+            let utf: *const i8 = msg_send![bundle, UTF8String];
+            if !utf.is_null() {
+                let s = std::ffi::CStr::from_ptr(utf).to_string_lossy();
+                if s == "space.orbitty.mac" || s == "app.livesprite.mac" {
+                    return;
+                }
+            }
+        }
+        let name: *mut Object = msg_send![app, localizedName];
+        if !name.is_null() {
+            let utf: *const i8 = msg_send![name, UTF8String];
+            if !utf.is_null() {
+                let s = std::ffi::CStr::from_ptr(utf).to_string_lossy();
+                if s.eq_ignore_ascii_case("Orbitty") || s.eq_ignore_ascii_case("LiveSprite") {
+                    return;
+                }
+            }
+        }
+        let pid: i32 = msg_send![app, processIdentifier];
+        if pid <= 0 {
+            return;
+        }
+        let ax_app = AXUIElementCreateApplication(pid);
+        if ax_app.is_null() {
+            return;
+        }
+        if let Some(focused_win) = ax_copy(ax_app, ax_names().focused_window) {
+            if let Some(cg_id) = ax_window_id(focused_win) {
+                remember_other_id(format!("{pid}:{cg_id}"));
+            }
+            CFRelease(focused_win);
+        }
+        CFRelease(ax_app);
+    }
+}
+
+/// Keep LAST_OTHER fresh across displays while the user works — tray
+/// claim then resolves the window they were in, not the menu-bar screen.
+pub fn install_frontmost_tracker() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::thread::Builder::new()
+            .name("orbitty-frontmost".into())
+            .spawn(|| loop {
+                let _ = crate::main_thread_sync(|| {
+                    note_workspace_frontmost();
+                });
+                std::thread::sleep(std::time::Duration::from_millis(400));
+            })
+            .ok();
+    });
 }
 
 /// On-screen normal windows, front → back (CGWindowList order).
@@ -708,12 +779,16 @@ fn cg_on_screen_front_to_back() -> Vec<(i32, u32)> {
     }
 }
 
-/// Frontmost claimable window: real AX frontmost if it isn't Orbitty /
-/// minimized; else the last non-Orbitty frontmost we remembered before
-/// tray/Dock stole focus (what you were actually using); else top
-/// on-screen non-Orbitty (CG order). CG-before-memory claimed whichever
-/// app was visually on top (e.g. Proton Mail over Calculator).
+/// Frontmost claimable window across the **whole desktop** (not the
+/// tray's monitor). Real AX frontmost if it isn't Orbitty; else the
+/// remembered last non-Orbitty frontmost (NSWorkspace tracker + list
+/// polls). No CG z-order fallback — that preferred whichever app sat on
+/// the menu-bar display (Proton Mail over Calculator on another screen).
 pub fn frontmost_claimable() -> Result<Option<WindowInfo>, String> {
+    // Refresh memory from NSWorkspace before we resolve — cheap, and
+    // covers the gap between rail polls when the user focused a window
+    // on another display then opened the tray.
+    note_workspace_frontmost();
     let list = list_windows()?;
     if let Some(w) = list
         .iter()
@@ -721,20 +796,7 @@ pub fn frontmost_claimable() -> Result<Option<WindowInfo>, String> {
     {
         return Ok(Some(w.clone()));
     }
-    // Tray / Dock / planet menu made Orbitty AX-frontmost — prefer the
-    // window we last saw as other-frontmost (updated every list_windows).
     if let Some(id) = last_other_frontmost_id() {
-        if let Some(w) = list
-            .iter()
-            .find(|w| w.id == id && !w.is_minimized && !is_orbitty_win(w))
-        {
-            return Ok(Some(w.clone()));
-        }
-    }
-    // Fallback: CG on-screen front→back (never alphabetical).
-    let order = cg_on_screen_front_to_back();
-    for (pid, cg_id) in order {
-        let id = format!("{pid}:{cg_id}");
         if let Some(w) = list
             .iter()
             .find(|w| w.id == id && !w.is_minimized && !is_orbitty_win(w))

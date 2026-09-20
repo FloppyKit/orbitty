@@ -1068,6 +1068,7 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             claim_front::install_orbitty_dock_menu(app.handle().clone());
+            windows::install_frontmost_tracker();
 
             Ok(())
         })

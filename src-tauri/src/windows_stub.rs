@@ -50,3 +50,5 @@ pub fn frontmost_claimable() -> Result<Option<WindowInfo>, String> {
     Ok(None)
 }
 
+pub fn install_frontmost_tracker() {}
+
