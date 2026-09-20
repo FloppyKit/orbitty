@@ -15,7 +15,9 @@ pub(crate) use super::board_geom::{
 };
 
 use super::decor_art::growth_t;
-use super::draw_world::{DecorDraw, DrawData, WalkerDraw};
+#[path = "draw_world.rs"]
+mod draw_world;
+use draw_world::{DecorDraw, DrawData, WalkerDraw};
 use super::{
     ball_pos, boombox_hud, card_color, droid, droid_pack, ensure_town_art, lock, now_epoch,
     pack_still_aspect, panic_msg, station_anchor, walker_hidden, DecorKind, Habitat, NSPoint, NSRect,
@@ -336,5 +338,5 @@ fn draw_rect_guarded(this: &Object) {
     let Some(data) = data else {
         return;
     };
-    unsafe { super::draw_world::draw_world(this, &data) }
+    unsafe { draw_world::draw_world(this, &data) }
 }
