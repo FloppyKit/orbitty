@@ -1,5 +1,5 @@
 //! Mouse, hit-tests, planet/walker menus, boombox click.
-//! Class registration stays on the host; selector bodies live here.
+//! Class registration lives in view_class.rs; selector bodies live here.
 //! Boombox slop is the walker 4px. boombox_click is called from tick::drag_tick.
 
 #![allow(unexpected_cfgs)]

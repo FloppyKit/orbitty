@@ -1,6 +1,6 @@
 # GO-ORBITTY-DIET-HABITAT-SPLIT — progress note
 
-Updated: 2026-09-20 CT (~18:40)
+Updated: 2026-09-20 CT (ball_tick + view_class peel)
 
 ## Board stamps (this session)
 - **Beach-ball / grass-pad / keep-up / yard clamp** → DONE (green). Shipped in `9d7015e` — Pose::Roam uses yard AABB when beach ball / keep-up is on. *(Orbitty board UI not reachable from this executor; stamp via orbittyctl/kanban on ElM4 when connected.)*
@@ -17,9 +17,8 @@ Updated: 2026-09-20 CT (~18:40)
   - Commits: `d036029` stub → `459e374` path nest → `77e1d3b` fx → `975fb2f` data → `3395d5f` paint
 
 ## Still fat (next peel candidates)
-- tick.rs ~881
-- mod.rs ~1055
-- anim.rs ~807
+- mod.rs (Habitat/Planet/Being types stay — do not mega-extract)
+- anim.rs (walker pose loop)
 - coordinator.rs ~3203 = SEPARATE GO (DIET-COORD) — do not start
 
 ## Parked leftovers (leave open)
@@ -36,3 +35,8 @@ Updated: 2026-09-20 CT (~18:40)
 - `tick.rs` ~881 → ~358 (DisplayLink + hop + drift)
 - `drag_tick.rs` (~375) — panel/decor/walker/boombox/todo-tree drag + persist_position
 - `cursor_tick.rs` (~185) — click-through, boombox audio, locate, captions
+
+## 2026-09-20 ball_tick + view_class peel
+- `ball_tick.rs` — keep-up hop + last-stretch glance (from anim.rs). Walker footwork stays in anim_tick.
+- `view_class.rs` — LiveSpriteWorldView + OrbittyPlanetMenuTarget registration (from mod.rs).
+- Beach-ball / grass pad already green (Matt 2026-09-20). Parked leftovers stay open: LOAD-FIRST-FRAME, SMALL-BOARD-CLICK, SPAWN-CENTER.
