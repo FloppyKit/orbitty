@@ -54,6 +54,7 @@ mod layout;
 mod spawn;
 mod panels;
 mod sync;
+mod sync_budget;
 mod types;
 mod worlds_io;
 mod api;
