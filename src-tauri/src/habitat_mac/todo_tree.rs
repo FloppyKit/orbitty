@@ -182,6 +182,10 @@ pub(crate) fn layout(planet: &mut Planet) {
 }
 
 pub(crate) fn hit(planet: &Planet, local: NSPoint) -> Option<String> {
+    // Sign/board owns competing pixels — trees stay hittable off the blit.
+    if super::board_geom::hit_board_open(planet, local) {
+        return None;
+    }
     for (id, frame) in planet.todo_tree_frames.iter().rev() {
         if frame.contains(local) {
             return Some(id.clone());
