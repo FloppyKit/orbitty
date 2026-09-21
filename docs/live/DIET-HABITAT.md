@@ -40,3 +40,8 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 - `ball_tick.rs` — keep-up hop + last-stretch glance (from anim.rs). Walker footwork stays in anim_tick.
 - `view_class.rs` — LiveSpriteWorldView + OrbittyPlanetMenuTarget registration (from mod.rs).
 - Beach-ball / grass pad already green (Matt 2026-09-20). Parked leftovers stay open: LOAD-FIRST-FRAME, SMALL-BOARD-CLICK, SPAWN-CENTER.
+
+## 2026-09-20 mod peel (after Build ball_tick/view_class)
+- `mod.rs` ~886 → ~648
+- `worlds_io.rs` — worlds.json load/save
+- `api.rs` — sync / locate / bring_* / hide / boombox_playing / restore_all
