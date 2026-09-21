@@ -124,3 +124,16 @@ pub(crate) fn hit_board_column(planet: &super::Planet, local: NSPoint) -> Option
         .iter()
         .position(|r| r.contains(local))
 }
+
+/// Preferential board/sign hit for opening kanban. Column ticks OR the
+/// whole sign blit — trees that overlap this zone lose the click.
+pub(crate) fn hit_board_open(planet: &super::Planet, local: NSPoint) -> bool {
+    if planet.is_marble {
+        return false;
+    }
+    if hit_board_column(planet, local).is_some() {
+        return true;
+    }
+    sign_blit_rect(planet.radius, planet.projection, planet.marble_scale).contains(local)
+}
+

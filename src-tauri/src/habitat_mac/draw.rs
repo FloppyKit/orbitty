@@ -11,7 +11,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
 pub(crate) use super::board_geom::{
-    board_column_rects, board_near_lip, hit_board_column, sign_blit_rect,
+    board_column_rects, board_near_lip, hit_board_column, hit_board_open, sign_blit_rect,
 };
 
 use super::decor_art::growth_t;

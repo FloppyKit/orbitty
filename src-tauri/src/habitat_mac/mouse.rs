@@ -18,7 +18,7 @@ use super::{
     app_handle, boombox_hud, building_cap, default_state, layout_beings, layout_decor, lock,
     max_radius, now_epoch, ns_string, panel_set_frame, panic_msg, plant_cap, primary_screen_id,
     radius_y, set_caption, view_to_disc, walker_hidden, world_entry, DecorItem,
-    draw::hit_board_column, DecorKind, DecorPoint, DecorRef, Drag, Habitat, NSPoint, NSRect,
+    draw::hit_board_open, DecorKind, DecorPoint, DecorRef, Drag, Habitat, NSPoint, NSRect,
     PendingClick, Placement, Planet, MIN_RADIUS, VIEW_PADDING,
 };
 
@@ -35,7 +35,7 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
         let local: NSPoint = msg_send![this, convertPoint: loc fromView: std::ptr::null::<Object>()];
         let view_ptr = this as *const Object as usize;
         let mut h = lock();
-        let (pid, panel, over, dref, being, radius, proj, board_col) = {
+        let (pid, panel, over, dref, being, radius, proj) = {
             let Some((project_id, planet)) = planet_for_view(&mut h, view_ptr) else {
                 return;
             };
@@ -52,7 +52,6 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
                 hit_being(planet, local),
                 planet.radius,
                 planet.projection,
-                hit_board_column(planet, local),
             )
         };
         // an open boombox HUD owns
@@ -117,6 +116,16 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
             }
             return;
         }
+        // BOARD-MARK: sign/board beats overlapping todo trees — kanban
+        // open is the preferential hit in the sign blit (and columns).
+        // Trees stay draggable outside that zone. Walker drag→column
+        // status moves stay in drag_tick.
+        let on_board = h.planets.get(&pid).is_some_and(|p| hit_board_open(p, local));
+        if on_board {
+            h.pending_board_done = None;
+            h.pending_board_open = Some(pid);
+            return;
+        }
         if let Some(planet) = h.planets.get(&pid) {
             if let Some(card_id) = super::todo_tree::hit(planet, local) {
                 let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
@@ -128,14 +137,6 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
                 });
                 return;
             }
-        }
-        // BOARD-MARK: any billboard column click opens the full-page
-        // kanban for THIS planet only — never companion well, never
-        // Done-evict. Walker drag→column status moves stay in drag_tick.
-        if board_col.is_some() {
-            h.pending_board_done = None;
-            h.pending_board_open = Some(pid);
-            return;
         }
         h.pending_board_done = None;
         h.pending_board_open = None;
@@ -256,7 +257,7 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
             let _ = h.pending_board_done.take();
             if let Some(pid) = h.pending_board_open.take() {
                 let still = h.planets.get(&pid).is_some_and(|p| {
-                    p.view == view_ptr && hit_board_column(p, local).is_some()
+                    p.view == view_ptr && hit_board_open(p, local)
                 });
                 if still {
                     if let Some(planet) = h.planets.get_mut(&pid) {
