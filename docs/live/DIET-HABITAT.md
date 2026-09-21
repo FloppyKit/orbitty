@@ -45,3 +45,8 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 - `mod.rs` ~886 → ~648
 - `worlds_io.rs` — worlds.json load/save
 - `api.rs` — sync / locate / bring_* / hide / boombox_playing / restore_all
+
+## 2026-09-21 types peel
+- `mod.rs` ~648 → ~447
+- `types.rs` — Being / Planet / Habitat / PackFrames (pub(crate) fields)
+- Drag / Placement / PendingClick stay in mod (enum fields module-private)
