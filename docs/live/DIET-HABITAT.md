@@ -31,3 +31,8 @@ Updated: 2026-09-20 CT (~18:40)
 3. Quit Orbitty; `export PATH="/opt/homebrew/bin:/Users/dude/.local/bin:$PATH"`; `./scripts/install-stable.sh`
 4. Open `~/Applications/Orbitty.app`
 5. Green-stamp beach-ball card + update DIET-HABITAT board card via orbittyctl/kanban
+
+## 2026-09-20 tick peel
+- `tick.rs` ~881 → ~358 (DisplayLink + hop + drift)
+- `drag_tick.rs` (~375) — panel/decor/walker/boombox/todo-tree drag + persist_position
+- `cursor_tick.rs` (~185) — click-through, boombox audio, locate, captions

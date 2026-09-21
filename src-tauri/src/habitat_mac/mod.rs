@@ -23,6 +23,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 mod audio;
 mod tick;
+mod drag_tick;
+mod cursor_tick;
 mod input;
 mod mouse;
 mod walker_menu;
