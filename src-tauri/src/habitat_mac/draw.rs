@@ -229,7 +229,9 @@ fn draw_rect_guarded(this: &Object) {
                                 .unwrap_or(1.0),
                             true,
                         ),
-                        DecorKind::Boombox => (1.0, p.boombox),
+                        // Live AVAudioPlayer counts as on — covers a stale
+                        // planet.boombox after pick-before-mirror (grey-while-playing).
+                        DecorKind::Boombox => (1.0, p.boombox || p.audio.is_some()),
                     };
                     decor.push(DecorDraw {
                         kind: dref.kind,

@@ -249,6 +249,10 @@ fn present_music_picker(id: &str) {
     h.worlds_dirty = true;
     let reduce = h.reduce_motion;
     if let Some(planet) = h.planets.get_mut(id) {
+        // Mirror the world playing flag onto the live planet — draw uses
+        // planet.boombox for full vs greyed alpha. start_audio alone left
+        // the sprite dim while the track already played.
+        planet.boombox = true;
         // start_audio owns every case: same file fades, new file swaps,
         // live 0 (hard mute / marble) stops — never a silent spawn; the
         // cursor_tick fader door brings it up on unmute / growth.
@@ -260,6 +264,10 @@ fn present_music_picker(id: &str) {
         start_audio(planet, &picked, live);
         let file = picked.rsplit('/').next().unwrap_or(&picked);
         set_caption(planet, format!("Music: {file}"));
+        unsafe {
+            let view = planet.view as *mut Object;
+            let _: () = msg_send![view, setNeedsDisplay: true];
+        }
     }
 }
 
