@@ -24,8 +24,9 @@ pub(crate) const IGLOO_DOOR: (f64, f64) = (0.78, 0.92);
 /// to ≈ -0.611; the left rim never drifted.
 pub(crate) const IGLOO_W: f64 = 0.4275;
 /// Sundial / comms blit width in disc units (square sprites, bottom-pinned).
-pub(crate) const SUNDIAL_W: f64 = 0.155;
-pub(crate) const COMSTACK_W: f64 = 0.135;
+/// Sundial +20% from first sit; comms +1/3.
+pub(crate) const SUNDIAL_W: f64 = 0.186;
+pub(crate) const COMSTACK_W: f64 = 0.180;
 
 pub(crate) fn shaded(color: (f64, f64, f64), factor: f64) -> (f64, f64, f64) {
     (
