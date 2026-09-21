@@ -50,6 +50,15 @@ fi
   || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Orbitty Nightly" "$DEST/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName Orbitty Nightly" "$DEST/Contents/Info.plist" 2>/dev/null || true
 
+# Dock icon: bundled tauri icns was historically RGB-flattened (white halo).
+# Prefer brand/Orbitty.iconset (alpha) into Nightly only — never touch daily.
+ICONSET="$PWD/brand/Orbitty.iconset"
+ICNS_OUT="$DEST/Contents/Resources/icon.icns"
+if [[ -d "$ICONSET" ]]; then
+  echo "==> Applying transparent Dock icon to Nightly only"
+  iconutil -c icns "$ICONSET" -o "$ICNS_OUT"
+fi
+
 codesign --force --deep --sign "$IDENTITY" --timestamp=none "$DEST"
 codesign --verify --deep --strict --verbose=2 "$DEST"
 codesign -dvv "$DEST" 2>&1 | grep -E '^(Identifier|Authority)' || true
