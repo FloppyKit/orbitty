@@ -11,12 +11,11 @@ pub(crate) const STATION_HOUSE: (f64, f64) = (-0.611, 0.05); // igloo door
 pub(crate) const STATION_BOARD: (f64, f64) = (0.0, -0.72); // Todo / sign post
 pub(crate) const STATION_FIELD: (f64, f64) = (0.0, 0.05); // grass amble
 pub(crate) const STATION_RIM: (f64, f64) = (0.0, 0.40); // Needed
-/// Sundial: west of the grass pad, feet on the south light band
-/// (band_y 0.38) — the lighter yellow patch just south of the first sit.
-pub(crate) const STATION_SUNDIAL: (f64, f64) = (-0.48, 0.473);
-/// Comms stack: east of the grass pad, toward the rim but inside it
-/// (sprite east edge ≈ 0.87; disc rim is 1.0).
-pub(crate) const STATION_COMSTACK: (f64, f64) = (0.78, 0.16);
+/// Sundial: west of the grass pad; feet on YARD_SOUTH (bottom of grass).
+pub(crate) const STATION_SUNDIAL: (f64, f64) = (-0.48, 0.42);
+/// Comms stack: east of the grass, shifted almost one sprite-width toward
+/// the rim (east edge ≈ 1.01, still on the oval).
+pub(crate) const STATION_COMSTACK: (f64, f64) = (0.92, 0.16);
 /// Sleeper camp (closed claimed windows only — NOT minimized).
 /// North of the igloo door, west of the grass pad: the gap between the
 /// igloo (x ≤ -0.50) and YARD_WEST. Dim + still. Minimized stays full-
