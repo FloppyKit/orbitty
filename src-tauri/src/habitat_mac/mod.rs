@@ -49,6 +49,7 @@ mod colors;
 mod art;
 mod marble_motion;
 mod anim;
+mod anim_planet;
 mod layout;
 mod spawn;
 mod panels;

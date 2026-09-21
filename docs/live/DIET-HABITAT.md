@@ -50,3 +50,7 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 - `mod.rs` ~648 → ~447
 - `types.rs` — Being / Planet / Habitat / PackFrames (pub(crate) fields)
 - Drag / Placement / PendingClick stay in mod (enum fields module-private)
+
+## 2026-09-21 anim_planet peel
+- `anim.rs` ~697 → ~86 (clock + planet loop shell)
+- `anim_planet.rs` — tick_expanded walker/bob/keep-up body
