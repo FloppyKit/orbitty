@@ -32,6 +32,7 @@ mod board_geom;
 mod decor_art;
 mod draw;
 mod boombox_hud;
+mod boombox_monitors;
 mod droid;
 mod droid_pack;
 mod todo_tree;
