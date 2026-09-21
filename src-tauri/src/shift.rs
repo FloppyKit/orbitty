@@ -220,7 +220,9 @@ pub fn tick(app: &tauri::AppHandle) -> Result<Value, String> {
     }
 
     let st = crate::state::load_state(app)?;
-    if mode_continues(&st) {
+    if crate::interrupt_gate::is_frozen() {
+        notes.push("interrupt_gate STOP freeze — shift pickup held".into());
+    } else if mode_continues(&st) {
         match crate::gate_caps::check(app) {
             Err(e) => notes.push(e),
             Ok(()) => {

@@ -1461,6 +1461,8 @@
       onNeededFocus(e.payload?.id ?? null, e.payload?.title ?? null);
     });
     unlistenWinFocus = await getCurrentWebviewWindow().onFocusChanged((e) => {
+      // Path A GATE Hang-first: arm CHATTER/STOP only while companion focused.
+      void invoke("interrupt_gate_set_armed", { armed: !!e.payload });
       if (e.payload && mouthHooked) focusComposer();
     });
     unlistenKanbanVis = await listenPaneVis("kanban", (visible) => {

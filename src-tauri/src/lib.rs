@@ -31,6 +31,7 @@ mod event_log;
 mod event_relay;
 #[cfg(unix)]
 mod gate_caps;
+mod interrupt_gate;
 mod glass;
 mod mouth_ack;
 mod mouth_blip;
@@ -702,6 +703,10 @@ pub fn run() {
             coordinator::companion_agents,
             coordinator::set_companion_agent,
             coordinator::set_companion_mode,
+            interrupt_gate::interrupt_gate_set_armed,
+            interrupt_gate::interrupt_gate_status,
+            interrupt_gate::interrupt_gate_clear_freeze,
+            interrupt_gate::interrupt_gate_inject,
             coordinator::companion_thin,
             coordinator::companion_now,
             coordinator::set_companion_pack,
