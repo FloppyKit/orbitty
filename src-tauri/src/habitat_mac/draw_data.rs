@@ -23,6 +23,9 @@ pub(crate) const IGLOO_DOOR: (f64, f64) = (0.78, 0.92);
 /// HELD at ≈ -0.9446 — the door (and STATION_HOUSE with it) moved west
 /// to ≈ -0.611; the left rim never drifted.
 pub(crate) const IGLOO_W: f64 = 0.4275;
+/// Sundial / comms blit width in disc units (square sprites, bottom-pinned).
+pub(crate) const SUNDIAL_W: f64 = 0.155;
+pub(crate) const COMSTACK_W: f64 = 0.135;
 
 pub(crate) fn shaded(color: (f64, f64, f64), factor: f64) -> (f64, f64, f64) {
     (
@@ -107,6 +110,8 @@ pub(crate) struct DrawData {
     pub(crate) town_sign: usize,
     pub(crate) town_boombox: usize,
     pub(crate) town_ball: usize,
+    pub(crate) town_sundial: usize,
+    pub(crate) town_comstack: usize,
     /// Dest-menu find: 0 just armed, 1 expired. None = no glow.
     pub(crate) locate_t: Option<f64>,
     /// the beach ball's view-local center

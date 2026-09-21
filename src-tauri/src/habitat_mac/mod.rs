@@ -65,8 +65,9 @@ pub(crate) use pose::{
     droid_glance, hash_str, pose_for, pose_name, sleeper_target, station_anchor, station_target,
     sticky_pose, walkoff_target, yard_clamp, yard_contains, yard_dwell_ms, yard_pick,
     yard_pick_sailing, yard_seed, yard_step, Pose, HOME_HIDE_X, HOME_OFF, SLEEPER_EAST,
-    SLEEPER_NORTH, SLEEPER_SOUTH, SLEEPER_WEST, STATION_BOARD, STATION_FIELD, STATION_HOUSE,
-    STATION_RIM, YARD_ARRIVE, YARD_DWELL_MAX_MS, YARD_DWELL_MIN_MS, YARD_EAST, YARD_INSET,
+    SLEEPER_NORTH, SLEEPER_SOUTH, SLEEPER_WEST, STATION_BOARD, STATION_COMSTACK, STATION_FIELD,
+    STATION_HOUSE, STATION_RIM, STATION_SUNDIAL, YARD_ARRIVE, YARD_DWELL_MAX_MS, YARD_DWELL_MIN_MS,
+    YARD_EAST, YARD_INSET,
     YARD_NORTH, YARD_SAIL, YARD_SOUTH, YARD_WEST,
 };
 pub(crate) use ball::{
@@ -453,6 +454,8 @@ pub(crate) struct Habitat {
     town_sign: usize,
     town_boombox: usize,
     town_ball: usize,
+    town_sundial: usize,
+    town_comstack: usize,
     town_art_loaded: bool,
     /// Global walk-cycle counter, +1 per anim tick (20Hz); walkers advance
     /// pack frames at half that rate.

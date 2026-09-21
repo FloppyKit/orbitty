@@ -14,15 +14,15 @@ use super::super::decor_art::{
 };
 use super::super::{
     boombox_hud, fill_oval, now_epoch, ns_color, ns_string, radius_y, set_fill, walker_fit, CGSize,
-    DecorKind, NSPoint, NSRect, Projection, STATION_FIELD, STATION_HOUSE, YARD_EAST, YARD_NORTH,
-    YARD_SOUTH, YARD_WEST,
+    DecorKind, NSPoint, NSRect, Projection, STATION_COMSTACK, STATION_FIELD, STATION_HOUSE,
+    STATION_SUNDIAL, YARD_EAST, YARD_NORTH, YARD_SOUTH, YARD_WEST,
 };
 
 #[path = "draw_data.rs"]
 mod draw_data;
 pub(crate) use draw_data::{DecorDraw, DrawData, WalkerDraw};
 use draw_data::{
-    draw_nsimage, shaded, IGLOO_DOOR, IGLOO_IMG_H, IGLOO_IMG_W, IGLOO_W,
+    draw_nsimage, shaded, COMSTACK_W, IGLOO_DOOR, IGLOO_IMG_H, IGLOO_IMG_W, IGLOO_W, SUNDIAL_W,
 };
 
 #[path = "draw_fx.rs"]
@@ -297,6 +297,28 @@ pub(crate) unsafe fn draw_world(this: &Object, d: &DrawData) {
                 &IGLOO[..],
                 2.8 * town,
                 &[(b'I', (0.88, 0.93, 0.97)), (b'D', (0.20, 0.24, 0.30))],
+                1.0,
+            );
+        }
+        // Sundial: south of igloo, west of grass. Bottom-pinned at the station.
+        if d.town_sundial != 0 {
+            let w = SUNDIAL_W * r;
+            let cx = center.x + STATION_SUNDIAL.0 * r;
+            let cy = center.y + STATION_SUNDIAL.1 * ry;
+            draw_nsimage(
+                d.town_sundial as *mut Object,
+                NSRect::new(cx - w / 2.0, cy - w, w, w),
+                1.0,
+            );
+        }
+        // Comms: east of grass, south of the grove L, north of the south lip.
+        if d.town_comstack != 0 {
+            let w = COMSTACK_W * r;
+            let cx = center.x + STATION_COMSTACK.0 * r;
+            let cy = center.y + STATION_COMSTACK.1 * ry;
+            draw_nsimage(
+                d.town_comstack as *mut Object,
+                NSRect::new(cx - w / 2.0, cy - w, w, w),
                 1.0,
             );
         }

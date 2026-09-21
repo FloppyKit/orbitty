@@ -118,6 +118,8 @@ pub(crate) fn ensure_town_art(h: &mut Habitat) {
         ("sign.png", &mut h.town_sign),
         ("boombox.png", &mut h.town_boombox),
         ("beachball.png", &mut h.town_ball),
+        ("sundial.png", &mut h.town_sundial),
+        ("comstack.png", &mut h.town_comstack),
     ] {
         if let Ok(bytes) = std::fs::read(dir.join(name)) {
             let img = unsafe { ns_image_from_bytes(&bytes) };

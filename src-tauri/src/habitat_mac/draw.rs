@@ -84,6 +84,8 @@ fn draw_rect_guarded(this: &Object) {
         let town_sign = h.town_sign;
         let town_boombox = h.town_boombox;
         let town_ball = h.town_ball;
+        let town_sundial = h.town_sundial;
+        let town_comstack = h.town_comstack;
         let now = now_epoch();
         // per-pack still-frame
         // aspects for the keep-up head math (0.0 = generated person).
@@ -320,6 +322,8 @@ fn draw_rect_guarded(this: &Object) {
                 town_sign,
                 town_boombox,
                 town_ball,
+                town_sundial,
+                town_comstack,
                 locate_t: h.locate_planet.as_ref().and_then(|(id, at)| {
                     if id == pid && at.elapsed() < PLANET_LOCATE_TTL {
                         Some(
