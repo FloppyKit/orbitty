@@ -15,8 +15,9 @@ use super::{
 
 // spawn ring (GO-ORBITTY-PLANET-SPAWN)
 //
-// New worlds appear on a ring around the rail, not mid-right of the
-// display. Center = the `main` window's outer-frame center, converted into
+// The ring math is still here for slot tests. New worlds no longer use it:
+// GO-ORBITTY-SPAWN-CENTER places a fresh marble at the visible-frame center.
+// Center = the `main` window's outer-frame center, converted into
 // the same screen-local flipped (y-down) coords WorldState.x/y already
 // use. Radius = half the rail's outer width + 80pt. First slot is
 // 3 o'clock, then counterclockwise in 45° steps; if the rail sits on the
@@ -38,6 +39,16 @@ pub(crate) struct SpawnRing {
     radius: f64,
     mirrored: bool,
     visible: [bool; RING_SLOTS],
+    /// Visible-frame center, same screen-local y-down coords as slot x/y.
+    vis_cx: f64,
+    vis_cy: f64,
+}
+
+impl SpawnRing {
+    /// Visible-frame center in the same coords as a world's x/y.
+    pub(crate) fn visible_center(&self) -> (&str, f64, f64) {
+        (&self.screen_id, self.vis_cx, self.vis_cy)
+    }
 }
 
 pub(crate) fn ring_slot(ring: &SpawnRing, k: usize) -> (f64, f64) {
@@ -99,6 +110,8 @@ pub(crate) fn spawn_ring() -> Option<SpawnRing> {
         radius,
         mirrored,
         visible: [false; RING_SLOTS],
+        vis_cx: vx0 + vf.size.width / 2.0,
+        vis_cy: vy0 + vf.size.height / 2.0,
     };
     for k in 0..RING_SLOTS {
         let (sx, sy) = ring_slot(&ring, k);
@@ -109,6 +122,8 @@ pub(crate) fn spawn_ring() -> Option<SpawnRing> {
 
 /// Worlds already sitting on a visible ring slot — only those occupy
 /// slots; pre-existing (mid-right or dragged) worlds are not on the ring.
+/// New worlds no longer claim slots; the counter stays with the ring math.
+#[allow(dead_code)]
 pub(crate) fn ring_claimed(ring: &SpawnRing, worlds: &HashMap<String, WorldState>) -> usize {
     worlds
         .values()
@@ -125,23 +140,17 @@ pub(crate) fn ring_claimed(ring: &SpawnRing, worlds: &HashMap<String, WorldState
         .count()
 }
 
-/// New worlds land on the spawn ring around the rail; `existing_on_screen`
-/// is the count of ring slots already claimed this session. Headless
-/// fallback: mid-right, clearly on-screen, staggered per existing world.
-pub(crate) fn default_state(screen_id: &str, existing_on_screen: usize) -> WorldState {
-    let placed = spawn_ring().and_then(|ring| {
-        let open: Vec<usize> = (0..RING_SLOTS).filter(|&k| ring.visible[k]).collect();
-        if open.is_empty() {
-            return None;
-        }
-        let lap = existing_on_screen / open.len();
-        let (sx, sy) = ring_slot(&ring, open[existing_on_screen % open.len()]);
-        // Past a full lap, ride the same slots a touch outward so a ninth
-        // world never lands exactly on the first.
-        let grow = lap as f64 * 96.0;
-        let dx = (sx - ring.cx) / ring.radius;
-        let dy = (sy - ring.cy) / ring.radius;
-        Some((ring.screen_id.clone(), sx + dx * grow, sy + dy * grow))
+/// New worlds land as a marble at the visible-frame center (GO-ORBITTY-SPAWN-CENTER).
+/// `nudge` steps later worlds down-right so two fresh marbles do not stack.
+/// Headless fallback: screen center.
+pub(crate) fn default_state(screen_id: &str, nudge: usize) -> WorldState {
+    let step = nudge as f64;
+    let placed = spawn_ring().map(|ring| {
+        (
+            ring.screen_id.clone(),
+            ring.vis_cx + step * 40.0,
+            ring.vis_cy + step * 28.0,
+        )
     });
     let (screen_id, x, y) = match placed {
         Some(p) => p,
@@ -158,8 +167,8 @@ pub(crate) fn default_state(screen_id: &str, existing_on_screen: usize) -> World
                 });
             (
                 screen_id.to_string(),
-                size.width * 0.72 + (existing_on_screen as f64) * 40.0,
-                size.height * 0.45,
+                size.width * 0.5 + step * 40.0,
+                size.height * 0.5 + step * 28.0,
             )
         }
     };

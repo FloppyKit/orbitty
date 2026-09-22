@@ -16,7 +16,7 @@ use super::todo_tree;
 use crate::habitat::{BoardCardTick, HabitatEntry, TodoTreeTick};
 use super::{
     default_state, layout_beings, locked_projection, make_panel, ns_string, panel_frame,
-    panel_set_frame, ring_claimed, spawn_ring, world_view_class, Being, Habitat,
+    panel_set_frame, spawn_ring, world_view_class, Being, Habitat,
     MAX_MARBLE_PANELS, NSRect, Planet,
 };
 
@@ -52,18 +52,26 @@ pub(crate) fn materialize(
         return Fresh::Skip;
     }
     if !h.worlds.contains_key(project_id) {
-        // Slot index = ring slots already claimed this session;
-        // existing worlds are not on the ring and do not occupy.
-        let on_screen = match spawn_ring() {
-            Some(ring) => ring_claimed(&ring, &h.worlds),
-            None => h
-                .worlds
-                .values()
-                .filter(|w| w.screen_id == primary_id)
-                .count(),
-        };
+        // Center of the visible frame. Step aside when that point is taken.
+        let nudge = spawn_ring()
+            .map(|ring| {
+                let (sid, cx, cy) = ring.visible_center();
+                let mut n = 0usize;
+                while h.worlds.values().any(|w| {
+                    let x = cx + n as f64 * 40.0;
+                    let y = cy + n as f64 * 28.0;
+                    w.screen_id == sid && (w.x - x).abs() < 36.0 && (w.y - y).abs() < 36.0
+                }) {
+                    n += 1;
+                    if n > 16 {
+                        break;
+                    }
+                }
+                n
+            })
+            .unwrap_or(0);
         h.worlds
-            .insert(project_id.to_string(), default_state(primary_id, on_screen));
+            .insert(project_id.to_string(), default_state(primary_id, nudge));
     }
     let state = h.worlds[project_id].clone();
     // A planet that didn't exist above can't have taken the pose-only

@@ -1320,7 +1320,16 @@
       name: name.trim(),
     };
     projects = [...projects, p];
+    // Empty planet starts as a marble. A todo or a walker opens it.
+    if (!collapsedSectionIds.includes(p.id)) {
+      collapsedSectionIds = [...collapsedSectionIds, p.id];
+    }
     return p;
+  }
+
+  function revealPlanet(projectId: string) {
+    if (!isCollapsed(projectId)) return;
+    collapsedSectionIds = collapsedSectionIds.filter((id) => id !== projectId);
   }
 
   function newCardId(): string {
@@ -1417,6 +1426,7 @@
           : {}),
       },
     ];
+    revealPlanet(projectId);
     // Bare claim = grass only. A board card is born only when a todo is
     // assigned to this window. If a non-done card already names it, keep
     // the link and retarget the project — never force status back to todo.
@@ -1649,6 +1659,7 @@
     ];
     newTodoTitle = "";
     addingTodoFor = null;
+    revealPlanet(projectId);
     persist();
     logEvent("board-add", { cardId: id, title }, projectId);
     openKanbanFocus(id);

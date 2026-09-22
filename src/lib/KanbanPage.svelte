@@ -1453,6 +1453,10 @@
       s.kanbanCards = [...s.kanbanCards, card];
     });
     logEvent("board-add", { cardId: card.id, title: t, parentId }, projectId || undefined);
+    // A marble opens when a todo lands on it so the new card is visible.
+    if (projectId && collapsedSectionIds.includes(projectId)) {
+      emitTo("main", "habitat:expand", projectId).catch(() => {});
+    }
     if (!parentId) {
       addingTodo = false;
       newTodoTitle = "";
