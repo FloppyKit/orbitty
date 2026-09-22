@@ -16,7 +16,7 @@ use super::todo_tree;
 use crate::habitat::{BoardCardTick, HabitatEntry, TodoTreeTick};
 use super::{
     default_state, layout_beings, locked_projection, make_panel, ns_string, panel_frame,
-    panel_set_frame, spawn_ring, world_view_class, Being, Habitat,
+    panel_set_frame, world_view_class, Being, Habitat,
     MAX_MARBLE_PANELS, NSRect, Planet,
 };
 
@@ -52,10 +52,9 @@ pub(crate) fn materialize(
         return Fresh::Skip;
     }
     if !h.worlds.contains_key(project_id) {
-        // Center of the visible frame. Step aside when that point is taken.
-        let nudge = spawn_ring()
-            .map(|ring| {
-                let (sid, cx, cy) = ring.visible_center();
+        // Middle display, clear of the inspector. Step aside when taken.
+        let nudge = super::spawn::fresh_anchor()
+            .map(|(sid, cx, cy)| {
                 let mut n = 0usize;
                 while h.worlds.values().any(|w| {
                     let x = cx + n as f64 * 40.0;
