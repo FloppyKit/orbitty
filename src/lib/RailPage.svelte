@@ -1875,6 +1875,9 @@
     // that hid the planet until the inspector name was clicked.
     await persist();
     raisePlanet(p.id);
+    // After the Add click returns, lift once more so the disc stays
+    // above the windows already on the middle screen.
+    setTimeout(() => raisePlanet(p.id), 50);
   }
 
   // the × on a planet
@@ -2816,6 +2819,7 @@
     tagsFor,
     titleFor,
     todosFor,
+    raisePlanet,
     toggleCollapse,
     toggleSoul,
     toggleTag,

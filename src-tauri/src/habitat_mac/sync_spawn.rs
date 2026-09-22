@@ -20,6 +20,32 @@ use super::{
     MAX_MARBLE_PANELS, NSRect, Planet,
 };
 
+fn order_front_later(panel: *mut Object) {
+    let bits = panel as usize;
+    extern "C" {
+        #[link_name = "_dispatch_main_q"]
+        static DISPATCH_MAIN_Q: std::ffi::c_void;
+        fn dispatch_async_f(
+            queue: *mut std::ffi::c_void,
+            context: *mut std::ffi::c_void,
+            work: extern "C" fn(*mut std::ffi::c_void),
+        );
+    }
+    extern "C" fn lift(ctx: *mut std::ffi::c_void) {
+        unsafe {
+            let panel = ctx as *mut Object;
+            let _: () = msg_send![panel, orderFrontRegardless];
+        }
+    }
+    unsafe {
+        dispatch_async_f(
+            std::ptr::addr_of!(DISPATCH_MAIN_Q) as *mut std::ffi::c_void,
+            bits as *mut std::ffi::c_void,
+            lift,
+        );
+    }
+}
+
 pub(crate) enum Fresh {
     /// No panel this sync. Caller skips the projection heal.
     Skip,
@@ -139,6 +165,11 @@ pub(crate) fn materialize(
             let _: () = msg_send![panel, orderOut: std::ptr::null::<Object>()];
         } else {
             let _: () = msg_send![panel, orderFrontRegardless];
+            let _: () = msg_send![view, setNeedsDisplay: true];
+            // The mint click finishes after this sync and leaves whatever
+            // was already on the middle screen in front. Lift again once
+            // that click has returned.
+            order_front_later(panel);
         }
         planet.panel = panel as usize;
         planet.view = view as usize;

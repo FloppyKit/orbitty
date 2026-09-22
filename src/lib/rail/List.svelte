@@ -275,7 +275,10 @@
               <div class="head-row">
                 <button
                   class="section-head"
-                  onclick={() => rail.toggleCollapse(p.id)}
+                  onclick={() => {
+                    rail.raisePlanet(p.id);
+                    rail.toggleCollapse(p.id);
+                  }}
                   aria-expanded={!rail.isCollapsed(p.id)}
                   title={rail.isCollapsed(p.id)
                     ? "Expand — you can also drop a window on this header"
