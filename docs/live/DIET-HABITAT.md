@@ -65,3 +65,7 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 ## 2026-09-21 sync_spawn peel
 - First panel for a project not yet on screen → `sync_spawn.rs` (`materialize`)
 - Over the marble cap, or a missing world-view class, still skips that planet.
+
+## 2026-09-21 anim_step peel
+- One walker's pose step (Sit / Stand / Work / WalkOff / Roam) → `anim_step.rs` (`step_pose`)
+- Sleeper camp, mid-drag, and tree chores stay in `anim_planet.rs`
