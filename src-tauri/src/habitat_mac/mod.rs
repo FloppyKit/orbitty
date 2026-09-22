@@ -49,6 +49,7 @@ mod decor;
 mod colors;
 mod art;
 mod marble_motion;
+mod marble_tracks;
 mod anim;
 mod anim_planet;
 mod anim_step;
