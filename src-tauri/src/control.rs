@@ -209,6 +209,8 @@ const READ_TOOLS: &[&str] = &[
     "agent.list",
     "shift.status",
     "relay.status",
+    // Hang readout: armed while the companion window is focused.
+    "gate.status",
 ];
 
 fn allowed(acl: &Acl, tool: &str) -> bool {
@@ -600,6 +602,11 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map_err(tool_err)
         }
         "shift.status" => crate::shift::status(app).map_err(tool_err),
+        "gate.status" => Ok(to_data(crate::interrupt_gate::interrupt_gate_status())),
+        "gate.inject" => {
+            let kind = arg_str(args, "kind")?;
+            crate::interrupt_gate::interrupt_gate_inject(app.clone(), kind).map_err(tool_err)
+        }
         "shift.tick" => crate::shift::tick(app).map_err(tool_err),
         "shift.on" => crate::shift::set_on(app, true).map_err(tool_err),
         "shift.off" => crate::shift::set_on(app, false).map_err(tool_err),

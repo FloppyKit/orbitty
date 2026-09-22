@@ -49,6 +49,8 @@ commands:
   shift status
   shift tick
   shift on|off
+  gate status
+  gate inject CHATTER|STOP
   relay status
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
   project add --name N
@@ -112,6 +114,12 @@ shift status is read-safe. shift tick parks ghost working
 rows (they eat the runner cap), Needed-escalates blocked, and pickups
 the next assigned todo while Work/Hold is on. shift on starts a 15s
 ticker; off stops it. Spark/Chat never auto-pickup.
+
+gate status is read-safe. Hang is companion focus: click the
+companion and status reports armed; click anywhere else and it reports
+disarmed, and a freeze clears. gate inject CHATTER holds (no freeze).
+gate inject STOP aborts, freezes shift pickup, and stops live working
+runs — write-class ACL.
 
 relay status is read-safe. relay replica --url sets the
 optional one-user VPS URL (Tailscale 100.64/10:13120 or
@@ -546,6 +554,8 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             Ok(("agent.pickup", a))
         }
         ["shift", "status"] => Ok(("shift.status", json!({}))),
+        ["gate", "status"] => Ok(("gate.status", json!({}))),
+        ["gate", "inject", kind] => Ok(("gate.inject", json!({ "kind": *kind }))),
         ["shift", "tick"] => Ok(("shift.tick", json!({}))),
         ["shift", "on"] => Ok(("shift.on", json!({}))),
         ["shift", "off"] => Ok(("shift.off", json!({}))),
@@ -699,6 +709,18 @@ fn token(o: &Opts, sock: &Path) -> Option<String> {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
     })
+}
+
+fn print_gate(data: &Value) {
+    let armed = data["armed"].as_bool().unwrap_or(false);
+    let frozen = data["frozen"].as_bool().unwrap_or(false);
+    println!(
+        "gate {} · freeze {} · chatter {} · stop {}",
+        if armed { "armed" } else { "disarmed" },
+        if frozen { "on" } else { "off" },
+        data["chatterHeld"].as_u64().unwrap_or(0),
+        data["stopHonored"].as_u64().unwrap_or(0)
+    );
 }
 
 fn print_human(tool: &str, data: &Value) {
@@ -910,6 +932,13 @@ fn print_human(tool: &str, data: &Value) {
                     data["agent"].as_str().unwrap_or("?")
                 );
             }
+        }
+        "gate.status" => print_gate(data),
+        "gate.inject" => {
+            let kind = data["kind"].as_str().unwrap_or("?");
+            let verdict = data["verdict"].as_str().unwrap_or("?");
+            println!("{kind} → {verdict}");
+            print_gate(&data["status"]);
         }
         "shift.status" => {
             let on = data["on"].as_bool().unwrap_or(false);
