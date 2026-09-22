@@ -1320,10 +1320,6 @@
       name: name.trim(),
     };
     projects = [...projects, p];
-    // Empty planet starts as a marble. A todo or a walker opens it.
-    if (!collapsedSectionIds.includes(p.id)) {
-      collapsedSectionIds = [...collapsedSectionIds, p.id];
-    }
     return p;
   }
 
@@ -1875,9 +1871,8 @@
     newProjectName = "";
     creatingProject = false;
     if (embedded) sheetSlot = p.id;
-    // The disc is born under whatever already covers the middle screen.
-    // Wait until that panel exists, then lift it. A name click was the
-    // only thing doing this lift.
+    // Show the disc as soon as the panel exists. Do not start collapsed:
+    // that hid the planet until the inspector name was clicked.
     await persist();
     raisePlanet(p.id);
   }

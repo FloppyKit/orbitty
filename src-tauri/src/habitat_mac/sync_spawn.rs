@@ -132,7 +132,9 @@ pub(crate) fn materialize(
         // Borderless panels never draw a title, but the name shows up
         // in window lists / screen-recording prompts.
         let _: () = msg_send![panel, setTitle: ns_string(&format!("Orbitty — {name}"))];
-        panel_set_frame(panel, panel_frame(&state, side), false);
+        // display:true — a first frame with display:false stays a clear
+        // window until something else resizes it (the name click).
+        panel_set_frame(panel, panel_frame(&state, side), true);
         if h.planets_hidden {
             let _: () = msg_send![panel, orderOut: std::ptr::null::<Object>()];
         } else {
