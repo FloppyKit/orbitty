@@ -58,3 +58,6 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 ## 2026-09-21 sync_still peel
 - `sync.rs` reduce-motion station snap → `sync_still.rs` (`snap_stations`)
 - Roam is not moved. Stand still uses the board south lip.
+
+## 2026-09-21 sync_roster peel
+- Walker / dot split (sort + park, marbles empty) → `sync_roster.rs` (`classify`)

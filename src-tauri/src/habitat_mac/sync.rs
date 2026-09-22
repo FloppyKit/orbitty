@@ -8,22 +8,22 @@ use objc::runtime::Object;
 use objc::{msg_send, sel, sel_impl};
 use std::collections::HashMap;
 use std::time::Instant;
-use tauri::{Emitter, Manager};
 
 use super::audio;
 use super::todo_tree;
 use super::sync_budget;
 use super::sync_pose;
 use super::sync_still;
+use super::sync_roster;
 use super::pose::{
     droid_glance, pose_for, sticky_pose, Pose, HOME_HIDE_X,
 };
 use super::{
     color_for, default_state, effective_radius, emit_walked_off, ensure_pack_loaded,
     layout_beings, layout_decor, load_pack_frames, load_worlds, lock, locked_projection,
-    locked_projection_str, make_being, make_panel, now_epoch, ns_string, panel_frame,
+    locked_projection_str, make_being, make_panel, ns_string, panel_frame,
     panel_set_frame, primary_screen_id, ring_claimed, spawn_ring, unload_dead_packs,
-    world_view_class, Being, HabitatEntry, HabitatPlanet, HabitatSnapshot, MAX_MARBLE_PANELS,
+    world_view_class, Being, HabitatPlanet, HabitatSnapshot, MAX_MARBLE_PANELS,
     NSRect, Planet, VIEW_PADDING,
 };
 
@@ -131,29 +131,10 @@ pub(crate) fn do_sync(snapshot: &HabitatSnapshot) {
         let side = (radius + VIEW_PADDING) * 2.0;
         let color = color_for(project_id);
 
-        // CADENCE-FIX v1.1: a CLAIMED window is a walker — open or
-        // minimized no longer decides (both full-color on the green).
-        // Only a CLOSED claim is asleep (dim + still, sleeper camp).
-        // Dots are parked zombies only. Marbles stay bare until expanded.
-        let mut sorted = entries.clone();
-        sorted.sort_by(|a, b| {
-            (a.app_name.to_lowercase() + &a.title.to_lowercase())
-                .cmp(&(b.app_name.to_lowercase() + &b.title.to_lowercase()))
-        });
-        // Zombie aging (TS-7): 14+ days untouched parks the sprite down to
-        // marble-scale occupancy; faded ones still walk but draw dimmed.
-        // sleepers (closed claimed windows) always
-        // walk — asleep and dim — and are never parked into dots or culled
-        // for age `gone`; only Done/Unclaim evicts them.
-        let (parked, walking): (Vec<&HabitatEntry>, Vec<&HabitatEntry>) = sorted
-            .iter()
-            .partition(|e| e.age == "park" && !e.asleep);
-        let (walker_entries, dot_entries): (Vec<&HabitatEntry>, Vec<&HabitatEntry>) =
-            if collapsed_eff {
-                (Vec::new(), Vec::new())
-            } else {
-                (walking, parked)
-            };
+        // Claimed windows are walkers. Parked zombies are dots.
+        // Marbles stay bare.
+        let (walker_entries, dot_entries) =
+            sync_roster::classify(entries, collapsed_eff);
 
         // a Done entry that gets no walker to walk off
         // (marble planet, or a parked dot) evicts immediately — fast-
