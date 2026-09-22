@@ -69,3 +69,8 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 ## 2026-09-21 anim_step peel
 - One walker's pose step (Sit / Stand / Work / WalkOff / Roam) → `anim_step.rs` (`step_pose`)
 - Sleeper camp, mid-drag, and tree chores stay in `anim_planet.rs`
+
+## 2026-09-21 three fat cuts
+- WalkOff arm → `anim_walkoff.rs` (`step_walkoff`)
+- Marble track assignment → `marble_tracks.rs` (`assign_tracks`)
+- Mouse-up → `mouse_up.rs` (`mouse_up_inner`). The extern wrapper stays in `mouse.rs`.
