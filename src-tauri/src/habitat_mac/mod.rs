@@ -52,6 +52,7 @@ mod marble_motion;
 mod anim;
 mod anim_planet;
 mod anim_step;
+mod anim_walkoff;
 mod layout;
 mod spawn;
 mod panels;
