@@ -26,6 +26,7 @@ mod drag_tick;
 mod cursor_tick;
 mod input;
 mod mouse;
+mod mouse_up;
 mod walker_menu;
 mod planet_menu;
 mod board_geom;
