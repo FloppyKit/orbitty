@@ -54,3 +54,7 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 ## 2026-09-21 anim_planet peel
 - `anim.rs` ~697 → ~86 (clock + planet loop shell)
 - `anim_planet.rs` — tick_expanded walker/bob/keep-up body
+
+## 2026-09-21 sync_still peel
+- `sync.rs` reduce-motion station snap → `sync_still.rs` (`snap_stations`)
+- Roam is not moved. Stand still uses the board south lip.

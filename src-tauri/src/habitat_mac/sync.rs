@@ -11,12 +11,12 @@ use std::time::Instant;
 use tauri::{Emitter, Manager};
 
 use super::audio;
-use super::draw;
 use super::todo_tree;
 use super::sync_budget;
 use super::sync_pose;
+use super::sync_still;
 use super::pose::{
-    droid_glance, pose_for, station_target, sticky_pose, Pose, HOME_HIDE_X,
+    droid_glance, pose_for, sticky_pose, Pose, HOME_HIDE_X,
 };
 use super::{
     color_for, default_state, effective_radius, emit_walked_off, ensure_pack_loaded,
@@ -493,53 +493,10 @@ pub(crate) fn do_sync(snapshot: &HabitatSnapshot) {
         if planet.is_marble {
             continue;
         }
-        // Under Reduce Motion anim_tick never steps, so a posed walker
-        // would freeze wherever it was — snap every station-posed walker
-        // to its station here instead. The world stays truthful, just
-        // still: positions are the board, motion is what's reduced.
+        // Under Reduce Motion anim_tick never steps — snap station poses
+        // in place. The world stays truthful, just still.
         if reduce_motion {
-            let posed: Vec<(String, Pose)> = planet
-                .walkers
-                .iter()
-                .filter(|b| !b.asleep || b.pose == Pose::WalkOff)
-                .map(|b| (b.entry_id.clone(), b.pose))
-                .collect();
-            let mut snapped = false;
-            for (id, pose) in posed {
-                let Some((tx, ty)) = (match pose {
-                    // PROPS leftover (town usable): Stand snaps to the
-                    // board's south lip too — never the post foot
-                    // (STATION_BOARD sits behind the sign PNG).
-                    Pose::Stand => Some(draw::board_near_lip(
-                        planet.radius,
-                        planet.projection,
-                        planet.marble_scale,
-                    )),
-                    Pose::WalkOff | Pose::Work | Pose::Sit => {
-                        Some(station_target(pose, &id))
-                    }
-                    Pose::Roam => None,
-                }) else {
-                    continue;
-                };
-                if let Some(r) = planet.roam.get_mut(&id) {
-                    if (r.x - tx).abs() > 1e-9 || (r.y - ty).abs() > 1e-9 {
-                        r.x = tx;
-                        r.y = ty;
-                        r.tx = tx;
-                        r.ty = ty;
-                        r.pause_end = None;
-                        snapped = true;
-                    }
-                }
-            }
-            if snapped {
-                layout_beings(planet);
-                unsafe {
-                    let view = planet.view as *mut Object;
-                    let _: () = msg_send![view, setNeedsDisplay: true];
-                }
-            }
+            sync_still::snap_stations(planet);
         }
         let done_ids: Vec<String> = planet
             .walkers
