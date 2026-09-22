@@ -1320,6 +1320,10 @@
       name: name.trim(),
     };
     projects = [...projects, p];
+    // No walker yet: a marble, not an open planet. A claim or a todo opens it.
+    if (!collapsedSectionIds.includes(p.id)) {
+      collapsedSectionIds = [...collapsedSectionIds, p.id];
+    }
     return p;
   }
 
@@ -1871,13 +1875,11 @@
     newProjectName = "";
     creatingProject = false;
     if (embedded) sheetSlot = p.id;
-    // Show the disc as soon as the panel exists. Do not start collapsed:
-    // that hid the planet until the inspector name was clicked.
+    // Marble is already in the snapshot. Lift it so it is visible when
+    // planets are not muted. No locate glow — that pops the name.
     await persist();
-    raisePlanet(p.id);
-    // After the Add click returns, lift once more so the disc stays
-    // above the windows already on the middle screen.
-    setTimeout(() => raisePlanet(p.id), 50);
+    invoke("bring_planet_front", { id: p.id }).catch(() => {});
+    setTimeout(() => invoke("bring_planet_front", { id: p.id }).catch(() => {}), 50);
   }
 
   // the × on a planet

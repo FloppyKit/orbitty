@@ -24,7 +24,7 @@
         onmousedown={(e) => e.stopPropagation()}
         onclick={(e) => {
           e.stopPropagation();
-          rail.removeProject(p);
+          rail.removeProject(project);
         }}>Yes</button
       >
       <button
