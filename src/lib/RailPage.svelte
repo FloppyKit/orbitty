@@ -729,7 +729,7 @@
     } catch {
       // next mutation retries; rail stays usable without persistence
     }
-    syncHabitat();
+    await syncHabitat();
   }
 
   // Habitat: push a snapshot of claimed projects to the native planet panels.
@@ -1869,16 +1869,17 @@
     closeBeingEditor();
   }
 
-  function createProjectOnly() {
+  async function createProjectOnly() {
     if (!newProjectName.trim()) return;
     const p = createProject(newProjectName);
     newProjectName = "";
     creatingProject = false;
-    persist();
-    if (embedded) {
-      sheetSlot = p.id;
-      raisePlanet(p.id);
-    }
+    if (embedded) sheetSlot = p.id;
+    // The disc is born under whatever already covers the middle screen.
+    // Wait until that panel exists, then lift it. A name click was the
+    // only thing doing this lift.
+    await persist();
+    raisePlanet(p.id);
   }
 
   // the × on a planet
