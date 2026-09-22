@@ -59,6 +59,7 @@ mod sync_budget;
 mod sync_pose;
 mod sync_still;
 mod sync_roster;
+mod sync_spawn;
 mod types;
 mod worlds_io;
 mod api;

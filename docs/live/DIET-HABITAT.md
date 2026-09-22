@@ -61,3 +61,7 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 
 ## 2026-09-21 sync_roster peel
 - Walker / dot split (sort + park, marbles empty) → `sync_roster.rs` (`classify`)
+
+## 2026-09-21 sync_spawn peel
+- First panel for a project not yet on screen → `sync_spawn.rs` (`materialize`)
+- Over the marble cap, or a missing world-view class, still skips that planet.

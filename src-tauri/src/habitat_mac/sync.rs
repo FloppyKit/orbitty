@@ -7,7 +7,6 @@
 use objc::runtime::Object;
 use objc::{msg_send, sel, sel_impl};
 use std::collections::HashMap;
-use std::time::Instant;
 
 use super::audio;
 use super::todo_tree;
@@ -15,16 +14,15 @@ use super::sync_budget;
 use super::sync_pose;
 use super::sync_still;
 use super::sync_roster;
+use super::sync_spawn;
 use super::pose::{
     droid_glance, pose_for, sticky_pose, Pose, HOME_HIDE_X,
 };
 use super::{
-    color_for, default_state, effective_radius, emit_walked_off, ensure_pack_loaded,
+    color_for, effective_radius, emit_walked_off, ensure_pack_loaded,
     layout_beings, layout_decor, load_pack_frames, load_worlds, lock, locked_projection,
-    locked_projection_str, make_being, make_panel, ns_string, panel_frame,
-    panel_set_frame, primary_screen_id, ring_claimed, spawn_ring, unload_dead_packs,
-    world_view_class, Being, HabitatPlanet, HabitatSnapshot, MAX_MARBLE_PANELS,
-    NSRect, Planet, VIEW_PADDING,
+    locked_projection_str, make_being, panel_set_frame, primary_screen_id, unload_dead_packs,
+    Being, HabitatPlanet, HabitatSnapshot, NSRect, VIEW_PADDING,
 };
 
 pub(crate) fn do_sync(snapshot: &HabitatSnapshot) {
@@ -341,116 +339,29 @@ pub(crate) fn do_sync(snapshot: &HabitatSnapshot) {
                 }
             }
         } else {
-            if collapsed_eff && marble_panels >= MAX_MARBLE_PANELS {
-                // 13th+ marble (GO-ORBITTY-PLANET-BUDGET): the project
-                // stays on the rail list with NO panel. A slot frees when
-                // a marble expands or is unclaimed; that sync's sig change
-                // materializes the waitlist in rail order.
-                continue;
-            }
-            if !h.worlds.contains_key(project_id) {
-                // Slot index = ring slots already claimed this session;
-                // existing worlds are not on the ring and do not occupy.
-                let on_screen = match spawn_ring() {
-                    Some(ring) => ring_claimed(&ring, &h.worlds),
-                    None => h
-                        .worlds
-                        .values()
-                        .filter(|w| w.screen_id == primary_id)
-                        .count(),
-                };
-                h.worlds
-                    .insert(project_id.clone(), default_state(&primary_id, on_screen));
-            }
-            let state = h.worlds[project_id].clone();
-            // A planet that didn't exist above can't have taken the
-            // pose-only fast path (its gate requires the planet), so the
-            // beings are always built here.
-            let Some((walkers, dots)) = built else {
-                continue;
-            };
-            let mut planet = Planet {
-                panel: 0,
-                view: 0,
-                name: name.clone(),
+            match sync_spawn::materialize(
+                &mut h,
+                project_id,
+                name,
+                collapsed_eff,
+                marble_panels,
+                &primary_id,
                 radius,
-                sprite_scale: h.sprite_scale,
-                is_marble: collapsed_eff,
+                side,
                 color,
-                rotation: 0.0,
-                projection: locked_projection(collapsed_eff),
-                walkers,
-                dots,
-                caption: None,
-                hover_name: false,
-                orbit: None,
-                marble_scale: 1.0,
-                pin_until: None,
-                plants: state.plants.clone(),
-                mushrooms: state.mushrooms.clone(),
-                buildings: state.buildings.clone(),
-                boombox_pos: state.boombox_pos,
-                boombox: state.boombox,
-                beach_ball: state.beach_ball,
-                ball: None,
-                audio: None,
-                audio_volume: 1.0,
-                decor_frames: Vec::new(),
-                roam: HashMap::new(),
-                walker_entries: walker_entries.iter().map(|e| (*e).clone()).collect(),
-                dot_entries: dot_entries.iter().map(|e| (*e).clone()).collect(),
-                board_cards: board_cards.clone(),
-                todo_trees: todo_trees.clone(),
-                todo_tree_frames: Vec::new(),
-                tree_grow_days: snapshot.tree_grow_days,
-                tree_chores: Vec::new(),
-            };
-            layout_beings(&mut planet);
-            todo_tree::layout(&mut planet);
-            let Some(cls) = world_view_class() else {
-                // Class registration failed — skip this planet and leave the
-                // rail (list/focus/stow) fully usable.
-                eprintln!("habitat: no world view class; skipping planet {project_id}");
-                continue;
-            };
-            unsafe {
-                let view: *mut Object = msg_send![cls, alloc];
-                let view: *mut Object =
-                    msg_send![view, initWithFrame: NSRect::new(0.0, 0.0, side, side)];
-                let panel = make_panel();
-                let _: () = msg_send![panel, setContentView: view];
-                let _: () = msg_send![view, release]; // panel owns it now
-                // Borderless panels never draw a title, but the name shows up
-                // in window lists / screen-recording prompts.
-                let _: () = msg_send![panel, setTitle: ns_string(&format!("Orbitty — {name}"))];
-                panel_set_frame(panel, panel_frame(&state, side), false);
-                if h.planets_hidden {
-                    let _: () = msg_send![panel, orderOut: std::ptr::null::<Object>()];
-                } else {
-                    let _: () = msg_send![panel, orderFrontRegardless];
+                built,
+                &walker_entries,
+                &dot_entries,
+                board_cards,
+                todo_trees,
+                snapshot.tree_grow_days,
+            ) {
+                sync_spawn::Fresh::Skip => continue,
+                sync_spawn::Fresh::Panel { marble } => {
+                    if marble {
+                        marble_panels += 1;
+                    }
                 }
-                planet.panel = panel as usize;
-                planet.view = view as usize;
-            }
-            // Boombox persisted on: start playing once the planet exists.
-            // A hard-muted save starts nothing — the cursor_tick fader
-            // door brings it up on unmute.
-            if state.boombox && !state.music.is_empty() {
-                let live = if state.boombox_muted {
-                    0.0
-                } else {
-                    audio::live_volume(state.boombox_volume, planet.radius, h.reduce_motion)
-                };
-                audio::start_audio(&mut planet, &state.music, live);
-            }
-            h.planets.insert(project_id.clone(), planet);
-            // a fresh panel must not
-            // debut behind the user's windows — orderFrontRegardless ran
-            // above; arm the locate glow so the first blits ring the disc
-            // (project_add arms pre-sync too; this is the guarantee).
-            h.locate_planet = Some((project_id.clone(), Instant::now()));
-            if collapsed_eff {
-                marble_panels += 1;
             }
         }
         // heal worlds.json so a leftover "flat"
