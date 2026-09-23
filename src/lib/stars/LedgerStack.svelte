@@ -45,13 +45,14 @@
   }
 </script>
 
-<section class="ledger" aria-label="Ledger">
-  <header>
-    <span>Ledger</span>
-    <span class="count">{pages.length ? `${safe + 1} / ${pages.length}` : "0"}</span>
-    <button type="button" class="nav" onclick={() => flip(-1)} disabled={!pages.length} aria-label="Previous page">‹</button>
-    <button type="button" class="nav" onclick={() => flip(1)} disabled={!pages.length} aria-label="Next page">›</button>
-  </header>
+<section class="ledger" aria-label="Journal">
+  {#if pages.length}
+    <header>
+      <span class="count">{safe + 1} / {pages.length}</span>
+      <button type="button" class="nav" onclick={() => flip(-1)} aria-label="Previous page">‹</button>
+      <button type="button" class="nav" onclick={() => flip(1)} aria-label="Next page">›</button>
+    </header>
+  {/if}
   <div class="stack" class:deep={depth > 0}>
     <div class="sheet back2" aria-hidden="true"></div>
     <div class="sheet back1" aria-hidden="true"></div>
@@ -65,17 +66,15 @@
               <span class="chip" style="background: {planetCss(planet.id)}"></span>
               {planet.name}
             {:else}
-              Overall
+              All
             {/if}
           </p>
           {#if flagLine(page)}
             <p class="flags">{flagLine(page)}</p>
           {/if}
-          <p class="body">{page.body?.trim() ? page.body : "Notes come with Reflect."}</p>
+          <p class="body">{page.body?.trim() ? page.body : ""}</p>
         {:else}
-          <h3>Journal</h3>
-          <p class="meta">No pages yet</p>
-          <p class="body">Reflect writes the next page.</p>
+          <p class="body quiet">No pages yet.</p>
         {/if}
       </article>
     {/key}
@@ -127,6 +126,10 @@
     position: relative;
     min-height: 108px;
     padding: 0 8px 8px 0;
+  }
+
+  .stack:not(.deep) .sheet {
+    display: none;
   }
 
   .sheet {
@@ -203,6 +206,11 @@
     font-size: 0.75rem;
     line-height: 1.35;
     color: var(--ink);
+  }
+
+  .body.quiet {
+    margin-top: 4px;
+    color: var(--dim);
   }
 
   @keyframes flip {

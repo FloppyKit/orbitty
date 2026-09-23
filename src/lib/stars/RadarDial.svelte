@@ -136,7 +136,7 @@
     aria-label={avgMode ? "STARS average radar" : "STARS radar"}
   >
     <polygon class="grid" points={radarRing(5)} />
-    <polygon class="grid inner" points={radarRing(3)} />
+    <polygon class="grid ring1" points={radarRing(1)} />
     {#each spokes as spoke, i (spoke.key)}
       {@const [ax, ay] = radarVertex(i, 5)}
       <line class="axis" x1="0" y1="0" x2={ax} y2={ay} />
@@ -148,7 +148,7 @@
         aria-label="{spoke.label} {numberText(spoke.key)}"
         aria-valuemin="1"
         aria-valuemax="5"
-        aria-valuenow={Math.min(5, Math.max(1, Math.round(spokeValue(spoke.key) || 1)))}
+        aria-valuenow={Math.max(0, Math.round(spokeValue(spoke.key) || 0))}
         aria-disabled={!editable}
         x1="0"
         y1="0"
@@ -158,13 +158,13 @@
         onkeydown={(e) => {
           if (!editable) return;
           const cur = spokeValue(spoke.key);
-          const base = cur >= 1 ? Math.round(cur) : 1;
+          const base = cur >= 1 ? Math.round(cur) : 0;
           if (e.key === "ArrowUp" || e.key === "ArrowRight") {
             e.preventDefault();
             onSet(spoke.key, Math.min(5, base + 1));
           } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
             e.preventDefault();
-            onSet(spoke.key, Math.max(1, base - 1));
+            onSet(spoke.key, base <= 1 ? 0 : base - 1);
           }
         }}
       />
@@ -173,17 +173,20 @@
       <polygon class="shape" points={points()} />
     {/if}
     {#each spokes as spoke, i (spoke.key)}
-      {@const [x, y] = radarVertex(i, spokeValue(spoke.key) || 1)}
-      <circle
-        class="knob-hit"
-        class:locked={!editable}
-        cx={x}
-        cy={y}
-        r="14"
-        onpointerdown={(e) => startDrag(e, i)}
-      />
-      <circle class="knob-ring" cx={x} cy={y} r="9" />
-      <circle class="knob-core" cx={x} cy={y} r="4" />
+      {@const v = spokeValue(spoke.key)}
+      {#if v >= 1}
+        {@const [x, y] = radarVertex(i, v)}
+        <circle
+          class="knob-hit"
+          class:locked={!editable}
+          cx={x}
+          cy={y}
+          r="14"
+          onpointerdown={(e) => startDrag(e, i)}
+        />
+        <circle class="knob-ring" cx={x} cy={y} r="9" />
+        <circle class="knob-core" cx={x} cy={y} r="4" />
+      {/if}
     {/each}
     {#each spokes as spoke, i (spoke.key)}
       {@const label = labelPlacement(i)}
@@ -220,12 +223,15 @@
         maxlength="1"
         aria-label="{spokes[editIndex].label} 1 to 5"
         bind:value={draftNum}
-        onblur={commitNum}
+        onblur={() => {
+          if (editKey) editKey = null;
+        }}
         onkeydown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            (e.currentTarget as HTMLInputElement).blur();
+            commitNum();
           } else if (e.key === "Escape") {
+            e.preventDefault();
             editKey = null;
           }
         }}
@@ -263,9 +269,9 @@
     stroke-width: 1.5;
   }
 
-  .grid.inner {
-    stroke-dasharray: 3 4;
-    opacity: 0.7;
+  .grid.ring1 {
+    stroke-dasharray: 2 3;
+    opacity: 0.85;
   }
 
   .axis {

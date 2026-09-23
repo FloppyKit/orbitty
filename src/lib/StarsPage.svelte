@@ -10,7 +10,8 @@
   // Rolling 7/14/30-day window ending at the
   // day cursor, mean of saved days only (a saved 1 counts; blanks shrink
   // the denominator, never a zero-fill). Persists as stars.averageWindow.
-  // One screen — left act (radar, wins, trackers), right read (cloud, ledger).
+  // Left: one check-in card (radar, wins, save) and a trackers card.
+  // Right: one folio — cloud cover, journal over it. Center of the radar is unset.
   // Average pills sit under the day chips. No Check-in | Review.
   // Same state.json discipline as Lists: every
   // write is load → mutate → save of the WHOLE loaded object, so rail-owned
@@ -20,11 +21,10 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
-  import SkyField from "./SkyField.svelte";
   import RadarDial from "./stars/RadarDial.svelte";
+  import AlmanacFolio from "./stars/AlmanacFolio.svelte";
   import DayPositives from "./stars/DayPositives.svelte";
   import StarsTrackers from "./stars/StarsTrackers.svelte";
-  import LedgerStack from "./stars/LedgerStack.svelte";
   import ReflectSheet from "./stars/ReflectSheet.svelte";
   import NudgeStrip from "./stars/NudgeStrip.svelte";
   import NudgeCards from "./stars/NudgeCards.svelte";
@@ -162,8 +162,10 @@
     if (!saves.length) return null;
     const mean = emptyCheckin();
     for (const { key } of STARS_SPOKES) {
-      mean[key] =
-        saves.reduce((acc, c) => acc + (c[key] ?? 0), 0) / saves.length;
+      const vals = saves.map((c) => c[key] ?? 0).filter((n) => n >= 1);
+      mean[key] = vals.length
+        ? vals.reduce((acc, n) => acc + n, 0) / vals.length
+        : 0;
     }
     return mean;
   });
@@ -209,7 +211,8 @@
 
   function setSpoke(key: SpokeKey, v: number) {
     if (!dayEditable) return; // past days and a locked today stay read-only
-    starsDraft = { ...starsDraft, [key]: v };
+    const n = v <= 0 ? 0 : Math.max(1, Math.min(5, Math.round(v)));
+    starsDraft = { ...starsDraft, [key]: n };
     starsSavedDay = "";
     draftDirty = true;
   }
@@ -234,7 +237,8 @@
     const day = todayKey();
     const clean = emptyCheckin();
     for (const { key } of STARS_SPOKES) {
-      clean[key] = Math.max(1, Math.min(5, Math.round(starsDraft[key] ?? 0)));
+      const n = Math.round(starsDraft[key] ?? 0);
+      clean[key] = n >= 1 ? Math.min(5, n) : 0;
     }
     const win1 = filled(starsDraft.win1);
     const win2 = filled(starsDraft.win2);
@@ -332,7 +336,9 @@
       editingToday = true;
       return;
     }
-    setSpoke(key, Math.max(1, Math.min(5, (starsDraft[key] ?? 0) + delta)));
+    const cur = starsDraft[key] ?? 0;
+    const next = cur + delta;
+    setSpoke(key, next < 1 ? 0 : Math.min(5, next));
   }
 
   function saveFromRing() {
@@ -652,12 +658,12 @@
     onScope={(id) => (nudgeScope = id)}
     onReflect={() => (reflectOpen = true)}
   />
-  <NudgeCards {projects} scope={nudgeScope} />
+  <NudgeCards />
 
   <div class="s-body">
     <div class="act-col">
-      <section class="act-tile" aria-label="Stars">
-        <h2>Stars</h2>
+      <section class="act-tile" aria-label="Check-in">
+        <h2>Check-in</h2>
         <RadarDial
           spokes={STARS_SPOKES}
           shown={avgMode ? windowMean : shown}
@@ -665,6 +671,13 @@
           {avgMode}
           activeId={menuRing.activeId}
           onSet={(key, v) => setSpoke(key as SpokeKey, v)}
+        />
+        <DayPositives
+          win1={shown?.win1 ?? ""}
+          win2={shown?.win2 ?? ""}
+          grateful={shown?.grateful ?? ""}
+          editable={dayEditable}
+          onChange={setWin}
         />
         <div class="stars-foot">
           <button
@@ -698,16 +711,6 @@
           {/if}
         </div>
       </section>
-      <section class="act-tile" aria-label="Wins">
-        <h2>Wins</h2>
-        <DayPositives
-          win1={shown?.win1 ?? ""}
-          win2={shown?.win2 ?? ""}
-          grateful={shown?.grateful ?? ""}
-          editable={dayEditable}
-          onChange={setWin}
-        />
-      </section>
       <section class="act-tile" aria-label="Trackers">
         <StarsTrackers
           {projects}
@@ -721,12 +724,7 @@
         />
       </section>
     </div>
-    <div class="cloud-col" aria-label="Word cloud and ledger">
-      <div class="cloud-sky">
-        <SkyField />
-      </div>
-      <LedgerStack pages={starsState.ledgerPages ?? []} {projects} />
-    </div>
+    <AlmanacFolio pages={starsState.ledgerPages ?? []} {projects} />
   </div>
   {#if reflectOpen}
     <ReflectSheet onClose={() => (reflectOpen = false)} onWrite={writeLedgerPage} />
@@ -919,21 +917,5 @@
   .stars-note {
     font-size: 0.64rem;
     color: var(--dim);
-  }
-
-  .cloud-col {
-    flex: 1 1 0;
-    min-width: 0;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .cloud-sky {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
   }
 </style>

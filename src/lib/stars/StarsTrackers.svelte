@@ -30,6 +30,8 @@
   let kind = $state<"number" | "timer">("number");
   let planetId = $state("");
   let now = $state(Date.now());
+  let menuId = $state<string | null>(null);
+  let confirmId = $state<string | null>(null);
 
   const rows = $derived.by(() => {
     const list =
@@ -112,38 +114,26 @@
     </div>
   {/if}
   {#if rows.length}
-    <div class="grid">
+    <ul class="rows">
       {#each rows as row (row.tr.id)}
-        <div class="tile" role="group" aria-label={row.tr.label}>
-          <button
-            type="button"
-            class="x"
-            aria-label="Remove {row.tr.label}"
-            onclick={() => onRemove(row.projectId, row.tr.id)}>×</button>
-          <div class="name">
-            <span
-              class="chip"
-              style="background: {planetCss(row.projectId)}"
-            ></span>
-            <span class="planet">{row.projectName}</span>
-            <span class="lbl">{row.tr.label}</span>
-          </div>
+        <li class="line" aria-label={row.tr.label}>
+          <span class="chip" style="background: {planetCss(row.projectId)}"></span>
+          <span class="who">{row.projectName}</span>
+          <span class="lbl">{row.tr.label}</span>
           {#if isTimer(row.tr)}
-            <div class="row">
-              <button
-                type="button"
-                class="play"
-                aria-label={row.tr.runningSince != null ? "Stop timer" : "Start timer"}
-                onclick={() =>
-                  row.tr.runningSince != null
-                    ? onStop(row.projectId, row.tr.id)
-                    : onPlay(row.projectId, row.tr.id)}
-              >{row.tr.runningSince != null ? "Stop" : "Play"}</button>
-              <span class="elapsed" title="{Math.round(elapsedSec(row.tr, now))} seconds"
-                >{formatElapsed(elapsedSec(row.tr, now))}</span>
-            </div>
+            <button
+              type="button"
+              class="play"
+              aria-label={row.tr.runningSince != null ? "Stop timer" : "Start timer"}
+              onclick={() =>
+                row.tr.runningSince != null
+                  ? onStop(row.projectId, row.tr.id)
+                  : onPlay(row.projectId, row.tr.id)}
+            >{row.tr.runningSince != null ? "Stop" : "Play"}</button>
+            <span class="elapsed" title="{Math.round(elapsedSec(row.tr, now))} seconds"
+              >{formatElapsed(elapsedSec(row.tr, now))}</span>
           {:else}
-            <div class="row">
+            <span class="step">
               <button
                 type="button"
                 class="nudge"
@@ -166,11 +156,36 @@
                 class="nudge"
                 aria-label="Increase {row.tr.label}"
                 onclick={() => onBump(row.projectId, row.tr.id, 1)}>+</button>
-            </div>
+            </span>
           {/if}
-        </div>
+          {#if confirmId === row.tr.id}
+            <span class="confirm">
+              Remove?
+              <button type="button" onclick={() => onRemove(row.projectId, row.tr.id)}>Yes</button>
+              <button type="button" onclick={() => (confirmId = null)}>No</button>
+            </span>
+          {:else}
+            <button
+              type="button"
+              class="more"
+              aria-label="Tracker actions"
+              aria-expanded={menuId === row.tr.id}
+              onclick={() => (menuId = menuId === row.tr.id ? null : row.tr.id)}
+            >···</button>
+            {#if menuId === row.tr.id}
+              <button
+                type="button"
+                class="menu"
+                onclick={() => {
+                  menuId = null;
+                  confirmId = row.tr.id;
+                }}
+              >Remove</button>
+            {/if}
+          {/if}
+        </li>
       {/each}
-    </div>
+    </ul>
   {:else if !adding}
     <p class="empty">No trackers</p>
   {/if}
@@ -196,7 +211,9 @@
   .go,
   .play,
   .nudge,
-  .x {
+  .more,
+  .menu,
+  .confirm button {
     font: inherit;
     color: var(--ink);
     background: var(--bg-fill, var(--bg));
@@ -240,44 +257,21 @@
     padding: 2px 8px;
   }
 
-  .grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .tile {
-    position: relative;
+  .rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    min-width: 7.2rem;
-    padding: 6px 6px 4px;
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    background: var(--bg-fill, var(--bg));
   }
 
-  .x {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    font-size: 0.68rem;
-    line-height: 1;
-    color: #fff;
-    background: #ff453a;
-    border: none;
-  }
-
-  .name {
+  .line {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 3px;
-    max-width: 9rem;
+    gap: 6px;
+    min-height: 28px;
+    padding: 2px 2px;
   }
 
   .chip {
@@ -288,28 +282,31 @@
     flex: none;
   }
 
-  .planet {
-    font-size: 0.58rem;
+  .who {
+    flex: none;
+    max-width: 5.5rem;
+    font-size: 0.62rem;
     color: var(--dim);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 6.5rem;
   }
 
   .lbl {
-    flex-basis: 100%;
-    font-size: 0.68rem;
-    font-weight: 700;
+    flex: 1;
+    min-width: 0;
+    font-size: 0.72rem;
+    font-weight: 650;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .row {
+  .step {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
+    flex: none;
   }
 
   .nudge {
@@ -335,6 +332,35 @@
     font-size: 0.72rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
+  }
+
+  .more,
+  .menu {
+    flex: none;
+    font-size: 0.72rem;
+    padding: 0 4px;
+    color: var(--dim);
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .line:hover .more,
+  .more[aria-expanded="true"] {
+    color: var(--ink);
+  }
+
+  .confirm {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.62rem;
+    color: var(--dim);
+  }
+
+  .confirm button {
+    font-size: 0.62rem;
+    padding: 0 4px;
   }
 
   .empty {

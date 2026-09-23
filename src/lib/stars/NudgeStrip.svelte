@@ -22,7 +22,8 @@
     class:on={scope === "overall"}
     aria-pressed={scope === "overall"}
     onclick={() => onScope("overall")}
-  >Overall</button>
+  >All</button>
+  <span class="rule" aria-hidden="true"></span>
   {#each projects as p (p.id)}
     <button
       type="button"
@@ -67,6 +68,14 @@
     border-radius: 99px;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
     flex: none;
+  }
+
+  .rule {
+    flex: none;
+    width: 1px;
+    height: 14px;
+    margin: 0 4px;
+    background: var(--edge);
   }
 
   .chip.on {

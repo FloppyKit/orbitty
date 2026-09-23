@@ -1,5 +1,6 @@
-// Five axes from the top, 72° apart. Value 1 sits at the center; 5 at the rim.
-// An unset draft 0 draws at the center too.
+// Five axes from the top, 72° apart.
+// Center is unset (draft 0). Ring 1 is score 1. The outer ring is 5.
+// The hub is not a score.
 
 export const RADAR_R = 52;
 export const SPOKE_COUNT = 5;
@@ -26,10 +27,15 @@ export function spokeAngle(i: number): number {
   return -Math.PI / 2 + (i * 2 * Math.PI) / SPOKE_COUNT;
 }
 
+export function ringRadius(v: number): number {
+  const clamped = Math.max(1, Math.min(5, v));
+  return (clamped / 5) * RADAR_R;
+}
+
 export function radarVertex(i: number, v: number): [number, number] {
   const a = spokeAngle(i);
-  const clamped = Math.max(1, Math.min(5, v || 1));
-  const r = ((clamped - 1) / 4) * RADAR_R;
+  if (!v || v < 1) return [0, 0];
+  const r = ringRadius(v);
   return [Math.cos(a) * r, Math.sin(a) * r];
 }
 
@@ -39,10 +45,13 @@ export function radarRing(v: number): string {
   ).join(" ");
 }
 
-// Project a viewBox point onto spoke i and snap to 1–5.
+// Project onto spoke i. Inside the first ring stays unset (0), never score 1.
 export function valueFromPointer(i: number, x: number, y: number): number {
   const a = spokeAngle(i);
   const dot = x * Math.cos(a) + y * Math.sin(a);
-  const r = Math.max(0, Math.min(RADAR_R, dot));
-  return Math.max(1, Math.min(5, Math.round(1 + (r / RADAR_R) * 4)));
+  const ring1 = ringRadius(1);
+  if (dot < ring1) return 0;
+  const r = Math.min(RADAR_R, dot);
+  const t = (r - ring1) / (RADAR_R - ring1);
+  return Math.max(1, Math.min(5, Math.round(1 + t * 4)));
 }
