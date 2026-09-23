@@ -121,13 +121,11 @@
             aria-label="Remove {row.tr.label}"
             onclick={() => onRemove(row.projectId, row.tr.id)}>×</button>
           <div class="name">
-            {#if scope === "overall"}
-              <span
-                class="chip"
-                style="background: {planetCss(row.projectId)}"
-                title={row.projectName}
-              ></span>
-            {/if}
+            <span
+              class="chip"
+              style="background: {planetCss(row.projectId)}"
+            ></span>
+            <span class="planet">{row.projectName}</span>
             <span class="lbl">{row.tr.label}</span>
           </div>
           {#if isTimer(row.tr)}
@@ -180,7 +178,6 @@
 
 <style>
   .trackers {
-    margin-top: 8px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -254,7 +251,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    min-width: 5.4rem;
+    min-width: 7.2rem;
     padding: 6px 6px 4px;
     border: 1px solid var(--edge);
     border-radius: 8px;
@@ -276,21 +273,33 @@
   }
 
   .name {
-    display: inline-flex;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 3px;
-    max-width: 7rem;
+    max-width: 9rem;
   }
 
   .chip {
-    width: 7px;
-    height: 7px;
+    width: 8px;
+    height: 8px;
     border-radius: 99px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
     flex: none;
   }
 
+  .planet {
+    font-size: 0.58rem;
+    color: var(--dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 6.5rem;
+  }
+
   .lbl {
-    font-size: 0.62rem;
+    flex-basis: 100%;
+    font-size: 0.68rem;
     font-weight: 700;
     overflow: hidden;
     text-overflow: ellipsis;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Project } from "../persist";
+  import { planetCss } from "../planetColor";
 
   let {
     projects,
@@ -29,7 +30,7 @@
       class:on={scope === p.id}
       aria-pressed={scope === p.id}
       onclick={() => onScope(p.id)}
-    >{p.name}</button>
+    ><span class="dot" style="background: {planetCss(p.id)}"></span>{p.name}</button>
   {/each}
   <button type="button" class="reflect" onclick={onReflect}>Reflect</button>
 </div>
@@ -47,6 +48,9 @@
 
   .chip {
     flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font: inherit;
     font-size: 0.64rem;
     color: var(--ink);
@@ -55,6 +59,14 @@
     border-radius: 999px;
     padding: 1px 8px;
     cursor: pointer;
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 99px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+    flex: none;
   }
 
   .chip.on {

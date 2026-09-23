@@ -49,7 +49,6 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    margin-top: 8px;
   }
 
   .field {

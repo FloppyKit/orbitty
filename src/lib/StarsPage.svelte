@@ -655,54 +655,60 @@
   <NudgeCards {projects} scope={nudgeScope} />
 
   <div class="s-body">
-    <section class="stars-panel" aria-label="STARS check-in">
-      <RadarDial
-        spokes={STARS_SPOKES}
-        shown={avgMode ? windowMean : shown}
-        editable={dayEditable}
-        {avgMode}
-        activeId={menuRing.activeId}
-        onSet={(key, v) => setSpoke(key as SpokeKey, v)}
-      />
-      <DayPositives
-        win1={shown?.win1 ?? ""}
-        win2={shown?.win2 ?? ""}
-        grateful={shown?.grateful ?? ""}
-        editable={dayEditable}
-        onChange={setWin}
-      />
-      <div class="stars-foot">
-        <button
-          class="mini stars-save"
-          disabled={!isToday || avgMode || (!dayEditable && !!cursorSaved)}
-          onclick={saveStarsToday}
-        >
-          Save today
-        </button>
-        <button
-          type="button"
-          class="mini"
-          disabled={!isToday || avgMode || !cursorSaved || dayEditable}
-          onclick={() => (editingToday = true)}
-        >Edit</button>
-        <button
-          class="mini"
-          class:active={starsState.promptsOptIn}
-          aria-pressed={starsState.promptsOptIn}
-          onclick={toggleStarsPrompts}
-          title="Companion prompts — one quiet strip when today's check-in has a thin spoke. Off by default."
-        >Prompts: {starsState.promptsOptIn ? "On" : "Off"}</button>
-        {#if isToday}
-          {#if starsSavedDay}
-            <span class="stars-note">Saved for {starsSavedDay}</span>
+    <div class="act-col">
+      <section class="act-tile" aria-label="Stars">
+        <h2>Stars</h2>
+        <RadarDial
+          spokes={STARS_SPOKES}
+          shown={avgMode ? windowMean : shown}
+          editable={dayEditable}
+          {avgMode}
+          activeId={menuRing.activeId}
+          onSet={(key, v) => setSpoke(key as SpokeKey, v)}
+        />
+        <div class="stars-foot">
+          <button
+            class="mini stars-save"
+            disabled={!isToday || avgMode || (!dayEditable && !!cursorSaved)}
+            onclick={saveStarsToday}
+          >
+            Save today
+          </button>
+          <button
+            type="button"
+            class="mini"
+            disabled={!isToday || avgMode || !cursorSaved || dayEditable}
+            onclick={() => (editingToday = true)}
+          >Edit</button>
+          <button
+            class="mini"
+            class:active={starsState.promptsOptIn}
+            aria-pressed={starsState.promptsOptIn}
+            onclick={toggleStarsPrompts}
+            title="Companion prompts — one quiet strip when today's check-in has a thin spoke. Off by default."
+          >Prompts: {starsState.promptsOptIn ? "On" : "Off"}</button>
+          {#if isToday}
+            {#if starsSavedDay}
+              <span class="stars-note">Saved for {starsSavedDay}</span>
+            {/if}
+          {:else if cursorSaved}
+            <span class="stars-note">Saved for {cursorDay}</span>
+          {:else}
+            <span class="stars-note">No save</span>
           {/if}
-        {:else if cursorSaved}
-          <span class="stars-note">Saved for {cursorDay}</span>
-        {:else}
-          <span class="stars-note">No save</span>
-        {/if}
-      </div>
-      <div class="tracker-well">
+        </div>
+      </section>
+      <section class="act-tile" aria-label="Wins">
+        <h2>Wins</h2>
+        <DayPositives
+          win1={shown?.win1 ?? ""}
+          win2={shown?.win2 ?? ""}
+          grateful={shown?.grateful ?? ""}
+          editable={dayEditable}
+          onChange={setWin}
+        />
+      </section>
+      <section class="act-tile" aria-label="Trackers">
         <StarsTrackers
           {projects}
           scope={nudgeScope}
@@ -713,8 +719,8 @@
           onPlay={playTimer}
           onStop={stopTimer}
         />
-      </div>
-    </section>
+      </section>
+    </div>
     <div class="cloud-col" aria-label="Word cloud and ledger">
       <div class="cloud-sky">
         <SkyField />
@@ -827,19 +833,28 @@
     flex: 1;
   }
 
-  /* Chunky radar. Name and value sit on each spoke. A thin spoke just
-     reads short — never a red alarm. */
-  .stars-panel {
+  .act-col {
     flex: 1 1 0;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
+    overflow: auto;
     display: flex;
     flex-direction: column;
+    gap: 8px;
+  }
+
+  .act-tile {
+    flex: 0 0 auto;
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
     border-radius: 10px;
-    padding: 10px 12px 12px;
+    padding: 8px 10px 10px;
+  }
+
+  .act-tile h2 {
+    margin: 0 0 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
   }
 
   .day-nav {
@@ -865,12 +880,6 @@
     margin-top: 8px;
     flex: 0 0 auto;
     flex-wrap: wrap;
-  }
-
-  .tracker-well {
-    flex: 1 1 auto;
-    min-height: 96px;
-    overflow: auto;
   }
 
   .mini {

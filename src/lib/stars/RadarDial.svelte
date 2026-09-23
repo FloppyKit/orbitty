@@ -27,6 +27,11 @@
   } = $props();
 
   let svgEl: SVGSVGElement | null = $state(null);
+  let editKey = $state<string | null>(null);
+  let draftNum = $state("");
+  let editEl = $state<HTMLInputElement | null>(null);
+
+  const editIndex = $derived(spokes.findIndex((s) => s.key === editKey));
 
   function spokeValue(key: string): number {
     if (!shown) return 0;
@@ -80,6 +85,47 @@
     window.addEventListener("pointermove", apply);
     window.addEventListener("pointerup", up);
   }
+
+  function openNum(key: string) {
+    if (!editable || avgMode) return;
+    editKey = key;
+    const v = spokeValue(key);
+    draftNum = v >= 1 ? String(Math.round(v)) : "";
+  }
+
+  function commitNum() {
+    if (!editKey) return;
+    const n = parseInt(draftNum.trim(), 10);
+    const key = editKey;
+    editKey = null;
+    if (n >= 1 && n <= 5) onSet(key, n);
+  }
+
+  function pickNum(n: number) {
+    if (!editKey) return;
+    const key = editKey;
+    editKey = null;
+    onSet(key, n);
+  }
+
+  function editStyle(i: number): string {
+    const p = labelPlacement(i);
+    const left = ((p.x - RADAR_VB.x) / RADAR_VB.w) * 100;
+    const top = ((p.y - RADAR_VB.y) / RADAR_VB.h) * 100;
+    if (p.anchor === "end") {
+      return `left:${left}%;top:${top}%;transform:translate(-100%,-130%)`;
+    }
+    if (p.anchor === "start") {
+      return `left:${left}%;top:${top}%;transform:translate(0,-130%)`;
+    }
+    return `left:${left}%;top:${top}%;transform:translate(-50%,-150%)`;
+  }
+
+  $effect(() => {
+    if (!editKey) return;
+    editEl?.focus();
+    editEl?.select();
+  });
 </script>
 
 <div class="dial">
@@ -125,11 +171,20 @@
     {/each}
     {#if shown}
       <polygon class="shape" points={points()} />
-      {#each spokes as spoke, i (spoke.key)}
-        {@const [x, y] = radarVertex(i, spokeValue(spoke.key))}
-        <circle class="dot" cx={x} cy={y} r="3.4" />
-      {/each}
     {/if}
+    {#each spokes as spoke, i (spoke.key)}
+      {@const [x, y] = radarVertex(i, spokeValue(spoke.key) || 1)}
+      <circle
+        class="knob-hit"
+        class:locked={!editable}
+        cx={x}
+        cy={y}
+        r="14"
+        onpointerdown={(e) => startDrag(e, i)}
+      />
+      <circle class="knob-ring" cx={x} cy={y} r="9" />
+      <circle class="knob-core" cx={x} cy={y} r="4" />
+    {/each}
     {#each spokes as spoke, i (spoke.key)}
       {@const label = labelPlacement(i)}
       <text
@@ -142,14 +197,55 @@
         dominant-baseline="middle"
       >
         <tspan class="word">{spoke.label}</tspan>
-        <tspan class="num" dx="4">{numberText(spoke.key)}</tspan>
+        {#if editKey !== spoke.key}
+          <tspan
+            class="num"
+            class:live={editable && !avgMode}
+            dx="4"
+            onclick={(e) => {
+              e.stopPropagation();
+              openNum(spoke.key);
+            }}
+          >{numberText(spoke.key)}</tspan>
+        {/if}
       </text>
     {/each}
   </svg>
+  {#if editKey && editIndex >= 0}
+    <div class="edit" style={editStyle(editIndex)}>
+      <input
+        bind:this={editEl}
+        class="edit-in"
+        inputmode="numeric"
+        maxlength="1"
+        aria-label="{spokes[editIndex].label} 1 to 5"
+        bind:value={draftNum}
+        onblur={commitNum}
+        onkeydown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            (e.currentTarget as HTMLInputElement).blur();
+          } else if (e.key === "Escape") {
+            editKey = null;
+          }
+        }}
+      />
+      <span class="picks" role="group" aria-label="Pick 1 to 5">
+        {#each [1, 2, 3, 4, 5] as n (n)}
+          <button
+            type="button"
+            onmousedown={(e) => e.preventDefault()}
+            onclick={() => pickNum(n)}
+          >{n}</button>
+        {/each}
+      </span>
+    </div>
+  {/if}
 </div>
 
 <style>
   .dial {
+    position: relative;
     flex: 0 0 auto;
     min-width: 0;
   }
@@ -180,7 +276,7 @@
 
   .hit {
     stroke: transparent;
-    stroke-width: 16;
+    stroke-width: 22;
     cursor: grab;
   }
 
@@ -196,7 +292,23 @@
     pointer-events: none;
   }
 
-  .dot {
+  .knob-hit {
+    fill: transparent;
+    cursor: grab;
+  }
+
+  .knob-hit.locked {
+    pointer-events: none;
+  }
+
+  .knob-ring {
+    fill: var(--bg-fill, #1c1c1e);
+    stroke: #e59e3d;
+    stroke-width: 2.6;
+    pointer-events: none;
+  }
+
+  .knob-core {
     fill: #e59e3d;
     pointer-events: none;
   }
@@ -216,6 +328,55 @@
     fill: #e59e3d;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
+  }
+
+  .num.live {
+    pointer-events: all;
+    cursor: text;
+  }
+
+  .edit {
+    position: absolute;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px;
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    background: var(--panel-fill, var(--panel));
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  }
+
+  .edit-in {
+    width: 1.6rem;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-align: center;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 5px;
+    padding: 1px 0;
+  }
+
+  .picks {
+    display: inline-flex;
+    gap: 2px;
+  }
+
+  .picks button {
+    font: inherit;
+    font-size: 0.64rem;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 4px;
+    cursor: pointer;
   }
 
   .tag.on .word {
