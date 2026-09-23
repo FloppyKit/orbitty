@@ -30,7 +30,6 @@
     Claim,
     KanbanCard,
     NeededState,
-    Tracker,
     PersistedState,
     PointsEntry,
     Project,
@@ -90,19 +89,12 @@
   let selectedBeforeDone = $state("inbox");
   let neededSplit = $state(0.28);
   let previewWidth = $state(280);
-  let trackerSplit = $state(0.20);
   let mailEl: HTMLDivElement | null = $state(null);
   let bodyEl: HTMLDivElement | null = $state(null);
-  let eastEl: HTMLDivElement | null = $state(null);
   let addingTodo = $state(false);
   let newTodoTitle = $state("");
   let openSubtaskIds = $state<string[]>([]);
   let newTagName = $state("");
-  let newTrackerLabel = $state("");
-  let newTrackerPlanetId = $state("");
-  let addingTracker = $state(false);
-  let trackerArmed = $state(false);
-  let trackPaneEl: HTMLElement | null = $state(null);
   let neededEl: HTMLDivElement | null = $state(null);
   let migratingCardTrackers = false;
   let previewEdit = $state(false);
@@ -261,25 +253,6 @@
   // S5: Hermes launch/focus for the selected project list (titles only).
   let hermesNote = $state<{ kind: "ok" | "err"; text: string } | null>(null);
   let selectedProject = $derived(projects.find((p) => p.id === selected));
-  const showTrackers = $derived(selected === "inbox" || !!selectedProject);
-  const visibleTrackers = $derived.by(() => {
-    if (selectedProject) {
-      return (selectedProject.trackers ?? []).map((tr) => ({
-        projectId: selectedProject.id,
-        chip: false,
-        tr,
-      }));
-    }
-    if (selected !== "inbox") return [];
-    return projects.flatMap((p) =>
-      (p.trackers ?? []).map((tr) => ({
-        projectId: p.id,
-        chip: true,
-        tr,
-      })),
-    );
-  });
-
 
   function raisePlanet(id: string) {
     invoke("bring_planet_front", { id }).catch(() => {});
@@ -545,24 +518,6 @@
 
   $effect(() => {
     if (neededSelectedId) detailId = neededSelectedId;
-  });
-
-  $effect(() => {
-    void selected;
-    addingTracker = false;
-    newTrackerLabel = "";
-    newTrackerPlanetId = selectedProject?.id ?? "";
-    trackerArmed = false;
-  });
-
-  $effect(() => {
-    if (!trackerArmed) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node | null;
-      if (trackPaneEl && t && !trackPaneEl.contains(t)) trackerArmed = false;
-    };
-    window.addEventListener("pointerdown", onDown, true);
-    return () => window.removeEventListener("pointerdown", onDown, true);
   });
 
   // Overlay Launchpad is its own window — the embedded onNeededFocus
@@ -875,11 +830,8 @@
       collapsedSectionIds = s.collapsedSectionIds ?? [];
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
-      // BOARD-SPLIT-Y: one shared band — prefer neededSplit, mirror to trackers.
-      const band = clampSharedSplit(s.neededSplit ?? s.trackerSplit ?? 0.28);
-      neededSplit = band;
+      neededSplit = clampSharedSplit(s.neededSplit ?? 0.28);
       previewWidth = Math.max(160, s.previewWidth ?? 280);
-      trackerSplit = band;
       openSubtaskIds = s.openSubtaskIds ?? [];
       hackProjectId = s.companion?.hackLive
         ? (s.companion?.hackProjectId ?? null)
@@ -1127,8 +1079,6 @@
     logEvent("needed-later", { cardId: card.id }, card.projectId);
   }
 
-  // BOARD-SPLIT-Y: Needed + Trackers share one Y band — dragging either
-  // splitter updates both ratios so column 1 and column 2 stay aligned.
   function onSplitDown(e: PointerEvent) {
     const el = mailEl;
     if (!el) return;
@@ -1137,9 +1087,7 @@
     const start = neededSplit;
     const h = Math.max(el.clientHeight, 1);
     const move = (ev: PointerEvent) => {
-      const v = clampSharedSplit(start + (ev.clientY - startY) / h);
-      neededSplit = v;
-      trackerSplit = v;
+      neededSplit = clampSharedSplit(start + (ev.clientY - startY) / h);
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -1147,7 +1095,6 @@
       const v = neededSplit;
       mutate((s) => {
         s.neededSplit = v;
-        s.trackerSplit = v;
       });
     };
     window.addEventListener("pointermove", move);
@@ -1215,45 +1162,8 @@
     });
   }
 
-  // BOARD-SPLIT-Y: Needed + Trackers share one clamp band so mirrored
-  // ratios stay equal (was clampTracker 0.14–0.55 vs needed 0.18–0.45).
   function clampSharedSplit(frac: number): number {
     return Math.min(0.45, Math.max(0.18, frac));
-  }
-
-  function onTrackSplitDown(e: PointerEvent) {
-    const el = eastEl;
-    if (!el) return;
-    e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    const startY = e.clientY;
-    const start = trackerSplit;
-    const h = Math.max(el.clientHeight, 1);
-    const move = (ev: PointerEvent) => {
-      const v = clampSharedSplit(start + (ev.clientY - startY) / h);
-      trackerSplit = v;
-      neededSplit = v;
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      const v = trackerSplit;
-      mutate((s) => {
-        s.trackerSplit = v;
-        s.neededSplit = v;
-      });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-
-  function resetTrackerSplit() {
-    trackerSplit = 0.28;
-    neededSplit = 0.28;
-    mutate((s) => {
-      s.trackerSplit = 0.28;
-      s.neededSplit = 0.28;
-    });
   }
 
   $effect(() => {
@@ -1586,71 +1496,6 @@
           ? { ...c, rating, lastTouchedAt: Date.now() / 1000 }
           : c,
       );
-    });
-  }
-
-  function clipTrackLabel(s: string): string {
-    return s.trim().slice(0, 7);
-  }
-
-  function addTracker(projectId: string, raw: string) {
-    const label = clipTrackLabel(raw);
-    if (!label || !projectId) return;
-    const tr: Tracker = {
-      id: `tr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      label,
-      value: 0,
-    };
-    mutate((s) => {
-      s.projects = s.projects.map((p) =>
-        p.id === projectId
-          ? { ...p, trackers: [...(p.trackers ?? []), tr] }
-          : p,
-      );
-    });
-    newTrackerLabel = "";
-    addingTracker = false;
-  }
-
-  function patchTracker(
-    projectId: string,
-    trackerId: string,
-    fn: (t: Tracker) => Tracker,
-  ) {
-    mutate((s) => {
-      s.projects = s.projects.map((p) => {
-        if (p.id !== projectId) return p;
-        return {
-          ...p,
-          trackers: (p.trackers ?? []).map((t) =>
-            t.id === trackerId ? fn(t) : t,
-          ),
-        };
-      });
-    });
-  }
-
-  function bumpTracker(projectId: string, trackerId: string, delta: number) {
-    patchTracker(projectId, trackerId, (t) => ({ ...t, value: t.value + delta }));
-  }
-
-  function setTrackerValue(projectId: string, trackerId: string, raw: string) {
-    const n = parseInt(raw.trim(), 10);
-    if (!Number.isFinite(n)) return;
-    const cur = (projects.find((p) => p.id === projectId)?.trackers ?? []).find(
-      (t) => t.id === trackerId,
-    );
-    if (!cur || cur.value === n) return;
-    patchTracker(projectId, trackerId, (t) => ({ ...t, value: n }));
-  }
-
-  function removeTracker(projectId: string, trackerId: string) {
-    mutate((s) => {
-      s.projects = s.projects.map((p) => {
-        if (p.id !== projectId) return p;
-        const next = (p.trackers ?? []).filter((t) => t.id !== trackerId);
-        return { ...p, trackers: next.length ? next : undefined };
-      });
     });
   }
 
@@ -2014,64 +1859,6 @@
   function onBannerMouseDown(e: MouseEvent) {
     startPaneDrag(e);
   }
-
-
-  // BOARD-SPLIT-Y (locked rule):
-  // - empty shelf → one title row (never stretch)
-  // - both have content → match bottoms to the taller natural height
-  $effect(() => {
-    const n = neededEl;
-    const t = trackPaneEl;
-    const mail = mailEl;
-    void neededRows.length;
-    void visibleTrackers.length;
-    void addingNeeded;
-    void addingTracker;
-    void neededSplit;
-    void trackerSplit;
-    if (!n || !t || !mail) return;
-
-    const neededIsEmpty = neededRows.length === 0 && !addingNeeded;
-    const trackersIsEmpty = visibleTrackers.length === 0 && !addingTracker;
-
-    const clear = () => {
-      n.style.height = "";
-      n.style.minHeight = "";
-      n.style.maxHeight = "";
-      t.style.height = "";
-      t.style.minHeight = "";
-      t.style.maxHeight = "";
-    };
-
-    if (neededIsEmpty || trackersIsEmpty) {
-      clear();
-      return;
-    }
-
-    const sync = () => {
-      // Measure natural %-basis heights, then equalize to the taller.
-      clear();
-      const h = Math.max(n.offsetHeight, t.offsetHeight);
-      if (h <= 0) return;
-      n.style.height = `${h}px`;
-      n.style.minHeight = `${h}px`;
-      n.style.maxHeight = `${h}px`;
-      t.style.height = `${h}px`;
-      t.style.minHeight = `${h}px`;
-      t.style.maxHeight = `${h}px`;
-    };
-
-    // After layout so % flex-basis has resolved.
-    requestAnimationFrame(sync);
-    const ro = new ResizeObserver(() => requestAnimationFrame(sync));
-    ro.observe(mail);
-    return () => {
-      ro.disconnect();
-      clear();
-    };
-  });
-
-
 </script>
 
 
@@ -2185,27 +1972,17 @@
     />
 
     <BoardPreview
-      neededEmpty={neededRows.length === 0 && !addingNeeded}
-      bind:addingTracker
-      bind:eastEl
       bind:newTagName
-      bind:newTrackerLabel
-      bind:newTrackerPlanetId
       bind:planetDdOpen
       bind:previewEdit
       bind:previewWidth
       bind:selected
-      bind:trackPaneEl
-      bind:trackerSplit
       {addTagToCard}
-      {addTracker}
       {agentName}
       {agentShortcuts}
       {attachChild}
-      {bumpTracker}
       {cardHasTag}
       {childrenOf}
-      {clipTrackLabel}
       {dateInputValue}
       {deleteSubtask}
       {deleteTodo}
@@ -2220,29 +1997,21 @@
       {menuRing}
       {moveCard}
       {onEastSplitDown}
-      {onTrackSplitDown}
       {openDetail}
       {planetCss}
       {projectName}
       {projects}
-      {removeTracker}
       {resetPreviewWidth}
-      {resetTrackerSplit}
       {saveNotes}
       {saveTitle}
-      {selectedProject}
       {setAgent}
       {setDue}
       {setPlanet}
       {setRating}
-      {setTrackerValue}
-      {showTrackers}
       {tags}
       {toggleCardTag}
       {toggleSubtask}
-      {trackerArmed}
       {undoThisTask}
-      {visibleTrackers}
       {winFor}
     />
   </div>

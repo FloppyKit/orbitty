@@ -10,17 +10,23 @@
   // Rolling 7/14/30-day window ending at the
   // day cursor, mean of saved days only (a saved 1 counts; blanks shrink
   // the denominator, never a zero-fill). Persists as stars.averageWindow.
-  // One screen — left check-in, right
-  // Cloud. Average pills sit under the day chips. No Check-in | Review.
+  // One screen — left act (radar, wins, trackers), right read (cloud, ledger).
+  // Average pills sit under the day chips. No Check-in | Review.
   // Same state.json discipline as Lists: every
   // write is load → mutate → save of the WHOLE loaded object, so rail-owned
-  // slices (hideTitles included) round-trip untouched — this window only
-  // ever touches the stars slice. The companion's Prompts strip reads the
-  // same slice via native commands; its toggles land here on state:changed.
+  // slices round-trip untouched. This window writes the stars slice and
+  // planet trackers. The companion's Prompts strip reads the same stars
+  // slice via native commands; its toggles land here on state:changed.
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
   import SkyField from "./SkyField.svelte";
+  import RadarDial from "./stars/RadarDial.svelte";
+  import DayPositives from "./stars/DayPositives.svelte";
+  import StarsTrackers from "./stars/StarsTrackers.svelte";
+  import LedgerStack from "./stars/LedgerStack.svelte";
+  import ReflectSheet from "./stars/ReflectSheet.svelte";
+  import NudgeStrip from "./stars/NudgeStrip.svelte";
   import { listenPaneVis } from "./paneVis";
   import { startPaneDrag } from "./dragPane";
   import { MenuRing, type RingStop } from "./menuKeys.svelte";
@@ -32,10 +38,15 @@
   import "./chrome.css";
   import type {
     AverageWindow,
+    LedgerPage,
+    MetricFlags,
     PersistedState,
+    Project,
     StarsCheckin,
     StarsSlice,
+    Tracker,
   } from "./persist";
+  import { elapsedSec } from "./stars/timer";
 
   // This page now mounts inside the one shared
   // 780×520 `kanban` overlay (stars mode) — hideLabel is the HOST window's
@@ -88,6 +99,9 @@
   });
 
   let starsState = $state<StarsSlice>({ promptsOptIn: false, checkins: {} });
+  let projects = $state<Project[]>([]);
+  let nudgeScope = $state("overall");
+  let reflectOpen = $state(false);
   // The draft is the working copy — it only becomes state via Save today.
   let starsDraft = $state<StarsCheckin>(emptyCheckin());
   let starsSavedDay = $state("");
@@ -179,6 +193,13 @@
       themeId = KNOWN_THEMES.has(s.themeId) ? s.themeId : osThemeId();
       windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
       starsState = s.stars ?? { promptsOptIn: false, checkins: {} };
+      projects = s.projects ?? [];
+      if (
+        nudgeScope !== "overall" &&
+        !projects.some((p) => p.id === nudgeScope)
+      ) {
+        nudgeScope = "overall";
+      }
       if (!draftDirty) syncStarsDraft();
     } catch {
       // next state:changed / visibility refresh retries
@@ -186,10 +207,22 @@
   }
 
   function setSpoke(key: SpokeKey, v: number) {
-    if (!isToday) return; // past days are read-only
+    if (!dayEditable) return; // past days and a locked today stay read-only
     starsDraft = { ...starsDraft, [key]: v };
     starsSavedDay = "";
     draftDirty = true;
+  }
+
+  function setWin(field: "win1" | "win2" | "grateful", raw: string) {
+    if (!dayEditable) return;
+    starsDraft = { ...starsDraft, [field]: raw };
+    starsSavedDay = "";
+    draftDirty = true;
+  }
+
+  function filled(raw: string | undefined): string | undefined {
+    const t = (raw ?? "").trim();
+    return t ? t : undefined;
   }
 
   // Save today: load fresh, replace only today's check-in inside the stars
@@ -202,6 +235,12 @@
     for (const { key } of STARS_SPOKES) {
       clean[key] = Math.max(1, Math.min(5, Math.round(starsDraft[key] ?? 0)));
     }
+    const win1 = filled(starsDraft.win1);
+    const win2 = filled(starsDraft.win2);
+    const grateful = filled(starsDraft.grateful);
+    if (win1) clean.win1 = win1;
+    if (win2) clean.win2 = win2;
+    if (grateful) clean.grateful = grateful;
     try {
       const s = await invoke<PersistedState>("load_state");
       const stars = s.stars ?? { promptsOptIn: false, checkins: {} };
@@ -354,38 +393,6 @@
     }
   }
 
-  // Radar geometry: five axes from the top, 72° apart; value 1–5 maps to
-  // 0–R (a 1 sits at the center like the old 0; an unset draft 0 clamps
-  // there too). Even polygon = calm; a thin spoke just reads short — no
-  // alarm color anywhere (chunky teal fill / ochre stroke, like the mark).
-  const RADAR_R = 52;
-  function radarVertex(i: number, v: number): [number, number] {
-    const a = -Math.PI / 2 + (i * 2 * Math.PI) / STARS_SPOKES.length;
-    const r = ((Math.max(1, Math.min(5, v)) - 1) / 4) * RADAR_R;
-    return [Math.cos(a) * r, Math.sin(a) * r];
-  }
-  function radarRing(v: number): string {
-    return STARS_SPOKES.map((_, i) => radarVertex(i, v).join(",")).join(" ");
-  }
-  function radarPointsFor(c: StarsCheckin | null): string {
-    return c
-      ? STARS_SPOKES.map((s, i) => radarVertex(i, c[s.key]).join(",")).join(
-          " ",
-        )
-      : "";
-  }
-  function radarDotsFor(c: StarsCheckin | null) {
-    return c
-      ? STARS_SPOKES.map((s, i) => {
-          const [x, y] = radarVertex(i, c[s.key]);
-          return { key: s.key, x, y };
-        })
-      : [];
-  }
-  const radarCheckin = $derived(avgMode ? windowMean : shown);
-  const radarPoints = $derived(radarPointsFor(radarCheckin));
-  const radarDots = $derived(radarDotsFor(radarCheckin));
-
   $effect(() => {
     if (!themeId) return;
     document.documentElement.dataset.theme = themeId;
@@ -410,9 +417,137 @@
   const onReshow = () => {
     starsSavedDay = "";
     draftDirty = false;
+    editingToday = false;
+    reflectOpen = false;
     cursorDay = todayKey();
     loadState();
   };
+
+  function newId(prefix: string): string {
+    return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  async function writeLedgerPage(flags: MetricFlags) {
+    const page: LedgerPage = {
+      id: newId("led"),
+      createdAt: Date.now(),
+      dayKey: todayKey(),
+      scope: nudgeScope,
+      metricFlags: flags,
+    };
+    try {
+      const s = await invoke<PersistedState>("load_state");
+      const stars = s.stars ?? { promptsOptIn: false, checkins: {} };
+      stars.ledgerPages = [...(stars.ledgerPages ?? []), page];
+      s.stars = stars;
+      await invoke("save_state", { state: s });
+      starsState = stars;
+      reflectOpen = false;
+    } catch {
+      // next write retries; flags stay on the sheet
+    }
+  }
+
+  async function patchProjects(fn: (projects: Project[]) => Project[]) {
+    try {
+      const s = await invoke<PersistedState>("load_state");
+      s.projects = fn(s.projects ?? []);
+      await invoke("save_state", { state: s });
+      projects = s.projects;
+    } catch {
+      // next edit retries
+    }
+  }
+
+  function mapTracker(
+    list: Project[],
+    projectId: string,
+    trackerId: string,
+    fn: (t: Tracker) => Tracker,
+  ): Project[] {
+    return list.map((p) => {
+      if (p.id !== projectId) return p;
+      return {
+        ...p,
+        trackers: (p.trackers ?? []).map((t) =>
+          t.id === trackerId ? fn(t) : t,
+        ),
+      };
+    });
+  }
+
+  function addTracker(projectId: string, raw: string, kind: "number" | "timer") {
+    const label = raw.trim().slice(0, 7);
+    if (!label || !projectId) return;
+    const tr: Tracker = {
+      id: newId("tr"),
+      label,
+      value: 0,
+      kind,
+    };
+    void patchProjects((list) =>
+      list.map((p) =>
+        p.id === projectId
+          ? { ...p, trackers: [...(p.trackers ?? []), tr] }
+          : p,
+      ),
+    );
+  }
+
+  function bumpTracker(projectId: string, trackerId: string, delta: number) {
+    void patchProjects((list) =>
+      mapTracker(list, projectId, trackerId, (t) => ({
+        ...t,
+        value: t.value + delta,
+      })),
+    );
+  }
+
+  function setTrackerValue(projectId: string, trackerId: string, raw: string) {
+    const n = parseInt(raw.trim(), 10);
+    if (!Number.isFinite(n)) return;
+    void patchProjects((list) =>
+      mapTracker(list, projectId, trackerId, (t) =>
+        t.value === n ? t : { ...t, value: n },
+      ),
+    );
+  }
+
+  function removeTracker(projectId: string, trackerId: string) {
+    void patchProjects((list) =>
+      list.map((p) => {
+        if (p.id !== projectId) return p;
+        const next = (p.trackers ?? []).filter((t) => t.id !== trackerId);
+        return { ...p, trackers: next.length ? next : undefined };
+      }),
+    );
+  }
+
+  function playTimer(projectId: string, trackerId: string) {
+    const stamp = Date.now();
+    void patchProjects((list) =>
+      mapTracker(list, projectId, trackerId, (t) => ({
+        ...t,
+        kind: "timer",
+        runningSince: t.runningSince ?? stamp,
+      })),
+    );
+  }
+
+  function stopTimer(projectId: string, trackerId: string) {
+    const stamp = Date.now();
+    void patchProjects((list) =>
+      mapTracker(list, projectId, trackerId, (t) => {
+        const next: Tracker = {
+          ...t,
+          kind: "timer",
+          value: Math.round(elapsedSec(t, stamp)),
+        };
+        delete next.runningSince;
+        return next;
+      }),
+    );
+  }
   const onVisibility = () => {
     if (!document.hidden) onReshow();
   };
@@ -510,71 +645,30 @@
     >
   </header>
 
+  <NudgeStrip
+    {projects}
+    scope={nudgeScope}
+    onScope={(id) => (nudgeScope = id)}
+    onReflect={() => (reflectOpen = true)}
+  />
+
   <div class="s-body">
     <section class="stars-panel" aria-label="STARS check-in">
-      <div class="checkin-grid">
-        <div class="stars-radar">
-          <svg
-            viewBox="-62 -62 124 124"
-            role="img"
-            aria-label={avgMode
-              ? "STARS average radar"
-              : isToday
-                ? "Today's STARS radar"
-                : `STARS radar for ${cursorDay}`}
-          >
-            <polygon class="grid" points={radarRing(5)} />
-            <polygon class="grid inner" points={radarRing(3)} />
-            {#each STARS_SPOKES as _, i (i)}
-              {@const [ax, ay] = radarVertex(i, 5)}
-              <line class="axis" x1="0" y1="0" x2={ax} y2={ay} />
-            {/each}
-            {#if radarCheckin}
-              <polygon class="shape" points={radarPoints} />
-              {#each radarDots as d (d.key)}
-                <circle class="dot" cx={d.x} cy={d.y} r="2.6" />
-              {/each}
-            {/if}
-          </svg>
-        </div>
-        <div class="stars-controls">
-          {#each STARS_SPOKES as spoke (spoke.key)}
-            <div
-              class="spoke-row"
-              class:mkey-sel={menuRing.activeId === `spoke-${spoke.key}`}
-              data-mkey={`spoke-${spoke.key}`}
-            >
-              <span class="spoke-label">{spoke.label}</span>
-              {#if avgMode}
-                <span class="spoke-num" title="{spoke.label} mean"
-                  >{windowMean ? windowMean[spoke.key].toFixed(1) : "—"}</span
-                >
-              {:else if dayEditable}
-                <span class="spoke-btns" role="group" aria-label="{spoke.label} 1 to 5">
-                  {#each [1, 2, 3, 4, 5] as v (v)}
-                    <button
-                      class="spoke-val"
-                      class:active={shown?.[spoke.key] === v}
-                      aria-pressed={shown?.[spoke.key] === v}
-                      onclick={() => setSpoke(spoke.key, v)}
-                    >{v}</button>
-                  {/each}
-                </span>
-              {:else}
-                <button
-                  class="spoke-num"
-                  type="button"
-                  disabled={!isToday}
-                  title={isToday ? "Edit today's check-in" : `${spoke.label} saved`}
-                  onclick={() => {
-                    if (isToday) editingToday = true;
-                  }}
-                >{shown ? shown[spoke.key] : "—"}</button>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </div>
+      <RadarDial
+        spokes={STARS_SPOKES}
+        shown={avgMode ? windowMean : shown}
+        editable={dayEditable}
+        {avgMode}
+        activeId={menuRing.activeId}
+        onSet={(key, v) => setSpoke(key as SpokeKey, v)}
+      />
+      <DayPositives
+        win1={shown?.win1 ?? ""}
+        win2={shown?.win2 ?? ""}
+        grateful={shown?.grateful ?? ""}
+        editable={dayEditable}
+        onChange={setWin}
+      />
       <div class="stars-foot">
         <button
           class="mini stars-save"
@@ -583,6 +677,12 @@
         >
           Save today
         </button>
+        <button
+          type="button"
+          class="mini"
+          disabled={!isToday || avgMode || !cursorSaved || dayEditable}
+          onclick={() => (editingToday = true)}
+        >Edit</button>
         <button
           class="mini"
           class:active={starsState.promptsOptIn}
@@ -600,15 +700,32 @@
           <span class="stars-note">No save</span>
         {/if}
       </div>
+      <StarsTrackers
+        {projects}
+        scope={nudgeScope}
+        onAdd={addTracker}
+        onBump={bumpTracker}
+        onSetValue={setTrackerValue}
+        onRemove={removeTracker}
+        onPlay={playTimer}
+        onStop={stopTimer}
+      />
     </section>
-    <div class="cloud-col" aria-label="Word cloud">
-      <SkyField />
+    <div class="cloud-col" aria-label="Word cloud and ledger">
+      <div class="cloud-sky">
+        <SkyField />
+      </div>
+      <LedgerStack pages={starsState.ledgerPages ?? []} {projects} />
     </div>
   </div>
+  {#if reflectOpen}
+    <ReflectSheet onClose={() => (reflectOpen = false)} onWrite={writeLedgerPage} />
+  {/if}
 </main>
 
 <style>
   .stars {
+    position: relative;
     height: 100vh;
     overflow: hidden;
     display: flex;
@@ -687,23 +804,6 @@
     max-width: 9.2rem;
   }
 
-  .spoke-num {
-    font: inherit;
-    font-size: 0.9rem;
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    color: var(--ink);
-    background: transparent;
-    border: none;
-    padding: 0 2px;
-    min-width: 1.6rem;
-    text-align: left;
-  }
-
-  button.spoke-num:not(:disabled) {
-    cursor: pointer;
-  }
-
   .s-banner .winx {
     margin-left: 4px;
   }
@@ -730,7 +830,8 @@
     flex: 1 1 0;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     background: var(--panel-fill, var(--panel));
@@ -755,119 +856,12 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .stars-radar {
-    display: flex;
-    justify-content: center;
-    flex-shrink: 0;
-    padding: 4px 0 2px;
-  }
-
-  .stars-radar svg {
-    width: 210px;
-    height: 210px;
-    display: block;
-  }
-
-  .stars-radar .grid {
-    fill: none;
-    stroke: var(--edge);
-    stroke-width: 1.5;
-  }
-
-  .stars-radar .grid.inner {
-    stroke-dasharray: 3 4;
-    opacity: 0.7;
-  }
-
-  .stars-radar .axis {
-    stroke: var(--edge);
-    stroke-width: 1;
-    opacity: 0.7;
-  }
-
-  .stars-radar .shape {
-    fill: rgba(61, 184, 176, 0.38);
-    stroke: #c8a45c;
-    stroke-width: 3;
-    stroke-linejoin: round;
-  }
-
-  .stars-radar .dot {
-    fill: #e59e3d;
-  }
-
-  .stars-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 12px;
-    min-width: 0;
-  }
-
-  .spoke-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: nowrap;
-  }
-
-  .spoke-label {
-    flex: none;
-    width: 6.6rem;
-    font-size: 0.78rem;
-    color: var(--ink);
-    text-align: left;
-  }
-
-  .spoke-btns {
-    display: inline-flex;
-    flex-wrap: nowrap;
-    gap: 3px;
-  }
-
-  .spoke-val {
-    font: inherit;
-    font-size: 0.78rem;
-    width: 30px;
-    height: 28px;
-    padding: 0;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 6px;
-    cursor: pointer;
-  }
-
-  .spoke-val:hover {
-    border-color: var(--focus, #6e4db0);
-  }
-
-  .spoke-val.active {
-    background: var(--accent);
-    border-color: var(--focus, #6e4db0);
-    color: var(--bg);
-    font-weight: 700;
-  }
-
-  /* Past days are read-only: dead buttons, but a saved value stays lit. */
-  .spoke-val:disabled {
-    cursor: default;
-  }
-
-  .spoke-val:disabled:not(.active) {
-    opacity: 0.5;
-  }
-
-  .spoke-val:disabled:not(.active):hover {
-    border-color: var(--edge);
-  }
-
   .stars-foot {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: auto;
-    padding-top: 12px;
+    margin-top: 8px;
+    flex-wrap: wrap;
   }
 
   .mini {
@@ -915,13 +909,13 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    gap: 8px;
   }
 
-  .checkin-grid {
+  .cloud-sky {
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-    flex-shrink: 0;
   }
 </style>

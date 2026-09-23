@@ -94,8 +94,8 @@ pub struct PersistedState {
     /// Launchpad preview column width (px). Default 280. Additive.
     #[serde(default = "preview_width_default")]
     pub preview_width: f64,
-    /// Launchpad east: Trackers fraction of the right column (0.14–0.55).
-    /// Default 0.20. Additive.
+    /// Old Launchpad trackers split. Trackers paint on STARS now.
+    /// The key stays so a whole-state save does not drop it.
     #[serde(default = "tracker_split_default")]
     pub tracker_split: f64,
     /// Parent todo ids with nested subtasks expanded on Launchpad.
@@ -371,6 +371,9 @@ pub struct StarsState {
     /// (migrate n→n+1 once at setup), 2 = 1–5. The flag is what stops a
     /// double migration — a migrated save has no zeros left to sniff for.
     pub scale_v: u8,
+    /// Flipable journal pages. Empty until Reflect writes a stub.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ledger_pages: Vec<LedgerPage>,
 }
 
 impl Default for StarsState {
@@ -383,6 +386,7 @@ impl Default for StarsState {
             average_from: String::new(),
             average_to: String::new(),
             scale_v: 0,
+            ledger_pages: Vec::new(),
         }
     }
 }
@@ -390,7 +394,7 @@ impl Default for StarsState {
 /// One day's check-in: five spokes, 1–5 each (legacy 0–4 migrates n→n+1
 /// once via `migrate_stars_scale`). `self` is the fifth spoke
 /// (Spiritual in the pane heading); renamed past the Rust keyword.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct StarsCheckin {
     pub sleep: u8,
@@ -399,6 +403,46 @@ pub struct StarsCheckin {
     pub relationships: u8,
     #[serde(rename = "self")]
     pub self_: u8,
+    /// Short day notes. Empty or absent = not filled. Saved with the spokes.
+    #[serde(default, skip_serializing_if = "opt_blank")]
+    pub win1: Option<String>,
+    #[serde(default, skip_serializing_if = "opt_blank")]
+    pub win2: Option<String>,
+    #[serde(default, skip_serializing_if = "opt_blank")]
+    pub grateful: Option<String>,
+}
+
+fn opt_blank(v: &Option<String>) -> bool {
+    v.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true)
+}
+
+/// Which metrics a ledger stub opted in. Reflect does not write the body.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MetricFlags {
+    pub spokes: bool,
+    pub wins: bool,
+    pub grateful: bool,
+    pub trackers: bool,
+    pub cloud: bool,
+}
+
+/// One flipable journal card. Body stays empty until a later Reflect phrase.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LedgerPage {
+    pub id: String,
+    /// Epoch milliseconds.
+    pub created_at: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day_key: Option<String>,
+    /// "overall" or a planet id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metric_flags: Option<MetricFlags>,
 }
 
 /// Companion persist slice. Additive keys; old saves load.
@@ -888,6 +932,12 @@ pub struct Tracker {
     pub label: String,
     #[serde(default)]
     pub value: i32,
+    /// Absent or "number" is a counter. "timer" stores elapsed seconds in `value`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Epoch ms while a timer is running. Stop folds the delta into `value` and clears this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running_since: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

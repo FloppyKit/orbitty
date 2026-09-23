@@ -1,16 +1,12 @@
 <script lang="ts">
-  import type { KanbanCard, Project, Tracker } from "../persist";
+  import type { KanbanCard, Project } from "../persist";
   let {
     addTagToCard,
-    addTracker,
-    addingTracker = $bindable(),
     agentName,
     agentShortcuts,
     attachChild,
-    bumpTracker,
     cardHasTag,
     childrenOf,
-    clipTrackLabel,
     dateInputValue,
     deleteSubtask,
     deleteTodo,
@@ -18,7 +14,6 @@
     detailCard,
     displayTitle,
     dueInfo,
-    eastEl = $bindable(),
     focusCard,
     linkableTodos,
     livePlanetId,
@@ -26,10 +21,7 @@
     menuRing,
     moveCard,
     newTagName = $bindable(),
-    newTrackerLabel = $bindable(),
-    newTrackerPlanetId = $bindable(),
     onEastSplitDown,
-    onTrackSplitDown,
     openDetail,
     planetCss,
     planetDdOpen = $bindable(),
@@ -37,86 +29,21 @@
     previewWidth = $bindable(),
     projectName,
     projects,
-    removeTracker,
     resetPreviewWidth,
-    resetTrackerSplit,
     saveNotes,
     saveTitle,
     selected = $bindable(),
-    selectedProject,
     setAgent,
     setDue,
     setPlanet,
     setRating,
-    setTrackerValue,
-    showTrackers,
     tags,
     toggleCardTag,
     toggleSubtask,
-    trackPaneEl = $bindable(),
-    trackerArmed,
-    trackerSplit = $bindable(),
     undoThisTask,
-    visibleTrackers,
     winFor,
-    neededEmpty = false,
   } = $props();
 </script>
-
-{#snippet trackerWidget(projectId: string, tr: Tracker, showChip: boolean)}
-  <div class="k-tracktile" class:armed={trackerArmed} role="group" aria-label={tr.label}>
-    {#if trackerArmed}
-      <button
-        type="button"
-        class="k-track-x"
-        onclick={() => removeTracker(projectId, tr.id)}
-        aria-label="Remove {tr.label}"
-        title="Remove tracker"
-      >×</button>
-    {/if}
-    <div class="k-track-name">
-      {#if showChip}
-        <span
-          class="planet-chip"
-          style="background: {planetCss(projectId)}"
-          title={projectName(projectId)}
-          aria-hidden="true"
-        ></span>
-      {/if}
-      <span class="k-track-lbl">{clipTrackLabel(tr.label)}</span>
-    </div>
-    <div class="k-track-row">
-      <button
-        type="button"
-        class="k-track-nudge"
-        tabindex={trackerArmed ? -1 : 0}
-        onclick={() => bumpTracker(projectId, tr.id, -1)}
-        aria-label="Decrease {tr.label}"
-      >‹</button>
-      <input
-        class="k-track-val"
-        value={tr.value}
-        inputmode="numeric"
-        aria-label={tr.label}
-        readonly={trackerArmed}
-        onmousedown={(e) => e.stopPropagation()}
-        onblur={(e) => setTrackerValue(projectId, tr.id, e.currentTarget.value)}
-        onkeydown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-          e.stopPropagation();
-        }}
-      />
-      <button
-        type="button"
-        class="k-track-nudge"
-        tabindex={trackerArmed ? -1 : 0}
-        onclick={() => bumpTracker(projectId, tr.id, 1)}
-        aria-label="Increase {tr.label}"
-      >›</button>
-    </div>
-  </div>
-
-{/snippet}
 
     <div
       class="mail-east-split"
@@ -127,98 +54,7 @@
       onpointerdown={onEastSplitDown}
       ondblclick={resetPreviewWidth}
     ></div>
-    <div class="k-east" class:needed-empty={neededEmpty} bind:this={eastEl} style="width: {previewWidth}px">
-    {#if showTrackers}
-      <section
-        class="k-trackpane"
-        class:armed={trackerArmed}
-        class:empty={visibleTrackers.length === 0 && !addingTracker}
-        bind:this={trackPaneEl}
-        style="flex-basis: {visibleTrackers.length === 0 && !addingTracker
-          ? 'auto'
-          : `${Math.round(trackerSplit * 100)}%`}"
-        aria-label="Trackers"
-      >
-        <header class="k-trackpane-head">
-          <span class="k-trackpane-title">Trackers</span>
-          <button
-            type="button"
-            class="ka-plus"
-            onclick={() => {
-              addingTracker = !addingTracker;
-              newTrackerLabel = "";
-              newTrackerPlanetId = selectedProject?.id ?? projects[0]?.id ?? "";
-              trackerArmed = false;
-            }}
-            title={addingTracker ? "Cancel" : "Add a tracker"}
-            aria-label={addingTracker ? "Cancel add tracker" : "Add a tracker"}
-          >{addingTracker ? "×" : "+"}</button>
-        </header>
-        {#if addingTracker}
-          <div class="k-track-addrow">
-            <select
-              class="k-track-planet"
-              bind:value={newTrackerPlanetId}
-              aria-label="Planet for this tracker"
-            >
-              {#each projects as p (p.id)}
-                <option value={p.id}>{p.name}</option>
-              {/each}
-            </select>
-            <input
-              class="k-track-add-field"
-              bind:value={newTrackerLabel}
-              maxlength="7"
-              placeholder="Name (7)…"
-              aria-label="New tracker name"
-              autofocus
-              onkeydown={(e) => {
-                if (e.key === "Enter") addTracker(newTrackerPlanetId, newTrackerLabel);
-                if (e.key === "Escape") {
-                  addingTracker = false;
-                  newTrackerLabel = "";
-                }
-              }}
-            />
-          </div>
-        {/if}
-        {#if visibleTrackers.length}
-          <div class="k-trackgrid">
-            {#each visibleTrackers as row (row.tr.id)}
-              {@render trackerWidget(row.projectId, row.tr, row.chip)}
-            {/each}
-          </div>
-        {/if}
-        {#if visibleTrackers.length > 0 || addingTracker}
-        <button
-          type="button"
-          class="k-track-trash"
-          class:on={trackerArmed}
-          onclick={() => (trackerArmed = !trackerArmed)}
-          aria-label={trackerArmed ? "Done removing trackers" : "Remove trackers"}
-          title={trackerArmed ? "Done" : "Remove trackers"}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-            <path d="M4 7h16" stroke-linecap="round"/>
-            <path d="M9 7V5h6v2"/>
-            <path d="M6 7l1 13h10l1-13"/>
-            <path d="M10 11v6M14 11v6" stroke-linecap="round"/>
-          </svg>
-        </button>
-        {/if}
-      </section>
-      {#if visibleTrackers.length > 0 || addingTracker}
-        <div
-          class="k-east-split"
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Resize trackers"
-          title="Drag to resize Trackers · double-click resets"
-          onpointerdown={onTrackSplitDown}
-          ondblclick={resetTrackerSplit}
-        ></div>
-      {/if}
-    {/if}
+    <div class="k-east" style="width: {previewWidth}px">
     <aside class="k-detail" aria-label="Item details">
       <div class="k-preview-head">Preview:</div>
       {#if detailCard}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import NeededInbox from "../NeededInbox.svelte";
-  import type { KanbanCard, Project } from "../persist";
+  import type { KanbanCard, PersistedState, Project } from "../persist";
   let {
     addingNeeded = $bindable(),
     armNeededMouth,
@@ -51,9 +51,8 @@
             onpointerdown={onSplitDown}
             ondblclick={() => {
               neededSplit = 0.28;
-              mutate((s) => {
+              mutate((s: PersistedState) => {
                 s.neededSplit = 0.28;
-                s.trackerSplit = 0.28;
               });
             }}
           ></div>

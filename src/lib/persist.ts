@@ -83,6 +83,10 @@ export interface Tracker {
   id: string;
   label: string;
   value: number;
+  // Absent or "number" is a counter. "timer" stores elapsed seconds in value.
+  kind?: "number" | "timer";
+  // Epoch ms while a timer is running. Stop folds the delta into value.
+  runningSince?: number;
 }
 
 export interface KanbanCard {
@@ -272,6 +276,29 @@ export interface StarsCheckin {
   athleticism: number;
   relationships: number;
   self: number;
+  // Empty or absent = not filled. Saved with the spokes for that day.
+  win1?: string;
+  win2?: string;
+  grateful?: string;
+}
+
+export interface MetricFlags {
+  spokes: boolean;
+  wins: boolean;
+  grateful: boolean;
+  trackers: boolean;
+  cloud: boolean;
+}
+
+export interface LedgerPage {
+  id: string;
+  // Epoch milliseconds.
+  createdAt: number;
+  dayKey?: string;
+  // "overall" or a planet id.
+  scope?: string;
+  body?: string;
+  metricFlags?: MetricFlags;
 }
 
 export type AverageWindow = "week" | "14" | "month" | "year" | "custom";
@@ -286,6 +313,8 @@ export interface StarsSlice {
   // 2 = spokes are 1–5; absent = legacy 0–4, which
   // native setup migrates n→n+1 once before any window reads state.
   scaleV?: number;
+  // Flipable journal pages. Empty until Reflect writes a stub.
+  ledgerPages?: LedgerPage[];
 }
 
 export interface SkySlice {

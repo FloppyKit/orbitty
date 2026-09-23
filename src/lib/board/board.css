@@ -327,25 +327,6 @@
     min-width: 0;
   }
 
-  .k-trackpane-head .ka-plus {
-    flex-shrink: 0;
-  }
-
-  .k-track-add-field {
-    width: 100%;
-    box-sizing: border-box;
-    font: inherit;
-    font-size: 0.72rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--focus, #6e4db0);
-    border-radius: 7px;
-    padding: 5px 8px;
-    cursor: text;
-    user-select: text;
-    -webkit-user-select: text;
-  }
-
   .k-hermesnote {
     display: flex;
     align-items: center;
