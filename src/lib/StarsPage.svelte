@@ -27,6 +27,7 @@
   import LedgerStack from "./stars/LedgerStack.svelte";
   import ReflectSheet from "./stars/ReflectSheet.svelte";
   import NudgeStrip from "./stars/NudgeStrip.svelte";
+  import NudgeCards from "./stars/NudgeCards.svelte";
   import { listenPaneVis } from "./paneVis";
   import { startPaneDrag } from "./dragPane";
   import { MenuRing, type RingStop } from "./menuKeys.svelte";
@@ -651,6 +652,7 @@
     onScope={(id) => (nudgeScope = id)}
     onReflect={() => (reflectOpen = true)}
   />
+  <NudgeCards {projects} scope={nudgeScope} />
 
   <div class="s-body">
     <section class="stars-panel" aria-label="STARS check-in">
@@ -700,16 +702,18 @@
           <span class="stars-note">No save</span>
         {/if}
       </div>
-      <StarsTrackers
-        {projects}
-        scope={nudgeScope}
-        onAdd={addTracker}
-        onBump={bumpTracker}
-        onSetValue={setTrackerValue}
-        onRemove={removeTracker}
-        onPlay={playTimer}
-        onStop={stopTimer}
-      />
+      <div class="tracker-well">
+        <StarsTrackers
+          {projects}
+          scope={nudgeScope}
+          onAdd={addTracker}
+          onBump={bumpTracker}
+          onSetValue={setTrackerValue}
+          onRemove={removeTracker}
+          onPlay={playTimer}
+          onStop={stopTimer}
+        />
+      </div>
     </section>
     <div class="cloud-col" aria-label="Word cloud and ledger">
       <div class="cloud-sky">
@@ -823,15 +827,13 @@
     flex: 1;
   }
 
-  /* Chunky radar (teal fill / ochre stroke, the mark's fixed colors) + five
-     obvious 1–5 rows. Even polygon = calm; a thin spoke just reads short —
-     never a red alarm. */
+  /* Chunky radar. Name and value sit on each spoke. A thin spoke just
+     reads short — never a red alarm. */
   .stars-panel {
     flex: 1 1 0;
     min-width: 0;
     min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     background: var(--panel-fill, var(--panel));
@@ -861,7 +863,14 @@
     align-items: center;
     gap: 6px;
     margin-top: 8px;
+    flex: 0 0 auto;
     flex-wrap: wrap;
+  }
+
+  .tracker-well {
+    flex: 1 1 auto;
+    min-height: 96px;
+    overflow: auto;
   }
 
   .mini {

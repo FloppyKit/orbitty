@@ -59,7 +59,7 @@
         {/if}
         <p class="body">{page.body?.trim() ? page.body : "Empty page"}</p>
       {:else}
-        <p class="body">No ledger pages</p>
+        <p class="body">Ledger pages land here.</p>
       {/if}
     </article>
   {/key}

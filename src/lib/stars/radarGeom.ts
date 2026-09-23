@@ -3,6 +3,24 @@
 
 export const RADAR_R = 52;
 export const SPOKE_COUNT = 5;
+// View box is wider than the pentagon so a name and its number fit beside each tip.
+export const RADAR_VB = { x: -200, y: -92, w: 400, h: 184 };
+
+export function labelPlacement(i: number): {
+  x: number;
+  y: number;
+  anchor: "start" | "middle" | "end";
+} {
+  const a = spokeAngle(i);
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  const x = c * (RADAR_R + 12);
+  const y = s * (RADAR_R + 12);
+  if (c > 0.35) return { x: x + 2, y, anchor: "start" };
+  if (c < -0.35) return { x: x - 2, y, anchor: "end" };
+  if (s < 0) return { x, y: y - 8, anchor: "middle" };
+  return { x, y: y + 12, anchor: "middle" };
+}
 
 export function spokeAngle(i: number): number {
   return -Math.PI / 2 + (i * 2 * Math.PI) / SPOKE_COUNT;

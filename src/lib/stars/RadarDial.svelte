@@ -1,6 +1,12 @@
 <script lang="ts">
   import type { StarsCheckin } from "../persist";
-  import { radarRing, radarVertex, valueFromPointer } from "./radarGeom";
+  import {
+    RADAR_VB,
+    labelPlacement,
+    radarRing,
+    radarVertex,
+    valueFromPointer,
+  } from "./radarGeom";
 
   type Spoke = { key: string; label: string };
 
@@ -22,14 +28,16 @@
 
   let svgEl: SVGSVGElement | null = $state(null);
 
-  function letter(label: string): string {
-    return label.slice(0, 1).toUpperCase();
-  }
-
   function spokeValue(key: string): number {
     if (!shown) return 0;
     const v = shown[key as keyof StarsCheckin];
     return typeof v === "number" ? v : 0;
+  }
+
+  function numberText(key: string): string {
+    const v = spokeValue(key);
+    if (!shown || v <= 0) return "—";
+    return avgMode ? v.toFixed(1) : String(Math.round(v));
   }
 
   function points(): string {
@@ -77,7 +85,7 @@
 <div class="dial">
   <svg
     bind:this={svgEl}
-    viewBox="-62 -62 124 124"
+    viewBox="{RADAR_VB.x} {RADAR_VB.y} {RADAR_VB.w} {RADAR_VB.h}"
     role="img"
     aria-label={avgMode ? "STARS average radar" : "STARS radar"}
   >
@@ -91,7 +99,7 @@
         class:locked={!editable}
         role="slider"
         tabindex={editable ? 0 : -1}
-        aria-label="{spoke.label} 1 to 5"
+        aria-label="{spoke.label} {numberText(spoke.key)}"
         aria-valuemin="1"
         aria-valuemax="5"
         aria-valuenow={Math.min(5, Math.max(1, Math.round(spokeValue(spoke.key) || 1)))}
@@ -119,55 +127,37 @@
       <polygon class="shape" points={points()} />
       {#each spokes as spoke, i (spoke.key)}
         {@const [x, y] = radarVertex(i, spokeValue(spoke.key))}
-        <circle class="dot" cx={x} cy={y} r="2.8" />
+        <circle class="dot" cx={x} cy={y} r="3.4" />
       {/each}
     {/if}
-  </svg>
-
-  <div class="letters">
-    {#each spokes as spoke (spoke.key)}
-      <div
-        class="letter-row"
-        class:mkey-sel={activeId === `spoke-${spoke.key}`}
+    {#each spokes as spoke, i (spoke.key)}
+      {@const label = labelPlacement(i)}
+      <text
+        class="tag"
+        class:on={activeId === `spoke-${spoke.key}`}
         data-mkey={`spoke-${spoke.key}`}
+        x={label.x}
+        y={label.y}
+        text-anchor={label.anchor}
+        dominant-baseline="middle"
       >
-        <span class="letter" title={spoke.label}>{letter(spoke.label)}</span>
-        <span class="name">{spoke.label}</span>
-        {#if avgMode}
-          <span class="mean">{shown ? spokeValue(spoke.key).toFixed(1) : "—"}</span>
-        {:else}
-          <span class="digits" role="group" aria-label="{spoke.label} 1 to 5">
-            {#each [1, 2, 3, 4, 5] as v (v)}
-              <button
-                type="button"
-                class="digit"
-                class:on={spokeValue(spoke.key) === v}
-                disabled={!editable}
-                aria-pressed={spokeValue(spoke.key) === v}
-                onclick={() => onSet(spoke.key, v)}
-              >{v}</button>
-            {/each}
-          </span>
-        {/if}
-      </div>
+        <tspan class="word">{spoke.label}</tspan>
+        <tspan class="num" dx="4">{numberText(spoke.key)}</tspan>
+      </text>
     {/each}
-  </div>
+  </svg>
 </div>
 
 <style>
   .dial {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
+    flex: 0 0 auto;
     min-width: 0;
   }
 
   svg {
-    width: 148px;
-    height: 148px;
+    width: 100%;
+    height: auto;
     display: block;
-    margin: 0 auto;
     touch-action: none;
   }
 
@@ -190,7 +180,7 @@
 
   .hit {
     stroke: transparent;
-    stroke-width: 14;
+    stroke-width: 16;
     cursor: grab;
   }
 
@@ -211,75 +201,24 @@
     pointer-events: none;
   }
 
-  .letters {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+  .tag {
+    font-family: inherit;
+    font-size: 10px;
+    pointer-events: none;
   }
 
-  .letter-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
+  .word {
+    fill: var(--ink);
+    font-weight: 600;
   }
 
-  .letter {
-    flex: none;
-    width: 1.1rem;
-    font-size: 0.78rem;
-    font-weight: 700;
-    color: var(--ink);
-  }
-
-  .name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.68rem;
-    color: var(--dim);
-  }
-
-  .digits {
-    display: inline-flex;
-    gap: 3px;
-    flex: none;
-  }
-
-  .digit {
-    font: inherit;
-    font-size: 0.72rem;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 6px;
-    cursor: pointer;
-  }
-
-  .digit.on {
-    background: var(--accent);
-    border-color: var(--focus, #6e4db0);
-    color: var(--bg);
-    font-weight: 700;
-  }
-
-  .digit:disabled {
-    cursor: default;
-  }
-
-  .digit:disabled:not(.on) {
-    opacity: 0.45;
-  }
-
-  .mean {
-    flex: none;
-    font-size: 0.78rem;
+  .num {
+    fill: #e59e3d;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
+  }
+
+  .tag.on .word {
+    fill: var(--accent);
   }
 </style>
