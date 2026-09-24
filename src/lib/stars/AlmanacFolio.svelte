@@ -35,29 +35,34 @@
 </script>
 
 <section class="folio" aria-label="Almanac">
-  <div class="tabs" role="tablist">
-    <button
-      type="button"
-      role="tab"
-      aria-selected={face === "cloud"}
-      class:on={face === "cloud"}
-      onclick={() => {
-        userPicked = true;
-        face = "cloud";
-      }}
-    >Cloud</button>
-    <button
-      type="button"
-      role="tab"
-      aria-selected={face === "journal"}
-      class:on={face === "journal"}
-      onclick={() => {
-        userPicked = true;
-        face = "journal";
-      }}
-    >Journal</button>
+  <div class="tabs">
+    <div class="tablist" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={face === "cloud"}
+        class:on={face === "cloud"}
+        onclick={() => {
+          userPicked = true;
+          face = "cloud";
+        }}
+      >Cloud</button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={face === "journal"}
+        class:on={face === "journal"}
+        onclick={() => {
+          userPicked = true;
+          face = "journal";
+        }}
+      >Journal</button>
+    </div>
+    {#if face === "journal"}
+      <button type="button" class="reflect" onclick={onReflect}>Reflect</button>
+    {/if}
     {#if pages.length}
-      <span class="count">{pages.length}</span>
+      <span class="count" class:beside={face === "journal"}>{pages.length}</span>
     {/if}
   </div>
   <div class="face">
@@ -95,6 +100,12 @@
     border-bottom: 1px solid var(--edge);
   }
 
+  .tablist {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
   .tabs button {
     font: inherit;
     font-size: 0.68rem;
@@ -113,11 +124,26 @@
     background: var(--bg-fill, var(--bg));
   }
 
+  .tabs button.reflect {
+    margin-left: auto;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border-color: color-mix(in srgb, var(--ink) 42%, var(--edge));
+    border-radius: 7px;
+    padding: 3px 10px;
+  }
+
   .count {
     margin-left: auto;
     font-size: 0.64rem;
     color: var(--dim);
     font-variant-numeric: tabular-nums;
+  }
+
+  .count.beside {
+    margin-left: 8px;
   }
 
   .face {

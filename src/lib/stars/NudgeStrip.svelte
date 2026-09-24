@@ -6,14 +6,12 @@
     projects,
     scope,
     onScope,
-    onReflect,
     onReorder,
     onReorderCommit,
   }: {
     projects: Project[];
     scope: string;
     onScope: (id: string) => void;
-    onReflect: () => void;
     onReorder: (fromId: string, beforeId: string | null) => void;
     onReorderCommit: () => void;
   } = $props();
@@ -173,7 +171,6 @@
       ><span class="dot" style="background: {planetCss(p.id)}"></span>{p.name}</button>
     {/each}
   </div>
-  <button type="button" class="reflect" onclick={onReflect}>Reflect</button>
 </div>
 
 <style>
@@ -291,18 +288,5 @@
     background: var(--accent);
     border-color: var(--focus, #6e4db0);
     color: var(--bg);
-  }
-
-  .reflect {
-    flex: none;
-    font: inherit;
-    font-size: 0.68rem;
-    font-weight: 700;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 2px 8px;
-    cursor: pointer;
   }
 </style>

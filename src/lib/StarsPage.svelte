@@ -144,7 +144,7 @@
   const isToday = $derived(cursorDay === todayKey());
   const cursorSaved = $derived(starsState.checkins[cursorDay]);
   // Today shows the live draft; a past day shows its save, or null for an
-  // empty day (blank pentagon / no active 1–5 — never a warning).
+  // empty day (cage only, no fill — never a warning).
   const shown = $derived<StarsCheckin | null>(
     isToday ? starsDraft : (cursorSaved ?? null),
   );
@@ -192,6 +192,13 @@
         : 0;
     }
     return mean;
+  });
+  // Gold edge tracks a saved shape. A dirty today stays plain until Save.
+  const plated = $derived.by(() => {
+    const src = avgMode ? windowMean : shown;
+    if (!src || !STARS_SPOKES.some(({ key }) => (src[key] ?? 0) >= 1)) return false;
+    if (avgMode || !isToday) return true;
+    return !draftDirty && cursorSaved != null;
   });
 
   function shiftDay(key: string, delta: number): string {
@@ -859,7 +866,6 @@
     {projects}
     scope={nudgeScope}
     onScope={(id) => (nudgeScope = id)}
-    onReflect={() => (reflectOpen = true)}
     onReorder={reorderPlanetsLive}
     onReorderCommit={commitPlanetOrder}
   />
@@ -878,6 +884,7 @@
           shown={avgMode ? windowMean : shown}
           editable={dayEditable}
           {avgMode}
+          {plated}
           activeId={menuRing.activeId}
           onSet={(key, v) => setSpoke(key as SpokeKey, v)}
         />

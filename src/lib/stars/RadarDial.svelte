@@ -3,6 +3,7 @@
   import {
     RADAR_VB,
     labelPlacement,
+    radarFillPolys,
     radarRing,
     radarVertex,
     scoreFromGrab,
@@ -17,6 +18,7 @@
     shown = null,
     editable = false,
     avgMode = false,
+    plated = false,
     activeId = null,
     onSet,
   }: {
@@ -24,6 +26,7 @@
     shown?: StarsCheckin | null;
     editable?: boolean;
     avgMode?: boolean;
+    plated?: boolean;
     activeId?: string | null;
     onSet: (key: string, value: number) => void;
   } = $props();
@@ -52,14 +55,10 @@
     return avgMode ? v.toFixed(1) : String(Math.round(v));
   }
 
-  function points(): string {
-    if (!shown) return "";
-    const set = spokes
-      .map((s, i) => ({ i, v: spokeValue(s.key) }))
-      .filter((s) => s.v >= 1);
-    if (set.length < 3) return "";
-    return set.map((s) => radarVertex(s.i, s.v).join(",")).join(" ");
-  }
+  const anySet = $derived(spokes.some((s) => spokeValue(s.key) >= 1));
+  const fillPolys = $derived(
+    radarFillPolys(spokes.map((s) => spokeValue(s.key))),
+  );
 
   function svgPoint(e: PointerEvent): { x: number; y: number } | null {
     const svg = svgEl;
@@ -202,8 +201,31 @@
     role="img"
     aria-label={avgMode ? "STARS average radar" : "STARS radar"}
   >
-    <polygon class="grid" points={radarRing(5)} />
-    <polygon class="grid ring1" points={radarRing(1)} />
+    <defs>
+      <radialGradient
+        id="stars-radar-plate"
+        cx="0"
+        cy="0"
+        r="72"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop offset="0" stop-color="currentColor" stop-opacity="0.14" />
+        <stop offset="0.55" stop-color="currentColor" stop-opacity="0.06" />
+        <stop offset="1" stop-color="currentColor" stop-opacity="0" />
+      </radialGradient>
+    </defs>
+    <circle class="vignette" cx="0" cy="0" r="72" fill="url(#stars-radar-plate)" />
+    {#each fillPolys as poly (poly)}
+      <polygon class="shape" points={poly} />
+    {/each}
+    {#each [1, 2, 3, 4, 5] as ring (ring)}
+      <polygon
+        class="grid"
+        class:outer={ring === 5}
+        class:empty-outer={ring === 5 && !anySet}
+        points={radarRing(ring)}
+      />
+    {/each}
     {#each spokes as spoke, i (spoke.key)}
       {@const [ax, ay] = radarVertex(i, 5)}
       <line class="axis" x1="0" y1="0" x2={ax} y2={ay} />
@@ -234,28 +256,30 @@
         }}
       />
     {/each}
-    {#if points()}
-      <polygon class="shape" points={points()} />
+    {#if !anySet}
+      <circle class="seed" cx="0" cy="0" r="2.2" />
+    {/if}
+    {#if plated}
+      {#each fillPolys as poly (poly)}
+        <polygon class="edge" points={poly} />
+      {/each}
     {/if}
     {#each spokes as spoke, i (spoke.key)}
       {@const v = spokeValue(spoke.key)}
       {@const ghost = v < 1}
-      {@const showKnob = !ghost || (editable && !avgMode)}
-      {#if showKnob}
-        {@const [x, y] = radarVertex(i, ghost ? 3 : v)}
-        <!-- Hit radius is the grab target. Ring and core stay a few pixels. -->
-        <g class="knob" class:ghost={ghost} class:locked={!editable}>
-          <circle
-            class="knob-hit"
-            cx={x}
-            cy={y}
-            r="16"
-            onpointerdown={(e) => startDrag(e, i)}
-          />
-          <circle class="knob-ring" cx={x} cy={y} r="3.5" />
-          <circle class="knob-core" cx={x} cy={y} r="2.5" />
-        </g>
-      {/if}
+      {@const [x, y] = radarVertex(i, ghost ? 3 : v)}
+      <!-- Hit radius is the grab target. Ring and core stay a few pixels. -->
+      <g class="knob" class:ghost class:locked={!editable}>
+        <circle
+          class="knob-hit"
+          cx={x}
+          cy={y}
+          r="16"
+          onpointerdown={(e) => startDrag(e, i)}
+        />
+        <circle class="knob-ring" cx={x} cy={y} r="3.5" />
+        <circle class="knob-core" cx={x} cy={y} r="2.5" />
+      </g>
     {/each}
     {#each spokes as spoke, i (spoke.key)}
       {@const label = labelPlacement(i)}
@@ -344,6 +368,7 @@
     position: relative;
     flex: 0 0 auto;
     min-width: 0;
+    color: var(--ink);
   }
 
   svg {
@@ -353,21 +378,35 @@
     touch-action: none;
   }
 
-  .grid {
-    fill: none;
-    stroke: var(--edge);
-    stroke-width: 1.5;
+  .vignette {
+    pointer-events: none;
   }
 
-  .grid.ring1 {
-    stroke-dasharray: 2 3;
-    opacity: 0.85;
+  .grid {
+    fill: none;
+    stroke: color-mix(in srgb, var(--ink) 28%, transparent);
+    stroke-width: 1.05;
+    pointer-events: none;
+  }
+
+  .grid.outer {
+    stroke: color-mix(in srgb, var(--ink) 42%, transparent);
+    stroke-width: 1.35;
+  }
+
+  .grid.outer.empty-outer {
+    stroke-dasharray: 2.2 2.6;
   }
 
   .axis {
-    stroke: var(--edge);
-    stroke-width: 1;
-    opacity: 0.7;
+    stroke: color-mix(in srgb, var(--ink) 32%, transparent);
+    stroke-width: 0.95;
+    pointer-events: none;
+  }
+
+  .seed {
+    fill: rgba(61, 143, 138, 0.4);
+    pointer-events: none;
   }
 
   .hit {
@@ -381,9 +420,16 @@
   }
 
   .shape {
-    fill: rgba(61, 184, 176, 0.38);
+    fill: rgba(61, 143, 138, 0.3);
+    stroke: none;
+    pointer-events: none;
+  }
+
+  .edge {
+    fill: none;
     stroke: #c8a45c;
-    stroke-width: 3;
+    stroke-width: 1.55;
+    stroke-opacity: 0.9;
     stroke-linejoin: round;
     pointer-events: none;
   }
@@ -410,12 +456,12 @@
   }
 
   .knob.ghost .knob-ring {
-    stroke: color-mix(in srgb, var(--ink) 22%, transparent);
-    stroke-width: 0.4;
+    stroke: color-mix(in srgb, var(--ink) 46%, transparent);
+    stroke-width: 0.7;
   }
 
   .knob.ghost .knob-core {
-    fill: transparent;
+    fill: color-mix(in srgb, var(--ink) 16%, transparent);
   }
 
   .knob.ghost:hover .knob-ring {

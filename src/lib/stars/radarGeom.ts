@@ -45,6 +45,60 @@ export function radarRing(v: number): string {
   ).join(" ");
 }
 
+// Fill only spokes that have a score. Consecutive set spokes share one
+// wedge from the hub. A lone spoke is a narrow petal so it has area
+// without covering the unset neighbors. A full set is one pentagon.
+export function radarFillPolys(values: readonly number[]): string[] {
+  const n = SPOKE_COUNT;
+  const set = Array.from({ length: n }, (_, i) => (values[i] ?? 0) >= 1);
+  const count = set.filter(Boolean).length;
+  if (count === 0) return [];
+  if (count === n) {
+    return [values.map((v, i) => radarVertex(i, v).join(",")).join(" ")];
+  }
+
+  let origin = 0;
+  for (let i = 0; i < n; i++) {
+    if (!set[i] && set[(i + 1) % n]) {
+      origin = (i + 1) % n;
+      break;
+    }
+  }
+
+  const runs: number[][] = [];
+  let run: number[] = [];
+  for (let k = 0; k < n; k++) {
+    const i = (origin + k) % n;
+    if (set[i]) run.push(i);
+    else if (run.length) {
+      runs.push(run);
+      run = [];
+    }
+  }
+  if (run.length) runs.push(run);
+
+  return runs.map((idxs) => {
+    if (idxs.length === 1) return spokePetal(idxs[0], values[idxs[0]]);
+    const pts: [number, number][] = [[0, 0]];
+    for (const i of idxs) pts.push(radarVertex(i, values[i]));
+    pts.push([0, 0]);
+    return pts.map((p) => `${p[0]},${p[1]}`).join(" ");
+  });
+}
+
+function spokePetal(i: number, v: number): string {
+  const a = spokeAngle(i);
+  const r = ringRadius(v);
+  const spread = 0.11;
+  const pts: [number, number][] = [
+    [0, 0],
+    [Math.cos(a - spread) * r * 0.92, Math.sin(a - spread) * r * 0.92],
+    [Math.cos(a) * r, Math.sin(a) * r],
+    [Math.cos(a + spread) * r * 0.92, Math.sin(a + spread) * r * 0.92],
+  ];
+  return pts.map((p) => `${p[0]},${p[1]}`).join(" ");
+}
+
 // Project onto spoke i.
 // 0 means the hub (inside ring 1) — not a score. Never round the hub up to 1.
 export function valueFromPointer(i: number, x: number, y: number): number {
