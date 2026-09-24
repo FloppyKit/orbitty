@@ -40,16 +40,16 @@ colors:
   light-voice-captain: "#7A4A08"
   light-type-text: "#1C1B17"
   light-type-dim: "#5E5A52"
-  terminal-surface-space: "#0A0A0A"
-  terminal-surface-panel: "#000000"
+  terminal-surface-space: "#000000"
+  terminal-surface-panel: "#0C0E14"
   terminal-surface-inset: "#000000"
   terminal-surface-scroll: "#000000"
-  terminal-line-panel: "#6FBF84"
-  terminal-line-instrument: "#8FDC9A"
-  terminal-voice-ship: "#8FDC9A"
-  terminal-voice-captain: "#E4D7A2"
-  terminal-type-text: "#C8E8CE"
-  terminal-type-dim: "#5F8A68"
+  terminal-line-panel: "#2A3148"
+  terminal-line-instrument: "#7AA2F7"
+  terminal-voice-ship: "#7AA2F7"
+  terminal-voice-captain: "#C0CAF5"
+  terminal-type-text: "#C0CAF5"
+  terminal-type-dim: "#565F89"
   rpg-surface-space: "#101C38"
   rpg-surface-panel: "#1E3C9A"
   rpg-surface-inset: "#162F78"
@@ -66,13 +66,13 @@ typography:
     fontSize: 0.9rem
     fontWeight: 600
     lineHeight: 1.2
-    letterSpacing: 0.14em
+    letterSpacing: 0.01em
   label:
     fontFamily: SF Pro Text
     fontSize: 0.66rem
     fontWeight: 600
     lineHeight: 1.2
-    letterSpacing: 0.08em
+    letterSpacing: 0.01em
   body:
     fontFamily: SF Pro Text
     fontSize: 0.75rem
@@ -127,7 +127,7 @@ components:
     backgroundColor: "{colors.planet-clinic}"
     textColor: "{colors.type-text}"
     rounded: "{rounded.full}"
-    size: 14px
+    size: 8px
 ---
 
 # Orbitty
@@ -175,13 +175,15 @@ State tokens, shared by every theme:
 
 ### Professional Dark
 
-Space is near-black navy `#070B12`, with a faint nebula in the corners and a slow drift of small stars. It is never bright. Panel is smoked glass resolving to `#101820`, a thin lit edge, no filled flat card. Inset is `#0A1018`. Scroll is the same glass. Ship voice is cool cyan `#8FD0DC`. Captain voice is warm amber `#E4B56A`.
+Space is near-black navy `#070B12`, with a faint nebula haze, navy into purple, drifting slowly. It is never bright. There is no star-dot wallpaper and no repeating speck tile. Stars appear only as things you can mean: a constellation handle, a word in the cloud. A sparse starfield behind the panels was drawn beside this haze and lost. The specks stayed in the margins. The haze is the space.
+
+Panel is real glass over that haze. Backdrop blur, a top-lit vertical gradient, a 1px lit top edge, the 10px radius, and a gentle shadow falling down and to the right. Light comes from the upper left, so the tile sits in the space. No corner brackets. No filled flat card. The opaque resolve of the glass is still `#101820`. Inset is `#0A1018`. Scroll is the same glass. Ship voice is cool cyan `#8FD0DC`. Captain voice is warm amber `#E4B56A`.
 
 Touchable is a faint cyan presence. Touching is brighter. Set is the same family, steady and dimmer. Active is the bright edge on the one action that is underway. Disabled is `#5C6772`.
 
-Light only comes from things doing something: an unset beacon, a hovered control, a running gauge, a selected orbit, a planet with recent activity, the Save today edge, the Reflect edge. No spotlights. No decorative glow. No fake floor shadow. No ellipse under the radar.
+Light only comes from things doing something: an unset star, a hovered control, a running gauge, a selected orbit, a planet with recent activity, the Save today edge, the Reflect edge. No spotlights. No decorative glow. No fake floor shadow. No ellipse under the radar.
 
-A few literal touches, and only these: corner brackets on panels, and monospace readouts such as `LOG · 2026-09-24`.
+Two literal ship touches, and only these: monospace readouts such as `Log · 2026-09-24`, and one faint tick ring on the radar.
 
 ### Professional Light
 
@@ -191,23 +193,23 @@ Touchable is a broken ink ring and a hollow core. Touching is heavier type and a
 
 ### Terminal
 
-Herdr is the reference. Stars' two columns match herdr's sidebar and main pane. The planet strip matches herdr's tab strip.
+Herdr is the reference, and the running theme on this machine is Tokyo Night. Stars' two columns match herdr's sidebar and main pane. The planet strip matches herdr's tab strip. One blue accent `#7AA2F7`. Black background. Monospace everywhere (`SF Mono`, then ui-monospace, Menlo).
 
-Everything is monospace (`SF Mono`, then ui-monospace, Menlo). Space `#0A0A0A`. Panel and scroll `#000000`. Ship phosphor `#8FDC9A`. Captain phosphor `#E4D7A2`. Text `#C8E8CE`. Dim `#5F8A68`.
+Space `#000000`. The left column sits on a slightly lifted shade `#0C0E14`. The right column stays black. Ship accent `#7AA2F7`. Captain and body text `#C0CAF5`. Dim `#565F89`. The input rule is `#2A3148`.
 
-Borrow herdr's manners:
+Herdr's manners, as the screen is drawn:
 
-- Section labels are lowercase and dim, the way herdr labels spaces and agents.
-- Selection is a colored status dot plus a slightly lighter row band.
-- A selected tab is an inverted solid block.
-- Separation is mostly background shade and spacing. Borders are rare.
-- Box-drawing is used only where it earns a frame, such as a text input. It is not the frame of every panel.
-- Item headers use the `◆` glyph.
-- Timestamps and readouts are dim and right-aligned, in the manner of `74K / 500K`.
-- A hint line sits on the bottom: `Shift+Tab: mode  |  Ctrl+c: cancel`.
-- Orange and green status dots mark planet activity.
+- No corner brackets. No box-drawing panel frames. Regions separate by background shade and spacing.
+- Section labels are lowercase and dim (`check-in`, `trackers`, `log`).
+- A selected planet tab is a solid inverted block: accent background, dark text, and the planet's colored dot still beside the name.
+- An unselected planet is plain text plus that dot. A hovered row is a slightly lighter band, not a second inverted block.
+- Item headers use `◆`.
+- Timestamps and readouts are dim and right-aligned.
+- The bottom hint is `←/→:day │ tab:planet │ s:save │ r:reflect`.
+- The only rounded border is on a text input. Save today and the selected tab are inverted blocks, not framed boxes.
+- Orange and green status marks still mean planet activity. They are not a second chrome accent.
 
-Touchable commands read `[ Sleep ]`, and the brackets blink slowly until the spoke is set. Touching and the selected tab are reverse video (the inverted block). Set is bold. The planet chip stays visible inside that inverted block, beside the name.
+An unset spoke is a dim `*`. A set spoke is `✦`, larger as the value rises. Touching inverts the value. Set labels are bold. The planet chip stays a plain colored dot inside the inverted block.
 
 ### RPG
 
@@ -223,8 +225,8 @@ Two families already on the machine. SF Pro Text for the ship and for the captai
 
 Terminal uses SF Mono for everything, including prose.
 
-- **Title:** 0.9rem, weight 600, tracking 0.14em. The STARS banner.
-- **Label:** 0.66rem, weight 600, tracking 0.08em. Section labels. In Terminal these are lowercase.
+- **Title:** 0.9rem, weight 600, tracking 0.01em. The banner reads `Stars` in sentence case. Terminal lowercases it.
+- **Label:** 0.66rem, weight 600, tracking 0.01em. Section titles are sentence case in Dark, Light, and RPG (`Check-in`, `Trackers`). Terminal lowercases them. They are sans, not uppercase mono.
 - **Body / captain:** about 0.78rem, line-height 1.45. Wins and journal prose.
 - **Control:** 0.68rem, weight 700. Save today, Reflect, tabs.
 - **Readout:** 0.62rem SF Mono, tracking 0.12em. Dates, spoke numbers, `LOG ·` headers, gauge figures.
@@ -241,13 +243,13 @@ Official themes keep this tree, in this order:
 2. Destination strip. All on its own shelf. Then each planet as a chip beside its name. Edges fade. A small chevron. No scrollbar.
 3. Left column, about half the body. Check-in, then a thin split, then Trackers.
 4. Right column. Cloud and Journal as two tabs. One Reflect.
-5. A hint line along the bottom. Terminal draws the herdr key hint. The other official themes keep the same slot and draw it in their own voice.
+5. A hint line along the bottom. Terminal draws `←/→:day │ tab:planet │ s:save │ r:reflect`. The other official themes keep the same slot and draw it in their own voice.
 
 Check-in holds the radar, then `LOG ·` the date, then Win 1, Win 2, and Grateful, then Save today and Edit. Trackers are one row of small round gauges. The tracker card is as tall as that row. Check-in takes the space above it. Empty copy such as "No nudges yet." is not shown.
 
 The left/right split defaults near 0.52. The check-in/tracker split is content-sized on the tracker side. Double-click still resets the live app's splits. This file does not change those fractions in code.
 
-**Planet chip.** In every official theme the chip sits immediately beside the planet name in the top strip. The chip is a small lit body in `planet-<name>`. Terminal does not replace it with a different element. A selected planet is an inverted block, and the chip is still visible inside that block, beside the name. Recent activity adds the orange or green status mark on the chip. Selection itself is an orbit ring in ship linework (Dark, Light, RPG) or the inverted block (Terminal). The name is `type-text`, not the planet color.
+**Planet chip.** In every official theme the chip sits immediately beside the planet name in the top strip. Dark and Light: an 8px matte disc in `planet-<name>`, no gloss. Activity is a soft halo. Selection is a thin orbit ring. RPG keeps the gem. Terminal keeps a plain colored dot, and the selected name is an inverted block with that dot still inside it. The name is `type-text`, not the planet color. Orange working and green ok may mark activity on the chip. They do not replace the planet color.
 
 **Structure parity** is official-only. A custom theme may rearrange, and should say which part it dropped.
 
@@ -255,9 +257,9 @@ The left/right split defaults near 0.52. The check-in/tracker split is content-s
 
 Depth is not a stack of drop shadows.
 
-In Professional Dark, space is behind smoked glass. The glass has a hairline lit edge and corner brackets. Nothing casts a floor shadow. Hover is a change of light on the thing being touched, not a lifted card with a bigger shadow. `motion-lift` may move a control 1 or 2px, with no shadow growing under it.
+In Professional Dark, space is the nebula behind the glass. The glass has a lit top edge, a top-to-bottom shade, and a soft shadow down-right. That shadow is depth, not a floor ellipse and not a spotlight. Hover is a change of light on the thing being touched. `motion-lift` may move a control 1 or 2px, with no shadow growing under it.
 
-`motion-hum` is a slow opacity pulse, about 3.5s, on unset beacons, running gauges, and planet chips. Reduced motion turns the pulse off. Light does not pulse. It uses ink weight. Terminal blinks the brackets of an untouched command, and stops blinking when reduced motion is on. RPG keeps the `▶` still.
+`motion-hum` is a slow opacity pulse, about 3.5s, on an unset constellation star, a running gauge, and a planet chip with recent activity. Reduced motion turns the pulse off. Light does not pulse. It uses ink weight. Terminal does not blink and does not pulse. RPG keeps the `▶` still.
 
 In Professional Light, a soft shadow under a panel is allowed. It is ink and paper, not a glow.
 
@@ -267,31 +269,31 @@ In RPG, the blue window sits on the textured field. The parchment scroll is the 
 
 ## Shapes
 
-Panels are one radius on every corner: 10px in Dark and Light, 14px on the RPG window, square in Terminal. The book edge is gone. One straight side and a rounded other side is not a style. It reads as a broken corner.
+Panels are one radius on every corner: 10px in Dark and Light, 14px on the RPG window, square in Terminal. The book edge is gone. One straight side and a rounded other side is not a style. It reads as a broken corner. Dark panels do not wear corner brackets.
 
-Controls are 7px, or square in Terminal. Pills are full round where Dark, Light, and RPG use them. Gauges are circles, about 32px. Planet chips are 14px circles. In Terminal the chip is still a colored mark beside the name, the same size order, not a letter in place of the chip.
+Controls are 7px, or square in Terminal. Pills are full round where Dark, Light, and RPG use them. Gauges are circles, about 32px. Dark and Light planet chips are flat matte discs, 8px, in `planet-<name>`. At most a two-stop shade. No specular highlight, no glossy marble. Recent activity is a soft thin halo in that same color. Selected is a thin orbit ring in ship linework. RPG keeps a larger gem chip, about 14px, with a highlight, because that chip works in the blue window. Terminal's chip is a plain 8px dot of the planet color, including inside the inverted tab.
 
 Journal lines are a bottom rule, not a rounded box.
 
 ## Components
 
-**Radar.** A navigation readout in thin instrument lines, floating on the panel. Five rings, five spokes: Sleep, Terroir, Athleticism, Relationships, Self. No shadow under it. No radial wash behind it. The filled shape is a thin stroke plus a very quiet tint of the ship line, only over spokes that have a score.
+**Radar.** The hero of Check-in. It fills the tile width. Spoke names sit against the chart. Five rings, five spokes: Sleep, Terroir, Athleticism, Relationships, Self. No shadow under it. No radial wash behind it. One faint instrument tick ring on the outer cage is the ship literal.
 
-Each handle is a small beacon with an orbit ring. Until the spoke is set, the ring hums, so the handle looks touchable before a click. Set locks the beacon at a steady dim. Touching brightens it and stops the hum. Values 1–5 stay typeable. Empty plus Enter clears a spoke. Escape leaves the score. First grab on an unset spoke still sets 3.
+Each value is a star on its spoke. Unset is a dim small star near the center, a faint dotted track, and five tick marks along the spoke, so it reads as draggable before a touch. Touching brightens the star, lights the track, and shows the value. Set stars grow and brighten from 1 to 5, and only a set star gets a four-point glint. The shape is thin constellation lines between stars that have a value. A missing spoke stays a gap. Fill, if any, is a whisper. Values 1–5 stay typeable. Empty plus Enter clears a spoke. Escape leaves the score. First grab on an unset spoke still sets 3.
 
-Terminal draws the same cage in phosphor. An unset label is `[ Sleep ]`. A touched label is reverse video. A set label is bold. RPG puts `▶` on the touchable spoke and a highlighted row on the touched one. Light uses a dashed ink ring, then a heavier filled core.
+Dark draws glowing stars on the glass. Light draws ink stars, weight instead of glow. Terminal draws `*` and `✦`, and inverts the value while touching. RPG draws the star and puts `▶` on the touching spoke.
 
-**Log lines.** Win 1, Win 2, and Grateful sit under the monospace header. The words are captain voice. The keys are dim readouts. Save today is the one primary action in Check-in. Edit stays quiet. A dirty draft brightens Save today. It does not add a second primary.
+**Log lines.** Win 1, Win 2, and Grateful sit under the date readout. The date is monospace. The keys are sentence case, and lowercase in Terminal. The words are captain voice. Save today is the one primary action in Check-in. Edit stays quiet. A dirty draft brightens Save today. It does not add a second primary.
 
-**Cloud.** A star field on space. Each word is a star. How often it appears is how bright and how large it is. The field keeps the three existing star hues, ochre, teal, and violet. They are stars in the window, not planet chips and not a page surface. Drift is a few pixels. Reduced motion holds them still.
+**Cloud.** Words float in a nebula, not on a flat black card. The haze drifts, navy into purple, faintly tinted by the planet colors. How often a word appears is how bright and how large it is. The field is dense. Ochre, teal, and violet stay available as word colors in Dark. They are not planet chips and not a page surface. Terminal has no nebula: dim and bright text only, one blue accent. Light is a pale haze and stays light. RPG is the blue window. Drift is a few pixels. Reduced motion holds the words still.
 
-**Journal.** Past entries on `surface-scroll`. One Reflect, on the tab row when pages exist, on the empty page when they do not. Never both. No book edge. In Dark the entries are amber on glass. In Light they are captain ink on the light panel. In Terminal they are captain phosphor on black, with a `◆` header. In RPG they are ink on the parchment scroll.
+**Journal.** Past entries on `surface-scroll`. One Reflect, on the tab row when pages exist, on the empty page when they do not. Never both. No book edge. In Dark the entries are amber on glass. In Light they are captain ink on the light panel. In Terminal they are captain text on black, with a `◆` header. In RPG they are ink on the parchment scroll.
 
 **Trackers.** Small round lamps in a row, about a third of the old watch-face card. The card shrinks to the row. At rest: lamp, figure, short label. Hover or focus shows decrease and increase, or Start and Stop on a timer. The figure can be typed. A running timer hums and is visually distinct from a set lamp. Planet identity color is not painted on the lamp. The planet is named in dim readout type, or by the chip up in the strip.
 
-**Destination strip.** All stays on its own shelf, outside the scrolling row. Each planet is chip plus name. Planets with recent activity carry the orange or green status mark and read a little brighter. The selected planet takes an orbit ring, except in Terminal, where the whole row inverts and the chip remains. Overflow fades at the edge and offers a chevron. The scrollbar stays hidden.
+**Destination strip.** All stays on its own shelf, outside the scrolling row. Each planet is chip plus name. Recent activity is the soft halo on a Dark or Light chip. The selected planet takes an orbit ring, except in Terminal, where the tab inverts and the dot remains. Overflow fades at the edge and offers a chevron. The scrollbar stays hidden.
 
-**Hint line.** Last, full width. Terminal: the herdr key hint, dim, monospace. Other official themes: the same slot, one quiet readout, their own type.
+**Hint line.** Last, full width. Terminal: `←/→:day │ tab:planet │ s:save │ r:reflect`, dim, monospace, with the draft readout on the right. Other official themes: the same slot, one quiet readout, their own type.
 
 ## Do's and Don'ts
 
@@ -300,7 +302,7 @@ Terminal draws the same cage in phosphor. An unset label is `[ Sleep ]`. A touch
 - Keep the two-column Stars frame and the 4px step in every official theme.
 - Declare touchable, touching, active, set, and disabled, and let the theme draw them.
 - Put the planet chip beside the planet name in every official theme, including inside a Terminal inverted block.
-- Use herdr as the Terminal reference: lowercase labels, inverted selected tab, rare borders, `◆` headers, dim right-aligned readouts, a bottom hint line, orange and green activity marks.
+- Use herdr as the Terminal reference: black, one blue accent, lowercase labels, an inverted selected tab that still shows the dot, no panel frames, `◆` headers, dim right-aligned readouts, the bottom hint line, orange and green activity marks.
 - Keep captain words and ship chrome in their own voices.
 - Move with transform, opacity, and a shadow only where that theme owns shadow. Reduced motion: no pulse, no blink.
 - Keep body text at or above 4.5:1 on its surface. Keep Reflect, Save today, inc, dec, and start/stop targets at least 24px.
@@ -309,6 +311,7 @@ Terminal draws the same cage in phosphor. An unset label is `[ Sleep ]`. A touch
 
 - Don't put a light surface in Professional Dark. Don't put a dark island in Professional Light.
 - Don't borrow parchment outside RPG, or box-drawing as general chrome outside an input, or herdr reverse-video outside Terminal.
+- Don't put corner brackets on Dark panels. Don't paint a repeating star-dot tile. Don't put a glossy highlight on a Dark or Light planet chip.
 - Don't add a spotlight, a radial glare, a floor shadow, or an ellipse under the radar.
 - Don't bring back the book edge, the orange score dash, or a second Reflect.
 - Don't paint planet colors on gauges, banners, buttons, or journal text.
