@@ -151,11 +151,17 @@
     draftNum = v >= 1 ? String(Math.round(v)) : "";
   }
 
+  // Empty + Enter clears the spoke back to unset. Escape cancels and keeps it.
   function commitNum() {
     if (!editKey) return;
-    const n = parseInt(draftNum.trim(), 10);
+    const raw = draftNum.trim();
     const key = editKey;
     editKey = null;
+    if (raw === "") {
+      onSet(key, 0);
+      return;
+    }
+    const n = parseInt(raw, 10);
     if (n >= 1 && n <= 5) onSet(key, n);
   }
 
@@ -237,17 +243,18 @@
       {@const showKnob = !ghost || (editable && !avgMode)}
       {#if showKnob}
         {@const [x, y] = radarVertex(i, ghost ? 3 : v)}
-        <circle
-          class="knob-hit"
-          class:locked={!editable}
-          class:ghost={ghost}
-          cx={x}
-          cy={y}
-          r="14"
-          onpointerdown={(e) => startDrag(e, i)}
-        />
-        <circle class="knob-ring" class:ghost={ghost} cx={x} cy={y} r="9" />
-        <circle class="knob-core" class:ghost={ghost} cx={x} cy={y} r="4" />
+        <!-- Hit radius is the grab target. Ring and core stay a few pixels. -->
+        <g class="knob" class:ghost={ghost} class:locked={!editable}>
+          <circle
+            class="knob-hit"
+            cx={x}
+            cy={y}
+            r="16"
+            onpointerdown={(e) => startDrag(e, i)}
+          />
+          <circle class="knob-ring" cx={x} cy={y} r="3.5" />
+          <circle class="knob-core" cx={x} cy={y} r="2.5" />
+        </g>
       {/if}
     {/each}
     {#each spokes as spoke, i (spoke.key)}
@@ -381,34 +388,42 @@
     pointer-events: none;
   }
 
+  .knob.locked {
+    pointer-events: none;
+  }
+
   .knob-hit {
     fill: transparent;
     cursor: grab;
   }
 
-  .knob-hit.locked {
-    pointer-events: none;
-  }
-
   .knob-ring {
-    fill: var(--bg-fill, #1c1c1e);
-    stroke: #e59e3d;
-    stroke-width: 2.6;
+    fill: none;
+    stroke: color-mix(in srgb, var(--ink) 42%, transparent);
+    stroke-width: 0.65;
     pointer-events: none;
-  }
-
-  .knob-ring.ghost {
-    stroke-dasharray: 2 2;
-    opacity: 0.55;
   }
 
   .knob-core {
-    fill: #e59e3d;
+    fill: color-mix(in srgb, var(--ink) 78%, transparent);
     pointer-events: none;
   }
 
-  .knob-core.ghost {
-    opacity: 0.35;
+  .knob.ghost .knob-ring {
+    stroke: color-mix(in srgb, var(--ink) 22%, transparent);
+    stroke-width: 0.4;
+  }
+
+  .knob.ghost .knob-core {
+    fill: transparent;
+  }
+
+  .knob.ghost:hover .knob-ring {
+    stroke: color-mix(in srgb, var(--ink) 48%, transparent);
+  }
+
+  .knob.ghost:hover .knob-core {
+    fill: color-mix(in srgb, var(--ink) 40%, transparent);
   }
 
   .tag {

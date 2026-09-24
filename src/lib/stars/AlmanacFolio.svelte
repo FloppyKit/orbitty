@@ -6,12 +6,32 @@
   let {
     pages,
     projects,
+    loaded = false,
+    onReflect,
   }: {
     pages: LedgerPage[];
     projects: Project[];
+    loaded?: boolean;
+    onReflect: () => void;
   } = $props();
 
   let face = $state<"cloud" | "journal">("cloud");
+  let userPicked = $state(false);
+  let ready = false;
+  let prev = 0;
+
+  $effect(() => {
+    const n = pages.length;
+    if (!loaded) return;
+    if (!ready) {
+      ready = true;
+      prev = n;
+      if (!userPicked && n === 0) face = "journal";
+      return;
+    }
+    if (n > prev) face = "journal";
+    prev = n;
+  });
 </script>
 
 <section class="folio" aria-label="Almanac">
@@ -21,14 +41,20 @@
       role="tab"
       aria-selected={face === "cloud"}
       class:on={face === "cloud"}
-      onclick={() => (face = "cloud")}
+      onclick={() => {
+        userPicked = true;
+        face = "cloud";
+      }}
     >Cloud</button>
     <button
       type="button"
       role="tab"
       aria-selected={face === "journal"}
       class:on={face === "journal"}
-      onclick={() => (face = "journal")}
+      onclick={() => {
+        userPicked = true;
+        face = "journal";
+      }}
     >Journal</button>
     {#if pages.length}
       <span class="count">{pages.length}</span>
@@ -40,7 +66,7 @@
     </div>
     {#if face === "journal"}
       <div class="pages" role="tabpanel">
-        <LedgerStack {pages} {projects} />
+        <LedgerStack {pages} {projects} {onReflect} />
       </div>
     {/if}
   </div>

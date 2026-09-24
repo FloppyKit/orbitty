@@ -28,6 +28,7 @@
   import ReflectSheet from "./stars/ReflectSheet.svelte";
   import NudgeStrip from "./stars/NudgeStrip.svelte";
   import NudgeCards from "./stars/NudgeCards.svelte";
+  import { ledgerBody } from "./stars/ledgerBody";
   import { reorderProjects } from "./planetOrder";
   import { stepSpoke } from "./stars/radarGeom";
   import { listenPaneVis } from "./paneVis";
@@ -49,7 +50,7 @@
     StarsSlice,
     Tracker,
   } from "./persist";
-  import { elapsedSec } from "./stars/timer";
+  import { elapsedSec, formatElapsed, isTimer } from "./stars/timer";
 
   // This page now mounts inside the one shared
   // 780×520 `kanban` overlay (stars mode) — hideLabel is the HOST window's
@@ -125,12 +126,13 @@
     return Math.min(hi, Math.max(lo, v));
   }
   let reflectOpen = $state(false);
+  let starsLoaded = $state(false);
   // The draft is the working copy — it only becomes state via Save today.
   let starsDraft = $state<StarsCheckin>(emptyCheckin());
   let starsSavedDay = $state("");
   // Mid-edit guard: a state:changed echo (companion Prompts toggle / strip
   // ack) must not wipe spoke clicks that were never saved.
-  let draftDirty = false;
+  let draftDirty = $state(false);
 
   function todayKey(): string {
     const d = new Date();
@@ -240,6 +242,7 @@
         nudgeScope = "overall";
       }
       if (!draftDirty) syncStarsDraft();
+      starsLoaded = true;
     } catch {
       // next state:changed / visibility refresh retries
     }
@@ -469,12 +472,51 @@
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
+  function scopeLabel(): string {
+    if (nudgeScope === "overall") return "All";
+    return projects.find((p) => p.id === nudgeScope)?.name ?? "All";
+  }
+
+  function trackerLines(): { planet: string; label: string; value: string }[] {
+    const now = Date.now();
+    const list =
+      nudgeScope === "overall"
+        ? projects
+        : projects.filter((p) => p.id === nudgeScope);
+    const out: { planet: string; label: string; value: string }[] = [];
+    for (const p of list) {
+      for (const tr of p.trackers ?? []) {
+        const value = isTimer(tr)
+          ? formatElapsed(elapsedSec(tr, now))
+          : String(tr.value ?? 0);
+        out.push({ planet: p.name, label: tr.label, value });
+      }
+    }
+    return out;
+  }
+
   async function writeLedgerPage(flags: MetricFlags) {
+    const body = ledgerBody({
+      dayKey: todayKey(),
+      scopeLabel: scopeLabel(),
+      flags,
+      spokes: STARS_SPOKES.map((s) => ({
+        label: s.label,
+        value: starsDraft[s.key] ?? 0,
+      })),
+      wins: [starsDraft.win1, starsDraft.win2]
+        .map((w) => (w ?? "").trim())
+        .filter(Boolean),
+      grateful: (starsDraft.grateful ?? "").trim(),
+      trackers: trackerLines(),
+    });
+    if (!body.trim()) return;
     const page: LedgerPage = {
       id: newId("led"),
       createdAt: Date.now(),
       dayKey: todayKey(),
       scope: nudgeScope,
+      body,
       metricFlags: flags,
     };
     try {
@@ -594,9 +636,14 @@
     }
     void patchProjects((list) => {
       const byId = new Map(list.map((p) => [p.id, p]));
-      return order
+      const next = order
         .map((id) => byId.get(id))
         .filter((p): p is Project => !!p);
+      const seen = new Set(next.map((p) => p.id));
+      for (const p of list) {
+        if (!seen.has(p.id)) next.push(p);
+      }
+      return next;
     }).finally(() => {
       planetDragging = false;
     });
@@ -765,6 +812,15 @@
         <option value="year">1 year</option>
         <option value="custom">Custom…</option>
       </select>
+      <button
+        type="button"
+        class="chron-prompts"
+        class:on={starsState.promptsOptIn}
+        aria-pressed={starsState.promptsOptIn}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={toggleStarsPrompts}
+        title="Companion prompts, for every planet. Off by default."
+      >{starsState.promptsOptIn ? "Prompts on" : "Prompts"}</button>
       {#if navView === "custom"}
         <input
           class="nav-date"
@@ -835,6 +891,7 @@
         <div class="stars-foot">
           <button
             class="mini stars-save"
+            class:dirty={draftDirty}
             disabled={!isToday || avgMode || (!dayEditable && !!cursorSaved)}
             onclick={saveStarsToday}
           >
@@ -846,13 +903,6 @@
             disabled={!isToday || avgMode || !cursorSaved || dayEditable}
             onclick={() => (editingToday = true)}
           >Edit</button>
-          <button
-            class="mini"
-            class:active={starsState.promptsOptIn}
-            aria-pressed={starsState.promptsOptIn}
-            onclick={toggleStarsPrompts}
-            title="Companion prompts — one quiet strip when today's check-in has a thin spoke. Off by default."
-          >Prompts: {starsState.promptsOptIn ? "On" : "Off"}</button>
           {#if isToday}
             {#if starsSavedDay}
               <span class="stars-note">Saved for {starsSavedDay}</span>
@@ -900,7 +950,12 @@
       ondblclick={resetEastSplit}
     ></div>
     <div class="folio-col" style="flex: {1 - starsEastSplit} 1 0%">
-      <AlmanacFolio pages={starsState.ledgerPages ?? []} {projects} />
+      <AlmanacFolio
+        pages={starsState.ledgerPages ?? []}
+        {projects}
+        loaded={starsLoaded}
+        onReflect={() => (reflectOpen = true)}
+      />
     </div>
   </div>
   {#if reflectOpen}
@@ -1140,12 +1195,6 @@
     border-color: var(--focus, #6e4db0);
   }
 
-  .mini.active {
-    background: var(--accent);
-    border-color: var(--focus, #6e4db0);
-    color: var(--bg);
-  }
-
   .mini:disabled {
     opacity: 0.45;
     cursor: default;
@@ -1157,6 +1206,32 @@
 
   .stars-save {
     font-weight: 700;
+  }
+
+  .stars-save.dirty:not(:disabled) {
+    background: var(--accent);
+    border-color: var(--focus, #6e4db0);
+    color: var(--bg);
+  }
+
+  .chron-prompts {
+    flex: none;
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 650;
+    color: var(--dim);
+    background: transparent;
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 1px 8px;
+    cursor: pointer;
+  }
+
+  .chron-prompts.on {
+    color: var(--ink);
+    font-weight: 700;
+    border-color: color-mix(in srgb, var(--ink) 45%, var(--edge));
+    background: var(--panel-fill, var(--panel));
   }
 
   .stars-note {

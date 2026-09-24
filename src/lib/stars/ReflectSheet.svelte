@@ -55,7 +55,7 @@
       <h2>Reflect</h2>
       <button type="button" class="x" bind:this={closeBtn} onclick={onClose} aria-label="Close">×</button>
     </header>
-    <p class="hint">Choose what a later page may include. This does not write a reflection.</p>
+    <p class="hint">Choose what this page includes. Write fills it from today. Nothing is sent out.</p>
     <label><input type="checkbox" bind:checked={spokes} /> Spokes</label>
     <label><input type="checkbox" bind:checked={wins} /> Wins</label>
     <label><input type="checkbox" bind:checked={grateful} /> Grateful</label>
@@ -63,7 +63,12 @@
     <label><input type="checkbox" bind:checked={cloud} /> Cloud</label>
     <div class="row">
       <button type="button" class="btn" onclick={onClose}>Close</button>
-      <button type="button" class="btn strong" onclick={() => onWrite(flags())}>Write empty page</button>
+      <button
+        type="button"
+        class="btn strong"
+        disabled={!spokes && !wins && !grateful && !trackers && !cloud}
+        onclick={() => onWrite(flags())}
+      >Write page</button>
     </div>
   </div>
 </div>
@@ -143,6 +148,11 @@
 
   .btn {
     padding: 3px 8px;
+  }
+
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 
   .strong {

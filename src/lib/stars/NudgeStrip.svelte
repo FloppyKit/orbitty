@@ -18,10 +18,39 @@
     onReorderCommit: () => void;
   } = $props();
 
-  let stripEl: HTMLDivElement | null = $state(null);
+  let pillsEl: HTMLDivElement | null = $state(null);
   let dragId = $state<string | null>(null);
   let dropId = $state<string | null>(null);
+  let fadeLeft = $state(false);
+  let fadeRight = $state(false);
   let didDrag = false;
+
+  function syncFade() {
+    const el = pillsEl;
+    if (!el) {
+      fadeLeft = false;
+      fadeRight = false;
+      return;
+    }
+    const overflow = el.scrollWidth > el.clientWidth + 1;
+    fadeLeft = overflow && el.scrollLeft > 2;
+    fadeRight = overflow && el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+  }
+
+  $effect(() => {
+    const el = pillsEl;
+    void projects.length;
+    if (!el) return;
+    const measure = () => syncFade();
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    el.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("scroll", measure);
+    };
+  });
 
   function onChipClick(id: string) {
     if (didDrag) {
@@ -31,81 +60,89 @@
     onScope(id);
   }
 
-  function beforeAt(clientX: number): string | null {
-    const root = stripEl;
+  // Insertion point among the pills that are not the one being dragged.
+  // Skipping the dragged pill keeps a live reorder from chasing its own box.
+  function beforeAt(clientX: number, movingId: string): string | null {
+    const root = pillsEl;
     if (!root) return null;
     const els = root.querySelectorAll(".chip[data-pid]");
     for (const el of els) {
+      const pid = el.getAttribute("data-pid");
+      if (!pid || pid === movingId) continue;
       const r = el.getBoundingClientRect();
-      if (clientX < r.left + r.width / 2) return el.getAttribute("data-pid");
+      if (clientX < r.left + r.width / 2) return pid;
     }
     return null;
   }
 
+  function edgeScroll(clientX: number) {
+    const root = pillsEl;
+    if (!root) return;
+    const r = root.getBoundingClientRect();
+    const edge = 28;
+    if (clientX < r.left + edge) root.scrollLeft -= 14;
+    else if (clientX > r.right - edge) root.scrollLeft += 14;
+  }
+
   function onPlanetPointerDown(e: PointerEvent, id: string) {
     if (e.button !== 0) return;
-    if (!(e.currentTarget instanceof HTMLElement)) return;
     e.stopPropagation();
-    const tab = e.currentTarget;
     const x0 = e.clientX;
     const y0 = e.clientY;
-    const scroll0 = stripEl?.scrollLeft ?? 0;
     let dragging = false;
-    let armed = true;
-    const SLOP = 16;
+    let done = false;
+    // pointerup is followed by click, often on a different pill after reorder.
+    const swallowClick = (ev: MouseEvent) => {
+      if (!didDrag) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      didDrag = false;
+    };
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (dragging) onReorderCommit();
+      dragId = null;
+      dropId = null;
+      cleanup();
+      setTimeout(() => {
+        window.removeEventListener("click", swallowClick, true);
+        didDrag = false;
+      }, 0);
+    };
     const onMove = (ev: PointerEvent) => {
-      if (!armed) return;
       const dx = ev.clientX - x0;
       const dy = ev.clientY - y0;
       if (!dragging) {
-        if (Math.hypot(dx, dy) < SLOP) return;
+        if (Math.hypot(dx, dy) < 8) return;
         if (Math.abs(dy) > Math.abs(dx)) {
-          armed = false;
-          cleanup();
-          return;
-        }
-        if (stripEl && Math.abs(stripEl.scrollLeft - scroll0) > 2) {
-          armed = false;
-          cleanup();
+          finish();
           return;
         }
         dragging = true;
         didDrag = true;
         dragId = id;
       }
-      const before = beforeAt(ev.clientX);
+      ev.preventDefault();
+      edgeScroll(ev.clientX);
+      const before = beforeAt(ev.clientX, id);
       dropId = before;
       onReorder(id, before);
     };
-    const onUp = () => {
-      armed = false;
-      if (dragging) onReorderCommit();
-      dragId = null;
-      dropId = null;
-      cleanup();
-    };
-    const cleanup = () => {
-      try {
-        tab.releasePointerCapture(e.pointerId);
-      } catch {
-        /* capture is best-effort */
-      }
-      tab.removeEventListener("pointermove", onMove);
-      tab.removeEventListener("pointerup", onUp);
-      tab.removeEventListener("pointercancel", onUp);
-    };
-    try {
-      tab.setPointerCapture(e.pointerId);
-    } catch {
-      /* capture is best-effort */
-    }
-    tab.addEventListener("pointermove", onMove);
-    tab.addEventListener("pointerup", onUp);
-    tab.addEventListener("pointercancel", onUp);
+    const onUp = () => finish();
+    window.addEventListener("click", swallowClick, true);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 </script>
 
-<div class="nudges" role="group" aria-label="Nudge scope" bind:this={stripEl}>
+<div class="nudges" role="group" aria-label="Nudge scope">
   <button
     type="button"
     class="chip pin"
@@ -114,19 +151,28 @@
     onclick={() => onScope("overall")}
   >All</button>
   <span class="rule" aria-hidden="true"></span>
-  {#each projects as p (p.id)}
-    <button
-      type="button"
-      class="chip"
-      class:on={scope === p.id}
-      class:dragging={dragId === p.id}
-      class:drop-ok={dropId === p.id}
-      data-pid={p.id}
-      aria-pressed={scope === p.id}
-      onpointerdown={(e) => onPlanetPointerDown(e, p.id)}
-      onclick={() => onChipClick(p.id)}
-    ><span class="dot" style="background: {planetCss(p.id)}"></span>{p.name}</button>
-  {/each}
+  <div
+    class="pills"
+    class:fade-left={fadeLeft}
+    class:fade-right={fadeRight}
+    bind:this={pillsEl}
+  >
+    {#each projects as p (p.id)}
+      <button
+        type="button"
+        class="chip"
+        class:on={scope === p.id}
+        class:dragging={dragId === p.id}
+        class:drop-ok={dropId === p.id && dragId !== p.id}
+        data-pid={p.id}
+        draggable="false"
+        aria-pressed={scope === p.id}
+        title="Drag to reorder"
+        onpointerdown={(e) => onPlanetPointerDown(e, p.id)}
+        onclick={() => onChipClick(p.id)}
+      ><span class="dot" style="background: {planetCss(p.id)}"></span>{p.name}</button>
+    {/each}
+  </div>
   <button type="button" class="reflect" onclick={onReflect}>Reflect</button>
 </div>
 
@@ -135,10 +181,55 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 4px;
-    overflow-x: auto;
+    gap: 6px;
+    overflow: hidden;
     padding: 4px 10px;
     border-bottom: 1px solid var(--edge);
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .pills {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .pills::-webkit-scrollbar {
+    display: none;
+    height: 0;
+  }
+
+  .pills.fade-left {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px);
+    mask-image: linear-gradient(90deg, transparent, #000 14px);
+  }
+
+  .pills.fade-right {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+  }
+
+  .pills.fade-left.fade-right {
+    -webkit-mask-image: linear-gradient(
+      90deg,
+      transparent,
+      #000 14px,
+      #000 calc(100% - 14px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      90deg,
+      transparent,
+      #000 14px,
+      #000 calc(100% - 14px),
+      transparent
+    );
   }
 
   .chip {
@@ -155,12 +246,21 @@
     padding: 1px 8px;
     cursor: grab;
     touch-action: none;
+    white-space: nowrap;
   }
 
-  .chip.pin,
-  .reflect {
+  .chip:active {
+    cursor: grabbing;
+  }
+
+  .chip.pin {
     cursor: pointer;
     touch-action: auto;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    padding: 2px 10px;
+    border-color: color-mix(in srgb, var(--ink) 50%, var(--edge));
+    background: color-mix(in srgb, var(--panel-fill, var(--panel)) 88%, var(--ink));
   }
 
   .chip.dragging {
@@ -168,7 +268,7 @@
   }
 
   .chip.drop-ok {
-    box-shadow: inset 0 0 0 1px var(--accent);
+    box-shadow: inset 2px 0 0 var(--accent);
   }
 
   .dot {
@@ -181,10 +281,10 @@
 
   .rule {
     flex: none;
-    width: 1px;
-    height: 14px;
-    margin: 0 4px;
-    background: var(--edge);
+    width: 2px;
+    height: 18px;
+    border-radius: 1px;
+    background: color-mix(in srgb, var(--ink) 62%, transparent);
   }
 
   .chip.on {
@@ -194,7 +294,6 @@
   }
 
   .reflect {
-    margin-left: auto;
     flex: none;
     font: inherit;
     font-size: 0.68rem;

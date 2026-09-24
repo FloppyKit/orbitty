@@ -5,9 +5,11 @@
   let {
     pages,
     projects,
+    onReflect,
   }: {
     pages: LedgerPage[];
     projects: Project[];
+    onReflect: () => void;
   } = $props();
 
   let index = $state(0);
@@ -74,7 +76,8 @@
           {/if}
           <p class="body">{page.body?.trim() ? page.body : ""}</p>
         {:else}
-          <p class="body quiet">No pages yet.</p>
+          <p class="lead">Reflect writes the next page.</p>
+          <button type="button" class="cta" onclick={onReflect}>Open Reflect</button>
         {/if}
       </article>
     {/key}
@@ -206,11 +209,27 @@
     font-size: 0.75rem;
     line-height: 1.35;
     color: var(--ink);
+    white-space: pre-wrap;
   }
 
-  .body.quiet {
-    margin-top: 4px;
-    color: var(--dim);
+  .lead {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--ink);
+  }
+
+  .cta {
+    margin-top: 10px;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 4px 10px;
+    cursor: pointer;
   }
 
   @keyframes flip {
