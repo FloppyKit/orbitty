@@ -374,6 +374,20 @@ pub struct StarsState {
     /// Flipable journal pages. Empty until Reflect writes a stub.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ledger_pages: Vec<LedgerPage>,
+    /// Check-in fraction of the STARS left column. Default 0.62.
+    #[serde(default = "stars_act_split_default")]
+    pub stars_act_split: f64,
+    /// Left-column fraction of the STARS body. Default 0.52.
+    #[serde(default = "stars_east_split_default")]
+    pub stars_east_split: f64,
+}
+
+fn stars_act_split_default() -> f64 {
+    0.62
+}
+
+fn stars_east_split_default() -> f64 {
+    0.52
 }
 
 impl Default for StarsState {
@@ -387,6 +401,8 @@ impl Default for StarsState {
             average_to: String::new(),
             scale_v: 0,
             ledger_pages: Vec::new(),
+            stars_act_split: stars_act_split_default(),
+            stars_east_split: stars_east_split_default(),
         }
     }
 }

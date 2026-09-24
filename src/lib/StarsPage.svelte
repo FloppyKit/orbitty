@@ -28,6 +28,8 @@
   import ReflectSheet from "./stars/ReflectSheet.svelte";
   import NudgeStrip from "./stars/NudgeStrip.svelte";
   import NudgeCards from "./stars/NudgeCards.svelte";
+  import { reorderProjects } from "./planetOrder";
+  import { stepSpoke } from "./stars/radarGeom";
   import { listenPaneVis } from "./paneVis";
   import { startPaneDrag } from "./dragPane";
   import { MenuRing, type RingStop } from "./menuKeys.svelte";
@@ -101,7 +103,27 @@
 
   let starsState = $state<StarsSlice>({ promptsOptIn: false, checkins: {} });
   let projects = $state<Project[]>([]);
+  // Check-in fraction of the left column, and left-column fraction of the body.
+  const ACT_SPLIT = 0.62;
+  const EAST_SPLIT = 0.52;
+  let starsActSplit = $state(ACT_SPLIT);
+  let starsEastSplit = $state(EAST_SPLIT);
+  let splitDragging = false;
+  let planetDragging = false;
+  let orderDirty = false;
+  let bodyEl: HTMLDivElement | null = $state(null);
+  let actEl: HTMLDivElement | null = $state(null);
   let nudgeScope = $state("overall");
+
+  function clampSplit(
+    v: number | undefined,
+    fallback: number,
+    lo: number,
+    hi: number,
+  ): number {
+    if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
+    return Math.min(hi, Math.max(lo, v));
+  }
   let reflectOpen = $state(false);
   // The draft is the working copy — it only becomes state via Save today.
   let starsDraft = $state<StarsCheckin>(emptyCheckin());
@@ -196,7 +218,21 @@
       themeId = KNOWN_THEMES.has(s.themeId) ? s.themeId : osThemeId();
       windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
       starsState = s.stars ?? { promptsOptIn: false, checkins: {} };
-      projects = s.projects ?? [];
+      if (!planetDragging) projects = s.projects ?? [];
+      if (!splitDragging) {
+        starsActSplit = clampSplit(
+          starsState.starsActSplit,
+          ACT_SPLIT,
+          0.34,
+          0.82,
+        );
+        starsEastSplit = clampSplit(
+          starsState.starsEastSplit,
+          EAST_SPLIT,
+          0.3,
+          0.74,
+        );
+      }
       if (
         nudgeScope !== "overall" &&
         !projects.some((p) => p.id === nudgeScope)
@@ -332,13 +368,12 @@
 
   function bumpSpoke(key: SpokeKey, delta: number) {
     if (!isToday || avgMode) return; // past days / averages are read-only
+    const cur = starsDraft[key] ?? 0;
     if (!dayEditable) {
       editingToday = true;
-      return;
+      if (cur >= 1) return; // a saved spoke unlocks first; the next arrow steps
     }
-    const cur = starsDraft[key] ?? 0;
-    const next = cur + delta;
-    setSpoke(key, next < 1 ? 0 : Math.min(5, next));
+    setSpoke(key, stepSpoke(cur, delta));
   }
 
   function saveFromRing() {
@@ -453,6 +488,118 @@
     } catch {
       // next write retries; flags stay on the sheet
     }
+  }
+
+  function onActSplitDown(e: PointerEvent) {
+    const el = actEl;
+    if (!el) return;
+    e.preventDefault();
+    splitDragging = true;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const startY = e.clientY;
+    const start = starsActSplit;
+    const h = Math.max(el.clientHeight, 1);
+    const move = (ev: PointerEvent) => {
+      starsActSplit = clampSplit(
+        start + (ev.clientY - startY) / h,
+        ACT_SPLIT,
+        0.34,
+        0.82,
+      );
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      splitDragging = false;
+      void persistLayout();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  function resetActSplit() {
+    starsActSplit = ACT_SPLIT;
+    void persistLayout();
+  }
+
+  function onEastSplitDown(e: PointerEvent) {
+    const el = bodyEl;
+    if (!el) return;
+    e.preventDefault();
+    splitDragging = true;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const startX = e.clientX;
+    const start = starsEastSplit;
+    const w = Math.max(el.clientWidth, 1);
+    const move = (ev: PointerEvent) => {
+      starsEastSplit = clampSplit(
+        start + (ev.clientX - startX) / w,
+        EAST_SPLIT,
+        0.3,
+        0.74,
+      );
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      splitDragging = false;
+      void persistLayout();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  function resetEastSplit() {
+    starsEastSplit = EAST_SPLIT;
+    void persistLayout();
+  }
+
+  let layoutQueue: Promise<void> = Promise.resolve();
+
+  function persistLayout() {
+    const act = starsActSplit;
+    const east = starsEastSplit;
+    layoutQueue = layoutQueue
+      .then(async () => {
+        const s = await invoke<PersistedState>("load_state");
+        const stars = s.stars ?? { promptsOptIn: false, checkins: {} };
+        stars.starsActSplit = act;
+        stars.starsEastSplit = east;
+        s.stars = stars;
+        await invoke("save_state", { state: s });
+        if (starsActSplit === act && starsEastSplit === east) {
+          starsState = { ...starsState, starsActSplit: act, starsEastSplit: east };
+        }
+      })
+      .catch(() => {
+        // next drag retries
+      });
+  }
+
+  function reorderPlanetsLive(fromId: string, beforeId: string | null) {
+    planetDragging = true;
+    const next = reorderProjects(projects, fromId, beforeId);
+    if (next === projects) return;
+    projects = next;
+    orderDirty = true;
+  }
+
+  function commitPlanetOrder() {
+    const dirty = orderDirty;
+    const order = projects.map((p) => p.id);
+    orderDirty = false;
+    if (!dirty) {
+      planetDragging = false;
+      return;
+    }
+    void patchProjects((list) => {
+      const byId = new Map(list.map((p) => [p.id, p]));
+      return order
+        .map((id) => byId.get(id))
+        .filter((p): p is Project => !!p);
+    }).finally(() => {
+      planetDragging = false;
+    });
   }
 
   async function patchProjects(fn: (projects: Project[]) => Project[]) {
@@ -657,12 +804,18 @@
     scope={nudgeScope}
     onScope={(id) => (nudgeScope = id)}
     onReflect={() => (reflectOpen = true)}
+    onReorder={reorderPlanetsLive}
+    onReorderCommit={commitPlanetOrder}
   />
   <NudgeCards />
 
-  <div class="s-body">
-    <div class="act-col">
-      <section class="act-tile" aria-label="Check-in">
+  <div class="s-body" bind:this={bodyEl}>
+    <div class="act-col" bind:this={actEl} style="flex: {starsEastSplit} 1 0%">
+      <section
+        class="act-tile checkin"
+        style="flex: {starsActSplit} 1 0%"
+        aria-label="Check-in"
+      >
         <h2>Check-in</h2>
         <RadarDial
           spokes={STARS_SPOKES}
@@ -711,7 +864,20 @@
           {/if}
         </div>
       </section>
-      <section class="act-tile" aria-label="Trackers">
+      <div
+        class="act-split"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize Check-in and Trackers"
+        title="Drag to resize · double-click resets"
+        onpointerdown={onActSplitDown}
+        ondblclick={resetActSplit}
+      ></div>
+      <section
+        class="act-tile trackers"
+        style="flex: {1 - starsActSplit} 1 0%"
+        aria-label="Trackers"
+      >
         <StarsTrackers
           {projects}
           scope={nudgeScope}
@@ -724,7 +890,18 @@
         />
       </section>
     </div>
-    <AlmanacFolio pages={starsState.ledgerPages ?? []} {projects} />
+    <div
+      class="east-split"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize check-in column and folio"
+      title="Drag to resize · double-click resets"
+      onpointerdown={onEastSplitDown}
+      ondblclick={resetEastSplit}
+    ></div>
+    <div class="folio-col" style="flex: {1 - starsEastSplit} 1 0%">
+      <AlmanacFolio pages={starsState.ledgerPages ?? []} {projects} />
+    </div>
   </div>
   {#if reflectOpen}
     <ReflectSheet onClose={() => (reflectOpen = false)} onWrite={writeLedgerPage} />
@@ -823,7 +1000,7 @@
     display: flex;
     flex-direction: row;
     align-items: stretch;
-    gap: 10px;
+    gap: 0;
     padding: 10px 12px 12px;
   }
 
@@ -832,21 +1009,89 @@
   }
 
   .act-col {
-    flex: 1 1 0;
     min-width: 0;
     min-height: 0;
-    overflow: auto;
+    height: 100%;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+  }
+
+  .act-split,
+  .east-split {
+    flex: 0 0 6px;
+    position: relative;
+    background: transparent;
+    touch-action: none;
+  }
+
+  .act-split {
+    cursor: ns-resize;
+  }
+
+  .east-split {
+    cursor: col-resize;
+    align-self: stretch;
+  }
+
+  .act-split::after,
+  .east-split::after {
+    content: "";
+    position: absolute;
+    border-radius: 1px;
+    background: var(--dim);
+    opacity: 0;
+  }
+
+  .act-split::after {
+    left: 18%;
+    right: 18%;
+    top: 2px;
+    height: 2px;
+  }
+
+  .east-split::after {
+    top: 18%;
+    bottom: 18%;
+    left: 2px;
+    width: 2px;
+  }
+
+  .act-split:hover::after,
+  .act-split:active::after,
+  .east-split:hover::after,
+  .east-split:active::after {
+    opacity: 0.45;
+  }
+
+  .folio-col {
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .folio-col :global(.folio) {
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
   }
 
   .act-tile {
-    flex: 0 0 auto;
+    min-height: 0;
+    overflow: auto;
+    box-sizing: border-box;
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
     border-radius: 10px;
     padding: 8px 10px 10px;
+  }
+
+  .act-tile.trackers {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .act-tile h2 {

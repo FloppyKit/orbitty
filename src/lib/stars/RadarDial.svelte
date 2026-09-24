@@ -5,6 +5,8 @@
     labelPlacement,
     radarRing,
     radarVertex,
+    scoreFromGrab,
+    stepSpoke,
     valueFromPointer,
   } from "./radarGeom";
 
@@ -26,10 +28,15 @@
     onSet: (key: string, value: number) => void;
   } = $props();
 
+  let dialEl: HTMLDivElement | null = $state(null);
   let svgEl: SVGSVGElement | null = $state(null);
   let editKey = $state<string | null>(null);
   let draftNum = $state("");
   let editEl = $state<HTMLInputElement | null>(null);
+  let editAt = $state("");
+  let editOpenedAt = 0;
+  type Hit = { left: number; top: number; w: number; h: number };
+  let hits = $state<Record<string, Hit>>({});
 
   const editIndex = $derived(spokes.findIndex((s) => s.key === editKey));
 
@@ -47,9 +54,11 @@
 
   function points(): string {
     if (!shown) return "";
-    return spokes
-      .map((s, i) => radarVertex(i, spokeValue(s.key)).join(","))
-      .join(" ");
+    const set = spokes
+      .map((s, i) => ({ i, v: spokeValue(s.key) }))
+      .filter((s) => s.v >= 1);
+    if (set.length < 3) return "";
+    return set.map((s) => radarVertex(s.i, s.v).join(",")).join(" ");
   }
 
   function svgPoint(e: PointerEvent): { x: number; y: number } | null {
@@ -70,11 +79,19 @@
     e.stopPropagation();
     const key = spokes[i]?.key;
     if (!key) return;
+    const unset = spokeValue(key) < 1;
+    let moved = false;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     const apply = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) >= 5) {
+        moved = true;
+      }
       const p = svgPoint(ev);
-      if (!p) return;
-      onSet(key, valueFromPointer(i, p.x, p.y));
+      const pointer = p ? valueFromPointer(i, p.x, p.y) : 0;
+      const score = scoreFromGrab(pointer, unset, moved);
+      if (score != null) onSet(key, score);
     };
     const up = (ev: PointerEvent) => {
       apply(ev);
@@ -86,8 +103,49 @@
     window.addEventListener("pointerup", up);
   }
 
+  function fallbackEditStyle(i: number): string {
+    const p = labelPlacement(i);
+    const left = ((p.x - RADAR_VB.x) / RADAR_VB.w) * 100;
+    const top = ((p.y - RADAR_VB.y) / RADAR_VB.h) * 100;
+    if (p.anchor === "end") {
+      return `left:${left}%;top:${top}%;transform:translate(-100%,-130%)`;
+    }
+    if (p.anchor === "start") {
+      return `left:${left}%;top:${top}%;transform:translate(0,-130%)`;
+    }
+    return `left:${left}%;top:${top}%;transform:translate(-50%,-150%)`;
+  }
+
+  function measureHits() {
+    const root = dialEl;
+    if (!root) return;
+    const host = root.getBoundingClientRect();
+    const next: Record<string, Hit> = {};
+    for (const spoke of spokes) {
+      const el = root.querySelector(`[data-num="${spoke.key}"]`);
+      if (!(el instanceof Element)) continue;
+      const b = el.getBoundingClientRect();
+      if (b.width < 1 && b.height < 1) continue;
+      const pad = 6;
+      const w = Math.max(24, b.width + pad * 2);
+      const h = Math.max(22, b.height + pad * 2);
+      next[spoke.key] = {
+        left: b.left - host.left + b.width / 2 - w / 2,
+        top: b.top - host.top + b.height / 2 - h / 2,
+        w,
+        h,
+      };
+    }
+    hits = next;
+  }
+
   function openNum(key: string) {
     if (!editable || avgMode) return;
+    editOpenedAt = performance.now();
+    const hit = hits[key];
+    editAt = hit
+      ? `left:${hit.left}px;top:${hit.top}px`
+      : fallbackEditStyle(spokes.findIndex((s) => s.key === key));
     editKey = key;
     const v = spokeValue(key);
     draftNum = v >= 1 ? String(Math.round(v)) : "";
@@ -108,27 +166,30 @@
     onSet(key, n);
   }
 
-  function editStyle(i: number): string {
-    const p = labelPlacement(i);
-    const left = ((p.x - RADAR_VB.x) / RADAR_VB.w) * 100;
-    const top = ((p.y - RADAR_VB.y) / RADAR_VB.h) * 100;
-    if (p.anchor === "end") {
-      return `left:${left}%;top:${top}%;transform:translate(-100%,-130%)`;
-    }
-    if (p.anchor === "start") {
-      return `left:${left}%;top:${top}%;transform:translate(0,-130%)`;
-    }
-    return `left:${left}%;top:${top}%;transform:translate(-50%,-150%)`;
-  }
-
   $effect(() => {
     if (!editKey) return;
     editEl?.focus();
     editEl?.select();
   });
+
+  $effect(() => {
+    const root = dialEl;
+    if (!root) return;
+    for (const s of spokes) numberText(s.key);
+    editKey;
+    editable;
+    avgMode;
+    const ro = new ResizeObserver(() => measureHits());
+    ro.observe(root);
+    const id = requestAnimationFrame(() => measureHits());
+    return () => {
+      cancelAnimationFrame(id);
+      ro.disconnect();
+    };
+  });
 </script>
 
-<div class="dial">
+<div class="dial" bind:this={dialEl}>
   <svg
     bind:this={svgEl}
     viewBox="{RADAR_VB.x} {RADAR_VB.y} {RADAR_VB.w} {RADAR_VB.h}"
@@ -157,65 +218,81 @@
         onpointerdown={(e) => startDrag(e, i)}
         onkeydown={(e) => {
           if (!editable) return;
-          const cur = spokeValue(spoke.key);
-          const base = cur >= 1 ? Math.round(cur) : 0;
           if (e.key === "ArrowUp" || e.key === "ArrowRight") {
             e.preventDefault();
-            onSet(spoke.key, Math.min(5, base + 1));
+            onSet(spoke.key, stepSpoke(spokeValue(spoke.key), 1));
           } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
             e.preventDefault();
-            onSet(spoke.key, base <= 1 ? 0 : base - 1);
+            onSet(spoke.key, stepSpoke(spokeValue(spoke.key), -1));
           }
         }}
       />
     {/each}
-    {#if shown}
+    {#if points()}
       <polygon class="shape" points={points()} />
     {/if}
     {#each spokes as spoke, i (spoke.key)}
       {@const v = spokeValue(spoke.key)}
-      {#if v >= 1}
-        {@const [x, y] = radarVertex(i, v)}
+      {@const ghost = v < 1}
+      {@const showKnob = !ghost || (editable && !avgMode)}
+      {#if showKnob}
+        {@const [x, y] = radarVertex(i, ghost ? 3 : v)}
         <circle
           class="knob-hit"
           class:locked={!editable}
+          class:ghost={ghost}
           cx={x}
           cy={y}
           r="14"
           onpointerdown={(e) => startDrag(e, i)}
         />
-        <circle class="knob-ring" cx={x} cy={y} r="9" />
-        <circle class="knob-core" cx={x} cy={y} r="4" />
+        <circle class="knob-ring" class:ghost={ghost} cx={x} cy={y} r="9" />
+        <circle class="knob-core" class:ghost={ghost} cx={x} cy={y} r="4" />
       {/if}
     {/each}
     {#each spokes as spoke, i (spoke.key)}
       {@const label = labelPlacement(i)}
       <text
         class="tag"
+        class:live={editable && !avgMode}
         class:on={activeId === `spoke-${spoke.key}`}
         data-mkey={`spoke-${spoke.key}`}
         x={label.x}
         y={label.y}
         text-anchor={label.anchor}
         dominant-baseline="middle"
+        onpointerdown={(e) => {
+          if (!editable || avgMode) return;
+          e.preventDefault();
+          e.stopPropagation();
+          openNum(spoke.key);
+        }}
       >
         <tspan class="word">{spoke.label}</tspan>
         {#if editKey !== spoke.key}
-          <tspan
-            class="num"
-            class:live={editable && !avgMode}
-            dx="4"
-            onclick={(e) => {
-              e.stopPropagation();
-              openNum(spoke.key);
-            }}
-          >{numberText(spoke.key)}</tspan>
+          <tspan class="num" class:live={editable && !avgMode} data-num={spoke.key} dx="4"
+            >{numberText(spoke.key)}</tspan>
         {/if}
       </text>
     {/each}
   </svg>
+  {#each spokes as spoke (spoke.key)}
+    {#if editable && !avgMode && editKey !== spoke.key && hits[spoke.key]}
+      <button
+        type="button"
+        class="num-hit"
+        style="left:{hits[spoke.key].left}px;top:{hits[spoke.key].top}px;width:{hits[spoke.key].w}px;height:{hits[spoke.key].h}px"
+        aria-label="Set {spoke.label}"
+        onpointerdown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openNum(spoke.key);
+        }}
+      ></button>
+    {/if}
+  {/each}
   {#if editKey && editIndex >= 0}
-    <div class="edit" style={editStyle(editIndex)}>
+    <div class="edit" style={editAt}>
       <input
         bind:this={editEl}
         class="edit-in"
@@ -224,14 +301,20 @@
         aria-label="{spokes[editIndex].label} 1 to 5"
         bind:value={draftNum}
         onblur={() => {
+          if (performance.now() - editOpenedAt < 250) {
+            editEl?.focus();
+            return;
+          }
           if (editKey) editKey = null;
         }}
         onkeydown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
+            e.stopPropagation();
             commitNum();
           } else if (e.key === "Escape") {
             e.preventDefault();
+            e.stopPropagation();
             editKey = null;
           }
         }}
@@ -314,15 +397,29 @@
     pointer-events: none;
   }
 
+  .knob-ring.ghost {
+    stroke-dasharray: 2 2;
+    opacity: 0.55;
+  }
+
   .knob-core {
     fill: #e59e3d;
     pointer-events: none;
+  }
+
+  .knob-core.ghost {
+    opacity: 0.35;
   }
 
   .tag {
     font-family: inherit;
     font-size: 10px;
     pointer-events: none;
+  }
+
+  .tag.live {
+    pointer-events: all;
+    cursor: text;
   }
 
   .word {
@@ -337,13 +434,22 @@
   }
 
   .num.live {
-    pointer-events: all;
+    cursor: text;
+  }
+
+  .num-hit {
+    position: absolute;
+    z-index: 2;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
     cursor: text;
   }
 
   .edit {
     position: absolute;
-    z-index: 2;
+    z-index: 3;
     display: flex;
     align-items: center;
     gap: 3px;

@@ -315,6 +315,11 @@ export interface StarsSlice {
   scaleV?: number;
   // Flipable journal pages. Empty until Reflect writes a stub.
   ledgerPages?: LedgerPage[];
+  // Check-in fraction of the left column. Default 0.62. Rail round-trips
+  // the stars object, so the split lives here rather than on the root.
+  starsActSplit?: number;
+  // Left-column fraction of the body. Default 0.52.
+  starsEastSplit?: number;
 }
 
 export interface SkySlice {

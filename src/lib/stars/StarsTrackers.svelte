@@ -193,6 +193,8 @@
 
 <style>
   .trackers {
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -261,9 +263,12 @@
     list-style: none;
     margin: 0;
     padding: 0;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
   }
 
   .line {
@@ -271,7 +276,9 @@
     align-items: center;
     gap: 6px;
     min-height: 28px;
-    padding: 2px 2px;
+    padding: 2px 6px;
+    border-radius: 8px;
+    background: var(--bg-fill, var(--bg));
   }
 
   .chip {

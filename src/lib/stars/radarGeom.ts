@@ -45,7 +45,8 @@ export function radarRing(v: number): string {
   ).join(" ");
 }
 
-// Project onto spoke i. Inside the first ring stays unset (0), never score 1.
+// Project onto spoke i.
+// 0 means the hub (inside ring 1) — not a score. Never round the hub up to 1.
 export function valueFromPointer(i: number, x: number, y: number): number {
   const a = spokeAngle(i);
   const dot = x * Math.cos(a) + y * Math.sin(a);
@@ -54,4 +55,24 @@ export function valueFromPointer(i: number, x: number, y: number): number {
   const r = Math.min(RADAR_R, dot);
   const t = (r - ring1) / (RADAR_R - ring1);
   return Math.max(1, Math.min(5, Math.round(1 + t * 4)));
+}
+
+// A click on an unset spoke lands on 3. A click on a set spoke holds.
+// After the pointer moves, 1–5 follows the spoke. The hub (0) writes nothing.
+export function scoreFromGrab(
+  pointerValue: number,
+  unset: boolean,
+  moved: boolean,
+): number | null {
+  if (!moved) return unset ? 3 : null;
+  if (pointerValue >= 1 && pointerValue <= 5) return pointerValue;
+  return null;
+}
+
+// Unset: the first arrow lands on 3. After that, step inside 1–5.
+export function stepSpoke(current: number, delta: number): number {
+  if (!(current >= 1)) return 3;
+  const next = Math.round(current) + Math.sign(delta || 0);
+  if (!Number.isFinite(next)) return Math.round(current);
+  return Math.max(1, Math.min(5, next));
 }

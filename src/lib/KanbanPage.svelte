@@ -12,6 +12,7 @@
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
+  import { reorderProjects } from "./planetOrder";
   import { startPaneDrag } from "./dragPane";
   import NeededInbox, { neededFor } from "./NeededInbox.svelte";
   import BoardChrome from "./board/Chrome.svelte";
@@ -278,14 +279,8 @@
   }
 
   function reorderPlanetsLive(fromId: string, beforeId: string | null) {
-    if (!fromId || fromId === beforeId) return;
-    const list = [...projects];
-    const from = list.findIndex((p) => p.id === fromId);
-    if (from < 0) return;
-    const [moved] = list.splice(from, 1);
-    const to = beforeId ? list.findIndex((p) => p.id === beforeId) : list.length;
-    list.splice(to < 0 ? list.length : to, 0, moved);
-    projects = list;
+    const next = reorderProjects(projects, fromId, beforeId);
+    if (next !== projects) projects = next;
   }
 
   function persistPlanetOrder() {
