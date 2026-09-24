@@ -71,6 +71,24 @@ commands:
   needed answer --id <id> -- \"text\"
   log append --type T [--project P] [--actor agent] -- '{\"k\":1}'
   stars open
+  stars checkin get [--date YYYY-MM-DD]
+  stars checkin set --axis sleep|terroir|athleticism|relationships|self --value 1-5 [--date D]
+  stars log get [--date D]
+  stars log set [--date D] [--win1 T] [--win2 T] [--grateful T]
+  stars log save [--date D]
+  stars journal list [--from D] [--to D] [--planet P]
+  stars journal read --date D
+  stars journal append [--date D] [--planet P] -- \"text\"
+  stars reflect templates
+  stars reflect write [--date D] [--template ledger] [--planet P]
+            [--spokes on|off] [--wins on|off] [--grateful on|off]
+            [--trackers on|off] [--cloud on|off] [--answers '{...}']
+  stars tracker list [--planet P]
+  stars tracker inc|dec --id ID [--by N]
+  stars tracker set --id ID --value N
+  stars timer start|stop --id ID
+  stars timer status
+  stars cloud words [--range 14|week|month|year|all]
   packs list
   sleeper wake --id <id>
   state get
@@ -126,6 +144,15 @@ optional one-user VPS URL (Tailscale 100.64/10:13120 or
 ws://127.0.0.1:port for SSH -L). Empty URL = local sidecar only.
 Never 0.0.0.0. Write-class ACL (full / named custom).
 
+stars checkin / log / journal / reflect / tracker / timer / cloud
+read and write the STARS page through the same state.json save door as
+the GUI (`state:changed` reloads the page). Reads are on the read
+profile. Writes need full or a custom allow entry (`stars.*` covers
+them). Omitted --date is today. log set leaves out a field to keep it;
+`--win1 \"\"` clears that line. log save trims the saved day and does not
+invent an empty one. journal append refuses a blank body. reflect write
+uses the local ledger template (no model call).
+
 needed answer --id n-… -- \"text\" applies an
 answer through the same needed-answer event path as the composer (the
 watch dispatches on it) — scripts never need the UI. needed open itself
@@ -164,6 +191,23 @@ struct Opts {
     card: Option<String>,
     file: Option<String>,
     url: Option<String>,
+    date: Option<String>,
+    axis: Option<String>,
+    value: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+    planet: Option<String>,
+    win1: Option<String>,
+    win2: Option<String>,
+    grateful: Option<String>,
+    template: Option<String>,
+    answers: Option<String>,
+    by: Option<String>,
+    range: Option<String>,
+    spokes: Option<String>,
+    wins: Option<String>,
+    trackers: Option<String>,
+    cloud: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
 }
@@ -197,6 +241,23 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         card: None,
         file: None,
         url: None,
+        date: None,
+        axis: None,
+        value: None,
+        from: None,
+        to: None,
+        planet: None,
+        win1: None,
+        win2: None,
+        grateful: None,
+        template: None,
+        answers: None,
+        by: None,
+        range: None,
+        spokes: None,
+        wins: None,
+        trackers: None,
+        cloud: None,
         words: Vec::new(),
         tail: Vec::new(),
     };
@@ -252,6 +313,32 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--file" => o.file = Some(it.next().ok_or("--file needs a path")?.clone()),
             // Kept as Some("") when passed empty — relay replica clears.
             "--url" => o.url = Some(it.next().ok_or("--url needs a value")?.clone()),
+            "--date" => o.date = Some(it.next().ok_or("--date needs a value")?.clone()),
+            "--axis" => o.axis = Some(it.next().ok_or("--axis needs a value")?.clone()),
+            "--value" => o.value = Some(it.next().ok_or("--value needs a value")?.clone()),
+            "--from" => o.from = Some(it.next().ok_or("--from needs a value")?.clone()),
+            "--to" => o.to = Some(it.next().ok_or("--to needs a value")?.clone()),
+            "--planet" => o.planet = Some(it.next().ok_or("--planet needs a value")?.clone()),
+            // Empty string is meaningful: clears that log line.
+            "--win1" => o.win1 = Some(it.next().ok_or("--win1 needs a value")?.clone()),
+            "--win2" => o.win2 = Some(it.next().ok_or("--win2 needs a value")?.clone()),
+            "--grateful" => {
+                o.grateful = Some(it.next().ok_or("--grateful needs a value")?.clone())
+            }
+            "--template" => {
+                o.template = Some(it.next().ok_or("--template needs a value")?.clone())
+            }
+            "--answers" => {
+                o.answers = Some(it.next().ok_or("--answers needs a value")?.clone())
+            }
+            "--by" => o.by = Some(it.next().ok_or("--by needs a value")?.clone()),
+            "--range" => o.range = Some(it.next().ok_or("--range needs a value")?.clone()),
+            "--spokes" => o.spokes = Some(it.next().ok_or("--spokes needs a value")?.clone()),
+            "--wins" => o.wins = Some(it.next().ok_or("--wins needs a value")?.clone()),
+            "--trackers" => {
+                o.trackers = Some(it.next().ok_or("--trackers needs a value")?.clone())
+            }
+            "--cloud" => o.cloud = Some(it.next().ok_or("--cloud needs a value")?.clone()),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 exit(0);
@@ -288,6 +375,31 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             s if s.starts_with("--extra=") => o.extra = Some(s["--extra=".len()..].to_string()),
             s if s.starts_with("--agent=") => o.agent = Some(s["--agent=".len()..].to_string()),
             s if s.starts_with("--url=") => o.url = Some(s["--url=".len()..].to_string()),
+            s if s.starts_with("--date=") => o.date = Some(s["--date=".len()..].to_string()),
+            s if s.starts_with("--axis=") => o.axis = Some(s["--axis=".len()..].to_string()),
+            s if s.starts_with("--value=") => o.value = Some(s["--value=".len()..].to_string()),
+            s if s.starts_with("--from=") => o.from = Some(s["--from=".len()..].to_string()),
+            s if s.starts_with("--to=") => o.to = Some(s["--to=".len()..].to_string()),
+            s if s.starts_with("--planet=") => o.planet = Some(s["--planet=".len()..].to_string()),
+            s if s.starts_with("--win1=") => o.win1 = Some(s["--win1=".len()..].to_string()),
+            s if s.starts_with("--win2=") => o.win2 = Some(s["--win2=".len()..].to_string()),
+            s if s.starts_with("--grateful=") => {
+                o.grateful = Some(s["--grateful=".len()..].to_string())
+            }
+            s if s.starts_with("--template=") => {
+                o.template = Some(s["--template=".len()..].to_string())
+            }
+            s if s.starts_with("--answers=") => {
+                o.answers = Some(s["--answers=".len()..].to_string())
+            }
+            s if s.starts_with("--by=") => o.by = Some(s["--by=".len()..].to_string()),
+            s if s.starts_with("--range=") => o.range = Some(s["--range=".len()..].to_string()),
+            s if s.starts_with("--spokes=") => o.spokes = Some(s["--spokes=".len()..].to_string()),
+            s if s.starts_with("--wins=") => o.wins = Some(s["--wins=".len()..].to_string()),
+            s if s.starts_with("--trackers=") => {
+                o.trackers = Some(s["--trackers=".len()..].to_string())
+            }
+            s if s.starts_with("--cloud=") => o.cloud = Some(s["--cloud=".len()..].to_string()),
             s if s.starts_with('-') && s.len() > 1 => {
                 return Err(format!("unknown flag {s:?}\n\n{USAGE}"))
             }
@@ -326,6 +438,46 @@ fn opt(v: &Option<String>) -> Option<String> {
 
 fn need_flag(v: &Option<String>, flag: &str) -> Result<String, String> {
     opt(v).ok_or_else(|| format!("missing {flag} <value>"))
+}
+
+fn need_int(v: &Option<String>, flag: &str) -> Result<i64, String> {
+    let s = need_flag(v, flag)?;
+    s.parse::<i64>()
+        .map_err(|_| format!("{flag} must be an integer"))
+}
+
+fn opt_pos_int(v: &Option<String>, flag: &str) -> Result<Option<i64>, String> {
+    let Some(s) = opt(v) else {
+        return Ok(None);
+    };
+    let n: i64 = s
+        .parse()
+        .map_err(|_| format!("{flag} must be an integer"))?;
+    if n <= 0 {
+        return Err(format!("{flag} must be a positive integer"));
+    }
+    Ok(Some(n))
+}
+
+fn on_off(v: &str, flag: &str) -> Result<bool, String> {
+    match v.trim() {
+        "on" | "true" | "1" => Ok(true),
+        "off" | "false" | "0" => Ok(false),
+        other => Err(format!("{flag} must be on or off, got {other:?}")),
+    }
+}
+
+fn put_opt(a: &mut Value, key: &str, v: &Option<String>) {
+    if let Some(s) = opt(v) {
+        a[key] = json!(s);
+    }
+}
+
+/// Keep an explicit empty string (log lines clear that way).
+fn put_raw(a: &mut Value, key: &str, v: &Option<String>) {
+    if let Some(s) = v {
+        a[key] = json!(s);
+    }
 }
 
 /// Words → (tool, args). Only the v0 tool list exists.
@@ -662,6 +814,129 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             Ok(("log.append", a))
         }
         ["stars", "open"] => Ok(("stars.open", json!({}))),
+        ["stars", "checkin", "get"] => {
+            let mut a = json!({});
+            put_opt(&mut a, "date", &o.date);
+            Ok(("stars.checkin.get", a))
+        }
+        ["stars", "checkin", "set"] => {
+            let mut a = json!({
+                "axis": need_flag(&o.axis, "--axis")?,
+                "value": need_int(&o.value, "--value")?,
+            });
+            put_opt(&mut a, "date", &o.date);
+            Ok(("stars.checkin.set", a))
+        }
+        ["stars", "log", "get"] => {
+            let mut a = json!({});
+            put_opt(&mut a, "date", &o.date);
+            Ok(("stars.log.get", a))
+        }
+        ["stars", "log", "set"] => {
+            if o.win1.is_none() && o.win2.is_none() && o.grateful.is_none() {
+                return Err("need --win1, --win2, or --grateful".into());
+            }
+            let mut a = json!({});
+            put_raw(&mut a, "win1", &o.win1);
+            put_raw(&mut a, "win2", &o.win2);
+            put_raw(&mut a, "grateful", &o.grateful);
+            put_opt(&mut a, "date", &o.date);
+            Ok(("stars.log.set", a))
+        }
+        ["stars", "log", "save"] => {
+            let mut a = json!({});
+            put_opt(&mut a, "date", &o.date);
+            Ok(("stars.log.save", a))
+        }
+        ["stars", "journal", "list"] => {
+            let mut a = json!({});
+            put_opt(&mut a, "from", &o.from);
+            put_opt(&mut a, "to", &o.to);
+            put_opt(&mut a, "planet", &o.planet);
+            Ok(("stars.journal.list", a))
+        }
+        ["stars", "journal", "read"] => {
+            Ok(("stars.journal.read", json!({ "date": need_flag(&o.date, "--date")? })))
+        }
+        ["stars", "journal", "append"] => {
+            let mut a = json!({ "text": payload(o)? });
+            put_opt(&mut a, "date", &o.date);
+            put_opt(&mut a, "planet", &o.planet);
+            Ok(("stars.journal.append", a))
+        }
+        ["stars", "reflect", "templates"] => Ok(("stars.reflect.templates", json!({}))),
+        ["stars", "reflect", "write"] => {
+            let mut answers = if let Some(raw) = opt(&o.answers) {
+                let v: Value = serde_json::from_str(&raw)
+                    .map_err(|e| format!("answers JSON: {e}"))?;
+                if !v.is_object() {
+                    return Err("answers must be a JSON object".into());
+                }
+                v
+            } else {
+                json!({})
+            };
+            if let Some(v) = opt(&o.spokes) {
+                answers["spokes"] = json!(on_off(&v, "--spokes")?);
+            }
+            if let Some(v) = opt(&o.wins) {
+                answers["wins"] = json!(on_off(&v, "--wins")?);
+            }
+            if let Some(v) = opt(&o.grateful) {
+                answers["grateful"] = json!(on_off(&v, "--grateful")?);
+            }
+            if let Some(v) = opt(&o.trackers) {
+                answers["trackers"] = json!(on_off(&v, "--trackers")?);
+            }
+            if let Some(v) = opt(&o.cloud) {
+                answers["cloud"] = json!(on_off(&v, "--cloud")?);
+            }
+            if let Some(p) = opt(&o.planet) {
+                answers["planet"] = json!(p);
+            }
+            let mut a = json!({
+                "template": opt(&o.template).unwrap_or_else(|| "ledger".into()),
+                "answers": answers,
+            });
+            put_opt(&mut a, "date", &o.date);
+            put_opt(&mut a, "planet", &o.planet);
+            Ok(("stars.reflect.write", a))
+        }
+        ["stars", "tracker", "list"] => {
+            let mut a = json!({});
+            put_opt(&mut a, "planet", &o.planet);
+            Ok(("stars.tracker.list", a))
+        }
+        ["stars", "tracker", "inc"] | ["stars", "tracker", "dec"] => {
+            let verb = w[2];
+            let mut a = json!({ "id": need_id(o)? });
+            if let Some(n) = opt_pos_int(&o.by, "--by")? {
+                a["by"] = json!(n);
+            }
+            Ok((
+                if verb == "inc" {
+                    "stars.tracker.inc"
+                } else {
+                    "stars.tracker.dec"
+                },
+                a,
+            ))
+        }
+        ["stars", "tracker", "set"] => Ok((
+            "stars.tracker.set",
+            json!({
+                "id": need_id(o)?,
+                "value": need_int(&o.value, "--value")?,
+            }),
+        )),
+        ["stars", "timer", "start"] => Ok(("stars.timer.start", json!({ "id": need_id(o)? }))),
+        ["stars", "timer", "stop"] => Ok(("stars.timer.stop", json!({ "id": need_id(o)? }))),
+        ["stars", "timer", "status"] => Ok(("stars.timer.status", json!({}))),
+        ["stars", "cloud", "words"] => {
+            let mut a = json!({});
+            put_opt(&mut a, "range", &o.range);
+            Ok(("stars.cloud.words", a))
+        }
         ["packs", "list"] => Ok(("packs.list", json!({}))),
         ["sleeper", "wake"] => Ok(("sleeper.wake", json!({ "id": need_id(o)? }))),
         ["state", "get"] => Ok(("state.get", json!({}))),
@@ -1194,6 +1469,88 @@ pub fn run() {
         eprintln!("{err}");
     }
     exit(if code > 0 { code } else { EXIT_OTHER });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn stars_checkin_set_parses() {
+        let o = parse(&argv(&[
+            "--json",
+            "stars",
+            "checkin",
+            "set",
+            "--axis",
+            "sleep",
+            "--value",
+            "4",
+            "--date",
+            "2099-12-31",
+        ]))
+        .unwrap();
+        assert!(o.json);
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "stars.checkin.set");
+        assert_eq!(args["axis"], "sleep");
+        assert_eq!(args["value"], 4);
+        assert_eq!(args["date"], "2099-12-31");
+    }
+
+    #[test]
+    fn stars_log_set_keeps_an_empty_clear() {
+        let o = parse(&argv(&[
+            "stars", "log", "set", "--win1", "", "--date", "2099-12-31",
+        ]))
+        .unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "stars.log.set");
+        assert_eq!(args["win1"], "");
+        assert!(args.get("win2").is_none());
+    }
+
+    #[test]
+    fn stars_journal_append_and_reflect_flags() {
+        let o = parse(&argv(&[
+            "stars",
+            "journal",
+            "append",
+            "--date",
+            "2099-12-31",
+            "--planet",
+            "orbitty",
+            "--",
+            "a note",
+        ]))
+        .unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "stars.journal.append");
+        assert_eq!(args["text"], "a note");
+        assert_eq!(args["planet"], "orbitty");
+
+        let o = parse(&argv(&[
+            "stars",
+            "reflect",
+            "write",
+            "--date",
+            "2099-12-31",
+            "--cloud",
+            "off",
+            "--answers",
+            "{\"spokes\":true}",
+        ]))
+        .unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "stars.reflect.write");
+        assert_eq!(args["template"], "ledger");
+        assert_eq!(args["answers"]["cloud"], false);
+        assert_eq!(args["answers"]["spokes"], true);
+    }
 }
 
 } // mod imp

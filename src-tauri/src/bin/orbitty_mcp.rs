@@ -34,6 +34,24 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "companion.open", description: "Show the companion window", args: "none" },
     ToolDef { name: "kanban.open", description: "Show the shared pane in Board mode", args: "none" },
     ToolDef { name: "stars.open", description: "Show the shared pane in STARS mode", args: "none" },
+    ToolDef { name: "stars.checkin.get", description: "Read one day's saved STARS check-in (five spokes 0 or 1-5, plus win lines). Omitted date = today.", args: "stars_date" },
+    ToolDef { name: "stars.checkin.set", description: "Set one spoke (sleep|terroir|athleticism|relationships|self) to 1-5 on a saved day and reload the page.", args: "stars_checkin_set" },
+    ToolDef { name: "stars.log.get", description: "Read Win 1, Win 2, and Grateful for a saved day. Omitted date = today.", args: "stars_date" },
+    ToolDef { name: "stars.log.set", description: "Set Win 1, Win 2, and/or Grateful on a day. Omit a field to keep it; empty string clears it.", args: "stars_log_set" },
+    ToolDef { name: "stars.log.save", description: "Trim and re-save a day's check-in (the Save today door). Does not invent an empty day.", args: "stars_date" },
+    ToolDef { name: "stars.journal.list", description: "List journal pages, optionally filtered by from/to dates and planet.", args: "stars_journal_list" },
+    ToolDef { name: "stars.journal.read", description: "Read journal pages for one date.", args: "stars_date_req" },
+    ToolDef { name: "stars.journal.append", description: "Append a journal page. Blank text is not saved.", args: "stars_journal_append" },
+    ToolDef { name: "stars.reflect.templates", description: "List Reflect templates. The ledger template is local — no model call.", args: "none" },
+    ToolDef { name: "stars.reflect.write", description: "Write a journal page from a template and that day's saved check-in. Blank body is not saved.", args: "stars_reflect_write" },
+    ToolDef { name: "stars.tracker.list", description: "List planet trackers (numbers and timers).", args: "stars_planet" },
+    ToolDef { name: "stars.tracker.inc", description: "Increase a number tracker. by defaults to 1. Timers use stars.timer.*.", args: "stars_tracker_bump" },
+    ToolDef { name: "stars.tracker.dec", description: "Decrease a number tracker. by defaults to 1.", args: "stars_tracker_bump" },
+    ToolDef { name: "stars.tracker.set", description: "Set a number tracker to an integer value.", args: "stars_tracker_set" },
+    ToolDef { name: "stars.timer.start", description: "Start a timer tracker. A second start leaves the original start time.", args: "stars_id" },
+    ToolDef { name: "stars.timer.stop", description: "Stop a timer and fold elapsed seconds into its value.", args: "stars_id" },
+    ToolDef { name: "stars.timer.status", description: "List timer trackers with running state and elapsed seconds.", args: "none" },
+    ToolDef { name: "stars.cloud.words", description: "Read the Cloud cover word bag (done cards, tags, planet names, your lines). Not stored. Bot replies are excluded.", args: "stars_cloud" },
     ToolDef { name: "companion.send", description: "Send a line on the companion Berd path", args: "line" },
     ToolDef { name: "companion.agents", description: "List companion agent profiles", args: "none" },
     ToolDef { name: "companion.set_agent", description: "Set the companion agent profile", args: "profile" },
@@ -252,6 +270,118 @@ fn input_schema(kind: &str) -> Value {
                 "agent": { "type": "string", "description": "Agent id or unique name; empty string unassigns" }
             },
             "required": ["id", "agent"]
+        }),
+        "stars_date" => json!({
+            "type": "object",
+            "properties": {
+                "date": { "type": "string", "description": "Local day YYYY-MM-DD. Omitted = today." }
+            }
+        }),
+        "stars_date_req" => json!({
+            "type": "object",
+            "properties": {
+                "date": { "type": "string", "description": "Local day YYYY-MM-DD" }
+            },
+            "required": ["date"]
+        }),
+        "stars_checkin_set" => json!({
+            "type": "object",
+            "properties": {
+                "date": { "type": "string", "description": "Local day YYYY-MM-DD. Omitted = today." },
+                "axis": {
+                    "type": "string",
+                    "enum": ["sleep", "terroir", "athleticism", "relationships", "self"],
+                    "description": "Spoke to set"
+                },
+                "value": { "type": "integer", "minimum": 1, "maximum": 5, "description": "Score 1-5" }
+            },
+            "required": ["axis", "value"]
+        }),
+        "stars_log_set" => json!({
+            "type": "object",
+            "properties": {
+                "date": { "type": "string", "description": "Local day YYYY-MM-DD. Omitted = today." },
+                "win1": { "type": "string", "description": "Win 1. Empty string clears. Omit to keep." },
+                "win2": { "type": "string", "description": "Win 2. Empty string clears. Omit to keep." },
+                "grateful": { "type": "string", "description": "Grateful. Empty string clears. Omit to keep." }
+            }
+        }),
+        "stars_journal_list" => json!({
+            "type": "object",
+            "properties": {
+                "from": { "type": "string", "description": "First day YYYY-MM-DD, inclusive" },
+                "to": { "type": "string", "description": "Last day YYYY-MM-DD, inclusive" },
+                "planet": { "type": "string", "description": "Planet id, unique name, or overall" }
+            }
+        }),
+        "stars_journal_append" => json!({
+            "type": "object",
+            "properties": {
+                "date": { "type": "string", "description": "Local day YYYY-MM-DD. Omitted = today." },
+                "text": { "type": "string", "description": "Page body. Blank is not saved." },
+                "planet": { "type": "string", "description": "Planet id or unique name. Omitted = overall." }
+            },
+            "required": ["text"]
+        }),
+        "stars_reflect_write" => json!({
+            "type": "object",
+            "properties": {
+                "date": { "type": "string", "description": "Local day YYYY-MM-DD. Omitted = today. Uses the saved check-in." },
+                "template": { "type": "string", "enum": ["ledger"], "description": "Template id from stars.reflect.templates" },
+                "planet": { "type": "string", "description": "Scope: planet id, unique name, or overall" },
+                "answers": {
+                    "type": "object",
+                    "description": "Section switches. A missing key is on. planet may also live here.",
+                    "properties": {
+                        "spokes": { "type": "boolean" },
+                        "wins": { "type": "boolean" },
+                        "grateful": { "type": "boolean" },
+                        "trackers": { "type": "boolean" },
+                        "cloud": { "type": "boolean" },
+                        "planet": { "type": "string" }
+                    }
+                }
+            },
+            "required": ["template"]
+        }),
+        "stars_planet" => json!({
+            "type": "object",
+            "properties": {
+                "planet": { "type": "string", "description": "Planet id, unique name, or overall. Omitted = all." }
+            }
+        }),
+        "stars_tracker_bump" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Tracker id" },
+                "by": { "type": "integer", "minimum": 1, "description": "Step size. Default 1." }
+            },
+            "required": ["id"]
+        }),
+        "stars_tracker_set" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Tracker id" },
+                "value": { "type": "integer", "description": "New value" }
+            },
+            "required": ["id", "value"]
+        }),
+        "stars_id" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Timer tracker id" }
+            },
+            "required": ["id"]
+        }),
+        "stars_cloud" => json!({
+            "type": "object",
+            "properties": {
+                "range": {
+                    "type": "string",
+                    "enum": ["14", "week", "month", "year", "all"],
+                    "description": "How far back done cards count. Omitted = all. User lines always count as now."
+                }
+            }
         }),
         _ => json!({ "type": "object", "properties": {} }),
     }

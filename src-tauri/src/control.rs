@@ -9,6 +9,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
+#[path = "stars_ctl.rs"]
+mod stars_ctl;
+
 pub const ERR_OTHER: i32 = 1;
 pub const ERR_AUTH: i32 = 3;
 pub const ERR_DENIED: i32 = 4;
@@ -213,15 +216,22 @@ const READ_TOOLS: &[&str] = &[
     "gate.status",
 ];
 
+// Stars reads join this list in `read_ok` via stars_ctl::is_read.
+// Their writes (checkin.set, log.set, journal.append, …) stay off it.
+
+fn read_ok(tool: &str) -> bool {
+    READ_TOOLS.contains(&tool) || stars_ctl::is_read(tool)
+}
+
 fn allowed(acl: &Acl, tool: &str) -> bool {
     match acl {
         // Full = the whole v0 list; unknown names still bounce at dispatch.
         Acl::Full => true,
-        Acl::Read => READ_TOOLS.contains(&tool),
+        Acl::Read => read_ok(tool),
         Acl::Companion => {
             // Spark mints and runs named recipes
             // (action.add / action.run) — never a raw shell, never rm.
-            READ_TOOLS.contains(&tool)
+            read_ok(tool)
                 || tool.starts_with("companion.")
                 || tool == "action.run"
                 || tool == "action.add"
@@ -310,6 +320,18 @@ fn ok_true() -> Value {
 
 fn to_data<T: serde::Serialize>(v: T) -> Value {
     serde_json::to_value(v).unwrap_or(Value::Null)
+}
+
+/// Stars writes use the same save door as kanban.add: load, mutate the
+/// stars slice or planet trackers, atomic save, `state:changed`.
+fn run_stars(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (i32, String)> {
+    let mut st = crate::state::load_state(app).map_err(tool_err)?;
+    let before = st.clone();
+    let data = stars_ctl::handle(&mut st, tool, args, &stars_ctl::Clock::now()).map_err(tool_err)?;
+    if !stars_ctl::is_read(tool) && stars_ctl::slices_changed(&before, &st) {
+        crate::board::save_with_events(app, &before, &st).map_err(tool_err)?;
+    }
+    Ok(data)
 }
 
 /// The v0 tool list — each arm calls the exact function the matching
@@ -702,6 +724,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(|_| to_data(serde_json::json!({ "cardId": id, "ok": true })))
                 .map_err(tool_err)
         }
+        other if other.starts_with("stars.") => run_stars(app, other, args),
         "log.append" => {
             let e_type = arg_str(args, "eType")?;
             let content = match args.get("content") {

@@ -1,0 +1,196 @@
+# Orbitty agent surface
+
+The control socket is the interface. The GUI is one driver of the same `state.json`. Grok Bot, Hermes, Goose, `orbittyctl`, and any MCP client drive a running Orbitty through that socket. Nothing here starts the app.
+
+Parity rule: no GUI feature ships without its control tool. `DESIGN.md` should get a one-line pointer to this file later; this GO does not edit `DESIGN.md`.
+
+## Where the other docs live
+
+- [ORBITTY_CONTROL_PLANE_v0.md](ORBITTY_CONTROL_PLANE_v0.md) — pointer to the nest spec (`~/.buzz/PLANS/ORBITTY_CONTROL_PLANE_v0.md`).
+- [ORBITTY_MCP_GOOSE_SNIPPET.md](ORBITTY_MCP_GOOSE_SNIPPET.md) — Goose `config.yaml` for the `orbitty-mcp` stdio server. Same shape works for any MCP client that launches a stdio server (Hermes, Grok Bot, a hand-rolled client).
+
+Binary: `~/.local/bin/orbitty-mcp` after a blessed install, or `src-tauri/target/release/orbitty-mcp` from a local build. CLI: `orbittyctl` (same directory).
+
+Orbitty must already be running. The socket is `0600` under the app support dir:
+
+`~/Library/Application Support/space.orbitty.mac/control.sock`
+
+Nightly's bundle id is `space.orbitty.mac.nightly`. `scripts/install-nightly.sh` symlinks that support dir to the stable one when Nightly has no folder of its own, so the default socket path still reaches Nightly. If Nightly has its own real folder, pass `--sock` or `ORBITTY_CONTROL_SOCK`.
+
+Optional auth: `ORBITTY_CONTROL_TOKEN`, else `control.token` beside the socket. ACL file: `control.json` (`profile`: `full` | `read` | `companion`, or `allow`: an array of tool names). A name may end in `*` (`stars.*`). Missing `control.json` means full.
+
+## Socket
+
+One line of JSON in, one line out. Protocol `v` is 1.
+
+```json
+{"v":1,"id":"1","tool":"stars.checkin.get","args":{}}
+```
+
+```json
+{"v":1,"id":"1","ok":true,"data":{"date":"2026-09-24","saved":false,"sleep":0,"terroir":0,"athleticism":0,"relationships":0,"self":0,"win1":null,"win2":null,"grateful":null}}
+```
+
+```json
+{"v":1,"id":"1","ok":false,"code":1,"error":"value must be an integer 1-5"}
+```
+
+`orbittyctl --json` prints `data` on success and the whole error object on failure. Without `--json` it prints a short line, or pretty JSON when there is no special printer.
+
+## Exit codes
+
+`orbittyctl` maps the socket `code` onto its process status.
+
+| Exit | Socket `code` | Meaning |
+| --- | --- | --- |
+| 0 | — | Ok |
+| 1 | 1 | Other (bad args, unknown tool, unknown id) |
+| 2 | — | Orbitty is not running (no socket). Client-side only. |
+| 3 | 3 | Auth failed |
+| 4 | 4 | Tool denied by `control.json` |
+| 5 | 5 | Accessibility not granted |
+
+Stars reads are allowed on the `read` profile. Stars writes need `full` or a custom `allow` entry.
+
+## Same store as the page
+
+Check-ins, win lines, and journal pages live on the `stars` slice of `state.json`. Trackers and timers live on `projects[].trackers`. The Cloud word bag is computed on read from done cards, tag names, planet names (half weight), and your companion lines. Bot replies never enter it. Mute list is `sky.muted`. None of this is in webview `localStorage`.
+
+A write loads state, changes that slice, and saves through the same door as `kanban.add` (`state:changed`). The STARS page reloads. The page's in-memory draft is not a second store: these tools read and write the saved day. A draft you have not saved yet stays on screen until you save or the page reloads clean.
+
+Spoke scores are 1–5. `0` means unset. `stars.checkin.set` accepts 1–5 only.
+
+`stars.log.set` changes only the fields you pass. `""` or `null` clears that line. `stars.log.save` trims the day that is already saved. It does not create an empty day.
+
+`stars.journal.append` and `stars.reflect.write` refuse a blank body. Reflect's only template is `ledger`. It fills the page locally from that day's saved check-in, the win lines, current trackers, and one fixed cloud sentence. It does not call a model. Omitted section switches default on, matching the sheet.
+
+`stars.tracker.inc` / `dec` / `set` are for number trackers. Timers use `stars.timer.start` / `stop`. `start` on a number tracker makes it a timer. A second `start` keeps the original start time. `stop` folds elapsed seconds into `value`.
+
+`stars.cloud.words` is read-only. `range` is `14`, `week`, `month`, `year`, or `all` (default). It limits which done cards count. Your lines always count as now. At most 80 words come back, same cap as the cover.
+
+Dates are local `YYYY-MM-DD`. Omitted `date` is today, except `stars.journal.read`, which requires one.
+
+## Stars tools
+
+`stars.open` was already there (show the shared pane on STARS).
+
+### stars.checkin.get
+
+```json
+{"v":1,"id":"1","tool":"stars.checkin.get","args":{"date":"2026-09-24"}}
+```
+
+```
+orbittyctl --json stars checkin get --date 2026-09-24
+```
+
+### stars.checkin.set
+
+```json
+{"v":1,"id":"1","tool":"stars.checkin.set","args":{"axis":"sleep","value":4}}
+```
+
+```
+orbittyctl --json stars checkin set --axis sleep --value 4
+```
+
+Axes: `sleep`, `terroir`, `athleticism`, `relationships`, `self`.
+
+### stars.log.get / stars.log.set / stars.log.save
+
+```json
+{"v":1,"id":"1","tool":"stars.log.set","args":{"win1":"shipped the tool","grateful":""}}
+```
+
+```json
+{"v":1,"id":"1","tool":"stars.log.save","args":{}}
+```
+
+```
+orbittyctl --json stars log set --win1 "shipped the tool" --grateful ""
+orbittyctl --json stars log save
+```
+
+### stars.journal.list / stars.journal.read / stars.journal.append
+
+```json
+{"v":1,"id":"1","tool":"stars.journal.list","args":{"from":"2026-09-01","to":"2026-09-24","planet":"orbitty"}}
+```
+
+```json
+{"v":1,"id":"1","tool":"stars.journal.read","args":{"date":"2026-09-24"}}
+```
+
+```json
+{"v":1,"id":"1","tool":"stars.journal.append","args":{"text":"a note","planet":"orbitty"}}
+```
+
+```
+orbittyctl --json stars journal append --planet orbitty -- "a note"
+```
+
+`planet` is an id, a unique planet name, or `overall`. Omitted means every page on list, and `overall` on append.
+
+### stars.reflect.templates / stars.reflect.write
+
+```json
+{"v":1,"id":"1","tool":"stars.reflect.templates","args":{}}
+```
+
+```json
+{"v":1,"id":"1","tool":"stars.reflect.write","args":{"template":"ledger","answers":{"spokes":true,"wins":true,"grateful":true,"trackers":true,"cloud":false,"planet":"orbitty"}}}
+```
+
+```
+orbittyctl --json stars reflect write --planet orbitty --cloud off
+```
+
+### stars.tracker.list / inc / dec / set
+
+```json
+{"v":1,"id":"1","tool":"stars.tracker.list","args":{"planet":"orbitty"}}
+```
+
+```json
+{"v":1,"id":"1","tool":"stars.tracker.inc","args":{"id":"tr-…","by":1}}
+```
+
+```json
+{"v":1,"id":"1","tool":"stars.tracker.set","args":{"id":"tr-…","value":3}}
+```
+
+```
+orbittyctl --json stars tracker inc --id tr-… --by 1
+orbittyctl --json stars tracker set --id tr-… --value 3
+```
+
+### stars.timer.start / stop / status
+
+```json
+{"v":1,"id":"1","tool":"stars.timer.start","args":{"id":"tr-…"}}
+```
+
+```json
+{"v":1,"id":"1","tool":"stars.timer.status","args":{}}
+```
+
+```
+orbittyctl --json stars timer start --id tr-…
+orbittyctl --json stars timer status
+```
+
+### stars.cloud.words
+
+```json
+{"v":1,"id":"1","tool":"stars.cloud.words","args":{"range":"14"}}
+```
+
+```
+orbittyctl --json stars cloud words --range 14
+```
+
+Each word is `{word, count, lastAt, fresh}`. `muted` is the saved mute list. `fresh` is the 14-day window the cover uses to dim a word.
+
+## Everything else
+
+Windows, companion, kanban, projects, claims, actions, agents, shift, relay, and `state.get` are the same socket. Their names and ACL are the control-plane spec. `orbittyctl` with no command prints the command list. `orbitty-mcp` exposes the same names as MCP tools (`tools/list`).
