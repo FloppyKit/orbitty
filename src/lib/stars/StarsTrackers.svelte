@@ -32,6 +32,10 @@
   let now = $state(Date.now());
   let menuId = $state<string | null>(null);
   let confirmId = $state<string | null>(null);
+  let editingId = $state<string | null>(null);
+  let draft = $state("");
+  let editEl = $state<HTMLInputElement | null>(null);
+  let skipCommit = false;
 
   const rows = $derived.by(() => {
     const list =
@@ -57,6 +61,12 @@
     return () => clearInterval(id);
   });
 
+  $effect(() => {
+    if (!editingId) return;
+    editEl?.focus();
+    editEl?.select();
+  });
+
   function openAdd() {
     adding = !adding;
     label = "";
@@ -74,6 +84,30 @@
     onAdd(id, name, kind);
     label = "";
     adding = false;
+  }
+
+  function openEdit(id: string, value: number) {
+    skipCommit = false;
+    menuId = null;
+    editingId = id;
+    draft = String(value);
+  }
+
+  function commitEdit(projectId: string, trackerId: string) {
+    if (skipCommit) {
+      skipCommit = false;
+      return;
+    }
+    if (editingId !== trackerId) return;
+    const raw = draft.trim();
+    editingId = null;
+    if (!/^-?\d+$/.test(raw)) return;
+    onSetValue(projectId, trackerId, raw);
+  }
+
+  function cancelEdit() {
+    skipCommit = true;
+    editingId = null;
   }
 </script>
 
@@ -114,74 +148,97 @@
     </div>
   {/if}
   {#if rows.length}
-    <ul class="rows">
+    <ul class="faces">
       {#each rows as row (row.tr.id)}
-        <li class="line" aria-label={row.tr.label}>
-          <span class="chip" style="background: {planetCss(row.projectId)}"></span>
-          <span class="who">{row.projectName}</span>
+        {@const timer = isTimer(row.tr)}
+        {@const live = timer && row.tr.runningSince != null}
+        <li
+          class="face"
+          class:timer
+          class:running={live}
+          aria-label="{row.projectName} {row.tr.label}"
+        >
+          <span
+            class="chip"
+            style="background: {planetCss(row.projectId)}"
+            title={row.projectName}
+          ></span>
           <span class="lbl">{row.tr.label}</span>
-          {#if isTimer(row.tr)}
-            <button
-              type="button"
-              class="play"
-              aria-label={row.tr.runningSince != null ? "Stop timer" : "Start timer"}
-              onclick={() =>
-                row.tr.runningSince != null
-                  ? onStop(row.projectId, row.tr.id)
-                  : onPlay(row.projectId, row.tr.id)}
-            >{row.tr.runningSince != null ? "Stop" : "Play"}</button>
-            <span class="elapsed" title="{Math.round(elapsedSec(row.tr, now))} seconds"
+          {#if !timer && editingId === row.tr.id}
+            <input
+              bind:this={editEl}
+              class="num-in"
+              inputmode="numeric"
+              aria-label={row.tr.label}
+              bind:value={draft}
+              onblur={() => commitEdit(row.projectId, row.tr.id)}
+              onkeydown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEdit();
+                }
+                e.stopPropagation();
+              }}
+            />
+          {:else if timer}
+            <span class="num time" title="{Math.round(elapsedSec(row.tr, now))} seconds"
               >{formatElapsed(elapsedSec(row.tr, now))}</span>
           {:else}
-            <span class="step">
-              <button
-                type="button"
-                class="nudge"
-                aria-label="Decrease {row.tr.label}"
-                onclick={() => onBump(row.projectId, row.tr.id, -1)}>−</button>
-              <input
-                class="val"
-                value={row.tr.value}
-                inputmode="numeric"
-                aria-label={row.tr.label}
-                onmousedown={(e) => e.stopPropagation()}
-                onblur={(e) => onSetValue(row.projectId, row.tr.id, e.currentTarget.value)}
-                onkeydown={(e) => {
-                  if (e.key === "Enter") e.currentTarget.blur();
-                  e.stopPropagation();
-                }}
-              />
-              <button
-                type="button"
-                class="nudge"
-                aria-label="Increase {row.tr.label}"
-                onclick={() => onBump(row.projectId, row.tr.id, 1)}>+</button>
-            </span>
-          {/if}
-          {#if confirmId === row.tr.id}
-            <span class="confirm">
-              Remove?
-              <button type="button" onclick={() => onRemove(row.projectId, row.tr.id)}>Yes</button>
-              <button type="button" onclick={() => (confirmId = null)}>No</button>
-            </span>
-          {:else}
             <button
               type="button"
-              class="more"
-              aria-label="Tracker actions"
-              aria-expanded={menuId === row.tr.id}
-              onclick={() => (menuId = menuId === row.tr.id ? null : row.tr.id)}
-            >···</button>
-            {#if menuId === row.tr.id}
+              class="num"
+              aria-label="Edit {row.tr.label}"
+              onclick={() => openEdit(row.tr.id, row.tr.value)}
+            >{row.tr.value}</button>
+          {/if}
+          {#if confirmId === row.tr.id}
+            <div class="overlay hold">
+              <span class="ask">Remove?</span>
+              <button type="button" aria-label="Remove {row.tr.label}" onclick={() => onRemove(row.projectId, row.tr.id)}>Yes</button>
+              <button type="button" aria-label="Keep {row.tr.label}" onclick={() => (confirmId = null)}>No</button>
+            </div>
+          {:else if timer}
+            <div class="overlay">
               <button
                 type="button"
-                class="menu"
-                onclick={() => {
-                  menuId = null;
-                  confirmId = row.tr.id;
-                }}
-              >Remove</button>
-            {/if}
+                aria-label={live ? "Stop timer" : "Start timer"}
+                onclick={() =>
+                  live
+                    ? onStop(row.projectId, row.tr.id)
+                    : onPlay(row.projectId, row.tr.id)}
+              >{live ? "Stop" : "Start"}</button>
+            </div>
+          {:else}
+            <div class="overlay">
+              <button
+                type="button"
+                aria-label="Decrease {row.tr.label}"
+                onclick={() => onBump(row.projectId, row.tr.id, -1)}>−</button>
+              <button
+                type="button"
+                aria-label="Increase {row.tr.label}"
+                onclick={() => onBump(row.projectId, row.tr.id, 1)}>+</button>
+            </div>
+          {/if}
+          <button
+            type="button"
+            class="more"
+            aria-label="Tracker actions"
+            aria-expanded={menuId === row.tr.id}
+            onclick={() => (menuId = menuId === row.tr.id ? null : row.tr.id)}
+          >…</button>
+          {#if menuId === row.tr.id}
+            <button
+              type="button"
+              class="menu"
+              onclick={() => {
+                menuId = null;
+                confirmId = row.tr.id;
+              }}
+            >Remove</button>
           {/if}
         </li>
       {/each}
@@ -205,48 +262,51 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.72rem;
-    font-weight: 700;
+    flex: none;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--dim);
   }
 
   .plus,
   .go,
-  .play,
-  .nudge,
-  .more,
-  .menu,
-  .confirm button {
+  .overlay button,
+  .menu {
     font: inherit;
     color: var(--ink);
-    background: var(--bg-fill, var(--bg));
+    background: rgba(11, 16, 32, 0.72);
     border: 1px solid var(--edge);
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
   }
 
   .plus {
     margin-left: auto;
-    width: 1.2rem;
-    height: 1.2rem;
+    width: 24px;
+    height: 24px;
     padding: 0;
+    color: var(--ink);
+    background: transparent;
   }
 
   .add {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
+    flex: none;
   }
 
   .add input,
-  .add select,
-  .val {
+  .add select {
     font: inherit;
     font-size: 0.7rem;
     color: var(--ink);
-    background: var(--bg-fill, var(--bg));
+    background: rgba(11, 16, 32, 0.45);
     border: 1px solid var(--edge);
     border-radius: 6px;
     padding: 3px 6px;
+    min-height: 24px;
   }
 
   .add input {
@@ -257,122 +317,203 @@
   .go {
     font-size: 0.68rem;
     padding: 2px 8px;
+    min-height: 24px;
   }
 
-  .rows {
+  .faces {
     list-style: none;
     margin: 0;
     padding: 0;
     flex: 1;
     min-height: 0;
     overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    grid-auto-rows: minmax(96px, 1fr);
+    gap: 8px;
+    align-content: stretch;
   }
 
-  .line {
+  .face {
+    position: relative;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 6px;
-    min-height: 28px;
-    padding: 2px 6px;
-    border-radius: 8px;
-    background: var(--bg-fill, var(--bg));
+    justify-content: center;
+    gap: 3px;
+    min-height: 96px;
+    padding: 10px 8px 32px;
+    border-radius: 18px;
+    background: #16182e;
+    border: 1px solid rgba(232, 236, 248, 0.16);
+    box-shadow:
+      inset 0 1px 0 rgba(232, 236, 248, 0.12),
+      var(--depth-2-shadow, 0 12px 28px rgba(0, 0, 0, 0.45));
+    transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+
+  .face:hover,
+  .face:focus-within {
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 rgba(232, 236, 248, 0.16),
+      var(--depth-2-shadow-hover, 0 18px 36px rgba(0, 0, 0, 0.55));
+  }
+
+  .face.running {
+    box-shadow:
+      inset 0 1px 0 rgba(232, 236, 248, 0.12),
+      0 0 0 1.5px var(--gold, #c8a45c),
+      var(--depth-2-shadow, 0 12px 28px rgba(0, 0, 0, 0.45));
+  }
+
+  .face.running:hover,
+  .face.running:focus-within {
+    box-shadow:
+      inset 0 1px 0 rgba(232, 236, 248, 0.16),
+      0 0 0 1.5px var(--gold, #c8a45c),
+      var(--depth-2-shadow-hover, 0 18px 36px rgba(0, 0, 0, 0.55));
   }
 
   .chip {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 99px;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
     flex: none;
   }
 
-  .who {
-    flex: none;
-    max-width: 5.5rem;
+  .lbl {
+    max-width: 100%;
+    font-size: 0.66rem;
+    font-weight: 650;
+    letter-spacing: 0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .num,
+  .num-in {
+    font: inherit;
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+  }
+
+  .num {
+    cursor: text;
+  }
+
+  .num.time {
+    font-size: 1.05rem;
+    cursor: default;
+  }
+
+  .num-in {
+    width: 4.2rem;
+    border-bottom: 1px solid var(--gold, #c8a45c);
+    border-radius: 0;
+  }
+
+  .overlay {
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 24px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .face:hover .overlay,
+  .face:focus-within .overlay,
+  .overlay.hold {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .overlay button {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0 6px;
+    font-size: 0.75rem;
+    line-height: 1;
+  }
+
+  .ask {
     font-size: 0.62rem;
     color: var(--dim);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .lbl {
-    flex: 1;
-    min-width: 0;
-    font-size: 0.72rem;
-    font-weight: 650;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .step {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    flex: none;
-  }
-
-  .nudge {
-    width: 16px;
-    height: 18px;
-    padding: 0;
-    font-size: 0.75rem;
-  }
-
-  .val {
-    width: 2.4rem;
-    text-align: center;
-    font-weight: 700;
-    padding: 1px 2px;
-  }
-
-  .play {
-    font-size: 0.62rem;
-    padding: 1px 6px;
-  }
-
-  .elapsed {
-    font-size: 0.72rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
   }
 
   .more,
   .menu {
-    flex: none;
-    font-size: 0.72rem;
-    padding: 0 4px;
-    color: var(--dim);
-    background: transparent;
-    border-color: transparent;
+    position: absolute;
+    z-index: 2;
   }
 
-  .line:hover .more,
+  .more {
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    font: inherit;
+    font-size: 0.85rem;
+    line-height: 1;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .face:hover .more,
+  .face:focus-within .more,
   .more[aria-expanded="true"] {
+    opacity: 1;
+    pointer-events: auto;
     color: var(--ink);
   }
 
-  .confirm {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 0.62rem;
-    color: var(--dim);
-  }
-
-  .confirm button {
-    font-size: 0.62rem;
-    padding: 0 4px;
+  .menu {
+    top: 28px;
+    right: 4px;
+    min-height: 24px;
+    padding: 2px 8px;
+    font-size: 0.64rem;
   }
 
   .empty {
     margin: 0;
     font-size: 0.66rem;
     color: var(--dim);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .face {
+      transition: none;
+    }
+
+    .face:hover,
+    .face:focus-within,
+    .face.running:hover,
+    .face.running:focus-within {
+      transform: none;
+    }
   }
 </style>

@@ -46,20 +46,34 @@
 
 <style>
   .positives {
+    flex: none;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-top: 6px;
+    gap: 2px;
+    margin-top: 2px;
   }
 
   .field {
     font: inherit;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 4px 6px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(232, 236, 248, 0.28);
+    border-radius: 0;
+    padding: 5px 2px 4px;
+    min-height: 24px;
+  }
+
+  .field::placeholder {
+    color: var(--dim);
+    font-weight: 450;
+  }
+
+  .field:focus,
+  .field:focus-visible {
+    outline: none;
+    border-bottom-color: var(--gold, #c8a45c);
   }
 
   .field:read-only {

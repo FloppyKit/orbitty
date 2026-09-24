@@ -21,6 +21,7 @@
   let dropId = $state<string | null>(null);
   let fadeLeft = $state(false);
   let fadeRight = $state(false);
+  let cue = $state({ on: false, left: 0, width: 100 });
   let didDrag = false;
 
   function syncFade() {
@@ -28,11 +29,21 @@
     if (!el) {
       fadeLeft = false;
       fadeRight = false;
+      cue = { on: false, left: 0, width: 100 };
       return;
     }
     const overflow = el.scrollWidth > el.clientWidth + 1;
     fadeLeft = overflow && el.scrollLeft > 2;
     fadeRight = overflow && el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    if (!overflow) {
+      cue = { on: false, left: 0, width: 100 };
+      return;
+    }
+    const width = Math.max(18, (el.clientWidth / el.scrollWidth) * 100);
+    const room = Math.max(0, 100 - width);
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    const left = maxScroll > 0 ? (el.scrollLeft / maxScroll) * room : 0;
+    cue = { on: true, left, width };
   }
 
   $effect(() => {
@@ -141,35 +152,43 @@
 </script>
 
 <div class="nudges" role="group" aria-label="Nudge scope">
-  <button
-    type="button"
-    class="chip pin"
-    class:on={scope === "overall"}
-    aria-pressed={scope === "overall"}
-    onclick={() => onScope("overall")}
-  >All</button>
-  <span class="rule" aria-hidden="true"></span>
-  <div
-    class="pills"
-    class:fade-left={fadeLeft}
-    class:fade-right={fadeRight}
-    bind:this={pillsEl}
-  >
-    {#each projects as p (p.id)}
-      <button
-        type="button"
-        class="chip"
-        class:on={scope === p.id}
-        class:dragging={dragId === p.id}
-        class:drop-ok={dropId === p.id && dragId !== p.id}
-        data-pid={p.id}
-        draggable="false"
-        aria-pressed={scope === p.id}
-        title="Drag to reorder"
-        onpointerdown={(e) => onPlanetPointerDown(e, p.id)}
-        onclick={() => onChipClick(p.id)}
-      ><span class="dot" style="background: {planetCss(p.id)}"></span>{p.name}</button>
-    {/each}
+  <div class="shelf">
+    <button
+      type="button"
+      class="chip pin"
+      class:on={scope === "overall"}
+      aria-pressed={scope === "overall"}
+      onclick={() => onScope("overall")}
+    >All</button>
+  </div>
+  <div class="scroller">
+    <div
+      class="pills"
+      class:fade-left={fadeLeft}
+      class:fade-right={fadeRight}
+      bind:this={pillsEl}
+    >
+      {#each projects as p (p.id)}
+        <button
+          type="button"
+          class="chip"
+          class:on={scope === p.id}
+          class:dragging={dragId === p.id}
+          class:drop-ok={dropId === p.id && dragId !== p.id}
+          data-pid={p.id}
+          draggable="false"
+          aria-pressed={scope === p.id}
+          title="Drag to reorder"
+          onpointerdown={(e) => onPlanetPointerDown(e, p.id)}
+          onclick={() => onChipClick(p.id)}
+        ><span class="dot" style="background: {planetCss(p.id)}"></span>{p.name}</button>
+      {/each}
+    </div>
+    {#if cue.on}
+      <div class="cue" aria-hidden="true">
+        <span style="left:{cue.left}%;width:{cue.width}%"></span>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -178,16 +197,37 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     overflow: hidden;
-    padding: 4px 10px;
+    padding: 6px 10px 5px;
     border-bottom: 1px solid var(--edge);
     user-select: none;
     -webkit-user-select: none;
   }
 
-  .pills {
+  .shelf {
+    flex: none;
+    display: flex;
+    align-items: center;
+    align-self: center;
+    padding: 4px;
+    border-radius: 12px;
+    background: rgba(232, 236, 248, 0.08);
+    border: 1px solid rgba(232, 236, 248, 0.22);
+    box-shadow:
+      0 1px 0 rgba(232, 236, 248, 0.12),
+      0 8px 16px rgba(0, 0, 0, 0.35);
+  }
+
+  .scroller {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .pills {
     min-width: 0;
     display: flex;
     align-items: center;
@@ -199,7 +239,24 @@
 
   .pills::-webkit-scrollbar {
     display: none;
+    width: 0;
     height: 0;
+  }
+
+  .cue {
+    position: relative;
+    height: 3px;
+    margin-top: 3px;
+    border-radius: 2px;
+    background: rgba(232, 236, 248, 0.24);
+  }
+
+  .cue span {
+    position: absolute;
+    top: 0;
+    height: 3px;
+    border-radius: 2px;
+    background: #e8ecf8;
   }
 
   .pills.fade-left {
@@ -238,9 +295,10 @@
     font-size: 0.64rem;
     color: var(--ink);
     background: transparent;
-    border: 1px solid var(--edge);
+    border: 1px solid transparent;
     border-radius: 999px;
     padding: 1px 8px;
+    min-height: 24px;
     cursor: grab;
     touch-action: none;
     white-space: nowrap;
@@ -255,9 +313,9 @@
     touch-action: auto;
     font-weight: 750;
     letter-spacing: 0.04em;
-    padding: 2px 10px;
-    border-color: color-mix(in srgb, var(--ink) 50%, var(--edge));
-    background: color-mix(in srgb, var(--panel-fill, var(--panel)) 88%, var(--ink));
+    padding: 2px 12px;
+    border-color: transparent;
+    background: transparent;
   }
 
   .chip.dragging {
@@ -276,17 +334,10 @@
     flex: none;
   }
 
-  .rule {
-    flex: none;
-    width: 2px;
-    height: 18px;
-    border-radius: 1px;
-    background: color-mix(in srgb, var(--ink) 62%, transparent);
-  }
-
   .chip.on {
     background: var(--accent);
-    border-color: var(--focus, #6e4db0);
+    border-color: transparent;
     color: var(--bg);
+    font-weight: 700;
   }
 </style>

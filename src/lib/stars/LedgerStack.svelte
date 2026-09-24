@@ -5,12 +5,25 @@
   let {
     pages,
     projects,
+    dayKey = "",
     onReflect,
   }: {
     pages: LedgerPage[];
     projects: Project[];
+    dayKey?: string;
     onReflect: () => void;
   } = $props();
+
+  function blankHeading(key: string): string {
+    const [y, m, d] = key.split("-").map(Number);
+    if (!y || !m || !d) return key || "Today";
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
 
   let index = $state(0);
   let seen = 0;
@@ -76,8 +89,8 @@
           {/if}
           <p class="body">{page.body?.trim() ? page.body : ""}</p>
         {:else}
-          <p class="lead">Reflect writes the next page.</p>
-          <button type="button" class="cta" onclick={onReflect}>Open Reflect</button>
+          <h3>{blankHeading(dayKey)}</h3>
+          <button type="button" class="cta" aria-label="Reflect" onclick={onReflect}>Reflect</button>
         {/if}
       </article>
     {/key}
@@ -86,8 +99,8 @@
 
 <style>
   .ledger {
-    flex: 0 0 auto;
-    min-height: 0;
+    flex: 1 1 auto;
+    min-height: 100%;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -110,8 +123,8 @@
 
   .nav {
     font: inherit;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     padding: 0;
     color: var(--ink);
     background: var(--bg-fill, var(--bg));
@@ -127,8 +140,9 @@
 
   .stack {
     position: relative;
+    flex: 1;
     min-height: 108px;
-    padding: 0 8px 8px 0;
+    padding: 0;
   }
 
   .stack:not(.deep) .sheet {
@@ -156,15 +170,13 @@
 
   .page {
     position: relative;
-    min-height: 96px;
+    min-height: 100%;
     margin: 0;
-    padding: 10px 12px 12px;
-    border: 1px solid var(--edge);
-    border-radius: 10px 4px 10px 10px;
-    background: var(--panel-fill, var(--panel));
-    box-shadow:
-      0 8px 18px rgba(0, 0, 0, 0.12),
-      inset -10px 0 12px rgba(0, 0, 0, 0.03);
+    padding: 4px 4px 12px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
     animation: flip 0.28s ease;
   }
 
@@ -212,34 +224,32 @@
     white-space: pre-wrap;
   }
 
-  .lead {
-    margin: 0;
-    font-size: 0.78rem;
-    line-height: 1.35;
-    color: var(--ink);
-  }
-
   .cta {
-    margin-top: 10px;
+    margin-top: 18px;
     font: inherit;
     font-size: 0.72rem;
     font-weight: 700;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 4px 10px;
+    color: #f4f1fb;
+    background: #1b1730;
+    border: none;
+    border-radius: 8px;
+    padding: 4px 12px;
+    min-height: 24px;
     cursor: pointer;
   }
 
   @keyframes flip {
     from {
-      transform: rotateY(-70deg);
-      opacity: 0.4;
+      opacity: 0;
     }
     to {
-      transform: none;
       opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page {
+      animation: none;
     }
   }
 </style>

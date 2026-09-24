@@ -27,7 +27,6 @@
   import StarsTrackers from "./stars/StarsTrackers.svelte";
   import ReflectSheet from "./stars/ReflectSheet.svelte";
   import NudgeStrip from "./stars/NudgeStrip.svelte";
-  import NudgeCards from "./stars/NudgeCards.svelte";
   import { ledgerBody } from "./stars/ledgerBody";
   import { reorderProjects } from "./planetOrder";
   import { stepSpoke } from "./stars/radarGeom";
@@ -40,6 +39,7 @@
     clampWindowOpacity,
   } from "../themes/apply";
   import "./chrome.css";
+  import "./orbit-field.css";
   import type {
     AverageWindow,
     LedgerPage,
@@ -790,7 +790,7 @@
   }
 </script>
 
-<main class="stars" class:embedded>
+<main class="stars orbit-field" class:embedded>
   <!-- One drag source: JS startDragging on this banner. Drawers are
        borderless — no native Overlay strip competing with the click.
        HOST-SPLIT: embedded, this drags the host companion window. -->
@@ -869,7 +869,6 @@
     onReorder={reorderPlanetsLive}
     onReorderCommit={commitPlanetOrder}
   />
-  <NudgeCards />
 
   <div class="s-body" bind:this={bodyEl}>
     <div class="act-col" bind:this={actEl} style="flex: {starsEastSplit} 1 0%">
@@ -906,7 +905,7 @@
           </button>
           <button
             type="button"
-            class="mini"
+            class="mini quiet"
             disabled={!isToday || avgMode || !cursorSaved || dayEditable}
             onclick={() => (editingToday = true)}
           >Edit</button>
@@ -961,6 +960,7 @@
         pages={starsState.ledgerPages ?? []}
         {projects}
         loaded={starsLoaded}
+        dayKey={todayKey()}
         onReflect={() => (reflectOpen = true)}
       />
     </div>
@@ -972,6 +972,21 @@
 
 <style>
   .stars {
+    --depth-0: #0b1020;
+    --depth-1-fill: rgba(232, 236, 248, 0.1);
+    --depth-1-line: rgba(232, 236, 248, 0.22);
+    --depth-1-shadow: 0 1px 0 rgba(232, 236, 248, 0.06), 0 8px 20px rgba(0, 0, 0, 0.28);
+    --depth-2-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+    --depth-2-shadow-hover: 0 18px 36px rgba(0, 0, 0, 0.55);
+    --gold: #c8a45c;
+    --paper: #e7e3f4;
+    --ink: #e8ecf8;
+    --dim: #b7c0d8;
+    --edge: rgba(232, 236, 248, 0.2);
+    --bg: #0b1020;
+    --panel: #14162c;
+    --bg-fill: transparent;
+    --panel-fill: rgba(232, 236, 248, 0.1);
     position: relative;
     height: 100vh;
     overflow: hidden;
@@ -979,8 +994,9 @@
     flex-direction: column;
     box-sizing: border-box;
     color: var(--ink);
-    background: var(--bg-fill, var(--bg));
+    background-color: var(--depth-0);
     border-radius: 12px;
+    color-scheme: dark;
     font-family:
       "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
       BlinkMacSystemFont, "Helvetica Neue", sans-serif;
@@ -1144,10 +1160,17 @@
     min-height: 0;
     overflow: auto;
     box-sizing: border-box;
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
+    background: var(--depth-1-fill);
+    border: 1px solid var(--depth-1-line);
     border-radius: 10px;
+    box-shadow: var(--depth-1-shadow);
     padding: 8px 10px 10px;
+  }
+
+  .act-tile.checkin {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .act-tile.trackers {
@@ -1157,9 +1180,12 @@
   }
 
   .act-tile h2 {
-    margin: 0 0 4px;
-    font-size: 0.72rem;
-    font-weight: 700;
+    margin: 0;
+    flex: none;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--dim);
   }
 
   .day-nav {
@@ -1191,11 +1217,18 @@
     font: inherit;
     font-size: 0.68rem;
     color: var(--ink);
-    background: var(--bg-fill, var(--bg));
+    background: transparent;
     border: 1px solid var(--edge);
     border-radius: 7px;
     padding: 3px 8px;
+    min-height: 24px;
     cursor: pointer;
+  }
+
+  .mini.quiet {
+    border-color: transparent;
+    color: var(--dim);
+    font-weight: 500;
   }
 
   .mini:hover {
@@ -1211,14 +1244,16 @@
     border-color: var(--edge);
   }
 
-  .stars-save {
+  .stars-save:not(:disabled) {
     font-weight: 700;
+    background: var(--accent);
+    border-color: transparent;
+    color: var(--bg);
+    box-shadow: var(--depth-2-shadow);
   }
 
   .stars-save.dirty:not(:disabled) {
-    background: var(--accent);
-    border-color: var(--focus, #6e4db0);
-    color: var(--bg);
+    box-shadow: 0 0 0 1px var(--gold), var(--depth-2-shadow);
   }
 
   .chron-prompts {

@@ -206,7 +206,7 @@
         id="stars-radar-plate"
         cx="0"
         cy="0"
-        r="72"
+        r="96"
         gradientUnits="userSpaceOnUse"
       >
         <stop offset="0" stop-color="currentColor" stop-opacity="0.14" />
@@ -214,7 +214,8 @@
         <stop offset="1" stop-color="currentColor" stop-opacity="0" />
       </radialGradient>
     </defs>
-    <circle class="vignette" cx="0" cy="0" r="72" fill="url(#stars-radar-plate)" />
+    <ellipse class="ground" cx="0" cy="66" rx="78" ry="12" />
+    <circle class="vignette" cx="0" cy="0" r="96" fill="url(#stars-radar-plate)" />
     {#each fillPolys as poly (poly)}
       <polygon class="shape" points={poly} />
     {/each}
@@ -283,6 +284,7 @@
     {/each}
     {#each spokes as spoke, i (spoke.key)}
       {@const label = labelPlacement(i)}
+      {@const scored = spokeValue(spoke.key) >= 1}
       <text
         class="tag"
         class:live={editable && !avgMode}
@@ -301,8 +303,16 @@
       >
         <tspan class="word">{spoke.label}</tspan>
         {#if editKey !== spoke.key}
-          <tspan class="num" class:live={editable && !avgMode} data-num={spoke.key} dx="4"
-            >{numberText(spoke.key)}</tspan>
+          <tspan
+            class="dot"
+            class:scored
+            dx="5"
+            data-num={scored ? undefined : spoke.key}
+          >{scored ? "●" : "○"}</tspan>
+          {#if scored}
+            <tspan class="num" class:live={editable && !avgMode} data-num={spoke.key} dx="3"
+              >{numberText(spoke.key)}</tspan>
+          {/if}
         {/if}
       </text>
     {/each}
@@ -366,16 +376,37 @@
 <style>
   .dial {
     position: relative;
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     min-width: 0;
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--ink);
+    transition: transform 180ms ease;
+  }
+
+  .dial:hover {
+    transform: translateY(-2px);
   }
 
   svg {
     width: 100%;
-    height: auto;
+    height: 100%;
     display: block;
     touch-action: none;
+  }
+
+  .ground {
+    fill: rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 180ms ease;
+  }
+
+  .dial:hover .ground {
+    transform: translateY(6px);
   }
 
   .vignette {
@@ -488,8 +519,17 @@
     font-weight: 600;
   }
 
+  .dot {
+    font-size: 13px;
+    fill: rgba(232, 236, 248, 0.55);
+  }
+
+  .dot.scored {
+    fill: var(--gold, #c8a45c);
+  }
+
   .num {
-    fill: #e59e3d;
+    fill: var(--gold, #c8a45c);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
@@ -554,5 +594,17 @@
 
   .tag.on .word {
     fill: var(--accent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dial,
+    .ground {
+      transition: none;
+    }
+
+    .dial:hover,
+    .dial:hover .ground {
+      transform: none;
+    }
   }
 </style>

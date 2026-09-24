@@ -2,10 +2,10 @@
 // Center is unset (draft 0). Ring 1 is score 1. The outer ring is 5.
 // The hub is not a score.
 
-export const RADAR_R = 52;
+export const RADAR_R = 72;
 export const SPOKE_COUNT = 5;
-// View box is wider than the pentagon so a name and its number fit beside each tip.
-export const RADAR_VB = { x: -200, y: -92, w: 400, h: 184 };
+// View box clears the larger cage plus a name and its score mark.
+export const RADAR_VB = { x: -176, y: -120, w: 360, h: 224 };
 
 export function labelPlacement(i: number): {
   x: number;
