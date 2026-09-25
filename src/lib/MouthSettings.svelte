@@ -32,6 +32,8 @@
     ollamaBin: boolean;
   };
 
+  const QUICK_MOUTH = "google/gemma-4-e4b";
+
   let replyLane = $state<ReplyLane>("grok");
   let replyModel = $state("");
   let conductorOn = $state(false);
@@ -81,11 +83,11 @@
   async function rescan() {
     try {
       scan = await invoke<MouthScan>("mouth_scan");
-      if (
-        replyModel &&
-        scan.models.length > 0 &&
-        !scan.models.some((m) => m.id === replyModel)
-      ) {
+      const ids = scan.models.map((m) => m.id);
+      if (ids.includes(QUICK_MOUTH) && !replyModel) {
+        replyModel = QUICK_MOUTH;
+        await pickLocalModel();
+      } else if (replyModel && ids.length > 0 && !ids.includes(replyModel)) {
         replyModel = "";
       }
     } catch {
@@ -253,10 +255,15 @@
           >
             <option value="">Auto — prefer Gemma 4 E4B</option>
             {#each models as m (m.id + m.base)}
-              <option value={m.id}>{m.label}</option>
+              <option value={m.id}>
+                {m.id === QUICK_MOUTH ? "Quick mouth — google/gemma-4-e4b" : m.label}
+              </option>
             {/each}
           </select>
         </div>
+        {#if replyModel === QUICK_MOUTH}
+          <p class="help">Quick mouth pinned: google/gemma-4-e4b</p>
+        {/if}
       {:else}
         <p class="help">{emptyHint}</p>
       {/if}
