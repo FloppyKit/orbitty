@@ -272,6 +272,7 @@ In RPG, the blue window sits on the textured field. The parchment scroll is the 
 Panels are one radius on every corner: 10px in Dark and Light, 14px on the RPG window, square in Terminal. The book edge is gone. One straight side and a rounded other side is not a style. It reads as a broken corner. Dark panels do not wear corner brackets.
 
 Controls are 7px, or square in Terminal. Pills are full round where Dark, Light, and RPG use them. Gauges are circles, about 32px. Dark and Light planet chips are flat matte discs, 8px, in `planet-<name>`. At most a two-stop shade. No specular highlight, no glossy marble. Recent activity is a soft thin halo in that same color. Selected is a thin orbit ring in ship linework. RPG keeps a larger gem chip, about 14px, with a highlight, because that chip works in the blue window. Terminal's chip is a plain 8px dot of the planet color, including inside the inverted tab.
+> SUPERSEDED 2026-09-25: "flat matte discs" above is the rejected v1 look. Dark/Light planet chips are shrunk copies of the desktop habitat planets: muted sphere, soft darker lower edge, one small soft highlight top-left, no hard white arc, no glossy marble. See ~/.buzz/PLANS/RIFFBOT_RULES.md (orbitty-design, 2026-09-25).
 
 Journal lines are a bottom rule, not a rounded box.
 
