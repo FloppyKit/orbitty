@@ -20,3 +20,4 @@ docs/*.log
 docs/cursor-runs/
 *.pid
 *.log
+__pycache__/

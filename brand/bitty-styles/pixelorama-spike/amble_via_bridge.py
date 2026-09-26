@@ -12,8 +12,9 @@ from pathlib import Path
 from PIL import Image, ImageSequence
 
 BRIDGE = "http://127.0.0.1:7373"
-IDLES = Path("/Users/dude/goose artifacts/livesprite-tauri/brand/bitty-styles/idles")
-OUT = Path("/Users/dude/goose artifacts/livesprite-tauri/brand/bitty-styles/pixelorama-spike")
+HERE = Path(__file__).resolve().parent
+IDLES = HERE.parent / "idles"
+OUT = HERE
 TARGET_H = 64  # town-readable, not Imagine-billboard
 
 

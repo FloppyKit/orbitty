@@ -1837,27 +1837,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
-name = "livesprite"
-version = "0.1.0"
-dependencies = [
- "cc",
- "chrono",
- "core-foundation",
- "objc",
- "secp256k1",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-shell",
- "tungstenite",
- "window-vibrancy",
- "zip",
-]
-
-[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2248,6 +2227,27 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "orbitty"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "chrono",
+ "core-foundation",
+ "objc",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-shell",
+ "tungstenite",
+ "window-vibrancy",
+ "zip",
+]
 
 [[package]]
 name = "os_pipe"

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    livesprite_lib::run();
+    orbitty_lib::run();
 }

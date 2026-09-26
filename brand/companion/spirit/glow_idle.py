@@ -11,10 +11,9 @@ from pathlib import Path
 
 from PIL import Image
 
-SRC = Path(
-    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/spirit/talk_v4_bright.png"
-)
-OUT = Path("/Users/dude/goose artifacts/livesprite-tauri/brand/companion/spirit")
+HERE = Path(__file__).resolve().parent
+SRC = HERE / "talk_v4_bright.png"
+OUT = HERE
 N = 8
 TW, TH = 256, 384
 

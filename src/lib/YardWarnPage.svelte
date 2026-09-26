@@ -31,7 +31,7 @@
   let windowOpacity = $state(1.0);
 
   // N = unclaimed windows, the SAME set as the inspector's Unclaimed
-  // section (RailPage): list_windows already drops Orbitty/LiveSprite
+  // section (RailPage): list_windows already drops Orbitty
   // windows native-side, and a claim counts only while its project
   // exists. null = still counting.
   let unclaimed = $state<number | null>(null);

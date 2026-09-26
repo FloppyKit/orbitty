@@ -1,4 +1,4 @@
-//! Non-macOS stub — LiveSprite ships Mac first (roadmap S-phase).
+//! Non-macOS stub — Orbitty ships Mac first (roadmap S-phase).
 
 use super::{AccessibilityStatus, WindowInfo};
 

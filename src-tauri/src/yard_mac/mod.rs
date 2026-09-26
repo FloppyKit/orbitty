@@ -932,7 +932,7 @@ fn motion_step(y: &mut Yard, dt: f64) {
 // the unmapped poll (worker thread; no AppKit here)
 
 /// The inspector's Unclaimed set, native side: `list_windows` (already
-/// drops Orbitty/LiveSprite) minus claims whose project still exists —
+/// drops Orbitty) minus claims whose project still exists —
 /// the same formula RailPage and the warn pane compute in JS. None on a
 /// read hiccup: a skipped beat never invents or kills a cat.
 fn poll_unmapped(app: &AppHandle) -> Option<Vec<crate::windows::WindowInfo>> {

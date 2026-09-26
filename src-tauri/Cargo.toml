@@ -1,18 +1,18 @@
 [package]
-name = "livesprite"
+name = "orbitty"
 version = "0.1.0"
 description = "Orbitty — runtime consolidator (Tauri)"
 authors = ["Orbitty"]
 edition = "2021"
 license = "MIT"
-default-run = "livesprite"
+default-run = "orbitty"
 
 [lib]
-name = "livesprite_lib"
+name = "orbitty_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "livesprite"
+name = "orbitty"
 path = "src/main.rs"
 
 # GO-ORBITTY-CONTROL-PLANE-0: the control-socket client. Pure std +

@@ -1,8 +1,8 @@
 #!/bin/zsh
-# Orbitty (was LiveSprite) — blessed install path (Install C, locked
+# Orbitty — blessed install path (Install C, locked
 # 2026-08-21; renamed GO-LS-TAURI-CUTOVER 2026-08-22).
 #
-# Builds the release bundle, signs it with the stable "LiveSprite Local
+# Builds the release bundle, signs it with the stable "Orbitty Local
 # Codesign" identity (kept on purpose: the macOS Accessibility grant is
 # path+sign, so the new path needs one re-grant, then survives rebuilds),
 # and installs to ~/Applications/Orbitty.app — the ONLY path to dogfood.
@@ -14,11 +14,9 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 
 APP_NAME="Orbitty.app"
-OLD_APP="$HOME/Applications/LiveSprite.app"
-PARKED_APP="$HOME/Applications/LiveSprite-old.app"
 SRC="src-tauri/target/release/bundle/macos/$APP_NAME"
 DEST="$HOME/Applications/$APP_NAME"
-IDENTITY="LiveSprite Local Codesign"
+IDENTITY="Orbitty Local Codesign"
 
 # The stable identity is non-negotiable — check BEFORE the long build.
 # `-p codesigning` (not `-p basic`): the codesigning policy is what finds
@@ -68,6 +66,9 @@ mkdir -p "$HOME/Applications"
 # path + stable identity, and keeping the same .app node is what lets one
 # human Accessibility grant survive every rebuild.
 ditto "$SRC" "$DEST"
+# GO-ORBITTY-RENAME-MOVE: ditto merge leaves the pre-rename executable behind.
+# Drop this line once both installed apps are clean.
+rm -f "$DEST/Contents/MacOS/livesprite"
 
 # Sign the INSTALLED app — the blessed path is what TCC sees, so it must
 # carry the stable identity itself, not just the build-tree bundle.
@@ -87,14 +88,6 @@ if ! grep -q "^Authority=$IDENTITY$" <<< "$DEST_SIG"; then
   echo "re-run install-stable." >&2
   echo "============================================================" >&2
   exit 1
-fi
-
-# Cutover: park any leftover LiveSprite.app so there is exactly one obvious
-# app to open. Never deletes — just moves aside once.
-if [[ -d "$OLD_APP" ]]; then
-  echo "==> Parking old $OLD_APP → $PARKED_APP"
-  rm -rf "$PARKED_APP"
-  mv "$OLD_APP" "$PARKED_APP"
 fi
 
 # GO-ORBITTY-CONTROL-PLANE-0: the control-socket CLI. tauri build only
@@ -239,27 +232,25 @@ echo "==> Writing Goose orbitty seat (idempotent merge)"
 cat <<EOF
 
 Done. Dogfood rules:
-  1. Quit any running LiveSprite/Orbitty (tray icon → Quit).
+  1. Quit any running Orbitty (tray icon → Quit).
   2. Open ONLY: $DEST
        open "$DEST"
   3. Grant/verify Accessibility for THAT path — ONE human grant now
      survives rebuilds (stable identity + same path is what TCC
      remembers). System Settings → Privacy & Security → Accessibility.
-  4. First launch migrates your data:
-     ~/Library/Application Support/app.livesprite.mac → space.orbitty.mac
-  5. Do not run target/ binaries or \`tauri dev\` for daily use.
-  6. orbittyctl (control-socket CLI) installed to:
+  4. Do not run target/ binaries or \`tauri dev\` for daily use.
+  5. orbittyctl (control-socket CLI) installed to:
        $CTL_DIR/orbittyctl
      PATH recipe (add to ~/.zshrc):
        export PATH="\$HOME/.local/bin:\$PATH"
      Try: orbittyctl status · orbittyctl windows list ·
        orbittyctl --json state get
-  7. orbitty-mcp (stdio MCP adapter, same socket) installed to:
+  6. orbitty-mcp (stdio MCP adapter, same socket) installed to:
        $CTL_DIR/orbitty-mcp
      Goose seat auto-merged into ~/.config/goose/config.yaml
      (idempotent; backup first). Manual fallback:
        docs/ORBITTY_MCP_GOOSE_SNIPPET.md
-  8. orbitty-relay (loopback NIP-01 sidecar) installed to:
+  7. orbitty-relay (loopback NIP-01 sidecar) installed to:
        $CTL_DIR/orbitty-relay
      LaunchAgent space.orbitty.relay KeepAlive · 127.0.0.1:13120
      Smoke: orbitty-relay smoke

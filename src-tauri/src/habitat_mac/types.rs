@@ -63,7 +63,7 @@ pub(crate) struct Being {
 
 pub(crate) struct Planet {
     pub(crate) panel: usize, // NSPanel
-    pub(crate) view: usize,  // LiveSpriteWorldView
+    pub(crate) view: usize,  // OrbittyWorldView
     /// Display name from the rail snapshot — walker Assign-to-planet menu.
     pub(crate) name: String,
     pub(crate) radius: f64,

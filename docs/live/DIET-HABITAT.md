@@ -25,7 +25,7 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 - LOAD-FIRST-FRAME, SMALL-BOARD-CLICK, SPAWN-CENTER
 
 ## ElM4 follow-up (this executor could not reach the Mac)
-1. Pull main on `/Users/dude/goose artifacts/livesprite-tauri`
+1. Pull main on `/Users/dude/orbitty`
 2. `cargo check` in src-tauri
 3. Quit Orbitty; `export PATH="/opt/homebrew/bin:/Users/dude/.local/bin:$PATH"`; `./scripts/install-stable.sh`
 4. Open `~/Applications/Orbitty.app`
@@ -38,7 +38,7 @@ Updated: 2026-09-20 CT (ball_tick + view_class peel)
 
 ## 2026-09-20 ball_tick + view_class peel
 - `ball_tick.rs` — keep-up hop + last-stretch glance (from anim.rs). Walker footwork stays in anim_tick.
-- `view_class.rs` — LiveSpriteWorldView + OrbittyPlanetMenuTarget registration (from mod.rs).
+- `view_class.rs` — OrbittyWorldView + OrbittyPlanetMenuTarget registration (from mod.rs).
 - Beach-ball / grass pad already green (Matt 2026-09-20). Parked leftovers stay open: LOAD-FIRST-FRAME, SMALL-BOARD-CLICK, SPAWN-CENTER.
 
 ## 2026-09-20 mod peel (after Build ball_tick/view_class)

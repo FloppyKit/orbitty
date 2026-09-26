@@ -28,7 +28,7 @@ from pathlib import Path
 
 from PIL import Image
 
-DIR = Path("/Users/dude/goose artifacts/livesprite-tauri/brand/companion/spirit")
+DIR = Path(__file__).resolve().parent
 N = 8
 TW, TH = 256, 384
 ALPHA_FLOOR = 16

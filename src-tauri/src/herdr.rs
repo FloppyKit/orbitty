@@ -168,7 +168,7 @@ fn planet_cwd(st: Option<&PersistedState>, planet_id: &str, project_name: Option
         .map(|n| n.trim().eq_ignore_ascii_case("orbitty"))
         .unwrap_or(false);
     if is_orbitty && !home.is_empty() {
-        let repo = format!("{home}/goose artifacts/livesprite-tauri");
+        let repo = format!("{home}/orbitty");
         if Path::new(&repo).is_dir() {
             return repo;
         }
@@ -733,7 +733,7 @@ mod tests {
         // No claim on the planet + the orbitty name → the repo when it
         // exists, else HOME — never invented.
         let home = std::env::var("HOME").unwrap_or_default();
-        let repo = format!("{home}/goose artifacts/livesprite-tauri");
+        let repo = format!("{home}/orbitty");
         let want = if Path::new(&repo).is_dir() { repo } else { home.clone() };
         assert_eq!(planet_cwd(Some(&st), "p-9", Some("orbitty")), want);
         // A non-orbitty planet with no claim cwd → HOME.

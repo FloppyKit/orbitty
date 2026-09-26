@@ -477,12 +477,8 @@ unsafe fn running_apps() -> Vec<RunningApp> {
         let name: *mut Object = msg_send![app, localizedName];
         let bundle: *mut Object = msg_send![app, bundleIdentifier];
         let bundle_id = ns_to_string(bundle);
-        // Never list our own windows — current Orbitty id and the retired
-        // LiveSprite id (a leftover LiveSprite.app may still be running).
-        if matches!(
-            bundle_id.as_deref(),
-            Some("space.orbitty.mac") | Some("app.livesprite.mac")
-        ) {
+        // Never list our own windows (current Orbitty id).
+        if matches!(bundle_id.as_deref(), Some("space.orbitty.mac")) {
             continue;
         }
         let cache_key = bundle_id.clone().unwrap_or_else(|| format!("pid:{pid}"));
@@ -617,11 +613,8 @@ unsafe fn mark_frontmost(list: &mut [WindowInfo]) {
 }
 
 fn is_orbitty_win(w: &WindowInfo) -> bool {
-    matches!(
-        w.bundle_id.as_deref(),
-        Some("space.orbitty.mac") | Some("app.livesprite.mac")
-    ) || w.app_name.eq_ignore_ascii_case("Orbitty")
-        || w.app_name.eq_ignore_ascii_case("LiveSprite")
+    matches!(w.bundle_id.as_deref(), Some("space.orbitty.mac"))
+        || w.app_name.eq_ignore_ascii_case("Orbitty")
 }
 
 static LAST_OTHER_FRONTMOST: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -662,7 +655,7 @@ pub fn note_workspace_frontmost() {
             let utf: *const i8 = msg_send![bundle, UTF8String];
             if !utf.is_null() {
                 let s = std::ffi::CStr::from_ptr(utf).to_string_lossy();
-                if s == "space.orbitty.mac" || s == "app.livesprite.mac" {
+                if s == "space.orbitty.mac" {
                     return;
                 }
             }
@@ -672,7 +665,7 @@ pub fn note_workspace_frontmost() {
             let utf: *const i8 = msg_send![name, UTF8String];
             if !utf.is_null() {
                 let s = std::ffi::CStr::from_ptr(utf).to_string_lossy();
-                if s.eq_ignore_ascii_case("Orbitty") || s.eq_ignore_ascii_case("LiveSprite") {
+                if s.eq_ignore_ascii_case("Orbitty") {
                     return;
                 }
             }
@@ -968,7 +961,7 @@ fn set_minimized(id: &str, minimized: bool) -> Result<(), String> {
 }
 
 /// Rail Stow: ordinary AX minimize — the window sits in the Dock like any
-/// other minimized window. LiveSprite never parks windows offscreen.
+/// other minimized window. Orbitty never parks windows offscreen.
 pub fn minimize_window(id: &str) -> Result<(), String> {
     set_minimized(id, true)
 }

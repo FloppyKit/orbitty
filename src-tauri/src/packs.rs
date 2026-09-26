@@ -18,7 +18,7 @@ Manage packs from the rail: gear (⚙) → Packs → Import folder / Import zip,
 or the Being editor's Use my image on any walker. Without a picked pack,
 each walker is one of the built-in Season 1 bitty crew — no download needed.
 
-Rules (locked in LIVESPRITE_SPRITE_PACKS_LOCK_v0.md):
+Rules (locked in the sprite packs lock in ~/.buzz/PLANS, 2026-08):
 
   * Local import only: pick an image, a folder, or a zip you downloaded.
     Orbitty never fetches sprite art from a website.
@@ -979,12 +979,6 @@ fn seed_bible_packs(packs: &Path, app: &tauri::AppHandle) {
         srcs.push(res.join("imagine-walkers/packs"));
         srcs.push(res.join("bitty-crew/packs"));
     }
-    srcs.push(PathBuf::from(
-        "/Users/dude/goose artifacts/livesprite-tauri/brand/imagine-walkers/packs",
-    ));
-    srcs.push(PathBuf::from(
-        "/Users/dude/goose artifacts/livesprite-tauri/brand/bitty-crew/packs",
-    ));
     for slug in SLUGS {
         let dest = packs.join(slug);
         if dest.join("walk_0.png").exists() {

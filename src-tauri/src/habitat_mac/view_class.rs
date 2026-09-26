@@ -41,10 +41,10 @@ pub(crate) fn world_view_class() -> Option<&'static Class> {
 
 unsafe fn register_world_view_class() -> Option<&'static Class> {
     // Already registered (unit tests, re-init) — reuse, never panic.
-    if let Some(cls) = Class::get("LiveSpriteWorldView") {
+    if let Some(cls) = Class::get("OrbittyWorldView") {
         return Some(cls);
     }
-    let mut decl = ClassDecl::new("LiveSpriteWorldView", class!(NSView))?;
+    let mut decl = ClassDecl::new("OrbittyWorldView", class!(NSView))?;
     // drawRect:'s dirty-rect arg is part of the signature (objc's add_method
     // asserts selector/fn arg counts match); the body ignores it and always
     // redraws the whole view.

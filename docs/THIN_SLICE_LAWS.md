@@ -1,7 +1,7 @@
 # Thin-slice laws (Orbitty)
 
-Nest parent: `~/.buzz/PLANS/LIVESPRITE_THIN_SLICE_LAWS_PIXEL_v0.md`  
-Engagement: `~/.buzz/PLANS/LIVESPRITE_AGENT_ENGAGEMENT_CHAOS_v0.md` §11  
+Nest parent: the pixel thin-slice laws file in `~/.buzz/PLANS` (2026-08)  
+Engagement: the agent engagement chaos file in `~/.buzz/PLANS` (2026-08) §11  
 Ops: `~/.buzz/PLANS/ORBIT_ROADMAP.md`
 
 ## Non-negotiable

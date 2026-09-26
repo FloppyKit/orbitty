@@ -1,5 +1,5 @@
 {
-  "name": "livesprite-tauri",
+  "name": "orbitty",
   "version": "0.1.0",
   "description": "Orbitty — living visual surface consolidating what's running (Tauri runtime)",
   "type": "module",

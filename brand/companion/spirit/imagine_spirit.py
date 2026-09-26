@@ -12,12 +12,9 @@ import urllib.request
 from pathlib import Path
 
 AUTH = Path.home() / ".hermes/profiles/pixel-artist/auth.json"
-OUT = Path(
-    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/spirit/raw"
-)
-MARK = Path(
-    "/Users/dude/goose artifacts/livesprite-tauri/brand/orbitty-pixel.png"
-)
+HERE = Path(__file__).resolve().parent
+OUT = HERE / "raw"
+MARK = HERE.parents[1] / "orbitty-pixel.png"
 
 PORTRAIT = """ORIGINAL SNES-era JRPG talk-portrait pixel art, 3/4 camera, Teenage Engineering constraints.
 Subject: a SPIRIT / wisp / breath-mass — the cream figure from the attached Orbitty mark

@@ -9,9 +9,7 @@ import urllib.request
 from pathlib import Path
 
 AUTH = Path.home() / ".hermes/profiles/pixel-artist/auth.json"
-OUT = Path(
-    "/Users/dude/goose artifacts/livesprite-tauri/brand/companion/spirit/raw"
-)
+OUT = Path(__file__).resolve().parent / "raw"
 SRC = OUT / "spirit_portrait_v3.png"
 
 BRIGHT = """Same exact spirit as attached: cream breath-mass, teal diamond core, ochre/orange square ember, one eye-gleam, 3/4 JRPG talk-portrait.

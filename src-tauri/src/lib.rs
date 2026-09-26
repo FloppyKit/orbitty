@@ -747,11 +747,6 @@ pub fn run() {
             coordinator::open_soul_in_editor,
         ])
         .setup(|app| {
-            // One-time app-support migration
-            // (app.livesprite.mac → space.orbitty.mac) before anything
-            // reads/writes state under the new identifier.
-            state::migrate_app_support(app.handle());
-
             // one-time 0–4 → 1–5 checkin shift
             // (scaleV flag — never twice), before any window reads state.
             state::migrate_stars_scale(app.handle());

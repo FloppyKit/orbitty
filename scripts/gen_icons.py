@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the LiveSprite rail-glyph icon set (S2).
+"""Generate the Orbitty rail-glyph icon set (S2).
 
 Mark: a vertical rail bar (accent) + three stacked row bars — the rail column
 in miniature. App icons sit on a dark rounded tile; the tray variant is pure

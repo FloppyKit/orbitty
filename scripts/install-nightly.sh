@@ -11,7 +11,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 APP_NAME="Orbitty Nightly.app"
 SRC="src-tauri/target/release/bundle/macos/Orbitty.app"
 DEST="$HOME/Applications/$APP_NAME"
-IDENTITY="LiveSprite Local Codesign"
+IDENTITY="Orbitty Local Codesign"
 BUNDLE_ID="space.orbitty.mac.nightly"
 STABLE_SUPPORT="$HOME/Library/Application Support/space.orbitty.mac"
 NIGHTLY_SUPPORT="$HOME/Library/Application Support/$BUNDLE_ID"
@@ -58,6 +58,10 @@ if [[ -d "$ICONSET" ]]; then
   echo "==> Applying transparent Dock icon to Nightly only"
   iconutil -c icns "$ICONSET" -o "$ICNS_OUT"
 fi
+
+# GO-ORBITTY-RENAME-MOVE: ditto merge leaves the pre-rename executable behind.
+# Drop this line once both installed apps are clean.
+rm -f "$DEST/Contents/MacOS/livesprite"
 
 codesign --force --deep --sign "$IDENTITY" --timestamp=none "$DEST"
 codesign --verify --deep --strict --verbose=2 "$DEST"

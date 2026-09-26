@@ -1,8 +1,6 @@
 # Swift reference tree
 
-```text
-~/goose artifacts/livesprite
-```
+The archived Swift tree. Its on-disk path is in git history before GO-ORBITTY-RENAME-MOVE (now archived outside the home folder).
 
 - Native SwiftPM macOS app (rail, themes, habitat, stow, AX).
 - **GO-LS-TAURI-S0:** feature freeze — critical bugs only (`SWIFT_FREEZE.md` in that tree).
@@ -11,7 +9,4 @@
 
 Handoff / acceptance history also under:
 
-```text
-~/goose artifacts/livesprite-handoff
-~/goose artifacts/livesprite/docs/
-```
+the Swift handoff tree and the Swift tree's `docs/` folder (paths in git history before GO-ORBITTY-RENAME-MOVE).

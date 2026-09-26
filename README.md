@@ -26,7 +26,7 @@ Dogfood is the blessed app, not `tauri dev`:
 open ~/Applications/Orbitty.app
 ```
 
-First launch migrates `~/Library/Application Support/app.livesprite.mac` → `space.orbitty.mac` when the new directory is empty. Re-grant Accessibility once for `~/Applications/Orbitty.app` (sign identity stays “LiveSprite Local Codesign” so later rebuilds keep the grant).
+Re-grant Accessibility once for `~/Applications/Orbitty.app` (sign identity stays “Orbitty Local Codesign” so later rebuilds keep the grant).
 
 **⌘⇧O** raises the companion. Tray left-click does the same; right-click is the remote (Companion, Launchpad, STARS, Settings, Inspector, restore stowed windows, Quit). Quit does not force-restore minimized windows — they stay in the Dock.
 
@@ -47,4 +47,4 @@ How the pieces sit: `docs/ARCHITECTURE.md`.
 What is next (ops, not product): `~/.buzz/PLANS/ORBIT_ROADMAP.md`.  
 Closed writer papers: `~/.buzz/PLANS/orbitty-closed/`. A live GO uses `docs/live/` (empty unless one is in flight).
 
-The Swift tree at `~/goose artifacts/livesprite` is archived. Do not launch it. Behavioral reference only: `docs/SWIFT_REFERENCE.md`.
+The Swift tree (path in git history before GO-ORBITTY-RENAME-MOVE) is archived. Do not launch it. Behavioral reference only: `docs/SWIFT_REFERENCE.md`.

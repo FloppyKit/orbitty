@@ -36,9 +36,6 @@ fn kit_roots() -> Vec<PathBuf> {
             roots.push(res.join("droid-crew/packs"));
         }
     }
-    roots.push(PathBuf::from(
-        "/Users/dude/goose artifacts/livesprite-tauri/brand/droid-crew/packs",
-    ));
     roots
 }
 
