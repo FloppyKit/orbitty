@@ -51,6 +51,9 @@ commands:
   shift on|off
   gate status
   gate inject CHATTER|STOP
+  route table
+  route classify -- \"line\"
+  route run -- \"line\"
   relay status
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
   project add --name N
@@ -138,6 +141,13 @@ companion and status reports armed; click anywhere else and it reports
 disarmed, and a freeze clears. gate inject CHATTER holds (no freeze).
 gate inject STOP aborts, freezes shift pickup, and stops live working
 runs — write-class ACL.
+
+route table and route classify are read-safe. classify only names
+which existing door a Hang line would hit, or that the line stays chat.
+It writes nothing. route run calls that same door (including the
+companion-hop log). A miss returns tool null and spoken null, exit 0.
+route run is write-class (full / named custom). The companion profile
+does not reach it.
 
 relay status is read-safe. relay replica --url sets the
 optional one-user VPS URL (Tailscale 100.64/10:13120 or
@@ -707,6 +717,9 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         }
         ["shift", "status"] => Ok(("shift.status", json!({}))),
         ["gate", "status"] => Ok(("gate.status", json!({}))),
+        ["route", "table"] => Ok(("route.table", json!({}))),
+        ["route", "classify"] => Ok(("route.classify", json!({ "line": payload(o)? }))),
+        ["route", "run"] => Ok(("route.run", json!({ "line": payload(o)? }))),
         ["gate", "inject", kind] => Ok(("gate.inject", json!({ "kind": *kind }))),
         ["shift", "tick"] => Ok(("shift.tick", json!({}))),
         ["shift", "on"] => Ok(("shift.on", json!({}))),

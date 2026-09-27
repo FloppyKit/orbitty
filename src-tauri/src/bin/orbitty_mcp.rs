@@ -15,7 +15,7 @@ const SERVER_VERSION: &str = "0.1.0";
 struct ToolDef {
     name: &'static str,
     description: &'static str,
-    /// "none" | "id" | "line" | "profile" | "clip" | "kanban_add" |
+    /// "none" | "id" | "line" | "route_line" | "profile" | "clip" | "kanban_add" |
     /// "kanban_move" | "kanban_notes" | "kanban_assign" | "needed_open" |
     /// "log_append" | "action_add" | "action_run" | "action_rm" |
     /// "project_add" | "project_rm" | "project_rename" | "agent_add" |
@@ -90,6 +90,9 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "agent.pin", description: "Pin an agent row to a planet (project id or unique planet name)", args: "agent_pin" },
     ToolDef { name: "agent.pickup", description: "Pick the oldest assigned open Todo (the row's planet when pinned), move it doing, and launch the row's harness with the card title; no match = honest empty, no spawn", args: "agent_pickup" },
     ToolDef { name: "shift.status", description: "Humming supervisor snapshot: on/off, mode, runner cap, agentRuns, next assigned pickups", args: "none" },
+    ToolDef { name: "route.table", description: "Hang route table: the closed set of keyword tool ids (max 15). Read-only.", args: "none" },
+    ToolDef { name: "route.classify", description: "Classify a Hang line to a route id, or null if it stays chat. Read-only, no side effects.", args: "route_line" },
+    ToolDef { name: "route.run", description: "Run a Hang line through the route table (same door as Hang). A miss returns null spoken. Write-class.", args: "route_line" },
     ToolDef { name: "shift.tick", description: "One supervisor pass: park ghost working rows, Needed-escalate blocked, pickup next assigned todo if Work/Hold", args: "none" },
     ToolDef { name: "shift.on", description: "Turn the 15s shift ticker on (Work/Hold pickups; Spark/Chat never auto-pickup)", args: "none" },
     ToolDef { name: "shift.off", description: "Turn the 15s shift ticker off", args: "none" },
@@ -110,6 +113,11 @@ fn input_schema(kind: &str) -> Value {
         "line" => json!({
             "type": "object",
             "properties": { "line": { "type": "string", "description": "Text to send" } },
+            "required": ["line"]
+        }),
+        "route_line" => json!({
+            "type": "object",
+            "properties": { "line": { "type": "string", "description": "Hang line" } },
             "required": ["line"]
         }),
         "profile" => json!({

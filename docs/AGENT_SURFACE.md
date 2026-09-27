@@ -191,6 +191,66 @@ orbittyctl --json stars cloud words --range 14
 
 Each word is `{word, count, lastAt, fresh}`. `muted` is the saved mute list. `fresh` is the 14-day window the cover uses to dim a word.
 
+## Hang route
+
+Hang's router is a keyword gate onto doors that already exist. A line that matches the table runs that door. A miss stays chat. It is not a new seat.
+
+The table is closed (at most 15 ids). Today:
+
+`gate-status`, `shift-status`, `companion-note`, `open-planet`, `needed-list`, `agent-list`, `planet-list`, `board-list`.
+
+`route.table` and `route.classify` are read-safe (`read` profile allowed). Classify only names the id, or `null` when the line stays chat (`chat: true`). It does not write state, append an event, or move a window. `route.run` is write-class (`full`, or a custom `allow` entry). It calls the same door Hang uses, including the `companion-hop` log. A miss returns `tool: null` and `spoken: null` with exit 0. The `companion` profile does not reach `route.run` (its prefix is `companion.*`). `route.run` does not push a companion turn.
+
+`companion-note` replies with the note text and saves nothing.
+
+### route.table
+
+```json
+{"v":1,"id":"1","tool":"route.table","args":{}}
+```
+
+```
+orbittyctl --json route table
+```
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"route.table","arguments":{}}}
+```
+
+### route.classify
+
+```json
+{"v":1,"id":"1","tool":"route.classify","args":{"line":"list planets"}}
+```
+
+```
+orbittyctl --json route classify -- "list planets"
+```
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"route.classify","arguments":{"line":"list planets"}}}
+```
+
+A hit is `{"tool":"planet-list","chat":false}`. `tell me a joke` and `stop` are `{"tool":null,"chat":true}`.
+
+### route.run
+
+```json
+{"v":1,"id":"1","tool":"route.run","args":{"line":"gate status"}}
+```
+
+```
+orbittyctl --json route run -- "gate status"
+```
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"route.run","arguments":{"line":"gate status"}}}
+```
+
+`spoken` for `gate status` starts with `Gate is`.
+
+Nightly's socket is `~/Library/Application Support/space.orbitty.mac.nightly/control.sock` when that folder is real. Pass `--sock` (or `ORBITTY_CONTROL_SOCK` for MCP). The default socket is Stable's.
+
 ## Everything else
 
 Windows, companion, kanban, projects, claims, actions, agents, shift, relay, and `state.get` are the same socket. Their names and ACL are the control-plane spec. `orbittyctl` with no command prints the command list. `orbitty-mcp` exposes the same names as MCP tools (`tools/list`).
