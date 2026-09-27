@@ -674,15 +674,6 @@ pub async fn send_with_hops(
     hop_ack: &str,
     vision_path: Option<&str>,
 ) -> Result<String, String> {
-    // Board reads: speak in code. Skip gist / LM / Grok generate.
-    // Writes still fall through to Grok below.
-    if crate::mouth_gist::needs_tools_lane(raw_line)
-        && !crate::mouth_gist::needs_write_lane(raw_line)
-    {
-        let spoken = crate::mouth_board::speak(app, raw_line);
-        crate::mouth_board::log_code_hop(app);
-        return Ok(spoken);
-    }
     let settings = effective_reply_lane(app);
     let has_attach = vision_path.is_some();
     let short = crate::mouth_gist::is_short_chat(raw_line, has_attach);

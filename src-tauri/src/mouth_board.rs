@@ -1,7 +1,5 @@
 //! Them-row board list in code. One job: speak open cards as a
-//! kind lead + bullets. Skips LM Studio / Grok for board reads.
-
-use serde_json::json;
+//! kind lead + bullets. The Hang route calls this. No model.
 
 use crate::mouth_tools::{collect_open, OpenBuckets};
 
@@ -70,19 +68,6 @@ fn push_bucket(out: &mut String, name: &str, titles: &[String]) {
         out.push_str("- ");
         out.push_str(t);
     }
-}
-
-/// Log hop lane so dogfood can see code skipped LM.
-pub fn log_code_hop(app: &tauri::AppHandle) {
-    crate::event_log::append_best(
-        app,
-        "companion-hop",
-        None,
-        None,
-        Some("agent"),
-        true,
-        &json!({ "lane": "code", "boardList": true }),
-    );
 }
 
 #[cfg(test)]

@@ -41,6 +41,7 @@ mod mouth_scan;
 mod mouth_sidecar;
 mod mouth_tools;
 mod mouth_board;
+mod mouth_route;
 mod mouth_roll;
 mod needed_rules;
 mod nextcard;

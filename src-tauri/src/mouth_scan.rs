@@ -11,6 +11,8 @@ const OLLAMA_TAGS: &str = "http://127.0.0.1:11434/api/tags";
 const OLLAMA_BASE: &str = "http://127.0.0.1:11434";
 /// LM Studio default + the other common OpenAI-compat port.
 const OPENAI_PORTS: &[u16] = &[1234, 8080];
+/// Quick mouth. Catalog id Matt loads in LM Studio, not the 1B scorer.
+pub const PINNED_REPLY_ID: &str = "google/gemma-4-e4b";
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -179,7 +181,15 @@ fn to_target(m: &ScannedModel) -> LocalTarget {
     }
 }
 
-/// Pick the hop target: saved id if still up, else E4B, else first scan.
+/// Catalog E4B if it is up, else any other E4B id.
+pub fn prefer_reply_id(scanned: &[ScannedModel]) -> Option<&ScannedModel> {
+    scanned
+        .iter()
+        .find(|m| m.id == PINNED_REPLY_ID)
+        .or_else(|| scanned.iter().find(|m| looks_like_e4b(&m.id)))
+}
+
+/// Pick the hop target: saved id if still up, else pinned E4B, else first.
 pub fn resolve_local(chosen: &str, scanned: &[ScannedModel]) -> Option<LocalTarget> {
     let chosen = chosen.trim();
     if !chosen.is_empty() {
@@ -187,10 +197,32 @@ pub fn resolve_local(chosen: &str, scanned: &[ScannedModel]) -> Option<LocalTarg
             return Some(to_target(m));
         }
     }
-    if let Some(m) = scanned.iter().find(|m| looks_like_e4b(&m.id)) {
-        return Some(to_target(m));
+    prefer_reply_id(scanned)
+        .map(to_target)
+        .or_else(|| scanned.first().map(to_target))
+}
+
+/// Persist Quick mouth when the catalog id is loaded and the field is empty.
+pub fn pin_reply_if_empty(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    let Ok(st) = crate::state::load_state(app) else {
+        return;
+    };
+    if !st.companion.reply_model.trim().is_empty() {
+        return;
     }
-    scanned.first().map(to_target)
+    let (scanned, _, lmstudio_up) = scan_running();
+    if !lmstudio_up {
+        return;
+    }
+    if !scanned.iter().any(|m| m.id == PINNED_REPLY_ID) {
+        return;
+    }
+    let mut st = st;
+    st.companion.reply_model = PINNED_REPLY_ID.to_string();
+    if crate::state::save_state(app, &st).is_ok() {
+        let _ = app.emit("state:changed", ());
+    }
 }
 
 /// Live pick for hop — scans running servers. None = honest empty.
@@ -460,6 +492,21 @@ mod tests {
                 assert!(looks_like_e4b(&model));
             }
             other => panic!("expected e4b, got {other:?}"),
+        }
+        let both = parse_openai_models(
+            r#"{"data":[
+                {"id":"mlx-community/gemma-4-e4b-it-mlx"},
+                {"id":"google/gemma-4-e4b"},
+                {"id":"gemma-2-2b-it"}
+            ]}"#,
+            "http://127.0.0.1:1234",
+            "lmstudio",
+        );
+        match resolve_local("", &both) {
+            Some(LocalTarget::LmStudio { model, .. }) => {
+                assert_eq!(model, PINNED_REPLY_ID);
+            }
+            other => panic!("expected pinned e4b, got {other:?}"),
         }
     }
 

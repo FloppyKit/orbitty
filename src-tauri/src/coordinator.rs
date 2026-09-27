@@ -1703,6 +1703,21 @@ async fn companion_send_inner(
         _ => line.clone(),
     };
     persist_companion_you(&app, &you_line);
+    // Pin Quick mouth when LM Studio is serving the catalog E4B and
+    // replyModel is still empty. One models GET, then the field sticks.
+    crate::mouth_scan::pin_reply_if_empty(&app);
+    // Existing verbs: the tool answers. A miss stays on the mouth below.
+    if attach.is_none() && !crate::mouth_gist::needs_write_lane(&line) {
+        if let Some(spoken) = crate::mouth_route::run(&app, &line) {
+            if let Ok(mut st) = crate::state::load_state(&app) {
+                st.companion.last_bot_line = spoken.clone();
+                st.companion.push_turn("them", &spoken);
+                let _ = crate::state::save_state(&app, &st);
+                let _ = app.emit("state:changed", ());
+            }
+            return Ok(spoken);
+        }
+    }
     // The conductor — a slim local fast ack in
     // front of the mouth (Settings toggle; off = today's path exactly).
     // Runs on the RAW line (pocket/desk wraps are for the mouth, not the

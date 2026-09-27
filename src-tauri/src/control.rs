@@ -214,6 +214,11 @@ const READ_TOOLS: &[&str] = &[
     "relay.status",
     // Hang readout: armed while the companion window is focused.
     "gate.status",
+    // Hang route names only. route.run stays write-class
+    // (full / named custom). The companion profile's prefix is
+    // companion.*, so it does not reach route.run.
+    "route.table",
+    "route.classify",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -221,6 +226,16 @@ const READ_TOOLS: &[&str] = &[
 
 fn read_ok(tool: &str) -> bool {
     READ_TOOLS.contains(&tool) || stars_ctl::is_read(tool)
+}
+
+/// Classify only. Same ids as `mouth_route::classify`. No state write,
+/// no event log, no window change.
+fn route_classify_value(line: &str) -> Value {
+    let tool = crate::mouth_route::classify(line);
+    json!({
+        "tool": tool,
+        "chat": tool.is_none(),
+    })
 }
 
 fn allowed(acl: &Acl, tool: &str) -> bool {
@@ -625,6 +640,29 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         }
         "shift.status" => crate::shift::status(app).map_err(tool_err),
         "gate.status" => Ok(to_data(crate::interrupt_gate::interrupt_gate_status())),
+        // Hang route. table / classify are read-safe. run is the same
+        // door as Hang (`mouth_route::run`, including its hop log) and
+        // is write-class. A miss is {tool:null, spoken:null}, not an error.
+        // This does not push companion turns or set last_bot_line.
+        "route.table" => Ok(json!({
+            "table": crate::mouth_route::TABLE,
+            "max": 15,
+        })),
+        "route.classify" => {
+            let line = arg_str(args, "line")?;
+            Ok(route_classify_value(&line))
+        }
+        "route.run" => {
+            let line = arg_str(args, "line")?;
+            let spoken = crate::mouth_route::run(app, &line);
+            let tool = spoken
+                .as_ref()
+                .and_then(|_| crate::mouth_route::classify(&line));
+            Ok(json!({
+                "tool": tool,
+                "spoken": spoken,
+            }))
+        }
         "gate.inject" => {
             let kind = arg_str(args, "kind")?;
             crate::interrupt_gate::interrupt_gate_inject(app.clone(), kind).map_err(tool_err)
@@ -749,5 +787,55 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             Ok(to_data(ack))
         }
         other => Err((ERR_OTHER, format!("unknown tool {other:?}"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Phrases already covered by `mouth_route` tests. This checks the
+    /// socket payload, not a second classifier.
+    const PHRASES: &[&str] = &[
+        "tell me about the todo list on planet orbitty",
+        "what's on the board",
+        "open planet orbitty",
+        "show planet clinic",
+        "note: mouth ping",
+        "gate status",
+        "shift status",
+        "list planets",
+        "list agents",
+        "needed list on planet orbitty",
+        "tell me a joke",
+        "STOP",
+        "stop",
+        "ping",
+        "how is the weather",
+    ];
+
+    #[test]
+    fn route_classify_matches_mouth_route() {
+        for line in PHRASES {
+            let got = route_classify_value(line);
+            let expect = crate::mouth_route::classify(line);
+            assert_eq!(got["tool"].as_str(), expect, "{line}");
+            assert_eq!(got["chat"].as_bool(), Some(expect.is_none()), "{line}");
+        }
+    }
+
+    #[test]
+    fn route_classify_is_read_and_route_run_is_not() {
+        assert!(READ_TOOLS.contains(&"route.table"));
+        assert!(READ_TOOLS.contains(&"route.classify"));
+        assert!(!READ_TOOLS.contains(&"route.run"));
+        assert!(read_ok("route.classify"));
+        assert!(!read_ok("route.run"));
+        assert!(allowed(&Acl::Read, "route.classify"));
+        assert!(allowed(&Acl::Read, "route.table"));
+        assert!(!allowed(&Acl::Read, "route.run"));
+        assert!(allowed(&Acl::Companion, "route.classify"));
+        assert!(!allowed(&Acl::Companion, "route.run"));
+        assert!(allowed(&Acl::Full, "route.run"));
     }
 }
