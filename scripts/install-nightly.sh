@@ -61,7 +61,6 @@ fi
 
 # GO-ORBITTY-RENAME-MOVE: ditto merge leaves the pre-rename executable behind.
 # Drop this line once both installed apps are clean.
-rm -f "$DEST/Contents/MacOS/livesprite"
 
 codesign --force --deep --sign "$IDENTITY" --timestamp=none "$DEST"
 codesign --verify --deep --strict --verbose=2 "$DEST"

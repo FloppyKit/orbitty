@@ -68,7 +68,6 @@ mkdir -p "$HOME/Applications"
 ditto "$SRC" "$DEST"
 # GO-ORBITTY-RENAME-MOVE: ditto merge leaves the pre-rename executable behind.
 # Drop this line once both installed apps are clean.
-rm -f "$DEST/Contents/MacOS/livesprite"
 
 # Sign the INSTALLED app — the blessed path is what TCC sees, so it must
 # carry the stable identity itself, not just the build-tree bundle.
