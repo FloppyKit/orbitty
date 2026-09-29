@@ -1584,8 +1584,23 @@ def dispatch_dogfood_leftover(rec: dict, raw_answer: str) -> bool:
     """GO-ORBITTY-LEFTOVER-CLERK: leftover bounce = papers file only.
     No Writer card, no cursor-go. True = handled; False = cannot fill →
     clerk ping (no invented scope). Never stamps, never moves the todo."""
-    res = leftover_clerk.handle(rec, script_path=str(SCRIPT))
     cid = rec.get("id") or ""
+    # The papers go to plansDir; nothing is written under ~/.buzz. An older
+    # clerk (no plans_dir support) would write into ~/.buzz/PLANS, so it is
+    # never called: the clerk ping handles the bounce instead.
+    if not getattr(leftover_clerk, "PLANS_DIR_AWARE", False):
+        with DISPATCH_LOG.open("a") as log:
+            log.write(f"leftover-clerk {cid}: helper has no plans_dir support — clerk ping\n")
+        return False
+    go_hint = extract_go(rec.get("title") or "") or ""
+    info = go_status(go=go_hint) if go_hint else None
+    res = leftover_clerk.handle(
+        rec,
+        script_path=str(SCRIPT),
+        plans_dir=str(plans_dir()),
+        first_prompt=(info or {}).get("file") or None,
+        workspace=(info or {}).get("workspace") or None,
+    )
     if not res.get("ok"):
         with DISPATCH_LOG.open("a") as log:
             log.write(

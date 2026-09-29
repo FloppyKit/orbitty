@@ -23,9 +23,20 @@ HERE = Path(__file__).resolve().parent
 TMP_HOME = Path(tempfile.mkdtemp(prefix="orbitty-needed-test-"))
 atexit.register(shutil.rmtree, TMP_HOME, True)
 os.environ["HOME"] = str(TMP_HOME)
-# The script imports two sibling helper modules; these tests never use them.
-for name in ("orbitty_needed_rules", "orbitty_leftover_clerk"):
-    sys.modules.setdefault(name, types.ModuleType(name))
+# orbitty_needed_rules (outside the repo) is stubbed: no RULE: lines here.
+# orbitty_leftover_clerk is the real in-repo helper next to the script.
+_rules = types.ModuleType("orbitty_needed_rules")
+
+
+class _RuleError(Exception):
+    pass
+
+
+_rules.RuleError = _RuleError
+_rules.parse_rule_lines = lambda raw: (raw, {}, None, False)
+_rules.strip_rule_lines = lambda raw: raw
+sys.modules.setdefault("orbitty_needed_rules", _rules)
+sys.path.insert(0, str(HERE))
 
 _loader = importlib.machinery.SourceFileLoader("orbitty_needed", str(HERE / "orbitty-needed"))
 _spec = importlib.util.spec_from_loader("orbitty_needed", _loader)
@@ -180,6 +191,106 @@ class FullTextRoutes(Base):
         s = on.sealed_prompt(GO)
         self.assertIsNone(s.packet)
         self.assertIn("git_push refused", s.note)
+
+
+class LeftoverClerkEndToEnd(unittest.TestCase):
+    """Dogfood leftover bounce through orbitty-needed and the in-repo clerk
+    with a throwaway HOME. The bus is pointed outside ~/.buzz (it is Matt's
+    setting, not this route's), so ANY path under $HOME/.buzz is a leak."""
+
+    def setUp(self):
+        import subprocess
+
+        self.home = Path(os.environ["HOME"])
+        self.assertEqual(self.home, TMP_HOME)
+        self.buzz = self.home / ".buzz"
+        shutil.rmtree(self.buzz, ignore_errors=True)
+        shutil.rmtree(self.home / "Orbitty GOs", ignore_errors=True)
+        self.ws = Path(tempfile.mkdtemp(dir=TMP_HOME, prefix="ws-"))
+        git = ["git", "-C", str(self.ws), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run(["git", "init", "-q", str(self.ws)], check=True)
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "base commit"], check=True)
+        self.bus = Path(tempfile.mkdtemp(dir=TMP_HOME, prefix="bus-"))
+        self.calls = []
+        # plansDir is configured (not the clerk's own default), the way
+        # `orbittyctl settings plans-dir` answers it.
+        self.plans = self.home / "Custom GOs"
+        shutil.rmtree(self.plans, ignore_errors=True)
+        self._saved = {}
+        for name, value in {
+            "BUS": self.bus,
+            "DISPATCH_LOG": self.bus / "dispatch.log",
+            "ctl": self.fake_ctl,
+        }.items():
+            self._saved[name] = getattr(on, name)
+            setattr(on, name, value)
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(on, k, v)
+
+    def fake_ctl(self, *args, json_out=True):
+        self.calls.append(args)
+        if args[:2] == ("settings", "plans-dir"):
+            return {"plansDir": str(self.plans)}
+        return {}
+
+    def first_cut(self, where: Path) -> Path:
+        where.mkdir(parents=True, exist_ok=True)
+        p = where / "_GO_ORBITTY_LEFT_PROMPT.md"
+        p.write_text(f"Workspace: {self.ws}\n\n## Dogfood\n\n1. open the popover\n")
+        return p
+
+    def bounce(self) -> bool:
+        rec = {
+            "id": "n-dog-1",
+            "title": "Dogfood GO-ORBITTY-LEFT?",
+            "neededAnswer": "the popover flickers on open",
+            "neededWhy": "",
+        }
+        return on.dispatch_dogfood(rec, rec["neededAnswer"])
+
+    def buzz_files(self) -> list:
+        return sorted(str(p) for p in self.buzz.rglob("*")) if self.buzz.exists() else []
+
+    def test_leftover_lands_in_plans_dir_and_nothing_under_buzz(self):
+        plans = self.plans
+        self.first_cut(plans)
+        self.assertTrue(self.bounce())
+        made = sorted(plans.glob("_GO_ORBITTY_LEFT_LEFTOVER_*_PROMPT.md"))
+        self.assertEqual(len(made), 1, list(plans.iterdir()))
+        text = made[0].read_text()
+        self.assertIn("the popover flickers on open", text)
+        self.assertIn(f"Workspace: {self.ws}", text)
+        self.assertFalse(self.buzz.exists(), self.buzz_files())
+
+    def test_buzz_first_cut_is_read_only_fallback(self):
+        old = self.first_cut(self.buzz / "PLANS")
+        before = self.buzz_files()
+        self.assertTrue(self.bounce())
+        self.assertEqual(self.buzz_files(), before, "nothing new under ~/.buzz")
+        self.assertEqual(old.read_text().splitlines()[0], f"Workspace: {self.ws}")
+        made = sorted(self.plans.glob("_GO_ORBITTY_LEFT_LEFTOVER_*_PROMPT.md"))
+        self.assertEqual(len(made), 1)
+        self.assertFalse((self.home / "Orbitty GOs").exists())
+
+    def test_old_clerk_without_plans_dir_is_never_called(self):
+        self.first_cut(self.plans)
+        clerk = on.leftover_clerk
+        fake = types.SimpleNamespace(handle=lambda *a, **kw: self.fail("old clerk called"))
+        on.leftover_clerk = fake
+        try:
+            self.assertFalse(self.bounce())
+        finally:
+            on.leftover_clerk = clerk
+        self.assertFalse(self.buzz.exists(), self.buzz_files())
+
+    def test_plans_dir_under_buzz_is_refused(self):
+        self.plans = self.buzz / "PLANS"
+        self.first_cut(self.plans)
+        before = self.buzz_files()
+        self.assertFalse(self.bounce())
+        self.assertEqual(self.buzz_files(), before)
 
 
 if __name__ == "__main__":
