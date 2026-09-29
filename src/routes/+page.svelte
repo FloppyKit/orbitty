@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import KanbanPage from "$lib/KanbanPage.svelte";
   import CompanionPage from "$lib/CompanionPage.svelte";
   import StarsPage from "$lib/StarsPage.svelte";
@@ -89,6 +90,18 @@
   }
   $effect(() => {
     if (isDrawerWindow) document.documentElement.dataset.drawer = "";
+  });
+
+  // Tell native this page really mounted, once per document. The drawer
+  // mount check trusts this instead of an AX read on the main thread
+  // (the first AX read of a warm pane built its whole AX tree while
+  // AppKit waited — the first-open Settings beachball). A reload/navigate
+  // clears it natively; the fresh document reports again.
+  let reportedMount = false;
+  $effect(() => {
+    if (!labelKnown || reportedMount) return;
+    reportedMount = true;
+    void tick().then(() => invoke("pane_mounted").catch(() => {}));
   });
 
 </script>

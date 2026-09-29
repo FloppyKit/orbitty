@@ -300,6 +300,40 @@ fn window_created_at(label: &str) -> Option<std::time::Instant> {
 
 // The SPA must actually mount
 
+/// Labels whose SPA reported its own mount (`pane_mounted`, invoked by
+/// +page.svelte after the page component rendered). Cleared when that
+/// webview starts a new page load (reload / navigate), see
+/// `clear_pane_mounted`. A reported mount is the cheap truth the mount
+/// check needs — no AX read.
+fn mounted_panes() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    S.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+fn pane_reported_mounted(label: &str) -> bool {
+    mounted_panes()
+        .lock()
+        .map(|m| m.contains(label))
+        .unwrap_or(false)
+}
+
+/// The page itself says it mounted. Cheap, no main-thread work.
+#[tauri::command]
+pub fn pane_mounted(webview_window: tauri::WebviewWindow) {
+    if let Ok(mut m) = mounted_panes().lock() {
+        m.insert(webview_window.label().to_string());
+    }
+}
+
+/// A new document is loading in this webview — its old mount no longer
+/// counts until the fresh page reports again.
+pub(crate) fn clear_pane_mounted(label: &str) {
+    if let Ok(mut m) = mounted_panes().lock() {
+        m.remove(label);
+    }
+}
+
 /// After a verified drawer show, the webview must grow an AXWebArea — the
 /// same "is the SPA really mounted" truth Pixel reads. The empty-glass
 /// failure mode (CG on=1, AXWindow with an AXGroup and no AXWebArea) was
@@ -409,6 +443,14 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
 /// NOT mounted — the document loaded but the SPA never hydrated.
 #[cfg(target_os = "macos")]
 fn drawer_mount_ok(w: &tauri::WebviewWindow) -> bool {
+    // First-show beachball: the AX probe below runs ON the main thread,
+    // and the first AX read of a never-shown WKWebView makes WebKit build
+    // the whole page's accessibility tree while AppKit waits (warm
+    // Settings = a long DOM, ~0.9s after its first show). A page that
+    // already reported its own mount needs no AX read at all.
+    if pane_reported_mounted(w.label()) {
+        return true;
+    }
     let (tx, rx) = std::sync::mpsc::channel();
     let w = w.clone();
     crate::main_thread_sync(move || {
@@ -1793,14 +1835,19 @@ fn pane_drag_apply(app: &tauri::AppHandle, w: &tauri::WebviewWindow, label: &str
         };
         let frame: DragRect = msg_send![nsw, frame];
         let mouse: DragPoint = msg_send![class!(NSEvent), mouseLocation];
-        let next = DragRect {
-            origin: DragPoint {
-                x: mouse.x - grab.dx,
-                y: mouse.y - grab.dy,
-            },
-            size: frame.size,
+        let next = DragPoint {
+            x: mouse.x - grab.dx,
+            y: mouse.y - grab.dy,
         };
-        let _: () = msg_send![nsw, setFrame: next display: true];
+        // Mouse still: nothing to do (no AppKit call, no Moved event).
+        if (next.x - frame.origin.x).abs() < 0.5 && (next.y - frame.origin.y).abs() < 0.5 {
+            return true;
+        }
+        // Origin only. setFrame:display:YES forced a synchronous redraw of
+        // the whole transparent WKWebView window on the main thread every
+        // tick — a move needs no repaint; the window server just
+        // recomposites.
+        let _: () = msg_send![nsw, setFrameOrigin: next];
     }
     if label == "companion" {
         if let Ok(p) = w.outer_position() {
@@ -1850,6 +1897,12 @@ pub fn pane_drag_begin(app: tauri::AppHandle, label: String) {
     let app = app.clone();
     let label_loop = label.clone();
     std::thread::spawn(move || {
+        // Fixed-deadline cadence (~120 Hz). The old sleep(16ms)-after-work
+        // loop ran at 16ms + dispatch + setFrame ≈ 18–20ms, beating
+        // against 60 Hz vsync so the pane skipped a frame every few
+        // frames (the hitch). Unchanged ticks are a cheap no-op.
+        const TICK: std::time::Duration = std::time::Duration::from_millis(8);
+        let mut deadline = std::time::Instant::now();
         loop {
             crate::main_thread_sync({
                 let w = w.clone();
@@ -1867,7 +1920,14 @@ pub fn pane_drag_begin(app: tauri::AppHandle, label: String) {
             if !alive {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            deadline += TICK;
+            let now = std::time::Instant::now();
+            if deadline > now {
+                std::thread::sleep(deadline - now);
+            } else {
+                // Main thread was busy; resync instead of bursting.
+                deadline = now;
+            }
         }
     });
 }

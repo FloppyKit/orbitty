@@ -519,7 +519,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             .map(to_data)
             .map_err(tool_err)
         }
-        "packs.list" => crate::packs::list_packs(app.clone())
+        "packs.list" => crate::packs::list_packs_sync(app.clone())
             .map(to_data)
             .map_err(tool_err),
         "sleeper.wake" => {

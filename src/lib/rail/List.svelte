@@ -209,7 +209,7 @@
                         onclick={rail.saveSoul}
                         title="The only writer of soul.md">Save</button>
                       <button
-                        class="mini ghost"
+                        class="mini"
                         onclick={rail.openSoulEditor}
                         title={rail.soulPath
                           ? `Open in the default editor: ${rail.soulPath} (opens the file on disk — Save first if edited)`

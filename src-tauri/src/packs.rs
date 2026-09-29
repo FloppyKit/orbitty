@@ -470,8 +470,18 @@ pub struct PackInfo {
     pub role: String,
 }
 
+/// Settings/Rail invoke this. Async + spawn_blocking so the recursive
+/// packs walk (dozens of packs, ~1k files, header reads) never runs on
+/// the main thread — sync Tauri commands do, and it beachballed Settings.
 #[tauri::command]
-pub fn list_packs(app: tauri::AppHandle) -> Result<Vec<PackInfo>, String> {
+pub async fn list_packs(app: tauri::AppHandle) -> Result<Vec<PackInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_packs_sync(app))
+        .await
+        .map_err(|e| format!("list packs task: {e}"))?
+}
+
+/// Blocking walk — native callers (control socket, walker menu) use this.
+pub fn list_packs_sync(app: tauri::AppHandle) -> Result<Vec<PackInfo>, String> {
     let packs = packs_dir_path(&app)?;
     let mut out = Vec::new();
     let entries = std::fs::read_dir(&packs).map_err(|e| format!("read {}: {e}", packs.display()))?;
@@ -509,8 +519,8 @@ pub fn list_packs(app: tauri::AppHandle) -> Result<Vec<PackInfo>, String> {
 /// Companion-window body roster: only packs with `role: companion`.
 /// Planet walkers stay out of this list.
 #[tauri::command]
-pub fn list_companion_packs(app: tauri::AppHandle) -> Result<Vec<PackInfo>, String> {
-    let mut out = list_packs(app)?;
+pub async fn list_companion_packs(app: tauri::AppHandle) -> Result<Vec<PackInfo>, String> {
+    let mut out = list_packs(app).await?;
     out.retain(|p| p.role.eq_ignore_ascii_case("companion") && p.frame_count > 0);
     Ok(out)
 }

@@ -63,7 +63,7 @@ pub(crate) unsafe fn walker_context_menu(this: &Object, event: *mut Object, entr
     };
     // Walker packs only — companion bodies and habitat tiles stay out.
     let packs = app_handle()
-        .and_then(|app| crate::packs::list_packs(app.clone()).ok())
+        .and_then(|app| crate::packs::list_packs_sync(app.clone()).ok())
         .unwrap_or_default()
         .into_iter()
         .filter(|p| {
