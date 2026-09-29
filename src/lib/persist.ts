@@ -94,6 +94,11 @@ export interface Tracker {
   runningSince?: number;
 }
 
+export interface CardTombstone {
+  id: string;
+  lastTouchedAt: number;
+}
+
 export interface KanbanCard {
   id: string;
   title: string;
@@ -355,6 +360,8 @@ export interface PersistedState {
   collapsedSectionIds: string[];
   nudgeSuppressedWindowIds: string[];
   kanbanCards: KanbanCard[];
+  /** Removed card ids. A later save restores a card only when its lastTouchedAt is newer. */
+  cardTombstones?: CardTombstone[];
   pointsLedger: PointsEntry[];
   titleOverrides: TitleOverride[];
   autohideRowChrome: boolean;

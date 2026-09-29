@@ -181,11 +181,12 @@ pub fn status(app: &tauri::AppHandle) -> Result<Value, String> {
 }
 
 pub fn set_enabled(app: &tauri::AppHandle, on: bool) -> Result<Value, String> {
-    let mut st = crate::state::load_state(app)?;
-    st.private_relay = on;
-    crate::state::save_state(app, &st)?;
+    let st = crate::state::update(app, |st| {
+        st.private_relay = on;
+        Ok((st.private_relay, st.private_relay_url.clone()))
+    })?;
     let _ = app.emit("state:changed", ());
-    Ok(json!({ "on": st.private_relay, "url": st.private_relay_url }))
+    Ok(json!({ "on": st.0, "url": st.1 }))
 }
 
 pub fn set_replica_url(app: &tauri::AppHandle, raw: &str) -> Result<Value, String> {
@@ -194,11 +195,12 @@ pub fn set_replica_url(app: &tauri::AppHandle, raw: &str) -> Result<Value, Strin
         .as_ref()
         .map(|t| t.ws.clone())
         .unwrap_or_default();
-    let mut st = crate::state::load_state(app)?;
-    st.private_relay_url = stored.clone();
-    crate::state::save_state(app, &st)?;
+    let on = crate::state::update(app, |st| {
+        st.private_relay_url = stored.clone();
+        Ok(st.private_relay)
+    })?;
     let _ = app.emit("state:changed", ());
-    Ok(json!({ "url": stored, "on": st.private_relay }))
+    Ok(json!({ "url": stored, "on": on }))
 }
 
 /// After a successful jsonl append: if Settings private relay is on and

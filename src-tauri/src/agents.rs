@@ -305,8 +305,21 @@ pub fn agent_pickup(
         }));
     };
 
+    // Light the dock before the column move. The move's background
+    // attach writes the agentRuns row; a hack save that loaded first
+    // and wrote second used to wipe that row. Hack is narrow and locked
+    // now, and it lands before the move so the row is never the stale copy.
+    crate::coordinator::set_companion_hack(
+        app.clone(),
+        true,
+        Some(agent.harness.clone()),
+        agent.project_id.clone(),
+    )?;
     // The board's own door: todo → doing (same save + emit + log path).
-    crate::board::kanban_move(app, &card.id, "doing")?;
+    if let Err(e) = crate::board::kanban_move(app, &card.id, "doing") {
+        let _ = crate::coordinator::set_companion_hack(app.clone(), false, None, None);
+        return Err(e);
+    }
 
     // The query file's planet block names the card's planet (the pin, when
     // the row is pinned — pickup filtered on it).
@@ -315,19 +328,6 @@ pub fn agent_pickup(
         .iter()
         .find(|p| p.id == card.project_id)
         .map(|p| p.name.clone());
-    // light the dock BEFORE
-    // the harness is up — every harness (cursor | goose | grok | hermes),
-    // the same door as cursor-go. The pinned planet rides along so the
-    // dest/planet menus glow it while the run is live. Off lands with the
-    // harness exit (the launcher's own hook — coordinator's doors); a
-    // failed launch turns it straight back off so a bad bin never leaves
-    // a stuck on-light.
-    crate::coordinator::set_companion_hack(
-        app.clone(),
-        true,
-        Some(agent.harness.clone()),
-        agent.project_id.clone(),
-    )?;
     let launch = match crate::coordinator::launch_agent(
         app.clone(),
         agent.clone(),

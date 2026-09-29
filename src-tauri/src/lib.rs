@@ -181,9 +181,10 @@ fn sync_habitat(app: tauri::AppHandle, snapshot: habitat::HabitatSnapshot) -> Re
 /// R-click Planets dest: hide or show every desktop disc.
 #[tauri::command]
 fn set_planets_hidden(app: tauri::AppHandle, hidden: bool) -> Result<(), String> {
-    let mut st = state::load_state(&app)?;
-    st.companion.planets_hidden = hidden;
-    state::save_state(&app, &st)?;
+    state::update(&app, |st| {
+        st.companion.planets_hidden = hidden;
+        Ok(())
+    })?;
     habitat::set_planets_hidden(hidden);
     let _ = app.emit("state:changed", ());
     Ok(())
@@ -564,61 +565,43 @@ fn load_state(app: tauri::AppHandle) -> Result<state::PersistedState, String> {
     Ok(st)
 }
 
-#[tauri::command]
-fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result<(), String> {
-    // This command is the one native writer of
-    // `claims` — diff disk-before against the incoming snapshot and emit
-    // claim/unclaim (best-effort; a dead log never fails the save). A
-    // missing/corrupt old file skips the diff rather than inventing churn.
-    let before = state::load_state(&app).ok();
-    // whole-state writers never OWN
-    // companion.free_mode — the set_companion_free_mode command (Settings
-    // toggle / companion.free_mode ctl tool) is the only door. Carry the
-    // disk value forward so a stale or omitted incoming flag can never
-    // strip Free Mode back off (the agentRuns strip-trap).
-    if let Some(b) = before.as_ref() {
-        state.companion.free_mode = b.companion.free_mode;
-        // Same strip-trap for the conductor pair —
-        // the set_companion_conductor* commands are the only doors.
-        state.companion.conductor_on = b.companion.conductor_on;
-        state.companion.conductor_model = b.companion.conductor_model.clone();
-        state.companion.reply_lane = b.companion.reply_lane.clone();
-        state.companion.reply_model = b.companion.reply_model.clone();
-        // ctl `shift on|off` is the only door.
-        state.shift_on = b.shift_on;
-        // Layer-0 claim (tray/Dock/planet) owns lastClaimProjectId.
-        // Rail whole-state writers omit it and would wipe the default.
-        if state.last_claim_project_id.is_none() {
-            state.last_claim_project_id = b.last_claim_project_id.clone();
-        }
-        // PEER-CHROME: set_peer_chrome is the only door (Settings /
-        // graduate). Rail whole-state writers omit the flag — always
-        // carry disk forward (same pattern as free_mode).
-        state.peer_chrome = b.peer_chrome;
-    }
-    #[cfg(unix)]
-    crate::agent_runs::reconcile_incoming(&mut state);
-    crate::todo_trees::reconcile(&mut state);
-    if let Some(b) = before.as_ref() {
-        for c in &b.kanban_cards {
-            if c.task_id.is_some() && !state.kanban_cards.iter().any(|x| x.id == c.id) {
-                state.kanban_cards.push(c.clone());
-            }
-        }
-    }
-    state::save_state(&app, &state)?;
-    if let Some(before) = before.as_ref() {
-        event_log::diff_claims(&app, &before.claims, &state.claims);
-        // After the save returns so the
-        // board column is not waiting on Needed mint + extra saves.
+#[tauri::command(rename = "save_state")]
+fn save_window_state(app: tauri::AppHandle, state: state::PersistedState) -> Result<(), String> {
+    // Window writers merge under the lock. Rust-owned slices
+    // (agentRuns, companion.hack*, the carry-list fields) stay on disk.
+    // Cards merge by lastTouchedAt; a newer tombstone is the only delete.
+    let (before, after, stats) = state::update(&app, |disk| {
+        let before = disk.clone();
+        let (mut merged, stats) = state::merge_window_save(disk, &state);
         #[cfg(unix)]
-        doing_fire::spawn_fire_and_attach(&app, before.clone(), state.clone());
-    }
+        crate::agent_runs::reconcile_incoming(&mut merged);
+        crate::todo_trees::reconcile(&mut merged);
+        *disk = merged.clone();
+        Ok((before, merged, stats))
+    })?;
+    event_log::append_best(
+        &app,
+        "state-save-merge",
+        None,
+        None,
+        None,
+        true,
+        &serde_json::json!({
+            "window": true,
+            "kept_disk": stats.kept_disk,
+            "took_incoming": stats.took_incoming,
+        }),
+    );
+    event_log::diff_claims(&app, &before.claims, &after.claims);
+    // After the save returns so the
+    // board column is not waiting on Needed mint + extra saves.
+    #[cfg(unix)]
+    doing_fire::spawn_fire_and_attach(&app, before, after.clone());
     // Keep the separate Kanban window in sync with the rail's writes.
     let _ = app.emit("state:changed", ());
     // Every persist re-syncs action combo
     // registrations (best-effort — a collision marks conflict, never errs).
-    actions::sync_combos(&app, &state.action_shortcuts);
+    actions::sync_combos(&app, &after.action_shortcuts);
     Ok(())
 }
 
@@ -627,9 +610,10 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
 /// save_state strip-traps this flag so rail writers cannot wipe it.
 #[tauri::command]
 fn set_peer_chrome(app: tauri::AppHandle, on: bool) -> Result<(), String> {
-    let mut st = state::load_state(&app)?;
-    st.peer_chrome = on;
-    state::save_state(&app, &st)?;
+    state::update(&app, |st| {
+        st.peer_chrome = on;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -660,7 +644,7 @@ pub fn run() {
             open_accessibility_settings,
             prompt_accessibility,
             load_state,
-            save_state,
+            save_window_state,
             set_peer_chrome,
             event_log::log_event,
             set_vibrancy,

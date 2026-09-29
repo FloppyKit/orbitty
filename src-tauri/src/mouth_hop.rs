@@ -788,16 +788,17 @@ pub async fn send_with_hops(
 /// and this door stay one switch. Default off (paid Grok is today's mouth).
 #[tauri::command]
 pub fn set_companion_free_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.free_mode = enabled;
-    st.companion.reply_lane = if enabled {
-        "free".into()
-    } else if st.companion.reply_lane.trim().eq_ignore_ascii_case("free") {
-        "grok".into()
-    } else {
-        st.companion.reply_lane.clone()
-    };
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.free_mode = enabled;
+        st.companion.reply_lane = if enabled {
+            "free".into()
+        } else if st.companion.reply_lane.trim().eq_ignore_ascii_case("free") {
+            "grok".into()
+        } else {
+            st.companion.reply_lane.clone()
+        };
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -805,10 +806,11 @@ pub fn set_companion_free_mode(app: tauri::AppHandle, enabled: bool) -> Result<(
 #[tauri::command]
 pub fn set_companion_reply_lane(app: tauri::AppHandle, lane: String) -> Result<String, String> {
     let lane = normalize_reply_lane(&lane);
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.reply_lane = lane.clone();
-    st.companion.free_mode = lane == "free";
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.reply_lane = lane.clone();
+        st.companion.free_mode = lane == "free";
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(lane)
 }
@@ -816,9 +818,10 @@ pub fn set_companion_reply_lane(app: tauri::AppHandle, lane: String) -> Result<S
 #[tauri::command]
 pub fn set_companion_reply_model(app: tauri::AppHandle, model: String) -> Result<String, String> {
     let model = model.trim().chars().take(160).collect::<String>();
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.reply_model = model.clone();
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.reply_model = model.clone();
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(model)
 }

@@ -69,10 +69,13 @@ pub(crate) fn save_with_events(
     before: &PersistedState,
     after: &PersistedState,
 ) -> Result<(), String> {
-    let mut next = after.clone();
-    crate::todo_trees::reconcile(&mut next);
-    crate::state::save_state(app, &next)?;
-    event_log::diff_claims(app, &before.claims, &after.claims);
+    let (claims_before, claims_after) = crate::state::update(app, |live| {
+        let claims_before = live.claims.clone();
+        crate::state::apply_writer_delta(live, before, after);
+        crate::todo_trees::reconcile(live);
+        Ok((claims_before, live.claims.clone()))
+    })?;
+    event_log::diff_claims(app, &claims_before, &claims_after);
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -353,6 +356,7 @@ pub fn kanban_notes(app: &tauri::AppHandle, id: &str, notes: &str) -> Result<Kan
     } else {
         Some(notes.to_string())
     };
+    after.kanban_cards[idx].last_touched_at = now_secs();
     save_with_events(app, &before, &after)?;
     event_log::append_best(
         app,
@@ -470,6 +474,7 @@ fn write_links(
 ) -> Result<KanbanCard, String> {
     let mut after = before.clone();
     after.kanban_cards[idx].links = links;
+    after.kanban_cards[idx].last_touched_at = now_secs();
     let card_id = after.kanban_cards[idx].id.clone();
     let project_id = after.kanban_cards[idx].project_id.clone();
     save_with_events(app, before, &after)?;

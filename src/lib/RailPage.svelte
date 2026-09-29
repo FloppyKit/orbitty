@@ -22,6 +22,7 @@
     ActionShortcut,
     AgentRun,
     AgentShortcut,
+    CardTombstone,
     CharLook,
     Claim,
     CompanionSlice,
@@ -132,6 +133,7 @@
 
   // S4: local Kanban + points ledger (persisted), zombie ages.
   let kanbanCards = $state<KanbanCard[]>([]);
+  let cardTombstones = $state<CardTombstone[]>([]);
   let pointsLedger = $state<PointsEntry[]>([]);
   // Display-only window title renames, persisted; rail is the only writer.
   let titleOverrides = $state<TitleOverride[]>([]);
@@ -303,6 +305,40 @@
   let dragStartedAt = 0;
   function windowDragHot(): boolean {
     return !!dragWindowId || Date.now() - dragStartedAt < 400;
+  }
+  // A state:changed that arrives mid-drag is stashed, not applied. Applying
+  // card rows rebuilds the section and cancels the HTML5 drag. persist()
+  // and drag-end absorb the stash first, so a save never writes cards that
+  // skipped the reload. A local edit wins only when its lastTouchedAt is
+  // strictly newer than the disk card.
+  let persistDeferred = false;
+  let pendingDisk: {
+    kanbanCards: KanbanCard[];
+    pointsLedger: PointsEntry[];
+    agentRuns: AgentRun[];
+    cardTombstones: CardTombstone[];
+  } | null = null;
+
+  function absorbPendingCards() {
+    const disk = pendingDisk;
+    if (!disk) return;
+    pendingDisk = null;
+    const local = kanbanCards;
+    const merged = new Map<string, KanbanCard>();
+    for (const c of disk.kanbanCards) merged.set(c.id, c);
+    for (const c of local) {
+      const have = merged.get(c.id);
+      if (!have || c.lastTouchedAt > have.lastTouchedAt) merged.set(c.id, c);
+    }
+    for (const t of disk.cardTombstones) {
+      const c = merged.get(t.id);
+      const localNewer = local.some((x) => x.id === t.id && x.lastTouchedAt > t.lastTouchedAt);
+      if (c && t.lastTouchedAt >= c.lastTouchedAt && !localNewer) merged.delete(t.id);
+    }
+    kanbanCards = [...merged.values()];
+    pointsLedger = disk.pointsLedger;
+    agentRuns = disk.agentRuns;
+    cardTombstones = disk.cardTombstones;
   }
 
   // Claim counts only when its project still exists.
@@ -689,6 +725,14 @@
 
   async function persist() {
     if (!stateLoaded) return;
+    // A drag-hot store may have skipped state:changed. Don't write it.
+    // Drop/claim still mutates memory; drag-end flushes after the hot window.
+    if (windowDragHot()) {
+      persistDeferred = true;
+      return;
+    }
+    if (pendingDisk) absorbPendingCards();
+    persistDeferred = false;
     const state: PersistedState = {
       // Only an explicit choice is saved; an untouched theme stays "" so the
       // next launch keeps following the OS instead of freezing today's pick.
@@ -701,6 +745,7 @@
       collapsedSectionIds,
       nudgeSuppressedWindowIds: nudgeSuppressed,
       kanbanCards,
+      cardTombstones,
       pointsLedger,
       titleOverrides,
       autohideRowChrome,
@@ -1939,6 +1984,13 @@
   function onDragEnd() {
     dragWindowId = null;
     dropTarget = null;
+    if (!pendingDisk && !persistDeferred) return;
+    const wait = Math.max(0, 420 - (Date.now() - dragStartedAt));
+    setTimeout(() => {
+      if (windowDragHot()) return;
+      if (pendingDisk) absorbPendingCards();
+      if (persistDeferred) persist();
+    }, wait);
   }
 
   // Window drags must keep working even if Svelte state was lost mid-gesture
@@ -2349,6 +2401,7 @@
       collapsedSectionIds = s.collapsedSectionIds ?? [];
       nudgeSuppressed = s.nudgeSuppressedWindowIds ?? [];
       kanbanCards = s.kanbanCards ?? [];
+      cardTombstones = s.cardTombstones ?? [];
       pointsLedger = s.pointsLedger ?? [];
       titleOverrides = s.titleOverrides ?? [];
       autohideRowChrome = s.autohideRowChrome ?? true;
@@ -2556,10 +2609,25 @@
     // reload identical data — harmless. Skipped mid-drag so a window drag
     // can't be cancelled by a DOM swap.
     unlistenState = await listen("state:changed", async () => {
-      if (windowDragHot()) return;
+      if (windowDragHot()) {
+        try {
+          const s = await invoke<PersistedState>("load_state");
+          pendingDisk = {
+            kanbanCards: s.kanbanCards ?? [],
+            pointsLedger: s.pointsLedger ?? [],
+            agentRuns: s.agentRuns ?? [],
+            cardTombstones: s.cardTombstones ?? [],
+          };
+        } catch {
+          // Leave the previous stash. persist() will not write until it lands.
+        }
+        return;
+      }
+      pendingDisk = null;
       try {
         const s = await invoke<PersistedState>("load_state");
         kanbanCards = s.kanbanCards ?? [];
+        cardTombstones = s.cardTombstones ?? [];
         todoTrees = s.todoTrees ?? [];
         treeGrowDays = s.treeGrowDays ?? 14;
         pointsLedger = s.pointsLedger ?? [];

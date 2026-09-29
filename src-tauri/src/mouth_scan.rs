@@ -218,9 +218,16 @@ pub fn pin_reply_if_empty(app: &tauri::AppHandle) {
     if !scanned.iter().any(|m| m.id == PINNED_REPLY_ID) {
         return;
     }
-    let mut st = st;
-    st.companion.reply_model = PINNED_REPLY_ID.to_string();
-    if crate::state::save_state(app, &st).is_ok() {
+    if crate::state::update(app, |st| {
+        if !st.companion.reply_model.trim().is_empty() {
+            return Ok(false);
+        }
+        st.companion.reply_model = PINNED_REPLY_ID.to_string();
+        Ok(true)
+    })
+    .ok()
+    .unwrap_or(false)
+    {
         let _ = app.emit("state:changed", ());
     }
 }

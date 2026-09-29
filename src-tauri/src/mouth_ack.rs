@@ -489,14 +489,15 @@ fn fixed_ack(verb: &str) -> String {
 /// drops any parked proposal: a switch-off never leaves a mint armed.
 #[tauri::command]
 pub fn set_companion_conductor(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.conductor_on = enabled;
-    if enabled {
-        // This GO: Built-in classifier only. A leftover Ollama tag
-        // must not become Quick ack.
-        st.companion.conductor_model.clear();
-    }
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.conductor_on = enabled;
+        if enabled {
+            // This GO: Built-in classifier only. A leftover Ollama tag
+            // must not become Quick ack.
+            st.companion.conductor_model.clear();
+        }
+        Ok(())
+    })?;
     if !enabled {
         *lock_pending() = None;
     }
@@ -518,9 +519,10 @@ pub fn set_companion_conductor_model(app: tauri::AppHandle, model: String) -> Re
     if ack_model_forbidden(&model) {
         return Err("Quick ack cannot be Grok, OpenRouter, or a 12B.".into());
     }
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.conductor_model = model;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.conductor_model = model;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }

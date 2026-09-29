@@ -1609,10 +1609,10 @@ fn persist_drawer_rect(app: &tauri::AppHandle, label: &str, rect: state::Compani
         }
     }
     if label == "companion" {
-        if let Ok(mut st) = state::load_state(app) {
+        let _ = state::update(app, |st| {
             st.companion.bounds = Some(rect);
-            let _ = state::save_state(app, &st);
-        }
+            Ok(())
+        });
     }
 }
 
@@ -1626,14 +1626,16 @@ pub(crate) fn drawer_persist(app: &tauri::AppHandle) {
     let Some(drawers) = drawers else {
         return;
     };
-    if let Ok(mut st) = state::load_state(app) {
+    if state::update(app, |st| {
         st.drawers = drawers;
-        if state::save_state(app, &st).is_ok() {
-            if let Ok(mut rt) = drawer_rt().lock() {
-                rt.dirty = false;
-            }
-            let _ = app.emit("state:changed", ());
+        Ok(())
+    })
+    .is_ok()
+    {
+        if let Ok(mut rt) = drawer_rt().lock() {
+            rt.dirty = false;
         }
+        let _ = app.emit("state:changed", ());
     }
 }
 

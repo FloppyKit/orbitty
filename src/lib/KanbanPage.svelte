@@ -951,6 +951,7 @@
         return {
           ...c,
           links: [...cur, { url: nextUrl, label: nextLabel || undefined }],
+          lastTouchedAt: Date.now() / 1000,
         };
       });
     });
@@ -961,7 +962,11 @@
       s.kanbanCards = s.kanbanCards.map((c) => {
         if (c.id !== card.id) return c;
         const links = (c.links ?? []).filter((l) => l.url !== url);
-        return { ...c, links: links.length ? links : undefined };
+        return {
+          ...c,
+          links: links.length ? links : undefined,
+          lastTouchedAt: Date.now() / 1000,
+        };
       });
     });
   }
@@ -1309,7 +1314,9 @@
     if (notes === (card.notes ?? "")) return;
     mutate((s) => {
       s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id ? { ...c, notes: notes || undefined } : c,
+        c.id === card.id
+          ? { ...c, notes: notes || undefined, lastTouchedAt: Date.now() / 1000 }
+          : c,
       );
     });
   }
@@ -1528,7 +1535,12 @@
   function deleteTodo(card: KanbanCard) {
     if (card.kind === "window" || card.kind === "needed") return;
     const id = card.id;
+    const now = Date.now() / 1000;
     mutate((s) => {
+      s.cardTombstones = [
+        ...(s.cardTombstones ?? []).filter((t) => t.id !== id),
+        { id, lastTouchedAt: now },
+      ];
       s.kanbanCards = s.kanbanCards
         .filter((c) => c.id !== id)
         .map((c) =>

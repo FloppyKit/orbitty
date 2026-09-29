@@ -831,9 +831,10 @@ pub(crate) fn show_companion(app: &tauri::AppHandle) -> Result<(), String> {
     if already {
         return Ok(());
     }
-    let mut st = crate::state::load_state(app).unwrap_or_default();
-    st.companion.visible = true;
-    let _ = crate::state::save_state(app, &st);
+    let _ = crate::state::update(app, |st| {
+        st.companion.visible = true;
+        Ok(())
+    });
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -892,11 +893,12 @@ pub(crate) fn companion_default_frame(app: &tauri::AppHandle, w: &tauri::Webview
 /// Companion hide bookkeeping: visible=false only. Place is already
 /// written by persist_shown_place before hide.
 fn persist_companion_hidden(app: &tauri::AppHandle, _w: &tauri::WebviewWindow) {
-    let Ok(mut st) = crate::state::load_state(app) else {
+    let Ok(st) = crate::state::update(app, |st| {
+        st.companion.visible = false;
+        Ok(st.clone())
+    }) else {
         return;
     };
-    st.companion.visible = false;
-    let _ = crate::state::save_state(app, &st);
     crate::drawers::drawer_cache_refresh(&st);
     let _ = app.emit("state:changed", ());
 }

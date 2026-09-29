@@ -759,9 +759,10 @@ pub fn set_companion_pack(app: tauri::AppHandle, pack_id: String) -> Result<Opti
             return Err(format!("companion pack {pid:?} missing"));
         }
     }
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.image_pack_id = id.clone();
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.image_pack_id = id.clone();
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(id)
 }
@@ -799,9 +800,10 @@ pub fn set_companion_agent(app: tauri::AppHandle, profile: String) -> Result<Str
             ))
         }
     }
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.agent_profile = p.clone();
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.agent_profile = p.clone();
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(p)
 }
@@ -817,9 +819,10 @@ pub fn set_companion_mode(app: tauri::AppHandle, mode: String) -> Result<String,
             mode.trim()
         )
     })?;
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.switch_mode(&m);
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.switch_mode(&m);
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(m)
 }
@@ -836,19 +839,20 @@ pub fn companion_note(
     if line.is_empty() {
         return Err("companion note needs a line.".into());
     }
-    let mut st = crate::state::load_state(&app)?;
-    // load_state healed the mode, so st.companion.mode is allowlist-clean.
-    let target = match mode.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(raw) => crate::state::normalize_companion_mode(raw).ok_or_else(|| {
-            format!("unknown companion mode {raw:?} — spark | chat | work | hold")
-        })?,
-        None => st.companion.mode.clone(),
-    };
-    // One transcript: notes always land on the live thread.
-    let _ = target;
-    st.companion.last_bot_line = line.clone();
-    st.companion.push_turn("them", &line);
-    crate::state::save_state(&app, &st)?;
+    let target = crate::state::update(&app, |st| {
+        // load_state healed the mode, so st.companion.mode is allowlist-clean.
+        let target = match mode.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(raw) => crate::state::normalize_companion_mode(raw).ok_or_else(|| {
+                format!("unknown companion mode {raw:?} — spark | chat | work | hold")
+            })?,
+            None => st.companion.mode.clone(),
+        };
+        // One transcript: notes always land on the live thread.
+        let _ = target;
+        st.companion.last_bot_line = line.clone();
+        st.companion.push_turn("them", &line);
+        Ok(target)
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(target)
 }
@@ -952,7 +956,30 @@ pub fn set_companion_hack(
     who: Option<String>,
     project_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let mut st = crate::state::load_state(&app)?;
+    let (hack_live, hack_who, hack_project_id) = crate::state::update(&app, |st| {
+        apply_hack(st, live, who, project_id);
+        Ok((
+            st.companion.hack_live,
+            st.companion.hack_who.clone(),
+            st.companion.hack_project_id.clone(),
+        ))
+    })?;
+    let _ = app.emit("state:changed", ());
+    Ok(serde_json::json!({
+        "live": hack_live,
+        "who": hack_who,
+        "projectId": hack_project_id,
+    }))
+}
+
+/// Hack fields only. Callers must already be inside `state::update` or
+/// go through `set_companion_hack`, which is.
+fn apply_hack(
+    st: &mut crate::state::PersistedState,
+    live: bool,
+    who: Option<String>,
+    project_id: Option<String>,
+) {
     st.companion.hack_live = live;
     st.companion.hack_who = if live {
         who.map(|w| w.trim().to_string())
@@ -968,13 +995,6 @@ pub fn set_companion_hack(
     } else {
         None
     };
-    crate::state::save_state(&app, &st)?;
-    let _ = app.emit("state:changed", ());
-    Ok(serde_json::json!({
-        "live": st.companion.hack_live,
-        "who": st.companion.hack_who,
-        "projectId": st.companion.hack_project_id,
-    }))
 }
 
 fn run_is_seated(r: &crate::state::AgentRun) -> bool {
@@ -1019,33 +1039,33 @@ fn who_from_run(st: &crate::state::PersistedState, r: &crate::state::AgentRun) -
 /// working|starting|blocked and dark LED → on (who from shortcut
 /// harness or herdr kind); no seated run and lit LED → off.
 pub fn heal_stuck_hack(app: &tauri::AppHandle) {
-    let Ok(st) = crate::state::load_state(app) else {
-        return;
-    };
-    match (seated_live(&st), st.companion.hack_live) {
-        (Some(r), false) => {
-            let who = who_from_run(&st, r);
-            let project_id = if r.planet_id.trim().is_empty() {
-                None
-            } else {
-                Some(r.planet_id.clone())
-            };
-            let _ = set_companion_hack(app.clone(), true, who, project_id);
+    let _ = crate::state::update(app, |st| {
+        let seated = seated_live(st).cloned();
+        match (seated.as_ref(), st.companion.hack_live) {
+            (Some(r), false) => {
+                let who = who_from_run(st, r);
+                let project_id = if r.planet_id.trim().is_empty() {
+                    None
+                } else {
+                    Some(r.planet_id.clone())
+                };
+                apply_hack(st, true, who, project_id);
+            }
+            (None, true) => apply_hack(st, false, None, None),
+            _ => {}
         }
-        (None, true) => {
-            let _ = set_companion_hack(app.clone(), false, None, None);
-        }
-        _ => {}
-    }
+        Ok(())
+    });
 }
 
 /// Persist Talk source (`system` | `hotkey`).
 #[tauri::command]
 pub fn set_companion_talk_source(app: tauri::AppHandle, source: String) -> Result<String, String> {
     let src = crate::state::normalize_talk_source(&source);
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.talk_source = src.clone();
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.talk_source = src.clone();
+        Ok(())
+    })?;
     crate::talk::stop_if_any();
     let _ = app.emit("state:changed", ());
     Ok(src)
@@ -1054,9 +1074,10 @@ pub fn set_companion_talk_source(app: tauri::AppHandle, source: String) -> Resul
 /// Persist expand/collapse so the window reopens the way it was left.
 #[tauri::command]
 pub fn set_companion_expanded(app: tauri::AppHandle, expanded: bool) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.expanded = expanded;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.expanded = expanded;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     // Expanding while hugged restores the tall
     // idle FIRST — the transcript is never a 120px slab.
@@ -1082,27 +1103,28 @@ pub fn set_companion_view(
     surface: String,
     view: String,
 ) -> Result<String, String> {
-    let mut st = crate::state::load_state(&app)?;
-    let written = match surface.trim().to_ascii_lowercase().as_str() {
-        "collapsed" => {
-            let v = crate::state::normalize_companion_view(&view, "full");
-            st.companion.view_collapsed = v.clone();
-            v
-        }
-        "expanded" => {
-            let v = crate::state::normalize_companion_view(&view, "head");
-            st.companion.view_expanded = v.clone();
-            v
-        }
-        "all" => {
-            let v = crate::state::normalize_companion_view(&view, "full");
-            st.companion.view_collapsed = v.clone();
-            st.companion.view_expanded = v.clone();
-            v
-        }
-        other => return Err(format!("bad companion surface: {other:?}")),
-    };
-    crate::state::save_state(&app, &st)?;
+    let written = crate::state::update(&app, |st| {
+        let written = match surface.trim().to_ascii_lowercase().as_str() {
+            "collapsed" => {
+                let v = crate::state::normalize_companion_view(&view, "full");
+                st.companion.view_collapsed = v.clone();
+                v
+            }
+            "expanded" => {
+                let v = crate::state::normalize_companion_view(&view, "head");
+                st.companion.view_expanded = v.clone();
+                v
+            }
+            "all" => {
+                let v = crate::state::normalize_companion_view(&view, "full");
+                st.companion.view_collapsed = v.clone();
+                st.companion.view_expanded = v.clone();
+                v
+            }
+            other => return Err(format!("bad companion surface: {other:?}")),
+        };
+        Ok(written)
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(written)
 }
@@ -1122,15 +1144,19 @@ pub fn set_companion_sprite(
     enabled: bool,
     hug_height: Option<f64>,
 ) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    if st.companion.sprite != enabled {
-        st.companion.sprite = enabled;
-        crate::state::save_state(&app, &st)?;
+    let expanded = crate::state::update(&app, |st| {
+        let changed = st.companion.sprite != enabled;
+        if changed {
+            st.companion.sprite = enabled;
+        }
+        Ok((changed, st.companion.expanded))
+    })?;
+    if expanded.0 {
         let _ = app.emit("state:changed", ());
     }
     if enabled {
         crate::panes::unhug_companion(&app);
-    } else if !st.companion.expanded {
+    } else if !expanded.1 {
         // Shed any sprite-on composer grow FIRST
         // — the hug stash must be the true tall idle, never grown.
         crate::panes::ungrow_companion_composer(&app);
@@ -1167,9 +1193,10 @@ pub fn set_companion_speak(app: tauri::AppHandle, enabled: bool) -> Result<(), S
     if !enabled {
         stop_say();
     }
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.speak_replies = enabled;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.speak_replies = enabled;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -1178,9 +1205,10 @@ pub fn set_companion_speak(app: tauri::AppHandle, enabled: bool) -> Result<(), S
 #[tauri::command]
 pub fn set_companion_speak_volume(app: tauri::AppHandle, volume: f32) -> Result<(), String> {
     let volume = volume.clamp(0.0, 1.0);
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.speak_volume = volume;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.speak_volume = volume;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -1190,13 +1218,14 @@ pub fn set_companion_speak_volume(app: tauri::AppHandle, volume: f32) -> Result<
 /// a destination (one save, one state:changed, no JS race).
 #[tauri::command]
 pub fn set_companion_captions(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.captions = enabled;
-    let collapsed = !enabled && st.companion.expanded;
-    if collapsed {
-        st.companion.expanded = false;
-    }
-    crate::state::save_state(&app, &st)?;
+    let collapsed = crate::state::update(&app, |st| {
+        st.companion.captions = enabled;
+        let collapsed = !enabled && st.companion.expanded;
+        if collapsed {
+            st.companion.expanded = false;
+        }
+        Ok(collapsed)
+    })?;
     let _ = app.emit("state:changed", ());
     if collapsed {
         crate::companion_clear::expanded_changed(&app, false);
@@ -1213,9 +1242,10 @@ pub fn set_companion_captions(app: tauri::AppHandle, enabled: bool) -> Result<()
 /// pane toggle and the companion's Prompts toggle — same key either way.
 #[tauri::command]
 pub fn set_stars_prompts(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.stars.prompts_opt_in = enabled;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.stars.prompts_opt_in = enabled;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -1225,9 +1255,10 @@ pub fn set_stars_prompts(app: tauri::AppHandle, enabled: bool) -> Result<(), Str
 /// sig. One show per day, no loop.
 #[tauri::command]
 pub fn ack_stars_prompt(app: tauri::AppHandle, ack: String) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.stars.prompts_ack = ack;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.stars.prompts_ack = ack;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -1351,7 +1382,7 @@ fn match_action_line(
 /// the reply meant a hung send showed nothing and state:changed wiped
 /// the optimistic bubble.
 fn persist_companion_you(app: &tauri::AppHandle, line: &str) {
-    if let Ok(mut st) = crate::state::load_state(app) {
+    if crate::state::update(app, |st| {
         st.companion.last_user_line = line.to_string();
         let you_already_saved = st
             .companion
@@ -1361,13 +1392,16 @@ fn persist_companion_you(app: &tauri::AppHandle, line: &str) {
         if !you_already_saved {
             st.companion.push_turn("you", line);
         }
-        let _ = crate::state::save_state(app, &st);
+        Ok(())
+    })
+    .is_ok()
+    {
         let _ = app.emit("state:changed", ());
     }
 }
 
 fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) {
-    if let Ok(mut st) = crate::state::load_state(app) {
+    if crate::state::update(app, |st| {
         if let Some(you) = you {
             st.companion.last_user_line = you.to_string();
             let you_already_saved = st
@@ -1381,7 +1415,10 @@ fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &st
         }
         st.companion.last_bot_line = them.to_string();
         st.companion.push_turn("them", them);
-        let _ = crate::state::save_state(app, &st);
+        Ok(())
+    })
+    .is_ok()
+    {
         let _ = app.emit("state:changed", ());
     }
 }
@@ -1709,10 +1746,13 @@ async fn companion_send_inner(
     // Existing verbs: the tool answers. A miss stays on the mouth below.
     if attach.is_none() && !crate::mouth_gist::needs_write_lane(&line) {
         if let Some(spoken) = crate::mouth_route::run(&app, &line) {
-            if let Ok(mut st) = crate::state::load_state(&app) {
+            if crate::state::update(&app, |st| {
                 st.companion.last_bot_line = spoken.clone();
                 st.companion.push_turn("them", &spoken);
-                let _ = crate::state::save_state(&app, &st);
+                Ok(())
+            })
+            .is_ok()
+            {
                 let _ = app.emit("state:changed", ());
             }
             return Ok(spoken);
@@ -1802,7 +1842,7 @@ async fn companion_send_inner(
     };
 
     // You-row already persisted before the model wait. Reply only here.
-    if let Ok(mut st) = crate::state::load_state(&app) {
+    if crate::state::update(&app, |st| {
         st.companion.last_bot_line = reply.clone();
         let you_already_saved = st
             .companion
@@ -1813,7 +1853,10 @@ async fn companion_send_inner(
             st.companion.push_turn("you", &you_line);
         }
         st.companion.push_turn("them", &reply);
-        let _ = crate::state::save_state(&app, &st);
+        Ok(())
+    })
+    .is_ok()
+    {
         let _ = app.emit("state:changed", ());
     }
     Ok(reply)

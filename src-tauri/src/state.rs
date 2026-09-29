@@ -127,6 +127,19 @@ pub struct PersistedState {
     /// "1h" | "4h" | "12h" | "never". Missing/unknown → 4h.
     #[serde(default = "planet_idle_default")]
     pub planet_idle: String,
+    /// Cards a window or a Rust delete removed. A later save brings a
+    /// card back only when that card's `lastTouchedAt` is newer than the
+    /// stamp. Old builds ignore the key. Empty stays off disk.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub card_tombstones: Vec<CardTombstone>,
+}
+
+/// One removed card. `last_touched_at` is the delete stamp (epoch seconds).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CardTombstone {
+    pub id: String,
+    pub last_touched_at: f64,
 }
 
 fn needed_split_default() -> f64 {
@@ -285,6 +298,7 @@ impl Default for PersistedState {
             private_relay_url: String::new(),
             shift_on: false,
             planet_idle: planet_idle_default(),
+            card_tombstones: Vec::new(),
         }
     }
 }
@@ -1022,7 +1036,11 @@ fn state_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 pub fn load_state(app: &tauri::AppHandle) -> Result<PersistedState, String> {
     let path = state_path(app)?;
-    match std::fs::read_to_string(&path) {
+    load_path(&path)
+}
+
+fn load_path(path: &std::path::Path) -> Result<PersistedState, String> {
+    match std::fs::read_to_string(path) {
         Ok(text) => {
             let mut st: PersistedState = serde_json::from_str(&text)
                 .map_err(|e| format!("parse {}: {e}", path.display()))?;
@@ -1036,17 +1054,450 @@ pub fn load_state(app: &tauri::AppHandle) -> Result<PersistedState, String> {
     }
 }
 
-pub fn save_state(app: &tauri::AppHandle, state: &PersistedState) -> Result<(), String> {
+/// Disk write. Private: every caller goes through [`update`] so a stale
+/// snapshot cannot land between another writer's load and save.
+fn save_state(app: &tauri::AppHandle, state: &PersistedState) -> Result<(), String> {
+    let path = state_path(app)?;
+    save_path(&path, state)
+}
+
+fn save_path(path: &std::path::Path, state: &PersistedState) -> Result<(), String> {
     // Every writer hits this door. Canonicalize links here so a board
     // window's whole-state save keeps them and a hostile scheme never lands.
     let mut state = state.clone();
     crate::card_links::canonicalize_state_links(&mut state)?;
-    let path = state_path(app)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    }
     let tmp = path.with_extension("json.tmp");
     let text = serde_json::to_string_pretty(&state).map_err(|e| format!("serialize: {e}"))?;
     std::fs::write(&tmp, text).map_err(|e| format!("write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("rename to {}: {e}", path.display()))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("rename to {}: {e}", path.display()))?;
     Ok(())
+}
+
+fn write_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // A panicked writer must not freeze every later save.
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+std::thread_local! {
+    static IN_UPDATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+struct UpdateFlag;
+impl Drop for UpdateFlag {
+    fn drop(&mut self) {
+        IN_UPDATE.with(|c| c.set(false));
+    }
+}
+
+/// The only write helper. Holds the process-wide lock across load, `f`,
+/// and save. `f` must not call `update` again (the lock is not reentrant).
+/// An unchanged state skips the disk write.
+pub fn update<T>(
+    app: &tauri::AppHandle,
+    f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
+) -> Result<T, String> {
+    if IN_UPDATE.with(|c| c.get()) {
+        return Err("state update re-entered".into());
+    }
+    let _guard = write_lock();
+    IN_UPDATE.with(|c| c.set(true));
+    let _flag = UpdateFlag;
+    let mut st = load_state(app)?;
+    let before = serde_json::to_string(&st).ok();
+    let out = f(&mut st)?;
+    let after = serde_json::to_string(&st).ok();
+    if before != after {
+        save_state(app, &st)?;
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+fn update_at<T>(
+    path: &std::path::Path,
+    f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut st = load_path(path)?;
+    let before = serde_json::to_string(&st).ok();
+    let out = f(&mut st)?;
+    let after = serde_json::to_string(&st).ok();
+    if before != after {
+        save_path(path, &st)?;
+    }
+    Ok(out)
+}
+
+/// Counts from one window merge. Logged as
+/// `state-save-merge {window, kept_disk, took_incoming}` — counts only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowMerge {
+    pub kept_disk: usize,
+    pub took_incoming: usize,
+}
+
+/// Window `save_state` merge. Per-card by `lastTouchedAt`: a strictly
+/// newer disk card beats an older incoming one; equal touch takes the
+/// incoming card (the save in hand). An omitted card stays unless the
+/// incoming tombstone is at least as new as the disk card. Rust-owned
+/// slices are copied from `disk` and never from the window payload.
+pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (PersistedState, WindowMerge) {
+    let mut out = incoming.clone();
+    out.agent_runs = disk.agent_runs.clone();
+    out.companion.hack_live = disk.companion.hack_live;
+    out.companion.hack_who = disk.companion.hack_who.clone();
+    out.companion.hack_project_id = disk.companion.hack_project_id.clone();
+    out.companion.free_mode = disk.companion.free_mode;
+    out.companion.conductor_on = disk.companion.conductor_on;
+    out.companion.conductor_model = disk.companion.conductor_model.clone();
+    out.companion.reply_lane = disk.companion.reply_lane.clone();
+    out.companion.reply_model = disk.companion.reply_model.clone();
+    out.shift_on = disk.shift_on;
+    out.peer_chrome = disk.peer_chrome;
+    if out.last_claim_project_id.is_none() {
+        out.last_claim_project_id = disk.last_claim_project_id.clone();
+    }
+    let (cards, tombs, kept, took) = merge_cards(
+        &disk.kanban_cards,
+        &incoming.kanban_cards,
+        &disk.card_tombstones,
+        &incoming.card_tombstones,
+    );
+    out.kanban_cards = cards;
+    out.card_tombstones = tombs;
+    (
+        out,
+        WindowMerge {
+            kept_disk: kept,
+            took_incoming: took,
+        },
+    )
+}
+
+/// Apply a Rust writer's before→after delta onto the freshly loaded
+/// state. Slices the writer did not change stay as `live` has them, so a
+/// stale whole-state snapshot cannot drop an `agentRuns` row or a hack
+/// flag it never touched.
+pub fn apply_writer_delta(live: &mut PersistedState, before: &PersistedState, after: &PersistedState) {
+    apply_card_delta(
+        &mut live.kanban_cards,
+        &before.kanban_cards,
+        &after.kanban_cards,
+        &mut live.card_tombstones,
+    );
+    apply_run_delta(&mut live.agent_runs, &before.agent_runs, &after.agent_runs);
+    apply_tombstone_delta(
+        &mut live.card_tombstones,
+        &before.card_tombstones,
+        &after.card_tombstones,
+    );
+    take_changed(&mut live.theme_id, &before.theme_id, &after.theme_id);
+    take_changed(&mut live.window_opacity, &before.window_opacity, &after.window_opacity);
+    take_changed(&mut live.projects, &before.projects, &after.projects);
+    take_changed(&mut live.claims, &before.claims, &after.claims);
+    take_changed(
+        &mut live.last_claim_project_id,
+        &before.last_claim_project_id,
+        &after.last_claim_project_id,
+    );
+    take_changed(&mut live.tags, &before.tags, &after.tags);
+    take_changed(&mut live.window_tags, &before.window_tags, &after.window_tags);
+    take_changed(
+        &mut live.collapsed_section_ids,
+        &before.collapsed_section_ids,
+        &after.collapsed_section_ids,
+    );
+    take_changed(
+        &mut live.nudge_suppressed_window_ids,
+        &before.nudge_suppressed_window_ids,
+        &after.nudge_suppressed_window_ids,
+    );
+    take_changed(&mut live.points_ledger, &before.points_ledger, &after.points_ledger);
+    take_changed(&mut live.title_overrides, &before.title_overrides, &after.title_overrides);
+    take_changed(
+        &mut live.autohide_row_chrome,
+        &before.autohide_row_chrome,
+        &after.autohide_row_chrome,
+    );
+    take_changed(&mut live.hide_titles, &before.hide_titles, &after.hide_titles);
+    take_changed(&mut live.hide_app_icons, &before.hide_app_icons, &after.hide_app_icons);
+    take_changed(
+        &mut live.action_shortcuts,
+        &before.action_shortcuts,
+        &after.action_shortcuts,
+    );
+    take_changed(
+        &mut live.agent_shortcuts,
+        &before.agent_shortcuts,
+        &after.agent_shortcuts,
+    );
+    take_changed(&mut live.sprite_scale, &before.sprite_scale, &after.sprite_scale);
+    take_changed(&mut live.marble_drift, &before.marble_drift, &after.marble_drift);
+    take_changed(&mut live.peer_chrome, &before.peer_chrome, &after.peer_chrome);
+    take_changed(&mut live.yard_windows, &before.yard_windows, &after.yard_windows);
+    take_changed(&mut live.yard_tabs, &before.yard_tabs, &after.yard_tabs);
+    apply_companion_delta(&mut live.companion, &before.companion, &after.companion);
+    take_changed(&mut live.stars, &before.stars, &after.stars);
+    take_changed(&mut live.sky, &before.sky, &after.sky);
+    take_changed(&mut live.shared_pane_mode, &before.shared_pane_mode, &after.shared_pane_mode);
+    take_changed(&mut live.drawers, &before.drawers, &after.drawers);
+    take_changed(&mut live.spend_cap_usd, &before.spend_cap_usd, &after.spend_cap_usd);
+    take_changed(
+        &mut live.spend_cap_enabled,
+        &before.spend_cap_enabled,
+        &after.spend_cap_enabled,
+    );
+    take_changed(&mut live.runner_cap, &before.runner_cap, &after.runner_cap);
+    take_changed(&mut live.spend_day, &before.spend_day, &after.spend_day);
+    take_changed(&mut live.spend_usd, &before.spend_usd, &after.spend_usd);
+    take_changed(&mut live.needed_split, &before.needed_split, &after.needed_split);
+    take_changed(&mut live.preview_width, &before.preview_width, &after.preview_width);
+    take_changed(&mut live.tracker_split, &before.tracker_split, &after.tracker_split);
+    take_changed(
+        &mut live.open_subtask_ids,
+        &before.open_subtask_ids,
+        &after.open_subtask_ids,
+    );
+    take_changed(&mut live.todo_trees, &before.todo_trees, &after.todo_trees);
+    take_changed(&mut live.tree_grow_days, &before.tree_grow_days, &after.tree_grow_days);
+    take_changed(&mut live.signed_locally, &before.signed_locally, &after.signed_locally);
+    take_changed(&mut live.private_relay, &before.private_relay, &after.private_relay);
+    take_changed(
+        &mut live.private_relay_url,
+        &before.private_relay_url,
+        &after.private_relay_url,
+    );
+    take_changed(&mut live.shift_on, &before.shift_on, &after.shift_on);
+    take_changed(&mut live.planet_idle, &before.planet_idle, &after.planet_idle);
+}
+
+fn json_eq<T: serde::Serialize + ?Sized>(a: &T, b: &T) -> bool {
+    serde_json::to_value(a).ok() == serde_json::to_value(b).ok()
+}
+
+fn take_changed<T: Clone + serde::Serialize>(live: &mut T, before: &T, after: &T) {
+    if !json_eq(before, after) {
+        *live = after.clone();
+    }
+}
+
+fn apply_companion_delta(live: &mut CompanionState, before: &CompanionState, after: &CompanionState) {
+    take_changed(&mut live.visible, &before.visible, &after.visible);
+    take_changed(&mut live.bounds, &before.bounds, &after.bounds);
+    take_changed(&mut live.image_pack_id, &before.image_pack_id, &after.image_pack_id);
+    take_changed(&mut live.state, &before.state, &after.state);
+    take_changed(&mut live.last_user_line, &before.last_user_line, &after.last_user_line);
+    take_changed(&mut live.last_bot_line, &before.last_bot_line, &after.last_bot_line);
+    take_changed(&mut live.agent_profile, &before.agent_profile, &after.agent_profile);
+    take_changed(&mut live.expanded, &before.expanded, &after.expanded);
+    take_changed(&mut live.turns, &before.turns, &after.turns);
+    take_changed(&mut live.speak_replies, &before.speak_replies, &after.speak_replies);
+    take_changed(&mut live.speak_volume, &before.speak_volume, &after.speak_volume);
+    take_changed(&mut live.captions, &before.captions, &after.captions);
+    take_changed(&mut live.planets_hidden, &before.planets_hidden, &after.planets_hidden);
+    take_changed(
+        &mut live.cheat_sheet_hint,
+        &before.cheat_sheet_hint,
+        &after.cheat_sheet_hint,
+    );
+    take_changed(&mut live.talk_source, &before.talk_source, &after.talk_source);
+    take_changed(&mut live.view_collapsed, &before.view_collapsed, &after.view_collapsed);
+    take_changed(&mut live.view_expanded, &before.view_expanded, &after.view_expanded);
+    take_changed(&mut live.sprite, &before.sprite, &after.sprite);
+    take_changed(&mut live.mode, &before.mode, &after.mode);
+    take_changed(&mut live.threads, &before.threads, &after.threads);
+    take_changed(&mut live.hack_live, &before.hack_live, &after.hack_live);
+    take_changed(&mut live.hack_who, &before.hack_who, &after.hack_who);
+    take_changed(
+        &mut live.hack_project_id,
+        &before.hack_project_id,
+        &after.hack_project_id,
+    );
+    take_changed(&mut live.free_mode, &before.free_mode, &after.free_mode);
+    take_changed(&mut live.conductor_on, &before.conductor_on, &after.conductor_on);
+    take_changed(
+        &mut live.conductor_model,
+        &before.conductor_model,
+        &after.conductor_model,
+    );
+    take_changed(&mut live.reply_lane, &before.reply_lane, &after.reply_lane);
+    take_changed(&mut live.reply_model, &before.reply_model, &after.reply_model);
+}
+
+fn upsert_tombstone(tombs: &mut Vec<CardTombstone>, id: &str, at: f64) {
+    if let Some(t) = tombs.iter_mut().find(|t| t.id == id) {
+        if at > t.last_touched_at {
+            t.last_touched_at = at;
+        }
+    } else {
+        tombs.push(CardTombstone {
+            id: id.to_string(),
+            last_touched_at: at,
+        });
+    }
+}
+
+fn tomb_at(tombs: &[CardTombstone], id: &str) -> Option<f64> {
+    tombs.iter().find(|t| t.id == id).map(|t| t.last_touched_at)
+}
+
+fn merge_cards(
+    disk: &[KanbanCard],
+    incoming: &[KanbanCard],
+    disk_tombs: &[CardTombstone],
+    incoming_tombs: &[CardTombstone],
+) -> (Vec<KanbanCard>, Vec<CardTombstone>, usize, usize) {
+    let mut tombs = Vec::new();
+    for t in disk_tombs.iter().chain(incoming_tombs.iter()) {
+        upsert_tombstone(&mut tombs, &t.id, t.last_touched_at);
+    }
+    let disk_by: std::collections::HashMap<&str, &KanbanCard> =
+        disk.iter().map(|c| (c.id.as_str(), c)).collect();
+    let inc_by: std::collections::HashMap<&str, &KanbanCard> =
+        incoming.iter().map(|c| (c.id.as_str(), c)).collect();
+    let mut ids: Vec<&str> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for c in disk.iter().chain(incoming.iter()) {
+        if seen.insert(c.id.as_str()) {
+            ids.push(c.id.as_str());
+        }
+    }
+    let mut out = Vec::new();
+    let mut kept = 0usize;
+    let mut took = 0usize;
+    for id in ids {
+        match (disk_by.get(id), inc_by.get(id)) {
+            (Some(d), Some(i)) => {
+                if d.last_touched_at > i.last_touched_at {
+                    out.push((*d).clone());
+                    kept += 1;
+                } else {
+                    out.push((*i).clone());
+                    took += 1;
+                }
+            }
+            (Some(d), None) => {
+                let newer_delete = tomb_at(incoming_tombs, id).is_some_and(|t| t >= d.last_touched_at);
+                if newer_delete {
+                    took += 1;
+                } else {
+                    out.push((*d).clone());
+                    kept += 1;
+                }
+            }
+            (None, Some(i)) => {
+                let blocked = tomb_at(disk_tombs, id).is_some_and(|t| t >= i.last_touched_at);
+                if blocked {
+                    kept += 1;
+                } else {
+                    out.push((*i).clone());
+                    took += 1;
+                }
+            }
+            (None, None) => {}
+        }
+    }
+    tombs.retain(|t| match out.iter().find(|c| c.id == t.id) {
+        Some(c) => t.last_touched_at > c.last_touched_at,
+        None => true,
+    });
+    (out, tombs, kept, took)
+}
+
+fn apply_card_delta(
+    live: &mut Vec<KanbanCard>,
+    before: &[KanbanCard],
+    after: &[KanbanCard],
+    tombs: &mut Vec<CardTombstone>,
+) {
+    if json_eq(before, after) {
+        return;
+    }
+    let before_by: std::collections::HashMap<&str, &KanbanCard> =
+        before.iter().map(|c| (c.id.as_str(), c)).collect();
+    let after_by: std::collections::HashMap<&str, &KanbanCard> =
+        after.iter().map(|c| (c.id.as_str(), c)).collect();
+    for c in before {
+        if after_by.contains_key(c.id.as_str()) {
+            continue;
+        }
+        if let Some(idx) = live.iter().position(|x| x.id == c.id) {
+            if live[idx].last_touched_at <= c.last_touched_at {
+                let at = c.last_touched_at.max(live[idx].last_touched_at);
+                live.remove(idx);
+                upsert_tombstone(tombs, &c.id, at);
+            }
+        }
+    }
+    for c in after {
+        let changed = match before_by.get(c.id.as_str()) {
+            None => true,
+            Some(prev) => !json_eq(*prev, c),
+        };
+        if !changed {
+            continue;
+        }
+        if tomb_at(tombs, &c.id).is_some_and(|t| t >= c.last_touched_at) && before_by.get(c.id.as_str()).is_none()
+        {
+            continue;
+        }
+        if let Some(idx) = live.iter().position(|x| x.id == c.id) {
+            if c.last_touched_at >= live[idx].last_touched_at {
+                live[idx] = c.clone();
+            }
+        } else if !tomb_at(tombs, &c.id).is_some_and(|t| t >= c.last_touched_at) {
+            live.push(c.clone());
+        }
+    }
+}
+
+fn apply_run_delta(live: &mut Vec<AgentRun>, before: &[AgentRun], after: &[AgentRun]) {
+    if json_eq(before, after) {
+        return;
+    }
+    let before_by: std::collections::HashMap<&str, &AgentRun> =
+        before.iter().map(|r| (r.card_id.as_str(), r)).collect();
+    let after_by: std::collections::HashMap<&str, &AgentRun> =
+        after.iter().map(|r| (r.card_id.as_str(), r)).collect();
+    for r in before {
+        if after_by.contains_key(r.card_id.as_str()) {
+            continue;
+        }
+        live.retain(|x| x.card_id != r.card_id);
+    }
+    for r in after {
+        let changed = match before_by.get(r.card_id.as_str()) {
+            None => true,
+            Some(prev) => !json_eq(*prev, r),
+        };
+        if !changed {
+            continue;
+        }
+        if let Some(idx) = live.iter().position(|x| x.card_id == r.card_id) {
+            live[idx] = r.clone();
+        } else {
+            live.push(r.clone());
+        }
+    }
+}
+
+fn apply_tombstone_delta(
+    live: &mut Vec<CardTombstone>,
+    before: &[CardTombstone],
+    after: &[CardTombstone],
+) {
+    if json_eq(before, after) {
+        return;
+    }
+    for t in after {
+        let same = before.iter().find(|b| b.id == t.id).is_some_and(|b| json_eq(b, t));
+        if !same {
+            upsert_tombstone(live, &t.id, t.last_touched_at);
+        }
+    }
 }
 
 /// FIVE one-time migration: legacy checkins are 0–4, the
@@ -1057,19 +1508,304 @@ pub fn save_state(app: &tauri::AppHandle, state: &PersistedState) -> Result<(), 
 /// next boot. An empty day stays empty: only EXISTING checkins shift, no
 /// day is ever invented here.
 pub fn migrate_stars_scale(app: &tauri::AppHandle) {
-    let Ok(mut st) = load_state(app) else {
-        return;
-    };
-    if st.stars.scale_v >= 2 {
-        return;
+    let _ = update(app, |st| {
+        if st.stars.scale_v >= 2 {
+            return Ok(());
+        }
+        for c in st.stars.checkins.values_mut() {
+            c.sleep = c.sleep.saturating_add(1).min(5);
+            c.terroir = c.terroir.saturating_add(1).min(5);
+            c.athleticism = c.athleticism.saturating_add(1).min(5);
+            c.relationships = c.relationships.saturating_add(1).min(5);
+            c.self_ = c.self_.saturating_add(1).min(5);
+        }
+        st.stars.scale_v = 2;
+        Ok(())
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn touch_card(id: &str, touch: f64, notes: Option<&str>, links: Option<Vec<CardLink>>) -> KanbanCard {
+        KanbanCard {
+            id: id.into(),
+            title: id.into(),
+            project_id: "p".into(),
+            window_id: None,
+            kind: Some("todo".into()),
+            status: "todo".into(),
+            created_at: 1.0,
+            last_touched_at: touch,
+            completed_at: None,
+            goal_aligned: true,
+            clinical_or_master: false,
+            points_awarded: 0,
+            starred: false,
+            notes: notes.map(str::to_string),
+            difficulty: None,
+            subtasks: None,
+            due_at: None,
+            tag_ids: None,
+            needed_state: None,
+            needed_why: None,
+            needed_answer: None,
+            actor: None,
+            assigned_agent_id: Some("agent-1".into()),
+            parent_id: None,
+            rating: None,
+            trackers: None,
+            task_id: None,
+            task_reason: None,
+            links,
+        }
     }
-    for c in st.stars.checkins.values_mut() {
-        c.sleep = c.sleep.saturating_add(1).min(5);
-        c.terroir = c.terroir.saturating_add(1).min(5);
-        c.athleticism = c.athleticism.saturating_add(1).min(5);
-        c.relationships = c.relationships.saturating_add(1).min(5);
-        c.self_ = c.self_.saturating_add(1).min(5);
+
+    fn run_row(card_id: &str) -> AgentRun {
+        AgentRun {
+            card_id: card_id.into(),
+            planet_id: "p".into(),
+            agent_shortcut_id: "agent-1".into(),
+            state: "working".into(),
+            herdr: None,
+        }
     }
-    st.stars.scale_v = 2;
-    let _ = save_state(app, &st);
+
+    fn temp_state() -> std::path::PathBuf {
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        let ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("orbitty-state-lock-{ms}-{n}-{}.json", std::process::id()))
+    }
+
+    fn update_file<T>(
+        path: &std::path::Path,
+        f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _g = write_lock();
+        update_at(path, f)
+    }
+
+    #[test]
+    fn eight_threads_keep_every_write() {
+        let path = temp_state();
+        let _ = std::fs::remove_file(&path);
+        std::thread::scope(|s| {
+            for i in 0..8 {
+                let path = path.clone();
+                s.spawn(move || {
+                    update_file(&path, |st| {
+                        st.kanban_cards.push(touch_card(&format!("c{i}"), i as f64, None, None));
+                        Ok(())
+                    })
+                    .unwrap();
+                });
+            }
+        });
+        let st = load_path(&path).unwrap();
+        let mut ids: Vec<_> = st.kanban_cards.iter().map(|c| c.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7"]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn pickup_race_keeps_run_row_200() {
+        let path = temp_state();
+        for i in 0..200 {
+            save_path(
+                &path,
+                &PersistedState {
+                    kanban_cards: vec![touch_card("c1", 1.0, None, None)],
+                    ..PersistedState::default()
+                },
+            )
+            .unwrap();
+            std::thread::scope(|s| {
+                let path_run = path.clone();
+                s.spawn(move || {
+                    update_file(&path_run, |st| {
+                        st.agent_runs.push(run_row("c1"));
+                        Ok(())
+                    })
+                    .unwrap();
+                });
+                let path_hack = path.clone();
+                s.spawn(move || {
+                    update_file(&path_hack, |st| {
+                        st.companion.hack_live = true;
+                        st.companion.hack_who = "cursor".into();
+                        st.companion.hack_project_id = Some("p".into());
+                        Ok(())
+                    })
+                    .unwrap();
+                });
+            });
+            let st = load_path(&path).unwrap();
+            assert!(
+                st.agent_runs.iter().any(|r| r.card_id == "c1"),
+                "run dropped on iter {i}"
+            );
+            assert!(st.companion.hack_live, "hack cleared on iter {i}");
+            assert_eq!(st.companion.hack_who, "cursor");
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn stale_hack_snapshot_does_not_drop_run() {
+        let mut live = PersistedState::default();
+        live.agent_runs.push(run_row("c1"));
+        live.kanban_cards.push(touch_card("c1", 5.0, Some("disk"), None));
+        let before = PersistedState {
+            kanban_cards: vec![touch_card("c1", 5.0, Some("disk"), None)],
+            ..PersistedState::default()
+        };
+        let mut after = before.clone();
+        after.companion.hack_live = true;
+        after.companion.hack_who = "cursor".into();
+        apply_writer_delta(&mut live, &before, &after);
+        assert_eq!(live.agent_runs.len(), 1);
+        assert!(live.companion.hack_live);
+        assert_eq!(live.kanban_cards[0].notes.as_deref(), Some("disk"));
+    }
+
+    #[test]
+    fn writer_run_delete_still_drops_the_row() {
+        let mut live = PersistedState::default();
+        live.agent_runs.push(run_row("c1"));
+        let before = PersistedState {
+            agent_runs: vec![run_row("c1")],
+            ..PersistedState::default()
+        };
+        let after = PersistedState::default();
+        apply_writer_delta(&mut live, &before, &after);
+        assert!(live.agent_runs.is_empty());
+    }
+
+    #[test]
+    fn window_merge_stale_card_loses_and_rust_slices_stay() {
+        let mut disk = PersistedState::default();
+        disk.kanban_cards.push(touch_card(
+            "c1",
+            10.0,
+            Some("newer notes"),
+            Some(vec![CardLink {
+                url: "https://example.com/a".into(),
+                label: None,
+            }]),
+        ));
+        disk.agent_runs.push(run_row("c1"));
+        disk.companion.hack_live = true;
+        disk.companion.hack_who = "cursor".into();
+        disk.companion.hack_project_id = Some("p".into());
+        disk.companion.free_mode = true;
+        disk.companion.conductor_on = true;
+        disk.companion.conductor_model = "built-in".into();
+        disk.companion.reply_lane = "free".into();
+        disk.companion.reply_model = "e4b".into();
+        disk.shift_on = true;
+        disk.peer_chrome = true;
+        disk.last_claim_project_id = Some("planet".into());
+
+        let mut incoming = disk.clone();
+        incoming.kanban_cards[0] = touch_card("c1", 4.0, Some("stale"), None);
+        incoming.agent_runs.clear();
+        incoming.companion.hack_live = false;
+        incoming.companion.hack_who.clear();
+        incoming.companion.hack_project_id = None;
+        incoming.companion.free_mode = false;
+        incoming.companion.conductor_on = false;
+        incoming.companion.conductor_model.clear();
+        incoming.companion.reply_lane.clear();
+        incoming.companion.reply_model.clear();
+        incoming.shift_on = false;
+        incoming.peer_chrome = false;
+        incoming.last_claim_project_id = None;
+
+        let (merged, stats) = merge_window_save(&disk, &incoming);
+        assert_eq!(merged.kanban_cards[0].notes.as_deref(), Some("newer notes"));
+        assert_eq!(
+            merged.kanban_cards[0].links.as_ref().map(|l| l.len()),
+            Some(1)
+        );
+        assert_eq!(merged.agent_runs.len(), 1);
+        assert!(merged.companion.hack_live);
+        assert_eq!(merged.companion.hack_who, "cursor");
+        assert_eq!(merged.companion.hack_project_id.as_deref(), Some("p"));
+        assert!(merged.companion.free_mode);
+        assert!(merged.companion.conductor_on);
+        assert_eq!(merged.companion.conductor_model, "built-in");
+        assert_eq!(merged.companion.reply_lane, "free");
+        assert_eq!(merged.companion.reply_model, "e4b");
+        assert!(merged.shift_on);
+        assert!(merged.peer_chrome);
+        assert_eq!(merged.last_claim_project_id.as_deref(), Some("planet"));
+        assert_eq!(stats.kept_disk, 1);
+        assert_eq!(stats.took_incoming, 0);
+    }
+
+    #[test]
+    fn window_merge_newer_delete_and_link_remove() {
+        let mut disk = PersistedState::default();
+        disk.kanban_cards.push(touch_card(
+            "keep",
+            3.0,
+            None,
+            Some(vec![CardLink {
+                url: "https://example.com/old".into(),
+                label: None,
+            }]),
+        ));
+        disk.kanban_cards.push(touch_card("gone", 2.0, None, None));
+        disk.kanban_cards.push(touch_card("stay", 8.0, Some("disk"), None));
+
+        let mut incoming = PersistedState::default();
+        // Link remove bumps lastTouchedAt, so the incoming card is newer.
+        let mut edited = touch_card("keep", 9.0, None, None);
+        edited.links = None;
+        incoming.kanban_cards.push(edited);
+        incoming.kanban_cards.push(touch_card("stay", 1.0, Some("stale rail"), None));
+        incoming.card_tombstones.push(CardTombstone {
+            id: "gone".into(),
+            last_touched_at: 4.0,
+        });
+        // A card the window never saw must survive an omit with no tombstone.
+        // `stay` is present but older — disk wins. Add `fresh` only on disk
+        // by not listing it here; it is on disk below.
+        disk.kanban_cards.push(touch_card("fresh", 6.0, Some("born on disk"), None));
+
+        let (merged, stats) = merge_window_save(&disk, &incoming);
+        let ids: Vec<_> = merged.kanban_cards.iter().map(|c| c.id.as_str()).collect();
+        assert!(ids.contains(&"keep"), "{ids:?}");
+        assert!(!ids.contains(&"gone"), "delete should win: {ids:?}");
+        assert!(ids.contains(&"fresh"), "omit without tombstone resurrected by absence: {ids:?}");
+        let keep = merged.kanban_cards.iter().find(|c| c.id == "keep").unwrap();
+        assert!(keep.links.is_none(), "newer link remove should stick");
+        let stay = merged.kanban_cards.iter().find(|c| c.id == "stay").unwrap();
+        assert_eq!(stay.notes.as_deref(), Some("disk"));
+        assert!(stats.took_incoming >= 1);
+        assert!(stats.kept_disk >= 1);
+        assert!(merged.card_tombstones.iter().any(|t| t.id == "gone"));
+    }
+
+    #[test]
+    fn window_merge_old_tombstone_does_not_block_newer_card() {
+        let mut disk = PersistedState::default();
+        disk.card_tombstones.push(CardTombstone {
+            id: "c1".into(),
+            last_touched_at: 2.0,
+        });
+        let mut incoming = PersistedState::default();
+        incoming.kanban_cards.push(touch_card("c1", 5.0, Some("back"), None));
+        let (merged, _) = merge_window_save(&disk, &incoming);
+        assert_eq!(merged.kanban_cards.len(), 1);
+        assert!(merged.card_tombstones.iter().all(|t| t.id != "c1"));
+    }
 }
