@@ -29,12 +29,37 @@ const OPENROUTER_FREE_MODEL: &str = "openrouter/free";
 /// you-row (== raw_line) is dropped from history so the line lands once
 /// — as the final user message. Compact: newest-first budget fill, same
 /// skip list as mouth_roll's handoff (ack noise never rides the packet).
+fn fenced_soul(soul: &str, include_history: bool) -> String {
+    if include_history {
+        soul.to_string()
+    } else {
+        format!(
+            "{soul}\n\nThe attached image is the only picture in this message. Earlier turns are not that image."
+        )
+    }
+}
+
 fn hop_messages(
     app: &tauri::AppHandle,
     soul: &str,
     raw_line: &str,
     prompt: &str,
     with_tools: bool,
+    include_history: bool,
+) -> Vec<Value> {
+    let turns = crate::state::load_state(app)
+        .map(|s| s.companion.turns)
+        .unwrap_or_default();
+    assemble_hop_messages(soul, raw_line, prompt, with_tools, &turns, include_history)
+}
+
+fn assemble_hop_messages(
+    soul: &str,
+    raw_line: &str,
+    prompt: &str,
+    with_tools: bool,
+    turns: &[crate::state::CompanionTurn],
+    include_history: bool,
 ) -> Vec<Value> {
     if crate::mouth_gist::is_gist(prompt) {
         let sys = if with_tools {
@@ -48,14 +73,15 @@ fn hop_messages(
             crate::mouth_gist::hop_system(soul)
         };
         return vec![
-            json!({ "role": "system", "content": sys }),
+            json!({ "role": "system", "content": fenced_soul(&sys, include_history) }),
             json!({ "role": "user", "content": prompt }),
         ];
     }
-    let mut messages = vec![json!({ "role": "system", "content": soul })];
-    let turns = crate::state::load_state(app)
-        .map(|s| s.companion.turns)
-        .unwrap_or_default();
+    let mut messages = vec![json!({ "role": "system", "content": fenced_soul(soul, include_history) })];
+    if !include_history {
+        messages.push(json!({ "role": "user", "content": prompt }));
+        return messages;
+    }
     let start = turns.len().saturating_sub(HOP_TURNS + 1);
     let mut rows: Vec<&crate::state::CompanionTurn> = turns[start..]
         .iter()
@@ -278,6 +304,21 @@ fn openai_message(text: &str) -> Option<Value> {
         .cloned()
 }
 
+fn apply_vision_or_honest(
+    messages: &[Value],
+    vision_path: Option<&str>,
+    wire: crate::attach_vision::VisionWire,
+) -> Result<Vec<Value>, String> {
+    let Some(path) = vision_path else {
+        return Ok(messages.to_vec());
+    };
+    match crate::attach_vision::with_vision_parts(messages, path, wire) {
+        Ok(msgs) => Ok(msgs),
+        Err(e) if e == crate::attach_vision::oversize_line() => Err(e),
+        Err(e) => Err(e),
+    }
+}
+
 fn lmstudio_chat(
     app: &tauri::AppHandle,
     chat_url: &str,
@@ -285,8 +326,17 @@ fn lmstudio_chat(
     messages: &[Value],
     with_tools: bool,
     raw_line: &str,
+    vision_path: Option<&str>,
 ) -> Result<String, String> {
-    let mut msgs = messages.to_vec();
+    let mut msgs = match apply_vision_or_honest(
+        messages,
+        vision_path,
+        crate::attach_vision::VisionWire::OpenAi,
+    ) {
+        Ok(m) => m,
+        Err(e) if e == crate::attach_vision::oversize_line() => return Ok(e),
+        Err(e) => return Err(e),
+    };
     // Board reads: inject the snapshot first. A failed tool round was
     // a second 10–20s E4B generate. Writes still hop Grok.
     let mut tools_on = false;
@@ -391,7 +441,20 @@ fn lmstudio_chat(
     Err("tool loop".into())
 }
 
-fn ollama_chat_named(model: &str, messages: &[Value]) -> Result<String, String> {
+fn ollama_chat_named(
+    model: &str,
+    messages: &[Value],
+    vision_path: Option<&str>,
+) -> Result<String, String> {
+    let messages = match apply_vision_or_honest(
+        messages,
+        vision_path,
+        crate::attach_vision::VisionWire::Ollama,
+    ) {
+        Ok(m) => m,
+        Err(e) if e == crate::attach_vision::oversize_line() => return Ok(e),
+        Err(e) => return Err(e),
+    };
     let body = json!({ "model": model, "messages": messages, "stream": false });
     let (status, text) = curl_json(
         "POST",
@@ -415,7 +478,7 @@ fn ollama_chat_named(model: &str, messages: &[Value]) -> Result<String, String> 
 #[allow(dead_code)]
 fn ollama_chat(messages: &[Value]) -> Result<String, String> {
     let model = ollama_model()?;
-    ollama_chat_named(&model, messages)
+    ollama_chat_named(&model, messages, None)
 }
 
 /// Local reply: chosen Reply id on LM Studio, else Ollama. `want` is
@@ -426,14 +489,34 @@ fn local_chat(
     messages: &[Value],
     with_tools: bool,
     raw_line: &str,
+    vision_path: Option<&str>,
 ) -> Result<(&'static str, String), String> {
     match crate::mouth_scan::pick_local(want) {
-        Some(crate::mouth_scan::LocalTarget::LmStudio { chat_url, model }) => {
-            lmstudio_chat(app, &chat_url, &model, messages, with_tools, raw_line)
-                .map(|r| ("lmstudio", r))
+        Some(crate::mouth_scan::LocalTarget::LmStudio {
+            chat_url,
+            model,
+            vision,
+        }) => {
+            if vision_path.is_some() && !vision {
+                return Ok(("lmstudio", unseen_image_line().to_string()));
+            }
+            lmstudio_chat(
+                app,
+                &chat_url,
+                &model,
+                messages,
+                with_tools,
+                raw_line,
+                vision_path.filter(|_| vision),
+            )
+            .map(|r| ("lmstudio", r))
         }
-        Some(crate::mouth_scan::LocalTarget::Ollama { model }) => {
-            ollama_chat_named(&model, messages).map(|r| ("ollama", r))
+        Some(crate::mouth_scan::LocalTarget::Ollama { model, vision }) => {
+            if vision_path.is_some() && !vision {
+                return Ok(("ollama", unseen_image_line().to_string()));
+            }
+            ollama_chat_named(&model, messages, vision_path.filter(|_| vision))
+                .map(|r| ("ollama", r))
         }
         None => Err("none found — open Ollama or LM Studio.".into()),
     }
@@ -456,6 +539,10 @@ fn openrouter_key() -> Option<String> {
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+pub(crate) fn openrouter_configured() -> bool {
+    openrouter_key().is_some()
 }
 
 /// The free lane is explicit: `openrouter/free`, or an
@@ -501,8 +588,56 @@ fn openrouter_quota_cooked(key: &str) -> Result<bool, String> {
     }
 }
 
-fn openrouter_chat(key: &str, messages: &[Value]) -> Result<String, String> {
+fn openrouter_chat(
+    key: &str,
+    messages: &[Value],
+    vision_path: Option<&str>,
+) -> Result<String, String> {
+    let messages = match apply_vision_or_honest(
+        messages,
+        vision_path,
+        crate::attach_vision::VisionWire::OpenAi,
+    ) {
+        Ok(m) => m,
+        Err(e) if e == crate::attach_vision::oversize_line() => return Ok(e),
+        Err(e) => return Err(e),
+    };
     let body = json!({ "model": openrouter_model(), "messages": messages });
+    let (status, text) = curl_json(
+        "POST",
+        &format!("{OPENROUTER_BASE}/chat/completions"),
+        Some(key),
+        Some(&body),
+        90,
+    )?;
+    if !(200..=299).contains(&status) {
+        return Err(format!("http {status}: {}", json_error_note(&text)));
+    }
+    openai_chat_content(&text)
+}
+
+/// Paid/BYOK handoff model. Never the free lane and never `openrouter/auto`.
+const OPENROUTER_HANDOFF_MODEL: &str = "openai/gpt-4o-mini";
+
+pub fn filter_handoff_model(raw: &str) -> String {
+    let m = raw.trim();
+    if m.is_empty()
+        || m == OPENROUTER_FREE_MODEL
+        || m.contains("openrouter/auto")
+        || m.ends_with(":free")
+    {
+        OPENROUTER_HANDOFF_MODEL.into()
+    } else {
+        m.to_string()
+    }
+}
+
+fn openrouter_handoff_model() -> String {
+    filter_handoff_model(&std::env::var("ORBITTY_OPENROUTER_HANDOFF_MODEL").unwrap_or_default())
+}
+
+fn openrouter_paid_chat(key: &str, messages: &[Value]) -> Result<String, String> {
+    let body = json!({ "model": openrouter_handoff_model(), "messages": messages });
     let (status, text) = curl_json(
         "POST",
         &format!("{OPENROUTER_BASE}/chat/completions"),
@@ -546,6 +681,139 @@ fn reply_model(app: &tauri::AppHandle) -> String {
         .unwrap_or_default()
 }
 
+pub fn hop_lane_for(settings: &str, line: &str, has_attach: bool, local_up: bool) -> &'static str {
+    let short = crate::mouth_gist::is_short_chat(line, has_attach);
+    match settings {
+        "local" => "local",
+        "openrouter" => "openrouter_free",
+        "free" => {
+            if local_up {
+                "local"
+            } else {
+                "openrouter_free"
+            }
+        }
+        _ if crate::mouth_gist::needs_write_lane(line) => "grok",
+        _ if short && local_up => "local",
+        _ => "grok",
+    }
+}
+
+/// Lane name plus whether that lane's model can see an image.
+/// Grok's CLI can. Local uses the scan. OpenRouter uses input modalities.
+pub fn image_lane_vision(app: &tauri::AppHandle, line: &str, has_attach: bool) -> (String, bool) {
+    let settings = effective_reply_lane(app);
+    let want = reply_model(app);
+    let (scanned, _, _) = crate::mouth_scan::scan_running();
+    let local_up = crate::mouth_scan::resolve_local(&want, &scanned).is_some();
+    let hop = hop_lane_for(&settings, line, has_attach, local_up);
+    let vision = match hop {
+        "grok" => true,
+        "local" => crate::mouth_scan::scanned_model_vision(&want, &scanned),
+        "openrouter_free" => openrouter_free_can_see(),
+        _ => false,
+    };
+    (hop.to_string(), vision)
+}
+
+fn openrouter_free_can_see() -> bool {
+    let Some(key) = openrouter_key() else {
+        return false;
+    };
+    let model = openrouter_model();
+    let url = format!("{OPENROUTER_BASE}/models");
+    match curl_json("GET", &url, Some(&key), None, 8) {
+        Ok((status, body)) if (200..=299).contains(&status) => {
+            crate::mouth_scan::openrouter_model_has_image(&body, &model)
+        }
+        _ => false,
+    }
+}
+
+pub fn unseen_image_line() -> &'static str {
+    "This local model can't see images. Ask online agent?"
+}
+
+pub fn handoff_agent_label(id: &str) -> &'static str {
+    match id.trim().to_ascii_lowercase().as_str() {
+        "grok" => "Grok",
+        "goose" => "Goose",
+        "hermes" => "Hermes",
+        "openrouter" => "OpenRouter",
+        _ => "online agent",
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum VisionGate {
+    Proceed,
+    Offer { text: String },
+    Auto { backend: String, prefix: String },
+}
+
+/// Image on a lane that can't see: never call the model. Auto-handoff
+/// only when the toggle is on AND a backend is set. Otherwise the chat
+/// shows the button. Paid Grok is not chosen here unless auto names it.
+pub fn decide_vision_gate(needs_image: bool, can_see: bool, auto: bool, backend: &str) -> VisionGate {
+    if !needs_image || can_see {
+        return VisionGate::Proceed;
+    }
+    let backend = backend.trim();
+    if auto && !backend.is_empty() {
+        let label = handoff_agent_label(backend);
+        VisionGate::Auto {
+            backend: backend.to_string(),
+            prefix: format!("Asked {label} (local model can't see images)"),
+        }
+    } else if auto {
+        VisionGate::Offer {
+            text: format!(
+                "{}\n\npick an online agent in Mouth settings",
+                unseen_image_line()
+            ),
+        }
+    } else {
+        VisionGate::Offer {
+            text: unseen_image_line().to_string(),
+        }
+    }
+}
+
+const HANDOFF_MARK: &str = "\n[[handoff]]\n";
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct HandoffAction {
+    pub reason: String,
+    pub line: String,
+    pub path: String,
+}
+
+pub fn with_handoff_action(visible: &str, reason: &str, line: &str, path: &str) -> String {
+    let payload = json!({ "reason": reason, "line": line, "path": path });
+    format!("{visible}{HANDOFF_MARK}{payload}")
+}
+
+pub fn split_handoff(text: &str) -> (String, Option<HandoffAction>) {
+    let Some((visible, raw)) = text.rsplit_once(HANDOFF_MARK) else {
+        return (text.to_string(), None);
+    };
+    let Ok(v) = serde_json::from_str::<Value>(raw.trim()) else {
+        return (text.to_string(), None);
+    };
+    let reason = v.get("reason").and_then(Value::as_str).unwrap_or("").to_string();
+    if reason.is_empty() {
+        return (visible.to_string(), None);
+    }
+    (
+        visible.to_string(),
+        Some(HandoffAction {
+            reason,
+            line: v.get("line").and_then(Value::as_str).unwrap_or("").to_string(),
+            path: v.get("path").and_then(Value::as_str).unwrap_or("").to_string(),
+        }),
+    )
+}
+
 pub fn normalize_reply_lane(raw: &str) -> String {
     match raw.trim().to_ascii_lowercase().as_str() {
         "local" | "lmstudio" | "ollama" => "local".into(),
@@ -581,16 +849,19 @@ fn free_lanes_reply(
     notes: &mut Vec<String>,
     try_local: bool,
     try_or: bool,
+    vision_path: Option<&str>,
 ) -> Option<(&'static str, String)> {
     let soul = crate::coordinator::companion_soul_text(app);
     let with_tools = crate::mouth_gist::needs_tools_lane(raw_line)
         && !crate::mouth_gist::needs_write_lane(raw_line);
+    let include_history = vision_path.is_none();
     let mut messages: Option<Vec<Value>> = None;
     if try_local {
         let want = reply_model(app);
-        let msgs = messages
-            .get_or_insert_with(|| hop_messages(app, &soul, raw_line, prompt, with_tools));
-        match local_chat(app, &want, msgs, with_tools, raw_line) {
+        let msgs = messages.get_or_insert_with(|| {
+            hop_messages(app, &soul, raw_line, prompt, with_tools, include_history)
+        });
+        match local_chat(app, &want, msgs, with_tools, raw_line, vision_path) {
             Ok((lane, r)) if !r.is_empty() => return Some((lane, r)),
             Ok(_) => notes.push("local: empty reply".into()),
             Err(e) => notes.push(format!("local: {e}")),
@@ -602,9 +873,9 @@ fn free_lanes_reply(
                 Ok(true) => notes.push("openrouter: quota spent".into()),
                 Ok(false) => {
                     let msgs = messages.get_or_insert_with(|| {
-                        hop_messages(app, &soul, raw_line, prompt, false)
+                        hop_messages(app, &soul, raw_line, prompt, false, include_history)
                     });
-                    match openrouter_chat(&key, msgs) {
+                    match openrouter_chat(&key, msgs, vision_path) {
                         Ok(r) if !r.is_empty() => return Some(("openrouter", r)),
                         Ok(_) => notes.push("openrouter: empty reply".into()),
                         Err(e) => notes.push(format!("openrouter: {e}")),
@@ -644,8 +915,17 @@ fn run_free_lanes(
     try_local: bool,
     try_or: bool,
     mut notes: Vec<String>,
+    vision_path: Option<String>,
 ) -> Result<String, String> {
-    let hopped = free_lanes_reply(&app, &raw_line, &prompt, &mut notes, try_local, try_or);
+    let hopped = free_lanes_reply(
+        &app,
+        &raw_line,
+        &prompt,
+        &mut notes,
+        try_local,
+        try_or,
+        vision_path.as_deref(),
+    );
     match hopped {
         Some((lane, reply)) => {
             crate::event_log::append_best(
@@ -685,48 +965,40 @@ pub async fn send_with_hops(
     .is_some();
     // Code picks short chat → local when Settings is Grok (default).
     // Explicit Local / Free / OpenRouter still win.
-    let hop_lane = match settings.as_str() {
-        "local" => "local",
-        "openrouter" => "openrouter_free",
-        "free" => {
-            if local_up {
-                "local"
-            } else {
-                "openrouter_free"
-            }
-        }
-        _ if crate::mouth_gist::needs_write_lane(raw_line) => "grok",
-        _ if short && local_up => "local",
-        _ => "grok",
-    };
+    let hop_lane = hop_lane_for(&settings, raw_line, has_attach, local_up);
     let (oneb, hp) = crate::mouth_sidecar::last_harness()
         .map(|(h, p)| (Some(h), p))
         .unwrap_or((None, 0.0));
-    let harness =
-        crate::mouth_gist::pick_harness(app, raw_line, "chat", oneb, hp, short);
+    let file = crate::mouth_gist::file_note(prose);
+    // A chip's prose already has the path line and any markitdown text.
+    // Skip/Job/Tight would drop that; Pocket keeps the prose.
+    let harness = if file.is_some() {
+        crate::mouth_gist::Harness::Pocket
+    } else {
+        crate::mouth_gist::pick_harness(app, raw_line, "chat", oneb, hp, short)
+    };
+    let image_on = vision_path.is_some();
     let gist = match harness {
         crate::mouth_gist::Harness::Skip => None,
         crate::mouth_gist::Harness::Job => {
-            crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane, false)
+            crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane, false, file)
         }
-        crate::mouth_gist::Harness::Tight => {
-            crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane, true)
-        }
+        crate::mouth_gist::Harness::Tight => crate::mouth_gist::build(
+            app,
+            raw_line,
+            "chat",
+            hop_ack,
+            hop_lane,
+            !image_on,
+            file,
+        ),
         crate::mouth_gist::Harness::Pocket => None,
     };
-    let packed = match harness {
-        crate::mouth_gist::Harness::Skip => {
-            let mode = crate::state::load_state(app)
-                .ok()
-                .map(|s| s.companion.mode)
-                .unwrap_or_else(|| "spark".into());
-            format!("[orbitty-mode: {mode}]\n{raw_line}")
-        }
-        crate::mouth_gist::Harness::Pocket => prose.to_string(),
-        crate::mouth_gist::Harness::Job | crate::mouth_gist::Harness::Tight => gist
-            .clone()
-            .unwrap_or_else(|| prose.to_string()),
-    };
+    let mode = crate::state::load_state(app)
+        .ok()
+        .map(|s| s.companion.mode)
+        .unwrap_or_else(|| "spark".into());
+    let packed = crate::mouth_gist::pack_prompt(&mode, harness, raw_line, prose, gist.as_deref());
     let n = packed.chars().count();
     crate::event_log::append_best(
         app,
@@ -755,8 +1027,9 @@ pub async fn send_with_hops(
         let (a, r, p) = (app.clone(), raw_line.to_string(), packed);
         let tl = try_local;
         let to = try_or;
+        let vision = vision_path.map(str::to_string);
         return tauri::async_runtime::spawn_blocking(move || {
-            run_free_lanes(a, r, p, true, tl, to, Vec::new())
+            run_free_lanes(a, r, p, true, tl, to, Vec::new(), vision)
         })
         .await
         .map_err(|e| format!("hop task: {e}"))?;
@@ -767,13 +1040,14 @@ pub async fn send_with_hops(
         packed.clone()
     };
     let vision = vision_path.map(str::to_string);
-    match crate::coordinator::companion_send_grok(app, &grok_prompt, vision).await {
+    match crate::coordinator::companion_send_grok(app, &grok_prompt, vision.clone()).await {
         Ok(r) => Ok(r),
         Err(e) if lane_cooked(&e) => {
             let note = format!("grok: {}", e.chars().take(80).collect::<String>());
             let (a, r, p) = (app.clone(), raw_line.to_string(), packed);
+            let vision = vision.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                run_free_lanes(a, r, p, false, true, true, vec![note])
+                run_free_lanes(a, r, p, false, true, true, vec![note], vision)
             })
             .await
             .map_err(|e| format!("hop task: {e}"))?
@@ -824,6 +1098,172 @@ pub fn set_companion_reply_model(app: tauri::AppHandle, model: String) -> Result
     })?;
     let _ = app.emit("state:changed", ());
     Ok(model)
+}
+
+pub fn normalize_handoff_backend(raw: &str) -> Result<String, String> {
+    let s = raw.trim().to_ascii_lowercase();
+    match s.as_str() {
+        "" => Ok(String::new()),
+        "grok" | "goose" | "hermes" | "openrouter" => Ok(s),
+        _ => Err("Unknown handoff agent.".into()),
+    }
+}
+
+#[tauri::command]
+pub fn set_companion_handoff_backend(
+    app: tauri::AppHandle,
+    backend: String,
+) -> Result<String, String> {
+    let backend = normalize_handoff_backend(&backend)?;
+    crate::state::update(&app, |st| {
+        st.companion.handoff_backend = backend.clone();
+        Ok(())
+    })?;
+    let _ = app.emit("state:changed", ());
+    Ok(backend)
+}
+
+#[tauri::command]
+pub fn set_companion_auto_handoff(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    crate::state::update(&app, |st| {
+        st.companion.auto_handoff = enabled;
+        Ok(())
+    })?;
+    let _ = app.emit("state:changed", ());
+    Ok(())
+}
+
+fn handoff_settings(app: &tauri::AppHandle) -> (bool, String) {
+    crate::state::load_state(app)
+        .map(|s| (s.companion.auto_handoff, s.companion.handoff_backend))
+        .unwrap_or((false, String::new()))
+}
+
+fn log_handoff(app: &tauri::AppHandle, from: &str, to: &str, reason: &str) {
+    crate::event_log::append_best(
+        app,
+        "companion-handoff",
+        None,
+        None,
+        Some("agent"),
+        true,
+        &json!({ "from": from, "to": to, "reason": reason }),
+    );
+}
+
+fn persist_them(app: &tauri::AppHandle, reply: &str) {
+    if crate::state::update(app, |st| {
+        st.companion.last_bot_line = reply.to_string();
+        st.companion.push_turn("them", reply);
+        Ok(())
+    })
+    .is_ok()
+    {
+        let _ = app.emit("state:changed", ());
+    }
+}
+
+/// Send the same line and attachment through one configured online agent.
+/// Does not go back through the free-lane gate.
+pub async fn dispatch_handoff(
+    app: &tauri::AppHandle,
+    backend: &str,
+    line: &str,
+    path: Option<&str>,
+) -> Result<String, String> {
+    let backend = normalize_handoff_backend(backend)?;
+    if backend.is_empty() {
+        return Err("pick an online agent in Mouth settings".into());
+    }
+    let info = match path.map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => Some(crate::attach::stat_path(p)?),
+        None => None,
+    };
+    let pocket = crate::coordinator::wrap_with_pocket(app, line);
+    let image = info
+        .as_ref()
+        .is_some_and(|a| crate::attach_vision::is_image(&a.path));
+    let can_see = image && matches!(backend.as_str(), "grok" | "openrouter");
+    let prep = match &info {
+        Some(a) => crate::attach_send::prepare(a, &pocket, &backend, can_see),
+        None => crate::attach_send::Prepared {
+            prompt: pocket,
+            vision_path: None,
+        },
+    };
+    match backend.as_str() {
+        "grok" => {
+            crate::coordinator::companion_send_grok(app, &prep.prompt, prep.vision_path).await
+        }
+        "goose" => crate::coordinator::companion_send_goose(app, &prep.prompt).await,
+        "hermes" => crate::coordinator::companion_send_hermes(app, &prep.prompt).await,
+        "openrouter" => {
+            let key = openrouter_key().ok_or_else(|| "OpenRouter key is not set.".to_string())?;
+            let soul = crate::coordinator::companion_soul_text(app);
+            let prompt = prep.prompt;
+            let vision = prep.vision_path;
+            tauri::async_runtime::spawn_blocking(move || {
+                let mut messages = vec![
+                    json!({ "role": "system", "content": soul }),
+                    json!({ "role": "user", "content": prompt }),
+                ];
+                if let Some(p) = vision.as_deref() {
+                    messages = crate::attach_vision::with_vision_parts(
+                        &messages,
+                        p,
+                        crate::attach_vision::VisionWire::OpenAi,
+                    )?;
+                }
+                openrouter_paid_chat(&key, &messages)
+            })
+            .await
+            .map_err(|e| format!("handoff task: {e}"))?
+        }
+        _ => Err("Unknown handoff agent.".into()),
+    }
+}
+
+/// Image the resolved lane can't see. Offer the button, or hand off when
+/// auto-handoff is on and a backend is set. Does not call the local model.
+pub async fn refuse_or_handoff(
+    app: &tauri::AppHandle,
+    line: &str,
+    path: &str,
+    from_lane: &str,
+) -> Result<String, String> {
+    let (auto, backend) = handoff_settings(app);
+    match decide_vision_gate(true, false, auto, &backend) {
+        VisionGate::Proceed => Ok(unseen_image_line().to_string()),
+        VisionGate::Offer { text } => {
+            Ok(with_handoff_action(&text, "no-vision", line, path))
+        }
+        VisionGate::Auto { backend, prefix } => {
+            log_handoff(app, from_lane, &backend, "no-vision");
+            let answer = dispatch_handoff(app, &backend, line, Some(path)).await?;
+            Ok(format!("{prefix}\n\n{answer}"))
+        }
+    }
+}
+
+/// Button: resend this turn through the configured online agent.
+/// The reply lands on the same transcript. Logs lane names only.
+#[tauri::command]
+pub async fn companion_handoff(
+    app: tauri::AppHandle,
+    line: String,
+    path: Option<String>,
+) -> Result<String, String> {
+    let backend = crate::state::load_state(&app)
+        .map(|s| s.companion.handoff_backend)
+        .unwrap_or_default();
+    if backend.trim().is_empty() {
+        return Err("pick an online agent in Mouth settings".into());
+    }
+    let from = effective_reply_lane(&app);
+    log_handoff(&app, &from, backend.trim(), "no-vision");
+    let answer = dispatch_handoff(&app, backend.trim(), line.trim(), path.as_deref()).await?;
+    persist_them(&app, &answer);
+    Ok(answer)
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -909,5 +1349,109 @@ mod tests {
         assert_eq!(normalize_reply_lane("Free Mode"), "free");
         assert_eq!(normalize_reply_lane(""), "grok");
         assert_eq!(normalize_reply_lane("paid"), "grok");
+    }
+
+    #[test]
+    fn hop_lane_free_stays_off_paid_grok() {
+        assert_eq!(hop_lane_for("free", "what is this", true, true), "local");
+        assert_eq!(hop_lane_for("free", "what is this", true, false), "openrouter_free");
+        assert_eq!(hop_lane_for("local", "what is this", true, true), "local");
+        assert_eq!(hop_lane_for("grok", "what is this", true, true), "grok");
+    }
+
+    #[test]
+    fn image_on_text_only_is_handoff_not_a_model_call() {
+        match decide_vision_gate(true, false, false, "") {
+            VisionGate::Offer { text } => {
+                assert!(text.contains("can't see images"));
+                assert!(text.contains("Ask online agent?"));
+                assert!(!text.starts_with("Asked "));
+            }
+            other => panic!("expected offer, got {other:?}"),
+        }
+        assert!(matches!(
+            decide_vision_gate(true, true, false, ""),
+            VisionGate::Proceed
+        ));
+        assert!(matches!(
+            decide_vision_gate(false, false, true, "grok"),
+            VisionGate::Proceed
+        ));
+    }
+
+    #[test]
+    fn free_mode_image_without_opt_in_does_not_call_grok() {
+        let g = decide_vision_gate(true, false, false, "grok");
+        assert!(matches!(g, VisionGate::Offer { .. }));
+        match decide_vision_gate(true, false, true, "grok") {
+            VisionGate::Auto { backend, prefix } => {
+                assert_eq!(backend, "grok");
+                assert_eq!(prefix, "Asked Grok (local model can't see images)");
+            }
+            other => panic!("expected auto, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn auto_handoff_without_backend_keeps_the_button() {
+        match decide_vision_gate(true, false, true, "  ") {
+            VisionGate::Offer { text } => {
+                assert!(text.contains("Ask online agent?"));
+                assert!(text.contains("pick an online agent in Mouth settings"));
+            }
+            other => panic!("expected offer, got {other:?}"),
+        }
+        let fresh = decide_vision_gate(true, false, false, "");
+        assert!(matches!(fresh, VisionGate::Offer { .. }));
+    }
+
+    #[test]
+    fn handoff_action_roundtrip_has_no_image_bytes() {
+        let text = with_handoff_action(
+            unseen_image_line(),
+            "no-vision",
+            "what is this image?",
+            "/tmp/qr.png",
+        );
+        let (visible, action) = split_handoff(&text);
+        assert_eq!(visible, unseen_image_line());
+        let action = action.unwrap();
+        assert_eq!(action.reason, "no-vision");
+        assert_eq!(action.line, "what is this image?");
+        assert_eq!(action.path, "/tmp/qr.png");
+        assert!(!text.contains("base64"));
+    }
+
+    #[test]
+    fn image_hop_drops_history_turns() {
+        let turns = vec![crate::state::CompanionTurn {
+            role: "them".into(),
+            text: "Preview — Sign.png".into(),
+        }];
+        let prompt = "what is this image?\n\n[file: /tmp/qr.png (qr.png, 1 B) — original path; read it there with your tools.]";
+        let msgs = assemble_hop_messages("soul", "what is this image?", prompt, false, &turns, false);
+        let blob = serde_json::to_string(&msgs).unwrap();
+        assert!(!blob.contains("Sign.png"));
+        assert!(!blob.contains("Preview"));
+        assert!(blob.contains("[file: /tmp/qr.png"));
+        assert!(blob.contains("not that image"));
+        let with_hist = assemble_hop_messages("soul", "other", "other", false, &turns, true);
+        let hist = serde_json::to_string(&with_hist).unwrap();
+        assert!(hist.contains("Sign.png"));
+    }
+
+    #[test]
+    fn handoff_model_is_not_the_free_lane() {
+        assert_eq!(filter_handoff_model(""), OPENROUTER_HANDOFF_MODEL);
+        assert_eq!(filter_handoff_model("openrouter/free"), OPENROUTER_HANDOFF_MODEL);
+        assert_eq!(filter_handoff_model("foo:free"), OPENROUTER_HANDOFF_MODEL);
+        assert_eq!(filter_handoff_model("openrouter/auto"), OPENROUTER_HANDOFF_MODEL);
+        assert_eq!(
+            filter_handoff_model("google/gemma-3-27b-it"),
+            "google/gemma-3-27b-it"
+        );
+        assert_ne!(OPENROUTER_HANDOFF_MODEL, OPENROUTER_FREE_MODEL);
+        assert!(normalize_handoff_backend("").unwrap().is_empty());
+        assert!(normalize_handoff_backend("nope").is_err());
     }
 }

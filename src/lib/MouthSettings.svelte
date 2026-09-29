@@ -48,6 +48,9 @@
   let scan = $state<MouthScan | null>(null);
   let pullBusy = $state(false);
   let pullNote = $state<string | null>(null);
+  let handoffBackend = $state("");
+  let autoHandoff = $state(false);
+  let handoffChoices = $state<{ id: string; label: string }[]>([]);
 
   function healLane(raw: string | undefined, freeMode: boolean): ReplyLane {
     const s = (raw ?? "").trim().toLowerCase();
@@ -65,6 +68,8 @@
       replyLane = healLane(s.companion?.replyLane, s.companion?.freeMode ?? false);
       replyModel = s.companion?.replyModel ?? "";
       conductorOn = s.companion?.conductorOn ?? false;
+      handoffBackend = s.companion?.handoffBackend ?? "";
+      autoHandoff = s.companion?.autoHandoff ?? false;
     } catch {
       /* next scan still paints */
     }
@@ -77,6 +82,34 @@
       );
     } catch {
       orKey = { set: false, source: "", tail: "" };
+    }
+  }
+
+  async function loadHandoffChoices() {
+    try {
+      handoffChoices = await invoke<{ id: string; label: string }[]>("handoff_backends");
+    } catch {
+      handoffChoices = [];
+    }
+  }
+
+  async function saveHandoffBackend() {
+    try {
+      const saved = await invoke<string>("set_companion_handoff_backend", {
+        backend: handoffBackend,
+      });
+      handoffBackend = saved;
+    } catch {
+      /* state:changed restores */
+    }
+  }
+
+  async function saveAutoHandoff(on: boolean) {
+    autoHandoff = on;
+    try {
+      await invoke("set_companion_auto_handoff", { enabled: on });
+    } catch {
+      /* state:changed restores */
     }
   }
 
@@ -180,6 +213,7 @@
   onMount(async () => {
     await loadState();
     await loadKeyStatus();
+    await loadHandoffChoices();
     await rescan();
     unlisten = await listen("state:changed", () => {
       loadState();
@@ -315,6 +349,48 @@
     <p class="help">
       A fast “heard you” before the real reply. Built-in is the 1B sidecar
       on this Mac when it is hot; otherwise the tiny classifier. Never Grok.
+    </p>
+  </div>
+</div>
+
+<div class="mouth-row">
+  <span class="mouth-k">Handoff</span>
+  <div class="mouth-v">
+    <div class="setting-row">
+      <select
+        class="bodypick"
+        bind:value={handoffBackend}
+        onchange={saveHandoffBackend}
+        aria-label="Online agent for handoff"
+      >
+        <option value="">Ask me each time</option>
+        {#each handoffChoices as b (b.id)}
+          <option value={b.id}>{b.label}</option>
+        {/each}
+        {#if handoffBackend && !handoffChoices.some((b) => b.id === handoffBackend)}
+          <option value={handoffBackend}>{handoffBackend}</option>
+        {/if}
+      </select>
+    </div>
+    <div class="setting-row" role="group" aria-label="Auto-handoff when the local model can't">
+      <button
+        class="mini"
+        class:active={!autoHandoff}
+        aria-pressed={!autoHandoff}
+        onclick={() => saveAutoHandoff(false)}
+        title="Show Ask online agent and wait for a click"
+      >Auto off</button>
+      <button
+        class="mini"
+        class:active={autoHandoff}
+        aria-pressed={autoHandoff}
+        onclick={() => saveAutoHandoff(true)}
+        title="Send to the online agent above when the local model can't"
+      >Auto on</button>
+    </div>
+    <p class="help">
+      Online agent for handoff. When a local model can't do the ask, the
+      chat offers Ask online agent. Auto sends it straight there. Default off.
     </p>
   </div>
 </div>

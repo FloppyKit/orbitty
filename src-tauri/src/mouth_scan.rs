@@ -22,6 +22,9 @@ pub struct ScannedModel {
     pub source: String,
     pub base: String,
     pub label: String,
+    /// LM Studio `type == "vlm"`, or Ollama capabilities contains "vision".
+    /// Unknown probe = false.
+    pub vision: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -56,8 +59,23 @@ pub struct MouthScan {
 /// `/v1/chat/completions`; Ollama uses `/api/chat`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LocalTarget {
-    LmStudio { chat_url: String, model: String },
-    Ollama { model: String },
+    LmStudio {
+        chat_url: String,
+        model: String,
+        vision: bool,
+    },
+    Ollama {
+        model: String,
+        vision: bool,
+    },
+}
+
+/// One online agent the handoff picker can offer. Empty detection = ask.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffChoice {
+    pub id: String,
+    pub label: String,
 }
 
 pub fn is_twelve_b(id: &str) -> bool {
@@ -139,6 +157,7 @@ pub fn parse_ollama_tags(body: &str) -> Vec<ScannedModel> {
             source: "ollama".into(),
             base: OLLAMA_BASE.into(),
             label: model_label(id, "ollama"),
+            vision: false,
         });
     }
     out
@@ -163,6 +182,7 @@ pub fn parse_openai_models(body: &str, base: &str, source: &str) -> Vec<ScannedM
             source: source.to_string(),
             base: base.to_string(),
             label: model_label(id, source),
+            vision: false,
         });
     }
     out
@@ -172,13 +192,126 @@ fn to_target(m: &ScannedModel) -> LocalTarget {
     if m.source == "ollama" {
         LocalTarget::Ollama {
             model: m.id.clone(),
+            vision: m.vision,
         }
     } else {
         LocalTarget::LmStudio {
             chat_url: format!("{}/v1/chat/completions", m.base.trim_end_matches('/')),
             model: m.id.clone(),
+            vision: m.vision,
         }
     }
+}
+
+/// Ids whose LM Studio `/api/v0/models` row says `type == "vlm"`.
+pub fn lmstudio_v0_vision_ids(body: &str) -> Vec<String> {
+    let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let mut out = Vec::new();
+    let Some(data) = v.get("data").and_then(Value::as_array) else {
+        return out;
+    };
+    for m in data {
+        let id = m.get("id").and_then(Value::as_str).unwrap_or("").trim();
+        let ty = m.get("type").and_then(Value::as_str).unwrap_or("");
+        if ty == "vlm" && !id.is_empty() {
+            out.push(id.to_string());
+        }
+    }
+    out
+}
+
+pub fn apply_lmstudio_vision(models: &mut [ScannedModel], v0_body: &str) {
+    let ids = lmstudio_v0_vision_ids(v0_body);
+    for m in models.iter_mut() {
+        if ids.iter().any(|id| id == &m.id) {
+            m.vision = true;
+        }
+    }
+}
+
+/// Ollama `POST /api/show` — vision when `capabilities` contains `"vision"`.
+pub fn ollama_show_has_vision(body: &str) -> bool {
+    let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    v.get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|caps| caps.iter().any(|c| c.as_str() == Some("vision")))
+}
+
+/// OpenRouter model row: `architecture.input_modalities` contains `"image"`.
+pub fn openrouter_model_has_image(body: &str, model_id: &str) -> bool {
+    let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let Some(data) = v.get("data").and_then(Value::as_array) else {
+        return false;
+    };
+    let want = model_id.trim();
+    for m in data {
+        let id = m.get("id").and_then(Value::as_str).unwrap_or("");
+        if id != want {
+            continue;
+        }
+        return m
+            .pointer("/architecture/input_modalities")
+            .and_then(Value::as_array)
+            .is_some_and(|mods| mods.iter().any(|x| x.as_str() == Some("image")));
+    }
+    false
+}
+
+/// Same pick as `resolve_local`, then that row's vision flag.
+pub fn scanned_model_vision(chosen: &str, scanned: &[ScannedModel]) -> bool {
+    let chosen = chosen.trim();
+    let picked = if !chosen.is_empty() {
+        scanned.iter().find(|m| m.id == chosen)
+    } else {
+        None
+    };
+    picked
+        .or_else(|| prefer_reply_id(scanned))
+        .or_else(|| scanned.first())
+        .is_some_and(|m| m.vision)
+}
+
+pub fn handoff_choices(grok: bool, goose: bool, hermes: bool, openrouter: bool) -> Vec<HandoffChoice> {
+    let mut out = Vec::new();
+    if grok {
+        out.push(HandoffChoice {
+            id: "grok".into(),
+            label: "Grok".into(),
+        });
+    }
+    if goose {
+        out.push(HandoffChoice {
+            id: "goose".into(),
+            label: "Goose".into(),
+        });
+    }
+    if hermes {
+        out.push(HandoffChoice {
+            id: "hermes".into(),
+            label: "Hermes".into(),
+        });
+    }
+    if openrouter {
+        out.push(HandoffChoice {
+            id: "openrouter".into(),
+            label: "OpenRouter".into(),
+        });
+    }
+    out
+}
+
+fn cli_present(name: &str) -> bool {
+    crate::coordinator::find_on_path(name).is_some()
+}
+
+fn grok_cli_present() -> bool {
+    if cli_present("grok") {
+        return true;
+    }
+    std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".grok").join("bin").join("grok"))
+        .is_some_and(|p| p.is_file())
 }
 
 /// Catalog E4B if it is up, else any other E4B id.
@@ -322,7 +455,13 @@ fn probe_openai(port: u16) -> Option<Vec<ScannedModel>> {
     if !(200..=299).contains(&status) {
         return None;
     }
-    let models = parse_openai_models(&body, &base, "lmstudio");
+    let mut models = parse_openai_models(&body, &base, "lmstudio");
+    let v0 = format!("{base}/api/v0/models");
+    if let Ok((status, v0_body)) = crate::mouth_hop::curl_json("GET", &v0, None, None, 2) {
+        if (200..=299).contains(&status) {
+            apply_lmstudio_vision(&mut models, &v0_body);
+        }
+    }
     Some(models)
 }
 
@@ -331,7 +470,28 @@ fn probe_ollama() -> Option<Vec<ScannedModel>> {
     if !(200..=299).contains(&status) {
         return None;
     }
-    Some(parse_ollama_tags(&body))
+    let mut models = parse_ollama_tags(&body);
+    for m in models.iter_mut() {
+        let req = serde_json::json!({ "model": m.id });
+        let url = format!("{OLLAMA_BASE}/api/show");
+        if let Ok((status, show)) = crate::mouth_hop::curl_json("POST", &url, None, Some(&req), 2) {
+            if (200..=299).contains(&status) {
+                m.vision = ollama_show_has_vision(&show);
+            }
+        }
+    }
+    Some(models)
+}
+
+/// Backends actually on this Mac. The picker is this list; nothing is pre-selected.
+#[tauri::command]
+pub fn handoff_backends() -> Vec<HandoffChoice> {
+    handoff_choices(
+        grok_cli_present(),
+        cli_present("goose"),
+        cli_present("hermes"),
+        crate::mouth_hop::openrouter_configured(),
+    )
 }
 
 pub fn scan_running() -> (Vec<ScannedModel>, bool, bool) {
@@ -500,7 +660,9 @@ mod tests {
             "lmstudio",
         );
         match resolve_local("gemma-2-2b-it", &scanned) {
-            Some(LocalTarget::LmStudio { model, chat_url }) => {
+            Some(LocalTarget::LmStudio {
+                model, chat_url, ..
+            }) => {
                 assert_eq!(model, "gemma-2-2b-it");
                 assert!(chat_url.contains("1234"));
             }
@@ -552,5 +714,56 @@ mod tests {
         assert!(is_small_ack_candidate("gemma-2-2b-it"));
         assert!(!is_small_ack_candidate("gemma-4-E4B-it-MLX-4bit"));
         assert!(!is_small_ack_candidate("foo-12b"));
+    }
+
+    #[test]
+    fn lmstudio_v0_marks_vlm_only() {
+        let mut ms = parse_openai_models(
+            r#"{"data":[{"id":"google/gemma-4-e4b"},{"id":"text-only"}]}"#,
+            "http://127.0.0.1:1234",
+            "lmstudio",
+        );
+        assert!(ms.iter().all(|m| !m.vision));
+        apply_lmstudio_vision(
+            &mut ms,
+            r#"{"data":[
+                {"id":"google/gemma-4-e4b","type":"vlm"},
+                {"id":"text-only","type":"llm"}
+            ]}"#,
+        );
+        assert!(ms.iter().find(|m| m.id == "google/gemma-4-e4b").unwrap().vision);
+        assert!(!ms.iter().find(|m| m.id == "text-only").unwrap().vision);
+        assert!(scanned_model_vision("google/gemma-4-e4b", &ms));
+        assert!(!scanned_model_vision("text-only", &ms));
+    }
+
+    #[test]
+    fn ollama_show_vision_capability() {
+        assert!(ollama_show_has_vision(
+            r#"{"capabilities":["completion","vision"]}"#
+        ));
+        assert!(!ollama_show_has_vision(r#"{"capabilities":["completion"]}"#));
+        assert!(!ollama_show_has_vision("{}"));
+    }
+
+    #[test]
+    fn openrouter_image_modality() {
+        let body = r#"{"data":[
+            {"id":"openrouter/free","architecture":{"input_modalities":["text","image"]}},
+            {"id":"text-only","architecture":{"input_modalities":["text"]}}
+        ]}"#;
+        assert!(openrouter_model_has_image(body, "openrouter/free"));
+        assert!(!openrouter_model_has_image(body, "text-only"));
+        assert!(!openrouter_model_has_image(body, "missing"));
+    }
+
+    #[test]
+    fn handoff_picker_lists_only_what_is_present() {
+        assert!(handoff_choices(false, false, false, false).is_empty());
+        let ids: Vec<_> = handoff_choices(true, false, true, true)
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, ["grok", "hermes", "openrouter"]);
     }
 }

@@ -1790,23 +1790,32 @@ async fn companion_send_inner(
     // Grok hops get orbitty.hop.v0 (no pocket dump). Other backends
     // still get the leftover wrap. Persist + event log keep the raw line.
     let prompt = wrap_with_pocket(&app, &line);
-    // Chip: original path always. Office may add MarkItDown markdown
-    // (sidecar, detect-only). Images may ride Grok --prompt-json.
-    let (prompt, vision_path) = match &attach {
+    // Chip: original path always. Office may add MarkItDown markdown.
+    // Images ride only when the resolved lane's model can see.
+    let (prompt, vision_path, lane, model_vision) = match &attach {
         Some(a) => {
             let a = a.clone();
             let p = prompt.clone();
             let b = backend.clone();
+            let line_c = line.clone();
+            let app_c = app.clone();
             match tauri::async_runtime::spawn_blocking(move || {
-                crate::attach_send::prepare(&a, &p, &b)
+                let image = crate::attach_vision::is_image(&a.path);
+                let (lane, model_vision) = if b == "grok" {
+                    crate::mouth_hop::image_lane_vision(&app_c, &line_c, image)
+                } else {
+                    (b, false)
+                };
+                let prep = crate::attach_send::prepare(&a, &p, &lane, model_vision);
+                (prep.prompt, prep.vision_path, lane, model_vision)
             })
             .await
             {
-                Ok(prep) => (prep.prompt, prep.vision_path),
-                Err(_) => (prompt, None),
+                Ok(prep) => prep,
+                Err(_) => (prompt, None, backend.clone(), false),
             }
         }
-        None => (prompt, None),
+        None => (prompt, None, backend.clone(), false),
     };
     // Desk wrap only when the line looks like a board mint — not every
     // "hi". Planet ids stay available for todo: intercept without a chew.
@@ -1815,6 +1824,36 @@ async fn companion_send_inner(
     } else {
         prompt
     };
+    // A lane that can't see the image does not get to guess.
+    let image = attach
+        .as_ref()
+        .is_some_and(|a| crate::attach_vision::is_image(&a.path));
+    if image && !crate::attach_vision::backend_has_vision(&lane, model_vision) {
+        let path = attach
+            .as_ref()
+            .map(|a| a.path.clone())
+            .unwrap_or_default();
+        let reply =
+            crate::mouth_hop::refuse_or_handoff(&app, &line, &path, &lane).await?;
+        if crate::state::update(&app, |st| {
+            st.companion.last_bot_line = reply.clone();
+            let you_already_saved = st
+                .companion
+                .turns
+                .last()
+                .is_some_and(|t| t.role == "you" && t.text == you_line);
+            if !you_already_saved {
+                st.companion.push_turn("you", &you_line);
+            }
+            st.companion.push_turn("them", &reply);
+            Ok(())
+        })
+        .is_ok()
+        {
+            let _ = app.emit("state:changed", ());
+        }
+        return Ok(reply);
+    }
     // Plug map — unknown backend is an honest error,
     // never a silent Berd fallback.
     let reply = match backend.as_str() {
@@ -1881,7 +1920,7 @@ async fn companion_send_berd(line: &str) -> Result<String, String> {
 /// and persisted in plug.json; later sends resume by
 /// `--session-id ID --resume` (`--name` is not a unique resume key).
 /// Honest error when goose is missing — no silent Berd fallback.
-async fn companion_send_goose(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
+pub(crate) async fn companion_send_goose(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
     let bin = find_on_path("goose").ok_or(
         "`goose` not found — install the Goose CLI or put it on PATH (Orbitty.app checks PATH + ~/.local/bin).",
     )?;
@@ -2198,7 +2237,7 @@ pub(crate) fn grok_reply_text(raw: &str) -> String {
         .to_string()
 }
 
-async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
+pub(crate) async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
     let bin = find_on_path("hermes")
         .ok_or("`hermes` not found — install Hermes or put it on PATH.")?;
 

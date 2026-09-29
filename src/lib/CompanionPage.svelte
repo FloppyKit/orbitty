@@ -1618,6 +1618,9 @@
     ready={captionReady}
     onSpeakError={onCaptionSpeakError}
     onOverlayChange={onCaptionOverlayChange}
+    onHandoffReply={(reply) => {
+      botLine = reply;
+    }}
   />
 {/snippet}
 
