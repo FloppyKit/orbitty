@@ -442,10 +442,18 @@
             <p class="d-hint">No links yet.</p>
           {/each}
           <div class="d-linkadd">
+            <!-- Paths/URLs, not prose: no autocorrect / auto-capital
+                 ("users" → "Users", "~/" mangled) and no spell squiggles. -->
             <input
               class="d-input"
-              placeholder="file:// or https://"
+              placeholder="https://…, /path, ~/path or file:///…"
+              title="Accepts https://…, file:///…, /absolute/path or ~/path"
               aria-label="Link URL"
+              type="text"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
               bind:value={linkUrl}
               onkeydown={(e) => {
                 if (e.key === "Enter") {

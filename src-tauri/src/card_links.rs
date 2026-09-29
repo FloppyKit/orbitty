@@ -10,13 +10,41 @@ use crate::state::{CardLink, PersistedState};
 pub const MAX_LINKS: usize = 8;
 
 const MAX_URL: usize = 2048;
+
+/// Said on every rejection so the fix is obvious.
+pub const ACCEPTED: &str = "use https://…, file:///…, /absolute/path or ~/path";
+
+/// `file://Users/x` (two slashes) is a common typo for `file:///Users/x`:
+/// the first path segment lands in the host slot. Only well-known macOS
+/// root folders are re-read as a path — `file://relative` stays rejected.
+const FILE_HOST_ROOTS: &[&str] = &[
+    "Users", "Volumes", "Applications", "Library", "System", "private", "tmp", "opt",
+];
+
+fn must_be() -> String {
+    format!("link rejected — {ACCEPTED}")
+}
+
+fn not_absolute() -> String {
+    format!("file link must be an absolute path — {ACCEPTED}")
+}
+
+/// `~` / `~/…` → $HOME/…  (`~user` is not expanded — rejected).
+fn expand_tilde(s: &str) -> Option<String> {
+    let rest = s.strip_prefix('~')?;
+    if !(rest.is_empty() || rest.starts_with('/')) {
+        return None;
+    }
+    let home = std::env::var("HOME").ok().filter(|h| h.starts_with('/'))?;
+    Some(format!("{}{rest}", home.trim_end_matches('/')))
+}
 const MAX_LABEL: usize = 80;
 
 /// Normalize one link for storage. Idempotent on its own output.
 pub fn normalize_link(raw: &str) -> Result<String, String> {
     let s = raw.trim();
     if s.is_empty() {
-        return Err("link must be file:// or https://".into());
+        return Err(must_be());
     }
     if s.len() > MAX_URL {
         return Err("link is too long".into());
@@ -30,14 +58,18 @@ pub fn normalize_link(raw: &str) -> Result<String, String> {
             "https" => return normalize_https(s),
             "file" => return normalize_file_url(s),
             other => {
-                return Err(format!("link rejected: {other}: is not allowed"));
+                return Err(format!("link rejected: {other}: is not allowed — {ACCEPTED}"));
             }
         }
     }
     if s.starts_with('/') {
         return finish_file_path(&percent_decode(s)?);
     }
-    Err("link must be file:// or https://".into())
+    if s.starts_with('~') {
+        let p = expand_tilde(s).ok_or_else(|| format!("only ~/ (your home) expands — {ACCEPTED}"))?;
+        return finish_file_path(&percent_decode(&p)?);
+    }
+    Err(must_be())
 }
 
 pub fn clean_label(label: Option<String>) -> Result<Option<String>, String> {
@@ -222,29 +254,39 @@ fn normalize_file_url(raw: &str) -> Result<String, String> {
         // file:///absolute — `rest` includes the leading slash.
         percent_decode(rest).or_else(|_| percent_decode(&format!("/{path}")))?
     } else if rest.is_empty() {
-        return Err("file link must be an absolute path".into());
+        return Err(not_absolute());
+    } else if let Some(home_rel) = rest.strip_prefix('~') {
+        // file://~/x — expand like a bare ~/x.
+        expand_tilde(&format!("~{home_rel}"))
+            .ok_or_else(not_absolute)
+            .and_then(|p| percent_decode(&p))?
     } else {
-        let (host, path) = rest
-            .split_once('/')
-            .ok_or_else(|| "file link must be an absolute path".to_string())?;
-        if !host.is_empty() && !host.eq_ignore_ascii_case("localhost") {
-            return Err("file link must be an absolute path".into());
+        let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+        if FILE_HOST_ROOTS.iter().any(|r| r.eq_ignore_ascii_case(host)) {
+            // file://Users/dude/x → /Users/dude/x
+            percent_decode(&format!("/{rest}"))?
+        } else if host.is_empty() || host.eq_ignore_ascii_case("localhost") {
+            if path.is_empty() && !rest.contains('/') {
+                return Err(not_absolute());
+            }
+            percent_decode(&format!("/{path}"))?
+        } else {
+            return Err(not_absolute());
         }
-        percent_decode(&format!("/{path}"))?
     };
     finish_file_path(&path)
 }
 
 fn finish_file_path(path: &str) -> Result<String, String> {
     if !path.starts_with('/') {
-        return Err("file link must be an absolute path".into());
+        return Err(not_absolute());
     }
     if path.chars().any(|c| c.is_control()) {
         return Err("link rejected".into());
     }
     for seg in path.split('/') {
         if seg == ".." {
-            return Err("file link must be an absolute path".into());
+            return Err(format!("file link may not use .. — {ACCEPTED}"));
         }
     }
     let encoded = encode_path(path);
@@ -266,14 +308,12 @@ fn file_url_to_path(url: &str) -> Option<PathBuf> {
 }
 
 fn strip_scheme<'a>(raw: &'a str, scheme: &str) -> Result<&'a str, String> {
-    let i = raw.find(':').ok_or_else(|| "link must be file:// or https://".to_string())?;
+    let i = raw.find(':').ok_or_else(must_be)?;
     if !raw[..i].eq_ignore_ascii_case(scheme) {
-        return Err("link must be file:// or https://".into());
+        return Err(must_be());
     }
     let rest = &raw[i + 1..];
-    let rest = rest
-        .strip_prefix("//")
-        .ok_or_else(|| "link must be file:// or https://".to_string())?;
+    let rest = rest.strip_prefix("//").ok_or_else(must_be)?;
     Ok(rest)
 }
 
@@ -362,9 +402,10 @@ mod tests {
         ] {
             let err = normalize_link(raw).unwrap_err();
             assert!(
-                err.contains("not allowed") || err.contains("link must be"),
+                err.contains("not allowed") || err.contains("link rejected"),
                 "{raw} -> {err}"
             );
+            assert!(err.contains(ACCEPTED), "{raw} error should say what is accepted: {err}");
             let scheme = raw.split(':').next().unwrap().to_ascii_lowercase();
             assert!(
                 err.contains(&scheme),
@@ -400,6 +441,51 @@ mod tests {
         assert!(normalize_link("file:///Users/dude/../../etc/passwd").is_err());
         assert!(normalize_link("https://").is_err());
         assert!(normalize_link("https://user@example.com").is_err());
+    }
+
+    #[test]
+    fn tilde_expands_to_home() {
+        let home = std::env::var("HOME").unwrap();
+        let want = format!("file://{}", encode_path(&format!("{home}/Orbitty GOs/x.md")));
+        assert_eq!(normalize_link("~/Orbitty GOs/x.md").unwrap(), want);
+        assert_eq!(normalize_link("  ~/Orbitty GOs/x.md ").unwrap(), want);
+        assert_eq!(normalize_link("file://~/Orbitty GOs/x.md").unwrap(), want);
+        assert_eq!(normalize_link("~").unwrap(), format!("file://{}", encode_path(&home)));
+        // ~user is not expanded, and the message says what works.
+        let err = normalize_link("~root/x").unwrap_err();
+        assert!(err.contains(ACCEPTED), "{err}");
+        assert!(normalize_link("~/../../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn file_url_forms_normalize() {
+        let want = "file:///Users/dude/Orbitty%20GOs/x.md";
+        assert_eq!(normalize_link("file:///Users/dude/Orbitty GOs/x.md").unwrap(), want);
+        assert_eq!(normalize_link("file:///Users/dude/Orbitty%20GOs/x.md").unwrap(), want);
+        // Two-slash typo: the root folder landed in the host slot.
+        assert_eq!(normalize_link("file://Users/dude/Orbitty GOs/x.md").unwrap(), want);
+        assert_eq!(normalize_link("FILE://Users/dude/Orbitty%20GOs/x.md").unwrap(), want);
+        assert_eq!(
+            normalize_link("file://Volumes/Disk/a b.pdf").unwrap(),
+            "file:///Volumes/Disk/a%20b.pdf"
+        );
+        assert_eq!(normalize_link("file://localhost/tmp/a.md").unwrap(), "file:///tmp/a.md");
+        assert_eq!(normalize_link("/Users/dude/x.md").unwrap(), "file:///Users/dude/x.md");
+        // Idempotent on its own output.
+        let once = normalize_link("file://Users/dude/Orbitty GOs/x.md").unwrap();
+        assert_eq!(normalize_link(&once).unwrap(), once);
+        // Still rejected: unknown host, relative, dot-dot via the typo form.
+        assert!(normalize_link("file://example.com/x").is_err());
+        assert!(normalize_link("file://relative").is_err());
+        assert!(normalize_link("file://Users/dude/../../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn rejections_say_what_is_accepted() {
+        for raw in ["notes.md", "file://relative", "ftp://x.org/a", ""] {
+            let err = normalize_link(raw).unwrap_err();
+            assert!(err.contains(ACCEPTED), "{raw:?} -> {err}");
+        }
     }
 
     #[test]
