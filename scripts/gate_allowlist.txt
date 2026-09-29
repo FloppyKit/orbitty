@@ -1,0 +1,39 @@
+# gate_allowlist.txt — known /Users/ and .buzz literals at base 0b340f8.
+# Format: path<TAB>fixed-substring<TAB># reason
+# A git-grep hit is allowed only when its path matches and the line contains the substring.
+# Line numbers are not part of the match. 34 base hits.
+# coordinator.rs entries are TEMP until MH-ARCHIVE 92a24b5 (THIN script path).
+src-tauri/src/bin/orbitty_mcp.rs	                    "description": "Optional file:// or https:// links. A bare /Users/… path is stored as a file URL.",	# help text: a bare /Users/ path
+src-tauri/src/bin/orbitty_mcp.rs	                "add": { "type": "string", "description": "URL to add (file://, https://, or a bare /Users/… path). Pass exactly one of add, rm, clear." },	# help text: a bare /Users/ path
+src-tauri/src/bin/orbittyctl.rs	(max 8). Only file:// and https:// are accepted; a bare /Users/… path	# help text: a bare /Users/ path
+src-tauri/src/card_links.rs	//! A bare absolute `/Users/…` path is stored as a percent-encoded file URL.	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	/// `file://Users/x` (two slashes) is a common typo for `file:///Users/x`:	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	            // file://Users/dude/x → /Users/dude/x	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        let go = "/Users/dude/Orbitty GOs/GO-ORBITTY-CARD-LINKS_2026-09-25.md";	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        let want = "file:///Users/dude/Orbitty%20GOs/GO-ORBITTY-CARD-LINKS_2026-09-25.md";	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	            normalize_link("file:///Users/dude/Orbitty GOs/x.md").unwrap(),	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	            "file:///Users/dude/Orbitty%20GOs/x.md"	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        assert!(normalize_link("file:///Users/dude/../../etc/passwd").is_err());	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        let want = "file:///Users/dude/Orbitty%20GOs/x.md";	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        assert_eq!(normalize_link("file:///Users/dude/Orbitty GOs/x.md").unwrap(), want);	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        assert_eq!(normalize_link("file:///Users/dude/Orbitty%20GOs/x.md").unwrap(), want);	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        assert_eq!(normalize_link("file://Users/dude/Orbitty GOs/x.md").unwrap(), want);	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        assert_eq!(normalize_link("FILE://Users/dude/Orbitty%20GOs/x.md").unwrap(), want);	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        assert_eq!(normalize_link("/Users/dude/x.md").unwrap(), "file:///Users/dude/x.md");	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        let once = normalize_link("file://Users/dude/Orbitty GOs/x.md").unwrap();	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/card_links.rs	        assert!(normalize_link("file://Users/dude/../../etc/passwd").is_err());	# link normalization docs/tests (back-compat; not rewritten)
+src-tauri/src/coordinator.rs	    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/dude".into());	# TEMP until MH-ARCHIVE 92a24b5
+src-tauri/src/coordinator.rs	        .join(".buzz/RESEARCH/RGL_TESTBED/scripts/vivo_thin.py");	# TEMP until MH-ARCHIVE 92a24b5
+src-tauri/src/plans.rs	//! `~/.buzz/PLANS` is read-only back-compat. No absolute home path in code.	# .buzz back-compat and guards (GO-STANDARD)
+src-tauri/src/plans.rs	    let buzz = roots.home.join(".buzz/ops/needed-bus");	# .buzz back-compat and guards (GO-STANDARD)
+src-tauri/src/plans.rs	/// Plans folder first, then `~/.buzz/PLANS` when that directory exists.	# .buzz back-compat and guards (GO-STANDARD)
+src-tauri/src/plans.rs	    let buzz = roots.home.join(".buzz/PLANS");	# .buzz back-compat and guards (GO-STANDARD)
+src-tauri/src/plans.rs	    let src = roots.home.join(".buzz/PLANS");	# .buzz back-compat and guards (GO-STANDARD)
+src-tauri/src/plans.rs	        let buzz = roots.home.join(".buzz/PLANS");	# .buzz back-compat and guards (GO-STANDARD)
+src-tauri/src/plans.rs	        let bus = roots.home.join(".buzz/ops/needed-bus");	# .buzz back-compat and guards (GO-STANDARD)
+src-tauri/src/plans.rs	            &roots.home.join(".buzz/ops/needed-bus/rules.json"),	# .buzz back-compat and guards (GO-STANDARD)
+src-tauri/src/plans.rs	        let buzz = roots.home.join(".buzz/PLANS");	# .buzz back-compat and guards (GO-STANDARD)
+src-tauri/src/windows_mac.rs	/// `file:///Users/…` (or `file://localhost/…`) → percent-decoded path that	# comment about file URLs
+src/lib/NeededRuleRow.svelte	  // rule while answering a Needed. Lock: ~/.buzz/PLANS/ORBITTY_NEEDED_RULES_LOCK_v0.md	# comment naming a lock doc under ~/.buzz/PLANS
+src/lib/mdLite.ts	// file://, https://, and bare /Users/… paths become <a data-link> spans	# comment about file URLs
+src/lib/mdLite.ts	// Already-escaped text. Only file:///…, https://…, and bare /Users/….	# comment about file URLs

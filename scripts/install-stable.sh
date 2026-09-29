@@ -13,6 +13,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# GO-ORBITTY-LOCAL-GATE: before any build. ORBITTY_SKIP_GATE=1 skips.
+if [[ "${ORBITTY_SKIP_GATE:-}" == "1" ]]; then
+  echo "============================================================" >&2
+  echo "WARNING: gate skipped (ORBITTY_SKIP_GATE=1)" >&2
+  echo "============================================================" >&2
+else
+  if ! scripts/gate.sh; then
+    echo "ERROR: local gate failed; refusing to build" >&2
+    exit 1
+  fi
+fi
+
 APP_NAME="Orbitty.app"
 SRC="src-tauri/target/release/bundle/macos/$APP_NAME"
 DEST="$HOME/Applications/$APP_NAME"
