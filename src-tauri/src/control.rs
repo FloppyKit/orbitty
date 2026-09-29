@@ -705,6 +705,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 md_paths,
                 arg_opt(args, "extra").as_deref(),
                 arg_opt(args, "projectId").as_deref(),
+                arg_opt(args, "permissions").as_deref(),
             )
             .map(to_data)
             .map_err(tool_err)

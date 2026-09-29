@@ -45,7 +45,8 @@ commands:
   kanban assign --id <card> --agent <agent>   empty --agent \"\" unassigns
   agent list
   agent add --name N --harness cursor|goose|grok|hermes [--profile P]
-            [--model M] [--md PATH]... [--extra TEXT] [--project P]
+            [--model M] [--permissions read-only|workspace-write|full-auto]
+            [--md PATH]... [--extra TEXT] [--project P]
   agent rm --id <id>
   agent pin --id <id> --project P
   agent pickup --id <id> | --name <name> [--card <card>]
@@ -130,7 +131,10 @@ Combos register globally on persist; reserved (cmd+shift+o, cmd+space) or
 taken chords show [conflict] in action list.
 
 agent add mints a row (--harness required —
-cursor|goose|grok|hermes, never a silent default), agent pin sets its
+cursor|goose|grok|hermes, never a silent default). A cursor row with no
+--model stores grok-4.7-high. --permissions defaults to read-only;
+full-auto is the only preset that passes the CLI force/trust flags.
+agent pin sets its
 planet, kanban assign writes the card's assignedAgentId (empty --agent
 unassigns), and agent pickup moves the oldest assigned todo to doing and
 launches the row's harness with that title (every harness lights the dock
@@ -199,6 +203,7 @@ struct Opts {
     harness: Option<String>,
     profile: Option<String>,
     model: Option<String>,
+    permissions: Option<String>,
     md: Vec<String>,
     extra: Option<String>,
     agent: Option<String>,
@@ -262,6 +267,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         harness: None,
         profile: None,
         model: None,
+        permissions: None,
         md: Vec::new(),
         extra: None,
         agent: None,
@@ -338,6 +344,9 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.profile = Some(it.next().ok_or("--profile needs a value")?.clone())
             }
             "--model" => o.model = Some(it.next().ok_or("--model needs a value")?.clone()),
+            "--permissions" => {
+                o.permissions = Some(it.next().ok_or("--permissions needs a value")?.clone())
+            }
             "--md" => o.md.push(it.next().ok_or("--md needs a path")?.clone()),
             "--extra" => o.extra = Some(it.next().ok_or("--extra needs a value")?.clone()),
             // Kept as Some("") when passed empty — kanban assign unassigns.
@@ -424,6 +433,9 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.profile = Some(s["--profile=".len()..].to_string())
             }
             s if s.starts_with("--model=") => o.model = Some(s["--model=".len()..].to_string()),
+            s if s.starts_with("--permissions=") => {
+                o.permissions = Some(s["--permissions=".len()..].to_string())
+            }
             s if s.starts_with("--file=") => o.file = Some(s["--file=".len()..].to_string()),
             s if s.starts_with("--md=") => o.md.push(s["--md=".len()..].to_string()),
             s if s.starts_with("--extra=") => o.extra = Some(s["--extra=".len()..].to_string()),
@@ -786,6 +798,9 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             }
             if let Some(m) = opt(&o.model) {
                 a["model"] = json!(m);
+            }
+            if let Some(p) = opt(&o.permissions) {
+                a["permissions"] = json!(p);
             }
             let mds: Vec<String> = o
                 .md

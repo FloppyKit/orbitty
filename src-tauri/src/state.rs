@@ -127,6 +127,11 @@ pub struct PersistedState {
     /// "1h" | "4h" | "12h" | "never". Missing/unknown → 4h.
     #[serde(default = "planet_idle_default")]
     pub planet_idle: String,
+    /// No-herdr terminal. "ghostty" | "terminal" | "". Empty = Ghostty
+    /// when `/Applications/Ghostty.app` exists, else Terminal. A window
+    /// that sends ghostty or terminal wins; an omitted key stays "".
+    #[serde(default)]
+    pub agent_terminal: String,
     /// Cards a window or a Rust delete removed. A later save brings a
     /// card back only when that card's `lastTouchedAt` is newer than the
     /// stamp. Old builds ignore the key. Empty stays off disk.
@@ -298,6 +303,7 @@ impl Default for PersistedState {
             private_relay_url: String::new(),
             shift_on: false,
             planet_idle: planet_idle_default(),
+            agent_terminal: String::new(),
             card_tombstones: Vec::new(),
         }
     }
@@ -797,6 +803,15 @@ pub struct AgentShortcut {
     /// concatenates them into the query file after the md paths.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra: Option<String>,
+    /// Cursor CLI preset: "read-only" | "workspace-write" | "full-auto".
+    /// Missing on old rows loads as read-only. Only full-auto passes
+    /// the CLI `--force` / `--trust` flags.
+    #[serde(default = "permissions_default")]
+    pub permissions: String,
+}
+
+fn permissions_default() -> String {
+    "read-only".into()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1160,6 +1175,11 @@ pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (P
     if out.last_claim_project_id.is_none() {
         out.last_claim_project_id = disk.last_claim_project_id.clone();
     }
+    // Carried when the window names a terminal. An omitted key
+    // deserializes to "" and must not wipe a saved override.
+    if !matches!(out.agent_terminal.trim(), "ghostty" | "terminal") {
+        out.agent_terminal = disk.agent_terminal.clone();
+    }
     let (cards, tombs, kept, took) = merge_cards(
         &disk.kanban_cards,
         &incoming.kanban_cards,
@@ -1172,10 +1192,19 @@ pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (P
     // no window ever edits them. A window copy's values are always a stale
     // echo, so disk wins regardless of lastTouchedAt — a real later window
     // edit (newer stamp) must not carry an old taskId over the new one.
+    // A card that is not on disk (new, or a newer window edit that
+    // resurrects a Rust delete) has no native stamp to keep — drop the
+    // window's stale taskId / taskReason.
     for c in out.kanban_cards.iter_mut() {
-        if let Some(d) = disk.kanban_cards.iter().find(|d| d.id == c.id) {
-            c.task_id = d.task_id.clone();
-            c.task_reason = d.task_reason.clone();
+        match disk.kanban_cards.iter().find(|d| d.id == c.id) {
+            Some(d) => {
+                c.task_id = d.task_id.clone();
+                c.task_reason = d.task_reason.clone();
+            }
+            None => {
+                c.task_id = None;
+                c.task_reason = None;
+            }
         }
     }
     (
@@ -1282,6 +1311,18 @@ pub fn apply_writer_delta(live: &mut PersistedState, before: &PersistedState, af
     );
     take_changed(&mut live.shift_on, &before.shift_on, &after.shift_on);
     take_changed(&mut live.planet_idle, &before.planet_idle, &after.planet_idle);
+    take_changed(
+        &mut live.agent_terminal,
+        &before.agent_terminal,
+        &after.agent_terminal,
+    );
+}
+
+fn wall_now_secs() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 fn json_eq<T: serde::Serialize + ?Sized>(a: &T, b: &T) -> bool {
@@ -1455,7 +1496,11 @@ fn apply_card_delta(
             continue;
         }
         if let Some(idx) = live.iter().position(|x| x.id == c.id) {
-            if c.last_touched_at >= live[idx].last_touched_at {
+            let saved = live[idx].last_touched_at;
+            // touch() clamps to now+60, which sits below a far-future
+            // saved stamp and would drop the edit (taskId included).
+            // A saved stamp past now+60s is bogus — take the writer.
+            if c.last_touched_at >= saved || saved > wall_now_secs() + 60.0 {
                 live[idx] = c.clone();
             }
         } else if !tomb_at(tombs, &c.id).is_some_and(|t| t >= c.last_touched_at) {
@@ -1670,6 +1715,61 @@ mod tests {
         forged.kanban_cards[0].task_id = Some("t-forged".into());
         let (out, _) = merge_window_save(&disk, &forged);
         assert_eq!(out.kanban_cards[0].task_id.as_deref(), Some("t-abc"));
+    }
+
+    /// F2: a window card that is not on disk must not keep a stale taskId.
+    #[test]
+    fn window_card_not_on_disk_clears_task_fields() {
+        let disk = PersistedState::default();
+        let mut incoming = PersistedState::default();
+        let mut c = touch_card("c-new", 5.0, None, None);
+        c.task_id = Some("t-stale".into());
+        c.task_reason = Some("done".into());
+        incoming.kanban_cards.push(c);
+        let (out, _) = merge_window_save(&disk, &incoming);
+        let c = out.kanban_cards.iter().find(|c| c.id == "c-new").unwrap();
+        assert!(c.task_id.is_none());
+        assert!(c.task_reason.is_none());
+
+        // Newer window edit resurrects a card Rust deleted. The stale
+        // task fields on that echo are dropped.
+        let mut disk = PersistedState::default();
+        disk.card_tombstones.push(CardTombstone {
+            id: "c-old".into(),
+            last_touched_at: 3.0,
+        });
+        let mut incoming = PersistedState::default();
+        let mut c = touch_card("c-old", 9.0, Some("back"), None);
+        c.task_id = Some("t-ghost".into());
+        c.task_reason = Some("done".into());
+        incoming.kanban_cards.push(c);
+        let (out, _) = merge_window_save(&disk, &incoming);
+        let c = out.kanban_cards.iter().find(|c| c.id == "c-old").unwrap();
+        assert!(c.task_id.is_none());
+        assert!(c.task_reason.is_none());
+        assert_eq!(c.notes.as_deref(), Some("back"));
+    }
+
+    #[test]
+    fn agent_terminal_explicit_window_wins_omitted_keeps_disk() {
+        let mut disk = PersistedState::default();
+        disk.agent_terminal = "terminal".into();
+        let mut incoming = PersistedState::default();
+        incoming.agent_terminal = "ghostty".into();
+        let (out, _) = merge_window_save(&disk, &incoming);
+        assert_eq!(out.agent_terminal, "ghostty");
+
+        let mut omitted = PersistedState::default();
+        omitted.agent_terminal.clear();
+        let (out, _) = merge_window_save(&disk, &omitted);
+        assert_eq!(out.agent_terminal, "terminal");
+
+        let before = PersistedState::default();
+        let mut after = before.clone();
+        after.agent_terminal = "terminal".into();
+        let mut live = PersistedState::default();
+        apply_writer_delta(&mut live, &before, &after);
+        assert_eq!(live.agent_terminal, "terminal");
     }
 
     #[test]

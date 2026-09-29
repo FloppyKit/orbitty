@@ -8,6 +8,105 @@ use crate::state::{AgentShortcut, PersistedState};
 /// The four named harness doors in `coordinator::launch_agent`.
 pub const HARNESSES: [&str; 4] = ["cursor", "goose", "grok", "hermes"];
 
+/// New cursor rows, and a cursor launch whose row has no model.
+pub const CURSOR_DEFAULT_MODEL: &str = "grok-4.7-high";
+
+/// Row model, with the cursor default when the row leaves it empty.
+pub(crate) fn row_model(harness: &str, model: Option<&str>) -> Option<String> {
+    let set = model
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if harness == "cursor" && set.is_none() {
+        Some(CURSOR_DEFAULT_MODEL.into())
+    } else {
+        set
+    }
+}
+
+/// What the cursor door passes as `--model`.
+pub(crate) fn cursor_model(row: Option<&str>) -> String {
+    row_model("cursor", row).unwrap_or_else(|| CURSOR_DEFAULT_MODEL.into())
+}
+
+/// "read-only" | "workspace-write" | "full-auto". Anything else is read-only.
+pub(crate) fn normalize_permissions(raw: Option<&str>) -> &'static str {
+    match raw.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+        "workspace-write" | "workspace_write" => "workspace-write",
+        "full-auto" | "full_auto" | "fullauto" => "full-auto",
+        _ => "read-only",
+    }
+}
+
+/// Shell + read tokens for a cursor preset. `Shell(git:…)` is the CLI's
+/// command:args form; the spaced `Shell(git status)` form is the same
+/// command written the way the GO names it.
+pub(crate) fn cursor_allow_tokens(preset: &str) -> Vec<&'static str> {
+    let mut allow = vec![
+        "Shell(ls)",
+        "Shell(find)",
+        "Shell(head)",
+        "Shell(tail)",
+        "Shell(cat)",
+        "Shell(wc)",
+        "Shell(rg)",
+        "Shell(grep)",
+        "Shell(pwd)",
+        "Shell(git status)",
+        "Shell(git log)",
+        "Shell(git diff)",
+        "Shell(git show)",
+        "Shell(git:status)",
+        "Shell(git:log)",
+        "Shell(git:diff)",
+        "Shell(git:show)",
+        "Read(**)",
+    ];
+    if matches!(preset, "workspace-write" | "full-auto") {
+        allow.push("Write(**)");
+    }
+    allow
+}
+
+/// Project `.cursor/cli.json` `permissions` object for one preset.
+/// read-only denies writes. workspace-write allows relative `Write(**)`
+/// (workspace-scoped; no absolute path). full-auto clears deny so
+/// `--force` is not blocked; the flags themselves are separate.
+pub(crate) fn cursor_permissions_value(preset: &str) -> Value {
+    let preset = normalize_permissions(Some(preset));
+    let allow = cursor_allow_tokens(preset);
+    let deny: Vec<&str> = if preset == "read-only" {
+        vec!["Write(**)"]
+    } else {
+        vec![]
+    };
+    json!({ "allow": allow, "deny": deny })
+}
+
+/// Args after herdr's `--`, and the flags on the terminal exec line.
+/// `--force` / `--trust` only for an explicit full-auto row.
+pub(crate) fn cursor_agent_args(model: &str, preset: &str) -> Vec<String> {
+    let mut args = vec!["--model".into(), model.to_string()];
+    if normalize_permissions(Some(preset)) == "full-auto" {
+        args.push("--force".into());
+        args.push("--trust".into());
+    }
+    args
+}
+
+pub(crate) fn cursor_exec_line(bin: &str, model: &str, preset: &str) -> String {
+    let mut line = format!(
+        "\"{}\" --model \"{}\"",
+        bin,
+        model.replace('"', "")
+    );
+    if normalize_permissions(Some(preset)) == "full-auto" {
+        line.push_str(" --force --trust");
+    }
+    line.push_str(" \"$prompt\"");
+    line
+}
+
 /// Lowercase + allowlist. Unknown = honest error — never a fall-through.
 fn normalize_harness(raw: &str) -> Result<String, String> {
     let h = raw.trim().to_ascii_lowercase();
@@ -55,6 +154,7 @@ fn agent_row(st: &PersistedState, a: &AgentShortcut) -> Value {
         "harness": a.harness,
         "profile": a.profile,
         "model": a.model,
+        "permissions": a.permissions,
         "mdPaths": a.md_paths,
         "extra": a.extra,
         "projectId": a.project_id,
@@ -84,12 +184,14 @@ pub fn agent_add(
     md_paths: Vec<String>,
     extra: Option<&str>,
     project: Option<&str>,
+    permissions: Option<&str>,
 ) -> Result<Value, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("agent.add: empty name".into());
     }
     let harness = normalize_harness(harness)?;
+    let model = row_model(&harness, model);
     let before = crate::state::load_state(app)?;
     let project_id = match project {
         Some(p) => {
@@ -111,10 +213,7 @@ pub fn agent_add(
             .filter(|s| !s.is_empty())
             .unwrap_or("")
             .to_string(),
-        model: model
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string),
+        model,
         md_paths: md_paths
             .iter()
             .map(|p| p.trim().to_string())
@@ -125,6 +224,7 @@ pub fn agent_add(
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string),
+        permissions: normalize_permissions(permissions).to_string(),
     };
     let mut after = before.clone();
     after.agent_shortcuts.push(agent.clone());
@@ -359,4 +459,87 @@ pub fn agent_pickup(
         "harness": agent.harness,
         "launch": launch,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_rows_default_the_model_other_harnesses_do_not() {
+        assert_eq!(
+            row_model("cursor", None).as_deref(),
+            Some(CURSOR_DEFAULT_MODEL)
+        );
+        assert_eq!(
+            row_model("cursor", Some("  ")).as_deref(),
+            Some(CURSOR_DEFAULT_MODEL)
+        );
+        assert_eq!(
+            row_model("cursor", Some("gpt-5")).as_deref(),
+            Some("gpt-5")
+        );
+        assert_eq!(cursor_model(None), CURSOR_DEFAULT_MODEL);
+        assert_eq!(cursor_model(Some("sonnet")), "sonnet");
+        assert!(row_model("grok", None).is_none());
+        assert!(row_model("hermes", None).is_none());
+    }
+
+    #[test]
+    fn presets_gate_writes_and_force() {
+        assert_eq!(normalize_permissions(None), "read-only");
+        assert_eq!(normalize_permissions(Some("nope")), "read-only");
+        assert_eq!(normalize_permissions(Some("workspace-write")), "workspace-write");
+        assert_eq!(normalize_permissions(Some("full-auto")), "full-auto");
+
+        let ro = cursor_permissions_value("read-only");
+        let allow = ro["allow"].as_array().unwrap();
+        for token in [
+            "Shell(find)",
+            "Shell(head)",
+            "Shell(ls)",
+            "Shell(git status)",
+            "Shell(git:diff)",
+            "Read(**)",
+        ] {
+            assert!(allow.iter().any(|t| t == token), "missing {token}");
+        }
+        assert!(allow.iter().all(|t| !t.as_str().unwrap_or("").starts_with("Write(")));
+        assert!(ro["deny"].as_array().unwrap().iter().any(|t| t == "Write(**)"));
+        let ro_line = cursor_exec_line("/usr/local/bin/cursor-agent", "grok-4.7-high", "read-only");
+        assert!(ro_line.contains("--model \"grok-4.7-high\""));
+        assert!(!ro_line.contains("--force"));
+        assert!(!ro_line.contains("--trust"));
+
+        let ww = cursor_permissions_value("workspace-write");
+        let allow = ww["allow"].as_array().unwrap();
+        assert!(allow.iter().any(|t| t == "Write(**)"));
+        assert!(allow.iter().all(|t| {
+            let s = t.as_str().unwrap_or("");
+            !s.starts_with("Write(/")
+        }));
+        assert!(ww["deny"].as_array().unwrap().is_empty());
+        let ww_line = cursor_exec_line("cursor-agent", "grok-4.7-high", "workspace-write");
+        assert!(!ww_line.contains("--force"));
+        assert!(!ww_line.contains("--trust"));
+
+        let fa = cursor_permissions_value("full-auto");
+        assert!(fa["deny"].as_array().unwrap().is_empty());
+        let fa_args = cursor_agent_args("grok-4.7-high", "full-auto");
+        assert!(fa_args.iter().any(|a| a == "--force"));
+        assert!(fa_args.iter().any(|a| a == "--trust"));
+        let fa_line = cursor_exec_line("cursor-agent", "grok-4.7-high", "full-auto");
+        assert!(fa_line.contains("--force"));
+        assert!(fa_line.contains("--trust"));
+        let ro_args = cursor_agent_args("grok-4.7-high", "read-only");
+        assert!(!ro_args.iter().any(|a| a == "--force" || a == "--trust"));
+    }
+
+    #[test]
+    fn old_agent_row_defaults_permissions_to_read_only() {
+        let raw = r#"{"id":"a","name":"n","harness":"cursor","profile":""}"#;
+        let a: crate::state::AgentShortcut = serde_json::from_str(raw).unwrap();
+        assert_eq!(a.permissions, "read-only");
+        assert!(a.model.is_none());
+    }
 }

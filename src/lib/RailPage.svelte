@@ -166,6 +166,8 @@
   let peerChrome = $state(false);
   let marbleDrift = $state(false);
   let planetIdle = $state("4h");
+  // No-herdr terminal. Round-tripped so a rail save does not drop it.
+  let agentTerminal = $state("");
 
   // Settings / Launchpad own the writers. Rail only round-trips these so
   // persist() never strips the arrays.
@@ -755,6 +757,7 @@
       marbleDrift,
       peerChrome,
       planetIdle,
+      agentTerminal,
       actionShortcuts,
       agentShortcuts,
       agentRuns,
@@ -2418,6 +2421,7 @@
         peerChrome = peerChromeOn(s);
       }
       planetIdle = s.planetIdle ?? "4h";
+      agentTerminal = s.agentTerminal ?? "";
       actionShortcuts = s.actionShortcuts ?? [];
       agentShortcuts = s.agentShortcuts ?? [];
       agentRuns = s.agentRuns ?? [];
@@ -2661,6 +2665,7 @@
         hideAppIcons = s.hideAppIcons ?? hideAppIcons;
         marbleDrift = s.marbleDrift ?? marbleDrift;
         planetIdle = s.planetIdle ?? planetIdle;
+        agentTerminal = s.agentTerminal ?? agentTerminal;
         refreshPacks();
         const diskClaims = s.claims ?? [];
         // Adopt disk claims (tray / orbittyctl claim lands here). Keep a

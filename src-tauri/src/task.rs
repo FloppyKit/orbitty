@@ -142,7 +142,9 @@ fn read_meta(dir: &Path) -> Option<Meta> {
 /// the next stale window save.
 /// Clamped to now + 60 s: a bogus future stamp (clock rolled back, a ms
 /// value) is pulled back instead of carried forward. A sane prev (≤ now +
-/// 60 s) still yields a stamp strictly greater than prev.
+/// 60 s) still yields a stamp strictly greater than prev. When the saved
+/// stamp is already past now + 60 s, `apply_card_delta` still accepts
+/// this clamped edit so taskId is not dropped.
 fn touch(card: &mut KanbanCard) {
     let now = now_secs();
     let prev = card.last_touched_at.min(now + 60.0);
@@ -660,6 +662,20 @@ mod stamp_tests {
             touch(&mut c);
             assert!(c.last_touched_at > before && c.last_touched_at <= now_secs() + 60.01);
         }
+    }
+
+    /// F1: a far-future saved stamp sits above touch()'s clamp, so the
+    /// writer delta must still keep the stamped taskId.
+    #[test]
+    fn far_future_saved_stamp_keeps_task_id() {
+        let mut disk = PersistedState::default();
+        disk.kanban_cards.push(card("c1", 1.7e12));
+        let before = disk.clone();
+        let mut after = before.clone();
+        stamp_task_id(&mut after.kanban_cards[0], "t-abc");
+        assert!(after.kanban_cards[0].last_touched_at < 1.7e12);
+        apply_writer_delta(&mut disk, &before, &after);
+        assert_eq!(disk.kanban_cards[0].task_id.as_deref(), Some("t-abc"));
     }
 }
 

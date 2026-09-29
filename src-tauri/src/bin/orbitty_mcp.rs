@@ -88,7 +88,7 @@ const TOOLS: &[ToolDef] = &[
     // (full / named custom only). The harness is per row, required on
     // add — unknown harness errors honestly, never a silent hermes.
     ToolDef { name: "agent.list", description: "List agent rows (id, name, harness, profile, model, md paths, extra, pinned planet)", args: "none" },
-    ToolDef { name: "agent.add", description: "Mint an agent row: name + harness (cursor|goose|grok|hermes, required) with optional profile / model / mdPaths / extra / projectId pin", args: "agent_add" },
+    ToolDef { name: "agent.add", description: "Mint an agent row: name + harness (cursor|goose|grok|hermes, required) with optional profile / model / permissions (read-only|workspace-write|full-auto) / mdPaths / extra / projectId pin. New cursor rows default model grok-4.7-high and permissions read-only.", args: "agent_add" },
     ToolDef { name: "agent.rm", description: "Remove an agent row by id; cards keep their assignedAgentId (project.rm law)", args: "id" },
     ToolDef { name: "agent.pin", description: "Pin an agent row to a planet (project id or unique planet name)", args: "agent_pin" },
     ToolDef { name: "agent.pickup", description: "Pick the oldest assigned open Todo (the row's planet when pinned), move it doing, and launch the row's harness with the card title; no match = honest empty, no spawn", args: "agent_pickup" },
@@ -280,7 +280,8 @@ fn input_schema(kind: &str) -> Value {
                     "description": "Launch door on the row — required, never a product default"
                 },
                 "profile": { "type": "string", "description": "Harness profile (session tweak on the row)" },
-                "model": { "type": "string", "description": "Model override (session tweak)" },
+                "model": { "type": "string", "description": "Model override. Omitted on a cursor row stores grok-4.7-high." },
+                "permissions": { "type": "string", "enum": ["read-only", "workspace-write", "full-auto"], "description": "Cursor CLI preset. Omitted = read-only. full-auto is the only value that passes --force and --trust." },
                 "mdPaths": {
                     "type": "array",
                     "items": { "type": "string" },

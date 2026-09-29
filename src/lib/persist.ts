@@ -188,6 +188,10 @@ export interface AgentShortcut {
   // Free-text extra instructions — pickup
   // concatenates them into the query file after the md paths.
   extra?: string | null;
+  // Cursor CLI preset. "read-only" | "workspace-write" | "full-auto".
+  // Missing = read-only. full-auto is the only preset that passes
+  // the CLI --force / --trust flags.
+  permissions?: string;
 }
 
 // One row per doing-run — the agent walker on
@@ -414,6 +418,9 @@ export interface PersistedState {
   privateRelayUrl?: string;
   // Unused expanded planets marble after this idle. "1h"|"4h"|"12h"|"never". Default 4h.
   planetIdle?: string;
+  // No-herdr terminal. "ghostty" | "terminal" | "". Empty = Ghostty if
+  // installed, else Terminal. Omitted on a save keeps the disk value.
+  agentTerminal?: string;
   // ctl `shift on` ticker. Default off. Optional so older writers type-check.
   shiftOn?: boolean;
   companion: CompanionSlice;

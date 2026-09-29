@@ -3016,29 +3016,216 @@ pub(crate) fn terminal_run_paths(context_dir: &Path, shortcut_id: &str, run: &st
     )
 }
 
-fn open_agent_terminal(query: &Path, script: &Path, pidf: &Path, exec_line: &str) -> Result<(), String> {
-    let ctl = std::env::var("HOME")
-        .map(|h| format!("{h}/.local/bin/orbittyctl"))
-        .unwrap_or_else(|_| "orbittyctl".into());
-    // The per-run script removes its pid file and itself on exit.
-    let body = format!(
-        "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\necho $$ > \"{pid}\"\ntrap 'exit' HUP\ntrap '\"{ctl}\" companion hack -- off >/dev/null 2>&1 || true; rm -f \"{pid}\" \"{script}\"' EXIT\n{exec_line}\n",
+/// Sibling of the running app binary. Nightly's trap must call Nightly's
+/// orbittyctl, never a PATH copy.
+pub(crate) fn bundled_orbittyctl() -> PathBuf {
+    match std::env::current_exe() {
+        Ok(exe) => exe
+            .parent()
+            .map(|d| d.join("orbittyctl"))
+            .unwrap_or_else(|| PathBuf::from("orbittyctl")),
+        Err(_) => PathBuf::from("orbittyctl"),
+    }
+}
+
+pub(crate) fn control_sock_path(app: &tauri::AppHandle) -> PathBuf {
+    app.path()
+        .app_data_dir()
+        .map(|d| d.join("control.sock"))
+        .unwrap_or_else(|_| PathBuf::from("control.sock"))
+}
+
+/// Empty setting: Ghostty when the app bundle is installed, else Terminal.
+pub(crate) fn resolve_agent_terminal(setting: &str, ghostty_installed: bool) -> &'static str {
+    match setting.trim().to_ascii_lowercase().as_str() {
+        "ghostty" => "Ghostty",
+        "terminal" => "Terminal",
+        _ => {
+            if ghostty_installed {
+                "Ghostty"
+            } else {
+                "Terminal"
+            }
+        }
+    }
+}
+
+fn ghostty_installed() -> bool {
+    Path::new("/Applications/Ghostty.app").is_dir()
+}
+
+pub(crate) fn open_terminal_argv(app_name: &str, script: &Path) -> Vec<String> {
+    vec!["-a".into(), app_name.into(), script.display().to_string()]
+}
+
+/// `.command` body. The EXIT trap calls the bundled ctl with this app's
+/// socket. Paths are quoted; the trap never names `~/.local/bin`.
+pub(crate) fn agent_command_body(
+    query: &Path,
+    script: &Path,
+    pidf: &Path,
+    exec_line: &str,
+    ctl: &Path,
+    sock: &Path,
+    cwd: Option<&str>,
+) -> String {
+    let cd = match cwd.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(dir) => format!("cd \"{dir}\" || exit 1\n"),
+        None => String::new(),
+    };
+    format!(
+        "#!/bin/zsh\n{cd}prompt=\"$(cat \"{q}\")\"\necho $$ > \"{pid}\"\ntrap 'exit' HUP\ntrap '\"{ctl}\" --sock \"{sock}\" companion hack -- off >/dev/null 2>&1 || true; rm -f \"{pid}\" \"{script}\"' EXIT\n{exec_line}\n",
         q = query.display(),
         pid = pidf.display(),
         script = script.display(),
-    );
-    std::fs::write(script, &body)
-        .map_err(|e| format!("write {}: {e}", script.display()))?;
+        ctl = ctl.display(),
+        sock = sock.display(),
+    )
+}
+
+fn cursor_perm_workspace_ok(workspace: &Path) -> bool {
+    if !workspace.is_dir() {
+        return false;
+    }
+    if workspace == Path::new("/") {
+        return false;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() && workspace == Path::new(&home) {
+            return false;
+        }
+    }
+    true
+}
+
+pub(crate) fn project_cli_path(workspace: &Path) -> PathBuf {
+    workspace.join(".cursor").join("cli.json")
+}
+
+fn git_dir(workspace: &Path) -> Option<PathBuf> {
+    let git = workspace.join(".git");
+    if git.is_dir() {
+        return Some(git);
+    }
+    if git.is_file() {
+        let text = std::fs::read_to_string(&git).ok()?;
+        let line = text.lines().find(|l| l.trim_start().starts_with("gitdir:"))?;
+        let raw = line.split_once(':')?.1.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let path = PathBuf::from(raw);
+        return Some(if path.is_absolute() {
+            path
+        } else {
+            workspace.join(path)
+        });
+    }
+    None
+}
+
+/// Keep the project permission file out of commits. Local exclude only —
+/// never the product `.gitignore`.
+fn local_exclude(workspace: &Path, rel: &str) {
+    let Some(git_dir) = git_dir(workspace) else {
+        return;
+    };
+    let info = git_dir.join("info");
+    let _ = std::fs::create_dir_all(&info);
+    let path = info.join("exclude");
+    let mut existing = std::fs::read_to_string(&path).unwrap_or_default();
+    if existing.lines().any(|l| l.trim() == rel) {
+        return;
+    }
+    if !existing.is_empty() && !existing.ends_with('\n') {
+        existing.push('\n');
+    }
+    existing.push_str(rel);
+    existing.push('\n');
+    let _ = std::fs::write(path, existing);
+}
+
+/// Write the run workspace's `.cursor/cli.json` permissions for this
+/// preset. Merges into an existing object (other keys stay). Does not
+/// touch the user-global Cursor CLI config. Refuses `$HOME` and `/`.
+pub(crate) fn install_cursor_permissions(workspace: &Path, preset: &str) -> Result<(), String> {
+    if !cursor_perm_workspace_ok(workspace) {
+        return Err("no project workspace for cursor permissions".into());
+    }
+    let path = project_cli_path(workspace);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create {}: {e}", parent.display()))?;
+    }
+    let mut root = if path.is_file() {
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(v) if v.is_object() => v,
+            Ok(_) => {
+                return Err(format!(
+                    "{} is not a JSON object; left untouched",
+                    path.display()
+                ))
+            }
+            Err(_) => {
+                return Err(format!(
+                    "{} is not valid JSON; left untouched",
+                    path.display()
+                ))
+            }
+        }
+    } else {
+        serde_json::json!({ "version": 1 })
+    };
+    if root.get("version").is_none() {
+        root["version"] = serde_json::json!(1);
+    }
+    root["permissions"] = crate::agents::cursor_permissions_value(preset);
+    let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())? + "\n";
+    std::fs::write(&path, text).map_err(|e| format!("write {}: {e}", path.display()))?;
+    local_exclude(workspace, ".cursor/cli.json");
+    Ok(())
+}
+
+fn open_agent_terminal(
+    app: &tauri::AppHandle,
+    query: &Path,
+    script: &Path,
+    pidf: &Path,
+    exec_line: &str,
+    cwd: Option<&str>,
+    planet_id: Option<&str>,
+) -> Result<String, String> {
+    let ctl = bundled_orbittyctl();
+    let sock = control_sock_path(app);
+    let setting = crate::state::load_state(app)
+        .map(|st| st.agent_terminal.clone())
+        .unwrap_or_default();
+    let app_name = resolve_agent_terminal(&setting, ghostty_installed());
+    let body = agent_command_body(query, script, pidf, exec_line, &ctl, &sock, cwd);
+    std::fs::write(script, &body).map_err(|e| format!("write {}: {e}", script.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755));
     }
-    if spawn_detached("open", &[script.to_string_lossy().as_ref()]) {
-        Ok(())
+    let argv = open_terminal_argv(app_name, script);
+    let argv_ref: Vec<&str> = argv.iter().map(String::as_str).collect();
+    if spawn_detached("open", &argv_ref) {
+        crate::event_log::append_best(
+            app,
+            "agent-terminal",
+            None,
+            planet_id,
+            Some("agent"),
+            true,
+            &serde_json::json!({ "app": app_name }),
+        );
+        Ok(app_name.to_string())
     } else {
         Err(format!(
-            "Couldn't open Terminal launcher. Query file ready: {}",
+            "Couldn't open {app_name} launcher. Query file ready: {}",
             query.display()
         ))
     }
@@ -3093,40 +3280,68 @@ pub fn launch_agent(
         .unwrap_or_else(|| PathBuf::from("."));
     let (terminal_script, terminal_pid_file) =
         terminal_run_paths(&context_dir, &shortcut.id, &run_tag);
+    let ws_state = crate::state::load_state(&app).ok();
+    let workspace = crate::herdr::planet_cwd(ws_state.as_ref(), &pid, project_name.as_deref());
+    let planet_for_log = shortcut.project_id.as_deref().filter(|p| !p.is_empty());
     let out: Result<String, String> = (|| {
     match shortcut.harness.trim().to_ascii_lowercase().as_str() {
         "cursor" => {
+            // Project permissions before either door so herdr's pane and
+            // the terminal fallback both see `.cursor/cli.json`.
+            let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
+            if let Err(why) = install_cursor_permissions(Path::new(&workspace), preset) {
+                crate::event_log::append_best(
+                    &app,
+                    "cursor-permissions",
+                    None,
+                    planet_for_log,
+                    Some("agent"),
+                    true,
+                    &serde_json::json!({ "reason": why, "preset": preset }),
+                );
+            }
+            // Herdr first, like grok. Skip falls through to the terminal
+            // door (one skip line already logged; never a dual-launch).
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+                crate::herdr::Branch::Skip => {}
+                crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                    hint.herdr_agent = Some(agent);
+                    return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
+                }
+            }
             let Some(bin) = find_on_path("cursor-agent") else {
                 return Err(
                     "cursor-agent not on PATH — install the Cursor CLI or pick another harness."
                         .to_string(),
                 );
             };
-            // cursor-agent's chat is a TTY TUI: open it in Terminal via a
-            // .command launcher with the query file as the initial prompt.
-            // No `exec` — the launcher's EXIT trap owns the LED off.
-            let model_arg = shortcut
-                .model
-                .as_deref()
-                .map(str::trim)
-                .filter(|m| !m.is_empty())
-                .map(|m| format!(" --model \"{}\"", m.replace('"', "")))
-                .unwrap_or_default();
-            open_agent_terminal(
+            let model = crate::agents::cursor_model(shortcut.model.as_deref());
+            let exec = crate::agents::cursor_exec_line(&bin.display().to_string(), &model, preset);
+            let opened = open_agent_terminal(
+                &app,
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
-                &format!("\"{}\"{model_arg} \"$prompt\"", bin.display()),
+                &exec,
+                Some(workspace.as_str()),
+                planet_for_log,
             )?;
             hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
-                "Opened cursor-agent in Terminal. Query: {}.{skip_note}",
+                "Opened cursor-agent in {opened}. Query: {}.{skip_note}",
                 query.display()
             ))
         }
-        // Goose and grok are named doors with the
-        // same visible Terminal handoff as cursor — never a silent hermes.
+        // Goose is not a herdr kind. branch() logs the skip, then the
+        // terminal door runs. Never a silent hermes.
         "goose" => {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+                crate::herdr::Branch::Skip => {}
+                crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                    hint.herdr_agent = Some(agent);
+                    return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
+                }
+            }
             let Some(bin) = find_on_path("goose") else {
                 return Err(
                     "`goose` not on PATH — install the Goose CLI or pick another harness."
@@ -3135,7 +3350,8 @@ pub fn launch_agent(
             };
             // Same full-tools builtin set as the companion goose mouth
             // (BLOCK-MH-4): the agent can act, not just talk.
-            open_agent_terminal(
+            let opened = open_agent_terminal(
+                &app,
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
@@ -3143,17 +3359,19 @@ pub fn launch_agent(
                     "\"{}\" run --with-builtin=developer,computercontroller -t \"$prompt\"",
                     bin.display()
                 ),
+                Some(workspace.as_str()),
+                planet_for_log,
             )?;
             hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
-                "Opened goose run in Terminal. Query: {}.{skip_note}",
+                "Opened goose run in {opened}. Query: {}.{skip_note}",
                 query.display()
             ))
         }
         "grok" => {
             // The herdr branch of this door —
             // pane first, agent second, when herdr is present + up.
-            // Skip falls through to the Terminal launcher unchanged
+            // Skip falls through to the terminal launcher
             // (one skip line was already logged; never a dual-launch).
             match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {}
@@ -3168,25 +3386,32 @@ pub fn launch_agent(
                         .to_string(),
                 );
             };
-            open_agent_terminal(
+            let opened = open_agent_terminal(
+                &app,
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
                 &format!("\"{}\" -p \"$prompt\"", bin.display()),
+                Some(workspace.as_str()),
+                planet_for_log,
             )?;
             hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
-                "Opened grok in Terminal. Query: {}.{skip_note}",
+                "Opened grok in {opened}. Query: {}.{skip_note}",
                 query.display()
             ))
         }
-        // Hermes door: hermes -p <profile> chat with the query file.
-        // no Terminal
-        // launcher here, so a waiter thread owns the off — the dock LED
-        // goes dark when the hermes process exits (the Terminal doors do
-        // it through the .command EXIT trap). Detached stdio, never a
-        // poll.
+        // Hermes tries herdr first. On skip, hermes -p <profile> chat
+        // with the query file. No terminal launcher on that fallback, so
+        // a waiter thread owns the LED off. Detached stdio, never a poll.
         "hermes" => {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+                crate::herdr::Branch::Skip => {}
+                crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                    hint.herdr_agent = Some(agent);
+                    return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
+                }
+            }
             let profile = {
                 let p = shortcut.profile.trim();
                 if p.is_empty() { "grok" } else { p }
@@ -3312,5 +3537,107 @@ mod mac {
             }
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn terminal_setting_picks_ghostty_when_empty_and_installed() {
+        assert_eq!(resolve_agent_terminal("", true), "Ghostty");
+        assert_eq!(resolve_agent_terminal("", false), "Terminal");
+        assert_eq!(resolve_agent_terminal("ghostty", false), "Ghostty");
+        assert_eq!(resolve_agent_terminal("terminal", true), "Terminal");
+        assert_eq!(resolve_agent_terminal("nope", true), "Ghostty");
+        assert_eq!(resolve_agent_terminal("nope", false), "Terminal");
+    }
+
+    #[test]
+    fn command_script_uses_bundled_ctl_and_sock() {
+        let ctl = PathBuf::from("/Applications/Orbitty Nightly.app/Contents/MacOS/orbittyctl");
+        let sock = PathBuf::from("/tmp/nightly/control.sock");
+        let body = agent_command_body(
+            Path::new("/tmp/q.md"),
+            Path::new("/tmp/run.command"),
+            Path::new("/tmp/run.pid"),
+            "\"/usr/local/bin/cursor-agent\" --model \"grok-4.7-high\" \"$prompt\"",
+            &ctl,
+            &sock,
+            Some("/tmp/workspace"),
+        );
+        assert!(body.contains(ctl.to_str().unwrap()));
+        assert!(body.contains("--sock"));
+        assert!(body.contains(sock.to_str().unwrap()));
+        assert!(body.contains("cd \"/tmp/workspace\""));
+        assert!(!body.contains(".local/bin"));
+        let argv = open_terminal_argv("Ghostty", Path::new("/tmp/run.command"));
+        assert_eq!(
+            argv,
+            vec![
+                "-a".to_string(),
+                "Ghostty".to_string(),
+                "/tmp/run.command".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn cursor_permissions_land_in_the_worktree_exclude() {
+        let dir = std::env::temp_dir().join(format!(
+            "orbitty-cursor-perm-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let init = std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(&dir)
+            .status()
+            .expect("git init");
+        assert!(init.success(), "git init");
+        install_cursor_permissions(&dir, "read-only").unwrap();
+        let cli_path = project_cli_path(&dir);
+        assert!(cli_path.ends_with(".cursor/cli.json"));
+        assert!(!cli_path.to_string_lossy().contains("cli-config.json"));
+        let raw = std::fs::read_to_string(&cli_path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let allow = v["permissions"]["allow"].as_array().unwrap();
+        assert!(allow.iter().any(|t| t == "Shell(find)"));
+        assert!(allow.iter().any(|t| t == "Shell(head)"));
+        assert!(allow.iter().all(|t| !t.as_str().unwrap_or("").starts_with("Write(")));
+        assert!(v["permissions"]["deny"].as_array().unwrap().iter().any(|t| t == "Write(**)"));
+        let exclude = std::fs::read_to_string(dir.join(".git/info/exclude")).unwrap();
+        assert!(exclude.lines().any(|l| l.trim() == ".cursor/cli.json"));
+
+        let mut root: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        root["editor"] = serde_json::json!({ "vimMode": true });
+        std::fs::write(&cli_path, serde_json::to_string_pretty(&root).unwrap()).unwrap();
+        install_cursor_permissions(&dir, "workspace-write").unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cli_path).unwrap()).unwrap();
+        assert_eq!(v["editor"]["vimMode"], true);
+        assert!(v["permissions"]["allow"].as_array().unwrap().iter().any(|t| t == "Write(**)"));
+        assert!(v["permissions"]["allow"].as_array().unwrap().iter().all(|t| {
+            !t.as_str().unwrap_or("").starts_with("Write(/")
+        }));
+        assert!(v["permissions"]["deny"].as_array().unwrap().is_empty());
+
+        install_cursor_permissions(&dir, "full-auto").unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cli_path).unwrap()).unwrap();
+        assert!(v["permissions"]["deny"].as_array().unwrap().is_empty());
+
+        let home = std::env::var("HOME").unwrap_or_default();
+        if !home.is_empty() {
+            assert!(install_cursor_permissions(Path::new(&home), "read-only").is_err());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

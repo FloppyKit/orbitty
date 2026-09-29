@@ -1,6 +1,7 @@
-//! Herdr branch of `launch_agent` for grok / opencode (detect-only).
-//! Present + server up → pane. Else one skip line and the old launcher.
-//! Cursor never enters this branch. No dual-launch, no retry loop.
+//! Herdr branch of `launch_agent` for grok, cursor, hermes, and
+//! opencode (detect-only). Present + server up → pane. Else one skip
+//! line and the old launcher. Goose is not a herdr kind: one skip line,
+//! then its old launcher. No dual-launch, no retry loop.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -151,7 +152,7 @@ fn expand_home(p: &str) -> String {
 /// planet (the terminal-class wake trail) when one exists; the Orbitty
 /// repo for the `orbitty` planet when no workspaceRoot is set (there is
 /// no second planet DB — Project is {id, name}); else $HOME.
-fn planet_cwd(st: Option<&PersistedState>, planet_id: &str, project_name: Option<&str>) -> String {
+pub(crate) fn planet_cwd(st: Option<&PersistedState>, planet_id: &str, project_name: Option<&str>) -> String {
     if let Some(st) = st {
         let mut hits: Vec<(f64, String)> = st
             .claims
@@ -474,9 +475,43 @@ fn submit_query(
     }
 }
 
+/// herdr `--kind` for this harness. Goose and anything else skip with
+/// a line (the caller logs it). Opencode is detect-only.
+fn kind_law(harness: &str, opencode_on_path: bool) -> Result<&'static str, String> {
+    match harness.trim().to_ascii_lowercase().as_str() {
+        "grok" => Ok("grok"),
+        "cursor" => Ok("cursor"),
+        "hermes" => Ok("hermes"),
+        "opencode" => {
+            if opencode_on_path {
+                Ok("opencode")
+            } else {
+                Err(
+                    "opencode not on PATH — kind skipped (detect-only; never prompt-installed)"
+                        .into(),
+                )
+            }
+        }
+        other => Err(format!("harness {other} is not a herdr kind")),
+    }
+}
+
+/// `herdr agent start` plus cursor AGENT_ARGs after `--`.
+fn start_argv(name: &str, kind: &str, pane: &str, extra: &[String]) -> Vec<String> {
+    let mut args: Vec<String> = agent_start_args(name, kind, pane)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    if !extra.is_empty() {
+        args.push("--".into());
+        args.extend(extra.iter().cloned());
+    }
+    args
+}
+
 /// The Herdr branch of `launch_agent`. One attempt, no retries; every
-/// skip logs exactly one line. Called only from the grok / opencode
-/// doors — every other harness keeps its old launcher, silently.
+/// skip logs exactly one line. grok, cursor, hermes, and opencode are
+/// herdr kinds. Every other harness logs a skip and returns `Skip`.
 pub fn branch(
     app: &tauri::AppHandle,
     shortcut: &AgentShortcut,
@@ -484,23 +519,18 @@ pub fn branch(
     titles: &[String],
     query: Option<&Path>,
 ) -> Branch {
-    // Kind law: grok is always a herdr kind; opencode is detect-only
-    // (on PATH = legal, missing = skip that kind — never prompt-
-    // installed); every other harness is not a herdr lane.
-    let kind = match shortcut.harness.trim().to_ascii_lowercase().as_str() {
-        "grok" => "grok",
-        "opencode" => {
-            if crate::coordinator::find_on_path("opencode").is_none() {
-                skip_line(
-                    app,
-                    shortcut,
-                    "opencode not on PATH — kind skipped (detect-only; never prompt-installed)",
-                );
-                return Branch::Skip;
-            }
-            "opencode"
+    // Kind law: grok, cursor, and hermes are herdr kinds; opencode is
+    // detect-only (on PATH = legal, missing = skip — never prompt-
+    // installed). Every other harness logs one skip line.
+    let kind = match kind_law(
+        &shortcut.harness,
+        crate::coordinator::find_on_path("opencode").is_some(),
+    ) {
+        Ok(kind) => kind,
+        Err(reason) => {
+            skip_line(app, shortcut, &reason);
+            return Branch::Skip;
         }
-        _ => return Branch::Skip,
     };
     let Some(bin) = crate::coordinator::find_on_path("herdr") else {
         skip_line(
@@ -575,7 +605,15 @@ pub fn branch(
         kind: kind.into(),
     };
     std::thread::sleep(Duration::from_millis(400));
-    let start = agent_start_args(&agent_name, kind, &pane);
+    let extra = if kind == "cursor" {
+        let model = crate::agents::cursor_model(shortcut.model.as_deref());
+        let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
+        crate::agents::cursor_agent_args(&model, preset)
+    } else {
+        Vec::new()
+    };
+    let start_owned = start_argv(&agent_name, kind, &pane, &extra);
+    let start: Vec<&str> = start_owned.iter().map(String::as_str).collect();
     let mut started = Err("agent start not attempted".into());
     for i in 0..5 {
         started = run_json(&bin, &start, 45_000);
@@ -704,6 +742,7 @@ mod tests {
             md_paths: Vec::new(),
             project_id: Some("p-1".into()),
             extra: None,
+            permissions: "read-only".into(),
         }
     }
 
@@ -809,6 +848,36 @@ mod tests {
                 "non-idle {status:?} still waits for idle: {args:?}"
             );
         }
+    }
+
+    #[test]
+    fn kind_map_cursor_hermes_grok_and_goose_skips_with_a_line() {
+        assert_eq!(kind_law("cursor", false).unwrap(), "cursor");
+        assert_eq!(kind_law("hermes", false).unwrap(), "hermes");
+        assert_eq!(kind_law("grok", false).unwrap(), "grok");
+        assert_eq!(kind_law("opencode", true).unwrap(), "opencode");
+        let goose = kind_law("goose", true).unwrap_err();
+        assert!(
+            goose.contains("goose") && goose.contains("not a herdr kind"),
+            "goose skip must be a log line: {goose}"
+        );
+        let missing = kind_law("opencode", false).unwrap_err();
+        assert!(missing.contains("opencode not on PATH"), "{missing}");
+    }
+
+    #[test]
+    fn cursor_start_argv_passes_model_and_force_only_for_full_auto() {
+        let ro = crate::agents::cursor_agent_args("grok-4.7-high", "read-only");
+        let argv = start_argv("c-1", "cursor", "w2:p1", &ro);
+        assert!(argv
+            .windows(2)
+            .any(|w| w[0].as_str() == "--model" && w[1].as_str() == "grok-4.7-high"));
+        assert!(!argv.iter().any(|a| a == "--force" || a == "--trust"));
+        let fa = crate::agents::cursor_agent_args("grok-4.7-high", "full-auto");
+        let argv = start_argv("c-1", "cursor", "w2:p1", &fa);
+        assert!(argv.iter().any(|a| a == "--"));
+        assert!(argv.iter().any(|a| a == "--force"));
+        assert!(argv.iter().any(|a| a == "--trust"));
     }
 
     #[test]
