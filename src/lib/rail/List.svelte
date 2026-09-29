@@ -104,8 +104,8 @@
       <button
         class="row"
         class:locate-flash={rail.locateFlashIds.includes(`agent:${run.cardId}`)}
-        onclick={() => rail.locateAgent(r)}
-        ondblclick={() => rail.locateAgent(r)}
+        onclick={() => rail.locateAgent(run)}
+        ondblclick={() => rail.locateAgent(run)}
       >
         <span class="app-icon fallback" aria-hidden="true">{harness.charAt(0).toUpperCase()}</span>
         <span class="wtitle">{agent?.name ?? harness}{card?.title ? ` — ${card.title}` : ""}</span>
@@ -212,7 +212,7 @@
                         class="mini ghost"
                         onclick={rail.openSoulEditor}
                         title={rail.soulPath
-                          ? `Open in the default editor: ${soulPath} (opens the file on disk — Save first if edited)`
+                          ? `Open in the default editor: ${rail.soulPath} (opens the file on disk — Save first if edited)`
                           : "Open in the default editor"}>Open in editor</button>
                       {#if rail.soulMsg}<span class="soul-msg">{rail.soulMsg}</span>{/if}
                     </div>
