@@ -278,6 +278,18 @@ fn agent_status(bin: &Path, target: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Boot liveness: is this herdr agent's pane still there? No herdr
+/// binary or server down = gone (panes live in the server).
+pub(crate) fn agent_alive(agent_name: &str) -> bool {
+    let Some(bin) = crate::coordinator::find_on_path("herdr") else {
+        return false;
+    };
+    if server_up(&bin).is_err() {
+        return false;
+    }
+    agent_status(&bin, agent_name).is_some()
+}
+
 /// Paint walker state only: write the row's state through the one save
 /// door when (and only when) it changes — no write, no event, no storm.
 /// `done` rows are untouchable (the card's drag + walk-off own them).

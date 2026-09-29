@@ -3064,6 +3064,9 @@ pub fn launch_agent(
     } else {
         String::new()
     };
+    // Boot liveness (task::boot): what we handed off to, per door.
+    let mut hint = crate::task::LiveHint::default();
+    let terminal_pid_file = query.with_extension("pid");
     let out: Result<String, String> = (|| {
     match shortcut.harness.trim().to_ascii_lowercase().as_str() {
         "cursor" => {
@@ -3087,6 +3090,7 @@ pub fn launch_agent(
                 &query,
                 &format!("\"{}\"{model_arg} \"$prompt\"", bin.display()),
             )?;
+            hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
                 "Opened cursor-agent in Terminal. Query: {}.{skip_note}",
                 query.display()
@@ -3110,6 +3114,7 @@ pub fn launch_agent(
                     bin.display()
                 ),
             )?;
+            hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
                 "Opened goose run in Terminal. Query: {}.{skip_note}",
                 query.display()
@@ -3133,6 +3138,7 @@ pub fn launch_agent(
                 );
             };
             open_agent_terminal(&query, &format!("\"{}\" -p \"$prompt\"", bin.display()))?;
+            hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
                 "Opened grok in Terminal. Query: {}.{skip_note}",
                 query.display()
@@ -3170,10 +3176,17 @@ pub fn launch_agent(
                 .spawn();
             match spawned {
                 Ok(mut child) => {
+                    hint.pid = Some(child.id());
                     let app2 = app.clone();
+                    let tid = task_id.clone();
                     std::thread::spawn(move || {
-                        let _ = child.wait();
-                        let _ = set_companion_hack(app2, false, None, None);
+                        let ok = child.wait().map(|st| st.success()).unwrap_or(false);
+                        let _ = set_companion_hack(app2.clone(), false, None, None);
+                        // Observed exit: close the task so boot never
+                        // has to guess about it.
+                        if let Some(tid) = tid {
+                            crate::task::end(&app2, &tid, if ok { "done" } else { "failed" });
+                        }
                     });
                     Ok(format!(
                         "Launched hermes -p {profile} chat. Query: {}.{skip_note}",
@@ -3206,6 +3219,11 @@ pub fn launch_agent(
     })();
     if let (Some(tid), Err(_)) = (task_id.as_deref(), &out) {
         crate::task::end(&app, tid, "failed");
+    }
+    if let (Some(tid), Ok(_)) = (task_id.as_deref(), &out) {
+        if hint.pid.is_some() || hint.pid_file.is_some() {
+            crate::task::note_live(&app, tid, &hint);
+        }
     }
     out
 }

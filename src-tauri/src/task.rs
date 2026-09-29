@@ -30,6 +30,38 @@ struct Meta {
     snapshot: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     undone_at: Option<f64>,
+    /// Liveness hints for the process running this task, so boot can
+    /// tell a still-running (or cleanly exited) agent from a dead one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pid: Option<u32>,
+    /// Terminal `.command` launcher pid file: written with `$$` at start,
+    /// removed by the EXIT trap. Missing = the script exited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pid_file: Option<String>,
+}
+
+/// What launch_agent learned about the process it handed off to.
+#[derive(Default, Clone, Debug)]
+pub struct LiveHint {
+    pub pid: Option<u32>,
+    pub pid_file: Option<PathBuf>,
+}
+
+/// Record liveness hints on an open task (best-effort).
+pub fn note_live(app: &AppHandle, task_id: &str, hint: &LiveHint) {
+    let Ok(root) = tasks_root(app) else {
+        return;
+    };
+    let dir = root.join(task_id);
+    let Some(mut meta) = read_meta(&dir) else {
+        return;
+    };
+    if meta.ended_at.is_some() {
+        return;
+    }
+    meta.pid = hint.pid;
+    meta.pid_file = hint.pid_file.as_ref().map(|p| p.to_string_lossy().into_owned());
+    let _ = write_meta(&dir, &meta);
 }
 
 fn now_secs() -> f64 {
@@ -157,6 +189,8 @@ pub fn start(app: &AppHandle, project_id: &str, card_id: Option<&str>) -> Option
         reason: None,
         snapshot,
         undone_at: None,
+        pid: None,
+        pid_file: None,
     };
     let _ = write_meta(&dir, &meta);
     if let Some(cid) = card_id {
@@ -313,7 +347,115 @@ pub fn set_workspace_root(app: &AppHandle, project_id: &str, path: &str) -> Resu
     crate::board::save_with_events(app, &before, &after)
 }
 
-/// Orphans (no endedAt) → Needed, no relaunch. Sweep clones older than 7 days.
+/// Is this pid a live process? kill(pid, 0): 0 or EPERM = exists.
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    if pid == 0 || pid > i32::MAX as u32 {
+        return false;
+    }
+    if unsafe { kill(pid as i32, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(1) // EPERM
+}
+
+#[cfg(not(unix))]
+fn pid_alive(_pid: u32) -> bool {
+    false
+}
+
+/// Terminal launcher pid file → Some(alive?) ; None = no file (the
+/// script's EXIT trap removed it, i.e. it exited).
+fn pid_file_alive(path: &Path) -> Option<bool> {
+    let s = fs::read_to_string(path).ok()?;
+    Some(s.trim().parse::<u32>().map(pid_alive).unwrap_or(false))
+}
+
+/// Everything boot learned about one open (no endedAt) task.
+#[derive(Default, Debug, Clone, Copy)]
+struct Probe {
+    /// Recorded child pid: Some(alive?).
+    pid: Option<bool>,
+    /// Launcher pid file: None = no file known; Some(None) = known but
+    /// gone (clean exit); Some(Some(alive?)) = file present.
+    pid_file: Option<Option<bool>>,
+    /// herdr pane agent for this card: Some(alive?).
+    herdr: Option<bool>,
+    /// The task's card is still in Doing.
+    card_doing: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Verdict {
+    /// Process still running — leave the task open, no Needed.
+    Alive,
+    /// Process gone but the card already left Doing — close quietly.
+    Exited,
+    /// Process gone and the card is stuck in Doing — the real "died".
+    Died,
+}
+
+/// Only call a run dead when every known liveness signal says gone.
+fn classify(p: &Probe) -> Verdict {
+    let alive = p.pid == Some(true)
+        || p.pid_file == Some(Some(true))
+        || p.herdr == Some(true);
+    if alive {
+        Verdict::Alive
+    } else if p.card_doing {
+        Verdict::Died
+    } else {
+        Verdict::Exited
+    }
+}
+
+fn probe(meta: &Meta, st: Option<&crate::state::PersistedState>, context_dir: Option<&Path>) -> Probe {
+    let card = meta
+        .card_id
+        .as_deref()
+        .and_then(|cid| st.and_then(|s| s.kanban_cards.iter().find(|c| c.id == cid)));
+    let card_doing = card.map(|c| c.status == "doing").unwrap_or(false);
+    // Pid file: recorded path, else the per-shortcut launcher path
+    // (context/agent-<shortcut>.pid) for tasks written before the hint.
+    let pid_file = meta
+        .pid_file
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| {
+            let sc = card.and_then(|c| c.assigned_agent_id.as_deref())?;
+            let dir = context_dir?;
+            Some(dir.join(format!("agent-{}.pid", crate::coordinator::safe_id(sc))))
+        })
+        .map(|p| pid_file_alive(&p));
+    // Only report a pid-file signal we can trust: a recorded path, or a
+    // derived one that actually exists (legacy derive with no file says
+    // nothing — that launcher may never have been a Terminal door).
+    let pid_file = match (meta.pid_file.is_some(), pid_file) {
+        (true, pf) => pf,
+        (false, Some(Some(a))) => Some(Some(a)),
+        _ => None,
+    };
+    let herdr = meta.card_id.as_deref().and_then(|cid| {
+        let run = st?.agent_runs.iter().find(|r| r.card_id == cid)?;
+        let rec = run.herdr.as_ref()?;
+        Some(crate::herdr::agent_alive(&rec.agent_name))
+    });
+    Probe {
+        pid: meta.pid.map(pid_alive),
+        pid_file,
+        herdr,
+        card_doing,
+    }
+}
+
+/// Orphans (no endedAt): only a run whose process is really gone while
+/// its card is still Doing → Needed ("died"). A still-running agent is
+/// left open; a gone one whose card already moved closes quietly. Sweep
+/// clones older than 7 days. The liveness probes (pid, pid file, herdr
+/// CLI) run on a worker thread so boot never waits on them.
 pub fn boot(app: &AppHandle) {
     let Ok(root) = tasks_root(app) else {
         return;
@@ -323,35 +465,62 @@ pub fn boot(app: &AppHandle) {
     let Ok(rd) = fs::read_dir(&root) else {
         return;
     };
+    let mut open: Vec<(PathBuf, Meta)> = Vec::new();
     for ent in rd.flatten() {
         let dir = ent.path();
         if !dir.is_dir() {
             continue;
         }
-        let Some(mut meta) = read_meta(&dir) else {
+        let Some(meta) = read_meta(&dir) else {
             continue;
         };
         if meta.ended_at.is_none() {
-            let why = format!(
-                "task={} card={} This run died — resume or drop.",
-                meta.task_id,
-                meta.card_id.as_deref().unwrap_or("-")
-            );
-            let _ = crate::board::needed_open(
-                app,
-                "This run died — resume or drop?",
-                &meta.project_id,
-                Some(&why),
-            );
-            meta.ended_at = Some(now);
-            meta.reason = Some("crashed".into());
-            let _ = write_meta(&dir, &meta);
+            open.push((dir, meta));
         } else if let Some(end) = meta.ended_at {
             if now - end > week {
                 let _ = fs::remove_dir_all(&dir);
             }
         }
     }
+    if open.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let st = crate::state::load_state(&app).ok();
+        let context_dir = app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|d| d.join("context"));
+        for (dir, mut meta) in open {
+            let p = probe(&meta, st.as_ref(), context_dir.as_deref());
+            match classify(&p) {
+                Verdict::Alive => {}
+                Verdict::Exited => {
+                    meta.ended_at = Some(now_secs());
+                    meta.reason = Some("exited".into());
+                    let _ = write_meta(&dir, &meta);
+                }
+                Verdict::Died => {
+                    let why = format!(
+                        "task={} card={} This run died — resume or drop.",
+                        meta.task_id,
+                        meta.card_id.as_deref().unwrap_or("-")
+                    );
+                    let _ = crate::board::needed_open(
+                        &app,
+                        "This run died — resume or drop?",
+                        &meta.project_id,
+                        Some(&why),
+                    );
+                    meta.ended_at = Some(now_secs());
+                    meta.reason = Some("crashed".into());
+                    let _ = write_meta(&dir, &meta);
+                }
+            }
+        }
+    });
 }
 
 pub fn project_for_cwd(app: &AppHandle, cwd: Option<&str>) -> Option<String> {
@@ -426,5 +595,62 @@ mod stamp_tests {
         let mut c = card("c2", future);
         touch(&mut c);
         assert!(c.last_touched_at > future);
+    }
+}
+
+#[cfg(test)]
+mod boot_liveness_tests {
+    use super::*;
+
+    fn p(pid: Option<bool>, pid_file: Option<Option<bool>>, herdr: Option<bool>, doing: bool) -> Probe {
+        Probe { pid, pid_file, herdr, card_doing: doing }
+    }
+
+    #[test]
+    fn live_process_is_never_died() {
+        assert_eq!(classify(&p(Some(true), None, None, true)), Verdict::Alive);
+        assert_eq!(classify(&p(None, Some(Some(true)), None, true)), Verdict::Alive);
+        assert_eq!(classify(&p(None, None, Some(true), true)), Verdict::Alive);
+        // Any one live signal wins over dead ones.
+        assert_eq!(classify(&p(Some(false), Some(None), Some(true), true)), Verdict::Alive);
+    }
+
+    #[test]
+    fn gone_with_card_in_doing_is_died() {
+        assert_eq!(classify(&p(Some(false), None, None, true)), Verdict::Died);
+        assert_eq!(classify(&p(None, Some(Some(false)), None, true)), Verdict::Died);
+        assert_eq!(classify(&p(None, Some(None), None, true)), Verdict::Died);
+        assert_eq!(classify(&p(None, None, Some(false), true)), Verdict::Died);
+        // No hint at all (synchronous action run the app itself owned).
+        assert_eq!(classify(&p(None, None, None, true)), Verdict::Died);
+    }
+
+    #[test]
+    fn gone_with_card_moved_on_closes_quietly() {
+        assert_eq!(classify(&p(Some(false), None, None, false)), Verdict::Exited);
+        assert_eq!(classify(&p(None, Some(None), None, false)), Verdict::Exited);
+        assert_eq!(classify(&p(None, None, None, false)), Verdict::Exited);
+    }
+
+    #[test]
+    fn pid_alive_self_and_dead() {
+        assert!(pid_alive(std::process::id()));
+        assert!(!pid_alive(0));
+        // A pid far above the macOS pid_max (99998) is never a process.
+        assert!(!pid_alive(4_000_000));
+    }
+
+    #[test]
+    fn pid_file_states() {
+        let dir = std::env::temp_dir().join(format!("orbitty-pidf-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let f = dir.join("agent-x.pid");
+        let _ = fs::remove_file(&f);
+        assert_eq!(pid_file_alive(&f), None);
+        fs::write(&f, format!("{}\n", std::process::id())).unwrap();
+        assert_eq!(pid_file_alive(&f), Some(true));
+        fs::write(&f, "4000000\n").unwrap();
+        assert_eq!(pid_file_alive(&f), Some(false));
+        let _ = fs::remove_dir_all(&dir);
     }
 }
