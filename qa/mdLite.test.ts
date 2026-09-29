@@ -60,3 +60,14 @@ test("quote breakout does not become an attribute", () => {
   assert.equal(/<a[^>]*onclick/.test(html), false);
   assert.match(html, /data-link="https:\/\/evil.com"/);
 });
+
+test("ampersands in urls are escaped once", () => {
+  const html = mdLite("https://example.com/q?a=1&b=2");
+  assert.equal(
+    html,
+    '<a data-link="https://example.com/q?a=1&amp;b=2">https://example.com/q?a=1&amp;b=2</a>',
+  );
+  assert.equal(html.includes("&amp;amp;"), false);
+  const m = html.match(/data-link="([^"]*)"/);
+  assert.equal(m?.[1].replace(/&amp;/g, "&"), "https://example.com/q?a=1&b=2");
+});

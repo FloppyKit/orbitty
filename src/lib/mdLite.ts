@@ -40,6 +40,17 @@ function attrEscape(s: string): string {
     .replace(/</g, "&lt;");
 }
 
+// Matched text is already HTML-escaped; undo that before attrEscape so
+// `?a=1&b=2` yields data-link="…&amp;b=2" (reads back as `&b=2`), not
+// a double-escaped `&amp;amp;`. `&amp;` goes last so `&amp;lt;` stays `&lt;`.
+function unescapeHtml(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
+}
+
 function linkify(s: string): string {
   const linkRe =
     /(?:https:\/\/[A-Za-z0-9._~:/?#\[\]!$&'()*+,;=%-]+|file:\/\/\/[A-Za-z0-9._~:/?#\[\]!$&'()*+,;=%-]+|\/Users\/[A-Za-z0-9._~:/?#\[\]!$&'()*+,;=%-]+)/g;
@@ -55,7 +66,7 @@ function linkify(s: string): string {
       url = url.slice(0, -1);
     }
     if (!url || url === "https://" || url === "file:///") return m;
-    return `<a data-link="${attrEscape(url)}">${url}</a>${rest}`;
+    return `<a data-link="${attrEscape(unescapeHtml(url))}">${url}</a>${rest}`;
   });
 }
 
@@ -64,6 +75,18 @@ export function mdLiteLinkUrl(target: EventTarget | null): string | null {
   const a = target.closest("a[data-link]");
   const url = a?.getAttribute("data-link");
   return url && url.length > 0 ? url : null;
+}
+
+// Keyboard twin of mdLiteLinkUrl for a focusable md-lite container:
+// Enter/Space opens the link under the event target, else the
+// container's first link. null = not a link key or no link to open.
+export function mdLiteKeyUrl(e: KeyboardEvent): string | null {
+  if (e.key !== "Enter" && e.key !== " ") return null;
+  const own = mdLiteLinkUrl(e.target);
+  if (own) return own;
+  const box = e.currentTarget;
+  if (!(box instanceof Element)) return null;
+  return mdLiteLinkUrl(box.querySelector("a[data-link]"));
 }
 
 function splitRow(line: string): string[] {

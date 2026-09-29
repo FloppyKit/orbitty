@@ -7,7 +7,7 @@
 
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, onDestroy, tick } from "svelte";
-  import { mdLite, mdLiteLinkUrl, fitPages } from "./mdLite";
+  import { mdLite, mdLiteLinkUrl, mdLiteKeyUrl, fitPages } from "./mdLite";
   import type { CompanionTurn } from "./persist";
 
   function fitBlip(text: string): string {
@@ -226,8 +226,8 @@
     ccOpen = !ccOpen;
   }
 
-  function openLite(e: MouseEvent): boolean {
-    const url = mdLiteLinkUrl(e.target);
+  function openLite(e: MouseEvent | KeyboardEvent): boolean {
+    const url = e instanceof KeyboardEvent ? mdLiteKeyUrl(e) : mdLiteLinkUrl(e.target);
     if (!url) return false;
     e.preventDefault();
     e.stopPropagation();
@@ -434,7 +434,10 @@
     class:hostoverlay={hosted}
     class:pagedlock={pagedTurnIdx >= 0}
     bind:this={transcriptEl}
+    role="button"
+    tabindex="0"
     onclick={openLite}
+    onkeydown={openLite}
   >
     {#each turns as t, i}
       <div class="row" class:you={t.role === "you"} class:them={t.role !== "you"}>

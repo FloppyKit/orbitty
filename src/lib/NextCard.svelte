@@ -11,7 +11,7 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
-  import { mdLite, mdLiteLinkUrl } from "./mdLite";
+  import { mdLite, mdLiteLinkUrl, mdLiteKeyUrl } from "./mdLite";
   import "./mdLite.css";
   import type {
     AverageWindow,
@@ -33,8 +33,8 @@
 
   let linkMsg = $state("");
 
-  function openLite(e: MouseEvent) {
-    const url = mdLiteLinkUrl(e.target);
+  function openLite(e: MouseEvent | KeyboardEvent) {
+    const url = e instanceof KeyboardEvent ? mdLiteKeyUrl(e) : mdLiteLinkUrl(e.target);
     if (!url) return;
     e.preventDefault();
     e.stopPropagation();
@@ -437,7 +437,13 @@
       {#if lpTab === "needed" && neededCard}
         <p class="nc-title">{neededCard.title}</p>
         {#if neededCard.neededWhy}
-          <div class="nc-why md-lite" onclick={(e) => openLite(e)}>{@html mdLite(neededCard.neededWhy)}</div>
+          <div
+            class="nc-why md-lite"
+            role="button"
+            tabindex="0"
+            onclick={(e) => openLite(e)}
+            onkeydown={(e) => openLite(e)}
+          >{@html mdLite(neededCard.neededWhy)}</div>
           {#if linkMsg}<p class="nc-why">{linkMsg}</p>{/if}
         {/if}
         <div class="nc-answer">
@@ -455,7 +461,13 @@
       {:else if todoCard}
         <p class="nc-title">{todoCard.title}</p>
         {#if todoCard.notes}
-          <div class="nc-why md-lite" onclick={(e) => openLite(e)}>{@html mdLite(todoCard.notes)}</div>
+          <div
+            class="nc-why md-lite"
+            role="button"
+            tabindex="0"
+            onclick={(e) => openLite(e)}
+            onkeydown={(e) => openLite(e)}
+          >{@html mdLite(todoCard.notes)}</div>
         {/if}
         {#if linkMsg}
           <p class="nc-why">{linkMsg}</p>

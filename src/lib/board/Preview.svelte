@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { KanbanCard, Project } from "../persist";
-  import { mdLiteLinkUrl } from "../mdLite";
+  import { mdLiteLinkUrl, mdLiteKeyUrl } from "../mdLite";
   let linkUrl = $state("");
   let linkLabel = $state("");
   let linkFor = "";
@@ -68,6 +68,14 @@
     e.stopPropagation();
     openUrl(url);
   }
+
+  function onLiteKey(e: KeyboardEvent) {
+    const url = mdLiteKeyUrl(e);
+    if (!url) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openUrl(url);
+  }
 </script>
 
     <div
@@ -128,7 +136,7 @@
             {/if}
           </div>
           {#if card.neededWhy}
-            <div class="kn-why md-lite" onclick={onLiteClick}>{@html mdLite(card.neededWhy)}</div>
+            <div class="kn-why md-lite" role="button" tabindex="0" onclick={onLiteClick} onkeydown={onLiteKey}>{@html mdLite(card.neededWhy)}</div>
           {/if}
         {:else}
         {#if !previewEdit}
@@ -153,7 +161,7 @@
             <p class="d-read-line">Rating {card.rating}</p>
           {/if}
           {#if card.notes}
-            <div class="d-read-notes md-lite" onclick={onLiteClick}>{@html mdLite(card.notes)}</div>
+            <div class="d-read-notes md-lite" role="button" tabindex="0" onclick={onLiteClick} onkeydown={onLiteKey}>{@html mdLite(card.notes)}</div>
           {/if}
           {#if due}
             <p class="d-read-line" class:overdue={due.overdue}>{due.label}</p>
@@ -429,7 +437,6 @@
                 aria-label="Remove link"
                 title="Remove link"
                 onclick={() => removeCardLink(card, link.url)}>×</button>
-              >
             </div>
           {:else}
             <p class="d-hint">No links yet.</p>
@@ -462,7 +469,6 @@
                 linkUrl = "";
                 linkLabel = "";
               }}>Add link</button>
-            >
           </div>
         </div>
         {/if}
