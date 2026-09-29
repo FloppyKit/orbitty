@@ -115,7 +115,7 @@ pub fn handoff_prompt(app: &tauri::AppHandle, wrapped_line: &str) -> String {
     )
 }
 
-/// `grok -p <handoff> --resume <old> --fork-session -s <new> …`: resume the
+/// `grok --single=<handoff> --resume <old> --fork-session -s <new> …`: resume the
 /// dying session but fork it into a fresh id — history carries, the old id
 /// is left alone. (`-s` with `--resume` is valid only with --fork-session;
 /// it names the fork.)
@@ -126,7 +126,8 @@ fn grok_fork_args(
     line: &str,
     tools_ok: bool,
 ) -> Vec<String> {
-    let mut args: Vec<String> = vec!["-p".into(), line.to_string()];
+    // Attached: `-p <line>` rejects a line starting with `-`.
+    let mut args: Vec<String> = vec![format!("--single={line}")];
     args.push("--resume".into());
     args.push(old_sid.to_string());
     args.push("--fork-session".into());
@@ -248,4 +249,17 @@ pub fn goose_rollover(
     }
     capture_goose_session(bin);
     Ok(reply)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fork_args_attach_a_dashed_line_to_single() {
+        let line = "---\n--force not a flag";
+        let args = grok_fork_args("old", "new", "soul", line, true);
+        assert_eq!(args[0], format!("--single={line}"));
+        assert!(!args.iter().any(|a| a == "-p" || a == line));
+    }
 }

@@ -148,6 +148,23 @@ pub(crate) fn cursor_exec_line(bin: &str, model: &str, preset: &str) -> String {
     line
 }
 
+/// Goose terminal door. The prompt is an option value, so it is attached
+/// (`--text="$prompt"`, one argv): clap takes everything after `=`
+/// literally, while `-t "$prompt"` rejects a prompt starting with `-`/`---`
+/// and `--` does not help (goose 1.44.0).
+pub(crate) fn goose_exec_line(bin: &str) -> String {
+    format!(
+        "{} run --with-builtin=developer,computercontroller --text=\"$prompt\"",
+        crate::coordinator::sq(bin)
+    )
+}
+
+/// Grok terminal door: `--single="$prompt"`, attached for the same reason
+/// (`-p ---x` and `-p -- ---x` both fail in grok 1.0.41).
+pub(crate) fn grok_exec_line(bin: &str) -> String {
+    format!("{} --single=\"$prompt\"", crate::coordinator::sq(bin))
+}
+
 /// Lowercase + allowlist. Unknown = honest error — never a fall-through.
 fn normalize_harness(raw: &str) -> Result<String, String> {
     let h = raw.trim().to_ascii_lowercase();

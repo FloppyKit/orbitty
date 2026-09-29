@@ -1936,8 +1936,9 @@ pub(crate) fn goose_args(
     // Equals form, one argv: clap takes everything after `=` literally,
     // even a value that starts with `-`.
     args.push(format!("--system={soul}"));
-    args.push("-t".into());
-    args.push(line.to_string());
+    // Same equals form for the line: `-t <line>` rejects a line starting
+    // with `-`.
+    args.push(format!("--text={line}"));
     args
 }
 
@@ -2050,7 +2051,8 @@ pub(crate) fn grok_args(
 ) -> Vec<String> {
     let mut args: Vec<String> = match vision_json {
         Some(j) => vec!["--prompt-json".into(), j.to_string()],
-        None => vec!["-p".into(), line.to_string()],
+        // Attached: `-p <line>` rejects a line starting with `-`.
+        None => vec![format!("--single={line}")],
     };
     if minted {
         args.push("--resume".into());
@@ -3598,10 +3600,7 @@ pub fn launch_agent(
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
-                &format!(
-                    "{} run --with-builtin=developer,computercontroller -t \"$prompt\"",
-                    sq(&bin.display().to_string())
-                ),
+                &crate::agents::goose_exec_line(&bin.display().to_string()),
                 Some(workspace.as_str()),
                 planet_for_log,
             )?;
@@ -3634,7 +3633,7 @@ pub fn launch_agent(
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
-                &format!("{} -p \"$prompt\"", sq(&bin.display().to_string())),
+                &crate::agents::grok_exec_line(&bin.display().to_string()),
                 Some(workspace.as_str()),
                 planet_for_log,
             )?;
@@ -4170,6 +4169,63 @@ mod launch_tests {
                 find_pwned(&p, hits);
             }
         }
+    }
+
+    /// Run a generated terminal door under zsh with a stub that records its
+    /// argv NUL-separated; returns that argv.
+    fn run_door_with_prompt(tag: &str, name: &str, exec_for: impl Fn(&str) -> String, prompt: &str) -> (String, Vec<String>) {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tmp(tag);
+        let exe = |n: &str| {
+            let p = base.join(n);
+            std::fs::write(&p, "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\000' \"$a\"; done > \"$0.args\"\n").unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let bin = exe(name);
+        let ctl = exe("orbittyctl");
+        let query = base.join("q.md");
+        std::fs::write(&query, prompt).unwrap();
+        let exec = exec_for(bin.to_str().unwrap());
+        let script = base.join("run.command");
+        let body = agent_command_body(&query, &script, &base.join("run.pid"), &exec, &ctl, &base.join("sock"), Some(base.to_str().unwrap()));
+        std::fs::write(&script, &body).unwrap();
+        let run = std::process::Command::new("/bin/zsh").arg(&script).current_dir(&base).output().unwrap();
+        assert!(run.status.success(), "run: {}", String::from_utf8_lossy(&run.stderr));
+        let raw = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
+        let args = raw.trim_end_matches('\0').split('\0').map(String::from).collect();
+        let _ = std::fs::remove_dir_all(&base);
+        (exec, args)
+    }
+
+    const DASHED: &str = "---\nid: GO-DASHES\n---\n-t and -p and --force are text here $(touch PWNED_D)";
+
+    #[test]
+    fn goose_prompt_starting_with_dashes_is_the_attached_text_value() {
+        if !Path::new("/bin/zsh").exists() {
+            return;
+        }
+        let (exec, args) = run_door_with_prompt("goose", "goose", crate::agents::goose_exec_line, DASHED);
+        assert!(exec.ends_with(" --text=\"$prompt\""), "{exec}");
+        assert!(!exec.contains(" -t "), "{exec}");
+        assert_eq!(args, vec!["run".to_string(), "--with-builtin=developer,computercontroller".into(), format!("--text={DASHED}")]);
+        let mouth = goose_args("soul", DASHED, None, true);
+        assert_eq!(mouth.last().unwrap(), &format!("--text={DASHED}"));
+        assert!(!mouth.iter().any(|a| a == "-t" || a == DASHED));
+    }
+
+    #[test]
+    fn grok_prompt_starting_with_dashes_is_the_attached_single_value() {
+        if !Path::new("/bin/zsh").exists() {
+            return;
+        }
+        let (exec, args) = run_door_with_prompt("grok", "grok", crate::agents::grok_exec_line, DASHED);
+        assert!(exec.ends_with(" --single=\"$prompt\""), "{exec}");
+        assert!(!exec.contains(" -p "), "{exec}");
+        assert_eq!(args, vec![format!("--single={DASHED}")]);
+        let mouth = grok_args("sid", false, "soul", DASHED, true, None);
+        assert_eq!(mouth[0], format!("--single={DASHED}"));
+        assert!(!mouth.iter().any(|a| a == "-p" || a == DASHED));
     }
 
     /// A GO passed as the prompt starts with `---`; the generated cursor
