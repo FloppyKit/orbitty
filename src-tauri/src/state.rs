@@ -1168,6 +1168,16 @@ pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (P
     );
     out.kanban_cards = cards;
     out.card_tombstones = tombs;
+    // taskId / taskReason are native-only (task::stamp_card / task::end);
+    // no window ever edits them. A window copy's values are always a stale
+    // echo, so disk wins regardless of lastTouchedAt — a real later window
+    // edit (newer stamp) must not carry an old taskId over the new one.
+    for c in out.kanban_cards.iter_mut() {
+        if let Some(d) = disk.kanban_cards.iter().find(|d| d.id == c.id) {
+            c.task_id = d.task_id.clone();
+            c.task_reason = d.task_reason.clone();
+        }
+    }
     (
         out,
         WindowMerge {
@@ -1617,6 +1627,51 @@ mod tests {
         &body[..end]
     }
 
+    /// `live.<field>` as a whole identifier — `live.private_relay_url` must
+    /// not count as naming `private_relay`.
+    fn names_field(body: &str, field: &str) -> bool {
+        let needle = format!("live.{field}");
+        body.match_indices(&needle).any(|(i, _)| {
+            body[i + needle.len()..]
+                .chars()
+                .next()
+                .map_or(true, |c| !(c.is_ascii_alphanumeric() || c == '_'))
+        })
+    }
+
+    #[test]
+    fn names_field_is_word_bounded() {
+        let body = "take_changed(&mut live.private_relay_url, &b, &a);";
+        assert!(names_field(body, "private_relay_url"));
+        assert!(!names_field(body, "private_relay"));
+    }
+
+    /// R3: a window holding a stale copy makes a real later edit (newer
+    /// lastTouchedAt). Its edit wins; disk's native taskId/taskReason stay.
+    #[test]
+    fn newer_window_edit_keeps_disk_task_fields() {
+        let mut disk = PersistedState::default();
+        let mut d = touch_card("c1", 10.0, Some("old notes"), None);
+        d.task_id = Some("t-abc".into());
+        d.task_reason = Some("done".into());
+        disk.kanban_cards.push(d);
+        let mut incoming = PersistedState::default();
+        // Window copy predates the stamp: no task fields, but a newer edit.
+        incoming.kanban_cards.push(touch_card("c1", 20.0, Some("new notes"), None));
+        let (out, _) = merge_window_save(&disk, &incoming);
+        let c = out.kanban_cards.iter().find(|c| c.id == "c1").unwrap();
+        assert_eq!(c.notes.as_deref(), Some("new notes"));
+        assert_eq!(c.last_touched_at, 20.0);
+        assert_eq!(c.task_id.as_deref(), Some("t-abc"));
+        assert_eq!(c.task_reason.as_deref(), Some("done"));
+
+        // A window can't clear or forge them either.
+        let mut forged = incoming.clone();
+        forged.kanban_cards[0].task_id = Some("t-forged".into());
+        let (out, _) = merge_window_save(&disk, &forged);
+        assert_eq!(out.kanban_cards[0].task_id.as_deref(), Some("t-abc"));
+    }
+
     #[test]
     fn writer_delta_lists_cover_every_field() {
         let src = include_str!("state.rs");
@@ -1627,11 +1682,11 @@ mod tests {
         let companion = fn_body(src, "fn apply_companion_delta(");
         let miss_top: Vec<_> = top
             .iter()
-            .filter(|f| !writer.contains(&format!("live.{f}")))
+            .filter(|f| !names_field(writer, f))
             .collect();
         let miss_comp: Vec<_> = comp
             .iter()
-            .filter(|f| !companion.contains(&format!("live.{f}")))
+            .filter(|f| !names_field(companion, f))
             .collect();
         assert!(
             miss_top.is_empty() && miss_comp.is_empty(),

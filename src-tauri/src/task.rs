@@ -140,8 +140,13 @@ fn read_meta(dir: &Path) -> Option<Meta> {
 /// copy any window already holds: `merge_window_save` breaks a tie in the
 /// window's favor, so an unbumped edit (taskId / taskReason) was wiped by
 /// the next stale window save.
+/// Clamped to now + 60 s: a bogus future stamp (clock rolled back, a ms
+/// value) is pulled back instead of carried forward. A sane prev (≤ now +
+/// 60 s) still yields a stamp strictly greater than prev.
 fn touch(card: &mut KanbanCard) {
-    card.last_touched_at = now_secs().max(card.last_touched_at + 0.001);
+    let now = now_secs();
+    let prev = card.last_touched_at.min(now + 60.0);
+    card.last_touched_at = now.max(prev + 0.001);
 }
 
 fn stamp_task_id(card: &mut KanbanCard, task_id: &str) {
@@ -639,15 +644,22 @@ mod stamp_tests {
     }
 
     #[test]
-    fn touch_is_strictly_newer_even_with_a_future_stamp() {
+    fn touch_is_strictly_newer_and_clamps_the_future() {
         let mut c = card("c1", 5.0);
         touch(&mut c);
         assert!(c.last_touched_at > 5.0);
-        // A clock behind the card's stamp still moves it forward.
-        let future = now_secs() + 1000.0;
-        let mut c = card("c2", future);
+        // Slightly ahead (clock skew within 60 s): still strictly newer.
+        let ahead = now_secs() + 30.0;
+        let mut c = card("c2", ahead);
         touch(&mut c);
-        assert!(c.last_touched_at > future);
+        assert!(c.last_touched_at > ahead);
+        // Bogus far-future / ms stamp: clamped to about now + 60 s.
+        for bogus in [now_secs() + 1000.0, 1.7e12] {
+            let mut c = card("c3", bogus);
+            let before = now_secs();
+            touch(&mut c);
+            assert!(c.last_touched_at > before && c.last_touched_at <= now_secs() + 60.01);
+        }
     }
 }
 
