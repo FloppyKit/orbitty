@@ -3415,6 +3415,21 @@ fn open_agent_terminal(
     }
 }
 
+/// A row value failed launch validation: log it, and hand back the
+/// human-facing error (the launch is refused; nothing ran).
+fn launch_refused(app: &tauri::AppHandle, planet: Option<&str>, harness: &str, why: &str) -> String {
+    crate::event_log::append_best(
+        app,
+        "agent-launch-refused",
+        None,
+        planet,
+        Some("agent"),
+        true,
+        &serde_json::json!({ "harness": harness, "reason": why }),
+    );
+    format!("{harness} launch refused: {why}")
+}
+
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
 /// writes the query file and hands off — it never runs the model.
 /// The harness is per row (cursor | goose | grok
@@ -3509,13 +3524,18 @@ pub fn launch_agent(
         "cursor" => {
             let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
             // The model reaches herdr argv and a zsh line: refuse, never strip.
-            let model = crate::agents::cursor_model(shortcut.model.as_deref());
-            crate::agents::validate_model(&model)?;
+            let model = crate::agents::launch_model(&shortcut)
+                .map_err(|why| launch_refused(&app, planet_for_log, "cursor", &why))?;
             let ws = Path::new(&workspace);
-            // Project permissions exist only for a launch that happened:
-            // written once a door is chosen, rolled back if that door
-            // doesn't launch. Refusals (tracked file, $HOME, main
-            // ~/orbitty checkout…) are logged; the launch still goes.
+            // Project permissions exist only for a launch that happened.
+            // The file is written once a door is chosen: before
+            // herdr::branch() for the herdr door (herdr starts
+            // cursor-agent itself, so it must already be there), and again
+            // for the terminal door once cursor-agent is found. Either is
+            // rolled back if that door doesn't launch (herdr skip, open
+            // failure). Refusals (tracked cli.json, /, $HOME, ~/.cursor) are
+            // logged and the launch still goes. A main checkout, ~/orbitty
+            // included, is allowed; the local exclude keeps it uncommitted.
             let install = || match install_cursor_permissions(ws, preset) {
                 Ok(undo) => Some(undo),
                 Err(why) => {
@@ -3647,29 +3667,15 @@ pub fn launch_agent(
         // with the query file. No terminal launcher on that fallback, so
         // a waiter thread owns the LED off. Detached stdio, never a poll.
         "hermes" => {
+            // Profile + model reach hermes argv: validated before any door.
+            let args = crate::agents::hermes_args(&shortcut, &query)
+                .map_err(|why| launch_refused(&app, planet_for_log, "hermes", &why))?;
             match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
                     return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
                 }
-            }
-            let profile = {
-                let p = shortcut.profile.trim();
-                if p.is_empty() { "grok" } else { p }
-            };
-            let mut args: Vec<String> = vec![
-                "-p".into(),
-                profile.into(),
-                "chat".into(),
-                "--create-if-missing".into(),
-                "-Q".into(),
-                "--query-file".into(),
-                query.display().to_string(),
-            ];
-            if let Some(m) = shortcut.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-                args.push("-m".into());
-                args.push(m.to_string());
             }
             let spawned = Command::new("hermes")
                 .args(&args)
@@ -3692,7 +3698,8 @@ pub fn launch_agent(
                         }
                     });
                     Ok(format!(
-                        "Launched hermes -p {profile} chat. Query: {}.{skip_note}",
+                        "Launched hermes {} chat. Query: {}.{skip_note}",
+                        args[0],
                         query.display()
                     ))
                 }
@@ -4150,6 +4157,45 @@ mod launch_tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// N1 source guard: the launch doors validate their row values FIRST.
+    /// Cursor: `launch_model(&shortcut)…?` before permissions, herdr and the
+    /// terminal. Hermes: `hermes_args(&shortcut, &query)…?` before herdr
+    /// and the spawn. Byte offsets inside each `launch_agent` arm.
+    fn launch_arm<'a>(src: &'a str, start: &str, next: &str) -> &'a str {
+        let body = &src[src.find("pub fn launch_agent(").expect("launch_agent")..];
+        let a = body.find(start).unwrap_or_else(|| panic!("no arm {start}"));
+        let b = a + body[a..].find(next).unwrap_or_else(|| panic!("no arm {next}"));
+        &body[a..b]
+    }
+
+    /// Offset of `call`, asserting its statement ends in `?;`.
+    fn checked_call(arm: &str, call: &str) -> usize {
+        let at = arm.find(call).unwrap_or_else(|| panic!("missing {call}"));
+        let stmt_end = at + arm[at..].find(';').unwrap();
+        assert!(arm[..stmt_end].ends_with('?'), "{call} must end in `?;`");
+        at
+    }
+
+    #[test]
+    fn launch_doors_validate_before_herdr_and_spawn() {
+        let src = include_str!("coordinator.rs");
+        let cursor = launch_arm(src, "\n        \"cursor\" => {", "\n        \"goose\" => {");
+        let at = checked_call(cursor, "crate::agents::launch_model(&shortcut)");
+        for later in ["install_cursor_permissions(", "crate::herdr::branch(", "open_agent_terminal("] {
+            let pos = cursor.find(later).unwrap_or_else(|| panic!("cursor arm lost {later}"));
+            assert!(at < pos, "launch_model must come before {later}");
+        }
+        assert!(!cursor.contains("cursor_model("), "cursor arm resolves the model via launch_model");
+
+        let hermes = launch_arm(src, "\n        \"hermes\" => {", "\n        \"opencode\" =>");
+        let at = checked_call(hermes, "crate::agents::hermes_args(&shortcut, &query)");
+        for later in ["crate::herdr::branch(", "Command::new(\"hermes\")"] {
+            let pos = hermes.find(later).unwrap_or_else(|| panic!("hermes arm lost {later}"));
+            assert!(at < pos, "hermes_args must come before {later}");
+        }
+        assert!(!hermes.contains("\"-m\"") && !hermes.contains("\"-p\""), "hermes argv comes from hermes_args");
+    }
+
     #[test]
     fn sq_escapes_single_quotes() {
         assert_eq!(sq("a b"), "'a b'");
@@ -4267,7 +4313,7 @@ mod launch_tests {
         assert!(run.status.success(), "run: {}", String::from_utf8_lossy(&run.stderr));
         let raw = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
         let args: Vec<&str> = raw.trim_end_matches('\0').split('\0').collect();
-        assert_eq!(args, vec!["--model", "grok-4.7-high", "--force", "--trust", "--", prompt]);
+        assert_eq!(args, vec!["--model=grok-4.7-high", "--force", "--trust", "--", prompt]);
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -4326,7 +4372,7 @@ mod launch_tests {
         let bin_args = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
         assert_eq!(
             bin_args,
-            format!("--model\n{model}\n--\nhello $(touch PWNED_PROMPT)\n")
+            format!("--model={model}\n--\nhello $(touch PWNED_PROMPT)\n")
         );
         let ctl_args = std::fs::read_to_string(format!("{}.args", ctl.display())).unwrap();
         assert_eq!(
