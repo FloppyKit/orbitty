@@ -869,9 +869,8 @@ mod tests {
     fn cursor_start_argv_passes_model_and_force_only_for_full_auto() {
         let ro = crate::agents::cursor_agent_args("grok-4.7-high", "read-only");
         let argv = start_argv("c-1", "cursor", "w2:p1", &ro);
-        assert!(argv
-            .windows(2)
-            .any(|w| w[0].as_str() == "--model" && w[1].as_str() == "grok-4.7-high"));
+        assert!(argv.iter().any(|a| a == "--model=grok-4.7-high"));
+        assert!(!argv.iter().any(|a| a == "--model"));
         assert!(!argv.iter().any(|a| a == "--force" || a == "--trust"));
         let fa = crate::agents::cursor_agent_args("grok-4.7-high", "full-auto");
         let argv = start_argv("c-1", "cursor", "w2:p1", &fa);

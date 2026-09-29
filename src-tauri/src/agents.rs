@@ -25,9 +25,15 @@ pub(crate) fn row_model(harness: &str, model: Option<&str>) -> Option<String> {
 }
 
 /// Model strings reach a shell line and herdr argv. Only
-/// `^[A-Za-z0-9._:/@+-]{1,100}$` — anything else is refused, never
-/// stripped or guessed at.
+/// `^[A-Za-z0-9._:/@+-]{1,100}$`, and never a leading `-` (a model like
+/// `--force` / `--yolo` / `-f` would read as a CLI flag) — anything else
+/// is refused, never stripped or guessed at.
 pub(crate) fn validate_model(model: &str) -> Result<(), String> {
+    if model.starts_with('-') {
+        return Err(format!(
+            "invalid model {model:?}: a model may not start with '-' (it would read as a flag)"
+        ));
+    }
     let ok_len = (1..=100).contains(&model.len());
     let ok_chars = model
         .chars()
@@ -123,10 +129,16 @@ pub(crate) fn cursor_permissions_value(preset: &str) -> Value {
     json!({ "allow": allow, "deny": deny })
 }
 
+/// One argv element `--model=<m>`: the value can never be parsed as a
+/// separate flag, whatever it holds.
+pub(crate) fn cursor_model_arg(model: &str) -> String {
+    format!("--model={model}")
+}
+
 /// Args after herdr's `--`, and the flags on the terminal exec line.
 /// `--force` / `--trust` only for an explicit full-auto row.
 pub(crate) fn cursor_agent_args(model: &str, preset: &str) -> Vec<String> {
-    let mut args = vec!["--model".into(), model.to_string()];
+    let mut args = vec![cursor_model_arg(model)];
     if normalize_permissions(Some(preset)) == "full-auto" {
         args.push("--force".into());
         args.push("--trust".into());
@@ -138,7 +150,7 @@ pub(crate) fn cursor_agent_args(model: &str, preset: &str) -> Vec<String> {
 /// validated by the caller (`validate_model`) as well.
 pub(crate) fn cursor_exec_line(bin: &str, model: &str, preset: &str) -> String {
     use crate::coordinator::sq;
-    let mut line = format!("{} --model {}", sq(bin), sq(model));
+    let mut line = format!("{} {}", sq(bin), sq(&cursor_model_arg(model)));
     if normalize_permissions(Some(preset)) == "full-auto" {
         line.push_str(" --force --trust");
     }
@@ -552,6 +564,32 @@ mod tests {
         assert!(validate_model(&"a".repeat(100)).is_ok());
     }
 
+    /// NB1: a flag-shaped model is refused, and the model always travels
+    /// as ONE `--model=<m>` argument (herdr argv and the terminal line).
+    #[test]
+    fn model_cannot_become_a_flag() {
+        for bad in ["--force", "--yolo", "-f", "-", "--trust"] {
+            let err = validate_model(bad).unwrap_err();
+            assert!(err.contains("may not start with '-'"), "{bad:?}: {err}");
+        }
+        assert!(validate_model("grok-4.7-high").is_ok());
+        assert!(validate_model("a-b").is_ok());
+
+        let args = cursor_agent_args("grok-4.7-high", "read-only");
+        assert_eq!(args, vec!["--model=grok-4.7-high".to_string()]);
+        assert!(!args.iter().any(|a| a == "--model"));
+        // Even an unvalidated flag-shaped value stays inside one element.
+        let args = cursor_agent_args("--force", "read-only");
+        assert_eq!(args, vec!["--model=--force".to_string()]);
+
+        let line = cursor_exec_line("/usr/local/bin/cursor-agent", "grok-4.7-high", "read-only");
+        assert_eq!(
+            line,
+            "'/usr/local/bin/cursor-agent' '--model=grok-4.7-high' \"$prompt\""
+        );
+        assert!(!line.contains("'--model' "));
+    }
+
     #[test]
     fn git_arg_globs_and_read_only_escape_denies() {
         for preset in ["read-only", "workspace-write", "full-auto"] {
@@ -598,7 +636,7 @@ mod tests {
         assert!(allow.iter().all(|t| !t.as_str().unwrap_or("").starts_with("Write(")));
         assert!(ro["deny"].as_array().unwrap().iter().any(|t| t == "Write(**)"));
         let ro_line = cursor_exec_line("/usr/local/bin/cursor-agent", "grok-4.7-high", "read-only");
-        assert!(ro_line.contains("--model 'grok-4.7-high'"));
+        assert!(ro_line.contains("'--model=grok-4.7-high'"));
         assert!(!ro_line.contains("--force"));
         assert!(!ro_line.contains("--trust"));
 

@@ -3442,10 +3442,15 @@ pub fn launch_agent(
             let model = crate::agents::cursor_model(shortcut.model.as_deref());
             crate::agents::validate_model(&model)?;
             let ws = Path::new(&workspace);
-            // Project permissions exist only for a launch that happened:
-            // written once a door is chosen, rolled back if that door
-            // doesn't launch. Refusals (tracked file, $HOME, main
-            // ~/orbitty checkout…) are logged; the launch still goes.
+            // Project permissions exist only for a launch that happened.
+            // The file is written once a door is chosen: before
+            // herdr::branch() for the herdr door (herdr starts
+            // cursor-agent itself, so it must already be there), and again
+            // for the terminal door once cursor-agent is found. Either is
+            // rolled back if that door doesn't launch (herdr skip, open
+            // failure). Refusals (tracked cli.json, /, $HOME, ~/.cursor) are
+            // logged and the launch still goes. A main checkout, ~/orbitty
+            // included, is allowed; the local exclude keeps it uncommitted.
             let install = || match install_cursor_permissions(ws, preset) {
                 Ok(undo) => Some(undo),
                 Err(why) => {
@@ -4092,7 +4097,7 @@ mod launch_tests {
         let bin_args = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
         assert_eq!(
             bin_args,
-            format!("--model\n{model}\nhello $(touch PWNED_PROMPT)\n")
+            format!("--model={model}\nhello $(touch PWNED_PROMPT)\n")
         );
         let ctl_args = std::fs::read_to_string(format!("{}.args", ctl.display())).unwrap();
         assert_eq!(
