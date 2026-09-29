@@ -47,6 +47,13 @@ pub struct LiveHint {
     pub pid_file: Option<PathBuf>,
 }
 
+/// The per-run launcher pid file recorded on this task, if any
+/// (agent_stop uses it to end exactly this run).
+pub fn recorded_pid_file(app: &AppHandle, task_id: &str) -> Option<PathBuf> {
+    let meta = read_meta(&tasks_root(app).ok()?.join(task_id))?;
+    meta.pid_file.map(PathBuf::from)
+}
+
 /// Record liveness hints on an open task (best-effort).
 pub fn note_live(app: &AppHandle, task_id: &str, hint: &LiveHint) {
     let Ok(root) = tasks_root(app) else {
@@ -374,6 +381,13 @@ fn pid_file_alive(path: &Path) -> Option<bool> {
     Some(s.trim().parse::<u32>().map(pid_alive).unwrap_or(false))
 }
 
+/// How long a Terminal launcher gets to write its pid file.
+const PID_FILE_GRACE_SECS: f64 = 30.0;
+
+fn young_missing_pid_file(missing: bool, started_at: f64, now: f64) -> bool {
+    missing && now - started_at < PID_FILE_GRACE_SECS
+}
+
 /// Everything boot learned about one open (no endedAt) task.
 #[derive(Default, Debug, Clone, Copy)]
 struct Probe {
@@ -442,6 +456,13 @@ fn probe(meta: &Meta, st: Option<&crate::state::PersistedState>, context_dir: Op
         (false, Some(Some(a))) => Some(Some(a)),
         _ => None,
     };
+    // F1-C: a recorded pid file that doesn't exist YET on a task that
+    // just started is Terminal not having run `echo $$` — not an exit.
+    let young_missing = young_missing_pid_file(
+        meta.pid_file.is_some() && pid_file == Some(None),
+        meta.started_at,
+        now_secs(),
+    );
     // Some(None) = there is a herdr run but the probe couldn't answer.
     let herdr_probe: Option<Option<bool>> = meta.card_id.as_deref().and_then(|cid| {
         let run = st?.agent_runs.iter().find(|r| r.card_id == cid)?;
@@ -452,7 +473,7 @@ fn probe(meta: &Meta, st: Option<&crate::state::PersistedState>, context_dir: Op
         pid: meta.pid.map(pid_alive),
         pid_file,
         herdr: herdr_probe.flatten(),
-        unknown: matches!(herdr_probe, Some(None)),
+        unknown: matches!(herdr_probe, Some(None)) || young_missing,
         card_doing,
     }
 }
@@ -653,6 +674,34 @@ mod boot_liveness_tests {
         assert_eq!(classify(&p(Some(false), None, None, false)), Verdict::Exited);
         assert_eq!(classify(&p(None, Some(None), None, false)), Verdict::Exited);
         assert_eq!(classify(&p(None, None, None, false)), Verdict::Exited);
+    }
+
+    #[test]
+    fn missing_pid_file_on_a_young_task_is_unknown() {
+        assert!(young_missing_pid_file(true, 1000.0, 1010.0));
+        assert!(!young_missing_pid_file(true, 1000.0, 1031.0));
+        assert!(!young_missing_pid_file(false, 1000.0, 1001.0));
+    }
+
+    #[test]
+    fn two_runs_of_one_shortcut_get_their_own_pid_files() {
+        let dir = std::path::Path::new("/tmp/ctx");
+        let (sa, pa) = crate::coordinator::terminal_run_paths(dir, "grok row", "t-1a");
+        let (sb, pb) = crate::coordinator::terminal_run_paths(dir, "grok row", "t-1b");
+        assert_ne!(pa, pb);
+        assert_ne!(sa, sb);
+        assert_eq!(pa, dir.join("agent-grok_row-t-1a.pid"));
+        assert_eq!(sa, dir.join("agent-grok_row-t-1a.command"));
+        // Run B exiting (its trap removes only ITS file) leaves A's file:
+        let tmp = std::env::temp_dir().join(format!("orbitty-2runs-{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+        let (_, a) = crate::coordinator::terminal_run_paths(&tmp, "s", "ta");
+        let (_, b) = crate::coordinator::terminal_run_paths(&tmp, "s", "tb");
+        fs::write(&a, format!("{}\n", std::process::id())).unwrap();
+        fs::write(&b, "4000000\n").unwrap();
+        let _ = fs::remove_file(&b);
+        assert_eq!(pid_file_alive(&a), Some(true));
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     #[test]

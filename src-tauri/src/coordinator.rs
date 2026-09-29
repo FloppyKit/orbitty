@@ -3002,23 +3002,37 @@ fn write_agent_query(
 /// a stuck on-light is a leftover, not a feature); HUP (Terminal window
 /// closed) exits through the same trap. Silent + best-effort: a missing
 /// ctl never noises up the harness session.
-fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
-    let script = query.with_extension("command");
+/// Per-launch Terminal launcher paths in `context/`:
+/// `agent-<shortcut>-<run>.command` / `.pid`. Per RUN, not per shortcut —
+/// two runs of one shortcut used to share `agent-<shortcut>.pid`, and the
+/// second run's EXIT trap deleted the file the first still needed (boot
+/// then called the live first run dead; stop could kill the wrong one).
+/// `run` is the task id, else the card id, else a launch nonce.
+pub(crate) fn terminal_run_paths(context_dir: &Path, shortcut_id: &str, run: &str) -> (PathBuf, PathBuf) {
+    let stem = format!("agent-{}-{}", safe_id(shortcut_id), safe_id(run));
+    (
+        context_dir.join(format!("{stem}.command")),
+        context_dir.join(format!("{stem}.pid")),
+    )
+}
+
+fn open_agent_terminal(query: &Path, script: &Path, pidf: &Path, exec_line: &str) -> Result<(), String> {
     let ctl = std::env::var("HOME")
         .map(|h| format!("{h}/.local/bin/orbittyctl"))
         .unwrap_or_else(|_| "orbittyctl".into());
-    let pidf = query.with_extension("pid");
+    // The per-run script removes its pid file and itself on exit.
     let body = format!(
-        "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\necho $$ > \"{pid}\"\ntrap 'exit' HUP\ntrap '\"{ctl}\" companion hack -- off >/dev/null 2>&1 || true; rm -f \"{pid}\"' EXIT\n{exec_line}\n",
+        "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\necho $$ > \"{pid}\"\ntrap 'exit' HUP\ntrap '\"{ctl}\" companion hack -- off >/dev/null 2>&1 || true; rm -f \"{pid}\" \"{script}\"' EXIT\n{exec_line}\n",
         q = query.display(),
         pid = pidf.display(),
+        script = script.display(),
     );
-    std::fs::write(&script, &body)
+    std::fs::write(script, &body)
         .map_err(|e| format!("write {}: {e}", script.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755));
     }
     if spawn_detached("open", &[script.to_string_lossy().as_ref()]) {
         Ok(())
@@ -3066,7 +3080,19 @@ pub fn launch_agent(
     };
     // Boot liveness (task::boot): what we handed off to, per door.
     let mut hint = crate::task::LiveHint::default();
-    let terminal_pid_file = query.with_extension("pid");
+    let run_tag = task_id.clone().or_else(|| card_id.clone()).unwrap_or_else(|| {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        format!("n{ms:x}")
+    });
+    let context_dir = query
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (terminal_script, terminal_pid_file) =
+        terminal_run_paths(&context_dir, &shortcut.id, &run_tag);
     let out: Result<String, String> = (|| {
     match shortcut.harness.trim().to_ascii_lowercase().as_str() {
         "cursor" => {
@@ -3088,6 +3114,8 @@ pub fn launch_agent(
                 .unwrap_or_default();
             open_agent_terminal(
                 &query,
+                &terminal_script,
+                &terminal_pid_file,
                 &format!("\"{}\"{model_arg} \"$prompt\"", bin.display()),
             )?;
             hint.pid_file = Some(terminal_pid_file.clone());
@@ -3109,6 +3137,8 @@ pub fn launch_agent(
             // (BLOCK-MH-4): the agent can act, not just talk.
             open_agent_terminal(
                 &query,
+                &terminal_script,
+                &terminal_pid_file,
                 &format!(
                     "\"{}\" run --with-builtin=developer,computercontroller -t \"$prompt\"",
                     bin.display()
@@ -3137,7 +3167,12 @@ pub fn launch_agent(
                         .to_string(),
                 );
             };
-            open_agent_terminal(&query, &format!("\"{}\" -p \"$prompt\"", bin.display()))?;
+            open_agent_terminal(
+                &query,
+                &terminal_script,
+                &terminal_pid_file,
+                &format!("\"{}\" -p \"$prompt\"", bin.display()),
+            )?;
             hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
                 "Opened grok in Terminal. Query: {}.{skip_note}",
