@@ -263,7 +263,14 @@ fn set_plans_dir_in(roots: &Roots, path: &str) -> Result<Value, String> {
 /// `Some(true)` inside, `Some(false)` not inside, `None` = an error other
 /// than not-found (the caller fails closed).
 fn under_buzz_by_identity(roots: &Roots, p: &Path) -> Option<bool> {
+    under_buzz_by_identity_at(roots, p, 0)
+}
+
+fn under_buzz_by_identity_at(roots: &Roots, p: &Path, depth: u32) -> Option<bool> {
     use std::os::unix::fs::MetadataExt;
+    if depth > 32 {
+        return None; // too many dangling hops: fail closed
+    }
     let ident = |q: &Path| -> Result<Option<(u64, u64)>, ()> {
         match std::fs::metadata(q) {
             Ok(m) => Ok(Some((m.dev(), m.ino()))),
@@ -281,12 +288,36 @@ fn under_buzz_by_identity(roots: &Roots, p: &Path) -> Option<bool> {
     let mut child: Option<String> = None;
     let mut cur = Some(abs.as_path());
     while let Some(q) = cur {
-        if let Some(id) = ident(q).ok()? {
-            if Some(id) == buzz {
-                return Some(true);
+        match ident(q).ok()? {
+            Some(id) => {
+                if Some(id) == buzz {
+                    return Some(true);
+                }
+                if Some(id) == home && child.as_deref().map(str::to_lowercase).as_deref() == Some(".buzz") {
+                    return Some(true);
+                }
             }
-            if Some(id) == home && child.as_deref().map(str::to_lowercase).as_deref() == Some(".buzz") {
-                return Some(true);
+            None => {
+                // Not found. A dangling symlink (e.g. to a .buzz folder that
+                // does not exist yet) is judged by where it points.
+                if let Ok(m) = std::fs::symlink_metadata(q) {
+                    if m.file_type().is_symlink() {
+                        let target = std::fs::read_link(q).ok()?;
+                        let target = match q.parent() {
+                            Some(dir) => dir.join(target),
+                            None => target,
+                        };
+                        if under_buzz_by_identity_at(roots, &target, depth + 1)? {
+                            return Some(true);
+                        }
+                        let t = canonical_lossy(&target).to_string_lossy().to_lowercase();
+                        let b = canonical_lossy(&roots.home.join(".buzz")).to_string_lossy().to_lowercase();
+                        let b = b.trim_end_matches('/');
+                        if t == b || t.starts_with(&format!("{b}/")) {
+                            return Some(true);
+                        }
+                    }
+                }
             }
         }
         child = q.file_name().map(|s| s.to_string_lossy().into_owned());
@@ -295,13 +326,26 @@ fn under_buzz_by_identity(roots: &Roots, p: &Path) -> Option<bool> {
     Some(false)
 }
 
+/// How many times `plans_dir()` fell back because the setting points inside
+/// ~/.buzz (tests read it).
+static BUZZ_FALLBACKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static BUZZ_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The warning text the first time `flag` is used, then None.
+fn buzz_warning_once(flag: &std::sync::atomic::AtomicBool, raw: &str) -> Option<String> {
+    if flag.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    Some(format!(
+        "orbitty: plansDir {raw} is inside ~/.buzz; using ~/Orbitty GOs instead (nothing is written under .buzz)"
+    ))
+}
+
 /// Once per process: the plansDir setting points inside ~/.buzz.
 fn warn_buzz_plans_dir(raw: &str) {
-    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        eprintln!(
-            "orbitty: plansDir {raw} is inside ~/.buzz; using ~/Orbitty GOs instead (nothing is written under .buzz)"
-        );
+    BUZZ_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if let Some(msg) = buzz_warning_once(&BUZZ_WARNED, raw) {
+        eprintln!("{msg}");
     }
 }
 
@@ -725,8 +769,49 @@ pub fn seal_file_in(roots: &Roots, path: &Path, by: &str) -> Result<ParsedGo, St
     if let Some(note) = seal_note(roots, &parsed) {
         return Err(format!("seal did not verify: {note}"));
     }
-    std::fs::write(path, &out).map_err(|e| format!("write {}: {e}", path.display()))?;
+    write_sealed(path, &out)?;
     Ok(parsed)
+}
+
+/// Replace the GO file without writing into a shared inode: refuse a file
+/// with more than one hard link (the other name could be inside ~/.buzz),
+/// then write a temp file in the same folder and rename it over the real
+/// (symlink-resolved) path. Mode bits are kept.
+fn write_sealed(path: &Path, out: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::MetadataExt;
+    let real = std::fs::canonicalize(path).map_err(|e| format!("resolve {}: {e}", path.display()))?;
+    let meta = std::fs::metadata(&real).map_err(|e| format!("stat {}: {e}", real.display()))?;
+    if meta.nlink() > 1 {
+        return Err(format!(
+            "go seal: {} has {} hard links; refused (a link could be inside ~/.buzz)",
+            path.display(),
+            meta.nlink()
+        ));
+    }
+    let dir = real.parent().ok_or_else(|| format!("no folder for {}", real.display()))?;
+    let name = real.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = dir.join(format!(".{name}.seal-{}-{nanos}.tmp", std::process::id()));
+    let res = (|| -> Result<(), String> {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|e| format!("create {}: {e}", tmp.display()))?;
+        f.write_all(out.as_bytes()).map_err(|e| format!("write {}: {e}", tmp.display()))?;
+        f.sync_all().map_err(|e| format!("sync {}: {e}", tmp.display()))?;
+        std::fs::set_permissions(&tmp, meta.permissions())
+            .map_err(|e| format!("chmod {}: {e}", tmp.display()))?;
+        std::fs::rename(&tmp, &real).map_err(|e| format!("rename → {}: {e}", real.display()))
+    })();
+    if res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    res
 }
 
 /// Top-level YAML key on this line, if it is a plain `key: ...` line.
@@ -1774,6 +1859,114 @@ mod tests {
         assert!(load_settings(&roots).plans_dir.is_none());
         set_plans_dir_in(&roots, "~/GOs").unwrap();
         assert_eq!(plans_dir(&roots), roots.home.join("GOs"));
+    }
+
+    fn tree_of(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for e in rd.flatten() {
+                let p = e.path();
+                let ft = e.file_type().unwrap();
+                if ft.is_dir() {
+                    stack.push(p.clone());
+                    out.push((p, Vec::new()));
+                } else {
+                    out.push((p.clone(), std::fs::read(&p).unwrap_or_default()));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn go_seal_refuses_a_hard_link_into_buzz() {
+        let roots = temp_roots("hardlink");
+        let h = roots.home.clone();
+        let text = "---\nid: GO-HL\nstatus: ready\n---\nBODY\n";
+        let target = h.join(".buzz/PLANS/GO-HL.md");
+        write(&target, text);
+        let link = plans_dir(&roots).join("GO-HL.md");
+        std::fs::hard_link(&target, &link).unwrap();
+        let before = tree_of(&h.join(".buzz"));
+        let err = seal_file_in(&roots, &link, "matt").unwrap_err();
+        assert!(err.contains("hard link"), "{err}");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), text);
+        assert_eq!(tree_of(&h.join(".buzz")), before);
+    }
+
+    #[test]
+    fn go_seal_replaces_the_file_by_atomic_rename() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let roots = temp_roots("sealrename");
+        let dir = plans_dir(&roots);
+        let p = dir.join("GO-R.md");
+        write(&p, "---\nid: GO-R\nstatus: ready\n---\nBODY\n");
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let ino = std::fs::metadata(&p).unwrap().ino();
+        seal_file_in(&roots, &p, "matt").unwrap();
+        let m = std::fs::metadata(&p).unwrap();
+        assert_ne!(m.ino(), ino, "sealed by writing into the old inode");
+        assert_eq!(m.permissions().mode() & 0o777, 0o640);
+        assert!(std::fs::read_to_string(&p).unwrap().contains("status: sealed"));
+        let names: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, vec!["GO-R.md".to_string()], "no temp file left");
+    }
+
+    #[test]
+    fn migrate_refuses_a_plans_subfolder_linked_into_buzz() {
+        let roots = temp_roots("migbuzz");
+        let h = roots.home.clone();
+        write(&h.join(".buzz/PLANS/sub/a.md"), "legacy\n");
+        std::fs::create_dir_all(h.join(".buzz/OTHER")).unwrap();
+        set_plans_dir_in(&roots, &h.join("GOs").display().to_string()).unwrap();
+        std::os::unix::fs::symlink(h.join(".buzz/OTHER"), h.join("GOs/sub")).unwrap();
+        let before = tree_of(&h.join(".buzz"));
+        let err = migrate_apply(&roots).unwrap_err();
+        assert!(err.contains("migrate:") && err.contains("inside ~/.buzz"), "{err}");
+        assert_eq!(tree_of(&h.join(".buzz")), before);
+        assert!(!h.join(".buzz/OTHER/a.md").exists());
+    }
+
+    #[test]
+    fn buzz_fallback_warns_once() {
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        let first = buzz_warning_once(&flag, "~/.BUZZ/PLANS").expect("first call warns");
+        assert!(first.contains("~/.BUZZ/PLANS") && first.contains("inside ~/.buzz"), "{first}");
+        assert!(buzz_warning_once(&flag, "~/.buzz/X").is_none(), "second call is silent");
+        // plans_dir() goes through the warning on every fallback.
+        let roots = temp_roots("warnbuzz");
+        write(&settings_path(&roots), &json!({ "plansDir": "~/.BUZZ/PLANS" }).to_string());
+        let before = BUZZ_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(plans_dir(&roots), roots.home.join("Orbitty GOs"));
+        assert!(BUZZ_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed) > before, "no warning on fallback");
+    }
+
+    #[test]
+    fn dangling_symlink_into_buzz_is_refused() {
+        let roots = temp_roots("dangbuzz");
+        let h = roots.home.clone();
+        // ~/.buzz missing: a link to ~/.buzz/PLANS.
+        std::os::unix::fs::symlink(h.join(".buzz/PLANS"), h.join("dang0")).unwrap();
+        assert!(under_buzz(&roots, &h.join("dang0")));
+        std::fs::create_dir_all(h.join(".buzz")).unwrap();
+        std::os::unix::fs::symlink(h.join(".buzz/NEWDIR"), h.join("dang")).unwrap();
+        std::os::unix::fs::symlink(".BUZZ/NEW2", h.join("dangrel")).unwrap();
+        std::os::unix::fs::symlink(h.join("missing/elsewhere"), h.join("dangout")).unwrap();
+        let before = tree_of(&h.join(".buzz"));
+        for name in ["dang0", "dang", "dang/sub", "dangrel"] {
+            let p = h.join(name);
+            assert!(under_buzz(&roots, &p), "{name}");
+            let err = set_plans_dir_in(&roots, &p.display().to_string()).unwrap_err();
+            assert!(err.contains("inside ~/.buzz"), "{name}: {err}");
+            write(&settings_path(&roots), &json!({ "plansDir": p }).to_string());
+            assert_eq!(plans_dir(&roots), h.join("Orbitty GOs"), "{name}");
+        }
+        assert!(!under_buzz(&roots, &h.join("dangout")), "a dangling link elsewhere is not .buzz");
+        assert_eq!(tree_of(&h.join(".buzz")), before, "nothing created under .buzz");
+        assert!(!h.join(".buzz/NEWDIR").exists());
     }
 
     #[test]
