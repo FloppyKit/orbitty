@@ -54,7 +54,10 @@
   } = $props();
 
   const HANDOFF_MARK = "\n[[handoff]]\n";
-  type HandoffOffer = { reason: string; line: string; path: string };
+  // B2: the trailer carries only the gate-issued offer id. The line and
+  // path stay in Rust; companion_handoff(id) uses them once.
+  type HandoffOffer = { reason: string; id: string };
+  const HANDOFF_ID = /^[0-9a-f]{32}$/;
 
   function splitHandoff(text: string): { visible: string; offer: HandoffOffer | null } {
     const i = text.lastIndexOf(HANDOFF_MARK);
@@ -62,17 +65,16 @@
     const visible = text.slice(0, i);
     try {
       const v = JSON.parse(text.slice(i + HANDOFF_MARK.length));
-      if (!v || typeof v.reason !== "string" || !v.reason) {
-        return { visible: text, offer: null };
+      if (
+        !v ||
+        typeof v.reason !== "string" ||
+        !v.reason ||
+        typeof v.id !== "string" ||
+        !HANDOFF_ID.test(v.id)
+      ) {
+        return { visible, offer: null };
       }
-      return {
-        visible,
-        offer: {
-          reason: v.reason,
-          line: typeof v.line === "string" ? v.line : "",
-          path: typeof v.path === "string" ? v.path : "",
-        },
-      };
+      return { visible, offer: { reason: v.reason, id: v.id } };
     } catch {
       return { visible: text, offer: null };
     }
@@ -86,10 +88,7 @@
     asking = true;
     askNote = "";
     try {
-      const reply = await invoke<string>("companion_handoff", {
-        line: offer.line,
-        path: offer.path || null,
-      });
+      const reply = await invoke<string>("companion_handoff", { id: offer.id });
       onHandoffReply?.(reply);
     } catch (e) {
       askNote = `${e}`;
@@ -499,7 +498,7 @@
           {:else}
             {@html mdLite(parts.visible)}
           {/if}
-          {#if parts.offer}
+          {#if parts.offer && t.role !== "you"}
             <button
               type="button"
               class="ask"

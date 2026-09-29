@@ -88,7 +88,7 @@ pub fn handoff_prompt(app: &tauri::AppHandle, wrapped_line: &str) -> String {
     let mut lines: Vec<String> = Vec::new();
     let mut used = 0usize;
     for t in turns[start..].iter().rev() {
-        let text = t.text.replace('\n', " ");
+        let text = crate::mouth_hop::strip_handoff_marks(&t.text).replace('\n', " ");
         let low = text.to_ascii_lowercase();
         if low.starts_with("noted ")
             || low.starts_with("heard you")

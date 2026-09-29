@@ -1401,6 +1401,9 @@ fn persist_companion_you(app: &tauri::AppHandle, line: &str) {
 }
 
 fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) {
+    // Command output is not allowed to mint a handoff button either.
+    let them = crate::mouth_hop::strip_handoff_marks(them);
+    let them = them.as_str();
     if crate::state::update(app, |st| {
         if let Some(you) = you {
             st.companion.last_user_line = you.to_string();
@@ -1746,6 +1749,7 @@ async fn companion_send_inner(
     // Existing verbs: the tool answers. A miss stays on the mouth below.
     if attach.is_none() && !crate::mouth_gist::needs_write_lane(&line) {
         if let Some(spoken) = crate::mouth_route::run(&app, &line) {
+            let spoken = crate::mouth_hop::strip_handoff_marks(&spoken);
             if crate::state::update(&app, |st| {
                 st.companion.last_bot_line = spoken.clone();
                 st.companion.push_turn("them", &spoken);
@@ -1828,7 +1832,7 @@ async fn companion_send_inner(
     let image = attach
         .as_ref()
         .is_some_and(|a| crate::attach_vision::is_image(&a.path));
-    if image && !crate::attach_vision::backend_has_vision(&lane, model_vision) {
+    if image && crate::attach_vision::vision_gate_applies(&lane, model_vision) {
         let path = attach
             .as_ref()
             .map(|a| a.path.clone())
@@ -1879,6 +1883,9 @@ async fn companion_send_inner(
             ))
         }
     };
+    // No model or agent reply may carry a handoff trailer (a forged
+    // "Ask online agent" button). Only the vision gate above adds one.
+    let reply = crate::mouth_hop::strip_handoff_marks(&reply);
 
     // You-row already persisted before the model wait. Reply only here.
     if crate::state::update(&app, |st| {

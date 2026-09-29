@@ -30,6 +30,17 @@ pub fn backend_has_vision(lane: &str, model_vision: bool) -> bool {
     }
 }
 
+/// The send-path "can't see images" refusal applies only to the probed free
+/// lanes (local, OpenRouter free) when the model is text-only. Grok, Goose,
+/// Hermes, Berd and any other harness keep the base behavior: the file path
+/// plus the no-vision note, and they read the file with their own tools.
+pub fn vision_gate_applies(lane: &str, model_vision: bool) -> bool {
+    matches!(
+        lane.trim().to_ascii_lowercase().as_str(),
+        "local" | "openrouter_free"
+    ) && !model_vision
+}
+
 /// Refuse anything over this before it becomes a data URI.
 pub const IMAGE_BYTE_CAP: u64 = 8 * 1024 * 1024;
 
@@ -265,5 +276,38 @@ mod tests {
         assert!(j.contains("/tmp/x.png"));
         assert!(j.contains("\"image\""));
         assert!(!j.contains("base64"));
+    }
+
+    // B1: the send-path refusal is only for text-only free lanes. Every
+    // other backend keeps the path + no-vision note it had at base.
+    #[test]
+    fn vision_gate_only_on_text_only_free_lanes() {
+        for lane in ["hermes", "goose", "berd", "cursor", "grok", "whatever", ""] {
+            assert!(!vision_gate_applies(lane, false), "{lane}");
+            assert!(!vision_gate_applies(lane, true), "{lane}");
+        }
+        assert!(vision_gate_applies("local", false));
+        assert!(vision_gate_applies("openrouter_free", false));
+        assert!(vision_gate_applies(" LOCAL ", false));
+        assert!(!vision_gate_applies("local", true));
+        assert!(!vision_gate_applies("openrouter_free", true));
+    }
+
+    // B1 + V14: companion_send_inner applies exactly this gate, before the
+    // backend is called; the non-grok lane stays (backend, false).
+    #[test]
+    fn send_path_uses_the_narrow_gate_before_the_backend() {
+        let coord = include_str!("coordinator.rs");
+        let at = coord.find("async fn companion_send_inner(").unwrap();
+        let rest = &coord[at..];
+        let send = &rest[..rest.find("\n}\n").unwrap()];
+        let gate = send
+            .find("if image && crate::attach_vision::vision_gate_applies(&lane, model_vision) {")
+            .expect("send-path gate");
+        let refuse = send.find("crate::mouth_hop::refuse_or_handoff(").unwrap();
+        let call = send.find("let reply = match backend.as_str() {").unwrap();
+        assert!(gate < refuse && refuse < call);
+        assert!(!send.contains("backend_has_vision("), "old wide gate is back");
+        assert!(send.contains("(b, false)"));
     }
 }

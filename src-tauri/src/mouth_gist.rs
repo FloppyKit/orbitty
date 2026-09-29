@@ -277,7 +277,7 @@ fn history(app: &tauri::AppHandle, raw_line: &str) -> Vec<Value> {
         .map(|t| {
             json!({
                 "role": if t.role == "you" { "you" } else { "them" },
-                "n": clip(&t.text, HIST_N),
+                "n": clip(&crate::mouth_hop::strip_handoff_marks(&t.text), HIST_N),
             })
         })
         .collect()
