@@ -212,6 +212,7 @@ class LeftoverClerkEndToEnd(unittest.TestCase):
         subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "base commit"], check=True)
         self.bus = Path(tempfile.mkdtemp(dir=TMP_HOME, prefix="bus-"))
         self.calls = []
+        self.status = {}  # what `orbittyctl go status` answers
         # plansDir is configured (not the clerk's own default), the way
         # `orbittyctl settings plans-dir` answers it.
         self.plans = self.home / "Custom GOs"
@@ -233,13 +234,20 @@ class LeftoverClerkEndToEnd(unittest.TestCase):
         self.calls.append(args)
         if args[:2] == ("settings", "plans-dir"):
             return {"plansDir": str(self.plans)}
+        if args[:2] == ("go", "status"):
+            return dict(self.status)
         return {}
 
-    def first_cut(self, where: Path) -> Path:
+    def first_cut(self, where: Path, step: str = "open the popover") -> Path:
         where.mkdir(parents=True, exist_ok=True)
         p = where / "_GO_ORBITTY_LEFT_PROMPT.md"
-        p.write_text(f"Workspace: {self.ws}\n\n## Dogfood\n\n1. open the popover\n")
+        p.write_text(f"Workspace: {self.ws}\n\n## Dogfood\n\n1. {step}\n")
         return p
+
+    def made(self, where: Path | None = None) -> str:
+        made = sorted((where or self.plans).glob("_GO_ORBITTY_LEFT_LEFTOVER_*_PROMPT.md"))
+        self.assertEqual(len(made), 1, made)
+        return made[0].read_text()
 
     def bounce(self) -> bool:
         rec = {
@@ -291,6 +299,95 @@ class LeftoverClerkEndToEnd(unittest.TestCase):
         before = self.buzz_files()
         self.assertFalse(self.bounce())
         self.assertEqual(self.buzz_files(), before)
+
+    def test_plans_dir_under_buzz_in_any_case_is_refused(self):
+        # APFS is case-insensitive: ~/.BUZZ/PLANS is ~/.buzz/PLANS.
+        self.first_cut(self.buzz / "PLANS")  # something the clerk could bounce
+        for variant in (".BUZZ", ".Buzz", ".bUzZ"):
+            self.plans = self.home / variant / "PLANS"
+            before = self.buzz_files()
+            self.assertFalse(self.bounce(), variant)
+            self.assertEqual(self.buzz_files(), before, variant)
+            self.assertEqual(sorted((self.home / variant).rglob("*LEFTOVER*")), [], variant)
+
+    def test_plans_dir_first_cut_is_read_before_buzz(self):
+        self.first_cut(self.plans, "PLANS-STEP")
+        self.first_cut(self.buzz / "PLANS", "BUZZ-STEP")
+        self.assertTrue(self.bounce())
+        text = self.made()
+        self.assertIn("PLANS-STEP", text)
+        self.assertNotIn("BUZZ-STEP", text)
+
+    def test_go_status_file_beats_the_slug_prompts(self):
+        self.first_cut(self.plans, "PLANS-STEP")
+        self.first_cut(self.buzz / "PLANS", "BUZZ-STEP")
+        sealed = self.plans / "GO-ORBITTY-LEFT_2026-09-29.md"
+        sealed.write_text(
+            f"---\nid: GO-ORBITTY-LEFT\nstatus: sealed\n---\nWorkspace: {self.ws}\n\n"
+            "## Dogfood\n\n1. GOFILE-STEP\n"
+        )
+        self.status = {"sealed": True, "file": str(sealed)}
+        self.assertTrue(self.bounce())
+        text = self.made()
+        self.assertIn("GOFILE-STEP", text)
+        self.assertNotIn("PLANS-STEP", text)
+        self.assertIn(("go", "status", "--go", "GO-ORBITTY-LEFT"), self.calls)
+
+    def test_go_status_workspace_is_used(self):
+        import subprocess
+
+        self.first_cut(self.plans)  # its Workspace: line names self.ws
+        ws2 = Path(tempfile.mkdtemp(dir=TMP_HOME, prefix="ws2-"))
+        git = ["git", "-C", str(ws2), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run(["git", "init", "-q", str(ws2)], check=True)
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "WS2-COMMIT"], check=True)
+        self.status = {"sealed": True, "workspace": str(ws2)}
+        self.assertTrue(self.bounce())
+        text = self.made()
+        self.assertIn(f"Workspace: {ws2}", text)
+        self.assertIn("WS2-COMMIT", text)
+        self.assertNotIn(f"Workspace: {self.ws}\n", text)
+
+
+class BuzzRefusalCaseFold(Base):
+    """The .buzz refusal compares the canonical path case-folded, in the
+    clerk and in orbitty-needed (which guards the green STAMP write)."""
+
+    def setUp(self):
+        super().setUp()
+        self.real_buzz = TMP_HOME / ".buzz"
+        shutil.rmtree(self.real_buzz, ignore_errors=True)
+        (self.real_buzz / "PLANS").mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, self.real_buzz, True)
+
+    def tree(self):
+        return sorted(str(p) for p in self.real_buzz.rglob("*"))
+
+    def test_under_buzz_is_case_insensitive_in_both(self):
+        for fn in (on.under_buzz, on.leftover_clerk.under_buzz):
+            for inside in (".buzz", ".BUZZ", ".Buzz"):
+                for tail in ("", "PLANS", "new/sub"):
+                    self.assertTrue(fn(TMP_HOME / inside / tail), (fn.__module__, inside, tail))
+            self.assertTrue(fn(TMP_HOME / "x" / ".." / ".BUZZ" / "PLANS"))
+            for outside in (".buzzard", "buzz", "Orbitty GOs", ".buzz-old/PLANS"):
+                self.assertFalse(fn(TMP_HOME / outside), (fn.__module__, outside))
+
+    def test_green_stamp_refused_when_plans_dir_is_in_buzz_any_case(self):
+        rec = {"id": "n-g", "title": f"Dogfood {GO}?", "neededAnswer": "green"}
+        for variant in (".buzz", ".BUZZ", ".Buzz"):
+            target = TMP_HOME / variant / "PLANS"
+            self.patch("plans_dir", lambda t=target: t)
+            before = self.tree()
+            self.assertIsNone(on.stamp_dogfood_green(GO, "c-1"), variant)
+            self.assertFalse(on.dispatch_dogfood(rec, "green"), variant)
+            self.assertEqual(self.tree(), before, variant)
+            self.assertFalse((TMP_HOME / variant / "PLANS" / "STAMP_GO_ORBITTY_TEST.md").exists())
+        self.assertEqual([c for c in self.calls if c[:1] in (("kanban",), ("state",), ("companion",))], [])
+
+    def test_green_stamp_outside_buzz_still_writes(self):
+        rec = {"id": "n-g", "title": f"Dogfood {GO}?", "neededAnswer": "green"}
+        self.assertTrue(on.dispatch_dogfood(rec, "green"))
+        self.assertTrue((self.plans / "STAMP_GO_ORBITTY_TEST.md").is_file())
 
 
 if __name__ == "__main__":

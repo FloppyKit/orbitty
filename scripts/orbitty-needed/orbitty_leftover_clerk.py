@@ -18,6 +18,7 @@ to the clerk ping — never invent scope the bounce did not name.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import time
@@ -37,12 +38,15 @@ def default_plans_dir() -> Path:
 
 
 def under_buzz(path: Path) -> bool:
-    buzz = (HOME / ".buzz").resolve()
+    """True for ~/.buzz or anything inside it. Compared case-folded on the
+    resolved (canonical) path: APFS is case-insensitive, so ~/.BUZZ/PLANS
+    is ~/.buzz/PLANS. A path that cannot be resolved counts as inside."""
     try:
-        path.expanduser().resolve().relative_to(buzz)
+        buzz = str((HOME / ".buzz").resolve()).casefold()
+        p = str(Path(path).expanduser().resolve()).casefold()
+    except (OSError, RuntimeError):
         return True
-    except ValueError:
-        return False
+    return p == buzz or p.startswith(buzz.rstrip(os.sep) + os.sep)
 
 GO_RE = re.compile(r"\b(GO-[A-Z0-9][-A-Z0-9]*)\b")
 LEAD_STRIP_RE = re.compile(r"^(?:leftover|bounce)\b\s*[:\-]?\s*", re.I)

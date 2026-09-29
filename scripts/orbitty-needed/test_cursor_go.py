@@ -128,7 +128,13 @@ class CursorGoRun(HomeCase):
         self.bin.mkdir(parents=True)
         self.argv_file = self.home / "argv.txt"
         agent = self.bin / "cursor-agent"
-        agent.write_text(f'#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done > "{self.argv_file}.tmp"\nmv "{self.argv_file}.tmp" "{self.argv_file}"\n')
+        self.nul_file = self.home / "argv.nul"
+        agent.write_text(
+            "#!/bin/sh\n"
+            f'for a in "$@"; do printf "%s\\000" "$a"; done > "{self.nul_file}"\n'
+            f'for a in "$@"; do printf "%s\\n" "$a"; done > "{self.argv_file}.tmp"\n'
+            f'mv "{self.argv_file}.tmp" "{self.argv_file}"\n'
+        )
         agent.chmod(agent.stat().st_mode | stat.S_IEXEC)
         self.stubs = self.home / "stubs"
         self.stubs.mkdir()
@@ -190,6 +196,27 @@ class CursorGoRun(HomeCase):
         self.assertIn("invalid model", r.stderr)
         time.sleep(0.3)
         self.assertFalse(self.argv_file.exists())
+
+    def exact_argv(self):
+        self.agent_argv()  # waits for the stub
+        raw = self.nul_file.read_bytes().decode()
+        self.assertTrue(raw.endswith("\0"))
+        return raw[:-1].split("\0")
+
+    def test_prompt_starting_with_dashes_comes_after_end_of_options(self):
+        # A headered GO passed as the prompt starts with `---`.
+        self.settings()
+        go = self.plans / "GO-ORBITTY-CG_2026-09-29.md"
+        go.write_text(FULL)
+        r = self.run_go(str(go))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = self.exact_argv()
+        self.assertEqual(argv[-1], FULL.rstrip("\n"))  # $(cat) drops the final newline
+        self.assertTrue(argv[-1].startswith("---"))
+        self.assertEqual(argv[-2], "--")
+        self.assertEqual(argv.count("--"), 1)
+        self.assertLess(argv.index("--workspace"), argv.index("--"))
+        self.assertLess(argv.index("--model=grok-4.7-high"), argv.index("--"))
 
     def test_prompt_from_plans_dir_nothing_under_buzz(self):
         self.settings()

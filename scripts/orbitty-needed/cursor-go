@@ -92,8 +92,10 @@ if ! PLAN_OUT=$(python3 "$PLAN_PY" args "$PROMPT"); then
   exit 5
 fi
 AGENT_ARGS=("${(@f)PLAN_OUT}")
+# `--` ends the options: a GO whose text starts with `---` (a YAML header)
+# is the prompt, not an unknown option (cursor-agent parses with Commander).
 nohup "$BIN" -p --print "${AGENT_ARGS[@]}" --workspace "$WS" \
-  "$(cat "$PROMPT")" >"$LOG" 2>&1 &
+  -- "$(cat "$PROMPT")" >"$LOG" 2>&1 &
 WRITER_PID=$!
 echo "$WRITER_PID" >"${RUNS}/${GO}.pid"
 if [[ -x "$NEEDED" ]]; then

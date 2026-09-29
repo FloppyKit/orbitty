@@ -1080,6 +1080,20 @@ def plans_dir() -> Path:
     return HOME / "Orbitty GOs"
 
 
+def under_buzz(path: Path) -> bool:
+    """True for ~/.buzz or anything inside it. Compared case-folded on the
+    resolved (canonical) path: APFS is case-insensitive, so ~/.BUZZ/PLANS
+    is ~/.buzz/PLANS. A path that cannot be resolved counts as inside.
+    Same rule as orbitty_leftover_clerk.under_buzz (kept local so an older
+    clerk cannot weaken it)."""
+    try:
+        buzz = str((HOME / ".buzz").resolve()).casefold()
+        p = str(Path(path).expanduser().resolve()).casefold()
+    except (OSError, RuntimeError):
+        return True
+    return p == buzz or p.startswith(buzz.rstrip(os.sep) + os.sep)
+
+
 def plans_read_dirs() -> list[Path]:
     """plansDir first, then ~/.buzz/PLANS (read-only back-compat)."""
     primary = plans_dir()
@@ -1519,14 +1533,19 @@ DOGFOOD_GREEN_RE = re.compile(
 DOGFOOD_WAIT_RE = re.compile(r"^(?:wait|later|not\s+now)(?:\s*[.!])*$", re.I)
 
 
-def stamp_dogfood_green(go: str, cid: str) -> Path:
-    """Mechanical stamp. Do not overwrite a stamp a clerk already wrote."""
+def stamp_dogfood_green(go: str, cid: str) -> Path | None:
+    """Mechanical stamp. Do not overwrite a stamp a clerk already wrote.
+    None = refused: plansDir is inside ~/.buzz, and nothing is written
+    under .buzz."""
     slug = (go or "UNKNOWN").replace("-", "_")
     for d in plans_read_dirs():
         existing = d / f"STAMP_{slug}.md"
         if existing.is_file():
             return existing
-    path = plans_dir() / f"STAMP_{slug}.md"
+    plans = plans_dir()
+    if under_buzz(plans):
+        return None
+    path = plans / f"STAMP_{slug}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "---\n"
@@ -1634,6 +1653,14 @@ def dispatch_dogfood(rec: dict, raw_answer: str = "") -> bool:
     go = extract_go(rec.get("title") or "") or ""
     cid = rec.get("id") or ""
     path = stamp_dogfood_green(go, cid)
+    if path is None:
+        # Not stamped, so the todo is not moved either: clerk ping.
+        with DISPATCH_LOG.open("a") as log:
+            log.write(
+                f"dogfood-green {go or '?'} {cid}: plans_dir {plans_dir()} is under "
+                "~/.buzz; not stamping there — clerk ping\n"
+            )
+        return False
     moved = complete_go_todos_on_green(go)
     with DISPATCH_LOG.open("a") as log:
         log.write(

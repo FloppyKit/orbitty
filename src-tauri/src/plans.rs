@@ -224,16 +224,65 @@ pub fn settings_snapshot() -> Result<Value, String> {
 }
 
 pub fn set_plans_dir(path: &str) -> Result<Value, String> {
-    let roots = Roots::real();
+    set_plans_dir_in(&Roots::real(), path)
+}
+
+fn set_plans_dir_in(roots: &Roots, path: &str) -> Result<Value, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("plansDir path is empty".into());
     }
-    let mut s = load_settings(&roots);
+    // Nothing is written under ~/.buzz (read-only back-compat), and the
+    // plans folder is written to, so it may not live there.
+    if under_buzz(roots, &expand_home(roots, path)) {
+        return Err(format!(
+            "plansDir {path} is inside ~/.buzz; refused (nothing is written under .buzz)"
+        ));
+    }
+    let mut s = load_settings(roots);
     s.plans_dir = Some(path.to_string());
-    save_settings(&roots, &s)?;
-    let _ = plans_dir(&roots);
-    Ok(snapshot(&roots))
+    save_settings(roots, &s)?;
+    let _ = plans_dir(roots);
+    Ok(snapshot(roots))
+}
+
+/// `p` made absolute and canonical as far as it exists (symlinks and `..`
+/// resolved by the OS); the missing tail is appended with `.`/`..` applied.
+fn canonical_lossy(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let comps: Vec<Component> = p.components().collect();
+    for i in (0..=comps.len()).rev() {
+        let head: PathBuf = if i == 0 {
+            PathBuf::from(".")
+        } else {
+            comps[..i].iter().collect()
+        };
+        if let Ok(mut out) = std::fs::canonicalize(&head) {
+            for c in &comps[i..] {
+                match c {
+                    Component::ParentDir => {
+                        out.pop();
+                    }
+                    Component::CurDir => {}
+                    other => out.push(other.as_os_str()),
+                }
+            }
+            return out;
+        }
+    }
+    p.to_path_buf()
+}
+
+/// True for `~/.buzz` or anything inside it. Compared case-insensitively on
+/// the canonical path: APFS is case-insensitive, so `~/.BUZZ/PLANS` is
+/// `~/.buzz/PLANS`.
+pub(crate) fn under_buzz(roots: &Roots, p: &Path) -> bool {
+    let buzz = canonical_lossy(&roots.home.join(".buzz"))
+        .to_string_lossy()
+        .to_lowercase();
+    let cand = canonical_lossy(p).to_string_lossy().to_lowercase();
+    let buzz = buzz.trim_end_matches('/');
+    cand == buzz || cand.starts_with(&format!("{buzz}/"))
 }
 
 pub fn set_runner(runner: &str, harness: &str, model: &str) -> Result<Value, String> {
@@ -1500,6 +1549,66 @@ mod tests {
         let bus = bus_dir_in(&roots);
         assert_eq!(bus, roots.home.join(".config/orbitty/needed-bus"));
         assert!(!bus.to_string_lossy().contains("Library"));
+    }
+
+    #[test]
+    fn under_buzz_is_canonical_and_case_insensitive() {
+        let roots = temp_roots("underbuzz");
+        let h = &roots.home;
+        for p in [".buzz", ".buzz/PLANS", ".BUZZ/PLANS", ".Buzz/new/sub", "x/../.bUzZ"] {
+            assert!(under_buzz(&roots, &h.join(p)), "{p} (no .buzz on disk)");
+        }
+        std::fs::create_dir_all(h.join(".buzz/PLANS")).unwrap();
+        std::os::unix::fs::symlink(h.join(".buzz"), h.join("link")).unwrap();
+        for p in [".BUZZ/PLANS", ".buzz/./PLANS", "link/PLANS", "nope/../.Buzz/x"] {
+            assert!(under_buzz(&roots, &h.join(p)), "{p}");
+        }
+        for p in [".buzzard", "buzz/PLANS", ".buzz-old", "Orbitty GOs"] {
+            assert!(!under_buzz(&roots, &h.join(p)), "{p}");
+        }
+    }
+
+    #[test]
+    fn set_plans_dir_refuses_buzz_in_any_case() {
+        let roots = temp_roots("setbuzz");
+        let h = roots.home.clone();
+        std::fs::create_dir_all(h.join(".buzz/PLANS")).unwrap();
+        std::os::unix::fs::symlink(h.join(".buzz"), h.join("buzzlink")).unwrap();
+        let tree = |root: &Path| -> Vec<PathBuf> {
+            let mut out = Vec::new();
+            let mut stack = vec![root.to_path_buf()];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(&d).unwrap().flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        stack.push(p.clone());
+                    }
+                    out.push(p);
+                }
+            }
+            out.sort();
+            out
+        };
+        let before = tree(&h.join(".buzz"));
+        let hs = h.display().to_string();
+        for p in [
+            format!("{hs}/.buzz/PLANS"),
+            format!("{hs}/.BUZZ/PLANS"),
+            format!("{hs}/.Buzz"),
+            "~/.BUZZ/new/sub".to_string(),
+            format!("{hs}/x/../.bUzZ/PLANS"),
+            format!("{hs}/buzzlink/PLANS"),
+        ] {
+            let err = set_plans_dir_in(&roots, &p).unwrap_err();
+            assert!(err.contains("inside ~/.buzz"), "{p}: {err}");
+        }
+        assert!(load_settings(&roots).plans_dir.is_none(), "nothing saved");
+        assert_eq!(tree(&h.join(".buzz")), before, "nothing created under .buzz");
+        assert!(!h.join(".BUZZ/new").exists());
+        let ok = format!("{hs}/.buzzard");
+        let snap = set_plans_dir_in(&roots, &ok).unwrap();
+        assert_eq!(snap["plansDir"], json!(ok));
+        assert_eq!(load_settings(&roots).plans_dir.as_deref(), Some(ok.as_str()));
     }
 
     #[test]
