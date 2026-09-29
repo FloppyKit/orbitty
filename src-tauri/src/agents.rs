@@ -24,6 +24,23 @@ pub(crate) fn row_model(harness: &str, model: Option<&str>) -> Option<String> {
     }
 }
 
+/// Model strings reach a shell line and herdr argv. Only
+/// `^[A-Za-z0-9._:/@+-]{1,100}$` — anything else is refused, never
+/// stripped or guessed at.
+pub(crate) fn validate_model(model: &str) -> Result<(), String> {
+    let ok_len = (1..=100).contains(&model.len());
+    let ok_chars = model
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '/' | '@' | '+' | '-'));
+    if ok_len && ok_chars {
+        Ok(())
+    } else {
+        Err(format!(
+            "invalid model {model:?}: use 1-100 characters from letters, digits and . _ : / @ + -"
+        ))
+    }
+}
+
 /// What the cursor door passes as `--model`.
 pub(crate) fn cursor_model(row: Option<&str>) -> String {
     row_model("cursor", row).unwrap_or_else(|| CURSOR_DEFAULT_MODEL.into())
@@ -60,12 +77,35 @@ pub(crate) fn cursor_allow_tokens(preset: &str) -> Vec<&'static str> {
         "Shell(git:log)",
         "Shell(git:diff)",
         "Shell(git:show)",
+        // command:args globs so arguments still match
+        // (`git log --oneline -3`, `git diff --stat`).
+        "Shell(git:status*)",
+        "Shell(git:log*)",
+        "Shell(git:diff*)",
+        "Shell(git:show*)",
         "Read(**)",
     ];
     if matches!(preset, "workspace-write" | "full-auto") {
         allow.push("Write(**)");
     }
     allow
+}
+
+/// Read-only denies: the Write tool, plus the argument forms that turn an
+/// allowed read command into a write or an arbitrary exec (deny beats
+/// allow): find -delete/-exec/-execdir/-ok/-okdir/-fprint*/-fls,
+/// rg --pre, git --output=<file>.
+pub(crate) fn cursor_read_only_deny_tokens() -> Vec<&'static str> {
+    vec![
+        "Write(**)",
+        "Shell(find:*-delete*)",
+        "Shell(find:*-exec*)",
+        "Shell(find:*-ok*)",
+        "Shell(find:*-fprint*)",
+        "Shell(find:*-fls*)",
+        "Shell(rg:*--pre*)",
+        "Shell(git:*--output*)",
+    ]
 }
 
 /// Project `.cursor/cli.json` `permissions` object for one preset.
@@ -76,7 +116,7 @@ pub(crate) fn cursor_permissions_value(preset: &str) -> Value {
     let preset = normalize_permissions(Some(preset));
     let allow = cursor_allow_tokens(preset);
     let deny: Vec<&str> = if preset == "read-only" {
-        vec!["Write(**)"]
+        cursor_read_only_deny_tokens()
     } else {
         vec![]
     };
@@ -94,12 +134,11 @@ pub(crate) fn cursor_agent_args(model: &str, preset: &str) -> Vec<String> {
     args
 }
 
+/// Every value single-quoted (`crate::coordinator::sq`); the model is
+/// validated by the caller (`validate_model`) as well.
 pub(crate) fn cursor_exec_line(bin: &str, model: &str, preset: &str) -> String {
-    let mut line = format!(
-        "\"{}\" --model \"{}\"",
-        bin,
-        model.replace('"', "")
-    );
+    use crate::coordinator::sq;
+    let mut line = format!("{} --model {}", sq(bin), sq(model));
     if normalize_permissions(Some(preset)) == "full-auto" {
         line.push_str(" --force --trust");
     }
@@ -192,6 +231,9 @@ pub fn agent_add(
     }
     let harness = normalize_harness(harness)?;
     let model = row_model(&harness, model);
+    if let Some(m) = model.as_deref() {
+        validate_model(m).map_err(|e| format!("agent.add: {e}"))?;
+    }
     let before = crate::state::load_state(app)?;
     let project_id = match project {
         Some(p) => {
@@ -486,6 +528,55 @@ mod tests {
     }
 
     #[test]
+    fn model_must_match_the_safe_charset() {
+        for ok in ["grok-4.7-high", "gpt-5", "anthropic/claude-4.5@latest", "a:b+c_d.e", "x"] {
+            assert!(validate_model(ok).is_ok(), "{ok}");
+        }
+        let long = "a".repeat(101);
+        for bad in [
+            "",
+            "m$(touch /tmp/x)",
+            "m`id`",
+            "m'q",
+            "m\"q",
+            "a;b",
+            "a b",
+            "a\nb",
+            "a|b",
+            "a&b",
+            long.as_str(),
+        ] {
+            let err = validate_model(bad).unwrap_err();
+            assert!(err.contains("invalid model"), "{bad:?}: {err}");
+        }
+        assert!(validate_model(&"a".repeat(100)).is_ok());
+    }
+
+    #[test]
+    fn git_arg_globs_and_read_only_escape_denies() {
+        for preset in ["read-only", "workspace-write", "full-auto"] {
+            let v = cursor_permissions_value(preset);
+            let allow = v["allow"].as_array().unwrap();
+            for t in ["Shell(git:status*)", "Shell(git:log*)", "Shell(git:diff*)", "Shell(git:show*)"] {
+                assert!(allow.iter().any(|a| a == t), "{preset} missing {t}");
+            }
+        }
+        let ro = cursor_permissions_value("read-only");
+        let deny = ro["deny"].as_array().unwrap();
+        for t in [
+            "Write(**)",
+            "Shell(find:*-delete*)",
+            "Shell(find:*-exec*)",
+            "Shell(find:*-ok*)",
+            "Shell(rg:*--pre*)",
+            "Shell(git:*--output*)",
+        ] {
+            assert!(deny.iter().any(|d| d == t), "read-only missing deny {t}");
+        }
+        assert!(cursor_permissions_value("workspace-write")["deny"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
     fn presets_gate_writes_and_force() {
         assert_eq!(normalize_permissions(None), "read-only");
         assert_eq!(normalize_permissions(Some("nope")), "read-only");
@@ -507,7 +598,7 @@ mod tests {
         assert!(allow.iter().all(|t| !t.as_str().unwrap_or("").starts_with("Write(")));
         assert!(ro["deny"].as_array().unwrap().iter().any(|t| t == "Write(**)"));
         let ro_line = cursor_exec_line("/usr/local/bin/cursor-agent", "grok-4.7-high", "read-only");
-        assert!(ro_line.contains("--model \"grok-4.7-high\""));
+        assert!(ro_line.contains("--model 'grok-4.7-high'"));
         assert!(!ro_line.contains("--force"));
         assert!(!ro_line.contains("--trust"));
 

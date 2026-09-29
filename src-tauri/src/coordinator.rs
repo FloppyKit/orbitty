@@ -3058,8 +3058,17 @@ pub(crate) fn open_terminal_argv(app_name: &str, script: &Path) -> Vec<String> {
     vec!["-a".into(), app_name.into(), script.display().to_string()]
 }
 
+/// POSIX single-quote one value for a zsh line: `'…'`, each `'` → `'\''`.
+/// Nothing inside single quotes expands (`$()`, backticks, `;`, newlines).
+/// Same law as `sh_quote` (the Terminal query launcher's).
+pub(crate) fn sq(s: &str) -> String {
+    sh_quote(s)
+}
+
 /// `.command` body. The EXIT trap calls the bundled ctl with this app's
-/// socket. Paths are quoted; the trap never names `~/.local/bin`.
+/// socket. Every interpolated value is single-quoted (`sq`), and the trap
+/// names a cleanup function so no path is re-parsed inside a trap string.
+/// The trap never names `~/.local/bin`.
 pub(crate) fn agent_command_body(
     query: &Path,
     script: &Path,
@@ -3070,122 +3079,271 @@ pub(crate) fn agent_command_body(
     cwd: Option<&str>,
 ) -> String {
     let cd = match cwd.map(str::trim).filter(|c| !c.is_empty()) {
-        Some(dir) => format!("cd \"{dir}\" || exit 1\n"),
+        Some(dir) => format!("cd {} || exit 1\n", sq(dir)),
         None => String::new(),
     };
+    let q = sq(&query.display().to_string());
+    let pid = sq(&pidf.display().to_string());
+    let script = sq(&script.display().to_string());
+    let ctl = sq(&ctl.display().to_string());
+    let sock = sq(&sock.display().to_string());
     format!(
-        "#!/bin/zsh\n{cd}prompt=\"$(cat \"{q}\")\"\necho $$ > \"{pid}\"\ntrap 'exit' HUP\ntrap '\"{ctl}\" --sock \"{sock}\" companion hack -- off >/dev/null 2>&1 || true; rm -f \"{pid}\" \"{script}\"' EXIT\n{exec_line}\n",
-        q = query.display(),
-        pid = pidf.display(),
-        script = script.display(),
-        ctl = ctl.display(),
-        sock = sock.display(),
+        "#!/bin/zsh\n{cd}prompt=\"$(cat {q})\"\necho $$ > {pid}\norbitty_cleanup() {{\n  {ctl} --sock {sock} companion hack -- off >/dev/null 2>&1 || true\n  rm -f {pid} {script}\n}}\ntrap 'exit' HUP\ntrap orbitty_cleanup EXIT\n{exec_line}\n"
     )
 }
 
-fn cursor_perm_workspace_ok(workspace: &Path) -> bool {
-    if !workspace.is_dir() {
-        return false;
+/// Where a project permission file must never go: `/`, `$HOME` itself,
+/// anything under `$HOME/.cursor` (the user-global Cursor dir), and the
+/// main Orbitty checkout (`$HOME/orbitty`). Both sides are canonicalized,
+/// so `$HOME/sub/..` or a symlink can't slip past. `None` = allowed.
+fn cursor_perm_refusal(workspace: &Path, home: Option<&Path>) -> Option<String> {
+    let Ok(ws) = std::fs::canonicalize(workspace) else {
+        return Some("workspace does not exist".into());
+    };
+    if !ws.is_dir() {
+        return Some("workspace is not a directory".into());
     }
-    if workspace == Path::new("/") {
-        return false;
+    if ws == Path::new("/") {
+        return Some("workspace is /".into());
     }
-    if let Ok(home) = std::env::var("HOME") {
-        if !home.is_empty() && workspace == Path::new(&home) {
-            return false;
+    let home = home
+        .filter(|h| !h.as_os_str().is_empty())
+        .and_then(|h| std::fs::canonicalize(h).ok());
+    if let Some(home) = home {
+        if ws == home {
+            return Some("workspace is $HOME".into());
+        }
+        if ws.starts_with(home.join(".cursor")) {
+            return Some("workspace is inside ~/.cursor".into());
+        }
+        if let Ok(main) = std::fs::canonicalize(home.join("orbitty")) {
+            let top = git_out(&ws, &["rev-parse", "--show-toplevel"])
+                .and_then(|t| std::fs::canonicalize(t).ok());
+            if top.as_deref() == Some(main.as_path()) {
+                return Some("workspace is the main ~/orbitty checkout".into());
+            }
         }
     }
-    true
+    None
 }
 
 pub(crate) fn project_cli_path(workspace: &Path) -> PathBuf {
     workspace.join(".cursor").join("cli.json")
 }
 
-fn git_dir(workspace: &Path) -> Option<PathBuf> {
-    let git = workspace.join(".git");
-    if git.is_dir() {
-        return Some(git);
+/// What this app added to an untracked `cli.json` last time, so the next
+/// preset can take its own entries back without dropping the user's.
+fn managed_sidecar_path(workspace: &Path) -> PathBuf {
+    workspace.join(".cursor").join("orbitty-managed.json")
+}
+
+/// Patterns in the repo's local exclude. `**/` so a subdirectory
+/// workspace (`sub/.cursor/cli.json`) is covered too.
+const CURSOR_EXCLUDES: [&str; 2] = ["**/.cursor/cli.json", "**/.cursor/orbitty-managed.json"];
+
+/// `git -C <ws> <args>` stdout (trimmed) on success; `None` = not a repo /
+/// git missing / failed.
+fn git_out(workspace: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(workspace)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
     }
-    if git.is_file() {
-        let text = std::fs::read_to_string(&git).ok()?;
-        let line = text.lines().find(|l| l.trim_start().starts_with("gitdir:"))?;
-        let raw = line.split_once(':')?.1.trim();
-        if raw.is_empty() {
-            return None;
-        }
-        let path = PathBuf::from(raw);
-        return Some(if path.is_absolute() {
-            path
-        } else {
-            workspace.join(path)
-        });
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The exclude file git actually reads for this workspace:
+/// `git rev-parse --git-path info/exclude` (the COMMON dir for a linked
+/// worktree, correct from any subdirectory). `None` = not a git repo.
+fn exclude_file(workspace: &Path) -> Option<PathBuf> {
+    let raw = git_out(workspace, &["rev-parse", "--git-path", "info/exclude"])?;
+    if raw.is_empty() {
+        return None;
     }
-    None
+    let p = PathBuf::from(raw);
+    Some(if p.is_absolute() { p } else { workspace.join(p) })
+}
+
+/// `.cursor/cli.json` (relative to the workspace) is tracked in git.
+fn cli_json_tracked(workspace: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(workspace)
+        .args(["ls-files", "--error-unmatch", "--", ".cursor/cli.json"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// Keep the project permission file out of commits. Local exclude only —
-/// never the product `.gitignore`.
-fn local_exclude(workspace: &Path, rel: &str) {
-    let Some(git_dir) = git_dir(workspace) else {
-        return;
-    };
-    let info = git_dir.join("info");
-    let _ = std::fs::create_dir_all(&info);
-    let path = info.join("exclude");
-    let mut existing = std::fs::read_to_string(&path).unwrap_or_default();
-    if existing.lines().any(|l| l.trim() == rel) {
-        return;
+/// never the product `.gitignore`, never `git add`. Idempotent.
+fn local_exclude(exclude: &Path) -> Result<(), String> {
+    if let Some(dir) = exclude.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    }
+    let mut existing = std::fs::read_to_string(exclude).unwrap_or_default();
+    let missing: Vec<&str> = CURSOR_EXCLUDES
+        .iter()
+        .copied()
+        .filter(|p| !existing.lines().any(|l| l.trim() == *p))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
     }
     if !existing.is_empty() && !existing.ends_with('\n') {
         existing.push('\n');
     }
-    existing.push_str(rel);
-    existing.push('\n');
-    let _ = std::fs::write(path, existing);
+    for p in missing {
+        existing.push_str(p);
+        existing.push('\n');
+    }
+    std::fs::write(exclude, existing).map_err(|e| format!("write {}: {e}", exclude.display()))
+}
+
+fn str_list(v: &serde_json::Value) -> Vec<String> {
+    v.as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// Union-merge one list: the user's entries (file minus what we added
+/// last time) stay in order, ours are appended. Returns (merged, added)
+/// where `added` is ours that the user didn't already have.
+fn union_list(file: &[String], ours_before: &[String], ours_now: &[&str]) -> (Vec<String>, Vec<String>) {
+    let mut merged: Vec<String> = file
+        .iter()
+        .filter(|t| !ours_before.contains(t))
+        .cloned()
+        .collect();
+    let mut added = Vec::new();
+    for t in ours_now {
+        if !merged.iter().any(|m| m == t) {
+            merged.push((*t).to_string());
+            added.push((*t).to_string());
+        }
+    }
+    (merged, added)
+}
+
+/// Undo for one `install_cursor_permissions` write: the launch that
+/// needed it failed, so put the files back the way they were.
+pub(crate) struct CursorPermUndo {
+    files: Vec<(PathBuf, Option<Vec<u8>>)>,
+    made_dir: Option<PathBuf>,
+}
+
+impl CursorPermUndo {
+    pub(crate) fn rollback(self) {
+        for (path, prev) in self.files {
+            match prev {
+                Some(bytes) => {
+                    let _ = std::fs::write(&path, bytes);
+                }
+                None => {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+        if let Some(dir) = self.made_dir {
+            let _ = std::fs::remove_dir(dir); // only if now empty
+        }
+    }
 }
 
 /// Write the run workspace's `.cursor/cli.json` permissions for this
-/// preset. Merges into an existing object (other keys stay). Does not
-/// touch the user-global Cursor CLI config. Refuses `$HOME` and `/`.
-pub(crate) fn install_cursor_permissions(workspace: &Path, preset: &str) -> Result<(), String> {
-    if !cursor_perm_workspace_ok(workspace) {
-        return Err("no project workspace for cursor permissions".into());
+/// preset. Never touches the user-global Cursor CLI config.
+/// - Refuses `/`, `$HOME`, `~/.cursor/…` and the main `~/orbitty`
+///   checkout (canonical paths).
+/// - A TRACKED `.cursor/cli.json` is the repo's own — left untouched.
+/// - An untracked one is union-merged: the user's allow/deny stay (a user
+///   deny is never dropped), ours are appended; what we added is recorded
+///   in `.cursor/orbitty-managed.json` so the next preset can take it back.
+/// - In a git repo, `**/.cursor/cli.json` goes in the exclude git reads
+///   (`rev-parse --git-path info/exclude`); never `git add`.
+/// Cleanup: delete `.cursor/cli.json` + `.cursor/orbitty-managed.json`.
+pub(crate) fn install_cursor_permissions(workspace: &Path, preset: &str) -> Result<CursorPermUndo, String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    install_cursor_permissions_with_home(workspace, preset, home.as_deref())
+}
+
+fn install_cursor_permissions_with_home(
+    workspace: &Path,
+    preset: &str,
+    home: Option<&Path>,
+) -> Result<CursorPermUndo, String> {
+    if let Some(why) = cursor_perm_refusal(workspace, home) {
+        return Err(format!("no project workspace for cursor permissions: {why}"));
+    }
+    let exclude = exclude_file(workspace);
+    if exclude.is_some() && cli_json_tracked(workspace) {
+        return Err("tracked .cursor/cli.json left untouched".into());
     }
     let path = project_cli_path(workspace);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create {}: {e}", parent.display()))?;
-    }
-    let mut root = if path.is_file() {
-        let raw = std::fs::read_to_string(&path)
-            .map_err(|e| format!("read {}: {e}", path.display()))?;
-        match serde_json::from_str::<serde_json::Value>(&raw) {
+    let sidecar = managed_sidecar_path(workspace);
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_else(|| workspace.join(".cursor"));
+    let prev_cli = std::fs::read(&path).ok();
+    let prev_side = std::fs::read(&sidecar).ok();
+    let mut root = match prev_cli.as_deref() {
+        Some(raw) => match serde_json::from_slice::<serde_json::Value>(raw) {
             Ok(v) if v.is_object() => v,
-            Ok(_) => {
-                return Err(format!(
-                    "{} is not a JSON object; left untouched",
-                    path.display()
-                ))
-            }
-            Err(_) => {
-                return Err(format!(
-                    "{} is not valid JSON; left untouched",
-                    path.display()
-                ))
-            }
-        }
-    } else {
-        serde_json::json!({ "version": 1 })
+            Ok(_) => return Err(format!("{} is not a JSON object; left untouched", path.display())),
+            Err(_) => return Err(format!("{} is not valid JSON; left untouched", path.display())),
+        },
+        None => serde_json::json!({ "version": 1 }),
     };
+    let managed: serde_json::Value = prev_side
+        .as_deref()
+        .and_then(|b| serde_json::from_slice(b).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let ours = crate::agents::cursor_permissions_value(preset);
+    let ours_allow: Vec<&str> = ours["allow"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect();
+    let ours_deny: Vec<&str> = ours["deny"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect();
+    let file_perm = root.get("permissions").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let (allow, added_allow) = union_list(&str_list(&file_perm["allow"]), &str_list(&managed["allow"]), &ours_allow);
+    let (deny, added_deny) = union_list(&str_list(&file_perm["deny"]), &str_list(&managed["deny"]), &ours_deny);
     if root.get("version").is_none() {
         root["version"] = serde_json::json!(1);
     }
-    root["permissions"] = crate::agents::cursor_permissions_value(preset);
+    let mut perm = if file_perm.is_object() { file_perm } else { serde_json::json!({}) };
+    perm["allow"] = serde_json::json!(allow);
+    perm["deny"] = serde_json::json!(deny);
+    root["permissions"] = perm;
+
+    // Exclude first: the file never exists un-ignored in a repo.
+    if let Some(ex) = exclude.as_deref() {
+        local_exclude(ex)?;
+    }
+    let made_dir = if dir.is_dir() {
+        None
+    } else {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+        Some(dir.clone())
+    };
+    let undo = CursorPermUndo {
+        files: vec![(path.clone(), prev_cli), (sidecar.clone(), prev_side)],
+        made_dir,
+    };
     let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())? + "\n";
-    std::fs::write(&path, text).map_err(|e| format!("write {}: {e}", path.display()))?;
-    local_exclude(workspace, ".cursor/cli.json");
-    Ok(())
+    let side = serde_json::to_string_pretty(&serde_json::json!({
+        "allow": added_allow,
+        "deny": added_deny,
+    }))
+    .map_err(|e| e.to_string())?
+        + "\n";
+    if let Err(e) = std::fs::write(&path, text).and_then(|_| std::fs::write(&sidecar, side)) {
+        undo.rollback();
+        return Err(format!("write {}: {e}", path.display()));
+    }
+    Ok(undo)
 }
 
 fn open_agent_terminal(
@@ -3286,38 +3444,54 @@ pub fn launch_agent(
     let out: Result<String, String> = (|| {
     match shortcut.harness.trim().to_ascii_lowercase().as_str() {
         "cursor" => {
-            // Project permissions before either door so herdr's pane and
-            // the terminal fallback both see `.cursor/cli.json`.
             let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
-            if let Err(why) = install_cursor_permissions(Path::new(&workspace), preset) {
-                crate::event_log::append_best(
-                    &app,
-                    "cursor-permissions",
-                    None,
-                    planet_for_log,
-                    Some("agent"),
-                    true,
-                    &serde_json::json!({ "reason": why, "preset": preset }),
-                );
-            }
-            // Herdr first, like grok. Skip falls through to the terminal
-            // door (one skip line already logged; never a dual-launch).
+            // The model reaches herdr argv and a zsh line: refuse, never strip.
+            let model = crate::agents::cursor_model(shortcut.model.as_deref());
+            crate::agents::validate_model(&model)?;
+            let ws = Path::new(&workspace);
+            // Project permissions exist only for a launch that happened:
+            // written once a door is chosen, rolled back if that door
+            // doesn't launch. Refusals (tracked file, $HOME, main
+            // ~/orbitty checkout…) are logged; the launch still goes.
+            let install = || match install_cursor_permissions(ws, preset) {
+                Ok(undo) => Some(undo),
+                Err(why) => {
+                    crate::event_log::append_best(
+                        &app,
+                        "cursor-permissions",
+                        None,
+                        planet_for_log,
+                        Some("agent"),
+                        true,
+                        &serde_json::json!({ "reason": why, "preset": preset }),
+                    );
+                    None
+                }
+            };
+            // Herdr door: herdr starts cursor-agent itself, so the file must
+            // be there before branch(). A skip takes it back.
+            let undo = install();
             match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
-                crate::herdr::Branch::Skip => {}
+                crate::herdr::Branch::Skip => {
+                    if let Some(u) = undo {
+                        u.rollback();
+                    }
+                }
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
                     return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
                 }
             }
+            // Terminal door: only once the CLI is known to exist.
             let Some(bin) = find_on_path("cursor-agent") else {
                 return Err(
                     "cursor-agent not on PATH — install the Cursor CLI or pick another harness."
                         .to_string(),
                 );
             };
-            let model = crate::agents::cursor_model(shortcut.model.as_deref());
             let exec = crate::agents::cursor_exec_line(&bin.display().to_string(), &model, preset);
-            let opened = open_agent_terminal(
+            let undo = install();
+            let opened = match open_agent_terminal(
                 &app,
                 &query,
                 &terminal_script,
@@ -3325,7 +3499,15 @@ pub fn launch_agent(
                 &exec,
                 Some(workspace.as_str()),
                 planet_for_log,
-            )?;
+            ) {
+                Ok(o) => o,
+                Err(e) => {
+                    if let Some(u) = undo {
+                        u.rollback();
+                    }
+                    return Err(e);
+                }
+            };
             hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
                 "Opened cursor-agent in {opened}. Query: {}.{skip_note}",
@@ -3356,8 +3538,8 @@ pub fn launch_agent(
                 &terminal_script,
                 &terminal_pid_file,
                 &format!(
-                    "\"{}\" run --with-builtin=developer,computercontroller -t \"$prompt\"",
-                    bin.display()
+                    "{} run --with-builtin=developer,computercontroller -t \"$prompt\"",
+                    sq(&bin.display().to_string())
                 ),
                 Some(workspace.as_str()),
                 planet_for_log,
@@ -3391,7 +3573,7 @@ pub fn launch_agent(
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
-                &format!("\"{}\" -p \"$prompt\"", bin.display()),
+                &format!("{} -p \"$prompt\"", sq(&bin.display().to_string())),
                 Some(workspace.as_str()),
                 planet_for_log,
             )?;
@@ -3571,7 +3753,8 @@ mod launch_tests {
         assert!(body.contains(ctl.to_str().unwrap()));
         assert!(body.contains("--sock"));
         assert!(body.contains(sock.to_str().unwrap()));
-        assert!(body.contains("cd \"/tmp/workspace\""));
+        assert!(body.contains("cd '/tmp/workspace'"));
+        assert!(body.contains("trap orbitty_cleanup EXIT"));
         assert!(!body.contains(".local/bin"));
         let argv = open_terminal_argv("Ghostty", Path::new("/tmp/run.command"));
         assert_eq!(
@@ -3614,7 +3797,7 @@ mod launch_tests {
         assert!(allow.iter().all(|t| !t.as_str().unwrap_or("").starts_with("Write(")));
         assert!(v["permissions"]["deny"].as_array().unwrap().iter().any(|t| t == "Write(**)"));
         let exclude = std::fs::read_to_string(dir.join(".git/info/exclude")).unwrap();
-        assert!(exclude.lines().any(|l| l.trim() == ".cursor/cli.json"));
+        assert!(exclude.lines().any(|l| l.trim() == "**/.cursor/cli.json"));
 
         let mut root: serde_json::Value = serde_json::from_str(&raw).unwrap();
         root["editor"] = serde_json::json!({ "vimMode": true });
@@ -3640,4 +3823,275 @@ mod launch_tests {
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "orbitty-cl-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::canonicalize(&d).unwrap()
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    }
+
+    fn repo_with_commit(dir: &Path) {
+        git(dir, &["init", "-q", "-b", "main"]);
+        std::fs::write(dir.join("README"), "x\n").unwrap();
+        git(dir, &["add", "README"]);
+        git(dir, &["commit", "-q", "-m", "init", "--no-verify"]);
+    }
+
+    fn arr(v: &serde_json::Value, key: &str) -> Vec<String> {
+        v["permissions"][key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn linked_worktree_cli_json_is_ignored() {
+        let base = tmp("wt");
+        let main = base.join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        repo_with_commit(&main);
+        let wt = base.join("wt");
+        git(&main, &["worktree", "add", "-q", "-b", "wt", wt.to_str().unwrap()]);
+        install_cursor_permissions_with_home(&wt, "read-only", None).unwrap();
+        assert!(project_cli_path(&wt).is_file());
+        assert_eq!(git(&wt, &["status", "--porcelain", "-uall"]).trim(), "");
+        git(&wt, &["check-ignore", "-q", ".cursor/cli.json"]);
+        let common = std::fs::read_to_string(main.join(".git/info/exclude")).unwrap();
+        assert!(common.lines().any(|l| l == "**/.cursor/cli.json"));
+        // Idempotent: a second install doesn't duplicate the pattern.
+        install_cursor_permissions_with_home(&wt, "read-only", None).unwrap();
+        let common = std::fs::read_to_string(main.join(".git/info/exclude")).unwrap();
+        assert_eq!(common.lines().filter(|l| *l == "**/.cursor/cli.json").count(), 1);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn subdirectory_workspace_cli_json_is_ignored() {
+        let base = tmp("sub");
+        repo_with_commit(&base);
+        let sub = base.join("pkg").join("app");
+        std::fs::create_dir_all(&sub).unwrap();
+        install_cursor_permissions_with_home(&sub, "read-only", None).unwrap();
+        assert!(sub.join(".cursor/cli.json").is_file());
+        assert_eq!(git(&base, &["status", "--porcelain", "-uall"]).trim(), "");
+        git(&sub, &["check-ignore", "-q", ".cursor/cli.json"]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn tracked_cli_json_is_left_untouched() {
+        let base = tmp("tracked");
+        repo_with_commit(&base);
+        std::fs::create_dir_all(base.join(".cursor")).unwrap();
+        let theirs = "{\n  \"version\": 1,\n  \"permissions\": {\"allow\": [\"Shell(npm)\"], \"deny\": [\"Shell(rm)\"]}\n}\n";
+        std::fs::write(base.join(".cursor/cli.json"), theirs).unwrap();
+        git(&base, &["add", ".cursor/cli.json"]);
+        git(&base, &["commit", "-q", "-m", "cfg", "--no-verify"]);
+        let err = install_cursor_permissions_with_home(&base, "read-only", None).err().unwrap();
+        assert!(err.contains("tracked .cursor/cli.json left untouched"), "{err}");
+        assert_eq!(std::fs::read_to_string(base.join(".cursor/cli.json")).unwrap(), theirs);
+        assert!(!base.join(".cursor/orbitty-managed.json").exists());
+        assert_eq!(git(&base, &["status", "--porcelain", "-uall"]).trim(), "");
+        // Same from a subdirectory of the repo root? Not applicable: the
+        // tracked file is the root's; a sub workspace has its own path.
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn untracked_cli_json_keeps_user_lists_across_presets() {
+        let base = tmp("merge");
+        let user = serde_json::json!({
+            "version": 1,
+            "editor": {"vimMode": true},
+            "permissions": {"allow": ["Shell(npm)"], "deny": ["Shell(rm)", "Write(**)"]}
+        });
+        std::fs::create_dir_all(base.join(".cursor")).unwrap();
+        std::fs::write(base.join(".cursor/cli.json"), user.to_string()).unwrap();
+        install_cursor_permissions_with_home(&base, "read-only", None).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(base.join(".cursor/cli.json")).unwrap()).unwrap();
+        let (allow, deny) = (arr(&v, "allow"), arr(&v, "deny"));
+        assert_eq!(allow[0], "Shell(npm)");
+        assert!(allow.contains(&"Shell(find)".to_string()));
+        assert_eq!(&deny[..2], &["Shell(rm)".to_string(), "Write(**)".to_string()]);
+        assert!(deny.contains(&"Shell(find:*-delete*)".to_string()));
+        assert_eq!(deny.iter().filter(|d| *d == "Write(**)").count(), 1);
+        assert_eq!(v["editor"]["vimMode"], true);
+
+        // workspace-write: our read-only denies go, the user's stay —
+        // including their own Write(**) deny.
+        install_cursor_permissions_with_home(&base, "workspace-write", None).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(base.join(".cursor/cli.json")).unwrap()).unwrap();
+        let (allow, deny) = (arr(&v, "allow"), arr(&v, "deny"));
+        assert_eq!(deny, vec!["Shell(rm)".to_string(), "Write(**)".to_string()]);
+        assert!(allow.contains(&"Shell(npm)".to_string()));
+        assert!(allow.contains(&"Write(**)".to_string()));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn failed_launch_rolls_the_permission_file_back() {
+        let base = tmp("undo");
+        let undo = install_cursor_permissions_with_home(&base, "read-only", None).unwrap();
+        assert!(project_cli_path(&base).is_file());
+        undo.rollback();
+        assert!(!base.join(".cursor").exists());
+
+        std::fs::create_dir_all(base.join(".cursor")).unwrap();
+        let mine = "{\"version\":1,\"permissions\":{\"allow\":[\"Shell(npm)\"]}}";
+        std::fs::write(project_cli_path(&base), mine).unwrap();
+        let undo = install_cursor_permissions_with_home(&base, "full-auto", None).unwrap();
+        assert_ne!(std::fs::read_to_string(project_cli_path(&base)).unwrap(), mine);
+        undo.rollback();
+        assert_eq!(std::fs::read_to_string(project_cli_path(&base)).unwrap(), mine);
+        assert!(!base.join(".cursor/orbitty-managed.json").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn refuses_home_global_cursor_dir_and_main_orbitty_checkout() {
+        let home = tmp("home");
+        let sub = home.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let h = Some(home.as_path());
+        assert!(cursor_perm_refusal(&home, h).is_some());
+        assert!(cursor_perm_refusal(&sub.join(".."), h).is_some(), "$HOME/sub/.. must be $HOME");
+        assert!(cursor_perm_refusal(&home.join("."), h).is_some());
+        #[cfg(unix)]
+        {
+            let link = home.join("sub/homelink");
+            std::os::unix::fs::symlink(&home, &link).unwrap();
+            assert!(cursor_perm_refusal(&link, h).is_some(), "symlink to $HOME");
+        }
+        let gcur = home.join(".cursor/projects");
+        std::fs::create_dir_all(&gcur).unwrap();
+        assert!(cursor_perm_refusal(&home.join(".cursor"), h).is_some());
+        assert!(cursor_perm_refusal(&gcur, h).is_some());
+        let orb = home.join("orbitty");
+        std::fs::create_dir_all(orb.join("src")).unwrap();
+        repo_with_commit(&orb);
+        assert!(cursor_perm_refusal(&orb, h).unwrap().contains("main ~/orbitty"));
+        assert!(cursor_perm_refusal(&orb.join("src"), h).is_some());
+        assert!(install_cursor_permissions_with_home(&orb, "read-only", h).is_err());
+        assert!(!orb.join(".cursor").exists());
+        // A linked worktree of that repo is a run workspace: allowed.
+        let wt = home.join("orbitty-wt").join("go");
+        git(&orb, &["worktree", "add", "-q", "-b", "go", wt.to_str().unwrap()]);
+        assert!(cursor_perm_refusal(&wt, h).is_none());
+        assert!(cursor_perm_refusal(&sub, h).is_none());
+        assert!(cursor_perm_refusal(Path::new("/"), h).is_some());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn sq_escapes_single_quotes() {
+        assert_eq!(sq("a b"), "'a b'");
+        assert_eq!(sq("it's"), "'it'\\''s'");
+        assert_eq!(sq(""), "''");
+    }
+
+    fn find_pwned(dir: &Path, hits: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            // The hostile names contain "PWNED" mid-name; a marker that
+            // actually ran is a file NAMED PWNED_*.
+            if p.file_name().unwrap().to_string_lossy().starts_with("PWNED") {
+                hits.push(p.clone());
+            }
+            if p.is_dir() && !p.is_symlink() {
+                find_pwned(&p, hits);
+            }
+        }
+    }
+
+    /// B2: hostile dir / model / query / pid / script / bin / ctl / sock
+    /// values. `zsh -n` must parse the body, and running it must execute
+    /// nothing from any value, pass each value through verbatim, and still
+    /// run the cleanup trap.
+    #[test]
+    fn command_body_survives_hostile_values_under_zsh() {
+        if !Path::new("/bin/zsh").exists() {
+            eprintln!("no /bin/zsh; skipped");
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let base = tmp("zsh");
+        let evil = "x 'q' \"dq\" $(touch PWNED_S) `touch PWNED_B`; touch PWNED_C\nnl & | < >";
+        let dir = base.join(format!("dir {evil}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = |name: String, body: &str| {
+            let p = base.join(name);
+            std::fs::write(&p, body).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let rec = "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\n";
+        let bin = exe(format!("bin {evil}"), rec);
+        let ctl = exe(format!("ctl {evil}"), rec);
+        let sock = base.join(format!("sock {evil}"));
+        let query = base.join(format!("q {evil}.md"));
+        std::fs::write(&query, "hello $(touch PWNED_PROMPT)").unwrap();
+        let pidf = base.join(format!("pid {evil}.pid"));
+        let script = base.join(format!("run {evil}.command"));
+        let model = format!("m {evil}");
+        let exec = crate::agents::cursor_exec_line(bin.to_str().unwrap(), &model, "read-only");
+        let body = agent_command_body(
+            &query,
+            &script,
+            &pidf,
+            &exec,
+            &ctl,
+            &sock,
+            Some(dir.to_str().unwrap()),
+        );
+        std::fs::write(&script, &body).unwrap();
+        let n = std::process::Command::new("/bin/zsh").arg("-n").arg(&script).output().unwrap();
+        assert!(n.status.success(), "zsh -n: {}\n{body}", String::from_utf8_lossy(&n.stderr));
+        let run = std::process::Command::new("/bin/zsh")
+            .arg(&script)
+            .current_dir(&base)
+            .output()
+            .unwrap();
+        assert!(run.status.success(), "run: {}", String::from_utf8_lossy(&run.stderr));
+        let mut hits = Vec::new();
+        find_pwned(&base, &mut hits);
+        assert!(hits.is_empty(), "executed: {hits:?}");
+        let bin_args = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
+        assert_eq!(
+            bin_args,
+            format!("--model\n{model}\nhello $(touch PWNED_PROMPT)\n")
+        );
+        let ctl_args = std::fs::read_to_string(format!("{}.args", ctl.display())).unwrap();
+        assert_eq!(
+            ctl_args,
+            format!("--sock\n{}\ncompanion\nhack\n--\noff\n", sock.display())
+        );
+        assert!(!pidf.exists(), "cleanup removed the pid file");
+        assert!(!script.exists(), "cleanup removed the script");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
 }
