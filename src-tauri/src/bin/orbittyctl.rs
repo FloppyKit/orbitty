@@ -16,6 +16,8 @@ use std::process::exit;
 const EXIT_OTHER: i32 = 1;
 const EXIT_NOT_RUNNING: i32 = 2;
 
+// LEGACY (to be replaced by the new companion pack, Matt 2026-09-29): the `companion play` gesture list
+// (idle · think · nod · look-left · look-right) inside USAGE below.
 const USAGE: &str = "orbittyctl — drive a running Orbitty over its local control socket
 
 usage: orbittyctl [--json] [--token T] [--sock PATH] <command>

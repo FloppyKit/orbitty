@@ -218,6 +218,7 @@ pub fn companion_glb_url(app: tauri::AppHandle, id: String) -> Result<String, St
     }
 }
 
+// LEGACY (to be replaced by the new companion pack, Matt 2026-09-29)
 /// The five allowlisted gestures on the 3D
 /// body. `wave` ships in the GLBs but is NOT allowlisted (shoulder not
 /// locked) — it and any other name are an honest error, never a silent

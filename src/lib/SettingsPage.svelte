@@ -570,9 +570,11 @@
             aria-label="Companion body"
             title="Which body the companion wears — the blessed Spirit, a bundled 3D body, or an imported companion pack"
           >
+            <!-- LEGACY (to be replaced by the new companion pack, Matt 2026-09-29) -->
             <option value="spirit">Spirit</option>
             <!-- Reserved bundled-GLB ids, never
                  pack folders. Spirit stays the default. -->
+            <!-- LEGACY (to be replaced by the new companion pack, Matt 2026-09-29) -->
             <option value="female">Female · 3D</option>
             {#each bodyPacks as p (p.id)}
               <option value={p.id}>{p.name}</option>

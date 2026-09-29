@@ -132,6 +132,7 @@ fn input_schema(kind: &str) -> Value {
             "type": "object",
             "properties": { "clip": {
                 "type": "string",
+                // LEGACY (to be replaced by the new companion pack, Matt 2026-09-29)
                 "enum": ["idle", "think", "nod", "look-left", "look-right"],
                 "description": "Gesture clip name (allowlist; unknown names error)"
             } },
