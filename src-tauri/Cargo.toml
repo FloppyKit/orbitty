@@ -33,6 +33,11 @@ path = "src/bin/orbitty_mcp.rs"
 name = "orbitty-relay"
 path = "src/bin/orbitty_relay/main.rs"
 
+[features]
+# Matt's THIN debug/testing stamp (⌘⌥T). Debug builds have it anyway;
+# install-nightly.sh builds Nightly with it. Stable/consumer builds never do.
+dev-thin = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 cc = "1"

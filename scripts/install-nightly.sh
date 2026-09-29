@@ -26,7 +26,8 @@ echo "==> Building release bundle (nightly)"
 mkdir -p src-tauri/target/release
 ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay
 (cd src-tauri && cargo build --release --bin orbitty-relay) || true
-npm run tauri build || echo "WARNING: tauri build failed (dmg?) — continuing if .app exists" >&2
+# dev-thin: Matt's THIN stamp (⌘⌥T) is Nightly-only; install-stable.sh builds without it.
+npm run tauri build -- --features dev-thin || echo "WARNING: tauri build failed (dmg?) — continuing if .app exists" >&2
 
 if [[ ! -d "$SRC" ]]; then
   echo "error: expected bundle at $SRC" >&2

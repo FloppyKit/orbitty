@@ -1,7 +1,8 @@
 //! Dev-only THIN stamp.
 //!
-//! Release builds (`debug_assertions` off) refuse before any stamp, nod, or
-//! file write. Script, python, and output directory come from
+//! Built in only for debug builds or with the `dev-thin` Cargo feature
+//! (`install-nightly.sh` builds Nightly with it). Stable/consumer release
+//! builds refuse before any stamp, nod, or file write, and do not seed ⌘⌥T. Script, python, and output directory come from
 //! `~/.config/orbitty/thin.json` when set; the defaults are the repo script,
 //! `python3` on PATH, and `~/.config/orbitty/thin-stamps`. Nothing here
 //! hard-codes a research-nest path or an absolute Homebrew interpreter.
@@ -18,15 +19,19 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Release builds do not seed the ⌘⌥T row.
-pub fn seed_thin_row(debug_assertions: bool) -> bool {
-    debug_assertions
+/// The one THIN build predicate. The release gate (`companion_thin`) and the
+/// ⌘⌥T seeding (`actions::bake_defaults`) both pass this, and every compiled-in
+/// THIN item uses the same `cfg(any(debug_assertions, feature = "dev-thin"))`.
+pub const THIN_ENABLED: bool = cfg!(any(debug_assertions, feature = "dev-thin"));
+
+/// Builds without THIN do not seed the ⌘⌥T row.
+pub fn seed_thin_row(enabled: bool) -> bool {
+    enabled
 }
 
-/// Consumer/release builds stop here. The real stamp is compiled only when
-/// `debug_assertions` is on; this gate is what the command checks first.
-pub fn release_gate(debug_assertions: bool) -> Result<(), String> {
-    if debug_assertions {
+/// Builds without THIN stop here; this gate is what the command checks first.
+pub fn release_gate(enabled: bool) -> Result<(), String> {
+    if enabled {
         Ok(())
     } else {
         Err("THIN is dev-only and is not in this build.".into())
@@ -52,6 +57,153 @@ pub fn routes_to_companion_thin(name: &str, command: &str) -> bool {
         || parts
             .windows(2)
             .any(|w| w[0] == "companion" && w[1] == "thin")
+}
+
+/// `companion_thin`'s body, with the app parts injected: the gate first
+/// (nothing else runs when it refuses), then the stamp, then exactly one nod
+/// for the attempt, then a note row only on failure.
+pub(crate) fn thin_flow(
+    gate: Result<(), String>,
+    stamp: impl FnOnce() -> Result<String, StampError>,
+    mut nod: impl FnMut(),
+    note: impl FnOnce(String) -> Result<(), String>,
+) -> Result<String, String> {
+    gate?;
+    let stamped = stamp();
+    nod();
+    match stamped {
+        Ok(line) => Ok(line),
+        Err(e) => {
+            let line = e.user_line();
+            note(line.clone())?;
+            Ok(line)
+        }
+    }
+}
+
+/// The tail of a stamp: run the script, require the stamp to have landed,
+/// and only then advance the meter.
+#[cfg_attr(not(any(debug_assertions, feature = "dev-thin")), allow(dead_code))]
+pub(crate) fn stamp_steps(
+    run: impl FnOnce() -> Result<String, StampError>,
+    landed: impl FnOnce() -> bool,
+    save_meter: impl FnOnce(),
+) -> Result<String, StampError> {
+    let line = run()?;
+    if !landed() {
+        return Err(StampError::failed("stamp script exited but no stamp landed"));
+    }
+    save_meter();
+    Ok(line)
+}
+
+/// True for `~/.buzz` or anything inside it: file identity (dev, ino) of the
+/// path and each existing parent against `~/.buzz` (or HOME with a `.buzz`
+/// child before it exists), dangling symlinks judged by their target, then
+/// the canonical path compared case-insensitively. Any error other than
+/// not-found counts as inside.
+#[cfg_attr(not(any(debug_assertions, feature = "dev-thin")), allow(dead_code))]
+pub(crate) fn inside_buzz(home: &Path, p: &Path) -> bool {
+    inside_buzz_at(home, p, 0)
+}
+
+#[cfg_attr(not(any(debug_assertions, feature = "dev-thin")), allow(dead_code))]
+fn inside_buzz_at(home: &Path, p: &Path, depth: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    if depth > 32 || !p.is_absolute() {
+        return true;
+    }
+    let ident = |q: &Path| -> Result<Option<(u64, u64)>, ()> {
+        match std::fs::metadata(q) {
+            Ok(m) => Ok(Some((m.dev(), m.ino()))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(()),
+        }
+    };
+    let buzz_dir = home.join(".buzz");
+    let (Ok(buzz), Ok(home_id)) = (ident(&buzz_dir), ident(home)) else {
+        return true;
+    };
+    let hit = |id: (u64, u64), child: Option<&str>| {
+        Some(id) == buzz
+            || (Some(id) == home_id && child.map(str::to_lowercase).as_deref() == Some(".buzz"))
+    };
+    let mut child: Option<String> = None;
+    let mut cur = Some(p);
+    let mut resolved = false;
+    while let Some(q) = cur {
+        match ident(q) {
+            Err(()) => return true,
+            Ok(Some(id)) => {
+                if hit(id, child.as_deref()) {
+                    return true;
+                }
+                // The first existing ancestor: walk its real (symlink-free)
+                // parents too, so a symlinked parent into .buzz is caught.
+                if !resolved {
+                    resolved = true;
+                    let Ok(real) = std::fs::canonicalize(q) else {
+                        return true;
+                    };
+                    let mut rchild: Option<String> = None;
+                    let mut rcur = Some(real.as_path());
+                    while let Some(r) = rcur {
+                        match ident(r) {
+                            Err(()) => return true,
+                            Ok(Some(rid)) if hit(rid, rchild.as_deref()) => return true,
+                            _ => {}
+                        }
+                        rchild = r.file_name().map(|s| s.to_string_lossy().into_owned());
+                        rcur = r.parent();
+                    }
+                }
+            }
+            Ok(None) => {
+                if let Ok(m) = std::fs::symlink_metadata(q) {
+                    if m.file_type().is_symlink() {
+                        let Ok(t) = std::fs::read_link(q) else {
+                            return true;
+                        };
+                        let t = q.parent().map(|d| d.join(&t)).unwrap_or(t);
+                        if inside_buzz_at(home, &t, depth + 1) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        child = q.file_name().map(|s| s.to_string_lossy().into_owned());
+        cur = q.parent();
+    }
+    let lower = |q: &Path| {
+        std::fs::canonicalize(q)
+            .unwrap_or_else(|_| q.to_path_buf())
+            .to_string_lossy()
+            .to_lowercase()
+    };
+    let b = lower(&buzz_dir);
+    let b = b.trim_end_matches('/');
+    let c = lower(p);
+    c == b || c.starts_with(&format!("{b}/"))
+}
+
+/// `thin.json` may not send stamps (or take the script) from inside
+/// `~/.buzz`, and paths must be absolute after `~/` / `$HOME` expansion
+/// (a relative path would land in the app's cwd, `/`).
+#[cfg_attr(not(any(debug_assertions, feature = "dev-thin")), allow(dead_code))]
+pub(crate) fn check_paths(home: &Path, cfg: &ThinConfig) -> Result<(), String> {
+    for (what, p) in [("outputDir", &cfg.output_dir), ("script", &cfg.script)] {
+        if !p.is_absolute() {
+            return Err(format!("thin.json {what} {} must be an absolute path", p.display()));
+        }
+        if inside_buzz(home, p) {
+            return Err(format!(
+                "thin.json {what} {} is inside ~/.buzz; refused",
+                p.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -284,13 +436,12 @@ impl StampError {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "dev-thin"))]
 pub fn stamp(app: &tauri::AppHandle) -> Result<String, StampError> {
-    use tauri::Manager;
-
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let cfg = resolve_config(&home, &manifest);
+    check_paths(&home, &cfg).map_err(|e| StampError::failed(&e))?;
     if !cfg.script.is_file() {
         return Err(StampError::missing_script());
     }
@@ -329,24 +480,21 @@ pub fn stamp(app: &tauri::AppHandle) -> Result<String, StampError> {
     let body = serde_json::to_string(&payload).map_err(|e| StampError::failed(&e.to_string()))?;
     std::fs::create_dir_all(&cfg.output_dir)
         .map_err(|e| StampError::failed(&format!("mkdir {}: {e}", cfg.output_dir.display())))?;
-    let line = run_script(&cfg, &body)?;
-    if !stamp_landed(&cfg.output_dir, &obs) {
-        return Err(StampError::failed(
-            "stamp script exited but no stamp landed",
-        ));
-    }
-    save_meter(&cfg.output_dir, &meter);
-    Ok(line)
+    stamp_steps(
+        || run_script(&cfg, &body),
+        || stamp_landed(&cfg.output_dir, &obs),
+        || save_meter(&cfg.output_dir, &meter),
+    )
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(any(debug_assertions, feature = "dev-thin")))]
 pub fn stamp(_app: &tauri::AppHandle) -> Result<String, StampError> {
     Err(StampError {
         user_line: "THIN is dev-only and is not in this build.".into(),
     })
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "dev-thin"))]
 fn run_script(cfg: &ThinConfig, body: &str) -> Result<String, StampError> {
     let mut child = Command::new(&cfg.python)
         .arg(&cfg.script)
@@ -379,7 +527,7 @@ fn run_script(cfg: &ThinConfig, body: &str) -> Result<String, StampError> {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "dev-thin"))]
 fn stamp_landed(output_dir: &Path, obs: &Observation) -> bool {
     let events = output_dir.join("events.jsonl");
     let Ok(raw) = std::fs::read_to_string(&events) else {
@@ -403,7 +551,7 @@ fn stamp_landed(output_dir: &Path, obs: &Observation) -> bool {
             .is_some_and(|s| !s.is_empty())
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "dev-thin"))]
 fn read_events(app: &tauri::AppHandle) -> String {
     use tauri::Manager;
     let Ok(dir) = app.path().app_data_dir() else {
@@ -412,7 +560,7 @@ fn read_events(app: &tauri::AppHandle) -> String {
     std::fs::read_to_string(dir.join("events.jsonl")).unwrap_or_default()
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "dev-thin"))]
 fn read_session_id() -> String {
     let p = crate::coordinator::companions_root().join("plug.json");
     let Ok(raw) = std::fs::read_to_string(p) else {
@@ -475,7 +623,7 @@ fn stamp_ts(now: u64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn fp_window(start: u32, n: u32) -> Vec<String> {
@@ -731,5 +879,244 @@ not json companion-send\n";
         assert!(err.contains("output dir"), "{err}");
         assert!(!home.join(".buzz").exists());
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The body of `fn <name>` in `src` (up to the first line that is a lone `}`).
+    pub(crate) fn fn_body<'a>(src: &'a str, sig: &str) -> &'a str {
+        let at = src.find(sig).unwrap_or_else(|| panic!("missing {sig}"));
+        let rest = &src[at..];
+        let end = rest.find("\n}\n").unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "orbitty-thin-{tag}-{}-{}",
+            std::process::id(),
+            unix_now()
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::canonicalize(&d).unwrap()
+    }
+
+    // B1: the gate and the seeding use one predicate, and it is the dev-thin cfg.
+    #[test]
+    fn gate_and_seed_share_the_dev_thin_cfg() {
+        assert_eq!(THIN_ENABLED, cfg!(any(debug_assertions, feature = "dev-thin")));
+        let coord = include_str!("coordinator.rs");
+        let actions = include_str!("actions.rs");
+        let thin = fn_body(coord, "pub fn companion_thin(");
+        assert!(thin.contains("release_gate(crate::thin::THIN_ENABLED)"), "{thin}");
+        let bake = fn_body(actions, "pub fn bake_defaults(");
+        assert!(bake.contains("seed_thin_row(crate::thin::THIN_ENABLED)"), "{bake}");
+        // No thin item may be gated on debug_assertions alone.
+        let bare = format!("cfg!({})", "debug_assertions");
+        assert!(!thin.contains(&bare) && !bake.contains(&bare));
+        let src = include_str!("thin.rs");
+        for needle in [
+            format!("#[cfg({})]", "debug_assertions"),
+            format!("#[cfg(not({}))]", "debug_assertions"),
+        ] {
+            assert!(!src.contains(&needle), "thin.rs still has {needle}");
+        }
+        let cargo = include_str!("../Cargo.toml");
+        assert!(cargo.contains("\n[features]\n") && cargo.contains("\ndev-thin = []\n"));
+        let nightly = include_str!("../../scripts/install-nightly.sh");
+        assert!(nightly.contains("npm run tauri build -- --features dev-thin"));
+        let stable = include_str!("../../scripts/install-stable.sh");
+        assert!(!stable.contains("dev-thin"));
+    }
+
+    // N2 (T2, T13): the gate runs first; exactly one nod per attempt.
+    #[test]
+    fn thin_flow_gates_first_and_nods_once() {
+        use std::cell::Cell;
+        let (stamps, nods, notes) = (Cell::new(0), Cell::new(0), Cell::new(0));
+        let r = thin_flow(
+            release_gate(false),
+            || {
+                stamps.set(stamps.get() + 1);
+                Ok("x".into())
+            },
+            || nods.set(nods.get() + 1),
+            |_| {
+                notes.set(notes.get() + 1);
+                Ok(())
+            },
+        );
+        assert!(r.unwrap_err().contains("dev-only"));
+        assert_eq!((stamps.get(), nods.get(), notes.get()), (0, 0, 0));
+
+        let r = thin_flow(
+            release_gate(true),
+            || {
+                stamps.set(stamps.get() + 1);
+                Ok("stamped".into())
+            },
+            || nods.set(nods.get() + 1),
+            |_| {
+                notes.set(notes.get() + 1);
+                Ok(())
+            },
+        );
+        assert_eq!(r.unwrap(), "stamped");
+        assert_eq!((stamps.get(), nods.get(), notes.get()), (1, 1, 0));
+
+        let noted = std::cell::RefCell::new(String::new());
+        let r = thin_flow(
+            Ok(()),
+            || Err(StampError::failed("boom")),
+            || nods.set(nods.get() + 1),
+            |l| {
+                *noted.borrow_mut() = l;
+                Ok(())
+            },
+        );
+        assert_eq!(r.unwrap(), "THIN stamp failed. boom");
+        assert_eq!(*noted.borrow(), "THIN stamp failed. boom");
+        assert_eq!(nods.get(), 2);
+
+        // companion_thin wires the real gate, the real stamp, and one nod.
+        let body = fn_body(include_str!("coordinator.rs"), "pub fn companion_thin(");
+        assert!(body.contains("crate::thin::thin_flow("), "{body}");
+        assert!(body.contains("|| crate::thin::stamp(&app)"), "{body}");
+        assert_eq!(body.matches("companion_play(").count(), 1, "{body}");
+        assert_eq!(body.matches("\"nod\"").count(), 1, "{body}");
+    }
+
+    // N2 (T11, T12): no landed stamp = failure; the meter moves only after landing.
+    #[test]
+    fn meter_advances_only_after_a_landed_stamp() {
+        let log = std::cell::RefCell::new(Vec::<&str>::new());
+        let r = stamp_steps(
+            || {
+                log.borrow_mut().push("run");
+                Ok("ok".into())
+            },
+            || {
+                log.borrow_mut().push("landed");
+                true
+            },
+            || log.borrow_mut().push("save"),
+        );
+        assert_eq!(r.ok().as_deref(), Some("ok"));
+        assert_eq!(*log.borrow(), vec!["run", "landed", "save"]);
+
+        log.borrow_mut().clear();
+        let r = stamp_steps(
+            || {
+                log.borrow_mut().push("run");
+                Ok("ok".into())
+            },
+            || false,
+            || log.borrow_mut().push("save"),
+        );
+        assert!(r.err().unwrap().user_line().contains("no stamp landed"));
+        assert_eq!(*log.borrow(), vec!["run"]);
+
+        log.borrow_mut().clear();
+        let r = stamp_steps(
+            || Err(StampError::failed("exit 2")),
+            || {
+                log.borrow_mut().push("landed");
+                true
+            },
+            || log.borrow_mut().push("save"),
+        );
+        assert!(r.is_err());
+        assert!(log.borrow().is_empty());
+    }
+
+    // N2 (T11): the landing check really reads the last events.jsonl line.
+    #[test]
+    fn landing_check_matches_the_last_event() {
+        let dir = scratch("landed");
+        let obs = Observation {
+            session_id: "grok:s".into(),
+            turn_count: 7,
+            secs_since_reset: 3,
+            last_reset_reason: "meter_start".into(),
+            reset_at: 1,
+        };
+        assert!(!stamp_landed(&dir, &obs), "no events file");
+        let good = r#"{"session_id":"grok:s","turn_count":7,"context_chars":1,"context_tokens_est":1,"secs_since_reset":3,"last_reset_reason":"meter_start","ts":"t"}"#;
+        std::fs::write(dir.join("events.jsonl"), format!("{good}\n")).unwrap();
+        assert!(stamp_landed(&dir, &obs));
+        let stale = good.replace("\"turn_count\":7", "\"turn_count\":6");
+        std::fs::write(dir.join("events.jsonl"), format!("{good}\n{stale}\n")).unwrap();
+        assert!(!stamp_landed(&dir, &obs), "last line is an older stamp");
+        let other = good.replace("grok:s", "grok:other");
+        std::fs::write(dir.join("events.jsonl"), format!("{other}\n")).unwrap();
+        assert!(!stamp_landed(&dir, &obs));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // N5: thin.json may not point stamps (or the script) into ~/.buzz, or be relative.
+    #[test]
+    fn thin_json_refuses_buzz_and_relative_paths() {
+        let home = scratch("buzzguard");
+        let buzz = home.join(".buzz");
+        std::fs::create_dir_all(buzz.join("RESEARCH")).unwrap();
+        let cfg_dir = home.join(".config/orbitty");
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        let manifest = Path::new("/work/src-tauri");
+        let check = |out: &str| {
+            std::fs::write(
+                cfg_dir.join("thin.json"),
+                format!(r#"{{"outputDir":{}}}"#, serde_json::to_string(out).unwrap()),
+            )
+            .unwrap();
+            check_paths(&home, &resolve_config(&home, manifest))
+        };
+        assert!(check("~/stamps").is_ok());
+        assert!(check("~/.config/orbitty/thin-stamps").is_ok());
+        assert!(check("~/.buzzard/stamps").is_ok());
+        for bad in [
+            "~/.buzz",
+            "~/.buzz/RESEARCH/stamps",
+            "~/.BUZZ/research/new",
+            "$HOME/.Buzz/x",
+            &format!("{}/.buzz/../.buzz/y", home.display()),
+        ] {
+            let e = check(bad).expect_err(bad);
+            assert!(e.contains("inside ~/.buzz"), "{bad}: {e}");
+        }
+        for rel in ["stamps", "./stamps", "~dude/stamps", "~user"] {
+            let e = check(rel).expect_err(rel);
+            assert!(e.contains("absolute"), "{rel}: {e}");
+        }
+        // A symlink into .buzz, a dangling one to a .buzz path not made yet,
+        // and the firmlink path to the same folder.
+        std::os::unix::fs::symlink(buzz.join("RESEARCH"), home.join("link")).unwrap();
+        assert!(check("~/link/stamps").is_err());
+        std::os::unix::fs::symlink(buzz.join("not-yet"), home.join("dangle")).unwrap();
+        assert!(check("~/dangle").is_err());
+        let firm = PathBuf::from(format!("/System/Volumes/Data{}", home.display()));
+        if firm.is_dir() && std::fs::metadata(&firm).is_ok() {
+            assert!(check(&format!("{}/.buzz/RESEARCH", firm.display())).is_err());
+        }
+        // The legacy ~/.buzz script is refused as the scanner too.
+        std::fs::write(
+            cfg_dir.join("thin.json"),
+            r#"{"script":"~/.buzz/RESEARCH/RGL_TESTBED/scripts/vivo_thin.py"}"#,
+        )
+        .unwrap();
+        let e = check_paths(&home, &resolve_config(&home, manifest)).unwrap_err();
+        assert!(e.contains("script") && e.contains("inside ~/.buzz"), "{e}");
+        // Nothing was created under .buzz by the checks.
+        let under: Vec<_> = std::fs::read_dir(&buzz).unwrap().collect();
+        assert_eq!(under.len(), 1);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // stamp() runs the path check before it creates the output dir.
+    #[test]
+    fn stamp_checks_paths_before_mkdir() {
+        let body = fn_body(include_str!("thin.rs"), "pub fn stamp(app: &tauri::AppHandle)");
+        let check = body.find("check_paths(&home, &cfg)").expect("check_paths call");
+        let mkdir = body.find("create_dir_all(&cfg.output_dir)").expect("mkdir");
+        assert!(check < mkdir);
+        assert!(body.contains("stamp_steps("));
     }
 }

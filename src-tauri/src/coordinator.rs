@@ -862,18 +862,16 @@ pub fn companion_note(
 /// not wipe `turns`. The ⌘⌥T shortcut enters through this same function.
 #[tauri::command]
 pub fn companion_thin(app: tauri::AppHandle) -> Result<String, String> {
-    crate::thin::release_gate(cfg!(debug_assertions))?;
-    let stamped = crate::thin::stamp(&app);
-    // One nod for the whole attempt. The stamp script does not play one.
-    let _ = crate::companion::companion_play(&app, "nod");
-    match stamped {
-        Ok(line) => Ok(line),
-        Err(e) => {
-            let line = e.user_line();
-            companion_note(app, line.clone(), None)?;
-            Ok(line)
-        }
-    }
+    // Gate = cfg(any(debug_assertions, feature = "dev-thin")), via the shared const.
+    // One nod for the whole attempt (inside thin_flow). The stamp script does not play one.
+    crate::thin::thin_flow(
+        crate::thin::release_gate(crate::thin::THIN_ENABLED),
+        || crate::thin::stamp(&app),
+        || {
+            let _ = crate::companion::companion_play(&app, "nod");
+        },
+        |line| companion_note(app.clone(), line, None).map(|_| ()),
+    )
 }
 
 /// Overwrite fields of now.json (current job packet). Empty string
@@ -1655,9 +1653,12 @@ async fn companion_send_inner(
             Some(ActionIntercept::Run(shortcut, keep_you)) => {
                 let command = shortcut.command.clone();
                 let cwd = shortcut.cwd.clone();
+                let action_name = shortcut.name.clone();
                 let action_app = app.clone();
-                let result =
-                    tauri::async_runtime::spawn_blocking(move || run_action(action_app, command, cwd))
+                // Same door as the chord and action.run: a thin row goes to companion_thin.
+                let result = tauri::async_runtime::spawn_blocking(move || {
+                    crate::actions::dispatch_action(&action_app, &action_name, command, cwd)
+                })
                     .await
                     .map_err(|e| format!("run task: {e}"))
                     .and_then(|r| r);
@@ -2760,7 +2761,9 @@ pub fn run_action(
     command: String,
     cwd: Option<String>,
 ) -> Result<ActionResult, String> {
-    run_action_logged(&app, command, cwd)
+    // CheatSheet click (command only, no name): a thin row still goes to
+    // companion_thin, never `/bin/zsh -lc orbittyctl companion thin`.
+    crate::actions::dispatch_action(&app, "", command, cwd)
 }
 
 /// The logged run body, shared by the invoke

@@ -226,7 +226,8 @@ pub fn bake_defaults(app: &tauri::AppHandle) -> Vec<ActionShortcut> {
         ("kanban", "cmd+alt+k", "orbittyctl kanban open"),
         ("stars", "cmd+alt+s", "orbittyctl stars open"),
     ];
-    if crate::thin::seed_thin_row(cfg!(debug_assertions)) {
+    // cfg(any(debug_assertions, feature = "dev-thin")), the same const as the gate.
+    if crate::thin::seed_thin_row(crate::thin::THIN_ENABLED) {
         seeds.push(THIN_SEED);
     }
     let before = match crate::state::load_state(app) {
@@ -434,16 +435,34 @@ pub fn action_run(
     dispatch_action(app, &name, command, cwd)
 }
 
-/// Chord press and `action.run` share this. A thin row never shells out
-/// (that used a different python than the button). It calls `companion_thin`.
-fn dispatch_action(
+/// Every action door shares this: the chord press, `action.run`, the chat
+/// line intercept and the CheatSheet click (`run_action`). A thin row never
+/// shells out (not the bare `orbittyctl` on PATH, which talks to Stable's
+/// socket, and not an old `~/.buzz` script). It calls `companion_thin`.
+pub(crate) fn dispatch_action(
     app: &tauri::AppHandle,
     name: &str,
     command: String,
     cwd: Option<String>,
 ) -> Result<crate::coordinator::ActionResult, String> {
+    dispatch_with(
+        name,
+        command,
+        cwd,
+        || crate::coordinator::companion_thin(app.clone()),
+        |command, cwd| crate::coordinator::run_action_logged(app, command, cwd),
+    )
+}
+
+fn dispatch_with(
+    name: &str,
+    command: String,
+    cwd: Option<String>,
+    thin: impl FnOnce() -> Result<String, String>,
+    shell: impl FnOnce(String, Option<String>) -> Result<crate::coordinator::ActionResult, String>,
+) -> Result<crate::coordinator::ActionResult, String> {
     if crate::thin::routes_to_companion_thin(name, &command) {
-        return match crate::coordinator::companion_thin(app.clone()) {
+        return match thin() {
             Ok(stdout) => Ok(crate::coordinator::ActionResult {
                 ok: true,
                 code: Some(0),
@@ -458,7 +477,7 @@ fn dispatch_action(
             }),
         };
     }
-    crate::coordinator::run_action_logged(app, command, cwd)
+    shell(command, cwd)
 }
 
 /// Dev-only ⌘⌥T seed. Release builds do not append it.
@@ -474,5 +493,129 @@ mod tests {
         assert!(crate::thin::routes_to_companion_thin(name, command));
         assert!(crate::thin::seed_thin_row(true));
         assert!(!crate::thin::seed_thin_row(false));
+    }
+
+    fn ok(stdout: &str) -> crate::coordinator::ActionResult {
+        crate::coordinator::ActionResult {
+            ok: true,
+            code: Some(0),
+            stdout: stdout.into(),
+            stderr: String::new(),
+        }
+    }
+
+    // B2: a thin row never reaches the shell, whatever door passes it in.
+    // "" is the CheatSheet door (run_action gets the command only).
+    #[test]
+    fn thin_rows_go_to_companion_thin_never_the_shell() {
+        let (_, _, seeded) = super::THIN_SEED;
+        let legacy = "/Users/x/.buzz/RESEARCH/RGL_TESTBED/.venv/bin/python /Users/x/.buzz/RESEARCH/RGL_TESTBED/scripts/vivo_thin.py stamp";
+        let rows: [(&str, &str); 6] = [
+            ("thin", seeded),      // chord / action.run / chat by name
+            ("", seeded),          // CheatSheet click of the seeded row
+            ("thin", legacy),      // Matt's legacy row by name
+            ("", legacy),          // legacy row from the CheatSheet
+            ("stamp", "orbittyctl companion thin"),
+            ("Thin", "echo anything"),
+        ];
+        for (name, command) in rows {
+            let thin_calls = std::cell::Cell::new(0);
+            let r = super::dispatch_with(
+                name,
+                command.to_string(),
+                None,
+                || {
+                    thin_calls.set(thin_calls.get() + 1);
+                    Ok("THIN stamped".into())
+                },
+                |c, _| panic!("{name:?} shelled {c:?}"),
+            )
+            .unwrap();
+            assert_eq!(thin_calls.get(), 1, "{name:?} {command:?}");
+            assert!(r.ok && r.stdout == "THIN stamped");
+        }
+        // A refusal comes back as a failed result, still without a shell.
+        let r = super::dispatch_with(
+            "thin",
+            seeded.into(),
+            None,
+            || Err("THIN is dev-only and is not in this build.".into()),
+            |c, _| panic!("shelled {c:?}"),
+        )
+        .unwrap();
+        assert!(!r.ok && r.code == Some(1) && r.stderr.contains("dev-only"));
+        // Other rows still shell through the logged door, unchanged.
+        let r = super::dispatch_with(
+            "kanban",
+            "orbittyctl kanban open".into(),
+            Some("/tmp".into()),
+            || panic!("kanban went to thin"),
+            |c, d| {
+                assert_eq!(c, "orbittyctl kanban open");
+                assert_eq!(d.as_deref(), Some("/tmp"));
+                Ok(ok("opened"))
+            },
+        )
+        .unwrap();
+        assert_eq!(r.stdout, "opened");
+    }
+
+    // B2 + N2 (T4): all four doors (chat line, CheatSheet row, ⌘⌥T chord,
+    // action.run) call dispatch_action; none reaches run_action_logged itself.
+    #[test]
+    fn every_action_door_calls_dispatch_action() {
+        use crate::thin::tests::fn_body;
+        let coord = include_str!("coordinator.rs");
+        let actions = include_str!("actions.rs");
+
+        let cheat = fn_body(coord, "pub fn run_action(\n");
+        assert!(cheat.contains("crate::actions::dispatch_action(&app, \"\", command, cwd)"), "{cheat}");
+        assert!(!cheat.contains("run_action_logged("), "{cheat}");
+
+        let at = coord.find("Some(ActionIntercept::Run(shortcut, keep_you)) => {").unwrap();
+        let chat = &coord[at..at + coord[at..].find("persist_action_intercept(").unwrap()];
+        assert!(chat.contains("crate::actions::dispatch_action(&action_app, &action_name, command, cwd)"), "{chat}");
+        assert!(!chat.contains("run_action(") && !chat.contains("run_action_logged("), "{chat}");
+
+        let at = actions.find("fn fire(app: tauri::AppHandle, id: String)").unwrap();
+        let chord = &actions[at..at + actions[at..].find("let payload").unwrap()];
+        assert!(chord.contains("super::dispatch_action(&app, &name, a.command.clone(), a.cwd.clone())"), "{chord}");
+        assert!(!chord.contains("run_action_logged("), "{chord}");
+
+        let run = fn_body(actions, "pub fn action_run(");
+        assert!(run.trim_end().ends_with("dispatch_action(app, &name, command, cwd)"), "{run}");
+
+        // dispatch_action's thin arm is companion_thin; only its shell arm
+        // reaches run_action_logged.
+        let d = fn_body(actions, "pub(crate) fn dispatch_action(");
+        assert!(d.contains("|| crate::coordinator::companion_thin(app.clone())"), "{d}");
+        let w = fn_body(actions, "fn dispatch_with(");
+        assert!(w.contains("routes_to_companion_thin(name, &command)"), "{w}");
+        assert!(!w.contains("Command::new") && !w.contains("run_action_logged"), "{w}");
+    }
+
+    // Guard: nothing on the THIN path spawns the bare `orbittyctl` from PATH
+    // or a ~/.buzz script. THIN spawns only the configured python + script,
+    // and check_paths refuses a .buzz script.
+    #[test]
+    fn thin_never_spawns_bare_orbittyctl_or_buzz() {
+        let thin = include_str!("thin.rs");
+        let spawns: Vec<&str> = thin.lines().filter(|l| l.contains("Command::new(")).collect();
+        assert!(!spawns.is_empty());
+        for l in &spawns {
+            let l = l.trim();
+            assert!(
+                l == "let mut child = Command::new(&cfg.python)" || l.starts_with("let mut child = Command::new(\"python3\")"),
+                "unexpected spawn in thin.rs: {l}"
+            );
+        }
+        let flow = fn_body_of_companion_thin();
+        assert!(!flow.contains("orbittyctl") && !flow.contains(".buzz") && !flow.contains("Command::new"));
+        let script = include_str!("../../scripts/thin/vivo_thin.py");
+        assert!(!script.contains("orbittyctl") && !script.contains(".buzz"));
+    }
+
+    fn fn_body_of_companion_thin() -> &'static str {
+        crate::thin::tests::fn_body(include_str!("coordinator.rs"), "pub fn companion_thin(")
     }
 }
