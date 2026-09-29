@@ -1,0 +1,110 @@
+#!/bin/zsh
+# Launch Cursor Ultra as the one product writer for a named GO.
+# One launch per GO. Leftover prompt files are papers — do not launch.
+# Nest Grok never codes. Law: ~/.buzz/PLANS/CODING_HANDOFF_CURSOR.md
+# GO-ORBITTY-GO-STANDARD follow-up: the prompt resolves through plansDir
+# (~/.buzz/PLANS is only a read-only fallback; nothing is written under
+# .buzz). Model and --force come from the GO header via cursor_go_plan.py
+# (next to this script); a bad model or a missing helper refuses.
+set -euo pipefail
+HERE="${0:A:h}"
+PLAN_PY="${HERE}/cursor_go_plan.py"
+GO="${1:-}"
+PROMPT_ARG="${2:-}"
+if [[ -z "$GO" ]]; then
+  echo "usage: cursor-go GO-ORBITTY-HERDING-CATS [prompt.md]" >&2
+  exit 2
+fi
+GO="${GO%%[?!. ]*}"
+GO="${GO:u}"
+SLUG="_${GO//-/_}_PROMPT.md"
+PROMPT=$(python3 "$PLAN_PY" prompt "$GO") || { echo "cursor-go: cannot resolve the plans folder" >&2; exit 5; }
+if [[ -n "$PROMPT_ARG" && -f "$PROMPT_ARG" ]]; then
+  PROMPT="$PROMPT_ARG"
+fi
+if [[ ! -f "$PROMPT" ]]; then
+  echo "cursor-go: no prompt $PROMPT" >&2
+  exit 3
+fi
+WS=$(awk -F': *' '/^Workspace:/{print $2; exit}' "$PROMPT")
+WS="${WS:-$HOME/orbitty}"
+if pgrep -fl "cursor-agent.*--print" >/dev/null 2>&1; then
+  echo "cursor-go: a cursor-agent --print writer is already running" >&2
+  pgrep -fl "cursor-agent.*--print" >&2 || true
+  exit 4
+fi
+PACKET="${HOME}/.buzz/ops/needed-bus/launch-${GO}.json"
+if [[ -z "$PROMPT_ARG" && -f "$PACKET" ]]; then
+  FROM_PACKET=$(python3 -c 'import json,sys
+p=sys.argv[1]
+try:
+    print(json.load(open(p)).get("prompt") or "")
+except Exception:
+    print("")' "$PACKET")
+  if [[ -n "$FROM_PACKET" && -f "$FROM_PACKET" ]]; then
+    PROMPT="$FROM_PACKET"
+  fi
+fi
+if [[ ! -f "$PROMPT" ]]; then
+  echo "cursor-go: no prompt $PROMPT" >&2
+  exit 3
+fi
+case "${PROMPT:t}" in
+  *[Ll][Ee][Ff][Tt][Oo][Vv][Ee][Rr]*)
+    echo "cursor-go: leftover is papers only for $GO. One launch per GO. Not launching."
+    exit 0
+    ;;
+esac
+WS=$(awk -F': *' '/^Workspace:/{print $2; exit}' "$PROMPT")
+WS="${WS:-$HOME/orbitty}"
+NEEDED="${HOME}/.local/bin/orbitty-needed"
+CTL="${HOME}/.local/bin/orbittyctl"
+if [[ -x "$NEEDED" ]]; then
+  CHK=$("$NEEDED" issued check "$GO" --prompt "$PROMPT" --json 2>/dev/null || true)
+  ST=$(printf '%s' "$CHK" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("status") or "")
+except Exception:
+    print("")' 2>/dev/null || true)
+  MSG=$(printf '%s' "$CHK" | python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin); print(d.get("message") or d.get("status") or "")
+except Exception:
+    print("")' 2>/dev/null || true)
+  if [[ "$ST" == "running" || "$ST" == "shipped" ]]; then
+    echo "cursor-go: $MSG"
+    exit 0
+  fi
+fi
+BIN="${HOME}/.local/bin/cursor-agent"
+[[ -x "$BIN" ]] || BIN=$(command -v cursor-agent)
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+RUNS="${HOME}/orbitty/docs/cursor-runs"
+mkdir -p "$RUNS"
+LOG="${RUNS}/${GO}_${STAMP}.log"
+cp "$PROMPT" "${RUNS}/${GO}_${STAMP}_prompt.txt"
+WATCH="${HOME}/goose artifacts/scripts/orbitty-needed/writer-done-needed"
+# -p print. --model=<m> (one argument) from the GO header, else defaultRunner,
+# else grok-4.7-high. --force --trust only for the full-auto preset (header
+# permissions, else tools). Rules: cursor_go_plan.py docstring.
+if ! PLAN_OUT=$(python3 "$PLAN_PY" args "$PROMPT"); then
+  echo "cursor-go: not launching $GO" >&2
+  exit 5
+fi
+AGENT_ARGS=("${(@f)PLAN_OUT}")
+nohup "$BIN" -p --print "${AGENT_ARGS[@]}" --workspace "$WS" \
+  "$(cat "$PROMPT")" >"$LOG" 2>&1 &
+WRITER_PID=$!
+echo "$WRITER_PID" >"${RUNS}/${GO}.pid"
+if [[ -x "$NEEDED" ]]; then
+  "$NEEDED" issued mark "$GO" --pid "$WRITER_PID" --seat cursor --prompt "$PROMPT" >/dev/null 2>&1 || true
+fi
+# GO-ORBITTY-DOCK-HACK: light the dock LED — a Cursor leftover is live.
+# writer-done-needed turns it off when the pid exits. Never fail the launch.
+if [[ -x "$CTL" ]]; then
+  "$CTL" companion hack -- on --who cursor --project p-mtw6850i-f4wnlg >/dev/null 2>&1 || true
+fi
+if [[ -x "$WATCH" ]]; then
+  nohup "$WATCH" "$GO" "$WRITER_PID" >"${RUNS}/${GO}_${STAMP}.watch.log" 2>&1 &
+fi
+echo "cursor-go: pid $WRITER_PID  log $LOG  workspace $WS  prompt $PROMPT"
