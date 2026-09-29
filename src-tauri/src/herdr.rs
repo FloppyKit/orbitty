@@ -278,16 +278,42 @@ fn agent_status(bin: &Path, target: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Boot liveness: is this herdr agent's pane still there? No herdr
-/// binary or server down = gone (panes live in the server).
-pub(crate) fn agent_alive(agent_name: &str) -> bool {
-    let Some(bin) = crate::coordinator::find_on_path("herdr") else {
-        return false;
+/// Boot liveness for one herdr agent. `None` = can't tell (no herdr
+/// CLI, timeout, spawn failure, bad JSON, any other error) — the caller
+/// must treat that as maybe-alive, never as dead. Only two answers mean
+/// gone: the server is genuinely not running (panes live in it), or
+/// herdr itself says `agent_not_found`.
+pub(crate) fn agent_alive(agent_name: &str) -> Option<bool> {
+    let bin = crate::coordinator::find_on_path("herdr")?;
+    let server = server_up(&bin);
+    let get = if server.is_ok() {
+        Some(run_json(&bin, &["agent", "get", agent_name], 10_000).map(|_| ()))
+    } else {
+        None
     };
-    if server_up(&bin).is_err() {
-        return false;
+    alive_from(server, get)
+}
+
+/// herdr 0.8.0: `herdr agent get <bogus>` prints
+/// `{"error":{"code":"agent_not_found","message":"agent target <x> not found"}}`
+/// and exits 1; run_json turns that into `agent_not_found: …`.
+fn is_agent_not_found(why: &str) -> bool {
+    why.starts_with("agent_not_found")
+}
+
+/// Pure verdict over the two probe results (unit-tested).
+fn alive_from(server: Result<(), String>, get: Option<Result<(), String>>) -> Option<bool> {
+    match server {
+        Ok(()) => {}
+        Err(e) if is_server_not_running(&e) => return Some(false),
+        Err(_) => return None,
     }
-    agent_status(&bin, agent_name).is_some()
+    match get? {
+        // The pane answered — alive even without an agent_status field.
+        Ok(()) => Some(true),
+        Err(e) if is_agent_not_found(&e) => Some(false),
+        Err(_) => None,
+    }
 }
 
 /// Paint walker state only: write the row's state through the one save
@@ -803,6 +829,26 @@ mod tests {
         assert_eq!(expand_home("~"), home);
         assert_eq!(expand_home("~/x"), format!("{home}/x"));
         assert_eq!(expand_home("/tmp"), "/tmp");
+    }
+
+    #[test]
+    fn boot_liveness_only_dead_on_real_answers() {
+        let ok = || Ok(());
+        let err = |m: &str| Err::<(), String>(m.to_string());
+        // Genuinely down → panes gone.
+        assert_eq!(alive_from(err("server_not_running: no socket"), None), Some(false));
+        // Probe failures are unknown, never dead.
+        assert_eq!(alive_from(err("timeout"), None), None);
+        assert_eq!(alive_from(err("spawn: No such file"), None), None);
+        assert_eq!(alive_from(err("bad json (exit 1): x"), None), None);
+        // Server up: pane answers → alive; herdr's own not-found → dead.
+        assert_eq!(alive_from(ok(), Some(ok())), Some(true));
+        assert_eq!(
+            alive_from(ok(), Some(err("agent_not_found: agent target x not found"))),
+            Some(false)
+        );
+        assert_eq!(alive_from(ok(), Some(err("timeout"))), None);
+        assert_eq!(alive_from(ok(), Some(err("some_other_code: y"))), None);
     }
 
     #[test]

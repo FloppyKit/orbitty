@@ -384,6 +384,9 @@ struct Probe {
     pid_file: Option<Option<bool>>,
     /// herdr pane agent for this card: Some(alive?).
     herdr: Option<bool>,
+    /// A probe could not answer (herdr timeout / error). Maybe-alive:
+    /// leave the task open and let the next boot look again.
+    unknown: bool,
     /// The task's card is still in Doing.
     card_doing: bool,
 }
@@ -399,11 +402,12 @@ enum Verdict {
 }
 
 /// Only call a run dead when every known liveness signal says gone.
+/// An unanswered probe is never evidence of death.
 fn classify(p: &Probe) -> Verdict {
     let alive = p.pid == Some(true)
         || p.pid_file == Some(Some(true))
         || p.herdr == Some(true);
-    if alive {
+    if alive || p.unknown {
         Verdict::Alive
     } else if p.card_doing {
         Verdict::Died
@@ -438,7 +442,8 @@ fn probe(meta: &Meta, st: Option<&crate::state::PersistedState>, context_dir: Op
         (false, Some(Some(a))) => Some(Some(a)),
         _ => None,
     };
-    let herdr = meta.card_id.as_deref().and_then(|cid| {
+    // Some(None) = there is a herdr run but the probe couldn't answer.
+    let herdr_probe: Option<Option<bool>> = meta.card_id.as_deref().and_then(|cid| {
         let run = st?.agent_runs.iter().find(|r| r.card_id == cid)?;
         let rec = run.herdr.as_ref()?;
         Some(crate::herdr::agent_alive(&rec.agent_name))
@@ -446,7 +451,8 @@ fn probe(meta: &Meta, st: Option<&crate::state::PersistedState>, context_dir: Op
     Probe {
         pid: meta.pid.map(pid_alive),
         pid_file,
-        herdr,
+        herdr: herdr_probe.flatten(),
+        unknown: matches!(herdr_probe, Some(None)),
         card_doing,
     }
 }
@@ -487,7 +493,12 @@ pub fn boot(app: &AppHandle) {
     }
     let app = app.clone();
     std::thread::spawn(move || {
-        let st = crate::state::load_state(&app).ok();
+        // No readable state = can't tell Doing from Done: leave every
+        // open task for the next boot rather than guess.
+        let Ok(st) = crate::state::load_state(&app) else {
+            return;
+        };
+        let st = Some(st);
         let context_dir = app
             .path()
             .app_data_dir()
@@ -603,7 +614,19 @@ mod boot_liveness_tests {
     use super::*;
 
     fn p(pid: Option<bool>, pid_file: Option<Option<bool>>, herdr: Option<bool>, doing: bool) -> Probe {
-        Probe { pid, pid_file, herdr, card_doing: doing }
+        Probe { pid, pid_file, herdr, unknown: false, card_doing: doing }
+    }
+
+    #[test]
+    fn probe_error_with_card_in_doing_is_never_died() {
+        // herdr timed out / errored: unknown, even with every other
+        // signal saying gone and the card still in Doing.
+        let mut q = p(Some(false), Some(None), None, true);
+        q.unknown = true;
+        assert_eq!(classify(&q), Verdict::Alive);
+        let mut q = p(None, None, None, true);
+        q.unknown = true;
+        assert_eq!(classify(&q), Verdict::Alive);
     }
 
     #[test]
