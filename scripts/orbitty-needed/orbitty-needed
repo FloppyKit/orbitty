@@ -1,0 +1,2141 @@
+#!/usr/bin/env python3
+"""orbitty-needed — agent bus for Launchpad Needed cards.
+
+Mint a question, list open ones, wait, and watch answers so a nest
+Grok session can act without hunting a TTY.
+
+  orbitty-needed open --title "…" [--why "…"] [--project P]
+  orbitty-needed list [--all]
+  orbitty-needed get ID
+  orbitty-needed wait ID [--timeout 3600] [--poll 2]
+  orbitty-needed pending
+  orbitty-needed ack ID
+  orbitty-needed watch [--poll 2] [--no-ack-spark]
+  orbitty-needed issued check|mark|shipped|show GO
+  orbitty-needed rule list
+  orbitty-needed rule add --param k=v ... --answer "…" [--from-needed n-…] [--note "…"]
+  orbitty-needed rule from-answer ID
+  orbitty-needed rule rm ID
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+from typing import Any, NamedTuple
+
+HOME = Path.home()
+CTL = shutil.which("orbittyctl") or str(HOME / ".local/bin/orbittyctl")
+BUS = HOME / ".buzz" / "ops" / "needed-bus"
+INBOX = BUS / "inbox"
+ACKED = BUS / "acked"
+OUTBOX = BUS / "outbox"
+ISSUED = BUS / "issued.json"
+WS_DEFAULT = HOME / "orbitty"
+CURSOR = BUS / "cursor.json"
+NEST_SESSION = BUS / "nest-session.json"
+NEST_RULES = BUS / "NEST.md"
+DISPATCH_LOG = BUS / "dispatch.log"
+CURSOR_GO = HOME / "goose artifacts" / "scripts" / "orbitty-needed" / "cursor-go"
+SCRIPT = Path(__file__).resolve()
+LOGS = BUS / "logs"
+RUNNING = BUS / "running"
+# Read-only back-compat. Writes and first lookups go through plans_dir().
+PLANS = HOME / ".buzz" / "PLANS"
+GO_RE = re.compile(r"\b(GO-[A-Z0-9][-A-Z0-9]*)\b")
+
+sys.path.insert(0, str(SCRIPT.parent))
+import orbitty_needed_rules as rules_mod  # noqa: E402
+import orbitty_leftover_clerk as leftover_clerk  # noqa: E402
+EVENTS = (
+    HOME
+    / "Library"
+    / "Application Support"
+    / "space.orbitty.mac"
+    / "events.jsonl"
+)
+
+
+def ctl(*args: str, json_out: bool = True) -> Any:
+    cmd = [CTL]
+    if json_out:
+        cmd.append("--json")
+    cmd.extend(args)
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode != 0:
+        err = (p.stderr or p.stdout or "").strip() or f"exit {p.returncode}"
+        raise SystemExit(f"orbittyctl failed: {err}")
+    if not json_out:
+        return p.stdout
+    text = (p.stdout or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"orbittyctl --json not JSON: {e}\n{text[:400]}") from e
+
+
+def cards_from_state(st: dict) -> list[dict]:
+    return list(st.get("kanbanCards") or st.get("kanban_cards") or [])
+
+
+def is_needed(c: dict) -> bool:
+    return (c.get("kind") or "") == "needed"
+
+
+def nstate(c: dict) -> str:
+    return (c.get("neededState") or c.get("needed_state") or "") or ""
+
+
+def nanswer(c: dict) -> str:
+    return (c.get("neededAnswer") or c.get("needed_answer") or "") or ""
+
+
+def nwhy(c: dict) -> str:
+    return (c.get("neededWhy") or c.get("needed_why") or "") or ""
+
+
+def is_openish(c: dict) -> bool:
+    s = nstate(c)
+    if s == "open":
+        return True
+    if s == "later":
+        due = c.get("dueAt") or c.get("due_at")
+        if due is None:
+            return True
+        try:
+            return int(due) <= int(time.time())
+        except (TypeError, ValueError):
+            return True
+    return False
+
+
+def card_rec(c: dict) -> dict:
+    return {
+        "id": c.get("id"),
+        "title": c.get("title"),
+        "neededState": nstate(c),
+        "neededWhy": nwhy(c) or None,
+        "neededAnswer": nanswer(c) or None,
+        "projectId": c.get("projectId") or c.get("project_id") or "",
+        "actor": c.get("actor"),
+    }
+
+
+def dump_card(c: dict) -> None:
+    json.dump(card_rec(c), sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
+def find_card(cid: str) -> dict:
+    st = ctl("state", "get")
+    if not isinstance(st, dict):
+        raise SystemExit("state.get did not return an object")
+    for c in cards_from_state(st):
+        if c.get("id") == cid:
+            return c
+    raise SystemExit(f"no card {cid}")
+
+
+def find_open_needed_by_title(title: str) -> dict | None:
+    """First open Needed with this exact title, if any."""
+    title = (title or "").strip()
+    if not title:
+        return None
+    try:
+        st = ctl("state", "get")
+    except SystemExit:
+        return None
+    if not isinstance(st, dict):
+        return None
+    for c in cards_from_state(st):
+        if (
+            is_needed(c)
+            and is_openish(c)
+            and (c.get("title") or "").strip() == title
+        ):
+            return c
+    return None
+
+
+def rules_gate_open(title: str, project: str | None, why: str = "") -> None:
+    """Classify + log hit/miss/collide and print RULE_HIT <id> on stderr
+    when a rule would apply. OPEN stage: the APP now applies on a can-run
+    hit (card born answered, actor=rule) — this gate stays the python-side
+    trail and never hides a card itself."""
+    card = rules_mod.classify_title(title, project=project or "", why=why or "")
+    try:
+        store = rules_mod.load_store()
+    except rules_mod.RuleError as e:
+        rules_mod.log_event({"event": "miss", "title": card["title"],
+                             "reason": f"store-unreadable: {e}"})
+        return
+    hits = rules_mod.match_rules(store, card)
+    if rules_mod.is_collision(hits):
+        rules_mod.log_event({"event": "collide", "title": card["title"],
+                             "rules": [h.get("id") for h in hits]})
+    elif hits:
+        for h in hits:
+            rules_mod.log_event({"event": "hit", "rule": h.get("id"),
+                                 "title": card["title"], "applied": False,
+                                 "reason": "store-stage: log only, hide waits OPEN"})
+        print(f"RULE_HIT {hits[0].get('id')}", file=sys.stderr)
+    else:
+        rules_mod.log_event({"event": "miss", "title": card["title"]})
+
+
+def cmd_open(args: argparse.Namespace) -> None:
+    existing = find_open_needed_by_title(args.title)
+    if existing:
+        cid = existing.get("id") or "?"
+        title = existing.get("title") or args.title
+        print(f"needed {cid} — {title} [already open]", file=sys.stderr)
+        dump_card(existing)
+        return
+    rules_gate_open(args.title, args.project, args.why or "")
+    argv = ["needed", "open", "--title", args.title]
+    if args.why:
+        argv.extend(["--why", args.why])
+    if args.project:
+        argv.extend(["--project", args.project])
+    data = ctl(*argv)
+    if isinstance(data, dict):
+        cid = data.get("id") or "?"
+        title = data.get("title") or args.title
+        if nstate(data) == "answered" and (data.get("actor") or "") == "rule":
+            # OPEN stage: a standing rule answered at mint — the watch will
+            # dispatch it. Not a fresh ping; say so instead.
+            print(
+                f"needed {cid} — {title} [answered by rule: {nanswer(data)}]",
+                file=sys.stderr,
+            )
+        else:
+            print(f"needed {cid} — {title}", file=sys.stderr)
+        dump_card(data)
+    else:
+        print(json.dumps(data, indent=2))
+
+
+def cmd_list(args: argparse.Namespace) -> None:
+    st = ctl("state", "get")
+    if not isinstance(st, dict):
+        raise SystemExit("state.get did not return an object")
+    rows = [c for c in cards_from_state(st) if is_needed(c)]
+    if not args.all:
+        rows = [c for c in rows if is_openish(c)]
+    json.dump([card_rec(c) for c in rows], sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
+def cmd_get(args: argparse.Namespace) -> None:
+    dump_card(find_card(args.id))
+
+
+def cmd_wait(args: argparse.Namespace) -> None:
+    deadline = time.time() + args.timeout
+    while True:
+        c = find_card(args.id)
+        s = nstate(c)
+        if s in ("answered", "skipped"):
+            dump_card(c)
+            return
+        if time.time() >= deadline:
+            dump_card(c)
+            raise SystemExit(f"timeout waiting for {args.id} (state={s or '?'})")
+        time.sleep(max(0.5, args.poll))
+
+
+def ensure_bus() -> None:
+    INBOX.mkdir(parents=True, exist_ok=True)
+    ACKED.mkdir(parents=True, exist_ok=True)
+    OUTBOX.mkdir(parents=True, exist_ok=True)
+    LOGS.mkdir(parents=True, exist_ok=True)
+    RUNNING.mkdir(parents=True, exist_ok=True)
+
+
+def running_pid_path(cid: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", cid)
+    return RUNNING / f"{safe}.pid"
+
+
+def clerk_alive(cid: str) -> bool:
+    p = running_pid_path(cid)
+    if not p.is_file():
+        return False
+    try:
+        pid = int(p.read_text().strip().split()[0])
+    except (OSError, ValueError):
+        p.unlink(missing_ok=True)
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        p.unlink(missing_ok=True)
+        return False
+
+
+def mark_clerk_running(cid: str, pid: int) -> None:
+    ensure_bus()
+    running_pid_path(cid).write_text(f"{pid}\n")
+
+
+def clear_clerk_running(cid: str) -> None:
+    running_pid_path(cid).unlink(missing_ok=True)
+
+
+def cursor_print_alive() -> bool:
+    try:
+        r = subprocess.run(
+            ["pgrep", "-f", "cursor-agent.*--print"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0 and bool((r.stdout or "").strip())
+
+
+def other_clerks_alive(except_cid: str | None = None) -> bool:
+    ensure_bus()
+    skip = (
+        re.sub(r"[^A-Za-z0-9_.-]", "_", except_cid) if except_cid else None
+    )
+    for p in RUNNING.glob("*.pid"):
+        if skip and p.stem == skip:
+            continue
+        try:
+            pid = int(p.read_text().strip().split()[0])
+        except (OSError, ValueError):
+            continue
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            p.unlink(missing_ok=True)
+    return False
+
+
+ORBITTY_PLANET = "p-mtw6850i-f4wnlg"
+
+
+def companion_hack(on: bool, who: str | None = None, project: str | None = None) -> None:
+    """Dock LED + planet chip. A clerk must not wipe a live Cursor writer."""
+    if on and cursor_print_alive():
+        who = "cursor"
+        project = project or ORBITTY_PLANET
+    argv = [CTL, "companion", "hack", "--", "on" if on else "off"]
+    if on:
+        if who:
+            argv.extend(["--who", who])
+        if project:
+            argv.extend(["--project", project])
+    try:
+        subprocess.run(argv, capture_output=True, text=True, timeout=8)
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+        pass
+
+
+def dock_hack_off_if_idle(except_cid: str | None = None) -> None:
+    if other_clerks_alive(except_cid) or cursor_print_alive():
+        return
+    companion_hack(False)
+
+
+def load_issued() -> dict:
+    ensure_bus()
+    if not ISSUED.is_file():
+        return {}
+    try:
+        d = json.loads(ISSUED.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def save_issued(d: dict) -> None:
+    ensure_bus()
+    tmp = ISSUED.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d, indent=2) + "\n")
+    tmp.replace(ISSUED)
+
+
+def leftover_prompt_for(go: str) -> Path | None:
+    """Newest leftover prompt for this GO.
+
+    Packets (`launch-${GO}-leftover*.json`) and `_GO_*_LEFTOVER*_PROMPT.md`
+    compete by mtime. A stale packet must not hide a newer leftover file —
+    that is a new issue (issued lock).
+    """
+    cands: list[Path] = []
+    for pkt in BUS.glob(f"launch-{go}-leftover*.json"):
+        try:
+            raw = json.loads(pkt.read_text()).get("prompt") or ""
+        except (OSError, json.JSONDecodeError):
+            raw = ""
+        p = Path(raw).expanduser() if raw else Path()
+        if p.is_file():
+            cands.append(p)
+    slug = "_" + go.replace("-", "_") + "_LEFTOVER"
+    for d in plans_read_dirs():
+        cands.extend(p for p in d.glob(f"{slug}*_PROMPT.md") if p.is_file())
+    if not cands:
+        return None
+    return max(cands, key=lambda p: p.stat().st_mtime)
+
+
+def resolve_writer_prompt(go: str, prompt: str | None = None) -> Path:
+    if prompt:
+        p = Path(prompt).expanduser()
+        if p.is_file():
+            return p
+    pkt = BUS / f"launch-{go}.json"
+    if pkt.is_file():
+        try:
+            raw = json.loads(pkt.read_text()).get("prompt") or ""
+        except (OSError, json.JSONDecodeError):
+            raw = ""
+        p = Path(raw).expanduser() if raw else Path()
+        if p.is_file():
+            return p
+    return go_prompt_path(go)
+
+
+def workspace_from_prompt(path: Path) -> Path:
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            if line.startswith("Workspace:"):
+                ws = Path(line.split(":", 1)[1].strip()).expanduser()
+                if str(ws):
+                    return ws
+    return WS_DEFAULT
+
+
+def commit_subject_from_prompt(path: Path, go: str) -> str:
+    if not path.is_file():
+        return go
+    text = path.read_text()
+    in_commit = False
+    for line in text.splitlines():
+        if line.startswith("## Commit"):
+            in_commit = True
+            continue
+        if in_commit and line.startswith("## "):
+            break
+        if in_commit:
+            m = re.search(r"`(GO-[A-Z0-9][-A-Z0-9]*(?: leftover:[^`]+)?)`", line)
+            if m:
+                return m.group(1).strip()
+    return go
+
+
+def pid_is_writer(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:
+        out = subprocess.check_output(
+            ["ps", "-p", str(pid), "-o", "command="],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    cmd = out.lower()
+    # clerk-run: the watched-clerk wrapper owns the grok writer seat for
+    # its whole life (first clerk + one continuation), so its pid IS the
+    # writer's liveness.
+    return "cursor-agent" in cmd or "kimi-k3-max" in cmd or "/grok" in cmd or "clerk-run" in cmd
+
+
+def git_head(ws: Path) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "-C", str(ws), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+
+
+def git_find_subject(ws: Path, subject: str) -> str:
+    if not subject:
+        return ""
+    try:
+        raw = subprocess.check_output(
+            ["git", "-C", str(ws), "log", "-40", "--pretty=%H%x09%s"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+    for line in raw.splitlines():
+        if "\t" not in line:
+            continue
+        h, s = line.split("\t", 1)
+        if s.strip() == subject:
+            return h.strip()
+    return ""
+
+
+def git_find_go(ws: Path, go: str) -> str:
+    """Newest commit whose subject is this GO (first-cut or leftover).
+
+    GO-ORBITTY-TILE must not match GO-ORBITTY-TILE-YAW.
+    """
+    go = (go or "").strip()
+    if not go:
+        return ""
+    try:
+        raw = subprocess.check_output(
+            ["git", "-C", str(ws), "log", "-80", "--pretty=%H%x09%s"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+    for line in raw.splitlines():
+        if "\t" not in line:
+            continue
+        h, s = line.split("\t", 1)
+        s = s.strip()
+        if s == go or s.startswith(go + " leftover") or s.startswith(go + ":"):
+            return h.strip()
+    return ""
+
+
+def is_leftover_prompt(prompt: str | None) -> bool:
+    name = Path(prompt or "").name.lower()
+    return "leftover" in name
+
+
+def issued_status(go: str, prompt: str | None = None) -> dict:
+    """ok | running | shipped. One launch per GO. Leftover prompt is not a new issue.
+
+    Crash with no commit may retry the same GO (pid dead, not shipped).
+    """
+    go = (go or "").upper()
+    prompt_p = resolve_writer_prompt(go, prompt)
+    prompt_s = str(prompt_p) if prompt_p.is_file() else (prompt or "")
+    rec = load_issued().get(go) or {}
+    ws = Path(rec.get("workspace") or workspace_from_prompt(prompt_p))
+    pid = int(rec.get("pid") or 0)
+    if pid_is_writer(pid):
+        return {
+            "status": "running",
+            "go": go,
+            "prompt": rec.get("prompt") or prompt_s,
+            "pid": pid,
+            "seat": rec.get("seat"),
+            "message": (
+                f"Already running {rec.get('seat') or 'writer'} on {go}. "
+                "One launch per GO. Not launching again."
+            ),
+        }
+    found = git_find_go(ws, go) or git_find_subject(
+        ws, rec.get("commitSubject") or commit_subject_from_prompt(prompt_p, go)
+    )
+    shipped = bool(rec.get("shipped")) or bool(found)
+    if shipped:
+        commit = rec.get("shippedCommit") or found
+        subject = rec.get("commitSubject") or go
+        return {
+            "status": "shipped",
+            "go": go,
+            "prompt": rec.get("prompt") or prompt_s,
+            "commit": commit,
+            "subject": subject,
+            "message": (
+                f"Already shipped {go}"
+                + (f" (`{commit[:7]}`)." if commit else ".")
+                + " One launch per GO. Not launching again."
+            ),
+        }
+    return {
+        "status": "ok",
+        "go": go,
+        "prompt": prompt_s,
+        "reason": "retry" if rec else "never",
+    }
+
+
+def issued_mark(
+    go: str,
+    *,
+    pid: int,
+    seat: str,
+    prompt: str | None = None,
+    head: str | None = None,
+) -> dict:
+    go = (go or "").upper()
+    prompt_p = resolve_writer_prompt(go, prompt)
+    prompt_s = str(prompt_p) if prompt_p.is_file() else (prompt or "")
+    ws = workspace_from_prompt(prompt_p)
+    rec = {
+        "go": go,
+        "prompt": prompt_s,
+        "seat": seat,
+        "pid": int(pid),
+        "at": int(time.time()),
+        "headAtLaunch": head or git_head(ws),
+        "workspace": str(ws),
+        "commitSubject": commit_subject_from_prompt(prompt_p, go),
+        "shipped": False,
+        "shippedCommit": None,
+    }
+    d = load_issued()
+    d[go] = rec
+    save_issued(d)
+    return rec
+
+
+def issued_shipped(go: str, *, commit: str | None = None, prompt: str | None = None) -> dict:
+    go = (go or "").upper()
+    prompt_p = resolve_writer_prompt(go, prompt)
+    d = load_issued()
+    rec = d.get(go) or {}
+    ws = Path(rec.get("workspace") or workspace_from_prompt(prompt_p))
+    subject = rec.get("commitSubject") or commit_subject_from_prompt(prompt_p, go)
+    h = (commit or "").strip() or git_find_subject(ws, subject) or git_head(ws)
+    rec.update(
+        {
+            "go": go,
+            "prompt": rec.get("prompt") or str(prompt_p),
+            "workspace": str(ws),
+            "commitSubject": subject,
+            "shipped": True,
+            "shippedCommit": h,
+            "shippedAt": int(time.time()),
+            "pid": 0,
+        }
+    )
+    d[go] = rec
+    save_issued(d)
+    return rec
+
+
+def flush_outbox() -> list[dict]:
+    """Mint cards queued while Orbitty was quit. Fail closed if the socket is down."""
+    ensure_bus()
+    minted: list[dict] = []
+    for p in sorted(OUTBOX.glob("*.json")):
+        try:
+            rec = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        title = (rec.get("title") or "").strip()
+        if not title:
+            continue
+        argv = ["needed", "open", "--title", title]
+        if rec.get("why"):
+            argv.extend(["--why", str(rec["why"])])
+        if rec.get("project"):
+            argv.extend(["--project", str(rec["project"])])
+        try:
+            data = ctl(*argv)
+        except SystemExit:
+            return minted
+        p.unlink(missing_ok=True)
+        minted.append(data if isinstance(data, dict) else rec)
+        with DISPATCH_LOG.open("a") as log:
+            log.write(f"outbox minted {title}\n")
+    return minted
+
+
+def load_cursor() -> dict:
+    if not CURSOR.is_file():
+        off = EVENTS.stat().st_size if EVENTS.is_file() else 0
+        return {"offset": off, "seen": []}
+    try:
+        return json.loads(CURSOR.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"offset": 0, "seen": []}
+
+
+def save_cursor(cur: dict) -> None:
+    ensure_bus()
+    tmp = CURSOR.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(cur, indent=2) + "\n")
+    tmp.replace(CURSOR)
+
+
+def event_type(ev: dict) -> str:
+    for t in ev.get("tags") or []:
+        if isinstance(t, list) and len(t) >= 2 and t[0] == "e-type":
+            return str(t[1])
+    return ""
+
+
+def event_card_id(ev: dict) -> str:
+    raw = ev.get("content") or ""
+    if isinstance(raw, dict):
+        return str(raw.get("cardId") or "")
+    try:
+        obj = json.loads(raw) if isinstance(raw, str) else {}
+    except json.JSONDecodeError:
+        return ""
+    return str(obj.get("cardId") or "") if isinstance(obj, dict) else ""
+
+
+def grok_bin() -> str:
+    p = HOME / ".grok" / "bin" / "grok"
+    if p.is_file():
+        return str(p)
+    return shutil.which("grok") or str(HOME / ".local" / "bin" / "grok")
+
+
+# ---------- GO-ORBITTY-MOUTH-FOREVER: watched clerks ----------
+# A clerk never dies silent at the turn cap. Every grok spawn goes through
+# `clerk-run` (detached wrapper): it streams the clerk to its OWN log under
+# bus/logs, and when that log says "Max turns reached" it runs ONE
+# continuation — same packet plus a finish note — then stops. Never a chain.
+
+CLERK_MAX_TURNS = "64"  # lock: omit or >=64; never the old 12.
+
+NEST_CONT_NOTE = (
+    "\n\n---\n\nCONTINUATION CLERK: the first clerk hit the max-turns cap "
+    "mid-job. Do NOT start over. Read what is already on disk, finish the "
+    "stamp/papers, then do the packet's act line: companion note what's "
+    "next (one Spark line) and `orbitty-needed ack` this id. Then stop."
+)
+WRITER_CONT_NOTE = (
+    "\n\n---\n\nCONTINUATION SEAT: the first grok seat hit the max-turns cap "
+    "mid-GO. Do NOT restart. Pick up from the tree as it is, finish the "
+    "prompt's Do list, run its commit step, then companion note what's "
+    "next (one Spark line). Then stop."
+)
+
+
+def clerk_env() -> dict:
+    return {
+        **os.environ,
+        "PATH": str(HOME / ".local/bin") + ":" + os.environ.get("PATH", ""),
+    }
+
+
+def clerk_argv(seat: str, prompt_path: Path, sid: str) -> list[str]:
+    """One argv builder for both seats — the wrapper rebuilds it for the
+    continuation, so the flags can never drift between first clerk and
+    continuation."""
+    if seat == "writer":
+        return [
+            grok_bin(),
+            "--prompt-file",
+            str(prompt_path),
+            "--cwd",
+            str(workspace_from_prompt(prompt_path)),
+            "-s",
+            sid,
+            "--always-approve",
+            "--no-subagents",
+            "--max-turns",
+            CLERK_MAX_TURNS,
+        ]
+    rules = NEST_RULES.read_text() if NEST_RULES.is_file() else ""
+    return [
+        grok_bin(),
+        "--prompt-file",
+        str(prompt_path),
+        "--cwd",
+        str(BUS),
+        "-s",
+        sid,
+        "--always-approve",
+        "--no-subagents",
+        "--disable-web-search",
+        "--max-turns",
+        CLERK_MAX_TURNS,
+        "--output-format",
+        "plain",
+        f"--rules={rules}",
+    ]
+
+
+def clerk_log_path(cid: str, sid: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", cid)
+    return LOGS / f"{safe}-{sid}.log"
+
+
+def spawn_clerk(seat: str, packet: Path, cid: str, sid: str) -> subprocess.Popen:
+    """Detach a watched clerk. The wrapper (not grok) is the returned pid —
+    it outlives a capped first clerk and owns the one continuation."""
+    ensure_bus()
+    log = DISPATCH_LOG.open("a")
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "clerk-run",
+            "--seat",
+            seat,
+            "--packet",
+            str(packet),
+            "--cid",
+            cid,
+            "--sid",
+            sid,
+        ],
+        cwd=str(BUS),
+        stdout=log,
+        stderr=log,
+        start_new_session=True,
+        env=clerk_env(),
+    )
+    mark_clerk_running(cid, proc.pid)
+    companion_hack(True, who="grok")
+    return proc
+
+
+def run_one_clerk(seat: str, prompt_path: Path, sid: str, cid: str) -> None:
+    """Run one grok clerk to completion, streaming to its own log so the
+    shared dispatch log stays an index."""
+    path = clerk_log_path(cid, sid)
+    with DISPATCH_LOG.open("a") as log:
+        log.write(f"--- clerk {cid} seat={seat} sid={sid} log={path} ---\n")
+    with path.open("a") as lf:
+        p = subprocess.run(
+            clerk_argv(seat, prompt_path, sid),
+            cwd=str(BUS),
+            stdout=lf,
+            stderr=subprocess.STDOUT,
+            env=clerk_env(),
+        )
+    with DISPATCH_LOG.open("a") as log:
+        log.write(f"clerk {cid} sid={sid} exit {p.returncode}\n")
+
+
+def clerk_hit_cap(cid: str, sid: str) -> bool:
+    """Tail-check the clerk log for grok's max-turns death."""
+    try:
+        with clerk_log_path(cid, sid).open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 16384))
+            tail = f.read().decode("utf-8", "replace")
+    except OSError:
+        return False
+    return "max turns reached" in tail.lower()
+
+
+def cmd_clerk_run(args: argparse.Namespace) -> None:
+    """One clerk to completion; on 'Max turns reached', ONE continuation
+    (same packet + finish note). A capped continuation stays dead so a
+    human reads the log — never a chain."""
+    ensure_bus()
+    try:
+        packet = Path(args.packet)
+        if not packet.is_file():
+            with DISPATCH_LOG.open("a") as log:
+                log.write(f"clerk {args.cid}: missing packet {packet}\n")
+            return
+        run_one_clerk(args.seat, packet, args.sid, args.cid)
+        if not clerk_hit_cap(args.cid, args.sid):
+            return
+        cont_sid = str(uuid.uuid4())
+        cont = BUS / f"clerk-cont-{re.sub(r'[^A-Za-z0-9_.-]', '_', args.cid)}.md"
+        note = WRITER_CONT_NOTE if args.seat == "writer" else NEST_CONT_NOTE
+        try:
+            cont.write_text(packet.read_text() + note)
+        except OSError as e:
+            with DISPATCH_LOG.open("a") as log:
+                log.write(f"clerk {args.cid}: continuation prompt failed: {e}\n")
+            return
+        with DISPATCH_LOG.open("a") as log:
+            log.write(f"clerk {args.cid} hit max turns — one continuation {cont_sid}\n")
+        run_one_clerk(args.seat, cont, cont_sid, args.cid)
+    finally:
+        clear_clerk_running(args.cid)
+        dock_hack_off_if_idle(args.cid)
+
+
+SPARK_GO_RE = re.compile(
+    r"\b(?:GO-ORBITTY-|GO-MH-|GO-LS-TAURI|GO-PLUG-)",
+    re.IGNORECASE,
+)
+WORK_GO_RE = re.compile(
+    r"\b(?:GO-CALLE-|GO-FKT-|GO-DESK-|GO-ICE-|GO-NCH-|GO-RGL-)",
+    re.IGNORECASE,
+)
+
+
+def route_bus(
+    *,
+    title: str = "",
+    why: str = "",
+    answer: str = "",
+    go: str = "",
+    workspace: str = "",
+    project: str = "",
+) -> str:
+    """Spark = desktop/Orbitty. Work = everything else. Chat/Hold never."""
+    blob = " ".join(
+        x for x in (title, why, answer, go, workspace, project) if x
+    )
+    up = blob.upper()
+    low = blob.lower()
+    if SPARK_GO_RE.search(up):
+        return "spark"
+    if any(
+        s in up
+        for s in (
+            "/USERS/DUDE/ORBITTY",
+            "ORBITTY.APP",
+            "SPACE.ORBITTY.MAC",
+            "ORBITTYCTL",
+        )
+    ):
+        return "spark"
+    if any(
+        s in low
+        for s in (
+            "herding cat",
+            "yard-warn",
+            "needed-bus",
+            "install-stable",
+            "mint repo planet",
+            "companion.note",
+            "orbitty.space",
+        )
+    ):
+        return "spark"
+    if WORK_GO_RE.search(up):
+        return "work"
+    return "work"
+
+
+def _ack_quote(answer: str, n: int = 72) -> str:
+    a = " ".join((answer or "").split())
+    if not a:
+        return ""
+    if len(a) > n:
+        a = a[: n - 1] + "…"
+    return a
+
+
+def spark_ack_line(rec: dict) -> str:
+    """One short orientation line that still carries what Matt said."""
+    title = (rec.get("title") or rec.get("id") or "Needed").strip()
+    state = rec.get("neededState") or ""
+    answer = (rec.get("neededAnswer") or "").strip()
+    go = extract_go(title) or extract_go(answer) or ""
+    q = _ack_quote(answer)
+    low = answer.lower()
+    leftoverish = any(
+        w in low
+        for w in (
+            "leftover",
+            "except",
+            "didn't",
+            "did not",
+            "doesn't",
+            "does not",
+            "does nothing",
+            "bounce",
+            "clip",
+            "cut off",
+            "still",
+            "nope",
+            "not possible",
+            "broken",
+            "but ",
+        )
+    )
+    if state == "skipped":
+        return f"Skipped {title}."
+    if title.startswith("Writer for ") and seat_from_answer(answer):
+        seat = seat_from_answer(answer)
+        if seat == "wait":
+            return f"Parked {go or title}."
+        return f"{seat} has {go or title}."
+    if title.startswith("Dogfood "):
+        if leftoverish:
+            return f"Leftover on {go or title}: {q}" if q else f"Leftover on {go or title}."
+        return f"Dogfood {go or title}: {q}" if q else f"Noted dogfood on {go or title}."
+    if q:
+        return f"Noted {title}: {q}"
+    return f"Noted {title}."
+
+
+def should_instant_ack(rec: dict) -> bool:
+    """Every answer gets one short Spark line immediately. Clerks add the result later."""
+    return True
+
+
+def _ctl_run(args: list[str], log) -> None:
+    try:
+        r = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if r.returncode != 0:
+            log.write(f"spark_ack fail {args}: {(r.stderr or r.stdout or '')[:240]}\n")
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as e:
+        log.write(f"spark_ack failed {args}: {e}\n")
+
+
+def spark_ack(rec: dict) -> None:
+    """Instant mouth. Sequential mode → note --mode → open → think.
+    Parallel Popen raced the note onto Chat and looked like silence.
+    Do NOT companion_send — that is a 180s LLM turn.
+    """
+    rec = dict(rec)
+    rec["neededAnswer"] = rules_mod.strip_rule_lines(
+        str(rec.get("neededAnswer") or rec.get("needed_answer") or "")
+    )
+    line = spark_ack_line(rec)
+    mode = route_bus(
+        title=str(rec.get("title") or ""),
+        why=str(rec.get("neededWhy") or rec.get("needed_why") or ""),
+        answer=str(rec.get("neededAnswer") or rec.get("needed_answer") or ""),
+        go=extract_go(str(rec.get("title") or ""))
+        or extract_go(str(rec.get("neededAnswer") or ""))
+        or "",
+        workspace=str(rec.get("workspace") or ""),
+        project=str(rec.get("projectId") or rec.get("project_id") or ""),
+    )
+    log = DISPATCH_LOG.open("a")
+    log.write(f"spark_ack mode={mode} {line}\n")
+    log.flush()
+    agent = "spark" if mode == "spark" else "grok"
+    _ctl_run([CTL, "companion", "mode", "--", mode], log)
+    _ctl_run([CTL, "companion", "set-agent", "--", agent], log)
+    _ctl_run([CTL, "companion", "note", "--mode", mode, "--", line], log)
+    _ctl_run([CTL, "companion", "open"], log)
+    _ctl_run([CTL, "companion", "play", "--", "think"], log)
+    log.close()
+
+
+def packet_for(rec: dict, etype: str) -> dict:
+    """Self-contained. A fresh grok must not need any other session."""
+    return {
+        "id": rec.get("id"),
+        "title": rec.get("title"),
+        "neededWhy": rec.get("neededWhy"),
+        "neededAnswer": rec.get("neededAnswer"),
+        "neededState": rec.get("neededState"),
+        "projectId": rec.get("projectId") or "",
+        "eventType": etype,
+        "queuedAt": rec.get("queuedAt") or int(time.time()),
+        "act": (
+            "Lock papers. One companion note with what's next (result only — "
+            "do not repeat a watch ack). Then orbitty-needed ack this id. "
+            "Mint leftover Writer via orbitty-needed open (it reuses an "
+            "already-open card with the same title). Packet is the whole memory."
+        ),
+    }
+
+
+def extract_go(text: str) -> str | None:
+    if not text:
+        return None
+    m = GO_RE.search(text.upper().replace("?", " "))
+    return m.group(1) if m else None
+
+
+def ctl_soft(*args: str) -> Any | None:
+    """orbittyctl, or None when Orbitty isn't up. Never raises."""
+    try:
+        return ctl(*args)
+    except SystemExit:
+        return None
+
+
+def go_status(*, go: str = "", file: str = "", card: str = "") -> dict | None:
+    """Resolver through orbittyctl. None means the check itself failed."""
+    argv = ["go", "status"]
+    if file:
+        argv.extend(["--file", file])
+    elif go:
+        argv.extend(["--go", go])
+        if card:
+            argv.extend(["--card", card])
+    else:
+        return None
+    data = ctl_soft(*argv)
+    return data if isinstance(data, dict) else None
+
+
+def plans_dir() -> Path:
+    """Same setting the app uses. No second hardcoded plans path."""
+    data = ctl_soft("settings", "plans-dir")
+    if isinstance(data, dict):
+        raw = (data.get("plansDir") or "").strip()
+        if raw:
+            return Path(raw).expanduser()
+    return HOME / "Orbitty GOs"
+
+
+def plans_read_dirs() -> list[Path]:
+    """plansDir first, then ~/.buzz/PLANS (read-only back-compat)."""
+    primary = plans_dir()
+    out = [primary]
+    if PLANS.is_dir() and PLANS != primary:
+        out.append(PLANS)
+    return out
+
+
+def default_runner() -> dict:
+    data = ctl_soft("settings", "runner")
+    if isinstance(data, dict) and data.get("model"):
+        return data
+    return {
+        "runner": "orbitty-cursor",
+        "harness": "cursor",
+        "model": "grok-4.7-high",
+    }
+
+
+QUERY_CAP = 64000
+
+
+PACKETS = BUS / "go-packets"
+
+
+class Sealed(NamedTuple):
+    """packet = the file a route hands the agent; None = don't launch.
+    checked = False when the seal check itself was unavailable."""
+    packet: Path | None
+    note: str
+    source: Path | None
+    checked: bool
+
+
+def write_go_packet(go: str, workspace: str, query: str) -> Path:
+    """The launch text as a file. The leading `Workspace:` line is what
+    clerk_argv / issued_* / cursor-go read for the working directory."""
+    PACKETS.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", go) or "GO"
+    path = PACKETS / f"{safe}.md"
+    tmp = path.with_suffix(".md.tmp")
+    tmp.write_text(f"Workspace: {workspace}\n\n{query.rstrip()}\n")
+    tmp.replace(path)
+    return path
+
+
+def sealed_prompt(go: str, card: str = "", prompt: str | None = None) -> Sealed:
+    """The seal gate through orbittyctl. The app builds the launch text
+    (`query`: the GO with {REPO_ROOT}/{PLANS_DIR} expanded, the lock
+    appended, and the push rule), so the clerk and cursor-go routes get
+    exactly what the Rust routes get."""
+    info = go_status(file=prompt or "", go=go, card=card)
+    if not info:
+        return Sealed(None, f"{go} seal check unavailable; not launching.", None, False)
+    if not info.get("sealed"):
+        note = (info.get("note") or "").strip() or f"{go} is not sealed; not launching."
+        return Sealed(None, note, None, True)
+    launch_note = (info.get("launchNote") or "").strip()
+    if launch_note:
+        return Sealed(None, launch_note, None, True)
+    source = Path(info.get("file") or (prompt or ""))
+    query = info.get("query")
+    if not isinstance(query, str) or not query.strip():
+        return Sealed(None, f"{go} seal check returned no GO text; not launching.", None, True)
+    workspace = (info.get("workspace") or "").strip() or str(WS_DEFAULT)
+    packet_text = f"Workspace: {workspace}\n\n{query}"
+    if len(packet_text) > QUERY_CAP:
+        return Sealed(
+            None,
+            f"{go} is {len(packet_text)} chars; cap is {QUERY_CAP}. Not launching.",
+            None,
+            True,
+        )
+    return Sealed(write_go_packet(go, workspace, query), "", source, True)
+
+
+def append_card_note(card_id: str, note: str, log) -> bool:
+    """Add one line to the card's notes. Never replaces them: the append
+    verb only (an older app answers unknown tool, which is logged)."""
+    if not card_id or not note.strip():
+        return False
+    try:
+        ctl("kanban", "notes", "--id", card_id, "--append", "--", note)
+        return True
+    except SystemExit as e:
+        log(f"note append failed for {card_id}: {e}")
+        return False
+
+
+def go_prompt_path(go: str) -> Path:
+    slug = f"_{go.replace('-', '_')}_PROMPT.md"
+    primary = plans_dir() / slug
+    if primary.is_file():
+        return primary
+    legacy = PLANS / slug
+    if legacy.is_file():
+        return legacy
+    return primary
+
+
+def launch_packet(rec: dict, go: str) -> dict:
+    prompt = go_prompt_path(go)
+    ws = ""
+    if prompt.is_file():
+        for line in prompt.read_text().splitlines():
+            if line.startswith("Workspace:"):
+                ws = line.split(":", 1)[1].strip()
+                break
+    return {
+        "go": go,
+        "neededId": rec.get("id"),
+        "title": rec.get("title"),
+        "answer": rec.get("neededAnswer"),
+        "why": rec.get("neededWhy"),
+        "projectId": rec.get("projectId") or "",
+        "workspace": ws or str(HOME / "orbitty"),
+        "prompt": str(prompt) if prompt.is_file() else None,
+        "seats": ["cursor", "grok"],
+        "suggested": "cursor",
+        "note": "Sign off the writer for this GO. Answer cursor / grok / wait. Nest will not code.",
+    }
+
+
+def writer_signoff_title(go: str) -> str:
+    return f"Writer for {go}?"
+
+
+def open_writer_signoff(rec: dict, go: str) -> None:
+    title = writer_signoff_title(go)
+    existing = find_open_needed_by_title(title)
+    if existing:
+        with DISPATCH_LOG.open("a") as log:
+            log.write(f"signoff already open {go} {existing.get('id')}\n")
+        return
+    pkt = launch_packet(rec, go)
+    path = BUS / f"launch-{go}.json"
+    path.write_text(json.dumps(pkt, indent=2) + "\n")
+    why = (
+        f"Packet {path}. Workspace: {pkt['workspace']}. "
+        f"Prompt: {pkt['prompt'] or '(missing)'}. "
+        "Answer cursor (Ultra kimi-k3-max) / grok / wait."
+    )
+    argv = [
+        "needed",
+        "open",
+        "--title",
+        title,
+        "--why",
+        why,
+    ]
+    if rec.get("projectId"):
+        argv.extend(["--project", rec["projectId"]])
+    try:
+        ctl(*argv)
+    except SystemExit as e:
+        with DISPATCH_LOG.open("a") as log:
+            log.write(f"signoff open failed {go}: {e}\n")
+
+
+def herdr_server_up() -> bool:
+    """True when the Herdr socket answers. Lock: ORBITTY_HERDR_WHEN_PRESENT_LOCK_v0.md."""
+    try:
+        p = subprocess.run(
+            ["herdr", "status"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        return "status: running" in (p.stdout or "")
+    except Exception:
+        return False
+
+
+def launch_grok_via_herdr() -> str | None:
+    """Grok-kind pickup → launch_agent Herdr pane. None = skip, use nest clerk."""
+    if not herdr_server_up():
+        return None
+    try:
+        data = ctl("agent", "pickup", "--name", "herdr-probe")
+    except SystemExit:
+        return None
+    if isinstance(data, dict) and data.get("picked") is False:
+        return None
+    return f"Herdr pane via herdr-probe pickup ({data!r})"[:400]
+
+
+def launch_writer(seat: str, go: str, prompt: str | None = None) -> str:
+    """seat is cursor or grok. Returns a one-line Spark result."""
+    if is_leftover_prompt(prompt):
+        return (
+            f"Leftover for {go} is papers only. One launch per GO. Not launching."
+        )
+    sealed = sealed_prompt(go, prompt=prompt)
+    if sealed.packet is None:
+        return sealed.note
+    # Every route below gets the packet: full GO + lock + launcher rules.
+    prompt = str(sealed.packet)
+    st = issued_status(go, prompt)
+    if st.get("status") in ("running", "shipped"):
+        return st["message"]
+    if seat == "cursor":
+        argv = [str(CURSOR_GO), go]
+        if prompt:
+            argv.append(prompt)
+        p = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+        )
+        out = (p.stdout or p.stderr or "").strip()
+        if p.returncode != 0:
+            return f"Cursor handoff failed for {go}: {out[-400:]}"
+        return f"Cursor Ultra has {go}. {out.splitlines()[-1] if out else ''}".strip()
+    if seat == "grok":
+        prompt_path = Path(prompt)
+        if not prompt_path.is_file():
+            return f"No prompt for {go}; grok not launched."
+        herdr_line = launch_grok_via_herdr()
+        if herdr_line:
+            issued_mark(go, pid=0, seat="grok", prompt=str(prompt_path))
+            with DISPATCH_LOG.open("a") as log:
+                log.write(f"writer {go} seat=grok herdr {herdr_line}\n")
+            return herdr_line
+        sid = str(uuid.uuid4())
+        # Watched clerk: a max-turns death earns ONE continuation with the
+        # same prompt + finish note — never a silent 40-turn corpse.
+        # The packet is the full GO file (header + body), not the card title.
+        proc = spawn_clerk("writer", prompt_path, go, sid)
+        issued_mark(go, pid=proc.pid, seat="grok", prompt=str(prompt_path))
+        return f"Grok Build session {sid} has {go}."
+    return f"Unknown seat {seat}; wait."
+
+
+def seat_from_answer(answer: str) -> str | None:
+    a = (answer or "").strip().lower()
+    if a.startswith("cursor") or a in ("c", "ultra", "kimi"):
+        return "cursor"
+    if a.startswith("grok"):
+        return "grok"
+    if a.startswith("wait") or a in ("later", "not now"):
+        return "wait"
+    return None
+
+
+# ---------- GO-ORBITTY-DOING-FIRE: "Who runs this doing GO?" ----------
+# A GO-* todo dragged todo → doing mints this ONE fact title (habitat
+# side, doing_fire.rs). The standing answer is EXACTLY '<harness> on this
+# planet' (cursor · goose · grok · hermes; case-insensitive, extra words
+# illegal) — bare 'cursor' is NOT the Writer seat on this title.
+# Leftover orbitty-prefix: the seat Matt taught is ORBITTY-ONLY — the
+# why's go= must match GO-ORBITTY* and the Needed's planet must be
+# orbitty (id or exact name); any other GO prefix or planet pings.
+# Act: find the one agent row with that harness pinned to this Needed's
+# projectId (zero → mint '{planetName}-{harness}', two+ → collide ping),
+# assign the source todo, then launch_writer / cursor-go the go= prompt
+# file — never launch_agent([title]). issued running/shipped, a missing
+# prompt, or a live cursor-agent --print → ping, no spawn.
+DOING_FIRE_TITLE = "Who runs this doing GO?"
+DOING_FIRE_ANSWER_RE = re.compile(
+    r"^(cursor|goose|grok|hermes)\s+on\s+this\s+planet$", re.IGNORECASE
+)
+# The taught policy (Matt 2026-09-13): cursor runs this doing GO when the
+# GO is GO-ORBITTY* and the planet is orbitty. Both gates below.
+DOING_FIRE_GO_PREFIX = "GO-ORBITTY"
+DOING_FIRE_PLANET = "orbitty"
+
+
+def why_value(why: str, key: str) -> str:
+    """First 'key=value' token in a doing-fire why line ("" when absent)."""
+    for tok in (why or "").split():
+        if tok.startswith(key + "="):
+            v = tok.split("=", 1)[1].strip()
+            if v:
+                return v
+    return ""
+
+
+def doing_fire_log(msg: str) -> None:
+    with DISPATCH_LOG.open("a") as log:
+        log.write(f"{msg}\n")
+
+
+def record_doing_fire_rule(cid: str, raw_answer: str) -> None:
+    """`from-answer`, never invent: record the RULE: line(s) Matt typed on
+    this card. Only runs on the handled path — the fall-through clerk does
+    its own from-answer, so a rule is never recorded twice."""
+    if not cid:
+        return
+    try:
+        stripped, params, when, found = rules_mod.parse_rule_lines(raw_answer)
+    except rules_mod.RuleError as e:
+        doing_fire_log(f"doing-fire RULE parse failed {cid}: {e}")
+        return
+    if not found:
+        return
+    try:
+        rule = rules_mod.add_rule(params, when, stripped, source_needed_id=cid)
+    except rules_mod.RuleError as e:
+        doing_fire_log(f"doing-fire rule add failed {cid}: {e}")
+        return
+    doing_fire_log(f"doing-fire rule {rule.get('id')} recorded from {cid}")
+
+
+def dispatch_doing_fire(rec: dict, raw_answer: str) -> bool:
+    """True = handled (no nest clerk). False = cannot-run → the clerk pings."""
+    answer = (rec.get("neededAnswer") or "").strip()
+    m = DOING_FIRE_ANSWER_RE.match(answer)
+    if not m:
+        return False  # not the standing answer — Matt gets a clerk ping
+    harness = m.group(1).lower()
+    why = rec.get("neededWhy") or rec.get("needed_why") or ""
+    go = why_value(why, "go").upper()
+    card_id = why_value(why, "card")
+    project_id = rec.get("projectId") or rec.get("project_id") or ""
+    cid = rec.get("id") or ""
+    if not go or not project_id:
+        doing_fire_log(
+            f"doing-fire {cid}: missing go=/projectId (why={why!r} project={project_id!r}) — ping"
+        )
+        return False
+    if not go.startswith(DOING_FIRE_GO_PREFIX):
+        # The taught seat is GO-ORBITTY* only — any other GO prefix pings.
+        doing_fire_log(f"doing-fire {go}: not {DOING_FIRE_GO_PREFIX}* — ping")
+        return False
+    sealed = sealed_prompt(go, card=card_id)
+    if sealed.packet is None:
+        doing_fire_log(f"doing-fire {go}: {sealed.note}")
+        # Fail soft: no seal check (old app / Orbitty down) leaves the
+        # card's notes alone. A real refusal appends, never replaces.
+        if sealed.checked:
+            append_card_note(card_id, sealed.note, lambda m: doing_fire_log(f"doing-fire {go}: {m}"))
+        return True
+    prompt = sealed.packet
+    if not prompt.is_file():
+        doing_fire_log(f"doing-fire {go}: prompt missing ({prompt}) — ping, no spawn")
+        return False
+    st = issued_status(go, str(prompt))
+    if st.get("status") in ("running", "shipped"):
+        doing_fire_log(f"doing-fire {go}: issued {st.get('status')} — ping, no spawn")
+        return False
+    if harness not in ("cursor", "grok"):
+        # launch_writer has no goose/hermes door today — honest ping.
+        doing_fire_log(f"doing-fire {go}: no launch door for {harness} — ping, no spawn")
+        return False
+    if harness == "cursor" and cursor_print_alive():
+        doing_fire_log(f"doing-fire {go}: a cursor-agent --print is live — ping, no spawn")
+        return False
+    try:
+        state = ctl("state", "get")
+    except SystemExit as e:
+        doing_fire_log(f"doing-fire {go}: state get failed: {e} — ping")
+        return False
+    # The taught seat is planet orbitty only (id or exact name — the same
+    # law as the rules `project` param). Any other planet pings.
+    projects = (state.get("projects") or []) if isinstance(state, dict) else []
+    planet_ok = project_id == DOING_FIRE_PLANET or any(
+        isinstance(p, dict)
+        and p.get("id") == project_id
+        and (p.get("name") or "").strip() == DOING_FIRE_PLANET
+        for p in projects
+    )
+    if not planet_ok:
+        doing_fire_log(
+            f"doing-fire {go}: planet {project_id!r} is not {DOING_FIRE_PLANET} — ping"
+        )
+        return False
+    rows = []
+    for a in (state.get("agentShortcuts") or []) if isinstance(state, dict) else []:
+        if not isinstance(a, dict):
+            continue
+        if (a.get("harness") or "").strip().lower() != harness:
+            continue
+        # The pin is the match — the row's name never is.
+        if (a.get("projectId") or a.get("project_id") or "") != project_id:
+            continue
+        rows.append(a)
+    if len(rows) > 1:
+        doing_fire_log(
+            f"doing-fire {go}: {len(rows)} {harness} agents on {project_id} — collide, ping"
+        )
+        return False
+    agent = rows[0] if rows else None
+    if agent is None:
+        planet_name = ""
+        for p in (state.get("projects") or []) if isinstance(state, dict) else []:
+            if isinstance(p, dict) and p.get("id") == project_id:
+                planet_name = (p.get("name") or "").strip()
+                break
+        name = f"{planet_name or project_id}-{harness}"
+        argv = ["agent", "add", "--name", name, "--harness", harness,
+                "--project", project_id]
+        if harness == "cursor":
+            argv.extend(["--model", str(default_runner().get("model") or "grok-4.7-high")])
+        try:
+            data = ctl(*argv)
+        except SystemExit as e:
+            doing_fire_log(f"doing-fire {go}: agent add {name} failed: {e} — ping")
+            return False
+        agent = data if isinstance(data, dict) else {}
+        doing_fire_log(f"doing-fire {go}: minted {name} ({agent.get('id') or '?'}) on {project_id}")
+    agent_id = agent.get("id") or ""
+    if card_id and agent_id:
+        try:
+            ctl("kanban", "assign", "--id", card_id, "--agent", agent_id)
+        except SystemExit as e:
+            doing_fire_log(
+                f"doing-fire {go}: assign {card_id} → {agent_id} failed: {e} (launching anyway)"
+            )
+    # The act lands — record Matt's RULE: (from-answer only, never invent).
+    record_doing_fire_rule(cid, raw_answer)
+    line = launch_writer(harness, go, prompt=str(sealed.source or ""))
+    doing_fire_log(f"doing-fire {go} seat={harness} agent={agent.get('name') or agent_id} {line}")
+    return True
+
+
+# WRITER_DONE lock: green / yes / stamp / good (NEST also: confirmed /
+# already shipped). Whole answer after RULE-strip — leftover bounce text
+# still goes to the clerk (it has to write a leftover prompt).
+# Whole-answer only. "green but X is broken" stays leftover.
+# "stamped green" / "all green" are Matt's actual stamp phrases
+# (2026-09-14: "stamped green" missed this and spawned a 64-turn clerk).
+# 2026-09-14 night: "stamp it green dude" also missed — leftover clerk
+# launched a writer that rewrote drag and ran install-stable.
+DOGFOOD_GREEN_RE = re.compile(
+    r"^(?:"
+    r"green|yes|stamp|good|confirmed|already\s+shipped|"
+    r"stamped\s+green|all\s+green|green\s+stamped|"
+    r"it\s+works|"
+    r"stamp(?:ed)?(?:\s+it)?\s+green(?:\s+dude)?|"
+    r"green\s+dude"
+    r")(?:\s*[.!])*$",
+    re.I,
+)
+# Whole-answer wait still parks via the clerk ("later. Same card."). Any
+# other non-green answer is a leftover bounce for the template clerk.
+DOGFOOD_WAIT_RE = re.compile(r"^(?:wait|later|not\s+now)(?:\s*[.!])*$", re.I)
+
+
+def stamp_dogfood_green(go: str, cid: str) -> Path:
+    """Mechanical stamp. Do not overwrite a stamp a clerk already wrote."""
+    slug = (go or "UNKNOWN").replace("-", "_")
+    for d in plans_read_dirs():
+        existing = d / f"STAMP_{slug}.md"
+        if existing.is_file():
+            return existing
+    path = plans_dir() / f"STAMP_{slug}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\n"
+        f'title: "STAMP — {go}"\n'
+        "tags: [orbitty, stamp]\n"
+        "status: stamped\n"
+        f"go: {go}\n"
+        "clinical_claim: false\n"
+        "owner: pixel-artist\n"
+        "---\n\n"
+        f"# STAMP — {go}\n\n"
+        f"Matt Dogfood `{cid}`: **green**. Dispatch fast-path (no nest clerk).\n"
+    )
+    return path
+
+
+def complete_go_todos_on_green(go: str) -> list[str]:
+    """Eyes-on green is the done signal — not the writer exit.
+
+    Move exact-title `GO-…` todos that are still `doing` to `done`
+    through `kanban move` (the one save door). Leftover bounce must
+    not call this. Best-effort: a dead sock never un-stamps.
+    """
+    if not go:
+        return []
+    moved: list[str] = []
+    try:
+        st = ctl("state", "get")
+    except SystemExit as e:
+        with DISPATCH_LOG.open("a") as log:
+            log.write(f"dogfood-green {go}: state get failed: {e}\n")
+        return []
+    if not isinstance(st, dict):
+        return []
+    for c in cards_from_state(st):
+        if (c.get("kind") or "") != "todo":
+            continue
+        if (c.get("title") or "").strip() != go:
+            continue
+        if (c.get("status") or "") != "doing":
+            continue
+        cid = c.get("id") or ""
+        if not cid:
+            continue
+        try:
+            ctl("kanban", "move", "--id", cid, "--status", "done")
+            moved.append(cid)
+        except SystemExit as e:
+            with DISPATCH_LOG.open("a") as log:
+                log.write(f"dogfood-green {go}: move {cid} done failed: {e}\n")
+    return moved
+
+
+def dispatch_dogfood_leftover(rec: dict, raw_answer: str) -> bool:
+    """GO-ORBITTY-LEFTOVER-CLERK: leftover bounce = papers file only.
+    No Writer card, no cursor-go. True = handled; False = cannot fill →
+    clerk ping (no invented scope). Never stamps, never moves the todo."""
+    res = leftover_clerk.handle(rec, script_path=str(SCRIPT))
+    cid = rec.get("id") or ""
+    if not res.get("ok"):
+        with DISPATCH_LOG.open("a") as log:
+            log.write(
+                f"leftover-clerk cannot-fill {cid}: {res.get('reason')} — clerk ping\n"
+            )
+        return False
+    record_doing_fire_rule(cid, raw_answer)
+    go = res.get("go") or "?"
+    papers = Path(res.get("prompt") or "").name
+    with DISPATCH_LOG.open("a") as log:
+        log.write(f"leftover-clerk papers {go} {cid} {papers}\n")
+    note = (
+        f"Leftover for {go} parked in papers ({papers}). "
+        "One launch per GO — not starting a second writer."
+    )
+    try:
+        ctl("companion", "note", "--mode", "spark", "--", note)
+    except SystemExit:
+        pass
+    return True
+
+
+def dispatch_dogfood(rec: dict, raw_answer: str = "") -> bool:
+    """True = handled (no nest clerk): green stamps, leftover bounce is a
+    template fill. False = wait / cannot-fill → clerk."""
+    answer = (rec.get("neededAnswer") or "").strip()
+    if not DOGFOOD_GREEN_RE.match(answer):
+        if not answer or DOGFOOD_WAIT_RE.match(answer):
+            return False
+        return dispatch_dogfood_leftover(rec, raw_answer)
+    go = extract_go(rec.get("title") or "") or ""
+    cid = rec.get("id") or ""
+    path = stamp_dogfood_green(go, cid)
+    moved = complete_go_todos_on_green(go)
+    with DISPATCH_LOG.open("a") as log:
+        log.write(
+            f"dogfood-green {go or '?'} {cid} {path.name}"
+            + (f" done={','.join(moved)}" if moved else "")
+            + "\n"
+        )
+    if moved:
+        note = f"{go or 'GO'} stamped; todo moved to done."
+    else:
+        note = f"{go or 'GO'} stamped."
+    try:
+        ctl("companion", "note", "--mode", "spark", "--", note)
+    except SystemExit:
+        pass
+    return True
+
+
+def dispatch_writer_or_nest(rec: dict) -> bool:
+    """True if we handled it (no grok nest). Sign-off packet before any new session."""
+    # RULE: lines are teaching, not a seat/green answer — strip before parsing.
+    rec = dict(rec)
+    raw_answer = rec.get("neededAnswer") or ""
+    rec["neededAnswer"] = rules_mod.strip_rule_lines(raw_answer)
+    title = rec.get("title") or ""
+    answer = rec.get("neededAnswer") or ""
+    # Dogfood GO-…? is eyes-on, not a writer launch. Green stamps here
+    # (lock table). Leftover bounce is the template clerk (writes the
+    # leftover papers in seconds — no Writer card, no nest).
+    if title.startswith("Dogfood "):
+        return dispatch_dogfood(rec, raw_answer)
+    # GO-ORBITTY-DOING-FIRE: this fact title is planet-agent routing,
+    # never a Writer seat — bare 'cursor' does not mean Ultra here.
+    if title.strip() == DOING_FIRE_TITLE:
+        return dispatch_doing_fire(rec, raw_answer)
+    if title.startswith("Writer for ") and title.endswith("?"):
+        go = extract_go(title)
+        seat = seat_from_answer(answer)
+        if not go or seat is None:
+            return False
+        leftover_title = " leftover" in title.lower()
+        record_doing_fire_rule(rec.get("id") or "", raw_answer)
+        if leftover_title:
+            line = (
+                f"Leftover for {go} is papers only. "
+                "One launch per GO. Not launching."
+            )
+        else:
+            line = (
+                f"Writer for {go} parked."
+                if seat == "wait"
+                else launch_writer(seat, go)
+            )
+        already = line.lower().startswith("already")
+        with DISPATCH_LOG.open("a") as log:
+            log.write(f"writer {go} seat={seat} {line}\n")
+        try:
+            if seat != "wait" and not leftover_title and not already:
+                subprocess.Popen(
+                    [CTL, "companion", "play", "--", "nod"],
+                    stdout=DISPATCH_LOG.open("a"),
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return True
+    go = extract_go(answer) or extract_go(title)
+    if not go:
+        return False
+    if not go_prompt_path(go).is_file():
+        return False
+    open_writer_signoff(rec, go)
+    with DISPATCH_LOG.open("a") as log:
+        log.write(f"signoff minted for {go} from {rec.get('id')}\n")
+    return True
+
+
+def dispatch_nest(rec: dict) -> None:
+    """GO answers mint a writer sign-off packet. Other facts still nest-Grok papers."""
+    ensure_bus()
+    if dispatch_writer_or_nest(rec):
+        cid = rec.get("id")
+        if cid:
+            src = INBOX / f"{cid}.json"
+            if src.is_file():
+                (ACKED / f"{cid}.json").write_text(src.read_text())
+                src.unlink(missing_ok=True)
+        return
+    cid = rec.get("id") or "unknown"
+    packet = packet_for(rec, rec.get("eventType") or "needed-answer")
+    prompt_path = BUS / f"dispatch-{cid}.md"
+    prompt_path.write_text(
+        "Needed packet (complete). Do not resume any chat.\n\n```json\n"
+        + json.dumps(packet, indent=2)
+        + "\n```\n"
+    )
+    sid = str(uuid.uuid4())
+    NEST_SESSION.write_text(
+        json.dumps({"lastId": sid, "cardId": cid, "at": int(time.time())}, indent=2)
+        + "\n"
+    )
+    with DISPATCH_LOG.open("a") as log:
+        log.write(f"\n--- dispatch {cid} fresh {sid} ---\n")
+    # Watched clerk: cap death earns ONE continuation (same packet + finish
+    # note) — the silence after a Needed answer was the 12-turn corpse.
+    spawn_clerk("nest", prompt_path, cid, sid)
+
+
+def retry_stale(dispatch: bool) -> None:
+    """Inbox is durable. If a grok died, fire a new one (max 3).
+    Never stack a second clerk while one is still alive for that card."""
+    if not dispatch:
+        return
+    now = int(time.time())
+    for p in sorted(INBOX.glob("n-*.json")):
+        try:
+            rec = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        cid = rec.get("id") or p.stem
+        if clerk_alive(cid):
+            continue
+        attempts = int(rec.get("dispatchAttempts") or 1)
+        last = int(rec.get("lastDispatchAt") or rec.get("queuedAt") or 0)
+        if attempts >= 3 or now - last < 90:
+            continue
+        rec["dispatchAttempts"] = attempts + 1
+        rec["lastDispatchAt"] = now
+        p.write_text(json.dumps(rec, indent=2) + "\n")
+        with DISPATCH_LOG.open("a") as log:
+            log.write(f"retry {cid} attempt {attempts + 1}\n")
+        try:
+            dispatch_nest(rec)
+        except (OSError, subprocess.SubprocessError) as e:
+            with DISPATCH_LOG.open("a") as log:
+                log.write(f"retry failed {cid}: {e}\n")
+
+
+def enqueue(rec: dict, etype: str, spark: bool, dispatch: bool) -> Path | None:
+    cid = rec.get("id")
+    if not cid:
+        return None
+    ensure_bus()
+    dest = INBOX / f"{cid}.json"
+    acked = ACKED / f"{cid}.json"
+    if dest.is_file() or acked.is_file():
+        return None
+    payload = dict(rec)
+    payload["eventType"] = etype
+    payload["queuedAt"] = int(time.time())
+    payload["lastDispatchAt"] = payload["queuedAt"]
+    payload["dispatchAttempts"] = 1
+    payload["packet"] = packet_for(payload, etype)
+    body = json.dumps(payload, indent=2) + "\n"
+    try:
+        fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except FileExistsError:
+        return None
+    with os.fdopen(fd, "w") as f:
+        f.write(body)
+    if spark and should_instant_ack(payload):
+        try:
+            spark_ack(payload)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if dispatch:
+        try:
+            dispatch_nest(rec)
+        except (OSError, subprocess.SubprocessError) as e:
+            with DISPATCH_LOG.open("a") as log:
+                log.write(f"dispatch failed {rec.get('id')}: {e}\n")
+    return dest
+
+
+def drain_events(cur: dict, spark: bool, dispatch: bool) -> list[dict]:
+    if not EVENTS.is_file():
+        return []
+    size = EVENTS.stat().st_size
+    off = int(cur.get("offset") or 0)
+    if size < off:
+        off = 0
+    seen = list(cur.get("seen") or [])
+    seen_set = set(seen)
+    out: list[dict] = []
+    with EVENTS.open("r", encoding="utf-8") as f:
+        f.seek(off)
+        while True:
+            line = f.readline()
+            if not line:
+                break
+            if not line.endswith("\n"):
+                break
+            off = f.tell()
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            et = event_type(ev)
+            if et not in ("needed-answer", "needed-skip"):
+                continue
+            cid = event_card_id(ev)
+            if not cid or cid in seen_set:
+                continue
+            try:
+                rec = card_rec(find_card(cid))
+            except SystemExit:
+                rec = {
+                    "id": cid,
+                    "title": None,
+                    "neededState": "skipped" if et == "needed-skip" else "answered",
+                    "neededAnswer": None,
+                }
+            path = enqueue(rec, et, spark, dispatch)
+            seen_set.add(cid)
+            seen.append(cid)
+            if path is not None:
+                rec["queued"] = str(path)
+                out.append(rec)
+    cur["offset"] = off
+    cur["seen"] = seen[-400:]
+    save_cursor(cur)
+    return out
+
+
+def cmd_pending(_args: argparse.Namespace) -> None:
+    ensure_bus()
+    rows = []
+    for p in sorted(INBOX.glob("n-*.json")):
+        try:
+            rows.append(json.loads(p.read_text()))
+        except (OSError, json.JSONDecodeError):
+            continue
+    json.dump(rows, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
+def cmd_ack(args: argparse.Namespace) -> None:
+    ensure_bus()
+    src = INBOX / f"{args.id}.json"
+    if not src.is_file():
+        raise SystemExit(f"no pending {args.id}")
+    dest = ACKED / f"{args.id}.json"
+    dest.write_text(src.read_text())
+    src.unlink()
+    print(f"acked {args.id}")
+
+
+def cmd_notify(args: argparse.Namespace) -> None:
+    """Session wakeup: print ACTION_REQUIRED for new inbox files. Does not drain events."""
+    ensure_bus()
+    seen: set[str] = set()
+    while True:
+        for p in sorted(INBOX.glob("n-*.json")):
+            cid = p.stem
+            if cid in seen:
+                continue
+            seen.add(cid)
+            try:
+                rec = json.loads(p.read_text())
+            except (OSError, json.JSONDecodeError):
+                rec = {"id": cid}
+            title = rec.get("title") or ""
+            answer = rec.get("neededAnswer") or rec.get("neededState") or ""
+            print(f"ACTION_REQUIRED: needed {cid} {title} :: {answer}", flush=True)
+        if args.once:
+            return
+        time.sleep(max(0.5, args.poll))
+
+
+def cmd_watch(args: argparse.Namespace) -> None:
+    ensure_bus()
+    cur = load_cursor()
+    while True:
+        flush_outbox()
+        got = drain_events(
+            cur,
+            spark=not args.no_ack_spark,
+            dispatch=not args.no_dispatch,
+        )
+        retry_stale(dispatch=not args.no_dispatch)
+        for rec in got:
+            cid = rec.get("id")
+            title = rec.get("title") or ""
+            answer = rec.get("neededAnswer") or rec.get("neededState")
+            print(f"ACTION_REQUIRED: needed {cid} {title} :: {answer}", flush=True)
+        if args.once:
+            return
+        time.sleep(max(0.5, args.poll))
+
+
+def cmd_route(args: argparse.Namespace) -> None:
+    mode = route_bus(
+        title=args.title,
+        why=args.why,
+        answer=args.answer,
+        go=args.go,
+        workspace=args.workspace,
+        project=args.project,
+    )
+    if args.json:
+        json.dump({"mode": mode}, sys.stdout)
+        sys.stdout.write("\n")
+    else:
+        print(mode)
+
+
+def cmd_issued(args: argparse.Namespace) -> None:
+    action = args.action
+    if action == "show":
+        d = load_issued()
+        if args.go:
+            d = {args.go.upper(): d.get(args.go.upper())} if d.get(args.go.upper()) else {}
+        json.dump(d, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return
+    go = (args.go or "").upper()
+    if not go:
+        raise SystemExit("issued check|mark|shipped needs GO")
+    if action == "check":
+        st = issued_status(go, args.prompt)
+        if args.json:
+            json.dump(st, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        else:
+            print(st.get("message") or st.get("status"))
+        if st.get("status") == "running":
+            raise SystemExit(5)
+        if st.get("status") == "shipped":
+            raise SystemExit(6)
+        return
+    if action == "mark":
+        if not args.pid:
+            raise SystemExit("issued mark needs --pid")
+        rec = issued_mark(
+            go, pid=args.pid, seat=args.seat, prompt=args.prompt
+        )
+        json.dump(rec, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return
+    if action == "shipped":
+        rec = issued_shipped(go, commit=args.commit, prompt=args.prompt)
+        json.dump(rec, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return
+    raise SystemExit(f"unknown issued action {action}")
+
+
+# ---------- GO-ORBITTY-NEEDED-RULES-STORE: rule CLI ----------
+# Rules are user-minted (Matt) only. Clerks may run `from-answer` ONLY when
+# the packet's neededAnswer already contains a RULE: line — never invent.
+
+
+def cmd_rule_list(_args: argparse.Namespace) -> None:
+    try:
+        store = rules_mod.load_store()
+    except rules_mod.RuleError as e:
+        raise SystemExit(str(e))
+    json.dump(store, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    n_on = sum(1 for r in store["rules"] if r.get("enabled", True))
+    print(f"{n_on} enabled / {len(store['rules'])} total (cap {rules_mod.CAP_ENABLED})",
+          file=sys.stderr)
+
+
+def cmd_rule_add(args: argparse.Namespace) -> None:
+    params: dict[str, str] = {}
+    when: dict[str, str] = {}
+    try:
+        for kv in args.param:
+            p, w = rules_mod.parse_kv_tokens(kv)
+            params.update(p)
+            when.update(w)
+        rule = rules_mod.add_rule(
+            params, when, args.answer,
+            source_needed_id=args.from_needed,
+            note=args.note,
+        )
+    except rules_mod.RuleError as e:
+        raise SystemExit(f"rule add failed (no write): {e}")
+    json.dump(rule, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    print(f"rule {rule['id']} minted", file=sys.stderr)
+
+
+def cmd_rule_from_answer(args: argparse.Namespace) -> None:
+    """Record a rule Matt typed as RULE: line(s) on card ID's answer.
+    Remaining lines = standing answer. go copied from the title if omitted."""
+    card = find_card(args.id)
+    raw = nanswer(card)
+    stripped, params, when, found = rules_mod.parse_rule_lines(raw)
+    if not found:
+        raise SystemExit(f"{args.id}: no RULE: line in neededAnswer — not inventing one")
+    if "go" not in params:
+        go = rules_mod.extract_go(card.get("title") or "")
+        if go:
+            params["go"] = go
+    try:
+        rule = rules_mod.add_rule(params, when, stripped, source_needed_id=args.id)
+    except rules_mod.RuleError as e:
+        raise SystemExit(f"rule from-answer failed (no write): {e}")
+    json.dump(rule, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    print(f"rule {rule['id']} recorded from {args.id}", file=sys.stderr)
+
+
+def cmd_rule_rm(args: argparse.Namespace) -> None:
+    try:
+        dead = rules_mod.remove_rule(args.id)
+    except rules_mod.RuleError as e:
+        raise SystemExit(str(e))
+    json.dump(dead, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    print(f"rule {args.id} removed", file=sys.stderr)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    o = sub.add_parser("open", help="mint a Needed card")
+    o.add_argument("--title", required=True)
+    o.add_argument("--why")
+    o.add_argument("--project")
+    o.set_defaults(fn=cmd_open)
+
+    l = sub.add_parser("list", help="list open (or --all) Needed cards")
+    l.add_argument("--all", action="store_true")
+    l.set_defaults(fn=cmd_list)
+
+    g = sub.add_parser("get", help="one card by id")
+    g.add_argument("id")
+    g.set_defaults(fn=cmd_get)
+
+    w = sub.add_parser("wait", help="block until answered or skipped")
+    w.add_argument("id")
+    w.add_argument("--timeout", type=float, default=3600)
+    w.add_argument("--poll", type=float, default=2)
+    w.set_defaults(fn=cmd_wait)
+
+    p = sub.add_parser("pending", help="queued answers the nest has not acked")
+    p.set_defaults(fn=cmd_pending)
+
+    a = sub.add_parser("ack", help="mark a queued answer handled")
+    a.add_argument("id")
+    a.set_defaults(fn=cmd_ack)
+
+    n = sub.add_parser("notify", help="print ACTION_REQUIRED for new inbox files (session wakeup)")
+    n.add_argument("--poll", type=float, default=2)
+    n.add_argument("--once", action="store_true")
+    n.set_defaults(fn=cmd_notify)
+
+    wa = sub.add_parser("watch", help="queue needed-answer/skip events; print ACTION_REQUIRED")
+    wa.add_argument("--poll", type=float, default=2)
+    wa.add_argument("--once", action="store_true")
+    wa.add_argument("--no-ack-spark", action="store_true")
+    wa.add_argument("--no-dispatch", action="store_true")
+    wa.set_defaults(fn=cmd_watch)
+
+    iss = sub.add_parser("issued", help="GO writer lock: check / mark / shipped / show")
+    iss.add_argument("action", choices=["check", "mark", "shipped", "show"])
+    iss.add_argument("go", nargs="?")
+    iss.add_argument("--prompt")
+    iss.add_argument("--pid", type=int)
+    iss.add_argument("--seat", default="cursor")
+    iss.add_argument("--commit")
+    iss.add_argument("--json", action="store_true")
+    iss.set_defaults(fn=cmd_issued)
+
+    cr = sub.add_parser(
+        "clerk-run",
+        help="internal: run one watched grok clerk + ONE continuation on max-turns",
+    )
+    cr.add_argument("--seat", choices=["nest", "writer"], required=True)
+    cr.add_argument("--packet", required=True)
+    cr.add_argument("--cid", required=True)
+    cr.add_argument("--sid", required=True)
+    cr.set_defaults(fn=cmd_clerk_run)
+
+    rt = sub.add_parser("route", help="parse Spark vs Work for a Needed/GO ping")
+    rt.add_argument("--title", default="")
+    rt.add_argument("--why", default="")
+    rt.add_argument("--answer", default="")
+    rt.add_argument("--go", default="")
+    rt.add_argument("--workspace", default="")
+    rt.add_argument("--project", default="")
+    rt.add_argument("--json", action="store_true")
+    rt.set_defaults(fn=cmd_route)
+
+    rp = sub.add_parser("rule", help="standing rules (user-minted only)")
+    rsub = rp.add_subparsers(dest="rule_cmd", required=True)
+
+    rl = rsub.add_parser("list", help="list rules from the store")
+    rl.set_defaults(fn=cmd_rule_list)
+
+    ra = rsub.add_parser("add", help="mint a rule (Matt only; issued= goes to when)")
+    ra.add_argument("--param", action="append", default=[], metavar="k=v",
+                    help="flavor|go|prompt_kind|project|title_prefix|title_exact, or issued=")
+    ra.add_argument("--answer", required=True)
+    ra.add_argument("--from-needed", metavar="n-…")
+    ra.add_argument("--note")
+    ra.set_defaults(fn=cmd_rule_add)
+
+    rf = rsub.add_parser("from-answer", help="record RULE: line(s) Matt typed on card ID")
+    rf.add_argument("id")
+    rf.set_defaults(fn=cmd_rule_from_answer)
+
+    rr = rsub.add_parser("rm", help="remove a rule by id")
+    rr.add_argument("id")
+    rr.set_defaults(fn=cmd_rule_rm)
+
+    args = ap.parse_args()
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()
