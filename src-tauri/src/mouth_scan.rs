@@ -382,15 +382,27 @@ fn build_scan() -> MouthScan {
 }
 
 /// Settings paints this. HTTP only — no auto-install.
+/// Async + spawn_blocking: a sync Tauri command runs on the main thread,
+/// and three curl probes (2 s max each) + two sysctl spawns froze the
+/// whole app (beachball) whenever Settings mounted or regained focus.
 #[tauri::command]
-pub fn mouth_scan() -> MouthScan {
-    build_scan()
+pub async fn mouth_scan() -> Result<MouthScan, String> {
+    tauri::async_runtime::spawn_blocking(build_scan)
+        .await
+        .map_err(|e| format!("mouth scan task: {e}"))
 }
 
 /// `ollama pull <tag>` — only when Matt clicks, only if Ollama is up.
-/// Never a silent pull. Never Azure/OpenAI.
+/// Never a silent pull. Never Azure/OpenAI. Off the main thread: a pull
+/// can take minutes.
 #[tauri::command]
-pub fn pull_mouth_model(tag: String) -> Result<String, String> {
+pub async fn pull_mouth_model(tag: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || pull_mouth_model_blocking(tag))
+        .await
+        .map_err(|e| format!("pull task: {e}"))?
+}
+
+fn pull_mouth_model_blocking(tag: String) -> Result<String, String> {
     let tag = tag.trim().to_string();
     if tag.is_empty() {
         return Err("No model tag to pull.".into());
