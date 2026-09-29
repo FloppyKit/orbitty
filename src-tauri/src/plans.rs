@@ -149,12 +149,18 @@ pub fn bus_dir() -> PathBuf {
     bus_dir_in(&Roots::real())
 }
 
+/// The configured plans folder, else the visible `~/Orbitty GOs`. A setting
+/// that points inside `~/.buzz` (e.g. a hand-edited settings.json) is
+/// ignored with a warning: nothing is created or written under `.buzz`.
 pub fn plans_dir(roots: &Roots) -> PathBuf {
     let s = load_settings(roots);
-    if let Some(p) = nonblank(s.plans_dir.as_deref()) {
-        let p = expand_home(roots, &p);
-        let _ = std::fs::create_dir_all(&p);
-        return p;
+    if let Some(raw) = nonblank(s.plans_dir.as_deref()) {
+        let p = expand_home(roots, &raw);
+        if !under_buzz(roots, &p) {
+            let _ = std::fs::create_dir_all(&p);
+            return p;
+        }
+        warn_buzz_plans_dir(&raw);
     }
     let p = roots.home.join("Orbitty GOs");
     let _ = std::fs::create_dir_all(&p);
@@ -244,6 +250,16 @@ fn set_plans_dir_in(roots: &Roots, path: &str) -> Result<Value, String> {
     save_settings(roots, &s)?;
     let _ = plans_dir(roots);
     Ok(snapshot(roots))
+}
+
+/// Once per process: the plansDir setting points inside ~/.buzz.
+fn warn_buzz_plans_dir(raw: &str) {
+    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!(
+            "orbitty: plansDir {raw} is inside ~/.buzz; using ~/Orbitty GOs instead (nothing is written under .buzz)"
+        );
+    }
 }
 
 /// `p` made absolute and canonical as far as it exists (symlinks and `..`
@@ -620,6 +636,12 @@ pub fn seal_file_in(roots: &Roots, path: &Path, by: &str) -> Result<ParsedGo, St
     if by.is_empty() {
         return Err("go seal needs --by".into());
     }
+    if under_buzz(roots, path) {
+        return Err(format!(
+            "go seal: {} is inside ~/.buzz; refused (nothing is written under .buzz)",
+            path.display()
+        ));
+    }
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("read {}: {e}", path.display()))?;
     let bom = raw.starts_with('\u{feff}');
@@ -815,6 +837,12 @@ pub fn migrate_apply(roots: &Roots) -> Result<Value, String> {
     for row in &list {
         let from = PathBuf::from(row["from"].as_str().unwrap_or(""));
         let to = PathBuf::from(row["to"].as_str().unwrap_or(""));
+        if under_buzz(roots, &to) {
+            return Err(format!(
+                "migrate: {} is inside ~/.buzz; refused (nothing is written under .buzz)",
+                to.display()
+            ));
+        }
         if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
@@ -1566,6 +1594,52 @@ mod tests {
         for p in [".buzzard", "buzz/PLANS", ".buzz-old", "Orbitty GOs"] {
             assert!(!under_buzz(&roots, &h.join(p)), "{p}");
         }
+    }
+
+    #[test]
+    fn hand_edited_buzz_plans_dir_falls_back_to_default() {
+        let roots = temp_roots("editbuzz");
+        let h = roots.home.clone();
+        let default = h.join("Orbitty GOs");
+        let hs = h.display().to_string();
+        for raw in [
+            format!("{hs}/.BUZZ/PLANS"),
+            "~/.buzz/PLANS".to_string(),
+            "~/.Buzz/new/sub".to_string(),
+        ] {
+            // Hand-edited, not through set_plans_dir.
+            write(&settings_path(&roots), &json!({ "plansDir": raw }).to_string());
+            assert_eq!(plans_dir(&roots), default, "{raw}");
+            assert!(default.is_dir());
+            assert!(!h.join(".buzz").exists() && !h.join(".BUZZ").exists() && !h.join(".Buzz").exists(), "{raw}");
+            assert_eq!(snapshot(&roots)["plansDir"], json!(default.display().to_string()));
+        }
+        // With a real ~/.buzz/PLANS: still the default, still read-only.
+        write(&h.join(".buzz/PLANS/_GO_OLD_PROMPT.md"), "legacy\n");
+        write(&settings_path(&roots), &json!({ "plansDir": format!("{hs}/.BUZZ/PLANS") }).to_string());
+        assert_eq!(plans_dir(&roots), default);
+        let kids: Vec<_> = std::fs::read_dir(h.join(".buzz/PLANS")).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(kids, vec![std::ffi::OsString::from("_GO_OLD_PROMPT.md")]);
+        assert_eq!(read_dirs_in(&roots), vec![default.clone(), h.join(".buzz/PLANS")]);
+    }
+
+    #[test]
+    fn go_seal_refuses_a_file_inside_buzz() {
+        let roots = temp_roots("sealbuzz");
+        let h = roots.home.clone();
+        let text = "---\nid: GO-SEALBUZZ\nstatus: ready\n---\nBODY\n";
+        let inside = h.join(".buzz/PLANS/GO-SEALBUZZ.md");
+        write(&inside, text);
+        for p in [inside.clone(), h.join(".BUZZ/PLANS/GO-SEALBUZZ.md"), h.join("x/../.Buzz/PLANS/GO-SEALBUZZ.md")] {
+            let err = seal_file_in(&roots, &p, "matt").unwrap_err();
+            assert!(err.contains("inside ~/.buzz"), "{}: {err}", p.display());
+            assert_eq!(std::fs::read_to_string(&inside).unwrap(), text, "{}", p.display());
+        }
+        // The same text outside .buzz seals, so the refusal is the guard.
+        let outside = plans_dir(&roots).join("GO-SEALBUZZ.md");
+        write(&outside, text);
+        seal_file_in(&roots, &outside, "matt").unwrap();
+        assert_ne!(std::fs::read_to_string(&outside).unwrap(), text);
     }
 
     #[test]

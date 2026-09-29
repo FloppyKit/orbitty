@@ -4172,6 +4172,49 @@ mod launch_tests {
         }
     }
 
+    /// A GO passed as the prompt starts with `---`; the generated cursor
+    /// command must put `--` right before it, and the prompt must arrive
+    /// as one exact argument.
+    #[test]
+    fn cursor_prompt_starting_with_dashes_follows_end_of_options() {
+        if !Path::new("/bin/zsh").exists() {
+            eprintln!("no /bin/zsh; skipped");
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let base = tmp("dashes");
+        let exe = |name: &str| {
+            let p = base.join(name);
+            std::fs::write(&p, "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\000' \"$a\"; done > \"$0.args\"\n").unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let bin = exe("cursor-agent");
+        let ctl = exe("orbittyctl");
+        let prompt = "---\nid: GO-DASHES\ntools: [shell]\n---\n--force is not a flag here";
+        let query = base.join("q.md");
+        std::fs::write(&query, prompt).unwrap();
+        let exec = crate::agents::cursor_exec_line(bin.to_str().unwrap(), "grok-4.7-high", "full-auto");
+        assert!(exec.ends_with(" -- \"$prompt\""), "{exec}");
+        let script = base.join("run.command");
+        let body = agent_command_body(
+            &query,
+            &script,
+            &base.join("run.pid"),
+            &exec,
+            &ctl,
+            &base.join("sock"),
+            Some(base.to_str().unwrap()),
+        );
+        std::fs::write(&script, &body).unwrap();
+        let run = std::process::Command::new("/bin/zsh").arg(&script).current_dir(&base).output().unwrap();
+        assert!(run.status.success(), "run: {}", String::from_utf8_lossy(&run.stderr));
+        let raw = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
+        let args: Vec<&str> = raw.trim_end_matches('\0').split('\0').collect();
+        assert_eq!(args, vec!["--model", "grok-4.7-high", "--force", "--trust", "--", prompt]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     /// B2: hostile dir / model / query / pid / script / bin / ctl / sock
     /// values. `zsh -n` must parse the body, and running it must execute
     /// nothing from any value, pass each value through verbatim, and still
@@ -4227,7 +4270,7 @@ mod launch_tests {
         let bin_args = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
         assert_eq!(
             bin_args,
-            format!("--model\n{model}\nhello $(touch PWNED_PROMPT)\n")
+            format!("--model\n{model}\n--\nhello $(touch PWNED_PROMPT)\n")
         );
         let ctl_args = std::fs::read_to_string(format!("{}.args", ctl.display())).unwrap();
         assert_eq!(

@@ -142,7 +142,9 @@ pub(crate) fn cursor_exec_line(bin: &str, model: &str, preset: &str) -> String {
     if normalize_permissions(Some(preset)) == "full-auto" {
         line.push_str(" --force --trust");
     }
-    line.push_str(" \"$prompt\"");
+    // `--` ends the options: a prompt starting with `---` (a GO header) is
+    // the prompt, not an unknown option (cursor-agent parses with Commander).
+    line.push_str(" -- \"$prompt\"");
     line
 }
 
