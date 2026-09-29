@@ -1793,14 +1793,19 @@ fn pane_drag_apply(app: &tauri::AppHandle, w: &tauri::WebviewWindow, label: &str
         };
         let frame: DragRect = msg_send![nsw, frame];
         let mouse: DragPoint = msg_send![class!(NSEvent), mouseLocation];
-        let next = DragRect {
-            origin: DragPoint {
-                x: mouse.x - grab.dx,
-                y: mouse.y - grab.dy,
-            },
-            size: frame.size,
+        let next = DragPoint {
+            x: mouse.x - grab.dx,
+            y: mouse.y - grab.dy,
         };
-        let _: () = msg_send![nsw, setFrame: next display: true];
+        // Mouse still: nothing to do (no AppKit call, no Moved event).
+        if (next.x - frame.origin.x).abs() < 0.5 && (next.y - frame.origin.y).abs() < 0.5 {
+            return true;
+        }
+        // Origin only. setFrame:display:YES forced a synchronous redraw of
+        // the whole transparent WKWebView window on the main thread every
+        // tick — a move needs no repaint; the window server just
+        // recomposites.
+        let _: () = msg_send![nsw, setFrameOrigin: next];
     }
     if label == "companion" {
         if let Ok(p) = w.outer_position() {
@@ -1850,6 +1855,12 @@ pub fn pane_drag_begin(app: tauri::AppHandle, label: String) {
     let app = app.clone();
     let label_loop = label.clone();
     std::thread::spawn(move || {
+        // Fixed-deadline cadence (~120 Hz). The old sleep(16ms)-after-work
+        // loop ran at 16ms + dispatch + setFrame ≈ 18–20ms, beating
+        // against 60 Hz vsync so the pane skipped a frame every few
+        // frames (the hitch). Unchanged ticks are a cheap no-op.
+        const TICK: std::time::Duration = std::time::Duration::from_millis(8);
+        let mut deadline = std::time::Instant::now();
         loop {
             crate::main_thread_sync({
                 let w = w.clone();
@@ -1867,7 +1878,14 @@ pub fn pane_drag_begin(app: tauri::AppHandle, label: String) {
             if !alive {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            deadline += TICK;
+            let now = std::time::Instant::now();
+            if deadline > now {
+                std::thread::sleep(deadline - now);
+            } else {
+                // Main thread was busy; resync instead of bursting.
+                deadline = now;
+            }
         }
     });
 }
