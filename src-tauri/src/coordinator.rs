@@ -4023,6 +4023,45 @@ mod launch_tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// N1 source guard: the launch doors validate their row values FIRST.
+    /// Cursor: `launch_model(&shortcut)…?` before permissions, herdr and the
+    /// terminal. Hermes: `hermes_args(&shortcut, &query)…?` before herdr
+    /// and the spawn. Byte offsets inside each `launch_agent` arm.
+    fn launch_arm<'a>(src: &'a str, start: &str, next: &str) -> &'a str {
+        let body = &src[src.find("pub fn launch_agent(").expect("launch_agent")..];
+        let a = body.find(start).unwrap_or_else(|| panic!("no arm {start}"));
+        let b = a + body[a..].find(next).unwrap_or_else(|| panic!("no arm {next}"));
+        &body[a..b]
+    }
+
+    /// Offset of `call`, asserting its statement ends in `?;`.
+    fn checked_call(arm: &str, call: &str) -> usize {
+        let at = arm.find(call).unwrap_or_else(|| panic!("missing {call}"));
+        let stmt_end = at + arm[at..].find(';').unwrap();
+        assert!(arm[..stmt_end].ends_with('?'), "{call} must end in `?;`");
+        at
+    }
+
+    #[test]
+    fn launch_doors_validate_before_herdr_and_spawn() {
+        let src = include_str!("coordinator.rs");
+        let cursor = launch_arm(src, "\n        \"cursor\" => {", "\n        \"goose\" => {");
+        let at = checked_call(cursor, "crate::agents::launch_model(&shortcut)");
+        for later in ["install_cursor_permissions(", "crate::herdr::branch(", "open_agent_terminal("] {
+            let pos = cursor.find(later).unwrap_or_else(|| panic!("cursor arm lost {later}"));
+            assert!(at < pos, "launch_model must come before {later}");
+        }
+        assert!(!cursor.contains("cursor_model("), "cursor arm resolves the model via launch_model");
+
+        let hermes = launch_arm(src, "\n        \"hermes\" => {", "\n        \"opencode\" =>");
+        let at = checked_call(hermes, "crate::agents::hermes_args(&shortcut, &query)");
+        for later in ["crate::herdr::branch(", "Command::new(\"hermes\")"] {
+            let pos = hermes.find(later).unwrap_or_else(|| panic!("hermes arm lost {later}"));
+            assert!(at < pos, "hermes_args must come before {later}");
+        }
+        assert!(!hermes.contains("\"-m\"") && !hermes.contains("\"-p\""), "hermes argv comes from hermes_args");
+    }
+
     #[test]
     fn sq_escapes_single_quotes() {
         assert_eq!(sq("a b"), "'a b'");

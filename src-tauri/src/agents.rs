@@ -51,9 +51,62 @@ pub(crate) fn validate_model(model: &str) -> Result<(), String> {
     validate_token("model", model)
 }
 
-/// Hermes `--profile` value (NB5): same rule as a model.
+/// Hermes's canonical profile id: trimmed and lowercased — hermes does
+/// the same (`hermes_cli/profiles.py` `normalize_profile_name`) before it
+/// validates, and names profile dirs by it.
+pub(crate) fn normalize_profile(profile: &str) -> String {
+    profile.trim().to_lowercase()
+}
+
+/// Names hermes refuses as a profile (`_RESERVED_NAMES`, minus `default`,
+/// which is its alias for the root profile).
+const HERMES_RESERVED_PROFILES: [&str; 5] = ["hermes", "test", "tmp", "root", "sudo"];
+
+/// Hermes `--profile` value: hermes's own rule, `^[a-z0-9][a-z0-9_-]{0,63}$`
+/// on the lowercased value, not a reserved name (`validate_profile_name`).
+/// `default` passes (hermes's root-profile alias).
 pub(crate) fn validate_profile(profile: &str) -> Result<(), String> {
-    validate_token("profile", profile)
+    let p = normalize_profile(profile);
+    if p == "default" {
+        return Ok(());
+    }
+    if p.starts_with('-') {
+        return Err(format!(
+            "invalid profile {profile:?}: a profile may not start with '-' (it would read as a flag)"
+        ));
+    }
+    let mut chars = p.chars();
+    let first_ok = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+    let rest_ok = chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+    if !(first_ok && rest_ok && p.len() <= 64) {
+        return Err(format!(
+            "invalid profile {profile:?}: hermes profiles are 1-64 characters, a-z 0-9 _ - (lowercased), starting with a letter or digit"
+        ));
+    }
+    if HERMES_RESERVED_PROFILES.contains(&p.as_str()) {
+        return Err(format!("invalid profile {profile:?}: {p:?} is reserved by hermes"));
+    }
+    Ok(())
+}
+
+/// Everything `agent.add` checks before it touches state (pure, tested):
+/// the resolved model (row value, or the cursor default) and a non-empty
+/// profile. Returns the model to store.
+pub(crate) fn agent_add_checks(
+    harness: &str,
+    profile: Option<&str>,
+    model: Option<&str>,
+) -> Result<Option<String>, String> {
+    let model = row_model(harness, model);
+    if let Some(m) = model.as_deref() {
+        validate_model(m).map_err(|e| format!("agent.add: {e}"))?;
+    }
+    if let Some(p) = profile.map(str::trim).filter(|s| !s.is_empty()) {
+        validate_profile(p).map_err(|e| format!("agent.add: {e}"))?;
+    }
+    Ok(model)
 }
 
 /// Cursor door, at launch: the row model (or the default), re-validated —
@@ -73,11 +126,11 @@ pub const HERMES_DEFAULT_PROFILE: &str = "grok";
 /// `--model=<m>` (the chat subparser's `-m/--model`) — so neither can
 /// become a separate flag.
 pub(crate) fn hermes_args(shortcut: &AgentShortcut, query: &std::path::Path) -> Result<Vec<String>, String> {
-    let profile = match shortcut.profile.trim() {
-        "" => HERMES_DEFAULT_PROFILE,
+    let profile = match normalize_profile(&shortcut.profile) {
+        p if p.is_empty() => HERMES_DEFAULT_PROFILE.to_string(),
         p => p,
     };
-    validate_profile(profile)?;
+    validate_profile(&profile)?;
     let mut args: Vec<String> = vec![
         format!("--profile={profile}"),
         "chat".into(),
@@ -288,13 +341,7 @@ pub fn agent_add(
         return Err("agent.add: empty name".into());
     }
     let harness = normalize_harness(harness)?;
-    let model = row_model(&harness, model);
-    if let Some(m) = model.as_deref() {
-        validate_model(m).map_err(|e| format!("agent.add: {e}"))?;
-    }
-    if let Some(p) = profile.map(str::trim).filter(|s| !s.is_empty()) {
-        validate_profile(p).map_err(|e| format!("agent.add: {e}"))?;
-    }
+    let model = agent_add_checks(&harness, profile, model)?;
     let before = crate::state::load_state(app)?;
     let project_id = match project {
         Some(p) => {
@@ -761,6 +808,46 @@ mod tests {
         }
         assert!(validate_profile("--yolo").unwrap_err().contains("may not start with '-'"));
         assert!(validate_profile("grok").is_ok());
+        // Hermes lowercases the profile; so does the argv we pass.
+        let w = hermes_args(&row("hermes", " Work ", None), q).unwrap();
+        assert_eq!(w[0], "--profile=work");
+    }
+
+    /// N3: hermes's own profile rule on the lowercased value.
+    #[test]
+    fn profile_follows_hermes_rule() {
+        for ok in ["work", "Work", "WORK", "a", "0x", "my_prof-2", "default", "Default", &"a".repeat(64)] {
+            assert!(validate_profile(ok).is_ok(), "{ok:?}");
+        }
+        let long = "a".repeat(65);
+        for bad in [
+            "", "a.b", "-x", "x/y", "../x", "a:b", "x@y", "a+b", "_a", "a b", long.as_str(),
+            "hermes", "Tmp", "test", "root", "sudo",
+        ] {
+            let err = validate_profile(bad).unwrap_err();
+            assert!(err.contains("invalid profile"), "{bad:?}: {err}");
+        }
+        // Models keep the wider token rule.
+        assert!(validate_model("a.b").is_ok());
+        assert!(validate_model("openai/gpt-5").is_ok());
+    }
+
+    /// N2: what agent.add checks, without an app handle.
+    #[test]
+    fn agent_add_checks_refuse_flag_profiles_and_models() {
+        assert_eq!(agent_add_checks("cursor", None, None).unwrap().as_deref(), Some(CURSOR_DEFAULT_MODEL));
+        assert_eq!(agent_add_checks("hermes", Some(""), None).unwrap(), None);
+        assert_eq!(agent_add_checks("hermes", Some("  "), None).unwrap(), None);
+        assert_eq!(
+            agent_add_checks("hermes", Some("Work"), Some("sonnet")).unwrap().as_deref(),
+            Some("sonnet")
+        );
+        for (p, m) in [(Some("--yolo"), None), (Some(" -f"), None), (Some("a.b"), None), (None, Some("--force")), (None, Some("m$(id)"))] {
+            let err = agent_add_checks("hermes", p, m).unwrap_err();
+            assert!(err.starts_with("agent.add: invalid "), "{p:?} {m:?}: {err}");
+        }
+        // Cursor: an explicit flag-shaped model is refused, not defaulted.
+        assert!(agent_add_checks("cursor", None, Some("-f")).is_err());
     }
 
     #[test]
