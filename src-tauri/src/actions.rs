@@ -118,11 +118,7 @@ mod reg {
                 return;
             };
             let name = a.name.clone();
-            let ran = crate::coordinator::run_action_logged(
-                &app,
-                a.command.clone(),
-                a.cwd.clone(),
-            );
+            let ran = super::dispatch_action(&app, &name, a.command.clone(), a.cwd.clone());
             let payload = match ran {
                 Ok(r) => json!({
                     "id": id,
@@ -223,11 +219,16 @@ mod reg {
 pub fn bake_defaults(app: &tauri::AppHandle) -> Vec<ActionShortcut> {
     // CTL-BUNDLE (alpha #11): these seeded chords stay bare `orbittyctl` on PATH.
     // Launchers use the running app's bundled orbittyctl plus `--sock`.
-    const SEEDS: [(&str, &str, &str); 3] = [
+    // `thin` is dev-only. The chord does not shell its command string:
+    // dispatch_action sends it through companion_thin (same path as the button).
+    let mut seeds: Vec<(&str, &str, &str)> = vec![
         ("companion", "cmd+alt+o", "orbittyctl companion open"),
         ("kanban", "cmd+alt+k", "orbittyctl kanban open"),
         ("stars", "cmd+alt+s", "orbittyctl stars open"),
     ];
+    if crate::thin::seed_thin_row(cfg!(debug_assertions)) {
+        seeds.push(THIN_SEED);
+    }
     let before = match crate::state::load_state(app) {
         Ok(st) => st,
         Err(e) => {
@@ -244,7 +245,7 @@ pub fn bake_defaults(app: &tauri::AppHandle) -> Vec<ActionShortcut> {
     if after.action_shortcuts.len() != len_before {
         changed = true;
     }
-    for (name, combo, command) in SEEDS {
+    for (name, combo, command) in seeds {
         if after.action_shortcuts.iter().any(|a| a.name == name) {
             continue;
         }
@@ -387,9 +388,10 @@ pub fn action_rm(app: &tauri::AppHandle, id: &str) -> Result<Value, String> {
 }
 
 /// `action.run` — by `id` (exact) or `name` (exact, then a unique
-/// case-insensitive match). The run goes through the same logged
-/// `/bin/zsh -lc` 120s door as a Settings list click. Spark may run what
-/// it minted; Spark never gets a raw shell.
+/// case-insensitive match). A thin row goes through `companion_thin`.
+/// Every other row uses the same logged `/bin/zsh -lc` 120s door as a
+/// Settings list click. Spark may run what it minted; Spark never gets
+/// a raw shell.
 #[cfg(unix)]
 pub fn action_run(
     app: &tauri::AppHandle,
@@ -426,5 +428,51 @@ pub fn action_run(
     } else {
         return Err("action.run: need --id ID or --name N".into());
     };
-    crate::coordinator::run_action_logged(app, found.command.clone(), found.cwd.clone())
+    let name = found.name.clone();
+    let command = found.command.clone();
+    let cwd = found.cwd.clone();
+    dispatch_action(app, &name, command, cwd)
+}
+
+/// Chord press and `action.run` share this. A thin row never shells out
+/// (that used a different python than the button). It calls `companion_thin`.
+fn dispatch_action(
+    app: &tauri::AppHandle,
+    name: &str,
+    command: String,
+    cwd: Option<String>,
+) -> Result<crate::coordinator::ActionResult, String> {
+    if crate::thin::routes_to_companion_thin(name, &command) {
+        return match crate::coordinator::companion_thin(app.clone()) {
+            Ok(stdout) => Ok(crate::coordinator::ActionResult {
+                ok: true,
+                code: Some(0),
+                stdout,
+                stderr: String::new(),
+            }),
+            Err(e) => Ok(crate::coordinator::ActionResult {
+                ok: false,
+                code: Some(1),
+                stdout: String::new(),
+                stderr: e,
+            }),
+        };
+    }
+    crate::coordinator::run_action_logged(app, command, cwd)
+}
+
+/// Dev-only ⌘⌥T seed. Release builds do not append it.
+const THIN_SEED: (&str, &str, &str) = ("thin", "cmd+alt+t", "orbittyctl companion thin");
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn thin_seed_uses_the_shared_path() {
+        let (name, combo, command) = super::THIN_SEED;
+        assert_eq!(name, "thin");
+        assert_eq!(combo, "cmd+alt+t");
+        assert!(crate::thin::routes_to_companion_thin(name, command));
+        assert!(crate::thin::seed_thin_row(true));
+        assert!(!crate::thin::seed_thin_row(false));
+    }
 }
