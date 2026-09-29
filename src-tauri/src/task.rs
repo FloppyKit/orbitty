@@ -90,6 +90,24 @@ fn read_meta(dir: &Path) -> Option<Meta> {
     serde_json::from_str(&s).ok()
 }
 
+/// A card edit from native must bump `lastTouchedAt` strictly past the
+/// copy any window already holds: `merge_window_save` breaks a tie in the
+/// window's favor, so an unbumped edit (taskId / taskReason) was wiped by
+/// the next stale window save.
+fn touch(card: &mut KanbanCard) {
+    card.last_touched_at = now_secs().max(card.last_touched_at + 0.001);
+}
+
+fn stamp_task_id(card: &mut KanbanCard, task_id: &str) {
+    card.task_id = Some(task_id.into());
+    touch(card);
+}
+
+fn stamp_task_reason(card: &mut KanbanCard, reason: &str) {
+    card.task_reason = Some(reason.into());
+    touch(card);
+}
+
 fn stamp_card(app: &AppHandle, card_id: &str, task_id: &str) {
     let Ok(before) = crate::state::load_state(app) else {
         return;
@@ -98,7 +116,7 @@ fn stamp_card(app: &AppHandle, card_id: &str, task_id: &str) {
     let Some(c) = after.kanban_cards.iter_mut().find(|c| c.id == card_id) else {
         return;
     };
-    c.task_id = Some(task_id.into());
+    stamp_task_id(c, task_id);
     let _ = crate::board::save_with_events(app, &before, &after);
 }
 
@@ -183,7 +201,7 @@ pub fn end(app: &AppHandle, task_id: &str, reason: &str) {
         };
         let mut after = before.clone();
         if let Some(c) = after.kanban_cards.iter_mut().find(|c| c.id == cid) {
-            c.task_reason = Some(reason.into());
+            stamp_task_reason(c, reason);
         }
         let _ = crate::board::save_with_events(app, &before, &after);
     }
@@ -356,4 +374,57 @@ pub fn project_for_cwd(app: &AppHandle, cwd: Option<&str>) -> Option<String> {
         })
         .map(|p| p.id.clone())
         .next()
+}
+#[cfg(test)]
+mod stamp_tests {
+    use super::*;
+    use crate::state::{apply_writer_delta, merge_window_save, PersistedState};
+
+    fn card(id: &str, touched: f64) -> KanbanCard {
+        let raw = format!(
+            r#"{{"id":"{id}","title":"T","projectId":"p","status":"doing","createdAt":1.0,"lastTouchedAt":{touched},"goalAligned":true,"clinicalOrMaster":false,"pointsAwarded":0}}"#
+        );
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    /// N1: a window loaded the card at lastTouchedAt=5.0 (pre-stamp).
+    /// Native stamps taskId, then taskReason. The window then saves its
+    /// stale copy with the SAME lastTouchedAt — the stamps must survive.
+    #[test]
+    fn stale_same_touch_window_save_keeps_task_id_and_reason() {
+        let mut disk = PersistedState::default();
+        disk.kanban_cards.push(card("c1", 5.0));
+        let window = disk.clone(); // snapshot before any stamp
+
+        // task::start → stamp_card (through the writer delta, as
+        // save_with_events applies it under the lock).
+        let before = disk.clone();
+        let mut after = before.clone();
+        stamp_task_id(&mut after.kanban_cards[0], "t-abc");
+        apply_writer_delta(&mut disk, &before, &after);
+        assert!(disk.kanban_cards[0].last_touched_at > 5.0);
+
+        // task::end → taskReason.
+        let before = disk.clone();
+        let mut after = before.clone();
+        stamp_task_reason(&mut after.kanban_cards[0], "done");
+        apply_writer_delta(&mut disk, &before, &after);
+
+        let (merged, _) = merge_window_save(&disk, &window);
+        let c = merged.kanban_cards.iter().find(|c| c.id == "c1").unwrap();
+        assert_eq!(c.task_id.as_deref(), Some("t-abc"));
+        assert_eq!(c.task_reason.as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn touch_is_strictly_newer_even_with_a_future_stamp() {
+        let mut c = card("c1", 5.0);
+        touch(&mut c);
+        assert!(c.last_touched_at > 5.0);
+        // A clock behind the card's stamp still moves it forward.
+        let future = now_secs() + 1000.0;
+        let mut c = card("c2", future);
+        touch(&mut c);
+        assert!(c.last_touched_at > future);
+    }
 }

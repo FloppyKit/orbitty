@@ -1592,6 +1592,53 @@ mod tests {
         update_at(path, f)
     }
 
+    /// N4 coverage: every `PersistedState` / `CompanionState` field must be
+    /// named in the writer-delta lists, or a native writer's change to it
+    /// is silently dropped under the lock. Reads this file's own source.
+    fn struct_fields(src: &str, header: &str) -> Vec<String> {
+        let start = src.find(header).unwrap_or_else(|| panic!("no {header}"));
+        let body = &src[start + header.len()..];
+        let end = body.find("\n}").unwrap();
+        body[..end]
+            .lines()
+            .filter_map(|l| {
+                let t = l.trim();
+                let rest = t.strip_prefix("pub ")?;
+                let (name, _) = rest.split_once(':')?;
+                (!name.contains(' ') && !name.contains('(')).then(|| name.to_string())
+            })
+            .collect()
+    }
+
+    fn fn_body<'a>(src: &'a str, header: &str) -> &'a str {
+        let start = src.find(header).unwrap_or_else(|| panic!("no {header}"));
+        let body = &src[start..];
+        let end = body.find("\n}\n").unwrap();
+        &body[..end]
+    }
+
+    #[test]
+    fn writer_delta_lists_cover_every_field() {
+        let src = include_str!("state.rs");
+        let top = struct_fields(src, "pub struct PersistedState {");
+        let comp = struct_fields(src, "pub struct CompanionState {");
+        assert!(top.len() >= 40 && comp.len() >= 20, "parser found {} / {}", top.len(), comp.len());
+        let writer = fn_body(src, "pub fn apply_writer_delta(");
+        let companion = fn_body(src, "fn apply_companion_delta(");
+        let miss_top: Vec<_> = top
+            .iter()
+            .filter(|f| !writer.contains(&format!("live.{f}")))
+            .collect();
+        let miss_comp: Vec<_> = comp
+            .iter()
+            .filter(|f| !companion.contains(&format!("live.{f}")))
+            .collect();
+        assert!(
+            miss_top.is_empty() && miss_comp.is_empty(),
+            "add to apply_writer_delta: {miss_top:?}; to apply_companion_delta: {miss_comp:?}"
+        );
+    }
+
     #[test]
     fn eight_threads_keep_every_write() {
         let path = temp_state();
