@@ -384,6 +384,66 @@ class BuzzRefusalCaseFold(Base):
             self.assertFalse((TMP_HOME / variant / "PLANS" / "STAMP_GO_ORBITTY_TEST.md").exists())
         self.assertEqual([c for c in self.calls if c[:1] in (("kanban",), ("state",), ("companion",))], [])
 
+    def firmlink(self, *parts) -> Path:
+        """The same folder spelled through the /System/Volumes/Data firmlink
+        (TMP_HOME is under a real /private/var path)."""
+        base = Path("/System/Volumes/Data" + os.path.realpath(TMP_HOME))
+        if not base.is_dir() or not os.path.samefile(base, TMP_HOME):
+            self.skipTest("no /System/Volumes/Data firmlink here")
+        return base.joinpath(*parts)
+
+    def assert_refused_everywhere(self, target: Path):
+        for fn in (on.under_buzz, on.leftover_clerk.under_buzz):
+            self.assertTrue(fn(target), (fn.__module__, str(target)))
+        self.patch("plans_dir", lambda t=target: t)
+        before = self.tree()
+        self.assertIsNone(on.stamp_dogfood_green(GO, "c-1"))
+        self.assertEqual(self.tree(), before)
+
+    def test_firmlink_spelling_is_inside(self):
+        fw = self.firmlink(".buzz", "PLANS")
+        self.assertTrue(fw.is_dir())
+        self.assertTrue(os.path.samefile(fw, self.real_buzz / "PLANS"))
+        self.assert_refused_everywhere(fw)
+        self.assert_refused_everywhere(self.firmlink(".BUZZ", "new", "sub"))
+        # Before ~/.buzz exists: <home via firmlink>/.buzz is still inside.
+        shutil.rmtree(self.real_buzz)
+        for fn in (on.under_buzz, on.leftover_clerk.under_buzz):
+            self.assertTrue(fn(self.firmlink(".buzz", "PLANS")), fn.__module__)
+            self.assertFalse(fn(self.firmlink("Orbitty GOs")), fn.__module__)
+        self.assertFalse(self.real_buzz.exists())
+
+    def test_symlink_loop_fails_closed(self):
+        loop = TMP_HOME / "loop"
+        loop.symlink_to(loop)
+        self.addCleanup(loop.unlink)
+        self.assert_refused_everywhere(loop / "PLANS")
+
+    def test_unreadable_parent_fails_closed(self):
+        locked = TMP_HOME / "locked"
+        locked.mkdir()
+        (locked / "link").symlink_to(self.real_buzz)
+        self.addCleanup(shutil.rmtree, locked, True)
+        locked.chmod(0o000)
+        self.addCleanup(locked.chmod, 0o755)  # runs before the rmtree
+        self.assert_refused_everywhere(locked / "link" / "PLANS")
+
+    def test_leftover_refuses_buzz_itself_even_with_a_weak_clerk(self):
+        # A plans-dir-aware clerk whose own guard is weaker (case-sensitive)
+        # must never be reached for a .BUZZ plansDir.
+        weak = types.SimpleNamespace(
+            PLANS_DIR_AWARE=True,
+            handle=lambda *a, **kw: self.fail("clerk called for a .buzz plansDir"),
+        )
+        self.patch("leftover_clerk", weak)
+        self.patch("go_status", lambda **kw: None)
+        self.patch("plans_dir", lambda: TMP_HOME / ".BUZZ" / "PLANS")
+        rec = {"id": "n-left", "title": f"Dogfood {GO}?", "neededAnswer": "the popover flickers"}
+        before = self.tree()
+        self.assertFalse(on.dispatch_dogfood(rec, rec["neededAnswer"]))
+        self.assertEqual(self.tree(), before)
+        self.assertIn("under ~/.buzz", (self.bus / "dispatch.log").read_text())
+
     def test_green_stamp_outside_buzz_still_writes(self):
         rec = {"id": "n-g", "title": f"Dogfood {GO}?", "neededAnswer": "green"}
         self.assertTrue(on.dispatch_dogfood(rec, "green"))

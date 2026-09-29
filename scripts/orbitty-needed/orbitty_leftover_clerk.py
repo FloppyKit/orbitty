@@ -38,12 +38,47 @@ def default_plans_dir() -> Path:
 
 
 def under_buzz(path: Path) -> bool:
-    """True for ~/.buzz or anything inside it. Compared case-folded on the
-    resolved (canonical) path: APFS is case-insensitive, so ~/.BUZZ/PLANS
-    is ~/.buzz/PLANS. A path that cannot be resolved counts as inside."""
+    """True for ~/.buzz or anything inside it.
+
+    1. File identity: the candidate and each existing parent are stat()ed
+       and matched on (st_dev, st_ino) against ~/.buzz (or, before ~/.buzz
+       exists, against HOME with a `.buzz` child in any case). This covers
+       the /System/Volumes/Data firmlink, symlinks and case.
+    2. The resolved path, case-folded (APFS is case-insensitive).
+    Any error other than not-found (a symlink loop, a chmod 000 parent)
+    counts as inside: fail closed."""
+    try:
+        cand = Path(path).expanduser().absolute()
+    except (OSError, RuntimeError):
+        return True  # e.g. an unknown ~user
+    # Layer 1: file identity (st_dev, st_ino). Catches every spelling of
+    # the same folder, including the /System/Volumes/Data firmlink.
+    def ident(q):
+        try:
+            st = os.stat(q)
+        except FileNotFoundError:
+            return None
+        return (st.st_dev, st.st_ino)
+
+    try:
+        buzz_id = ident(HOME / ".buzz")
+        home_id = ident(HOME)
+        child = None
+        for q in (cand, *cand.parents):
+            qid = ident(q)  # any error but not-found raises: inside
+            if qid is not None:
+                if qid == buzz_id:
+                    return True
+                # ~/.buzz not created yet: <home, any spelling>/.buzz
+                if qid == home_id and child is not None and child.casefold() == ".buzz":
+                    return True
+            child = q.name
+    except (OSError, RuntimeError, ValueError):
+        return True
+    # Layer 2: the resolved path, case-folded.
     try:
         buzz = str((HOME / ".buzz").resolve()).casefold()
-        p = str(Path(path).expanduser().resolve()).casefold()
+        p = str(cand.resolve()).casefold()
     except (OSError, RuntimeError):
         return True
     return p == buzz or p.startswith(buzz.rstrip(os.sep) + os.sep)

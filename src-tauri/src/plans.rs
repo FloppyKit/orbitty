@@ -238,9 +238,17 @@ fn set_plans_dir_in(roots: &Roots, path: &str) -> Result<Value, String> {
     if path.is_empty() {
         return Err("plansDir path is empty".into());
     }
+    // Absolute after `~/` expansion only: a relative path would resolve
+    // against the app's working directory, and `~user` is not expanded.
+    let expanded = expand_home(roots, path);
+    if !expanded.is_absolute() {
+        return Err(format!(
+            "plansDir {path} must be an absolute path (or start with ~/)"
+        ));
+    }
     // Nothing is written under ~/.buzz (read-only back-compat), and the
     // plans folder is written to, so it may not live there.
-    if under_buzz(roots, &expand_home(roots, path)) {
+    if under_buzz(roots, &expanded) {
         return Err(format!(
             "plansDir {path} is inside ~/.buzz; refused (nothing is written under .buzz)"
         ));
@@ -250,6 +258,41 @@ fn set_plans_dir_in(roots: &Roots, path: &str) -> Result<Value, String> {
     save_settings(roots, &s)?;
     let _ = plans_dir(roots);
     Ok(snapshot(roots))
+}
+
+/// `Some(true)` inside, `Some(false)` not inside, `None` = an error other
+/// than not-found (the caller fails closed).
+fn under_buzz_by_identity(roots: &Roots, p: &Path) -> Option<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let ident = |q: &Path| -> Result<Option<(u64, u64)>, ()> {
+        match std::fs::metadata(q) {
+            Ok(m) => Ok(Some((m.dev(), m.ino()))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(()),
+        }
+    };
+    let buzz = ident(&roots.home.join(".buzz")).ok()?;
+    let home = ident(&roots.home).ok()?;
+    let abs = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(p)
+    };
+    let mut child: Option<String> = None;
+    let mut cur = Some(abs.as_path());
+    while let Some(q) = cur {
+        if let Some(id) = ident(q).ok()? {
+            if Some(id) == buzz {
+                return Some(true);
+            }
+            if Some(id) == home && child.as_deref().map(str::to_lowercase).as_deref() == Some(".buzz") {
+                return Some(true);
+            }
+        }
+        child = q.file_name().map(|s| s.to_string_lossy().into_owned());
+        cur = q.parent();
+    }
+    Some(false)
 }
 
 /// Once per process: the plansDir setting points inside ~/.buzz.
@@ -289,10 +332,21 @@ fn canonical_lossy(p: &Path) -> PathBuf {
     p.to_path_buf()
 }
 
-/// True for `~/.buzz` or anything inside it. Compared case-insensitively on
-/// the canonical path: APFS is case-insensitive, so `~/.BUZZ/PLANS` is
-/// `~/.buzz/PLANS`.
+/// True for `~/.buzz` or anything inside it.
+///
+/// 1. File identity: the candidate and each existing parent are matched on
+///    `(dev, ino)` against `~/.buzz` (or, before `~/.buzz` exists, against
+///    HOME with a `.buzz` child in any case). Covers the
+///    `/System/Volumes/Data` firmlink, symlinks and case.
+/// 2. The canonical path, compared case-insensitively (APFS).
+///
+/// Any metadata error other than not-found (a symlink loop, a chmod 000
+/// parent) counts as inside: fail closed.
 pub(crate) fn under_buzz(roots: &Roots, p: &Path) -> bool {
+    match under_buzz_by_identity(roots, p) {
+        Some(false) => {}
+        _ => return true,
+    }
     let buzz = canonical_lossy(&roots.home.join(".buzz"))
         .to_string_lossy()
         .to_lowercase();
@@ -1640,6 +1694,86 @@ mod tests {
         write(&outside, text);
         seal_file_in(&roots, &outside, "matt").unwrap();
         assert_ne!(std::fs::read_to_string(&outside).unwrap(), text);
+    }
+
+    /// `<home>` spelled through the /System/Volumes/Data firmlink, or None
+    /// when this machine has no such firmlink for the temp dir.
+    fn firmlink_home(roots: &Roots) -> Option<PathBuf> {
+        let real = std::fs::canonicalize(&roots.home).ok()?;
+        let fw = PathBuf::from(format!("/System/Volumes/Data{}", real.display()));
+        use std::os::unix::fs::MetadataExt;
+        let (a, b) = (std::fs::metadata(&fw).ok()?, std::fs::metadata(&roots.home).ok()?);
+        ((a.dev(), a.ino()) == (b.dev(), b.ino())).then_some(fw)
+    }
+
+    #[test]
+    fn firmlink_spelling_of_buzz_is_refused() {
+        let roots = temp_roots("fwbuzz");
+        let Some(fw) = firmlink_home(&roots) else {
+            eprintln!("no /System/Volumes/Data firmlink; skipped");
+            return;
+        };
+        let h = roots.home.clone();
+        // Before ~/.buzz exists.
+        assert!(under_buzz(&roots, &fw.join(".buzz/PLANS")));
+        assert!(!under_buzz(&roots, &fw.join("Orbitty GOs")));
+        assert!(set_plans_dir_in(&roots, &fw.join(".Buzz/PLANS").display().to_string()).is_err());
+        assert!(!h.join(".buzz").exists());
+        // With ~/.buzz/PLANS on disk.
+        let text = "---\nid: GO-FW\nstatus: ready\n---\nBODY\n";
+        write(&h.join(".buzz/PLANS/GO-FW.md"), text);
+        for p in [fw.join(".buzz/PLANS"), fw.join(".BUZZ/new/sub")] {
+            assert!(under_buzz(&roots, &p), "{}", p.display());
+            let err = set_plans_dir_in(&roots, &p.display().to_string()).unwrap_err();
+            assert!(err.contains("inside ~/.buzz"), "{err}");
+        }
+        assert!(load_settings(&roots).plans_dir.is_none());
+        write(&settings_path(&roots), &json!({ "plansDir": fw.join(".buzz/PLANS") }).to_string());
+        assert_eq!(plans_dir(&roots), h.join("Orbitty GOs"));
+        let err = seal_file_in(&roots, &fw.join(".buzz/PLANS/GO-FW.md"), "matt").unwrap_err();
+        assert!(err.contains("inside ~/.buzz"), "{err}");
+        assert_eq!(std::fs::read_to_string(h.join(".buzz/PLANS/GO-FW.md")).unwrap(), text);
+    }
+
+    #[test]
+    fn symlink_loop_and_unreadable_parent_fail_closed() {
+        use std::os::unix::fs::PermissionsExt;
+        struct Unlock(PathBuf);
+        impl Drop for Unlock {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+            }
+        }
+        let roots = temp_roots("failclosed");
+        let h = roots.home.clone();
+        std::fs::create_dir_all(h.join(".buzz/PLANS")).unwrap();
+        // P3: symlink loop.
+        std::os::unix::fs::symlink(h.join("loop"), h.join("loop")).unwrap();
+        // P3b: a chmod 000 parent hiding a link to .buzz.
+        std::fs::create_dir_all(h.join("locked")).unwrap();
+        std::os::unix::fs::symlink(h.join(".buzz"), h.join("locked/link")).unwrap();
+        std::fs::set_permissions(h.join("locked"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        let _unlock = Unlock(h.join("locked"));
+        for p in [h.join("loop/PLANS"), h.join("locked/link/PLANS")] {
+            assert!(under_buzz(&roots, &p), "{}", p.display());
+            let err = set_plans_dir_in(&roots, &p.display().to_string()).unwrap_err();
+            assert!(err.contains("inside ~/.buzz"), "{err}");
+            write(&settings_path(&roots), &json!({ "plansDir": p }).to_string());
+            assert_eq!(plans_dir(&roots), h.join("Orbitty GOs"));
+            assert!(seal_file_in(&roots, &p.join("GO.md"), "matt").unwrap_err().contains("inside ~/.buzz"));
+        }
+    }
+
+    #[test]
+    fn set_plans_dir_requires_an_absolute_path() {
+        let roots = temp_roots("relplans");
+        for p in ["Orbitty GOs", "./GOs", ".buzz/PLANS", "~nobody/GOs", "~root/.buzz/PLANS"] {
+            let err = set_plans_dir_in(&roots, p).unwrap_err();
+            assert!(err.contains("absolute"), "{p}: {err}");
+        }
+        assert!(load_settings(&roots).plans_dir.is_none());
+        set_plans_dir_in(&roots, "~/GOs").unwrap();
+        assert_eq!(plans_dir(&roots), roots.home.join("GOs"));
     }
 
     #[test]
