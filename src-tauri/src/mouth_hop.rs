@@ -341,8 +341,8 @@ fn lmstudio_chat(
     // Board reads: inject the snapshot first. A failed tool round was
     // a second 10–20s E4B generate. Writes still hop Grok.
     let mut tools_on = false;
+    let project = crate::mouth_tools::project_for_line(app, raw_line);
     if with_tools {
-        let project = crate::mouth_tools::project_from_line(raw_line);
         let list = crate::mouth_tools::run(
             app,
             "kanban_list",
@@ -393,7 +393,7 @@ fn lmstudio_chat(
                 let list = crate::mouth_tools::run(
                     app,
                     "kanban_list",
-                    &json!({ "project": "orbitty", "status": "open" }),
+                    &json!({ "project": project, "status": "open" }),
                 );
                 if !content.is_empty() {
                     msgs.push(msg);

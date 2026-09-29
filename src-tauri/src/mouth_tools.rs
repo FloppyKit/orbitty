@@ -23,18 +23,64 @@ pub fn schemas() -> Value {
 }
 
 pub fn project_from_line(line: &str) -> String {
+    explicit_planet(line).unwrap_or_else(|| "orbitty".into())
+}
+
+fn explicit_planet(line: &str) -> Option<String> {
     let l = line.to_ascii_lowercase();
-    if let Some(i) = l.find("planet ") {
-        let rest = line[i + 7..].trim();
-        let word: String = rest
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-            .collect();
-        if word.len() >= 2 {
-            return word;
+    let i = l.find("planet ")?;
+    let rest = line[i + 7..].trim();
+    let word: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if word.len() >= 2 {
+        Some(word)
+    } else {
+        None
+    }
+}
+
+/// Planet token for a board read. An explicit `planet <name>` wins.
+/// Otherwise a real planet name mentioned in the line (longest match),
+/// so "what's in Kansas doing?" does not fall through to Orbitty.
+pub fn project_for_line(app: &tauri::AppHandle, line: &str) -> String {
+    if let Some(p) = explicit_planet(line) {
+        return p;
+    }
+    if let Ok(st) = crate::state::load_state(app) {
+        if let Some(name) = mentioned_planet(st.projects.iter().map(|p| p.name.as_str()), line) {
+            return name;
         }
     }
     "orbitty".into()
+}
+
+/// Longest planet name that appears as its own word in `line`.
+pub fn mentioned_planet<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+    line: &str,
+) -> Option<String> {
+    let padded = format!(" {} ", line.to_ascii_lowercase());
+    let mut best: Option<(usize, String)> = None;
+    for name in names {
+        let n = name.trim();
+        if n.len() < 2 {
+            continue;
+        }
+        let low = n.to_ascii_lowercase();
+        if !padded.contains(&format!(" {low} ")) {
+            continue;
+        }
+        if best
+            .as_ref()
+            .map(|(len, _)| low.len() > *len)
+            .unwrap_or(true)
+        {
+            best = Some((low.len(), n.to_string()));
+        }
+    }
+    best.map(|(_, n)| n)
 }
 
 pub fn run(app: &tauri::AppHandle, name: &str, args: &Value) -> String {
@@ -44,12 +90,22 @@ pub fn run(app: &tauri::AppHandle, name: &str, args: &Value) -> String {
     }
 }
 
+fn is_window_claim(kind: Option<&str>, window_id: Option<&str>) -> bool {
+    if kind.is_some_and(|k| k.eq_ignore_ascii_case("window")) {
+        return true;
+    }
+    window_id.map(str::trim).is_some_and(|s| !s.is_empty())
+}
+
 fn is_needed(id: &str, kind: Option<&str>) -> bool {
     kind.is_some_and(|k| k.eq_ignore_ascii_case("needed")) || id.starts_with("n-")
 }
 
 fn needed_still_open(needed_state: Option<&str>) -> bool {
-    match needed_state.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+    match needed_state
+        .map(|s| s.trim().to_ascii_lowercase())
+        .as_deref()
+    {
         Some("answered") | Some("skipped") => false,
         _ => true,
     }
@@ -95,10 +151,20 @@ pub struct OpenBuckets {
 /// Collect open cards for `project` (name or id). Err is a them-row string.
 pub fn collect_open(app: &tauri::AppHandle, project: &str) -> Result<OpenBuckets, String> {
     let st = crate::state::load_state(app).map_err(|_| "board unreadable".to_string())?;
+    open_buckets(&st, project)
+}
+
+/// Open cards on one planet. Window-claim rows are not todos.
+pub fn open_buckets(
+    st: &crate::state::PersistedState,
+    project: &str,
+) -> Result<OpenBuckets, String> {
     let want = project.trim().to_ascii_lowercase();
-    let Some(proj) = st.projects.iter().find(|p| {
-        p.id.eq_ignore_ascii_case(&want) || p.name.trim().eq_ignore_ascii_case(&want)
-    }) else {
+    let Some(proj) = st
+        .projects
+        .iter()
+        .find(|p| p.id.eq_ignore_ascii_case(&want) || p.name.trim().eq_ignore_ascii_case(&want))
+    else {
         let names: Vec<_> = st
             .projects
             .iter()
@@ -112,7 +178,7 @@ pub fn collect_open(app: &tauri::AppHandle, project: &str) -> Result<OpenBuckets
     let display = {
         let n = proj.name.trim();
         if n.is_empty() {
-            want_display(&want)
+            pid.clone()
         } else {
             n.to_string()
         }
@@ -140,6 +206,9 @@ pub fn collect_open(app: &tauri::AppHandle, project: &str) -> Result<OpenBuckets
             }
             needed_n += 1;
             push_cap(&mut needed, title);
+        } else if is_window_claim(c.kind.as_deref(), c.window_id.as_deref()) {
+            // A claimed window is not a todo and not a Doing card.
+            continue;
         } else if stt.eq_ignore_ascii_case("doing") {
             doing_n += 1;
             push_cap(&mut doing, title);
@@ -160,17 +229,10 @@ pub fn collect_open(app: &tauri::AppHandle, project: &str) -> Result<OpenBuckets
     })
 }
 
-fn want_display(want: &str) -> String {
-    let mut chars = want.chars();
-    match chars.next() {
-        Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
-        None => "Orbitty".into(),
-    }
-}
-
-fn format_blocks(
-    pid: &str,
-    filter: &str,
+/// `Kansas — Doing (5): a; b`. Empty buckets are omitted.
+/// An empty board names the planet and does not invent "Orbitty".
+pub fn honest_lines(
+    display: &str,
     todo: &[String],
     todo_n: usize,
     doing: &[String],
@@ -178,23 +240,34 @@ fn format_blocks(
     needed: &[String],
     needed_n: usize,
 ) -> String {
-    let count = todo_n + doing_n + needed_n;
-    if count == 0 {
-        return format!("count=0\norbitty planet {pid}: no {filter} cards");
-    }
-    fn block(name: &str, n: usize, titles: &[String]) -> String {
-        let mut s = format!("{name} ({n}):");
-        for t in titles {
-            s.push('\n');
-            s.push_str(t);
+    let planet = {
+        let n = display.trim();
+        if n.is_empty() {
+            "planet"
+        } else {
+            n
         }
-        s
+    };
+    let mut lines = Vec::new();
+    let push = |lines: &mut Vec<String>, bucket: &str, n: usize, titles: &[String]| {
+        if n == 0 {
+            return;
+        }
+        lines.push(format!("{planet} — {bucket} ({n}): {}", titles.join("; ")));
+    };
+    push(&mut lines, "Todo", todo_n, todo);
+    push(&mut lines, "Doing", doing_n, doing);
+    push(&mut lines, "Needed", needed_n, needed);
+    if lines.is_empty() {
+        format!("{planet} — no open cards.")
+    } else {
+        lines.join("\n")
     }
-    format!(
-        "count={count}\norbitty planet {pid}:\n{}\n{}\n{}",
-        block("TODO", todo_n, todo),
-        block("DOING", doing_n, doing),
-        block("NEEDED", needed_n, needed)
+}
+
+pub fn honest_snapshot(b: &OpenBuckets) -> String {
+    honest_lines(
+        &b.display, &b.todo, b.todo_n, &b.doing, b.doing_n, &b.needed, b.needed_n,
     )
 }
 
@@ -213,16 +286,7 @@ fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
     // Snapshot path still supports status filters; them-row uses open only.
     if status == "open" {
         return match collect_open(app, want) {
-            Ok(b) => format_blocks(
-                &b.pid,
-                &status,
-                &b.todo,
-                b.todo_n,
-                &b.doing,
-                b.doing_n,
-                &b.needed,
-                b.needed_n,
-            ),
+            Ok(b) => honest_snapshot(&b),
             Err(e) => e,
         };
     }
@@ -230,14 +294,10 @@ fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
         return "board unreadable".into();
     };
     let want_l = want.to_ascii_lowercase();
-    let pid = st
-        .projects
-        .iter()
-        .find(|p| {
-            p.id.eq_ignore_ascii_case(&want_l) || p.name.trim().eq_ignore_ascii_case(&want_l)
-        })
-        .map(|p| p.id.clone());
-    let Some(pid) = pid else {
+    let found = st.projects.iter().find(|p| {
+        p.id.eq_ignore_ascii_case(&want_l) || p.name.trim().eq_ignore_ascii_case(&want_l)
+    });
+    let Some(proj) = found else {
         let names: Vec<_> = st
             .projects
             .iter()
@@ -246,6 +306,15 @@ fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
             .take(12)
             .collect();
         return format!("no planet {want_l:?}. have: {}", names.join(", "));
+    };
+    let pid = proj.id.clone();
+    let display = {
+        let n = proj.name.trim();
+        if n.is_empty() {
+            pid.clone()
+        } else {
+            n.to_string()
+        }
     };
     let mut todo: Vec<String> = Vec::new();
     let mut doing: Vec<String> = Vec::new();
@@ -270,6 +339,8 @@ fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
             }
             needed_n += 1;
             push_cap(&mut needed, title);
+        } else if is_window_claim(c.kind.as_deref(), c.window_id.as_deref()) {
+            continue;
         } else if stt.eq_ignore_ascii_case("doing") {
             doing_n += 1;
             push_cap(&mut doing, title);
@@ -278,9 +349,7 @@ fn kanban_list(app: &tauri::AppHandle, args: &Value) -> String {
             push_cap(&mut todo, title);
         }
     }
-    format_blocks(
-        &pid, &status, &todo, todo_n, &doing, doing_n, &needed, needed_n,
-    )
+    honest_lines(&display, &todo, todo_n, &doing, doing_n, &needed, needed_n)
 }
 
 #[cfg(test)]
@@ -315,9 +384,8 @@ mod tests {
 
     #[test]
     fn snapshot_splits_needed_out_of_todo() {
-        let out = format_blocks(
-            "p-orbitty",
-            "open",
+        let out = honest_lines(
+            "Orbitty",
             &["GO-ORBITTY-SLEEP-PRESETS".into()],
             1,
             &["Later: harness pick".into()],
@@ -325,11 +393,100 @@ mod tests {
             &["Who runs this doing GO?".into()],
             1,
         );
-        assert!(out.starts_with("count=3\n"));
-        assert!(out.contains("TODO (1):\nGO-ORBITTY-SLEEP-PRESETS"));
-        assert!(out.contains("DOING (1):\nLater: harness pick"));
-        assert!(out.contains("NEEDED (1):\nWho runs this doing GO?"));
+        assert!(out.contains("Orbitty — Todo (1): GO-ORBITTY-SLEEP-PRESETS"));
+        assert!(out.contains("Orbitty — Doing (1): Later: harness pick"));
+        assert!(out.contains("Orbitty — Needed (1): Who runs this doing GO?"));
+        assert!(!out.contains("Orbitty has"));
         assert!(!out.contains("todo\t"));
+    }
+
+    #[test]
+    fn mentioned_planet_prefers_the_named_world() {
+        assert_eq!(
+            mentioned_planet(["Kansas", "Orbitty"], "what's in Kansas doing?").as_deref(),
+            Some("Kansas")
+        );
+        assert_eq!(
+            mentioned_planet(["Kansas", "Orbitty"], "what's on the board"),
+            None
+        );
+        assert_eq!(
+            mentioned_planet(["Kansas", "Kansas Lab"], "cards on Kansas Lab").as_deref(),
+            Some("Kansas Lab")
+        );
+    }
+
+    fn card(
+        id: &str,
+        title: &str,
+        status: &str,
+        kind: &str,
+        window: Option<&str>,
+    ) -> crate::state::KanbanCard {
+        crate::state::KanbanCard {
+            id: id.into(),
+            title: title.into(),
+            project_id: "p-kansas".into(),
+            window_id: window.map(str::to_string),
+            kind: Some(kind.into()),
+            status: status.into(),
+            created_at: 0.0,
+            last_touched_at: 0.0,
+            completed_at: None,
+            goal_aligned: true,
+            clinical_or_master: false,
+            points_awarded: 0,
+            starred: false,
+            notes: None,
+            difficulty: None,
+            subtasks: None,
+            due_at: None,
+            tag_ids: None,
+            needed_state: None,
+            needed_why: None,
+            needed_answer: None,
+            actor: None,
+            assigned_agent_id: None,
+            parent_id: None,
+            rating: None,
+            trackers: None,
+            task_id: None,
+            task_reason: None,
+            links: None,
+        }
+    }
+
+    #[test]
+    fn snapshot_names_kansas_doing_and_skips_window_claims() {
+        let mut st = crate::state::PersistedState::default();
+        st.projects.push(crate::state::Project {
+            id: "p-kansas".into(),
+            name: "Kansas".into(),
+            trackers: None,
+            workspace_root: None,
+        });
+        st.kanban_cards
+            .push(card("c-real", "Real doing", "doing", "todo", None));
+        st.kanban_cards
+            .push(card("c-todo", "Real todo", "todo", "todo", None));
+        for i in 0..5 {
+            st.kanban_cards.push(card(
+                &format!("c-win-{i}"),
+                &format!("Window claim {i}"),
+                "doing",
+                "window",
+                Some(&format!("w-{i}")),
+            ));
+        }
+        let b = open_buckets(&st, "Kansas").expect("kansas");
+        let out = honest_snapshot(&b);
+        assert!(out.contains("Kansas — Doing (1): Real doing"), "{out}");
+        assert!(out.contains("Kansas — Todo (1): Real todo"), "{out}");
+        assert!(!out.contains("Window claim"), "{out}");
+        assert!(!out.contains("Orbitty"), "{out}");
+        assert!(!out.contains("5 todos"), "{out}");
+        assert_eq!(b.todo_n, 1);
+        assert_eq!(b.doing_n, 1);
     }
 
     #[test]

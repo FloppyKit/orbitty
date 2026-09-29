@@ -104,7 +104,7 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "shift.status", description: "Humming supervisor snapshot: on/off, mode, runner cap, agentRuns, next assigned pickups", args: "none" },
     ToolDef { name: "route.table", description: "Hang route table: the closed set of keyword tool ids (max 15). Read-only.", args: "none" },
     ToolDef { name: "route.classify", description: "Classify a Hang line to a route id, or null if it stays chat. Read-only, no side effects.", args: "route_line" },
-    ToolDef { name: "route.run", description: "Run a Hang line through the route table (same door as Hang). A miss returns null spoken. Write-class.", args: "route_line" },
+    ToolDef { name: "route.run", description: "Run a Hang line through the route table (same door as Hang). board-add and agent-spawn return pendingId and write only on a later yes. A miss returns null spoken. Write-class.", args: "route_line" },
     ToolDef { name: "shift.tick", description: "One supervisor pass: park ghost working rows, Needed-escalate blocked, pickup next assigned todo if Work/Hold", args: "none" },
     ToolDef { name: "shift.on", description: "Turn the 15s shift ticker on (Work/Hold pickups; Spark/Chat never auto-pickup)", args: "none" },
     ToolDef { name: "shift.off", description: "Turn the 15s shift ticker off", args: "none" },

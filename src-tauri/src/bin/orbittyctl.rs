@@ -161,9 +161,11 @@ runs — write-class ACL.
 route table and route classify are read-safe. classify only names
 which existing door a Hang line would hit, or that the line stays chat.
 It writes nothing. route run calls that same door (including the
-companion-hop log). A miss returns tool null and spoken null, exit 0.
-route run is write-class (full / named custom). The companion profile
-does not reach it.
+companion-hop log). board-add and agent-spawn return pendingId and do
+not write until a later `route run -- yes` (or ok / do it). no or a
+60s timeout drops the pending write. A miss returns tool null and
+spoken null, exit 0. route run is write-class (full / named custom).
+The companion profile does not reach it.
 
 relay status is read-safe. relay replica --url sets the
 optional one-user VPS URL (Tailscale 100.64/10:13120 or

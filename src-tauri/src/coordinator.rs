@@ -1747,7 +1747,9 @@ async fn companion_send_inner(
     // replyModel is still empty. One models GET, then the field sticks.
     crate::mouth_scan::pin_reply_if_empty(&app);
     // Existing verbs: the tool answers. A miss stays on the mouth below.
-    if attach.is_none() && !crate::mouth_gist::needs_write_lane(&line) {
+    // Board add / agent spawn are writes. They still answer here, after
+    // one confirm, so a write does not fall through into a board snapshot.
+    if attach.is_none() {
         if let Some(spoken) = crate::mouth_route::run(&app, &line) {
             let spoken = crate::mouth_hop::strip_handoff_marks(&spoken);
             if crate::state::update(&app, |st| {

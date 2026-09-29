@@ -6,9 +6,9 @@ use serde_json::{json, Value};
 
 pub const SCHEMA: &str = "orbitty.hop.v0";
 pub const CONSUME: &str =
-    "Consume orbitty.hop.v0. Answer the ask. Do not echo the JSON. If a Board snapshot is present: one kind lead sentence with the counts, then copy TODO / DOING / NEEDED titles. Do not invent status, Open tab, or what a GO means.";
+    "Consume orbitty.hop.v0. Answer the ask. Do not echo the JSON. If a Board snapshot is present: copy each planet and bucket line exactly (Kansas — Doing (5): …). Do not relabel a planet as Orbitty. Do not call Doing cards todos. Do not invent status, Open tab, or what a GO means.";
 pub const BOARD_LIST: &str =
-    "Board snapshot is the truth. Open with one kind sentence that names the counts (Okay, Orbitty has N todos right now:). Then copy the titles under TODO, DOING, and NEEDED as given. Skip empty buckets. Do not invent status, Open tab, or extra numbered lines.";
+    "Board snapshot is the truth. Name the planet and bucket exactly as written (Kansas — Doing (5): …). Copy those titles. Do not relabel a planet as Orbitty. Do not call a Doing bucket todos. Window-claim cards are already omitted. Skip empty buckets. Do not invent status, Open tab, or extra numbered lines.";
 const GIST_CAP: usize = 800;
 const ASK_CAP: usize = 200;
 const GOAL_CAP: usize = 80;
@@ -34,6 +34,29 @@ pub fn needs_write_lane(line: &str) -> bool {
         || l.contains("mark done")
         || l.contains("delete the card")
         || l.contains("mint a")
+        || add_card_agent_or_todo(&l)
+        || matches!(
+            crate::mouth_route::classify(line),
+            Some("board-add" | "agent-spawn")
+        )
+}
+
+/// "add … card/agent/todo" is a write, so the hop skips the read snapshot.
+fn add_card_agent_or_todo(l: &str) -> bool {
+    let add = l.starts_with("add") || l.contains(" add ");
+    if !add {
+        return false;
+    }
+    let words = |w: &str| {
+        l.split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|t| t == w)
+    };
+    words("card")
+        || words("cards")
+        || words("agent")
+        || words("agents")
+        || words("todo")
+        || words("todos")
 }
 
 pub fn needs_tools_lane(line: &str) -> bool {
@@ -212,10 +235,9 @@ pub fn pack_prompt(
     let mut packed = match harness {
         Harness::Skip => format!("[orbitty-mode: {mode}]\n{raw_line}"),
         Harness::Pocket => prose.to_string(),
-        Harness::Job | Harness::Tight => gist
-            .filter(|g| !g.is_empty())
-            .unwrap_or(prose)
-            .to_string(),
+        Harness::Job | Harness::Tight => {
+            gist.filter(|g| !g.is_empty()).unwrap_or(prose).to_string()
+        }
     };
     if let Some(note) = file_note(prose) {
         if !packed.contains("[file:") {
@@ -406,9 +428,17 @@ mod tests {
         assert!(!needs_tools_lane("ok how about now?"));
         assert!(!needs_tools_lane("ping"));
         assert!(needs_write_lane("add a todo on fkt: milk"));
+        assert!(needs_write_lane("add an agent in doing to planet Kansas"));
+        assert!(needs_write_lane(
+            "add a card test-add to planet fixture todo"
+        ));
+        assert!(needs_write_lane(
+            "start an agent on planet fixture doing walk"
+        ));
         assert!(!needs_write_lane(
             "tell me about the todo list on planet orbitty"
         ));
+        assert!(!needs_write_lane("what's in Kansas doing?"));
     }
 
     #[test]
@@ -481,11 +511,12 @@ mod tests {
 
     #[test]
     fn board_list_asks_kind_lead() {
-        assert!(BOARD_LIST.contains("kind sentence"));
-        assert!(BOARD_LIST.contains("TODO"));
+        assert!(BOARD_LIST.contains("Kansas — Doing"));
+        assert!(BOARD_LIST.contains("Do not relabel"));
+        assert!(!BOARD_LIST.contains("Orbitty has"));
         assert!(!BOARD_LIST.contains("No extra story"));
-        assert!(CONSUME.contains("kind lead"));
-        assert!(CONSUME.contains("TODO"));
+        assert!(CONSUME.contains("Kansas — Doing"));
+        assert!(CONSUME.contains("Do not relabel"));
     }
 
     fn prose_with_file() -> String {
@@ -498,11 +529,7 @@ mod tests {
         let gist = r#"{"schema":"orbitty.hop.v0","gist":{"ask":"what is this image?"}}"#;
         for h in [Harness::Skip, Harness::Job, Harness::Tight, Harness::Pocket] {
             let packed = pack_prompt("chat", h, "what is this image?", &prose, Some(gist));
-            assert!(
-                packed.contains("[file: /tmp/qr.png"),
-                "{}",
-                h.as_str()
-            );
+            assert!(packed.contains("[file: /tmp/qr.png"), "{}", h.as_str());
             assert!(
                 packed.contains("[markdown from markitdown]"),
                 "{}",
@@ -513,7 +540,8 @@ mod tests {
 
     #[test]
     fn gist_ask_keeps_a_short_file_line() {
-        let file = "[file: /tmp/qr.png (qr.png, 12 B) — original path; read it there with your tools.]";
+        let file =
+            "[file: /tmp/qr.png (qr.png, 12 B) — original path; read it there with your tools.]";
         let ask = ask_with_attach("what is this", Some(file));
         assert!(ask.contains("[file: /tmp/qr.png"));
     }

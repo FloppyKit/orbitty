@@ -764,13 +764,11 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         }
         "route.run" => {
             let line = arg_str(args, "line")?;
-            let spoken = crate::mouth_route::run(app, &line);
-            let tool = spoken
-                .as_ref()
-                .and_then(|_| crate::mouth_route::classify(&line));
+            let out = crate::mouth_route::run_outcome(app, &line);
             Ok(json!({
-                "tool": tool,
-                "spoken": spoken,
+                "tool": out.tool,
+                "spoken": out.spoken,
+                "pendingId": out.pending_id,
             }))
         }
         "gate.inject" => {
@@ -967,6 +965,8 @@ mod tests {
         "list planets",
         "list agents",
         "needed list on planet orbitty",
+        "add a card Buy milk to planet Kansas todo",
+        "add an agent in doing to planet Kansas",
         "tell me a joke",
         "STOP",
         "stop",
