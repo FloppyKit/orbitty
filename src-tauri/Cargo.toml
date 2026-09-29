@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Orbitty — runtime consolidator (Tauri)"
 authors = ["Orbitty"]
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 default-run = "orbitty"
 
 [lib]
