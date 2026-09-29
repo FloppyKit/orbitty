@@ -61,6 +61,15 @@ test("quote breakout does not become an attribute", () => {
   assert.match(html, /data-link="https:\/\/evil.com"/);
 });
 
+test("attrEscape escapes gt and apostrophe", () => {
+  const gt = mdLite("https://example.com/x>y");
+  assert.match(gt, /data-link="https:\/\/example.com\/x&gt;y"/);
+  assert.equal(gt.includes("'"), false);
+  const apos = mdLite("https://example.com/x'y");
+  assert.match(apos, /data-link="https:\/\/example.com\/x&#39;y"/);
+  assert.equal(apos.includes("data-link=\"https://example.com/x'y\""), false);
+});
+
 test("ampersands in urls are escaped once", () => {
   const html = mdLite("https://example.com/q?a=1&b=2");
   assert.equal(

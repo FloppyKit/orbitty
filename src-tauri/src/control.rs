@@ -634,7 +634,8 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                     .ok_or((ERR_OTHER, "kanban.open_link: n must be an integer".to_string()))?
                     as usize,
             };
-            crate::board::kanban_open_link(app, &id, n)
+            let run = args.get("run").and_then(Value::as_bool).unwrap_or(false);
+            crate::board::kanban_open_link(app, &id, n, run)
                 .map(to_data)
                 .map_err(tool_err)
         }

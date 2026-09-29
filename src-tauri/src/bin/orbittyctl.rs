@@ -41,7 +41,7 @@ commands:
   kanban move --id <id> --status todo|doing|done
   kanban notes --id <card> -- \"text\"      empty \"\" clears
   kanban link --id <card> --add URL [--label L] | --rm URL | --clear
-  kanban open-link --id <card> [--n 0]
+  kanban open-link --id <card> [--n 0] [--run]
   kanban assign --id <card> --agent <agent>   empty --agent \"\" unassigns
   agent list
   agent add --name N --harness cursor|goose|grok|hermes [--profile P]
@@ -116,7 +116,9 @@ summary; first line paints, the drawer edits the rest) and kanban notes
 sets/clears it on an existing card — same save door, same write ACL.
 kanban link and kanban open-link use that same ACL. --link is repeatable
 (max 8). Only file:// and https:// are accepted; a bare /Users/… path
-is stored as a file URL.
+is stored as a file URL. open-link opens documents, folders, images, and
+https. An executable, script, or bundle is revealed in Finder unless
+--run is passed or that exact file is already in the approvals list.
 
 project add / rm / rename mint, kill, and rename
 planets through the same save door (habitat paints whatever projects[]
@@ -221,6 +223,8 @@ struct Opts {
     clear: bool,
     /// kanban open-link --n
     n: Option<String>,
+    /// kanban open-link --run (executables; otherwise they are revealed)
+    run: bool,
     card: Option<String>,
     file: Option<String>,
     url: Option<String>,
@@ -278,6 +282,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         label: None,
         clear: false,
         n: None,
+        run: false,
         card: None,
         file: None,
         url: None,
@@ -372,6 +377,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--label" => o.label = Some(it.next().ok_or("--label needs a value")?.clone()),
             "--clear" => o.clear = true,
             "--n" => o.n = Some(it.next().ok_or("--n needs a number")?.clone()),
+            "--run" => o.run = true,
             "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
             "--file" => o.file = Some(it.next().ok_or("--file needs a path")?.clone()),
             // Kept as Some("") when passed empty — relay replica clears.
@@ -742,6 +748,9 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                     .parse()
                     .map_err(|_| format!("kanban open-link: --n must be an integer, got {n:?}"))?;
                 a["n"] = json!(n);
+            }
+            if o.run {
+                a["run"] = json!(true);
             }
             Ok(("kanban.open_link", a))
         }

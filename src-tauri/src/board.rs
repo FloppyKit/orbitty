@@ -437,7 +437,14 @@ pub fn kanban_link_clear(app: &tauri::AppHandle, id: &str) -> Result<KanbanCard,
 }
 
 /// Open link `n` (default 0). Read-only — status stays put.
-pub fn kanban_open_link(app: &tauri::AppHandle, id: &str, n: usize) -> Result<serde_json::Value, String> {
+/// Documents, folders, images, and https open. An executable is revealed
+/// in Finder unless `run` is set or that exact file is already approved.
+pub fn kanban_open_link(
+    app: &tauri::AppHandle,
+    id: &str,
+    n: usize,
+    run: bool,
+) -> Result<serde_json::Value, String> {
     let before = crate::state::load_state(app)?;
     let idx = card_index(&before, id, "kanban.open_link")?;
     let card = &before.kanban_cards[idx];
@@ -448,12 +455,13 @@ pub fn kanban_open_link(app: &tauri::AppHandle, id: &str, n: usize) -> Result<se
     let url = link.url.clone();
     let status = card.status.clone();
     let card_id = card.id.clone();
-    card_links::open_url(&url)?;
+    let action = card_links::ctl_open_at(&url, run, &card_links::approvals_path(app)?)?;
     Ok(serde_json::json!({
         "id": card_id,
         "n": n,
         "url": url,
         "status": status,
+        "action": action,
     }))
 }
 
