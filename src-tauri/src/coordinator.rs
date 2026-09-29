@@ -3093,9 +3093,10 @@ pub(crate) fn agent_command_body(
 }
 
 /// Where a project permission file must never go: `/`, `$HOME` itself,
-/// anything under `$HOME/.cursor` (the user-global Cursor dir), and the
-/// main Orbitty checkout (`$HOME/orbitty`). Both sides are canonicalized,
-/// so `$HOME/sub/..` or a symlink can't slip past. `None` = allowed.
+/// and anything under `$HOME/.cursor` (the user-global Cursor dir). Both
+/// sides are canonicalized, so `$HOME/sub/..` or a symlink can't slip
+/// past. `None` = allowed. A main (non-linked) checkout — `~/orbitty`
+/// included — is allowed: the local exclude keeps the file out of commits.
 fn cursor_perm_refusal(workspace: &Path, home: Option<&Path>) -> Option<String> {
     let Ok(ws) = std::fs::canonicalize(workspace) else {
         return Some("workspace does not exist".into());
@@ -3115,13 +3116,6 @@ fn cursor_perm_refusal(workspace: &Path, home: Option<&Path>) -> Option<String> 
         }
         if ws.starts_with(home.join(".cursor")) {
             return Some("workspace is inside ~/.cursor".into());
-        }
-        if let Ok(main) = std::fs::canonicalize(home.join("orbitty")) {
-            let top = git_out(&ws, &["rev-parse", "--show-toplevel"])
-                .and_then(|t| std::fs::canonicalize(t).ok());
-            if top.as_deref() == Some(main.as_path()) {
-                return Some("workspace is the main ~/orbitty checkout".into());
-            }
         }
     }
     None
@@ -3261,8 +3255,7 @@ impl CursorPermUndo {
 
 /// Write the run workspace's `.cursor/cli.json` permissions for this
 /// preset. Never touches the user-global Cursor CLI config.
-/// - Refuses `/`, `$HOME`, `~/.cursor/…` and the main `~/orbitty`
-///   checkout (canonical paths).
+/// - Refuses `/`, `$HOME` and `~/.cursor/…` (canonical paths).
 /// - A TRACKED `.cursor/cli.json` is the repo's own — left untouched.
 /// - An untracked one is union-merged: the user's allow/deny stay (a user
 ///   deny is never dropped), ours are appended; what we added is recorded
@@ -3972,7 +3965,7 @@ mod launch_tests {
     }
 
     #[test]
-    fn refuses_home_global_cursor_dir_and_main_orbitty_checkout() {
+    fn refuses_home_and_global_cursor_dir() {
         let home = tmp("home");
         let sub = home.join("sub");
         std::fs::create_dir_all(&sub).unwrap();
@@ -3990,19 +3983,36 @@ mod launch_tests {
         std::fs::create_dir_all(&gcur).unwrap();
         assert!(cursor_perm_refusal(&home.join(".cursor"), h).is_some());
         assert!(cursor_perm_refusal(&gcur, h).is_some());
-        let orb = home.join("orbitty");
-        std::fs::create_dir_all(orb.join("src")).unwrap();
-        repo_with_commit(&orb);
-        assert!(cursor_perm_refusal(&orb, h).unwrap().contains("main ~/orbitty"));
-        assert!(cursor_perm_refusal(&orb.join("src"), h).is_some());
-        assert!(install_cursor_permissions_with_home(&orb, "read-only", h).is_err());
-        assert!(!orb.join(".cursor").exists());
-        // A linked worktree of that repo is a run workspace: allowed.
-        let wt = home.join("orbitty-wt").join("go");
-        git(&orb, &["worktree", "add", "-q", "-b", "go", wt.to_str().unwrap()]);
-        assert!(cursor_perm_refusal(&wt, h).is_none());
         assert!(cursor_perm_refusal(&sub, h).is_none());
         assert!(cursor_perm_refusal(Path::new("/"), h).is_some());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// N4 decision: the main (non-linked) checkout — a temp `$HOME/orbitty`
+    /// stands in for `~/orbitty` via the injected home — gets the preset,
+    /// kept out of commits by its own info/exclude.
+    #[test]
+    fn main_checkout_gets_preset_and_stays_uncommitted() {
+        let home = tmp("mainco");
+        let orb = home.join("orbitty");
+        std::fs::create_dir_all(&orb).unwrap();
+        repo_with_commit(&orb);
+        // Non-linked: git dir == common dir.
+        assert_eq!(
+            git(&orb, &["rev-parse", "--git-dir"]).trim(),
+            git(&orb, &["rev-parse", "--git-common-dir"]).trim()
+        );
+        let h = Some(home.as_path());
+        assert!(cursor_perm_refusal(&orb, h).is_none());
+        install_cursor_permissions_with_home(&orb, "read-only", h).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(project_cli_path(&orb)).unwrap()).unwrap();
+        assert!(arr(&v, "allow").contains(&"Shell(find)".to_string()));
+        assert!(arr(&v, "deny").contains(&"Write(**)".to_string()));
+        let exclude = std::fs::read_to_string(orb.join(".git/info/exclude")).unwrap();
+        assert!(exclude.lines().any(|l| l == "**/.cursor/cli.json"));
+        assert_eq!(git(&orb, &["status", "--porcelain", "-uall"]).trim(), "");
+        git(&orb, &["check-ignore", "-q", ".cursor/cli.json"]);
         let _ = std::fs::remove_dir_all(&home);
     }
 
