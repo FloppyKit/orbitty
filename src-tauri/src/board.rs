@@ -370,6 +370,25 @@ pub fn kanban_notes(app: &tauri::AppHandle, id: &str, notes: &str) -> Result<Kan
     Ok(after.kanban_cards[idx].clone())
 }
 
+/// Append one line to a card's notes. A repeat of the same line is a no-op.
+pub fn kanban_note_append(app: &tauri::AppHandle, id: &str, line: &str) -> Result<(), String> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Ok(());
+    }
+    let before = crate::state::load_state(app)?;
+    let existing = before
+        .kanban_cards
+        .iter()
+        .find(|c| c.id == id.trim())
+        .map(|c| c.notes.clone());
+    let Some(existing) = existing else {
+        return Err(format!("kanban.notes: unknown card id {id:?}"));
+    };
+    let joined = crate::plans::join_note(existing.as_deref(), line);
+    kanban_notes(app, id, &joined).map(|_| ())
+}
+
 fn normalize_new_links(links: Vec<CardLink>) -> Result<Option<Vec<CardLink>>, String> {
     if links.is_empty() {
         return Ok(None);
@@ -528,12 +547,9 @@ fn is_exact_go_token(title: &str) -> bool {
 }
 
 /// Fallback for tokens outside the table: the first non-empty `Matt:` line
-/// of the nest prompt file `~/.buzz/PLANS/_GO_<TOKEN>_PROMPT.md`
-/// (dash→underscore slug, same PLANS dir needed_rules uses).
+/// of the legacy prompt file (plansDir, then the back-compat plans folder).
 fn go_prompt_blurb(title: &str) -> Option<String> {
-    let path = std::path::PathBuf::from(std::env::var("HOME").ok()?)
-        .join(".buzz/PLANS")
-        .join(format!("_{}_PROMPT.md", title.replace('-', "_")));
+    let path = crate::plans::legacy_prompt_file(title)?;
     let raw = std::fs::read_to_string(path).ok()?;
     raw.lines()
         .filter_map(|l| l.trim().strip_prefix("Matt:"))

@@ -2940,11 +2940,17 @@ fn write_agent_query(
     shortcut: &crate::state::AgentShortcut,
     project_name: Option<&str>,
     titles: &[String],
+    go_text: Option<&str>,
 ) -> Result<(PathBuf, usize), String> {
     let dir = app_data(app)?.join("context");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     let path = dir.join(format!("agent-{}.md", safe_id(&shortcut.id)));
     let mut body = format!("# {}\n\nOrbitty agent shortcut context.\n", shortcut.name);
+    if let Some(go_text) = go_text.map(str::trim).filter(|s| !s.is_empty()) {
+        body.push_str("\n\n## GO\n\n");
+        body.push_str(go_text);
+        body.push('\n');
+    }
     let mut skipped = 0usize;
     for raw in &shortcut.md_paths {
         let p = raw.trim();
@@ -2977,9 +2983,12 @@ fn write_agent_query(
     }
     if shortcut.project_id.is_some() || !titles.is_empty() {
         let name = project_name.unwrap_or("Planet");
-        body.push_str(&format!(
-            "\n\n## Planet context — {name} (titles only, no file contents)\n"
-        ));
+        let heading = if go_text.is_some() {
+            format!("\n\n## Planet context — {name}\n")
+        } else {
+            format!("\n\n## Planet context — {name} (titles only, no file contents)\n")
+        };
+        body.push_str(&heading);
         if titles.is_empty() {
             body.push_str("(no claimed windows or open to-dos)\n");
         } else {
@@ -2988,8 +2997,18 @@ fn write_agent_query(
             }
         }
     }
+    crate::plans::enforce_cap(&body)?;
     std::fs::write(&path, body).map_err(|e| format!("write {}: {e}", path.display()))?;
     Ok((path, skipped))
+}
+
+/// Resolved GO handed to every launch door (pickup, Terminal, herdr, clerk).
+pub struct GoLaunch {
+    pub parsed: crate::plans::ParsedGo,
+    pub run: crate::plans::ResolvedRun,
+    pub route: &'static str,
+    pub card_id: String,
+    pub project_id: String,
 }
 
 /// The visible-harness door shared by cursor /
@@ -3391,12 +3410,43 @@ fn open_agent_terminal(
 /// traps EXIT, the hermes door waits on the child.
 pub fn launch_agent(
     app: tauri::AppHandle,
-    shortcut: crate::state::AgentShortcut,
+    mut shortcut: crate::state::AgentShortcut,
     project_name: Option<String>,
     titles: Vec<String>,
+    mut go_launch: Option<GoLaunch>,
 ) -> Result<String, String> {
     #[cfg(unix)]
     crate::gate_caps::check(&app)?;
+    let push_flag = if let Some(g) = go_launch.as_mut() {
+        let primary_ok = match g.run.harness.as_str() {
+            "cursor" => find_on_path("cursor-agent").is_some(),
+            "goose" => find_on_path("goose").is_some(),
+            "grok" => find_on_path("grok").is_some(),
+            "herdr" => find_on_path("herdr").is_some() || find_on_path("grok").is_some(),
+            _ => true,
+        };
+        g.run = crate::plans::apply_fallback(&g.run, primary_ok);
+        let flag = crate::plans::push_decision(&g.run)?;
+        let door = crate::plans::door_harness(&g.run.harness);
+        if door == "manual" {
+            let _ = std::process::Command::new("open").arg(&g.parsed.path).status();
+            record_go_launch(&app, g);
+            return Ok(format!(
+                "Opened {} (harness manual). Nothing launched.",
+                g.parsed.path.display()
+            ));
+        }
+        shortcut.harness = door;
+        if !g.run.model.is_empty() {
+            if shortcut.harness == "cursor" {
+                crate::agents::validate_model(&g.run.model)?;
+            }
+            shortcut.model = Some(g.run.model.clone());
+        }
+        flag
+    } else {
+        false
+    };
     let pid = shortcut.project_id.clone().unwrap_or_default();
     let card_id = crate::state::load_state(&app).ok().and_then(|st| {
         titles.first().and_then(|t| {
@@ -3410,7 +3460,11 @@ pub fn launch_agent(
     } else {
         crate::task::start(&app, &pid, card_id.as_deref())
     };
-    let (query, skipped) = write_agent_query(&app, &shortcut, project_name.as_deref(), &titles)?;
+    let go_text = go_launch
+        .as_ref()
+        .map(|g| crate::plans::go_block(&g.parsed));
+    let (query, skipped) =
+        write_agent_query(&app, &shortcut, project_name.as_deref(), &titles, go_text.as_deref())?;
     let skip_note = if skipped > 0 {
         format!(" Skipped {skipped} unreadable md path(s).")
     } else {
@@ -3464,7 +3518,7 @@ pub fn launch_agent(
             // Herdr door: herdr starts cursor-agent itself, so the file must
             // be there before branch(). A skip takes it back.
             let undo = install();
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
                 crate::herdr::Branch::Skip => {
                     if let Some(u) = undo {
                         u.rollback();
@@ -3482,7 +3536,10 @@ pub fn launch_agent(
                         .to_string(),
                 );
             };
-            let exec = crate::agents::cursor_exec_line(&bin.display().to_string(), &model, preset);
+            let exec = crate::plans::exec_with_push(
+                &crate::agents::cursor_exec_line(&bin.display().to_string(), &model, preset),
+                push_flag,
+            );
             let undo = install();
             let opened = match open_agent_terminal(
                 &app,
@@ -3510,7 +3567,7 @@ pub fn launch_agent(
         // Goose is not a herdr kind. branch() logs the skip, then the
         // terminal door runs. Never a silent hermes.
         "goose" => {
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
@@ -3530,9 +3587,12 @@ pub fn launch_agent(
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
-                &format!(
-                    "{} run --with-builtin=developer,computercontroller -t \"$prompt\"",
-                    sq(&bin.display().to_string())
+                &crate::plans::exec_with_push(
+                    &format!(
+                        "{} run --with-builtin=developer,computercontroller -t \"$prompt\"",
+                        sq(&bin.display().to_string())
+                    ),
+                    push_flag,
                 ),
                 Some(workspace.as_str()),
                 planet_for_log,
@@ -3548,7 +3608,7 @@ pub fn launch_agent(
             // pane first, agent second, when herdr is present + up.
             // Skip falls through to the terminal launcher
             // (one skip line was already logged; never a dual-launch).
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
@@ -3566,7 +3626,10 @@ pub fn launch_agent(
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
-                &format!("{} -p \"$prompt\"", sq(&bin.display().to_string())),
+                &crate::plans::exec_with_push(
+                    &format!("{} -p \"$prompt\"", sq(&bin.display().to_string())),
+                    push_flag,
+                ),
                 Some(workspace.as_str()),
                 planet_for_log,
             )?;
@@ -3580,7 +3643,7 @@ pub fn launch_agent(
         // with the query file. No terminal launcher on that fallback, so
         // a waiter thread owns the LED off. Detached stdio, never a poll.
         "hermes" => {
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
@@ -3639,7 +3702,7 @@ pub fn launch_agent(
         // — legal with `opencode` on PATH, never prompt-installed, never
         // `opencode serve`d as the mouth. No Terminal door exists for it,
         // so a skip is an honest error, not a fall-through.
-        "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+        "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
             crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                 hint.herdr_agent = Some(agent);
                 Ok(format!("{m} Query: {}.{skip_note}", query.display()))
@@ -3662,7 +3725,44 @@ pub fn launch_agent(
             crate::task::note_live(&app, tid, &hint);
         }
     }
+    if out.is_ok() {
+        if let Some(g) = go_launch.as_ref() {
+            record_go_launch(&app, g);
+        }
+    }
     out
+}
+
+fn record_go_launch(app: &tauri::AppHandle, g: &GoLaunch) {
+    let id = g.parsed.id();
+    let unsupported = crate::plans::unsupported_tools(&g.run.harness, &g.run.tools);
+    crate::event_log::append_best(
+        app,
+        "go-launch",
+        None,
+        Some(&g.project_id),
+        Some("agent"),
+        true,
+        &serde_json::json!({
+            "id": id,
+            "file": g.parsed.path.display().to_string(),
+            "sha256": crate::plans::sha256_hex(g.parsed.raw.as_bytes()),
+            "runner": g.run.runner,
+            "harness": g.run.harness,
+            "tools": g.run.tools,
+            "route": g.route,
+            "cardId": g.card_id,
+            "fallback": g.run.fell_back,
+            "fallbackWhy": g.run.fallback_why,
+            "unsupported": unsupported,
+        }),
+    );
+    let line = if let Some(why) = g.run.fallback_why.as_deref() {
+        format!("Launched {id} via fallback {} / {} — {why}", g.run.runner, g.run.harness)
+    } else {
+        format!("Launched {id} via {} / {}.", g.run.runner, g.run.harness)
+    };
+    let _ = crate::board::kanban_note_append(app, &g.card_id, &line);
 }
 
 #[cfg(target_os = "macos")]

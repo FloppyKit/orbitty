@@ -219,6 +219,12 @@ const READ_TOOLS: &[&str] = &[
     // companion.*, so it does not reach route.run.
     "route.table",
     "route.classify",
+    // Plans folder and GO status are reads. Setting them, sealing,
+    // and migrate --apply stay write-class (full / named custom).
+    "settings.plans_dir",
+    "settings.runner",
+    "go.status",
+    "plans.migrate",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -292,6 +298,10 @@ fn dispatch(app: &tauri::AppHandle, req: Request) -> Value {
             ERR_DENIED,
             &format!("tool {tool:?} denied by control.json"),
         );
+    }
+    // go.seal is Matt-only: profile full, plus a confirm flag in the handler.
+    if tool == "go.seal" && !matches!(acl, Acl::Full) {
+        return reply_err(&id, ERR_DENIED, "go.seal requires profile full");
     }
 
     let args = req.args.unwrap_or(Value::Null);
@@ -876,6 +886,56 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 content,
             );
             Ok(to_data(ack))
+        }
+        "settings.plans_dir" => crate::plans::settings_snapshot().map_err(tool_err),
+        "settings.plans_dir_set" => {
+            let path = arg_str(args, "path")?;
+            crate::plans::set_plans_dir(&path).map_err(tool_err)
+        }
+        "settings.runner" => crate::plans::settings_snapshot().map_err(tool_err),
+        "settings.runner_set" => {
+            let runner = arg_opt(args, "runner").unwrap_or_default();
+            let harness = arg_opt(args, "harness").unwrap_or_default();
+            let model = arg_opt(args, "model").unwrap_or_default();
+            crate::plans::set_runner(&runner, &harness, &model).map_err(tool_err)
+        }
+        "go.status" => crate::plans::status_value(
+            arg_opt(args, "file").as_deref(),
+            arg_opt(args, "go").as_deref(),
+            arg_opt(args, "card").as_deref(),
+            arg_opt(args, "title").as_deref(),
+        )
+        .map_err(tool_err),
+        "go.seal" => {
+            let confirm = args.get("confirm").and_then(Value::as_bool).unwrap_or(false);
+            if !confirm {
+                return Err((ERR_OTHER, "go.seal: pass --confirm".into()));
+            }
+            let file = arg_str(args, "file")?;
+            let by = arg_str(args, "by")?;
+            crate::plans::seal_file(std::path::Path::new(&file), &by)
+                .map(|g| {
+                    to_data(serde_json::json!({
+                        "id": g.id(),
+                        "file": g.path.display().to_string(),
+                        "status": g.header.status,
+                        "sealedAt": g.header.sealed_at,
+                        "sealedBy": g.header.sealed_by,
+                        "sealHash": g.header.seal_hash,
+                    }))
+                })
+                .map_err(tool_err)
+        }
+        "plans.migrate" => {
+            let roots = crate::plans::Roots::real();
+            Ok(to_data(serde_json::json!({
+                "dryRun": true,
+                "files": crate::plans::migrate_list(&roots),
+            })))
+        }
+        "plans.migrate_apply" => {
+            let roots = crate::plans::Roots::real();
+            crate::plans::migrate_apply(&roots).map_err(tool_err)
         }
         other => Err((ERR_OTHER, format!("unknown tool {other:?}"))),
     }

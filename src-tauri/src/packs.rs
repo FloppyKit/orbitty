@@ -18,7 +18,7 @@ Manage packs from the rail: gear (⚙) → Packs → Import folder / Import zip,
 or the Being editor's Use my image on any walker. Without a picked pack,
 each walker is one of the built-in Season 1 bitty crew — no download needed.
 
-Rules (locked in the sprite packs lock in ~/.buzz/PLANS, 2026-08):
+Rules (locked in the sprite packs lock, 2026-08):
 
   * Local import only: pick an image, a folder, or a zip you downloaded.
     Orbitty never fetches sprite art from a website.

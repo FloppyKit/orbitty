@@ -470,14 +470,51 @@ pub fn agent_pickup(
         .iter()
         .find(|p| p.id == card.project_id)
         .map(|p| p.name.clone());
+    let urls: Vec<String> = card
+        .links
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|l| l.url.clone())
+        .collect();
+    let handoff = match crate::plans::gate_for_card(&card.id, &card.title, &urls) {
+        crate::plans::Gate::Refuse { note } => {
+            let _ = crate::board::kanban_note_append(app, &card.id, &note);
+            let _ = crate::coordinator::set_companion_hack(app.clone(), false, None, None);
+            return Ok(json!({
+                "picked": true,
+                "launched": false,
+                "cardId": card.id,
+                "title": card.title,
+                "status": "doing",
+                "agentId": agent.id,
+                "agent": agent.name,
+                "note": note,
+            }));
+        }
+        crate::plans::Gate::Launch(parsed) => {
+            let project = project_name.clone().unwrap_or_default();
+            let run = crate::plans::resolve_run(&parsed.header, &parsed.id(), &project);
+            Some(crate::coordinator::GoLaunch {
+                parsed,
+                run,
+                route: "pickup",
+                card_id: card.id.clone(),
+                project_id: card.project_id.clone(),
+            })
+        }
+        crate::plans::Gate::Skip => None,
+    };
     let launch = match crate::coordinator::launch_agent(
         app.clone(),
         agent.clone(),
         project_name,
         vec![card.title.clone()],
+        handoff,
     ) {
         Ok(l) => l,
         Err(e) => {
+            let _ = crate::board::kanban_note_append(app, &card.id, &e);
             let _ = crate::coordinator::set_companion_hack(app.clone(), false, None, None);
             return Err(e);
         }

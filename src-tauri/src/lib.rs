@@ -47,6 +47,7 @@ mod mouth_roll;
 mod needed_rules;
 mod nextcard;
 mod panes;
+mod plans;
 mod habitat;
 mod herdr;
 mod droid_inspect;
@@ -386,6 +387,30 @@ fn toggle_cheatsheet(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn plans_settings() -> Result<serde_json::Value, String> {
+    crate::plans::settings_snapshot()
+}
+
+#[tauri::command]
+fn plans_reveal() -> Result<(), String> {
+    crate::plans::reveal_plans_dir()
+}
+
+#[tauri::command]
+fn plans_set_dir(path: String) -> Result<serde_json::Value, String> {
+    crate::plans::set_plans_dir(&path)
+}
+
+#[tauri::command]
+fn plans_set_runner(
+    runner: String,
+    harness: String,
+    model: String,
+) -> Result<serde_json::Value, String> {
+    crate::plans::set_runner(&runner, &harness, &model)
+}
+
+#[tauri::command]
 fn agent_pickup(
     app: tauri::AppHandle,
     id: Option<String>,
@@ -673,6 +698,10 @@ pub fn run() {
             set_planets_hidden,
             needed_answer,
             needed_rule_add,
+            plans_settings,
+            plans_reveal,
+            plans_set_dir,
+            plans_set_runner,
             agent_pickup,
             bring_all_front,
             bring_planet_front,

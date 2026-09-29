@@ -67,6 +67,33 @@ fn fired<'a>(before: &PersistedState, after: &'a PersistedState) -> Vec<(&'a Kan
 /// standing-rules gate can born-answer it (actor "rule") and the watch
 /// dispatches as if Matt typed the answer; a miss / collide pings open.
 fn mint_or_reuse(app: &tauri::AppHandle, card: &KanbanCard, go: &str) {
+    let urls: Vec<String> = card
+        .links
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|l| l.url.clone())
+        .collect();
+    if let crate::plans::Gate::Refuse { note } = crate::plans::gate_for_card(&card.id, &card.title, &urls)
+    {
+        let _ = crate::board::kanban_note_append(app, &card.id, &note);
+        crate::event_log::append_best(
+            app,
+            "go-launch",
+            None,
+            Some(&card.project_id),
+            Some("agent"),
+            true,
+            &serde_json::json!({
+                "id": go,
+                "cardId": card.id,
+                "route": "doing",
+                "launched": false,
+                "note": note,
+            }),
+        );
+        return;
+    }
     let Ok(st) = crate::state::load_state(app) else {
         return;
     };

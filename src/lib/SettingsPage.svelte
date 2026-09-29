@@ -68,7 +68,12 @@
   let planetIdle = $state("4h");
   let talkSource = $state<"system" | "hotkey">("system");
   let cheatSheetHint = $state(true);
-  let section = $state<"appearance" | "packs">("appearance");
+  let section = $state<"appearance" | "packs" | "plans">("appearance");
+  let plansDir = $state("");
+  let plansRunner = $state("");
+  let plansModel = $state("");
+  let plansHarness = $state("");
+  let plansNote = $state("");
   // Companion body picker (Appearance): Spirit + role:companion packs.
   // Same persist as the old companion-row select — set_companion_pack
   // emits state:changed, and the companion window hot-swaps the art.
@@ -98,6 +103,42 @@
   function normalizeTalk(raw: string | undefined): "system" | "hotkey" {
     const s = (raw ?? "").trim().toLowerCase();
     return s === "hotkey" || s === "handy" ? "hotkey" : "system";
+  }
+
+  async function loadPlans() {
+    try {
+      const s = await invoke<{
+        plansDir: string;
+        runner: string;
+        harness: string;
+        model: string;
+      }>("plans_settings");
+      plansDir = s.plansDir ?? "";
+      plansRunner = s.runner ?? "";
+      plansHarness = s.harness ?? "";
+      plansModel = s.model ?? "";
+    } catch (e) {
+      plansNote = String(e);
+    }
+  }
+
+  async function revealPlans() {
+    plansNote = "";
+    try {
+      await invoke("plans_reveal");
+    } catch (e) {
+      plansNote = String(e);
+    }
+  }
+
+  async function savePlansDir() {
+    plansNote = "";
+    try {
+      const s = await invoke<{ plansDir: string }>("plans_set_dir", { path: plansDir });
+      plansDir = s.plansDir ?? plansDir;
+    } catch (e) {
+      plansNote = String(e);
+    }
   }
 
   async function loadState() {
@@ -393,6 +434,7 @@
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
     await loadState();
+    await loadPlans();
     await refreshPacks();
     unlisten = await listen("state:changed", () => {
       loadState();
@@ -453,6 +495,11 @@
       class="tab"
       class:on={section === "packs"}
       onclick={() => (section = "packs")}>Packs</button
+    >
+    <button
+      class="tab"
+      class:on={section === "plans"}
+      onclick={() => (section = "plans")}>Plans</button
     >
   </nav>
 
@@ -724,7 +771,7 @@
           >Herding Cats…</button>
         </div>
       </section>
-    {:else}
+    {:else if section === "packs"}
       <section class="panel">
         <div class="setting-row">
           <button
@@ -783,6 +830,21 @@
           files — Orbitty never downloads art. Missing license warns, never
           blocks.
         </p>
+      </section>
+    {:else if section === "plans"}
+      <section class="panel">
+        <p class="block-label">Plans folder</p>
+        <div class="setting-row">
+          <input class="plans-path" bind:value={plansDir} spellcheck="false" />
+          <button class="mini" onclick={savePlansDir}>Save</button>
+          <button class="mini" onclick={revealPlans} title="Reveal in Finder">Reveal in Finder</button>
+        </div>
+        <p class="help">Shared by Nightly and stable. Default is the visible Orbitty GOs folder in your home.</p>
+        <p class="block-label">Default runner</p>
+        <p class="help">{plansRunner} · {plansHarness} · {plansModel}</p>
+        {#if plansNote}
+          <p class="help err">{plansNote}</p>
+        {/if}
       </section>
     {/if}
   </div>
@@ -874,6 +936,17 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 4px;
+  }
+  .plans-path {
+    flex: 1;
+    min-width: 12rem;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 3px 8px;
   }
   .mini {
     font: inherit;

@@ -13,7 +13,7 @@ fn home() -> PathBuf {
 }
 
 fn bus_dir() -> PathBuf {
-    home().join(".buzz/ops/needed-bus")
+    crate::plans::bus_dir()
 }
 
 fn rules_path() -> PathBuf {
@@ -26,10 +26,6 @@ fn rules_log_path() -> PathBuf {
 
 fn issued_path() -> PathBuf {
     bus_dir().join("issued.json")
-}
-
-fn plans_dir() -> PathBuf {
-    home().join(".buzz/PLANS")
 }
 
 fn utc_now() -> String {
@@ -288,18 +284,16 @@ pub fn first_prompt_for(go: &str) -> Option<PathBuf> {
     if let Some(p) = prompt_from_packet(&pkt) {
         return Some(p);
     }
-    let p = plans_dir().join(format!("_{}_PROMPT.md", go.replace('-', "_")));
-    if p.is_file() {
-        Some(p)
-    } else {
-        None
-    }
+    crate::plans::legacy_prompt_file(go)
 }
 
 /// Newest PLANS file starting with `slug` and ending `_PROMPT.md`.
 fn newest_plans_prompt(slug: &str) -> Option<PathBuf> {
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-    if let Ok(rd) = std::fs::read_dir(plans_dir()) {
+    for dir in crate::plans::read_dirs() {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             if name.starts_with(slug) && name.ends_with("_PROMPT.md") {

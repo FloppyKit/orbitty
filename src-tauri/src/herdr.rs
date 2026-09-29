@@ -518,6 +518,7 @@ pub fn branch(
     project_name: Option<&str>,
     titles: &[String],
     query: Option<&Path>,
+    push: bool,
 ) -> Branch {
     // Kind law: grok, cursor, and hermes are herdr kinds; opencode is
     // detect-only (on PATH = legal, missing = skip — never prompt-
@@ -605,13 +606,16 @@ pub fn branch(
         kind: kind.into(),
     };
     std::thread::sleep(Duration::from_millis(400));
-    let extra = if kind == "cursor" {
+    let mut extra = if kind == "cursor" {
         let model = crate::agents::cursor_model(shortcut.model.as_deref());
         let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
         crate::agents::cursor_agent_args(&model, preset)
     } else {
         Vec::new()
     };
+    if push {
+        extra.push("--git-push".into());
+    }
     let start_owned = start_argv(&agent_name, kind, &pane, &extra);
     let start: Vec<&str> = start_owned.iter().map(String::as_str).collect();
     let mut started = Err("agent start not attempted".into());

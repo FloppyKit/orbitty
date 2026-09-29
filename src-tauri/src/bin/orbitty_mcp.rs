@@ -92,6 +92,14 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "agent.rm", description: "Remove an agent row by id; cards keep their assignedAgentId (project.rm law)", args: "id" },
     ToolDef { name: "agent.pin", description: "Pin an agent row to a planet (project id or unique planet name)", args: "agent_pin" },
     ToolDef { name: "agent.pickup", description: "Pick the oldest assigned open Todo (the row's planet when pinned), move it doing, and launch the row's harness with the card title; no match = honest empty, no spawn", args: "agent_pickup" },
+    ToolDef { name: "settings.plans_dir", description: "Read the shared plansDir (visible ~/Orbitty GOs unless set) and the default runner", args: "none" },
+    ToolDef { name: "settings.plans_dir_set", description: "Set the shared plansDir used by Nightly and stable", args: "plans_dir_set" },
+    ToolDef { name: "settings.runner", description: "Read defaultRunner (Cursor harness, model grok-4.7-high, herdr fallback)", args: "none" },
+    ToolDef { name: "settings.runner_set", description: "Set defaultRunner runner, harness, and model", args: "runner_set" },
+    ToolDef { name: "go.status", description: "Resolve a GO and report whether it is sealed", args: "go_status" },
+    ToolDef { name: "go.seal", description: "Seal a GO file (profile full and confirm). Writes status, sealed_at, sealed_by, and seal_hash.", args: "go_seal" },
+    ToolDef { name: "plans.migrate", description: "Dry-run: list files that would copy from the back-compat plans folder into plansDir. Never deletes.", args: "none" },
+    ToolDef { name: "plans.migrate_apply", description: "Copy those files into plansDir. Never deletes. Not part of a normal GO run.", args: "none" },
     ToolDef { name: "shift.status", description: "Humming supervisor snapshot: on/off, mode, runner cap, agentRuns, next assigned pickups", args: "none" },
     ToolDef { name: "route.table", description: "Hang route table: the closed set of keyword tool ids (max 15). Read-only.", args: "none" },
     ToolDef { name: "route.classify", description: "Classify a Hang line to a route id, or null if it stays chat. Read-only, no side effects.", args: "route_line" },
@@ -299,6 +307,39 @@ fn input_schema(kind: &str) -> Value {
                 "projectId": { "type": "string", "description": "Project id or unique planet name" }
             },
             "required": ["id", "projectId"]
+        }),
+        "plans_dir_set" => json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "plansDir path" }
+            },
+            "required": ["path"]
+        }),
+        "runner_set" => json!({
+            "type": "object",
+            "properties": {
+                "runner": { "type": "string", "description": "Agent row name, e.g. orbitty-cursor" },
+                "harness": { "type": "string", "description": "cursor | goose | grok | herdr | manual" },
+                "model": { "type": "string", "description": "Model id, e.g. grok-4.7-high" }
+            }
+        }),
+        "go_status" => json!({
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "GO file path" },
+                "go": { "type": "string", "description": "GO id token" },
+                "card": { "type": "string", "description": "Card id for header card_id match" },
+                "title": { "type": "string", "description": "Card title, if it differs from the GO id" }
+            }
+        }),
+        "go_seal" => json!({
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "GO file to seal" },
+                "by": { "type": "string", "description": "Who is sealing (e.g. matt)" },
+                "confirm": { "type": "boolean", "description": "Must be true" }
+            },
+            "required": ["file", "by", "confirm"]
         }),
         "agent_pickup" => json!({
             "type": "object",

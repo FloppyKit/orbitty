@@ -99,6 +99,11 @@ commands:
   packs list
   sleeper wake --id <id>
   state get
+  settings plans-dir [--set PATH]
+  settings runner [--name N --harness H --model M]
+  go status --file PATH | --go GO-ID [--card ID]
+  go seal --file PATH --by NAME --confirm
+  plans migrate [--dry-run | --apply]
 
 flags:
   --json        machine JSON on stdout (data, or the full error object)
@@ -243,6 +248,13 @@ struct Opts {
     cloud: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
+    /// settings plans-dir --set PATH
+    set: Option<String>,
+    confirm: bool,
+    dry_run: bool,
+    apply: bool,
+    /// go status --go GO-ID
+    go_id: Option<String>,
 }
 
 fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -300,6 +312,11 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         cloud: None,
         words: Vec::new(),
         tail: Vec::new(),
+        set: None,
+        confirm: false,
+        dry_run: false,
+        apply: false,
+        go_id: None,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -395,6 +412,11 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.answers = Some(it.next().ok_or("--answers needs a value")?.clone())
             }
             "--by" => o.by = Some(it.next().ok_or("--by needs a value")?.clone()),
+            "--set" => o.set = Some(it.next().ok_or("--set needs a value")?.clone()),
+            "--confirm" => o.confirm = true,
+            "--dry-run" => o.dry_run = true,
+            "--apply" => o.apply = true,
+            "--go" => o.go_id = Some(it.next().ok_or("--go needs a value")?.clone()),
             "--range" => o.range = Some(it.next().ok_or("--range needs a value")?.clone()),
             "--spokes" => o.spokes = Some(it.next().ok_or("--spokes needs a value")?.clone()),
             "--wins" => o.wins = Some(it.next().ok_or("--wins needs a value")?.clone()),
@@ -475,6 +497,8 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.answers = Some(s["--answers=".len()..].to_string())
             }
             s if s.starts_with("--by=") => o.by = Some(s["--by=".len()..].to_string()),
+            s if s.starts_with("--set=") => o.set = Some(s["--set=".len()..].to_string()),
+            s if s.starts_with("--go=") => o.go_id = Some(s["--go=".len()..].to_string()),
             s if s.starts_with("--range=") => o.range = Some(s["--range=".len()..].to_string()),
             s if s.starts_with("--spokes=") => o.spokes = Some(s["--spokes=".len()..].to_string()),
             s if s.starts_with("--wins=") => o.wins = Some(s["--wins=".len()..].to_string()),
@@ -1077,6 +1101,50 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["sleeper", "wake"] => Ok(("sleeper.wake", json!({ "id": need_id(o)? }))),
         ["state", "get"] => Ok(("state.get", json!({}))),
         [] => Err(format!("no command\n\n{USAGE}")),
+        ["settings", "plans-dir"] => {
+            if let Some(p) = opt(&o.set) {
+                Ok(("settings.plans_dir_set", json!({ "path": p })))
+            } else {
+                Ok(("settings.plans_dir", json!({})))
+            }
+        }
+        ["settings", "runner"] => {
+            if o.name.is_some() || o.harness.is_some() || o.model.is_some() {
+                let mut a = json!({});
+                put_opt(&mut a, "runner", &o.name);
+                put_opt(&mut a, "harness", &o.harness);
+                put_opt(&mut a, "model", &o.model);
+                Ok(("settings.runner_set", a))
+            } else {
+                Ok(("settings.runner", json!({})))
+            }
+        }
+        ["go", "status"] => {
+            let mut a = json!({});
+            put_opt(&mut a, "file", &o.file);
+            put_opt(&mut a, "go", &o.go_id);
+            put_opt(&mut a, "card", &o.card);
+            put_opt(&mut a, "title", &o.title);
+            Ok(("go.status", a))
+        }
+        ["go", "seal"] => {
+            let file = opt(&o.file).ok_or("go seal needs --file")?;
+            let by = opt(&o.by).ok_or("go seal needs --by")?;
+            if !o.confirm {
+                return Err("go seal needs --confirm".into());
+            }
+            Ok(("go.seal", json!({ "file": file, "by": by, "confirm": true })))
+        }
+        ["plans", "migrate"] => {
+            if o.apply && o.dry_run {
+                return Err("plans migrate: pass only one of --dry-run or --apply".into());
+            }
+            if o.apply {
+                Ok(("plans.migrate_apply", json!({})))
+            } else {
+                Ok(("plans.migrate", json!({ "dryRun": true })))
+            }
+        }
         other => Err(format!("unknown command: {}\n\n{USAGE}", other.join(" "))),
     }
 }
