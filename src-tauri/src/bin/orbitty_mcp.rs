@@ -66,6 +66,7 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
     // Set/clear the summary line. Same write ACL.
     ToolDef { name: "kanban.notes", description: "Set a card's notes (first line paints as the board-row summary; the drawer edits the rest); empty string clears", args: "kanban_notes" },
+    ToolDef { name: "kanban.note_append", description: "Append one line to a card's notes, keeping the existing notes (a repeat of the same line is a no-op). Same write ACL as kanban.notes.", args: "kanban_note_append" },
     ToolDef { name: "kanban.link", description: "Add, remove, or clear a card link (file:// or https:// only, max 8). Same write ACL as kanban.notes. Does not change notes or status.", args: "kanban_link" },
     ToolDef { name: "kanban.open_link", description: "Open a card link with macOS open (default app, Finder, or the browser). n defaults to 0. Does not change card status.", args: "kanban_open_link" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
@@ -199,6 +200,14 @@ fn input_schema(kind: &str) -> Value {
                 "notes": { "type": "string", "description": "Notes text (first line is the board-row summary); empty string clears" }
             },
             "required": ["id", "notes"]
+        }),
+        "kanban_note_append" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "line": { "type": "string", "description": "One line to append to the notes" }
+            },
+            "required": ["id", "line"]
         }),
         "kanban_move" => json!({
             "type": "object",

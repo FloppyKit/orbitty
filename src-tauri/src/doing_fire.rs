@@ -161,6 +161,25 @@ pub fn spawn_fire_and_attach(app: &tauri::AppHandle, before: PersistedState, aft
 mod tests {
     use super::*;
 
+    /// Wiring guard: a doing GO goes through the seal gate before the
+    /// "who runs this" question is minted; a refusal appends a note and
+    /// returns.
+    #[test]
+    fn doing_fire_runs_the_go_gate_before_minting() {
+        let src = include_str!("doing_fire.rs");
+        let start = src.find("fn mint_or_reuse(").unwrap();
+        let body = &src[start..start + src[start..].find("\n}\n").unwrap()];
+        let gate = body
+            .find("crate::plans::gate_for_card(")
+            .expect("doing_fire must call the GO gate");
+        let mint = body.find("load_state(").expect("mint path");
+        assert!(gate < mint, "the gate must run before minting");
+        let arm = &body[..mint];
+        assert!(arm.contains("Gate::Refuse {"), "{arm}");
+        assert!(arm.contains("kanban_note_append"), "{arm}");
+        assert!(arm.contains("return;"), "{arm}");
+    }
+
     fn card(id: &str, kind: &str, status: &str, title: &str) -> KanbanCard {
         KanbanCard {
             id: id.into(),

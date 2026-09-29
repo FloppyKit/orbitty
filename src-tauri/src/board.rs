@@ -370,23 +370,24 @@ pub fn kanban_notes(app: &tauri::AppHandle, id: &str, notes: &str) -> Result<Kan
     Ok(after.kanban_cards[idx].clone())
 }
 
-/// Append one line to a card's notes. A repeat of the same line is a no-op.
-pub fn kanban_note_append(app: &tauri::AppHandle, id: &str, line: &str) -> Result<(), String> {
+/// Append one line to a card's notes (never replaces them). A repeat of
+/// the same line is a no-op. `kanban notes --append` (tool
+/// `kanban.note_append`) is this, for orbitty-needed's refusal notes.
+pub fn kanban_note_append(
+    app: &tauri::AppHandle,
+    id: &str,
+    line: &str,
+) -> Result<KanbanCard, String> {
     let line = line.trim();
-    if line.is_empty() {
-        return Ok(());
-    }
     let before = crate::state::load_state(app)?;
-    let existing = before
-        .kanban_cards
-        .iter()
-        .find(|c| c.id == id.trim())
-        .map(|c| c.notes.clone());
-    let Some(existing) = existing else {
-        return Err(format!("kanban.notes: unknown card id {id:?}"));
+    let Some(card) = before.kanban_cards.iter().find(|c| c.id == id.trim()) else {
+        return Err(format!("kanban.note_append: unknown card id {id:?}"));
     };
-    let joined = crate::plans::join_note(existing.as_deref(), line);
-    kanban_notes(app, id, &joined).map(|_| ())
+    if line.is_empty() {
+        return Ok(card.clone());
+    }
+    let joined = crate::plans::join_note(card.notes.as_deref(), line);
+    kanban_notes(app, id, &joined)
 }
 
 fn normalize_new_links(links: Vec<CardLink>) -> Result<Option<Vec<CardLink>>, String> {

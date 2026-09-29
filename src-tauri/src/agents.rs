@@ -544,6 +544,34 @@ pub fn agent_pickup(
 mod tests {
     use super::*;
 
+    fn fn_body<'a>(src: &'a str, sig: &str) -> &'a str {
+        let start = src.find(sig).unwrap_or_else(|| panic!("{sig} missing"));
+        let len = src[start..].find("\n}\n").expect("fn end");
+        &src[start..start + len]
+    }
+
+    /// Wiring guard: agent_pickup runs the seal gate before launch_agent,
+    /// a refusal appends a note and returns without launching, and the
+    /// resolved GO rides into launch_agent.
+    #[test]
+    fn pickup_runs_the_go_gate_before_launch() {
+        let body = fn_body(include_str!("agents.rs"), "pub fn agent_pickup(");
+        let gate = body
+            .find("crate::plans::gate_for_card(")
+            .expect("pickup must call the GO gate");
+        let launch = body
+            .find("crate::coordinator::launch_agent(")
+            .expect("pickup launches");
+        assert!(gate < launch, "the gate must run before launch_agent");
+        let between = &body[gate..launch];
+        let r = between.find("Gate::Refuse").expect("refuse arm");
+        let end = between[r..].find("Gate::Launch").map(|i| r + i).unwrap_or(between.len());
+        let arm = &between[r..end];
+        assert!(arm.contains("kanban_note_append"), "refusal must append a note: {arm}");
+        assert!(arm.contains("return Ok(") && arm.contains("\"launched\": false"), "{arm}");
+        assert!(body[launch..].contains("handoff,"), "the GO must reach launch_agent");
+    }
+
     #[test]
     fn cursor_rows_default_the_model_other_harnesses_do_not() {
         assert_eq!(

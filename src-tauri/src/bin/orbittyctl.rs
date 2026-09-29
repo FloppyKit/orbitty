@@ -40,6 +40,7 @@ commands:
             [--link URL [--link-label L]]...
   kanban move --id <id> --status todo|doing|done
   kanban notes --id <card> -- \"text\"      empty \"\" clears
+  kanban notes --id <card> --append -- \"line\"   adds one line, keeps the rest
   kanban link --id <card> --add URL [--label L] | --rm URL | --clear
   kanban open-link --id <card> [--n 0]
   kanban assign --id <card> --agent <agent>   empty --agent \"\" unassigns
@@ -251,6 +252,8 @@ struct Opts {
     /// settings plans-dir --set PATH
     set: Option<String>,
     confirm: bool,
+    /// kanban notes --append
+    append: bool,
     dry_run: bool,
     apply: bool,
     /// go status --go GO-ID
@@ -314,6 +317,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         tail: Vec::new(),
         set: None,
         confirm: false,
+        append: false,
         dry_run: false,
         apply: false,
         go_id: None,
@@ -414,6 +418,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--by" => o.by = Some(it.next().ok_or("--by needs a value")?.clone()),
             "--set" => o.set = Some(it.next().ok_or("--set needs a value")?.clone()),
             "--confirm" => o.confirm = true,
+            "--append" => o.append = true,
             "--dry-run" => o.dry_run = true,
             "--apply" => o.apply = true,
             "--go" => o.go_id = Some(it.next().ok_or("--go needs a value")?.clone()),
@@ -772,6 +777,10 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         // Set/clear a card's one-line summary. The
         // text is the `--` payload; `-- ""` clears (payload keeps Some("")),
         // so the clear always reaches the server as an empty string.
+        ["kanban", "notes"] if o.append => Ok((
+            "kanban.note_append",
+            json!({ "id": need_id(o)?, "line": payload(o)? }),
+        )),
         ["kanban", "notes"] => Ok((
             "kanban.notes",
             json!({ "id": need_id(o)?, "notes": payload(o)? }),
@@ -1325,7 +1334,7 @@ fn print_human(tool: &str, data: &Value) {
         ),
         // The reply is the card; notes
         // absent = cleared back to title-only.
-        "kanban.notes" => {
+        "kanban.notes" | "kanban.note_append" => {
             let id = data["id"].as_str().unwrap_or("?");
             match data["notes"].as_str().filter(|n| !n.is_empty()) {
                 Some(n) => println!("notes {id} — {}", n.lines().next().unwrap_or("")),

@@ -2945,6 +2945,20 @@ fn write_agent_query(
     let dir = app_data(app)?.join("context");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     let path = dir.join(format!("agent-{}.md", safe_id(&shortcut.id)));
+    let (body, skipped) = agent_query_body(shortcut, project_name, titles, go_text);
+    crate::plans::enforce_cap(&body)?;
+    std::fs::write(&path, body).map_err(|e| format!("write {}: {e}", path.display()))?;
+    Ok((path, skipped))
+}
+
+/// The query file text (pure, so the GO handoff is testable): header, the
+/// full GO text when a GO launches, md paths, extra, planet titles.
+fn agent_query_body(
+    shortcut: &crate::state::AgentShortcut,
+    project_name: Option<&str>,
+    titles: &[String],
+    go_text: Option<&str>,
+) -> (String, usize) {
     let mut body = format!("# {}\n\nOrbitty agent shortcut context.\n", shortcut.name);
     if let Some(go_text) = go_text.map(str::trim).filter(|s| !s.is_empty()) {
         body.push_str("\n\n## GO\n\n");
@@ -2997,9 +3011,7 @@ fn write_agent_query(
             }
         }
     }
-    crate::plans::enforce_cap(&body)?;
-    std::fs::write(&path, body).map_err(|e| format!("write {}: {e}", path.display()))?;
-    Ok((path, skipped))
+    (body, skipped)
 }
 
 /// Resolved GO handed to every launch door (pickup, Terminal, herdr, clerk).
@@ -3417,7 +3429,9 @@ pub fn launch_agent(
 ) -> Result<String, String> {
     #[cfg(unix)]
     crate::gate_caps::check(&app)?;
-    let push_flag = if let Some(g) = go_launch.as_mut() {
+    // push_allowed is enforced by the launcher rule in the prompt only; no
+    // harness has a push flag. git_push without push_allowed is refused here.
+    let push_ok = if let Some(g) = go_launch.as_mut() {
         let primary_ok = match g.run.harness.as_str() {
             "cursor" => find_on_path("cursor-agent").is_some(),
             "goose" => find_on_path("goose").is_some(),
@@ -3426,7 +3440,7 @@ pub fn launch_agent(
             _ => true,
         };
         g.run = crate::plans::apply_fallback(&g.run, primary_ok);
-        let flag = crate::plans::push_decision(&g.run)?;
+        let push_ok = crate::plans::push_decision(&g.run)?;
         let door = crate::plans::door_harness(&g.run.harness);
         if door == "manual" {
             let _ = std::process::Command::new("open").arg(&g.parsed.path).status();
@@ -3443,7 +3457,7 @@ pub fn launch_agent(
             }
             shortcut.model = Some(g.run.model.clone());
         }
-        flag
+        push_ok
     } else {
         false
     };
@@ -3462,7 +3476,7 @@ pub fn launch_agent(
     };
     let go_text = go_launch
         .as_ref()
-        .map(|g| crate::plans::go_block(&g.parsed));
+        .map(|g| crate::plans::launch_text(&g.parsed, push_ok));
     let (query, skipped) =
         write_agent_query(&app, &shortcut, project_name.as_deref(), &titles, go_text.as_deref())?;
     let skip_note = if skipped > 0 {
@@ -3518,7 +3532,7 @@ pub fn launch_agent(
             // Herdr door: herdr starts cursor-agent itself, so the file must
             // be there before branch(). A skip takes it back.
             let undo = install();
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {
                     if let Some(u) = undo {
                         u.rollback();
@@ -3536,10 +3550,7 @@ pub fn launch_agent(
                         .to_string(),
                 );
             };
-            let exec = crate::plans::exec_with_push(
-                &crate::agents::cursor_exec_line(&bin.display().to_string(), &model, preset),
-                push_flag,
-            );
+            let exec = crate::agents::cursor_exec_line(&bin.display().to_string(), &model, preset);
             let undo = install();
             let opened = match open_agent_terminal(
                 &app,
@@ -3567,7 +3578,7 @@ pub fn launch_agent(
         // Goose is not a herdr kind. branch() logs the skip, then the
         // terminal door runs. Never a silent hermes.
         "goose" => {
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
@@ -3587,12 +3598,9 @@ pub fn launch_agent(
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
-                &crate::plans::exec_with_push(
-                    &format!(
-                        "{} run --with-builtin=developer,computercontroller -t \"$prompt\"",
-                        sq(&bin.display().to_string())
-                    ),
-                    push_flag,
+                &format!(
+                    "{} run --with-builtin=developer,computercontroller -t \"$prompt\"",
+                    sq(&bin.display().to_string())
                 ),
                 Some(workspace.as_str()),
                 planet_for_log,
@@ -3608,7 +3616,7 @@ pub fn launch_agent(
             // pane first, agent second, when herdr is present + up.
             // Skip falls through to the terminal launcher
             // (one skip line was already logged; never a dual-launch).
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
@@ -3626,10 +3634,7 @@ pub fn launch_agent(
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
-                &crate::plans::exec_with_push(
-                    &format!("{} -p \"$prompt\"", sq(&bin.display().to_string())),
-                    push_flag,
-                ),
+                &format!("{} -p \"$prompt\"", sq(&bin.display().to_string())),
                 Some(workspace.as_str()),
                 planet_for_log,
             )?;
@@ -3643,7 +3648,7 @@ pub fn launch_agent(
         // with the query file. No terminal launcher on that fallback, so
         // a waiter thread owns the LED off. Detached stdio, never a poll.
         "hermes" => {
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
@@ -3702,7 +3707,7 @@ pub fn launch_agent(
         // — legal with `opencode` on PATH, never prompt-installed, never
         // `opencode serve`d as the mouth. No Terminal door exists for it,
         // so a skip is an honest error, not a fall-through.
-        "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), push_flag) {
+        "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
             crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                 hint.herdr_agent = Some(agent);
                 Ok(format!("{m} Query: {}.{skip_note}", query.display()))
@@ -3819,6 +3824,36 @@ mod mac {
 mod launch_tests {
     use super::*;
     use std::path::{Path, PathBuf};
+
+    fn row() -> crate::state::AgentShortcut {
+        crate::state::AgentShortcut {
+            id: "a1".into(),
+            name: "orbitty-cursor".into(),
+            harness: "cursor".into(),
+            profile: String::new(),
+            model: None,
+            md_paths: vec![],
+            project_id: Some("p1".into()),
+            extra: None,
+            permissions: "read-only".into(),
+        }
+    }
+
+    #[test]
+    fn query_file_carries_the_full_go_text() {
+        let titles = vec!["GO-ORBITTY-X".to_string()];
+        let go = "---\nid: GO-ORBITTY-X\n---\nBODY-SENTINEL\n\n## Launcher rules\n\n- git push: NOT allowed";
+        let (body, _) = agent_query_body(&row(), Some("orbitty"), &titles, Some(go));
+        assert!(body.contains("## GO\n\n---\nid: GO-ORBITTY-X"), "{body}");
+        assert!(body.contains("BODY-SENTINEL"), "{body}");
+        assert!(body.contains("git push: NOT allowed"), "{body}");
+        assert!(!body.contains("titles only"), "{body}");
+        // GO text comes before the planet titles.
+        assert!(body.find("BODY-SENTINEL").unwrap() < body.find("- GO-ORBITTY-X").unwrap());
+        let (plain, _) = agent_query_body(&row(), Some("orbitty"), &titles, None);
+        assert!(!plain.contains("## GO"), "{plain}");
+        assert!(plain.contains("titles only"), "{plain}");
+    }
 
     #[test]
     fn terminal_setting_picks_ghostty_when_empty_and_installed() {

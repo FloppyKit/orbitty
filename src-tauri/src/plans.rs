@@ -107,6 +107,8 @@ pub struct GoHeader {
 pub struct ParsedGo {
     pub path: PathBuf,
     pub raw: String,
+    /// Header text between the `---` fences ("" for a headerless file).
+    pub yaml: String,
     pub header: GoHeader,
     pub body: String,
     pub legacy: bool,
@@ -303,8 +305,18 @@ enum Locate {
     Missing,
 }
 
+/// Deepest folder level searched for GO files under a plans folder. A match
+/// nested deeper is refused with a note, never silently skipped.
+pub const MAX_GO_DEPTH: usize = 6;
+/// How far the walk looks, so a too-deep match is seen and refused.
+const WALK_LIMIT: usize = 16;
+
+/// Fail closed: once a card names a GO token (or links a file inside the
+/// plans folder), the answer is a GO file or a refusal note. `Missing`
+/// (launch with the title only) is only for cards that are not GOs.
 fn locate(roots: &Roots, id: &str, title: &str, link_urls: &[String]) -> Locate {
     let dirs = read_dirs_in(roots);
+    let mut linked = false;
     for url in link_urls {
         let Some(path) = file_url_to_path(url) else {
             continue;
@@ -312,6 +324,7 @@ fn locate(roots: &Roots, id: &str, title: &str, link_urls: &[String]) -> Locate 
         if !dirs.iter().any(|d| is_inside(&path, d)) {
             continue;
         }
+        linked = true;
         if !path.is_file() {
             continue;
         }
@@ -321,56 +334,113 @@ fn locate(roots: &Roots, id: &str, title: &str, link_urls: &[String]) -> Locate 
         };
     }
     let token = crate::needed_rules::extract_go(title);
+    let tok = token.as_deref();
+    let slug = tok.map(|t| t.replace('-', "_"));
+    let names_token = |p: &Path| -> bool {
+        let (Some(t), Some(s)) = (tok, slug.as_deref()) else {
+            return false;
+        };
+        let name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_ascii_uppercase();
+        name.contains(t) || name.contains(s)
+    };
     let mut files = Vec::new();
     for d in &dirs {
         walk_md(d, &mut files, 0);
     }
     files.sort();
-    let mut by_card: Option<ParsedGo> = None;
-    let mut by_id: Option<ParsedGo> = None;
-    let mut malformed_name: Option<String> = None;
-    for path in &files {
+    let mut by_card: Option<(ParsedGo, usize)> = None;
+    let mut by_id: Option<(ParsedGo, usize)> = None;
+    let mut headerless: Option<PathBuf> = None;
+    let mut malformed_named: Option<String> = None;
+    let mut malformed_other: Option<String> = None;
+    for (path, depth) in &files {
         match parse_file(path) {
             Ok(g) if !g.legacy => {
-                if !id.is_empty() && nonblank(g.header.card_id.as_deref()).as_deref() == Some(id) {
-                    by_card.get_or_insert(g);
+                if !id.is_empty() && g.header.card_id.as_deref() == Some(id.trim()) {
+                    if by_card.is_none() {
+                        by_card = Some((g, *depth));
+                    }
                     continue;
                 }
-                if let Some(tok) = token.as_deref() {
-                    if nonblank(g.header.id.as_deref()).as_deref() == Some(tok) && by_id.is_none() {
-                        by_id = Some(g);
+                // Header ids match case-insensitively: a lowercase `id`
+                // is still this GO and still goes through the seal gate.
+                if let Some(t) = tok {
+                    if by_id.is_none()
+                        && g.header.id.as_deref().is_some_and(|h| h.eq_ignore_ascii_case(t))
+                    {
+                        by_id = Some((g, *depth));
                     }
+                }
+            }
+            Ok(_) => {
+                // Headerless file named for this GO (not a legacy
+                // `_X_PROMPT.md`, which has its own rule below).
+                if headerless.is_none()
+                    && legacy_token_from_path(path).is_none()
+                    && names_token(path)
+                {
+                    headerless = Some(path.clone());
                 }
             }
             Err(note) => {
-                if malformed_name.is_none() {
-                    if let Some(tok) = token.as_deref() {
-                        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                        let slug = tok.replace('-', "_");
-                        if name.contains(tok) || name.contains(&slug) {
-                            malformed_name = Some(note);
-                        }
+                if names_token(path) {
+                    if malformed_named.is_none() {
+                        malformed_named = Some(note);
                     }
+                } else if tok.is_some() && malformed_other.is_none() {
+                    malformed_other = Some(format!("{}: {note}", path.display()));
                 }
             }
-            _ => {}
         }
     }
-    if let Some(g) = by_card.or(by_id) {
-        return Locate::Found(g);
-    }
-    if let Some(tok) = token.as_deref() {
-        if let Some(path) = legacy_prompt_in(roots, tok) {
-            return match parse_file(&path) {
-                Ok(g) => Locate::Found(g),
-                Err(note) => Locate::Bad { note },
+    if let Some((g, depth)) = by_card.or(by_id) {
+        if depth > MAX_GO_DEPTH {
+            return Locate::Bad {
+                note: format!(
+                    "{} is nested {depth} folders deep in the plans folder (max {MAX_GO_DEPTH}); not launching.",
+                    g.path.display()
+                ),
             };
         }
-        if let Some(note) = malformed_name {
-            return Locate::Bad { note };
-        }
+        return Locate::Found(g);
     }
-    Locate::Missing
+    let Some(t) = tok else {
+        if linked {
+            return Locate::Bad {
+                note: "The card links a GO file in the plans folder that is missing; not launching."
+                    .into(),
+            };
+        }
+        return Locate::Missing;
+    };
+    if let Some(path) = legacy_prompt_in(roots, t) {
+        return match parse_file(&path) {
+            Ok(g) => Locate::Found(g),
+            Err(note) => Locate::Bad { note },
+        };
+    }
+    if let Some(p) = headerless {
+        return Locate::Bad {
+            note: format!("{t}: {} has no GO header; not launching.", p.display()),
+        };
+    }
+    if let Some(note) = malformed_named {
+        return Locate::Bad { note };
+    }
+    if let Some(note) = malformed_other {
+        return Locate::Bad {
+            note: format!(
+                "{t}: no GO file with a matching header; a malformed header may be it ({note}); not launching."
+            ),
+        };
+    }
+    Locate::Bad {
+        note: format!("{t}: no GO file with a matching header in the plans folder; not launching."),
+    }
 }
 
 /// `None` means sealed and launchable.
@@ -399,12 +469,87 @@ pub fn seal_note(roots: &Roots, go: &ParsedGo) -> Option<String> {
             "{id} is sealed but missing sealed_at or sealed_by; not launching."
         ));
     }
-    let want = nonblank(go.header.seal_hash.as_deref()).unwrap_or_default();
-    let got = sha256_hex(go.body.as_bytes());
-    if want.is_empty() || !want.eq_ignore_ascii_case(&got) {
-        return Some(format!("{id} body changed since seal."));
+    let Some(want) = nonblank(go.header.seal_hash.as_deref()) else {
+        return Some(format!(
+            "{id} is unsealed (no seal_hash; run go seal); not launching."
+        ));
+    };
+    match seal_hash_of(roots, &go.yaml, &go.header, &go.body) {
+        Ok(got) if want.eq_ignore_ascii_case(&got) => None,
+        Ok(_) => Some(format!(
+            "{id} changed since seal (body, header or lock); not launching."
+        )),
+        Err(e) => Some(format!("{id} seal check failed ({e}); not launching.")),
     }
-    None
+}
+
+/// Header keys the seal writes, so the seal hash leaves them out.
+const SEAL_KEYS: &[&str] = &["status", "sealed_at", "sealed_by", "seal_hash"];
+
+/// The seal covers every header field except the seal fields themselves
+/// (so push_allowed, tools, runner, harness, model, lock, workspace ...),
+/// the body, and the lock file's text. Header comments and key order don't
+/// count: the header is hashed as canonical JSON with sorted keys.
+pub fn seal_hash_of(
+    roots: &Roots,
+    yaml: &str,
+    header: &GoHeader,
+    body: &str,
+) -> Result<String, String> {
+    let doc: serde_yaml::Value = if yaml.trim().is_empty() {
+        serde_yaml::Value::Mapping(Default::default())
+    } else {
+        serde_yaml::from_str(yaml).map_err(|e| format!("malformed header: {e}"))?
+    };
+    let mut j = serde_json::to_value(&doc).map_err(|e| format!("malformed header: {e}"))?;
+    let obj = j
+        .as_object_mut()
+        .ok_or_else(|| "malformed header: not a map".to_string())?;
+    for k in SEAL_KEYS {
+        obj.remove(*k);
+    }
+    let head = canonical_json(&j);
+    let lock = match nonblank(header.lock.as_deref()) {
+        None => "(no lock)".to_string(),
+        Some(l) => {
+            let p = lock_path(roots, &l);
+            std::fs::read_to_string(&p)
+                .map_err(|e| format!("lock unreadable {}: {e}", p.display()))?
+        }
+    };
+    let mut h = Sha256::new();
+    h.update(b"orbitty-seal-v2\n");
+    for (name, part) in [("header", head.as_str()), ("body", body), ("lock", lock.as_str())] {
+        h.update(format!("{name} {}\n", part.len()).as_bytes());
+        h.update(part.as_bytes());
+        h.update(b"\n");
+    }
+    Ok(hex_encode(&h.finalize()))
+}
+
+fn canonical_json(v: &Value) -> String {
+    match v {
+        Value::Object(m) => {
+            let mut keys: Vec<&String> = m.keys().collect();
+            keys.sort();
+            let parts: Vec<String> = keys
+                .iter()
+                .map(|k| format!("{}:{}", Value::String((*k).clone()), canonical_json(&m[*k])))
+                .collect();
+            format!("{{{}}}", parts.join(","))
+        }
+        Value::Array(a) => format!(
+            "[{}]",
+            a.iter().map(canonical_json).collect::<Vec<_>>().join(",")
+        ),
+        other => other.to_string(),
+    }
+}
+
+fn lock_path(roots: &Roots, raw: &str) -> PathBuf {
+    let plans = plans_dir(roots).display().to_string();
+    let repo = repo_root(roots).display().to_string();
+    expand_home(roots, &expand_text(raw, &repo, &plans))
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -414,47 +559,97 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 pub fn seal_file(path: &Path, by: &str) -> Result<ParsedGo, String> {
+    seal_file_in(&Roots::real(), path, by)
+}
+
+/// Seal in place. Only the `status`, `sealed_at`, `sealed_by` and
+/// `seal_hash` lines change (added at the end of the header when absent);
+/// comments, key order and the body stay byte-for-byte. The result must
+/// verify before anything is written.
+pub fn seal_file_in(roots: &Roots, path: &Path, by: &str) -> Result<ParsedGo, String> {
     let by = by.trim();
     if by.is_empty() {
         return Err("go seal needs --by".into());
     }
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("read {}: {e}", path.display()))?;
-    let (yaml, body) = split_front(&raw)?;
-    let mut doc: serde_yaml::Value =
+    let bom = raw.starts_with('\u{feff}');
+    let text = raw.trim_start_matches('\u{feff}');
+    let (yaml, body) = split_front(text)?;
+    let header: GoHeader =
         serde_yaml::from_str(&yaml).map_err(|e| format!("malformed header: {e}"))?;
-    let map = doc
-        .as_mapping_mut()
-        .ok_or_else(|| "malformed header: not a map".to_string())?;
-    let hash = sha256_hex(body.as_bytes());
-    let now = seal_timestamp();
-    map.insert(
-        serde_yaml::Value::String("status".into()),
-        serde_yaml::Value::String("sealed".into()),
+    let header = normalize_header(header);
+    let hash = seal_hash_of(roots, &yaml, &header, &body)?;
+    let nl = if text.starts_with("---\r\n") { "\r\n" } else { "\n" };
+    let quote = |v: &str| serde_json::to_string(v).unwrap_or_else(|_| "\"\"".into());
+    let new_yaml = set_header_keys(
+        &yaml,
+        &[
+            ("status", "sealed".to_string()),
+            ("sealed_at", quote(&seal_timestamp())),
+            ("sealed_by", quote(by)),
+            ("seal_hash", hash),
+        ],
+        nl,
     );
-    map.insert(
-        serde_yaml::Value::String("sealed_at".into()),
-        serde_yaml::Value::String(now),
+    let out = format!(
+        "{}---{nl}{new_yaml}---{nl}{body}",
+        if bom { "\u{feff}" } else { "" }
     );
-    map.insert(
-        serde_yaml::Value::String("sealed_by".into()),
-        serde_yaml::Value::String(by.into()),
-    );
-    map.insert(
-        serde_yaml::Value::String("seal_hash".into()),
-        serde_yaml::Value::String(hash),
-    );
-    let dumped = serde_yaml::to_string(&doc).map_err(|e| e.to_string())?;
-    let mut dumped = dumped
-        .trim_start_matches("---")
-        .trim_start_matches(['\n', '\r'])
-        .to_string();
-    if !dumped.ends_with('\n') {
-        dumped.push('\n');
+    let parsed = parse_text(path, out.clone())?;
+    if let Some(note) = seal_note(roots, &parsed) {
+        return Err(format!("seal did not verify: {note}"));
     }
-    let out = format!("---\n{dumped}---\n{body}");
     std::fs::write(path, &out).map_err(|e| format!("write {}: {e}", path.display()))?;
-    parse_file(path)
+    Ok(parsed)
+}
+
+/// Top-level YAML key on this line, if it is a plain `key: ...` line.
+fn top_key(line: &str) -> Option<&str> {
+    if line.starts_with([' ', '\t', '#', '-']) {
+        return None;
+    }
+    let (k, _) = line.split_once(':')?;
+    let k = k.trim().trim_matches(['"', '\'']);
+    if k.is_empty() || k.contains(' ') {
+        None
+    } else {
+        Some(k)
+    }
+}
+
+/// Replace (or append) top-level keys in header text, keeping every other
+/// line, comments included. A replaced key's indented continuation lines go
+/// with it; a repeated key keeps only the first, rewritten line.
+fn set_header_keys(yaml: &str, pairs: &[(&str, String)], nl: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut done = vec![false; pairs.len()];
+    let mut skipping = false;
+    for line in yaml.lines() {
+        if skipping {
+            if line.starts_with([' ', '\t']) {
+                continue;
+            }
+            skipping = false;
+        }
+        if let Some(i) = top_key(line).and_then(|k| pairs.iter().position(|(p, _)| *p == k)) {
+            if !done[i] {
+                out.push(format!("{}: {}", pairs[i].0, pairs[i].1));
+                done[i] = true;
+            }
+            skipping = true;
+            continue;
+        }
+        out.push(line.to_string());
+    }
+    for (i, (k, v)) in pairs.iter().enumerate() {
+        if !done[i] {
+            out.push(format!("{k}: {v}"));
+        }
+    }
+    let mut joined = out.join(nl);
+    joined.push_str(nl);
+    joined
 }
 
 pub fn status_value(
@@ -495,9 +690,13 @@ pub fn status_value(
     }
 }
 
+/// `query` (sealed only) is the exact text a launch hands the agent: the
+/// GO with paths expanded, the lock appended, and the launcher rules. The
+/// orbitty-needed clerk / cursor-go routes use it, so every route gets the
+/// same text. `launchNote` set = sealed but still not launchable.
 fn status_json(roots: &Roots, go: &ParsedGo) -> Value {
     let note = seal_note(roots, go);
-    json!({
+    let mut v = json!({
         "sealed": note.is_none(),
         "found": true,
         "id": go.id(),
@@ -505,8 +704,35 @@ fn status_json(roots: &Roots, go: &ParsedGo) -> Value {
         "status": go.header.status,
         "legacy": go.legacy,
         "sha256": sha256_hex(go.raw.as_bytes()),
-        "note": note.unwrap_or_default(),
-    })
+        "workspace": workspace_in(roots, go).display().to_string(),
+        "note": note.clone().unwrap_or_default(),
+    });
+    if note.is_none() {
+        let run = resolve_run_in(roots, &go.header, &go.id(), "", herdr_bin_present());
+        match push_decision(&run) {
+            Err(e) => v["launchNote"] = json!(format!("{} {e}; not launching.", go.id())),
+            Ok(push) => {
+                let q = launch_text_in(roots, go, push);
+                match enforce_cap(&q) {
+                    Err(e) => v["launchNote"] = json!(e),
+                    Ok(()) => {
+                        v["queryChars"] = json!(q.chars().count());
+                        v["query"] = json!(q);
+                    }
+                }
+            }
+        }
+    }
+    v
+}
+
+/// Header `workspace` with `{REPO_ROOT}` / `{PLANS_DIR}` / `~` expanded,
+/// else the repo root setting.
+pub fn workspace_in(roots: &Roots, go: &ParsedGo) -> PathBuf {
+    match nonblank(go.header.workspace.as_deref()) {
+        Some(w) => lock_path(roots, &w),
+        None => repo_root(roots),
+    }
 }
 
 pub fn migrate_list(roots: &Roots) -> Vec<Value> {
@@ -720,19 +946,28 @@ pub fn door_harness(harness: &str) -> String {
     }
 }
 
-pub fn exec_with_push(line: &str, push: bool) -> String {
-    if !push {
-        return line.to_string();
+/// No harness has a push flag (cursor-agent, goose and grok have none), so
+/// push_allowed is enforced only here: this rule rides every GO prompt.
+/// `push_decision` still refuses `git_push` without `push_allowed: true`.
+pub fn push_rule(push_ok: bool) -> &'static str {
+    if push_ok {
+        "git push: allowed for this run (push_allowed: true and git_push in tools)."
+    } else {
+        "git push: NOT allowed for this run. Do not push to any remote; commit locally only."
     }
-    if line.contains("--git-push") {
-        return line.to_string();
-    }
-    if let Some(i) = line.rfind("\"$prompt\"") {
-        let mut s = line.to_string();
-        s.insert_str(i, "--git-push ");
-        return s;
-    }
-    format!("{line} --git-push")
+}
+
+/// The text every route hands the agent: GO block + launcher rules.
+pub fn launch_text(go: &ParsedGo, push_ok: bool) -> String {
+    launch_text_in(&Roots::real(), go, push_ok)
+}
+
+pub fn launch_text_in(roots: &Roots, go: &ParsedGo, push_ok: bool) -> String {
+    format!(
+        "{}\n\n## Launcher rules\n\n- {}\n",
+        go_block_in(roots, go).trim_end(),
+        push_rule(push_ok)
+    )
 }
 
 pub fn unsupported_tools(harness: &str, tools: &[String]) -> Vec<String> {
@@ -761,11 +996,6 @@ pub fn unsupported_tools(harness: &str, tools: &[String]) -> Vec<String> {
         .collect()
 }
 
-pub fn go_block(go: &ParsedGo) -> String {
-    let roots = Roots::real();
-    go_block_in(&roots, go)
-}
-
 pub fn go_block_in(roots: &Roots, go: &ParsedGo) -> String {
     let plans = plans_dir(roots).display().to_string();
     let repo = repo_root(roots).display().to_string();
@@ -776,7 +1006,7 @@ pub fn go_block_in(roots: &Roots, go: &ParsedGo) -> String {
         }
     }
     if let Some(lock) = nonblank(go.header.lock.as_deref()) {
-        let lock_path = expand_text(&lock, &repo, &plans);
+        let lock_path = lock_path(roots, &lock).display().to_string();
         match std::fs::read_to_string(&lock_path) {
             Ok(body) => {
                 let body = expand_text(&body, &repo, &plans);
@@ -884,10 +1114,15 @@ fn hex_encode(bytes: &[u8]) -> String {
 fn parse_file(path: &Path) -> Result<ParsedGo, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("GO unreadable {}: {e}", path.display()))?;
+    parse_text(path, raw)
+}
+
+fn parse_text(path: &Path, raw: String) -> Result<ParsedGo, String> {
     let trimmed = raw.trim_start_matches('\u{feff}');
     if !trimmed.starts_with("---") {
         return Ok(ParsedGo {
             path: path.to_path_buf(),
+            yaml: String::new(),
             header: GoHeader::default(),
             body: raw.clone(),
             raw,
@@ -901,6 +1136,7 @@ fn parse_file(path: &Path) -> Result<ParsedGo, String> {
     Ok(ParsedGo {
         path: path.to_path_buf(),
         raw,
+        yaml,
         header,
         body,
         legacy: false,
@@ -1002,8 +1238,8 @@ fn is_inside(path: &Path, dir: &Path) -> bool {
     path.starts_with(dir)
 }
 
-fn walk_md(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
-    if depth > 6 {
+fn walk_md(dir: &Path, out: &mut Vec<(PathBuf, usize)>, depth: usize) {
+    if depth > WALK_LIMIT {
         return;
     }
     let Ok(rd) = std::fs::read_dir(dir) else {
@@ -1019,7 +1255,7 @@ fn walk_md(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
         if p.is_dir() {
             walk_md(&p, out, depth + 1);
         } else if name.ends_with(".md") {
-            out.push(p);
+            out.push((p, depth));
         }
     }
 }
@@ -1299,7 +1535,7 @@ mod tests {
         write(&by_id, "---\nid: GO-ORDER\nstatus: ready\n---\nID-BODY\n");
         write(&legacy, "no header\n");
         // Fix the link file's hash so it is actually sealed.
-        seal_file(&link, "matt").unwrap();
+        seal_file_in(&roots, &link, "matt").unwrap();
         let url = format!("file://{}", link.display());
         match gate_in(&roots, "c-1", "GO-ORDER", &[url]) {
             Gate::Launch(g) => assert!(g.body.contains("LINK-BODY"), "{}", g.body),
@@ -1331,13 +1567,13 @@ mod tests {
             &p,
             "---\nid: GO-SEAL\nstatus: ready\n---\nSENTINEL-LINE\n",
         );
-        let sealed = seal_file(&p, "matt").unwrap();
+        let sealed = seal_file_in(&roots, &p, "matt").unwrap();
         assert!(seal_note(&roots, &sealed).is_none());
         let raw = std::fs::read_to_string(&p).unwrap();
         std::fs::write(&p, raw.replace("SENTINEL-LINE", "EDITED-LINE")).unwrap();
         let again = parse_file(&p).unwrap();
         let note = seal_note(&roots, &again).unwrap();
-        assert!(note.contains("body changed since seal"), "{note}");
+        assert!(note.contains("changed since seal"), "{note}");
     }
 
     #[test]
@@ -1416,11 +1652,11 @@ mod tests {
         no_push_tool.tools = vec!["read".into()];
         no_push_tool.push_allowed = true;
         assert_eq!(push_decision(&no_push_tool).unwrap(), false);
-        assert!(!exec_with_push("grok \"$prompt\"", false).contains("--git-push"));
         let mut allowed = run.clone();
         allowed.push_allowed = true;
         assert_eq!(push_decision(&allowed).unwrap(), true);
-        assert!(exec_with_push("cursor \"$prompt\"", true).contains("--git-push"));
+        assert!(push_rule(false).contains("NOT allowed"));
+        assert!(push_rule(true).contains("allowed for this run"));
         let fb = apply_fallback(&run, false);
         assert!(fb.fell_back);
         assert_eq!(fb.runner, "herdr-probe");
@@ -1463,6 +1699,271 @@ mod tests {
         let huge = "x".repeat(QUERY_CAP + 1);
         assert!(enforce_cap(&huge).unwrap_err().contains("64000"));
         assert!(enforce_cap("ok").is_ok());
+    }
+
+    fn sealed_go(roots: &Roots, name: &str, header: &str, body: &str) -> PathBuf {
+        let p = plans_dir(roots).join(name);
+        write(&p, &format!("---\n{header}---\n{body}"));
+        seal_file_in(roots, &p, "matt").unwrap();
+        p
+    }
+
+    #[test]
+    fn seal_covers_header_and_lock() {
+        let roots = temp_roots("sealhdr");
+        let plans = plans_dir(&roots);
+        let lock = plans.join("lock.md");
+        write(&lock, "LOCK-V1\n");
+        let p = sealed_go(
+            &roots,
+            "go.md",
+            "id: GO-HDR\nstatus: ready\npush_allowed: false\ntools: [read, edit]\nrunner: orbitty-cursor\nharness: cursor\nmodel: grok-4.7-high\nlock: \"{PLANS_DIR}/lock.md\"\n",
+            "BODY\n",
+        );
+        assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_none());
+        let raw = std::fs::read_to_string(&p).unwrap();
+        for (from, to) in [
+            ("push_allowed: false", "push_allowed: true"),
+            ("tools: [read, edit]", "tools: [read, edit, git_push]"),
+            ("runner: orbitty-cursor", "runner: other"),
+            ("harness: cursor", "harness: grok"),
+            ("model: grok-4.7-high", "model: other"),
+            ("lock: \"{PLANS_DIR}/lock.md\"", "lock: \"{PLANS_DIR}/other.md\""),
+        ] {
+            assert!(raw.contains(from), "{from}");
+            std::fs::write(&p, raw.replace(from, to)).unwrap();
+            let note = seal_note(&roots, &parse_file(&p).unwrap())
+                .unwrap_or_else(|| panic!("header edit {from:?} must break the seal"));
+            assert!(
+                note.contains("changed since seal") || note.contains("seal check failed"),
+                "{note}"
+            );
+        }
+        std::fs::write(&p, &raw).unwrap();
+        assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_none());
+        write(&lock, "LOCK-V2\n");
+        let note = seal_note(&roots, &parse_file(&p).unwrap()).expect("lock edit breaks the seal");
+        assert!(note.contains("changed since seal"), "{note}");
+        write(&lock, "LOCK-V1\n");
+        assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_none());
+        std::fs::remove_file(&lock).unwrap();
+        assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_some());
+    }
+
+    #[test]
+    fn no_seal_hash_reads_unsealed() {
+        let roots = temp_roots("nohash");
+        let p = plans_dir(&roots).join("go.md");
+        write(
+            &p,
+            "---\nid: GO-NOHASH\nstatus: sealed\nsealed_at: 2026-09-29T15:40:00-05:00\nsealed_by: matt\n---\nBODY\n",
+        );
+        let note = seal_note(&roots, &parse_file(&p).unwrap()).unwrap();
+        assert!(note.contains("unsealed"), "{note}");
+        assert!(!note.contains("changed since seal"), "{note}");
+    }
+
+    #[test]
+    fn seal_keeps_header_comments_and_body() {
+        let roots = temp_roots("comments");
+        let p = plans_dir(&roots).join("go.md");
+        let body = "# Title\n\nBODY  with  spaces\n";
+        write(
+            &p,
+            &format!(
+                "---\n# top comment\nid: GO-CMT\nstatus: ready   # old status\nrunner: orbitty-cursor  # runner note\n# future option (not now)\ntools: [read]\n---\n{body}"
+            ),
+        );
+        seal_file_in(&roots, &p, "Chuck for Matt: night").unwrap();
+        let raw = std::fs::read_to_string(&p).unwrap();
+        for keep in [
+            "# top comment\n",
+            "runner: orbitty-cursor  # runner note\n",
+            "# future option (not now)\n",
+            "tools: [read]\n",
+        ] {
+            assert!(raw.contains(keep), "lost {keep:?}:\n{raw}");
+        }
+        assert!(raw.contains("status: sealed\n"), "{raw}");
+        assert!(raw.contains("sealed_by: \"Chuck for Matt: night\"\n"), "{raw}");
+        assert!(raw.ends_with(&format!("---\n{body}")), "{raw}");
+        let g = parse_file(&p).unwrap();
+        assert_eq!(g.header.sealed_by.as_deref(), Some("Chuck for Matt: night"));
+        assert!(seal_note(&roots, &g).is_none());
+        // Resealing is stable: still one seal_hash line, comments intact.
+        seal_file_in(&roots, &p, "matt").unwrap();
+        let again = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(again.matches("seal_hash:").count(), 1, "{again}");
+        assert!(again.contains("# future option (not now)\n"));
+    }
+
+    #[test]
+    fn empty_sealed_by_refuses() {
+        let roots = temp_roots("emptyby");
+        let p = sealed_go(&roots, "go.md", "id: GO-BY\nstatus: ready\n", "BODY\n");
+        let raw = std::fs::read_to_string(&p).unwrap();
+        let line = raw.lines().find(|l| l.starts_with("sealed_by:")).unwrap().to_string();
+        for blank in ["sealed_by: \"\"", "sealed_by: \"   \"", "sealed_by:"] {
+            std::fs::write(&p, raw.replace(&line, blank)).unwrap();
+            let note = seal_note(&roots, &parse_file(&p).unwrap())
+                .unwrap_or_else(|| panic!("{blank:?} must not launch"));
+            assert!(note.contains("sealed_by"), "{note}");
+        }
+    }
+
+    #[test]
+    fn card_id_match_beats_id_match() {
+        let roots = temp_roots("m3");
+        let plans = plans_dir(&roots);
+        // The id file is sealed and sorts first; the card file is not
+        // sealed. Only the card_id-before-id order refuses here.
+        write(
+            &plans.join("z-card.md"),
+            "---\nid: GO-M-THREE\ncard_id: c-3\nstatus: ready\n---\nCARD\n",
+        );
+        sealed_go(&roots, "b-id.md", "id: GO-M-THREE\nstatus: ready\n", "ID\n");
+        match gate_in(&roots, "c-3", "GO-M-THREE", &[]) {
+            Gate::Refuse { note } => assert!(note.contains("ready, not sealed"), "{note}"),
+            other => panic!("card_id file must win: {other:?}"),
+        }
+        // Without the card match, the sealed id file launches.
+        match gate_in(&roots, "c-other", "GO-M-THREE", &[]) {
+            Gate::Launch(g) => assert!(g.body.contains("ID")),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn yaml_defaults_beat_rules_json() {
+        let roots = temp_roots("m6");
+        let plans = plans_dir(&roots);
+        write(
+            &plans.join("RULES.yaml"),
+            "version: 1\ndefaults:\n  runner: yaml-default\n  harness: manual\n  model: m-default\nrules:\n  - id: other\n    match: { go: \"GO-ELSE*\" }\n    runner: nope\n",
+        );
+        write(
+            &roots.home.join(".buzz/ops/needed-bus/rules.json"),
+            r#"{"version":1,"rules":[{"id":"r1","enabled":true,"params":{"flavor":"fact","go":"GO-ORBITTY*","project":"orbitty"},"answer":"grok on this planet"}]}"#,
+        );
+        let run = resolve_run_in(&roots, &GoHeader::default(), "GO-ORBITTY-X", "orbitty", true);
+        assert_eq!(run.runner, "yaml-default");
+        assert_eq!(run.harness, "manual");
+        assert_eq!(run.model, "m-default");
+        assert_eq!(run.source, "RULES.yaml");
+    }
+
+    #[test]
+    fn go_token_with_no_file_refuses_instead_of_title_launch() {
+        let roots = temp_roots("nofile");
+        match gate_in(&roots, "c-1", "GO-ORBITTY-NOTHING", &[]) {
+            Gate::Refuse { note } => assert!(note.contains("no GO file"), "{note}"),
+            other => panic!("must fail closed: {other:?}"),
+        }
+        // A card that is not a GO still launches with its title.
+        assert!(matches!(gate_in(&roots, "c-1", "Fix the drawer", &[]), Gate::Skip));
+    }
+
+    #[test]
+    fn headerless_go_file_refuses() {
+        let roots = temp_roots("nohdr");
+        write(
+            &plans_dir(&roots).join("GO-ORBITTY-NOHDR_2026-09-29.md"),
+            "# GO-ORBITTY-NOHDR\nno header here\n",
+        );
+        match gate_in(&roots, "", "GO-ORBITTY-NOHDR", &[]) {
+            Gate::Refuse { note } => assert!(note.contains("has no GO header"), "{note}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn lowercase_header_id_is_found_and_gated() {
+        let roots = temp_roots("lower");
+        let plans = plans_dir(&roots);
+        write(&plans.join("draft.md"), "---\nid: go-orbitty-lower\nstatus: ready\n---\nX\n");
+        match gate_in(&roots, "", "GO-ORBITTY-LOWER", &[]) {
+            Gate::Refuse { note } => assert!(note.contains("ready, not sealed"), "{note}"),
+            other => panic!("{other:?}"),
+        }
+        std::fs::remove_file(plans.join("draft.md")).unwrap();
+        sealed_go(&roots, "sealed.md", "id: go-orbitty-lower\nstatus: ready\n", "SEALED\n");
+        match gate_in(&roots, "", "GO-ORBITTY-LOWER", &[]) {
+            Gate::Launch(g) => assert!(g.body.contains("SEALED")),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn go_nested_too_deep_refuses() {
+        let roots = temp_roots("deep");
+        let plans = plans_dir(&roots);
+        let six = plans.join("1/2/3/4/5/6");
+        let seven = six.join("7");
+        write(&seven.join("go.md"), "---\nid: GO-ORBITTY-DEEP\nstatus: ready\n---\nX\n");
+        match gate_in(&roots, "", "GO-ORBITTY-DEEP", &[]) {
+            Gate::Refuse { note } => assert!(note.contains("folders deep"), "{note}"),
+            other => panic!("{other:?}"),
+        }
+        std::fs::remove_dir_all(&seven).unwrap();
+        write(&six.join("go.md"), "---\nid: GO-ORBITTY-DEEP\nstatus: ready\n---\nX\n");
+        match gate_in(&roots, "", "GO-ORBITTY-DEEP", &[]) {
+            Gate::Refuse { note } => assert!(note.contains("ready, not sealed"), "{note}"),
+            other => panic!("six deep is still searched: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn malformed_header_without_token_in_name_refuses() {
+        let roots = temp_roots("malother");
+        write(
+            &plans_dir(&roots).join("notes.md"),
+            "---\nid: GO-ORBITTY-MAL\nstatus: [\n---\nbody\n",
+        );
+        match gate_in(&roots, "", "GO-ORBITTY-MAL", &[]) {
+            Gate::Refuse { note } => assert!(note.contains("malformed"), "{note}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn status_query_is_the_full_launch_text() {
+        let roots = temp_roots("query");
+        let plans = plans_dir(&roots);
+        write(&plans.join("lock.md"), "LOCK-SENTINEL {REPO_ROOT}\n");
+        let p = sealed_go(
+            &roots,
+            "go.md",
+            "id: GO-Q\nstatus: ready\nworkspace: \"{REPO_ROOT}\"\nlock: \"{PLANS_DIR}/lock.md\"\n",
+            "BODY-SENTINEL {PLANS_DIR}\n",
+        );
+        let v = status_json(&roots, &parse_file(&p).unwrap());
+        assert_eq!(v["sealed"], true, "{v}");
+        let q = v["query"].as_str().expect("sealed status carries the query");
+        let repo = repo_root(&roots).display().to_string();
+        assert!(q.contains("BODY-SENTINEL"), "{q}");
+        assert!(q.contains(&format!("LOCK-SENTINEL {repo}")), "lock appended + expanded: {q}");
+        assert!(q.contains(&plans.display().to_string()), "{q}");
+        assert!(!q.contains("{REPO_ROOT}") && !q.contains("{PLANS_DIR}"), "{q}");
+        assert!(q.contains(push_rule(false)), "{q}");
+        assert_eq!(v["workspace"], repo);
+        // Unsealed: no query at all.
+        let raw = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(&p, raw.replace("BODY-SENTINEL", "EDITED")).unwrap();
+        let v = status_json(&roots, &parse_file(&p).unwrap());
+        assert_eq!(v["sealed"], false);
+        assert!(v.get("query").is_none(), "{v}");
+    }
+
+    #[test]
+    fn no_launcher_passes_a_git_push_flag() {
+        let flag = ["--git", "-push"].concat();
+        for (name, src) in [
+            ("coordinator.rs", include_str!("coordinator.rs")),
+            ("herdr.rs", include_str!("herdr.rs")),
+            ("agents.rs", include_str!("agents.rs")),
+        ] {
+            assert!(!src.contains(&flag), "{name} still passes {flag}");
+        }
     }
 
     #[test]

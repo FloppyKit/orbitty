@@ -603,6 +603,15 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
+        // Append one line to the notes (same write ACL). Unknown to an
+        // older app, so a new client never falls back to a replace.
+        "kanban.note_append" => {
+            let id = arg_str(args, "id")?;
+            let line = arg_str(args, "line")?;
+            crate::board::kanban_note_append(app, &id, &line)
+                .map(to_data)
+                .map_err(tool_err)
+        }
         // Same write ACL as kanban.notes. Exactly one of add / rm / clear.
         "kanban.link" => {
             let id = arg_str(args, "id")?;
