@@ -19,8 +19,10 @@ pub const INSTALL_HINT: &str = "install: https://herdr.dev/install.sh (or `brew 
 /// its query-file note.
 pub enum Branch {
     Skip,
-    Up(String),
-    Blocked(String),
+    /// (message, herdr agent name) — the name is the task's liveness
+    /// hint (task::LiveHint::herdr_agent).
+    Up(String, String),
+    Blocked(String, String),
 }
 
 /// Run one herdr CLI call and parse its JSON envelope. Bounded: the
@@ -604,7 +606,10 @@ pub fn branch(
                     "kind": kind,
                 }),
             );
-            Branch::Up(format!("herdr: agent {agent_name} ({kind}) up in workspace {workspace}."))
+            Branch::Up(
+                format!("herdr: agent {agent_name} ({kind}) up in workspace {workspace}."),
+                agent_name.clone(),
+            )
         }
         Err(e) => {
             // agent_not_ready / login wall: the pane EXISTS — the human
@@ -630,9 +635,12 @@ pub fn branch(
                     "error": e,
                 }),
             );
-            Branch::Blocked(format!(
-                "herdr: agent {agent_name} not ready in workspace {workspace} ({e}) — blocked; look at the pane."
-            ))
+            Branch::Blocked(
+                format!(
+                    "herdr: agent {agent_name} not ready in workspace {workspace} ({e}) — blocked; look at the pane."
+                ),
+                agent_name.clone(),
+            )
         }
     }
 }

@@ -85,12 +85,17 @@ fn stop_candidates(
     recorded: Option<std::path::PathBuf>,
 ) -> Vec<std::path::PathBuf> {
     let mut v = Vec::new();
+    // A task with a recorded per-run file is new-era: never fall back to
+    // the legacy shared file (it could belong to another run).
+    let legacy_ok = recorded.is_none();
     v.extend(recorded);
     if let Some(t) = task_id {
         v.push(crate::coordinator::terminal_run_paths(ctx, shortcut_id, t).1);
     }
     v.push(crate::coordinator::terminal_run_paths(ctx, shortcut_id, card_id).1);
-    v.push(ctx.join(format!("agent-{}.pid", crate::coordinator::safe_id(shortcut_id))));
+    if legacy_ok {
+        v.push(ctx.join(format!("agent-{}.pid", crate::coordinator::safe_id(shortcut_id))));
+    }
     v
 }
 
@@ -133,11 +138,21 @@ mod tests {
     #[test]
     fn stop_prefers_this_runs_pid_file_then_legacy() {
         let ctx = Path::new("/ctx");
+        // Recorded per-run file: no legacy shared fallback.
         let v = stop_candidates(ctx, "s1", "c9", Some("t-7"), Some(ctx.join("rec.pid")));
         assert_eq!(
             v,
             vec![
                 ctx.join("rec.pid"),
+                ctx.join("agent-s1-t-7.pid"),
+                ctx.join("agent-s1-c9.pid"),
+            ]
+        );
+        // Old task with no recorded file: legacy last.
+        let v = stop_candidates(ctx, "s1", "c9", Some("t-7"), None);
+        assert_eq!(
+            v,
+            vec![
                 ctx.join("agent-s1-t-7.pid"),
                 ctx.join("agent-s1-c9.pid"),
                 ctx.join("agent-s1.pid"),

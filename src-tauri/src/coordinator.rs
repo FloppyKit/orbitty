@@ -3157,7 +3157,8 @@ pub fn launch_agent(
             // (one skip line was already logged; never a dual-launch).
             match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {}
-                crate::herdr::Branch::Up(m) | crate::herdr::Branch::Blocked(m) => {
+                crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                    hint.herdr_agent = Some(agent);
                     return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
                 }
             }
@@ -3239,7 +3240,8 @@ pub fn launch_agent(
         // `opencode serve`d as the mouth. No Terminal door exists for it,
         // so a skip is an honest error, not a fall-through.
         "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
-            crate::herdr::Branch::Up(m) | crate::herdr::Branch::Blocked(m) => {
+            crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                hint.herdr_agent = Some(agent);
                 Ok(format!("{m} Query: {}.{skip_note}", query.display()))
             }
             crate::herdr::Branch::Skip => Err(
@@ -3256,7 +3258,7 @@ pub fn launch_agent(
         crate::task::end(&app, tid, "failed");
     }
     if let (Some(tid), Ok(_)) = (task_id.as_deref(), &out) {
-        if hint.pid.is_some() || hint.pid_file.is_some() {
+        if hint.pid.is_some() || hint.pid_file.is_some() || hint.herdr_agent.is_some() {
             crate::task::note_live(&app, tid, &hint);
         }
     }

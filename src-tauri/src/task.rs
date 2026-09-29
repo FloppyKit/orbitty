@@ -38,6 +38,11 @@ struct Meta {
     /// removed by the EXIT trap. Missing = the script exited.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pid_file: Option<String>,
+    /// herdr door: the agent name (`herdr agent get <name>`). On the task
+    /// itself so boot can probe it even if a whole-state save dropped the
+    /// card's agentRuns row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    herdr_agent: Option<String>,
 }
 
 /// What launch_agent learned about the process it handed off to.
@@ -45,6 +50,7 @@ struct Meta {
 pub struct LiveHint {
     pub pid: Option<u32>,
     pub pid_file: Option<PathBuf>,
+    pub herdr_agent: Option<String>,
 }
 
 /// The per-run launcher pid file recorded on this task, if any
@@ -68,6 +74,7 @@ pub fn note_live(app: &AppHandle, task_id: &str, hint: &LiveHint) {
     }
     meta.pid = hint.pid;
     meta.pid_file = hint.pid_file.as_ref().map(|p| p.to_string_lossy().into_owned());
+    meta.herdr_agent = hint.herdr_agent.clone();
     let _ = write_meta(&dir, &meta);
 }
 
@@ -198,6 +205,7 @@ pub fn start(app: &AppHandle, project_id: &str, card_id: Option<&str>) -> Option
         undone_at: None,
         pid: None,
         pid_file: None,
+        herdr_agent: None,
     };
     let _ = write_meta(&dir, &meta);
     if let Some(cid) = card_id {
@@ -431,6 +439,16 @@ fn classify(p: &Probe) -> Verdict {
 }
 
 fn probe(meta: &Meta, st: Option<&crate::state::PersistedState>, context_dir: Option<&Path>) -> Probe {
+    probe_with(meta, st, context_dir, &crate::herdr::agent_alive)
+}
+
+/// `herdr_alive` is injectable for tests (real: herdr::agent_alive).
+fn probe_with(
+    meta: &Meta,
+    st: Option<&crate::state::PersistedState>,
+    context_dir: Option<&Path>,
+    herdr_alive: &dyn Fn(&str) -> Option<bool>,
+) -> Probe {
     let card = meta
         .card_id
         .as_deref()
@@ -464,11 +482,14 @@ fn probe(meta: &Meta, st: Option<&crate::state::PersistedState>, context_dir: Op
         now_secs(),
     );
     // Some(None) = there is a herdr run but the probe couldn't answer.
-    let herdr_probe: Option<Option<bool>> = meta.card_id.as_deref().and_then(|cid| {
+    // The task's own herdr_agent first (survives a wiped agentRuns row),
+    // then the card's run-row record (tasks from before the hint).
+    let herdr_name: Option<String> = meta.herdr_agent.clone().or_else(|| {
+        let cid = meta.card_id.as_deref()?;
         let run = st?.agent_runs.iter().find(|r| r.card_id == cid)?;
-        let rec = run.herdr.as_ref()?;
-        Some(crate::herdr::agent_alive(&rec.agent_name))
+        Some(run.herdr.as_ref()?.agent_name.clone())
     });
+    let herdr_probe: Option<Option<bool>> = herdr_name.as_deref().map(herdr_alive);
     Probe {
         pid: meta.pid.map(pid_alive),
         pid_file,
@@ -674,6 +695,52 @@ mod boot_liveness_tests {
         assert_eq!(classify(&p(Some(false), None, None, false)), Verdict::Exited);
         assert_eq!(classify(&p(None, Some(None), None, false)), Verdict::Exited);
         assert_eq!(classify(&p(None, None, None, false)), Verdict::Exited);
+    }
+
+    fn doing_state(card_id: &str) -> crate::state::PersistedState {
+        let raw = format!(
+            r#"{{"id":"{card_id}","title":"T","projectId":"p","status":"doing","createdAt":1.0,"lastTouchedAt":1.0,"goalAligned":true,"clinicalOrMaster":false,"pointsAwarded":0}}"#
+        );
+        let card: crate::state::KanbanCard = serde_json::from_str(&raw).unwrap();
+        let mut st = crate::state::PersistedState::default();
+        st.kanban_cards.push(card);
+        st
+    }
+
+    fn herdr_task(card_id: &str, agent: Option<&str>) -> Meta {
+        Meta {
+            task_id: "t-1".into(),
+            project_id: "p".into(),
+            card_id: Some(card_id.into()),
+            started_at: 0.0,
+            snapshot: "skipped".into(),
+            herdr_agent: agent.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn herdr_task_without_run_row_uses_task_hint() {
+        // F1-D: the agentRuns row (and its herdr record) was wiped by a
+        // stale whole-state save; the task still names its herdr agent.
+        let st = doing_state("c1");
+        assert!(st.agent_runs.is_empty());
+        let meta = herdr_task("c1", Some("c1"));
+        let asked = std::cell::RefCell::new(Vec::new());
+        let alive = |name: &str| {
+            asked.borrow_mut().push(name.to_string());
+            Some(true)
+        };
+        let p = probe_with(&meta, Some(&st), None, &alive);
+        assert_eq!(asked.borrow().as_slice(), ["c1".to_string()]);
+        assert!(p.card_doing);
+        assert_eq!(classify(&p), Verdict::Alive, "live herdr agent must not be died");
+        // herdr can't answer → unknown → still not died.
+        let p = probe_with(&meta, Some(&st), None, &|_| None);
+        assert_eq!(classify(&p), Verdict::Alive);
+        // herdr says agent_not_found → genuinely gone, card in Doing → died.
+        let p = probe_with(&meta, Some(&st), None, &|_| Some(false));
+        assert_eq!(classify(&p), Verdict::Died);
     }
 
     #[test]
