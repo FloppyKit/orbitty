@@ -22,7 +22,6 @@
   import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import { mdLite } from "./mdLite";
   import { linkErrText, requestLink } from "./linkOpen.svelte";
-  import LinkPreviewPopover from "./LinkPreviewPopover.svelte";
   import "./chrome.css";
   import "./boardStack.css";
   import "./mdLite.css";
@@ -1959,7 +1958,6 @@
 {/snippet}
 
 <main class="kanban" class:embedded>
-  <LinkPreviewPopover />
   {#if linkToast}
     <div class="k-toast" role="status">{linkToast}</div>
   {/if}

@@ -13,7 +13,6 @@
   } from "../themes/apply";
   import { mdLite, mdLiteLinkUrl, mdLiteKeyUrl } from "./mdLite";
   import { linkErrText, requestLink } from "./linkOpen.svelte";
-  import LinkPreviewPopover from "./LinkPreviewPopover.svelte";
   import "./mdLite.css";
   import type {
     AverageWindow,
@@ -403,7 +402,6 @@
   });
 </script>
 
-<LinkPreviewPopover />
 <main class="nextwin">
   <header class="nc-banner" onmousedown={onBannerMouseDown}>
     <span class="nc-tabs" role="tablist">

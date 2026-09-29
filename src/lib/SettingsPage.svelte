@@ -752,7 +752,7 @@
         </div>
         <p class="block-label">Approved links</p>
         <p class="help">
-          The first open of a link asks. After you open it, that exact path or URL opens directly. This list stays on this Mac.
+          The first open of a link asks. After you click Open or Run, that exact path or URL opens directly. A program asks again if its contents change. This list stays on this Mac.
         </p>
         {#if linkApprovals.length === 0}
           <p class="help">None yet.</p>

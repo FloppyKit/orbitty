@@ -11,6 +11,7 @@
   import NextCard from "$lib/NextCard.svelte";
   import CheatSheet from "$lib/CheatSheet.svelte";
   import RailPage from "$lib/RailPage.svelte";
+  import LinkPreviewPopover from "$lib/LinkPreviewPopover.svelte";
 
   // The same SPA bundle serves the separate Kanban/Companion/STARS/Sky
   // windows; each mounts only its own page and never runs the rail
@@ -129,6 +130,7 @@
 {:else}
   <RailPage />
 {/if}
+<LinkPreviewPopover />
 
 <style>
   /* System pair (systemLight / systemDark): tokens are bound from the Tahoe

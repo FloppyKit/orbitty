@@ -1,6 +1,18 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { confirmOpen, dismissPreview, linkUi, revealCurrent } from "./linkOpen.svelte";
+  import { onDestroy, onMount } from "svelte";
+  import {
+    claimPreviewPopover,
+    confirmOpen,
+    dismissPreview,
+    linkUi,
+    releasePreviewPopover,
+    revealCurrent,
+  } from "./linkOpen.svelte";
+
+  const mine = claimPreviewPopover();
+  onDestroy(() => {
+    if (mine) releasePreviewPopover();
+  });
 
   const FILE_KINDS = new Set(["document", "folder", "image", "executable"]);
 
@@ -22,7 +34,7 @@
   });
 </script>
 
-{#if linkUi.preview}
+{#if mine && linkUi.preview}
   {@const p = linkUi.preview}
   <div class="lp-root">
     <button class="lp-scrim" type="button" aria-label="Cancel" onclick={dismissPreview}></button>

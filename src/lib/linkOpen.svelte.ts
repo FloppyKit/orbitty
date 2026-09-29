@@ -11,6 +11,8 @@ export interface LinkPreview {
   excerpt?: string | null;
   warning?: string | null;
   thumbnail?: string | null;
+  contentSha256?: string | null;
+  plistSha256?: string | null;
 }
 
 interface LinkClick {
@@ -23,6 +25,19 @@ export const linkUi = $state({
   error: "",
   busy: false,
 });
+
+let previewPopoverTaken = false;
+
+/** One preview popover per webview. A second mount renders nothing. */
+export function claimPreviewPopover(): boolean {
+  if (previewPopoverTaken) return false;
+  previewPopoverTaken = true;
+  return true;
+}
+
+export function releasePreviewPopover(): void {
+  previewPopoverTaken = false;
+}
 
 export function linkErrText(e: unknown): string {
   if (typeof e === "string") return e;
@@ -55,7 +70,18 @@ export async function confirmOpen(): Promise<void> {
   linkUi.busy = true;
   linkUi.error = "";
   try {
-    await invoke("open_link", { url: p.target });
+    const res = await invoke<LinkClick>("open_link", {
+      url: p.target,
+      kind: p.kind,
+      size: p.size ?? null,
+      modifiedSecs: p.modifiedSecs ?? null,
+      contentSha256: p.contentSha256 ?? null,
+      plistSha256: p.plistSha256 ?? null,
+    });
+    if (res.action === "preview" && res.preview) {
+      linkUi.preview = res.preview;
+      return;
+    }
     linkUi.preview = null;
   } catch (e) {
     const msg = linkErrText(e);

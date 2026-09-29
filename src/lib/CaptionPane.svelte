@@ -9,7 +9,6 @@
   import { onMount, onDestroy, tick } from "svelte";
   import { mdLite, mdLiteLinkUrl, fitPages } from "./mdLite";
   import { requestLink } from "./linkOpen.svelte";
-  import LinkPreviewPopover from "./LinkPreviewPopover.svelte";
   import type { CompanionTurn } from "./persist";
 
   function fitBlip(text: string): string {
@@ -424,7 +423,6 @@
   </span>
 {/snippet}
 
-<LinkPreviewPopover />
 {#if expanded}
   <!-- The one expanded transcript: idle Expand fills the pane; HOST-CC
        hosted Expand is the SAME pane as an overlay on the well

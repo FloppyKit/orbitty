@@ -67,7 +67,7 @@ const TOOLS: &[ToolDef] = &[
     // Set/clear the summary line. Same write ACL.
     ToolDef { name: "kanban.notes", description: "Set a card's notes (first line paints as the board-row summary; the drawer edits the rest); empty string clears", args: "kanban_notes" },
     ToolDef { name: "kanban.link", description: "Add, remove, or clear a card link (file:// or https:// only, max 8). Same write ACL as kanban.notes. Does not change notes or status.", args: "kanban_link" },
-    ToolDef { name: "kanban.open_link", description: "Open a card link. Documents, folders, images, and https open. An executable, script, or bundle is revealed in Finder unless run is true or that exact file was already approved. n defaults to 0. Does not change card status.", args: "kanban_open_link" },
+    ToolDef { name: "kanban.open_link", description: "Open a card link. Documents, folders, images, and https open. An executable, script, or bundle is revealed in Finder unless run is true or that exact file was already approved in the app. Reads link-approvals.json and never writes it. n defaults to 0. Does not change card status.", args: "kanban_open_link" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
     // The planet control plane, next to the kanban
@@ -180,7 +180,7 @@ fn input_schema(kind: &str) -> Value {
             "properties": {
                 "id": { "type": "string", "description": "Card id" },
                 "n": { "type": "integer", "minimum": 0, "description": "Link index. Default 0." },
-                "run": { "type": "boolean", "description": "Run an executable. Without this, an unapproved executable is revealed in Finder." }
+                "run": { "type": "boolean", "description": "Run an executable. Without this, an unapproved executable is revealed in Finder. Does not record an approval." }
             },
             "required": ["id"]
         }),

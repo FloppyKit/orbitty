@@ -119,6 +119,8 @@ kanban link and kanban open-link use that same ACL. --link is repeatable
 is stored as a file URL. open-link opens documents, folders, images, and
 https. An executable, script, or bundle is revealed in Finder unless
 --run is passed or that exact file is already in the approvals list.
+open-link reads that list and never writes it. An approval is recorded
+only when you click Open or Run in the Orbitty preview.
 
 project add / rm / rename mint, kill, and rename
 planets through the same save door (habitat paints whatever projects[]
@@ -223,7 +225,8 @@ struct Opts {
     clear: bool,
     /// kanban open-link --n
     n: Option<String>,
-    /// kanban open-link --run (executables; otherwise they are revealed)
+    /// kanban open-link --run (executables; otherwise they are revealed).
+    /// Does not record an approval.
     run: bool,
     card: Option<String>,
     file: Option<String>,
