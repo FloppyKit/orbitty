@@ -16,7 +16,8 @@ struct ToolDef {
     name: &'static str,
     description: &'static str,
     /// "none" | "id" | "line" | "route_line" | "profile" | "clip" | "kanban_add" |
-    /// "kanban_move" | "kanban_notes" | "kanban_assign" | "needed_open" |
+    /// "kanban_move" | "kanban_notes" | "kanban_link" | "kanban_open_link" |
+    /// "kanban_assign" | "needed_open" |
     /// "log_append" | "action_add" | "action_run" | "action_rm" |
     /// "project_add" | "project_rm" | "project_rename" | "agent_add" |
     /// "agent_pin" | "agent_pickup"
@@ -61,10 +62,12 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "state.get", description: "Read persisted Orbitty state", args: "none" },
     // The four write tools. control.json ACL still
     // applies — read / companion profiles get denied (4).
-    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move); optional notes = the board row's one-line summary", args: "kanban_add" },
+    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move); optional notes = the board row's one-line summary; optional links = file:// or https:// (max 8)", args: "kanban_add" },
     ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
     // Set/clear the summary line. Same write ACL.
     ToolDef { name: "kanban.notes", description: "Set a card's notes (first line paints as the board-row summary; the drawer edits the rest); empty string clears", args: "kanban_notes" },
+    ToolDef { name: "kanban.link", description: "Add, remove, or clear a card link (file:// or https:// only, max 8). Same write ACL as kanban.notes. Does not change notes or status.", args: "kanban_link" },
+    ToolDef { name: "kanban.open_link", description: "Open a card link with macOS open (default app, Finder, or the browser). n defaults to 0. Does not change card status.", args: "kanban_open_link" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
     // The planet control plane, next to the kanban
@@ -144,9 +147,41 @@ fn input_schema(kind: &str) -> Value {
                     "enum": ["todo", "doing"],
                     "description": "Initial column (default todo; done is never minted)"
                 },
-                "notes": { "type": "string", "description": "One-line runner summary (first line paints on the board row); omitted/empty = none" }
+                "notes": { "type": "string", "description": "One-line runner summary (first line paints on the board row); omitted/empty = none" },
+                "links": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "description": "Optional file:// or https:// links. A bare /Users/… path is stored as a file URL.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": { "type": "string" },
+                            "label": { "type": "string" }
+                        },
+                        "required": ["url"]
+                    }
+                }
             },
             "required": ["title"]
+        }),
+        "kanban_link" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "add": { "type": "string", "description": "URL to add (file://, https://, or a bare /Users/… path). Pass exactly one of add, rm, clear." },
+                "label": { "type": "string", "description": "Optional label for --add" },
+                "rm": { "type": "string", "description": "URL to remove" },
+                "clear": { "type": "boolean", "description": "Remove every link on the card" }
+            },
+            "required": ["id"]
+        }),
+        "kanban_open_link" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "n": { "type": "integer", "minimum": 0, "description": "Link index. Default 0." }
+            },
+            "required": ["id"]
         }),
         // Empty string is meaningful: clears.
         "kanban_notes" => json!({

@@ -2,8 +2,10 @@
 // one parser shared by the expanded transcript bubbles and the collapsed
 // CC. HTML is escaped FIRST, then we emit only: <strong> <em> <code>
 // <ul>/<ol>/<li> <table>/<thead>/<tbody>/<tr>/<th>/<td> <br>.
-// No headings-as-chrome, no images, no raw HTML, no script, no
-// navigating links. {@html} must only ever consume this output.
+// No headings-as-chrome, no images, no raw HTML, no script.
+// file://, https://, and bare /Users/… paths become <a data-link> spans
+// with no href — the click handler calls open_link. {@html} must only
+// ever consume this output.
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -21,11 +23,47 @@ function inline(s: string): string {
   });
   out = out.replace(/\*\*([^*\s](?:.*?[^*\s])?)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/\*([^*\s](?:[^*]*[^*\s])?)\*/g, "<em>$1</em>");
+  out = linkify(out);
   out = out.replace(
     /\u0000(\d+)\u0000/g,
     (_m, k: string) => `<code>${codes[Number(k)]}</code>`,
   );
   return out;
+}
+
+// Already-escaped text. Only file:///…, https://…, and bare /Users/….
+// No href. Trailing sentence punctuation stays outside the span.
+function attrEscape(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
+}
+
+function linkify(s: string): string {
+  const linkRe =
+    /(?:https:\/\/[A-Za-z0-9._~:/?#\[\]!$&'()*+,;=%-]+|file:\/\/\/[A-Za-z0-9._~:/?#\[\]!$&'()*+,;=%-]+|\/Users\/[A-Za-z0-9._~:/?#\[\]!$&'()*+,;=%-]+)/g;
+  return s.replace(linkRe, (m, offset, whole) => {
+    if (typeof offset === "number" && offset > 0) {
+      const prev = whole[offset - 1];
+      if (prev === ":" || /[A-Za-z0-9+]/.test(prev)) return m;
+    }
+    let url = m;
+    let rest = "";
+    while (url && ".,;:".includes(url[url.length - 1])) {
+      rest = url[url.length - 1] + rest;
+      url = url.slice(0, -1);
+    }
+    if (!url || url === "https://" || url === "file:///") return m;
+    return `<a data-link="${attrEscape(url)}">${url}</a>${rest}`;
+  });
+}
+
+export function mdLiteLinkUrl(target: EventTarget | null): string | null {
+  if (!(target instanceof Element)) return null;
+  const a = target.closest("a[data-link]");
+  const url = a?.getAttribute("data-link");
+  return url && url.length > 0 ? url : null;
 }
 
 function splitRow(line: string): string[] {

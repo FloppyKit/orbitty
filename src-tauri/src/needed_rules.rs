@@ -721,6 +721,7 @@ mod tests {
             trackers: None,
             task_id: None,
             task_reason: None,
+            links: None,
         };
         assert_eq!(apply_composer_rule(&c, "cursor on this planet"), "cursor on this planet");
         assert_eq!(apply_composer_rule(&c, "Rule:"), "");

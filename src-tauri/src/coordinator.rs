@@ -2787,7 +2787,7 @@ pub(crate) fn run_action_logged(
                 format!("task: {t}")
             }
         };
-        crate::board::kanban_add_as(app, &title, p, "doing", "action", None)
+        crate::board::kanban_add_as(app, &title, p, "doing", "action", None, Vec::new())
             .ok()
             .map(|c| c.id)
     });

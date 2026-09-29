@@ -7,7 +7,7 @@
 
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, onDestroy, tick } from "svelte";
-  import { mdLite, fitPages } from "./mdLite";
+  import { mdLite, mdLiteLinkUrl, fitPages } from "./mdLite";
   import type { CompanionTurn } from "./persist";
 
   function fitBlip(text: string): string {
@@ -220,9 +220,19 @@
   // click no longer pages (that stole expand). Enter/Space/`say` page.
   function onBotClick(e: MouseEvent) {
     if (e.button !== 0) return;
+    if (openLite(e)) return;
     if (window.getSelection()?.toString()) return;
     e.stopPropagation();
     ccOpen = !ccOpen;
+  }
+
+  function openLite(e: MouseEvent): boolean {
+    const url = mdLiteLinkUrl(e.target);
+    if (!url) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    invoke("open_link", { url }).catch(() => {});
+    return true;
   }
 
   function onPaneClick(e: MouseEvent) {
@@ -424,6 +434,7 @@
     class:hostoverlay={hosted}
     class:pagedlock={pagedTurnIdx >= 0}
     bind:this={transcriptEl}
+    onclick={openLite}
   >
     {#each turns as t, i}
       <div class="row" class:you={t.role === "you"} class:them={t.role !== "you"}>

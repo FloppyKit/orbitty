@@ -3,8 +3,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 
+use crate::card_links::{self, MAX_LINKS};
 use crate::event_log;
-use crate::state::{KanbanCard, PersistedState, PointsEntry, Project};
+use crate::state::{CardLink, KanbanCard, PersistedState, PointsEntry, Project};
 
 /// Same daily points cap as the board (KanbanPage DAILY_CAP).
 const DAILY_CAP: u32 = 12;
@@ -133,8 +134,9 @@ pub fn kanban_add(
     project_id: &str,
     status: &str,
     notes: Option<&str>,
+    links: Vec<CardLink>,
 ) -> Result<KanbanCard, String> {
-    kanban_add_as(app, title, project_id, status, "agent", notes)
+    kanban_add_as(app, title, project_id, status, "agent", notes, links)
 }
 
 /// Same door as `kanban.add`; `actor` is who minted ("agent" for MCP/ctl,
@@ -146,6 +148,7 @@ pub fn kanban_add_as(
     status: &str,
     actor: &str,
     notes: Option<&str>,
+    links: Vec<CardLink>,
 ) -> Result<KanbanCard, String> {
     let title = title.trim();
     if title.is_empty() {
@@ -160,6 +163,7 @@ pub fn kanban_add_as(
             ))
         }
     };
+    let links = normalize_new_links(links)?;
     let before = crate::state::load_state(app)?;
     let project_id = resolve_project(&before, project_id, "kanban.add")?;
     let now = now_secs();
@@ -195,6 +199,7 @@ pub fn kanban_add_as(
         trackers: None,
         task_id: None,
         task_reason: None,
+        links,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
@@ -357,6 +362,125 @@ pub fn kanban_notes(app: &tauri::AppHandle, id: &str, notes: &str) -> Result<Kan
         Some("agent"),
         true,
         &serde_json::json!({ "cardId": after.kanban_cards[idx].id, "cleared": notes.is_empty() }),
+    );
+    Ok(after.kanban_cards[idx].clone())
+}
+
+fn normalize_new_links(links: Vec<CardLink>) -> Result<Option<Vec<CardLink>>, String> {
+    if links.is_empty() {
+        return Ok(None);
+    }
+    if links.len() > MAX_LINKS {
+        return Err(format!("kanban.add: a card holds at most {MAX_LINKS} links"));
+    }
+    let mut out = Vec::with_capacity(links.len());
+    for link in links {
+        out.push(CardLink {
+            url: card_links::normalize_link(&link.url).map_err(|e| format!("kanban.add: {e}"))?,
+            label: card_links::clean_label(link.label).map_err(|e| format!("kanban.add: {e}"))?,
+        });
+    }
+    Ok(Some(out))
+}
+
+/// `kanban.link` — add, remove, or clear. Same write door as `kanban.notes`.
+/// Does not touch `notes` or `status`.
+pub fn kanban_link_add(
+    app: &tauri::AppHandle,
+    id: &str,
+    url: &str,
+    label: Option<String>,
+) -> Result<KanbanCard, String> {
+    let url = card_links::normalize_link(url).map_err(|e| format!("kanban.link: {e}"))?;
+    let label = card_links::clean_label(label).map_err(|e| format!("kanban.link: {e}"))?;
+    let before = crate::state::load_state(app)?;
+    let idx = card_index(&before, id, "kanban.link")?;
+    let mut links = before.kanban_cards[idx].links.clone().unwrap_or_default();
+    if let Some(existing) = links.iter_mut().find(|l| l.url == url) {
+        if existing.label == label {
+            return Ok(before.kanban_cards[idx].clone());
+        }
+        existing.label = label;
+    } else {
+        if links.len() >= MAX_LINKS {
+            return Err(format!("kanban.link: a card holds at most {MAX_LINKS} links"));
+        }
+        links.push(CardLink { url, label });
+    }
+    write_links(app, &before, idx, Some(links), "add")
+}
+
+pub fn kanban_link_rm(app: &tauri::AppHandle, id: &str, url: &str) -> Result<KanbanCard, String> {
+    let url = card_links::normalize_link(url).map_err(|e| format!("kanban.link: {e}"))?;
+    let before = crate::state::load_state(app)?;
+    let idx = card_index(&before, id, "kanban.link")?;
+    let mut links = before.kanban_cards[idx].links.clone().unwrap_or_default();
+    let n = links.len();
+    links.retain(|l| l.url != url);
+    if links.len() == n {
+        return Err(format!("kanban.link: link not on card {id:?}"));
+    }
+    write_links(app, &before, idx, if links.is_empty() { None } else { Some(links) }, "rm")
+}
+
+pub fn kanban_link_clear(app: &tauri::AppHandle, id: &str) -> Result<KanbanCard, String> {
+    let before = crate::state::load_state(app)?;
+    let idx = card_index(&before, id, "kanban.link")?;
+    if before.kanban_cards[idx].links.is_none() {
+        return Ok(before.kanban_cards[idx].clone());
+    }
+    write_links(app, &before, idx, None, "clear")
+}
+
+/// Open link `n` (default 0). Read-only — status stays put.
+pub fn kanban_open_link(app: &tauri::AppHandle, id: &str, n: usize) -> Result<serde_json::Value, String> {
+    let before = crate::state::load_state(app)?;
+    let idx = card_index(&before, id, "kanban.open_link")?;
+    let card = &before.kanban_cards[idx];
+    let links = card.links.as_deref().unwrap_or(&[]);
+    let link = links.get(n).ok_or_else(|| {
+        format!("kanban.open_link: card {id:?} has no link at n={n}")
+    })?;
+    let url = link.url.clone();
+    let status = card.status.clone();
+    let card_id = card.id.clone();
+    card_links::open_url(&url)?;
+    Ok(serde_json::json!({
+        "id": card_id,
+        "n": n,
+        "url": url,
+        "status": status,
+    }))
+}
+
+fn card_index(state: &PersistedState, id: &str, who: &str) -> Result<usize, String> {
+    state
+        .kanban_cards
+        .iter()
+        .position(|c| c.id == id.trim())
+        .ok_or_else(|| format!("{who}: unknown card id {id:?}"))
+}
+
+fn write_links(
+    app: &tauri::AppHandle,
+    before: &PersistedState,
+    idx: usize,
+    links: Option<Vec<CardLink>>,
+    op: &str,
+) -> Result<KanbanCard, String> {
+    let mut after = before.clone();
+    after.kanban_cards[idx].links = links;
+    let card_id = after.kanban_cards[idx].id.clone();
+    let project_id = after.kanban_cards[idx].project_id.clone();
+    save_with_events(app, before, &after)?;
+    event_log::append_best(
+        app,
+        "board-link",
+        None,
+        Some(&project_id),
+        Some("agent"),
+        true,
+        &serde_json::json!({ "cardId": card_id, "op": op }),
     );
     Ok(after.kanban_cards[idx].clone())
 }
@@ -726,6 +850,7 @@ pub fn needed_open(
         trackers: None,
         task_id: None,
         task_reason: None,
+        links: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());

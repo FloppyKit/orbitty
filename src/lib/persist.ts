@@ -73,6 +73,11 @@ export type NeededState = "open" | "later" | "answered" | "skipped";
 export type Actor = "user" | "agent" | "action" | "vps";
 export type Difficulty = "trivial" | "easy" | "medium" | "hard";
 
+export interface CardLink {
+  url: string;
+  label?: string | null;
+}
+
 export interface Subtask {
   id: string;
   title: string;
@@ -127,6 +132,9 @@ export interface KanbanCard {
   trackers?: Tracker[];
   taskId?: string | null;
   taskReason?: string | null;
+  // file:// or https:// links. Additive — window maps spread the card,
+  // so a board/rail save round-trips this instead of dropping it.
+  links?: CardLink[] | null;
 }
 
 export interface PointsEntry {

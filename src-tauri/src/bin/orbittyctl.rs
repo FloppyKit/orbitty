@@ -37,8 +37,11 @@ commands:
   companion hack -- on|off [--who cursor] [--project P]
   kanban open
   kanban add --title \"t\" [--project P] [--status todo|doing] [--notes \"n\"]
+            [--link URL [--link-label L]]...
   kanban move --id <id> --status todo|doing|done
   kanban notes --id <card> -- \"text\"      empty \"\" clears
+  kanban link --id <card> --add URL [--label L] | --rm URL | --clear
+  kanban open-link --id <card> [--n 0]
   kanban assign --id <card> --agent <agent>   empty --agent \"\" unassigns
   agent list
   agent add --name N --harness cursor|goose|grok|hermes [--profile P]
@@ -110,6 +113,9 @@ companion are denied (exit 4).
 kanban add takes --notes (the board row's one-line
 summary; first line paints, the drawer edits the rest) and kanban notes
 sets/clears it on an existing card — same save door, same write ACL.
+kanban link and kanban open-link use that same ACL. --link is repeatable
+(max 8). Only file:// and https:// are accepted; a bare /Users/… path
+is stored as a file URL.
 
 project add / rm / rename mint, kill, and rename
 planets through the same save door (habitat paints whatever projects[]
@@ -198,6 +204,18 @@ struct Opts {
     agent: Option<String>,
     /// kanban assign --window (empty clears).
     window: Option<String>,
+    /// kanban add --link URL (repeatable), optional --link-label on the last.
+    links: Vec<(String, Option<String>)>,
+    /// kanban link --add URL
+    add: Option<String>,
+    /// kanban link --rm URL
+    rm: Option<String>,
+    /// kanban link --label
+    label: Option<String>,
+    /// kanban link --clear
+    clear: bool,
+    /// kanban open-link --n
+    n: Option<String>,
     card: Option<String>,
     file: Option<String>,
     url: Option<String>,
@@ -248,6 +266,12 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         extra: None,
         agent: None,
         window: None,
+        links: Vec::new(),
+        add: None,
+        rm: None,
+        label: None,
+        clear: false,
+        n: None,
         card: None,
         file: None,
         url: None,
@@ -319,6 +343,26 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             // Kept as Some("") when passed empty — kanban assign unassigns.
             "--agent" => o.agent = Some(it.next().ok_or("--agent needs a value")?.clone()),
             "--window" => o.window = Some(it.next().ok_or("--window needs a value")?.clone()),
+            "--link" => {
+                let url = it.next().ok_or("--link needs a URL")?.clone();
+                o.links.push((url, None));
+            }
+            "--link-label" => {
+                let label = it.next().ok_or("--link-label needs a value")?.clone();
+                let last = o
+                    .links
+                    .last_mut()
+                    .ok_or("--link-label needs a preceding --link")?;
+                if last.1.is_some() {
+                    return Err("one --link-label per --link".into());
+                }
+                last.1 = Some(label);
+            }
+            "--add" => o.add = Some(it.next().ok_or("--add needs a URL")?.clone()),
+            "--rm" => o.rm = Some(it.next().ok_or("--rm needs a URL")?.clone()),
+            "--label" => o.label = Some(it.next().ok_or("--label needs a value")?.clone()),
+            "--clear" => o.clear = true,
+            "--n" => o.n = Some(it.next().ok_or("--n needs a number")?.clone()),
             "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
             "--file" => o.file = Some(it.next().ok_or("--file needs a path")?.clone()),
             // Kept as Some("") when passed empty — relay replica clears.
@@ -384,6 +428,22 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             s if s.starts_with("--md=") => o.md.push(s["--md=".len()..].to_string()),
             s if s.starts_with("--extra=") => o.extra = Some(s["--extra=".len()..].to_string()),
             s if s.starts_with("--agent=") => o.agent = Some(s["--agent=".len()..].to_string()),
+            s if s.starts_with("--link=") => o.links.push((s["--link=".len()..].to_string(), None)),
+            s if s.starts_with("--link-label=") => {
+                let label = s["--link-label=".len()..].to_string();
+                let last = o
+                    .links
+                    .last_mut()
+                    .ok_or("--link-label needs a preceding --link")?;
+                if last.1.is_some() {
+                    return Err("one --link-label per --link".into());
+                }
+                last.1 = Some(label);
+            }
+            s if s.starts_with("--add=") => o.add = Some(s["--add=".len()..].to_string()),
+            s if s.starts_with("--rm=") => o.rm = Some(s["--rm=".len()..].to_string()),
+            s if s.starts_with("--label=") => o.label = Some(s["--label=".len()..].to_string()),
+            s if s.starts_with("--n=") => o.n = Some(s["--n=".len()..].to_string()),
             s if s.starts_with("--url=") => o.url = Some(s["--url=".len()..].to_string()),
             s if s.starts_with("--date=") => o.date = Some(s["--date=".len()..].to_string()),
             s if s.starts_with("--axis=") => o.axis = Some(s["--axis=".len()..].to_string()),
@@ -623,7 +683,55 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             if let Some(n) = opt(&o.notes) {
                 a["notes"] = json!(n);
             }
+            if !o.links.is_empty() {
+                let arr: Vec<Value> = o
+                    .links
+                    .iter()
+                    .map(|(url, label)| {
+                        let mut v = json!({ "url": url });
+                        if let Some(l) = label {
+                            v["label"] = json!(l);
+                        }
+                        v
+                    })
+                    .collect();
+                a["links"] = json!(arr);
+            }
             Ok(("kanban.add", a))
+        }
+        ["kanban", "link"] => {
+            let id = need_id(o)?;
+            let modes = [o.clear, o.rm.is_some(), o.add.is_some()]
+                .into_iter()
+                .filter(|on| *on)
+                .count();
+            if modes != 1 {
+                return Err(
+                    "kanban link: pass exactly one of --add URL, --rm URL, or --clear".into(),
+                );
+            }
+            if o.clear {
+                Ok(("kanban.link", json!({ "id": id, "clear": true })))
+            } else if let Some(url) = o.rm.clone() {
+                Ok(("kanban.link", json!({ "id": id, "rm": url })))
+            } else {
+                let mut a = json!({ "id": id, "add": o.add.clone().unwrap_or_default() });
+                if let Some(l) = opt(&o.label) {
+                    a["label"] = json!(l);
+                }
+                Ok(("kanban.link", a))
+            }
+        }
+        ["kanban", "open-link"] => {
+            let id = need_id(o)?;
+            let mut a = json!({ "id": id });
+            if let Some(n) = opt(&o.n) {
+                let n: u64 = n
+                    .parse()
+                    .map_err(|_| format!("kanban open-link: --n must be an integer, got {n:?}"))?;
+                a["n"] = json!(n);
+            }
+            Ok(("kanban.open_link", a))
         }
         // Set/clear a card's one-line summary. The
         // text is the `--` payload; `-- ""` clears (payload keeps Some("")),
@@ -1140,6 +1248,19 @@ fn print_human(tool: &str, data: &Value) {
                 Some(n) => println!("notes {id} — {}", n.lines().next().unwrap_or("")),
                 None => println!("notes cleared {id}"),
             }
+        }
+        "kanban.link" => {
+            let id = data["id"].as_str().unwrap_or("?");
+            let n = data["links"].as_array().map(|a| a.len()).unwrap_or(0);
+            println!("links {id} — {n}");
+        }
+        "kanban.open_link" => {
+            println!(
+                "opened {} n={} {}",
+                data["id"].as_str().unwrap_or("?"),
+                data["n"].as_u64().unwrap_or(0),
+                data["url"].as_str().unwrap_or("")
+            );
         }
         // Agent roster printers.
         "kanban.assign" => {

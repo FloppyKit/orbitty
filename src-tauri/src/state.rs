@@ -939,6 +939,19 @@ pub struct KanbanCard {
     pub task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_reason: Option<String>,
+    /// Clickable file:// or https:// links. Absent on old saves.
+    /// Empty is stored as absent so a save never writes `links: null`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links: Option<Vec<CardLink>>,
+}
+
+/// One card link. `label` is display-only; `url` is the allowlisted target.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CardLink {
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1024,9 +1037,13 @@ pub fn load_state(app: &tauri::AppHandle) -> Result<PersistedState, String> {
 }
 
 pub fn save_state(app: &tauri::AppHandle, state: &PersistedState) -> Result<(), String> {
+    // Every writer hits this door. Canonicalize links here so a board
+    // window's whole-state save keeps them and a hostile scheme never lands.
+    let mut state = state.clone();
+    crate::card_links::canonicalize_state_links(&mut state)?;
     let path = state_path(app)?;
     let tmp = path.with_extension("json.tmp");
-    let text = serde_json::to_string_pretty(state).map_err(|e| format!("serialize: {e}"))?;
+    let text = serde_json::to_string_pretty(&state).map_err(|e| format!("serialize: {e}"))?;
     std::fs::write(&tmp, text).map_err(|e| format!("write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("rename to {}: {e}", path.display()))?;
     Ok(())

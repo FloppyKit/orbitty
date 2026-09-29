@@ -1,5 +1,9 @@
 <script lang="ts">
   import type { KanbanCard, Project } from "../persist";
+  import { mdLiteLinkUrl } from "../mdLite";
+  let linkUrl = $state("");
+  let linkLabel = $state("");
+  let linkFor = "";
   let {
     addTagToCard,
     agentName,
@@ -32,6 +36,10 @@
     resetPreviewWidth,
     saveNotes,
     saveTitle,
+    addCardLink,
+    removeCardLink,
+    openCardLink,
+    openUrl,
     selected = $bindable(),
     setAgent,
     setDue,
@@ -43,6 +51,23 @@
     undoThisTask,
     winFor,
   } = $props();
+
+  $effect(() => {
+    const id = detailCard?.id ?? "";
+    if (id !== linkFor) {
+      linkFor = id;
+      linkUrl = "";
+      linkLabel = "";
+    }
+  });
+
+  function onLiteClick(e: MouseEvent) {
+    const url = mdLiteLinkUrl(e.target);
+    if (!url) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openUrl(url);
+  }
 </script>
 
     <div
@@ -103,7 +128,7 @@
             {/if}
           </div>
           {#if card.neededWhy}
-            <div class="kn-why md-lite">{@html mdLite(card.neededWhy)}</div>
+            <div class="kn-why md-lite" onclick={onLiteClick}>{@html mdLite(card.neededWhy)}</div>
           {/if}
         {:else}
         {#if !previewEdit}
@@ -128,7 +153,7 @@
             <p class="d-read-line">Rating {card.rating}</p>
           {/if}
           {#if card.notes}
-            <div class="d-read-notes md-lite">{@html mdLite(card.notes)}</div>
+            <div class="d-read-notes md-lite" onclick={onLiteClick}>{@html mdLite(card.notes)}</div>
           {/if}
           {#if due}
             <p class="d-read-line" class:overdue={due.overdue}>{due.label}</p>
@@ -388,6 +413,58 @@
           <p class="d-hint">Window links are made by claiming in the rail — read-only here.</p>
         {/if}
         {/if}
+        <span class="d-label">Links</span>
+        <div class="d-links">
+          {#each card.links ?? [] as link, i (link.url)}
+            <div class="d-linkrow">
+              <button
+                type="button"
+                class="d-linkopen"
+                title={link.url}
+                onclick={() => openCardLink(card, i)}
+              >{link.label || link.url}</button>
+              <button
+                type="button"
+                class="mini ghost"
+                aria-label="Remove link"
+                title="Remove link"
+                onclick={() => removeCardLink(card, link.url)}>×</button>
+              >
+            </div>
+          {:else}
+            <p class="d-hint">No links yet.</p>
+          {/each}
+          <div class="d-linkadd">
+            <input
+              class="d-input"
+              placeholder="file:// or https://"
+              aria-label="Link URL"
+              bind:value={linkUrl}
+              onkeydown={(e) => {
+                if (e.key === "Enter") {
+                  addCardLink(card, linkUrl, linkLabel);
+                  linkUrl = "";
+                  linkLabel = "";
+                }
+              }}
+            />
+            <input
+              class="d-input"
+              placeholder="Label (optional)"
+              aria-label="Link label"
+              bind:value={linkLabel}
+            />
+            <button
+              type="button"
+              class="mini"
+              onclick={() => {
+                addCardLink(card, linkUrl, linkLabel);
+                linkUrl = "";
+                linkLabel = "";
+              }}>Add link</button>
+            >
+          </div>
+        </div>
         {/if}
       {:else}
         <p class="d-hint">Highlight a row to preview it here.</p>

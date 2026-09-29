@@ -1,6 +1,20 @@
 <script lang="ts">
   import BoardNeeded from "./Needed.svelte";
-  import type { KanbanCard } from "../persist";
+  import type { CardLink, KanbanCard } from "../persist";
+
+  function linkChipText(link: CardLink): string {
+    const label = (link.label ?? "").trim();
+    if (label) return label;
+    const raw = link.url.startsWith("file://") ? link.url.slice("file://".length) : link.url;
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      /* keep the raw url */
+    }
+    const base = decoded.split("/").filter(Boolean).pop();
+    return base || "link";
+  }
   let {
     addingTodo = $bindable(),
     ageLabel,
@@ -42,6 +56,7 @@
     subProgress,
     toggleDoing,
     toggleOpenSubtasks,
+    openCardLink,
     // Needed leaf (forwarded)
     addingNeeded = $bindable(),
     armNeededMouth,
@@ -99,6 +114,21 @@
   {/if}
   {#if age}
     <span class="k-age" title="Last touched">{age}</span>
+  {/if}
+  {#if card.links?.[0]}
+    <button
+      type="button"
+      class="k-linkchip"
+      title={card.links[0].url}
+      aria-label={"Open " + linkChipText(card.links[0])}
+      onclick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openCardLink(card, 0);
+      }}
+      onpointerdown={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+    >{linkChipText(card.links[0])}</button>
   {/if}
 
 {/snippet}
