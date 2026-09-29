@@ -24,27 +24,73 @@ pub(crate) fn row_model(harness: &str, model: Option<&str>) -> Option<String> {
     }
 }
 
-/// Model strings reach a shell line and herdr argv. Only
-/// `^[A-Za-z0-9._:/@+-]{1,100}$`, and never a leading `-` (a model like
-/// `--force` / `--yolo` / `-f` would read as a CLI flag) — anything else
-/// is refused, never stripped or guessed at.
-pub(crate) fn validate_model(model: &str) -> Result<(), String> {
-    if model.starts_with('-') {
+/// A row value that reaches a harness argv or a shell line (model,
+/// hermes profile). Only `^[A-Za-z0-9._:/@+-]{1,100}$`, and never a
+/// leading `-` (`--force` / `--yolo` / `-f` would read as a CLI flag) —
+/// anything else is refused, never stripped or guessed at.
+pub(crate) fn validate_token(kind: &str, value: &str) -> Result<(), String> {
+    if value.starts_with('-') {
         return Err(format!(
-            "invalid model {model:?}: a model may not start with '-' (it would read as a flag)"
+            "invalid {kind} {value:?}: a {kind} may not start with '-' (it would read as a flag)"
         ));
     }
-    let ok_len = (1..=100).contains(&model.len());
-    let ok_chars = model
+    let ok_len = (1..=100).contains(&value.len());
+    let ok_chars = value
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '/' | '@' | '+' | '-'));
     if ok_len && ok_chars {
         Ok(())
     } else {
         Err(format!(
-            "invalid model {model:?}: use 1-100 characters from letters, digits and . _ : / @ + -"
+            "invalid {kind} {value:?}: use 1-100 characters from letters, digits and . _ : / @ + -"
         ))
     }
+}
+
+pub(crate) fn validate_model(model: &str) -> Result<(), String> {
+    validate_token("model", model)
+}
+
+/// Hermes `--profile` value (NB5): same rule as a model.
+pub(crate) fn validate_profile(profile: &str) -> Result<(), String> {
+    validate_token("profile", profile)
+}
+
+/// Cursor door, at launch: the row model (or the default), re-validated —
+/// a window save or hand-edited state never went through `agent.add`.
+pub(crate) fn launch_model(shortcut: &AgentShortcut) -> Result<String, String> {
+    let model = cursor_model(shortcut.model.as_deref());
+    validate_model(&model)?;
+    Ok(model)
+}
+
+/// Hermes profile when the row leaves it empty.
+pub const HERMES_DEFAULT_PROFILE: &str = "grok";
+
+/// Hermes fallback argv (no shell), validated at launch (NB4/NB5).
+/// Profile and model each travel as ONE element — `--profile=<p>` (hermes
+/// strips it before argparse, `_apply_profile_override`) and
+/// `--model=<m>` (the chat subparser's `-m/--model`) — so neither can
+/// become a separate flag.
+pub(crate) fn hermes_args(shortcut: &AgentShortcut, query: &std::path::Path) -> Result<Vec<String>, String> {
+    let profile = match shortcut.profile.trim() {
+        "" => HERMES_DEFAULT_PROFILE,
+        p => p,
+    };
+    validate_profile(profile)?;
+    let mut args: Vec<String> = vec![
+        format!("--profile={profile}"),
+        "chat".into(),
+        "--create-if-missing".into(),
+        "-Q".into(),
+        "--query-file".into(),
+        query.display().to_string(),
+    ];
+    if let Some(m) = shortcut.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+        validate_model(m)?;
+        args.push(format!("--model={m}"));
+    }
+    Ok(args)
 }
 
 /// What the cursor door passes as `--model`.
@@ -245,6 +291,9 @@ pub fn agent_add(
     let model = row_model(&harness, model);
     if let Some(m) = model.as_deref() {
         validate_model(m).map_err(|e| format!("agent.add: {e}"))?;
+    }
+    if let Some(p) = profile.map(str::trim).filter(|s| !s.is_empty()) {
+        validate_profile(p).map_err(|e| format!("agent.add: {e}"))?;
     }
     let before = crate::state::load_state(app)?;
     let project_id = match project {
@@ -662,6 +711,56 @@ mod tests {
         assert!(fa_line.contains("--trust"));
         let ro_args = cursor_agent_args("grok-4.7-high", "read-only");
         assert!(!ro_args.iter().any(|a| a == "--force" || a == "--trust"));
+    }
+
+    fn row(harness: &str, profile: &str, model: Option<&str>) -> AgentShortcut {
+        let mut v = json!({"id": "a", "name": "n", "harness": harness, "profile": profile});
+        if let Some(m) = model {
+            v["model"] = json!(m);
+        }
+        serde_json::from_value(v).unwrap()
+    }
+
+    /// Nit: the cursor door's launch-time re-check, as a pure helper.
+    #[test]
+    fn launch_model_revalidates_the_row() {
+        assert_eq!(launch_model(&row("cursor", "", None)).unwrap(), CURSOR_DEFAULT_MODEL);
+        assert_eq!(launch_model(&row("cursor", "", Some("sonnet-4.5"))).unwrap(), "sonnet-4.5");
+        for bad in ["--force", "--yolo", "-f", "m$(id)", "a b"] {
+            let err = launch_model(&row("cursor", "", Some(bad))).unwrap_err();
+            assert!(err.contains("invalid model"), "{bad:?}: {err}");
+        }
+    }
+
+    /// NB4 + NB5: hermes argv is validated and each value is one element.
+    #[test]
+    fn hermes_args_refuse_flag_models_and_profiles() {
+        let q = std::path::Path::new("/tmp/q.md");
+        let ok = hermes_args(&row("hermes", "work", Some("anthropic/claude-sonnet-4")), q).unwrap();
+        assert_eq!(
+            ok,
+            vec![
+                "--profile=work",
+                "chat",
+                "--create-if-missing",
+                "-Q",
+                "--query-file",
+                "/tmp/q.md",
+                "--model=anthropic/claude-sonnet-4",
+            ]
+        );
+        // Defaults: empty profile → grok, no model → no --model.
+        let d = hermes_args(&row("hermes", "  ", None), q).unwrap();
+        assert_eq!(d[0], "--profile=grok");
+        assert!(!d.iter().any(|a| a.starts_with("--model") || a == "-m"));
+        for bad in ["--force", "--yolo", "-f", "x --yolo", "m$(touch /tmp/x)", "m`id`", "a;b"] {
+            let err = hermes_args(&row("hermes", "work", Some(bad)), q).unwrap_err();
+            assert!(err.contains("invalid model"), "model {bad:?}: {err}");
+            let err = hermes_args(&row("hermes", bad, None), q).unwrap_err();
+            assert!(err.contains("invalid profile"), "profile {bad:?}: {err}");
+        }
+        assert!(validate_profile("--yolo").unwrap_err().contains("may not start with '-'"));
+        assert!(validate_profile("grok").is_ok());
     }
 
     #[test]

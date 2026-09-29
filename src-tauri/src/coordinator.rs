@@ -3382,6 +3382,21 @@ fn open_agent_terminal(
     }
 }
 
+/// A row value failed launch validation: log it, and hand back the
+/// human-facing error (the launch is refused; nothing ran).
+fn launch_refused(app: &tauri::AppHandle, planet: Option<&str>, harness: &str, why: &str) -> String {
+    crate::event_log::append_best(
+        app,
+        "agent-launch-refused",
+        None,
+        planet,
+        Some("agent"),
+        true,
+        &serde_json::json!({ "harness": harness, "reason": why }),
+    );
+    format!("{harness} launch refused: {why}")
+}
+
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
 /// writes the query file and hands off — it never runs the model.
 /// The harness is per row (cursor | goose | grok
@@ -3439,8 +3454,8 @@ pub fn launch_agent(
         "cursor" => {
             let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
             // The model reaches herdr argv and a zsh line: refuse, never strip.
-            let model = crate::agents::cursor_model(shortcut.model.as_deref());
-            crate::agents::validate_model(&model)?;
+            let model = crate::agents::launch_model(&shortcut)
+                .map_err(|why| launch_refused(&app, planet_for_log, "cursor", &why))?;
             let ws = Path::new(&workspace);
             // Project permissions exist only for a launch that happened.
             // The file is written once a door is chosen: before
@@ -3585,29 +3600,15 @@ pub fn launch_agent(
         // with the query file. No terminal launcher on that fallback, so
         // a waiter thread owns the LED off. Detached stdio, never a poll.
         "hermes" => {
+            // Profile + model reach hermes argv: validated before any door.
+            let args = crate::agents::hermes_args(&shortcut, &query)
+                .map_err(|why| launch_refused(&app, planet_for_log, "hermes", &why))?;
             match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
                     return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
                 }
-            }
-            let profile = {
-                let p = shortcut.profile.trim();
-                if p.is_empty() { "grok" } else { p }
-            };
-            let mut args: Vec<String> = vec![
-                "-p".into(),
-                profile.into(),
-                "chat".into(),
-                "--create-if-missing".into(),
-                "-Q".into(),
-                "--query-file".into(),
-                query.display().to_string(),
-            ];
-            if let Some(m) = shortcut.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-                args.push("-m".into());
-                args.push(m.to_string());
             }
             let spawned = Command::new("hermes")
                 .args(&args)
@@ -3630,7 +3631,8 @@ pub fn launch_agent(
                         }
                     });
                     Ok(format!(
-                        "Launched hermes -p {profile} chat. Query: {}.{skip_note}",
+                        "Launched hermes {} chat. Query: {}.{skip_note}",
+                        args[0],
                         query.display()
                     ))
                 }
