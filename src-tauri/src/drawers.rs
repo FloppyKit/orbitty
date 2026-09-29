@@ -300,6 +300,40 @@ fn window_created_at(label: &str) -> Option<std::time::Instant> {
 
 // The SPA must actually mount
 
+/// Labels whose SPA reported its own mount (`pane_mounted`, invoked by
+/// +page.svelte after the page component rendered). Cleared when that
+/// webview starts a new page load (reload / navigate), see
+/// `clear_pane_mounted`. A reported mount is the cheap truth the mount
+/// check needs — no AX read.
+fn mounted_panes() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    S.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+fn pane_reported_mounted(label: &str) -> bool {
+    mounted_panes()
+        .lock()
+        .map(|m| m.contains(label))
+        .unwrap_or(false)
+}
+
+/// The page itself says it mounted. Cheap, no main-thread work.
+#[tauri::command]
+pub fn pane_mounted(webview_window: tauri::WebviewWindow) {
+    if let Ok(mut m) = mounted_panes().lock() {
+        m.insert(webview_window.label().to_string());
+    }
+}
+
+/// A new document is loading in this webview — its old mount no longer
+/// counts until the fresh page reports again.
+pub(crate) fn clear_pane_mounted(label: &str) {
+    if let Ok(mut m) = mounted_panes().lock() {
+        m.remove(label);
+    }
+}
+
 /// After a verified drawer show, the webview must grow an AXWebArea — the
 /// same "is the SPA really mounted" truth Pixel reads. The empty-glass
 /// failure mode (CG on=1, AXWindow with an AXGroup and no AXWebArea) was
@@ -409,6 +443,14 @@ fn schedule_drawer_mount_check(app: &tauri::AppHandle, label: &str) {
 /// NOT mounted — the document loaded but the SPA never hydrated.
 #[cfg(target_os = "macos")]
 fn drawer_mount_ok(w: &tauri::WebviewWindow) -> bool {
+    // First-show beachball: the AX probe below runs ON the main thread,
+    // and the first AX read of a never-shown WKWebView makes WebKit build
+    // the whole page's accessibility tree while AppKit waits (warm
+    // Settings = a long DOM, ~0.9s after its first show). A page that
+    // already reported its own mount needs no AX read at all.
+    if pane_reported_mounted(w.label()) {
+        return true;
+    }
     let (tx, rx) = std::sync::mpsc::channel();
     let w = w.clone();
     crate::main_thread_sync(move || {

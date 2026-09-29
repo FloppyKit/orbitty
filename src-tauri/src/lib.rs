@@ -638,6 +638,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                drawers::clear_pane_mounted(webview.label());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             list_windows,
             focus_window,
@@ -671,6 +676,7 @@ pub fn run() {
             rail_toggle::dest_open_state,
             drawers::companion_drag_begin,
             drawers::pane_drag_begin,
+            drawers::pane_mounted,
             companion::companion_frames,
             companion::companion_glb_url,
             panes::hide_window,
