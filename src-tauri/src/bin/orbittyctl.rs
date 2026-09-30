@@ -58,7 +58,7 @@ commands:
   gate inject CHATTER|STOP
   route table
   route classify -- \"line\"
-  route run -- \"line\"
+  route run [--pending ID] -- \"line\"
   relay status
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
   project add --name N
@@ -162,7 +162,9 @@ route table and route classify are read-safe. classify only names
 which existing door a Hang line would hit, or that the line stays chat.
 It writes nothing. route run calls that same door (including the
 companion-hop log). board-add and agent-spawn return pendingId and do
-not write until a later `route run -- yes` (or ok / do it). no or a
+not write until a later `route run --pending ID -- yes` (or ok / do
+it) with the pendingId that proposal returned. A yes from another
+surface or without the id confirms nothing. no (with the id) or a
 60s timeout drops the pending write. A miss returns tool null and
 spoken null, exit 0. route run is write-class (full / named custom).
 The companion profile does not reach it.
@@ -260,6 +262,8 @@ struct Opts {
     apply: bool,
     /// go status --go GO-ID
     go_id: Option<String>,
+    /// route run --pending ID (the pendingId a board-add returned)
+    pending: Option<String>,
 }
 
 fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -323,6 +327,7 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         dry_run: false,
         apply: false,
         go_id: None,
+        pending: None,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -396,6 +401,9 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
             "--clear" => o.clear = true,
             "--n" => o.n = Some(it.next().ok_or("--n needs a number")?.clone()),
             "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
+            "--pending" => {
+                o.pending = Some(it.next().ok_or("--pending needs a pendingId")?.clone())
+            }
             "--file" => o.file = Some(it.next().ok_or("--file needs a path")?.clone()),
             // Kept as Some("") when passed empty — relay replica clears.
             "--url" => o.url = Some(it.next().ok_or("--url needs a value")?.clone()),
@@ -877,7 +885,13 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["gate", "status"] => Ok(("gate.status", json!({}))),
         ["route", "table"] => Ok(("route.table", json!({}))),
         ["route", "classify"] => Ok(("route.classify", json!({ "line": payload(o)? }))),
-        ["route", "run"] => Ok(("route.run", json!({ "line": payload(o)? }))),
+        ["route", "run"] => {
+            let mut a = json!({ "line": payload(o)? });
+            if let Some(p) = opt(&o.pending) {
+                a["pendingId"] = json!(p);
+            }
+            Ok(("route.run", a))
+        }
         ["gate", "inject", kind] => Ok(("gate.inject", json!({ "kind": *kind }))),
         ["shift", "tick"] => Ok(("shift.tick", json!({}))),
         ["shift", "on"] => Ok(("shift.on", json!({}))),

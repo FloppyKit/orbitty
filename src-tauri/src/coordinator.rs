@@ -1620,6 +1620,18 @@ pub async fn companion_send(
     line: String,
     path: Option<String>,
 ) -> Result<String, String> {
+    // The app composer: a bare yes confirms a chat-made board write only.
+    companion_send_from(app, line, path, crate::mouth_route::Origin::Chat).await
+}
+
+/// [`companion_send`] naming its surface. Socket `companion.send` passes
+/// `Origin::Companion`, so it never proposes or confirms a board write.
+pub async fn companion_send_from(
+    app: tauri::AppHandle,
+    line: String,
+    path: Option<String>,
+    origin: crate::mouth_route::Origin,
+) -> Result<String, String> {
     let line = line.trim().replace('\n', " ");
     let attach = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
         Some(p) => Some(crate::attach::stat_path(p)?),
@@ -1637,7 +1649,7 @@ pub async fn companion_send(
         true,
         &serde_json::json!({ "n": line.chars().count(), "file": attach.is_some() }),
     );
-    let out = companion_send_inner(app.clone(), line, attach).await;
+    let out = companion_send_inner(app.clone(), line, attach, origin).await;
     crate::event_log::append_best(
         &app,
         "companion-reply",
@@ -1654,6 +1666,7 @@ async fn companion_send_inner(
     app: tauri::AppHandle,
     line: String,
     attach: Option<crate::attach::AttachInfo>,
+    origin: crate::mouth_route::Origin,
 ) -> Result<String, String> {
     // A chip means the line is for the AI — the local
     // todo:/go:/Action intercepts cannot take a file, so they stand down
@@ -1750,7 +1763,7 @@ async fn companion_send_inner(
     // Board add / agent spawn are writes. They still answer here, after
     // one confirm, so a write does not fall through into a board snapshot.
     if attach.is_none() {
-        if let Some(spoken) = crate::mouth_route::run(&app, &line) {
+        if let Some(spoken) = crate::mouth_route::run(&app, &line, origin) {
             let spoken = crate::mouth_hop::strip_handoff_marks(&spoken);
             if crate::state::update(&app, |st| {
                 st.companion.last_bot_line = spoken.clone();

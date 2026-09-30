@@ -47,7 +47,6 @@ mod tests {
 
     fn buckets(display: &str, todo: &[&str], doing: &[&str], needed: &[&str]) -> OpenBuckets {
         OpenBuckets {
-            pid: "p-test".into(),
             display: display.into(),
             todo: todo.iter().map(|s| (*s).into()).collect(),
             todo_n: todo.len(),

@@ -45,15 +45,19 @@ fn explicit_planet(line: &str) -> Option<String> {
 /// Otherwise a real planet name mentioned in the line (longest match),
 /// so "what's in Kansas doing?" does not fall through to Orbitty.
 pub fn project_for_line(app: &tauri::AppHandle, line: &str) -> String {
+    match crate::state::load_state(app) {
+        Ok(st) => project_for_names(st.projects.iter().map(|p| p.name.as_str()), line),
+        Err(_) => project_for_names(std::iter::empty(), line),
+    }
+}
+
+/// Pure half of [`project_for_line`]: explicit `planet <name>`, else the
+/// longest real planet named in the line, else orbitty.
+pub fn project_for_names<'a>(names: impl IntoIterator<Item = &'a str>, line: &str) -> String {
     if let Some(p) = explicit_planet(line) {
         return p;
     }
-    if let Ok(st) = crate::state::load_state(app) {
-        if let Some(name) = mentioned_planet(st.projects.iter().map(|p| p.name.as_str()), line) {
-            return name;
-        }
-    }
-    "orbitty".into()
+    mentioned_planet(names, line).unwrap_or_else(|| "orbitty".into())
 }
 
 /// Longest planet name that appears as its own word in `line`.
@@ -61,15 +65,30 @@ pub fn mentioned_planet<'a>(
     names: impl IntoIterator<Item = &'a str>,
     line: &str,
 ) -> Option<String> {
-    let padded = format!(" {} ", line.to_ascii_lowercase());
+    // Punctuation is a word break ("what's in Kansas?").
+    let words = |s: &str| -> String {
+        s.chars()
+            .map(|c| {
+                if c.is_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    ' '
+                }
+            })
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let padded = format!(" {} ", words(line));
     let mut best: Option<(usize, String)> = None;
     for name in names {
         let n = name.trim();
         if n.len() < 2 {
             continue;
         }
-        let low = n.to_ascii_lowercase();
-        if !padded.contains(&format!(" {low} ")) {
+        let low = words(n);
+        if low.is_empty() || !padded.contains(&format!(" {low} ")) {
             continue;
         }
         if best
@@ -138,7 +157,6 @@ fn push_cap(dst: &mut Vec<String>, title: String) {
 /// Open board buckets for one planet. Shared by snapshot + them-row.
 #[derive(Clone, Debug)]
 pub struct OpenBuckets {
-    pub pid: String,
     pub display: String,
     pub todo: Vec<String>,
     pub todo_n: usize,
@@ -218,7 +236,6 @@ pub fn open_buckets(
         }
     }
     Ok(OpenBuckets {
-        pid,
         display,
         todo,
         todo_n,
@@ -398,6 +415,28 @@ mod tests {
         assert!(out.contains("Orbitty — Needed (1): Who runs this doing GO?"));
         assert!(!out.contains("Orbitty has"));
         assert!(!out.contains("todo\t"));
+    }
+
+    #[test]
+    fn board_reads_use_the_named_planet() {
+        let names = ["Orbitty", "Kansas", "Kansas Lab"];
+        assert_eq!(project_for_names(names, "what's in Kansas doing?"), "Kansas");
+        assert_eq!(project_for_names(names, "what's in Kansas?"), "Kansas");
+        assert_eq!(project_for_names(names, "cards on Kansas Lab"), "Kansas Lab");
+        assert_eq!(project_for_names(names, "what's on the board"), "orbitty");
+        assert_eq!(project_for_names(names, "board on planet clinic"), "clinic");
+        // Wiring: both board-read doors resolve through project_for_line.
+        let src = include_str!("mouth_tools.rs");
+        let at = src.find("pub fn project_for_line(").unwrap();
+        let body = &src[at..at + src[at..].find("\n}\n").unwrap()];
+        assert!(body.contains("project_for_names("), "{body}");
+        let board = include_str!("mouth_board.rs");
+        assert!(board.contains("crate::mouth_tools::project_for_line(app, raw_line)"));
+        assert!(!board.contains("project_from_line("));
+        let hop = include_str!("mouth_hop.rs");
+        assert!(hop.contains("crate::mouth_tools::project_for_line(app, raw_line)"));
+        assert!(hop.contains("\"project\": project, \"status\": \"open\""));
+        assert!(!hop.contains("\"project\": \"orbitty\", \"status\": \"open\""));
     }
 
     #[test]

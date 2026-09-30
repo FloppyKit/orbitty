@@ -68,49 +68,76 @@ pub struct RouteOutcome {
     pub pending_id: Option<String>,
 }
 
-/// Run the tool. None spoken = leave the line for chat.
-pub fn run(app: &tauri::AppHandle, line: &str) -> Option<String> {
-    run_outcome(app, line).spoken
+/// Which surface sent the line. A pending board write confirms only on
+/// the surface that proposed it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// The app composer (Tauri `companion_send`). A bare yes confirms a
+    /// chat-made pending only.
+    Chat,
+    /// Socket / orbittyctl / MCP `route.run`. The yes must carry the
+    /// matching `pendingId`.
+    Socket,
+    /// Socket `companion.send`. Never proposes or confirms a board write
+    /// (the companion profile is denied kanban.add / agent.pickup).
+    Companion,
 }
 
-/// Same door as [`run`], plus the pending confirm id.
-pub fn run_outcome(app: &tauri::AppHandle, line: &str) -> RouteOutcome {
-    if is_stop_word(line) {
-        clear_pending();
-        return RouteOutcome {
-            tool: None,
-            spoken: None,
-            pending_id: None,
-        };
-    }
-    let now = now_ms();
-    let pending = take_pending();
-    let loaded = crate::state::load_state(app).ok();
+/// Run the tool. None spoken = leave the line for chat.
+pub fn run(app: &tauri::AppHandle, line: &str, origin: Origin) -> Option<String> {
+    run_outcome(app, line, origin, None).spoken
+}
+
+/// Same door as [`run`], plus the pending confirm id. `confirm_id` is the
+/// `pendingId` a socket caller got back from its own proposal.
+pub fn run_outcome(
+    app: &tauri::AppHandle,
+    line: &str,
+    origin: Origin,
+    confirm_id: Option<&str>,
+) -> RouteOutcome {
+    let now = std::time::Instant::now();
     let id = new_pending_id();
-    let decision = match &loaded {
-        Some(st) => {
-            let planets = planet_rows(st);
-            decide(pending, line, &planets, &st.agent_shortcuts, now, &id)
-        }
-        None => {
-            if parse_board_write(line).is_some() || pending.is_some() {
-                Decision::Ask {
-                    route: parse_board_write(line)
-                        .map(|p| p.route)
-                        .unwrap_or("board-add"),
-                    spoken: "Board unreadable.".into(),
+    let decision = {
+        let mut slot = pending_slot().lock().unwrap_or_else(|e| e.into_inner());
+        if is_stop_word(line) {
+            step(&mut slot, line, &[], &[], now, &id, origin, confirm_id)
+        } else {
+            match crate::state::load_state(app) {
+                Ok(st) => {
+                    let planets = planet_rows(&st);
+                    step(
+                        &mut slot,
+                        line,
+                        &planets,
+                        &st.agent_shortcuts,
+                        now,
+                        &id,
+                        origin,
+                        confirm_id,
+                    )
                 }
-            } else {
-                Decision::Miss
+                Err(_) => unreadable(&mut slot, line, now, origin, confirm_id),
             }
         }
     };
     match decision {
-        Decision::Miss => run_read(app, line),
+        Decision::Miss => {
+            // Base path: write-lane lines skip the read doors (as before
+            // the board-add route) and hop to the write lane.
+            if crate::mouth_gist::needs_write_lane(line) {
+                return RouteOutcome {
+                    tool: None,
+                    spoken: None,
+                    pending_id: None,
+                };
+            }
+            run_read(app, line)
+        }
         Decision::Confirm { pending, spoken } => {
             let tool = pending.resolved.route.to_string();
+            // `step` already stored it in the slot.
             let pending_id = pending.id.clone();
-            store_pending(pending);
             log_tool(app, &tool);
             RouteOutcome {
                 tool: Some(tool),
@@ -141,6 +168,33 @@ pub fn run_outcome(app: &tauri::AppHandle, line: &str) -> RouteOutcome {
             spoken: Some(spoken),
             pending_id: None,
         },
+    }
+}
+
+/// Board unreadable: a board write (or the owner's reply to its pending)
+/// gets an honest ask and never executes.
+fn unreadable(
+    slot: &mut Option<PendingWrite>,
+    line: &str,
+    now: std::time::Instant,
+    origin: Origin,
+    confirm_id: Option<&str>,
+) -> Decision {
+    let mine = slot
+        .as_ref()
+        .is_some_and(|p| fresh(p, now) && owns(p, origin, confirm_id));
+    let write = origin != Origin::Companion && parse_board_write(line).is_some();
+    if !mine && !write {
+        return Decision::Miss;
+    }
+    if mine {
+        *slot = None;
+    }
+    Decision::Ask {
+        route: parse_board_write(line)
+            .map(|p| p.route)
+            .unwrap_or("board-add"),
+        spoken: "Board unreadable.".into(),
     }
 }
 
@@ -447,7 +501,10 @@ pub struct Resolved {
 #[derive(Clone, Debug)]
 pub struct PendingWrite {
     pub id: String,
-    pub at_ms: u64,
+    /// Monotonic: a wall-clock step cannot keep a pending alive.
+    pub at: std::time::Instant,
+    /// The surface that proposed it. Only that surface can confirm.
+    pub origin: Origin,
     pub resolved: Resolved,
 }
 
@@ -477,19 +534,25 @@ pub enum Decision {
     Miss,
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
+/// 128 random bits (urandom) so a socket confirm cannot guess another
+/// caller's pendingId. Time + counter only if urandom is unreadable.
 fn new_pending_id() -> String {
-    let n = std::time::SystemTime::now()
+    use std::io::Read;
+    let mut buf = [0u8; 16];
+    let ok = std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .is_ok();
+    if ok && buf.iter().any(|b| *b != 0) {
+        let hex: String = buf.iter().map(|b| format!("{b:02x}")).collect();
+        return format!("mba-{hex}");
+    }
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
+        .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("mba-{:x}-{n:x}", now_ms())
+    format!("mba-{t:x}-{n:x}")
 }
 
 fn pending_slot() -> &'static std::sync::Mutex<Option<PendingWrite>> {
@@ -497,19 +560,57 @@ fn pending_slot() -> &'static std::sync::Mutex<Option<PendingWrite>> {
     &PENDING
 }
 
-fn take_pending() -> Option<PendingWrite> {
-    pending_slot()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .take()
+fn fresh(p: &PendingWrite, now: std::time::Instant) -> bool {
+    now.saturating_duration_since(p.at) < std::time::Duration::from_millis(CONFIRM_MS)
 }
 
-fn store_pending(p: PendingWrite) {
-    *pending_slot().lock().unwrap_or_else(|e| e.into_inner()) = Some(p);
+/// Only the proposing surface confirms. Chat: any chat line. Socket: the
+/// line must carry the pendingId it got back. companion.send: never.
+fn owns(p: &PendingWrite, origin: Origin, confirm_id: Option<&str>) -> bool {
+    p.origin == origin
+        && match origin {
+            Origin::Chat => true,
+            Origin::Socket => confirm_id == Some(p.id.as_str()),
+            Origin::Companion => false,
+        }
 }
 
-fn clear_pending() {
-    let _ = take_pending();
+/// One line against the single pending slot. Stop clears it. The owner's
+/// line takes it (so one yes executes once); another surface's line
+/// leaves it alone. A new proposal replaces it.
+#[allow(clippy::too_many_arguments)]
+pub fn step(
+    slot: &mut Option<PendingWrite>,
+    line: &str,
+    planets: &[PlanetRow],
+    agents: &[crate::state::AgentShortcut],
+    now: std::time::Instant,
+    next_id: &str,
+    origin: Origin,
+    confirm_id: Option<&str>,
+) -> Decision {
+    if is_stop_word(line) {
+        *slot = None;
+        return Decision::Miss;
+    }
+    if slot.as_ref().is_some_and(|p| !fresh(p, now)) {
+        *slot = None;
+    }
+    let pending = if slot
+        .as_ref()
+        .is_some_and(|p| owns(p, origin, confirm_id))
+    {
+        slot.take()
+    } else {
+        None
+    };
+    let d = decide(
+        pending, line, planets, agents, now, next_id, origin, confirm_id,
+    );
+    if let Decision::Confirm { pending, .. } = &d {
+        *slot = Some(pending.clone());
+    }
+    d
 }
 
 fn planet_rows(st: &crate::state::PersistedState) -> Vec<PlanetRow> {
@@ -990,17 +1091,104 @@ fn is_no(line: &str) -> bool {
     )
 }
 
+/// Longest real name that `text` starts with (word boundary).
+fn longest_name_at(text: &str, names: &[&str]) -> Option<String> {
+    let rest = text.trim_start().to_ascii_lowercase();
+    let mut best: Option<&str> = None;
+    for n in names {
+        let n = n.trim();
+        if n.len() < 2 {
+            continue;
+        }
+        let nl = n.to_ascii_lowercase();
+        if !rest.starts_with(&nl) {
+            continue;
+        }
+        if rest[nl.len()..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric())
+        {
+            continue;
+        }
+        if best.map(|b| n.len() > b.len()).unwrap_or(true) {
+            best = Some(n);
+        }
+    }
+    best.map(str::to_string)
+}
+
+fn marker_starts(text: &str, first: &[&str], all: &[&str]) -> Vec<usize> {
+    let low = text.to_ascii_lowercase();
+    let mut v = Vec::new();
+    for m in first {
+        if let Some(i) = low.find(m) {
+            v.push(i + m.len());
+        }
+    }
+    for m in all {
+        v.extend(low.match_indices(m).map(|(i, _)| i + m.len()));
+    }
+    v
+}
+
+/// Multi-word planet and agent names: the longest real name after the
+/// same markers `planet_token` / `agent_token` read wins, so "Kansas Lab"
+/// is not "Kansas" and "with Kansas Agent" is not "Kansas".
+fn refine(
+    mut parsed: ParsedWrite,
+    line: &str,
+    planets: &[PlanetRow],
+    agents: &[crate::state::AgentShortcut],
+) -> ParsedWrite {
+    let raw = line
+        .trim()
+        .trim_matches(|c: char| matches!(c, '.' | '!' | '?'));
+    let (quoted, without) = take_quote(raw);
+    let planet_names: Vec<&str> = planets.iter().map(|p| p.name.as_str()).collect();
+    let agent_names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
+    let planet = marker_starts(&without, &["planet "], &[" to ", " on ", " for "])
+        .into_iter()
+        .find_map(|i| longest_name_at(&without[i..], &planet_names));
+    let agent = marker_starts(&without, &[], &["named ", "with ", "using "])
+        .into_iter()
+        .find_map(|i| longest_name_at(&without[i..], &agent_names));
+    let mut changed = false;
+    if let Some(p) = planet {
+        if parsed.planet.as_deref() != Some(p.as_str()) {
+            parsed.planet = Some(p);
+            changed = true;
+        }
+    }
+    if let Some(a) = agent {
+        if parsed.agent.as_deref() != Some(a.as_str()) {
+            parsed.agent = Some(a);
+            changed = true;
+        }
+    }
+    if changed && quoted.is_none() {
+        let t = remainder_title(&without, parsed.planet.as_deref(), parsed.agent.as_deref());
+        parsed.title = if t.is_empty() { None } else { Some(t) };
+    }
+    parsed
+}
+
 /// Pure confirm machine. A confirm does not touch `PersistedState`.
-/// Timeout and "no" return without [`Decision::Execute`].
+/// Timeout, "no", and another surface's reply return without
+/// [`Decision::Execute`]. A line with no real planet (and no literal
+/// "planet") is a Miss, so it keeps its base path (chat or write lane).
+#[allow(clippy::too_many_arguments)]
 pub fn decide(
     pending: Option<PendingWrite>,
     line: &str,
     planets: &[PlanetRow],
     agents: &[crate::state::AgentShortcut],
-    now: u64,
+    now: std::time::Instant,
     next_id: &str,
+    origin: Origin,
+    confirm_id: Option<&str>,
 ) -> Decision {
-    let pending = pending.filter(|p| now.saturating_sub(p.at_ms) < CONFIRM_MS);
+    let pending = pending.filter(|p| fresh(p, now) && owns(p, origin, confirm_id));
     if let Some(p) = pending {
         if is_yes(line) {
             return Decision::Execute(p);
@@ -1013,9 +1201,21 @@ pub fn decide(
     if is_yes(line) || is_no(line) {
         return Decision::Miss;
     }
+    if origin == Origin::Companion {
+        return Decision::Miss;
+    }
     let Some(parsed) = parse_board_write(line) else {
         return Decision::Miss;
     };
+    let parsed = refine(parsed, line, planets, agents);
+    let named = parsed
+        .planet
+        .as_deref()
+        .map(|t| !matches!(match_planet(t, planets), Hit::None))
+        .unwrap_or(false);
+    if !named && !has_word(&line.to_ascii_lowercase(), "planet") {
+        return Decision::Miss;
+    }
     match resolve(&parsed, planets, agents) {
         Resolve::Ask { route, spoken } => Decision::Ask { route, spoken },
         Resolve::Ready(r) => {
@@ -1023,7 +1223,8 @@ pub fn decide(
             Decision::Confirm {
                 pending: PendingWrite {
                     id: next_id.to_string(),
-                    at_ms: now,
+                    at: now,
+                    origin,
                     resolved: r,
                 },
                 spoken,
@@ -1032,6 +1233,7 @@ pub fn decide(
     }
 }
 
+#[cfg(test)]
 fn blank_card(id: &str, r: &Resolved, status: &str) -> crate::state::KanbanCard {
     crate::state::KanbanCard {
         id: id.to_string(),
@@ -1068,6 +1270,7 @@ fn blank_card(id: &str, r: &Resolved, status: &str) -> crate::state::KanbanCard 
 
 /// Fixture mirror of kanban_add → assign → (doing) the droid row.
 /// Does not call `agent_pickup` and does not launch a harness.
+#[cfg(test)]
 pub fn apply_confirmed(
     st: &mut crate::state::PersistedState,
     r: &Resolved,
@@ -1092,36 +1295,71 @@ pub fn apply_confirmed(
     Ok(card_id)
 }
 
+#[cfg(test)]
 pub fn state_hash(st: &crate::state::PersistedState) -> String {
     serde_json::to_string(&(&st.kanban_cards, &st.agent_runs)).unwrap_or_default()
+}
+
+/// The commit plan with the doors injected (tests see every call).
+/// Always adds as todo (pickup is what moves a card to doing), assigns,
+/// and picks up only for doing. An add error stops before assign.
+#[cfg(any(unix, test))]
+fn commit_with(
+    r: &Resolved,
+    add: impl FnOnce(&str, &str, &str) -> Result<String, String>,
+    assign: impl FnOnce(&str, &str) -> Result<(), String>,
+    pickup: impl FnOnce(&str, &str) -> Result<(), String>,
+    log: impl FnOnce(&str),
+) -> String {
+    let card_id = match add(&r.title, &r.planet_id, "todo") {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    if let Err(e) = assign(&card_id, &r.agent_id) {
+        return format!(
+            "Added {} on {} but assign failed: {e}",
+            card_id, r.planet_name
+        );
+    }
+    if r.bucket == "doing" {
+        if let Err(e) = pickup(&r.agent_id, &card_id) {
+            log(&card_id);
+            return format!(
+                "Added {} on {} but pickup failed: {e}",
+                card_id, r.planet_name
+            );
+        }
+    }
+    log(&card_id);
+    format!("Added {} on {}.", card_id, r.planet_name)
 }
 
 /// Live door. Adds as todo, assigns, and pickups only for doing.
 /// Each door saves through `state::update`. No write happens before yes.
 #[cfg(unix)]
 fn commit_board(app: &tauri::AppHandle, r: &Resolved) -> String {
-    let card = match crate::board::kanban_add(app, &r.title, &r.planet_id, "todo", None, Vec::new())
-    {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    if let Err(e) = crate::agents::kanban_assign(app, &card.id, &r.agent_id) {
-        return format!(
-            "Added {} on {} but assign failed: {e}",
-            card.id, r.planet_name
-        );
-    }
-    if r.bucket == "doing" {
-        if let Err(e) = crate::agents::agent_pickup(app, Some(&r.agent_id), None, Some(&card.id)) {
-            log_board_add(app, r, &card.id);
-            return format!(
-                "Added {} on {} but pickup failed: {e}",
-                card.id, r.planet_name
-            );
-        }
-    }
-    log_board_add(app, r, &card.id);
-    format!("Added {} on {}.", card.id, r.planet_name)
+    commit_with(
+        r,
+        |title, planet, status| {
+            crate::board::kanban_add(app, title, planet, status, None, Vec::new()).map(|c| c.id)
+        },
+        |card, agent| crate::agents::kanban_assign(app, card, agent).map(|_| ()),
+        |agent, card| {
+            crate::agents::agent_pickup(app, Some(agent), None, Some(card)).map(|_| ())
+        },
+        |card| log_board_add(app, r, card),
+    )
+}
+
+/// Log payload: planet, bucket, agent id, card id. Never the title or line.
+#[cfg(any(unix, test))]
+fn board_add_payload(r: &Resolved, card_id: &str) -> serde_json::Value {
+    json!({
+        "planet": r.planet_name,
+        "bucket": r.bucket,
+        "agent": r.agent_id,
+        "card": card_id,
+    })
 }
 
 #[cfg(unix)]
@@ -1133,12 +1371,7 @@ fn log_board_add(app: &tauri::AppHandle, r: &Resolved, card_id: &str) {
         Some(&r.planet_id),
         Some("agent"),
         true,
-        &json!({
-            "planet": r.planet_name,
-            "bucket": r.bucket,
-            "agent": r.agent_id,
-            "card": card_id,
-        }),
+        &board_add_payload(r, card_id),
     );
 }
 
@@ -1427,8 +1660,26 @@ mod tests {
             extra: None,
             permissions: "read-only".into(),
         };
+        st.projects.push(crate::state::Project {
+            id: "p-clinic".into(),
+            name: "Clinic".into(),
+            trackers: None,
+            workspace_root: None,
+        });
+        let lab = crate::state::AgentShortcut {
+            id: "a-lab".into(),
+            name: "Lab Agent".into(),
+            harness: "cursor".into(),
+            profile: String::new(),
+            model: None,
+            md_paths: Vec::new(),
+            project_id: Some("p-lab".into()),
+            extra: None,
+            permissions: "read-only".into(),
+        };
         st.agent_shortcuts.push(agent);
         st.agent_shortcuts.push(kansas);
+        st.agent_shortcuts.push(lab);
         let planets = planet_rows(&st);
         let agents = st.agent_shortcuts.clone();
         (st, planets, agents)
@@ -1438,8 +1689,8 @@ mod tests {
     fn no_and_timeout_leave_the_fixture_hash() {
         let (st, planets, agents) = fixture();
         let hash = state_hash(&st);
-        let now = 1_000_000u64;
-        let d = decide(
+        let now = std::time::Instant::now();
+        let d = chat_decide(
             None,
             "add a card test-add to planet fixture todo",
             &planets,
@@ -1458,13 +1709,12 @@ mod tests {
         assert_eq!(pending.id, "mba-test");
         assert_eq!(state_hash(&st), hash, "confirm must not write");
 
-        let d = decide(Some(pending.clone()), "no", &planets, &agents, now, "mba-2");
+        let d = chat_decide(Some(pending.clone()), "no", &planets, &agents, now, "mba-2");
         assert!(matches!(d, Decision::Decline(_)));
         assert_eq!(state_hash(&st), hash, "no must not write");
 
-        let mut stale = pending;
-        stale.at_ms = now.saturating_sub(CONFIRM_MS + 1);
-        let d = decide(Some(stale), "yes", &planets, &agents, now, "mba-3");
+        let later = now + std::time::Duration::from_millis(CONFIRM_MS + 1);
+        let d = chat_decide(Some(pending), "yes", &planets, &agents, later, "mba-3");
         assert!(matches!(d, Decision::Miss), "timeout must not execute");
         assert_eq!(state_hash(&st), hash, "timeout must not write");
     }
@@ -1473,8 +1723,8 @@ mod tests {
     fn yes_applies_fixture_add_and_spawn_only_in_memory() {
         let (mut st, planets, agents) = fixture();
         let hash = state_hash(&st);
-        let now = 2_000_000u64;
-        let d = decide(
+        let now = std::time::Instant::now();
+        let d = chat_decide(
             None,
             "add a card test-add to planet fixture todo",
             &planets,
@@ -1486,7 +1736,7 @@ mod tests {
             panic!("confirm add");
         };
         assert_eq!(state_hash(&st), hash);
-        let d = decide(Some(pending), "yes", &planets, &agents, now, "mba-x");
+        let d = chat_decide(Some(pending), "yes", &planets, &agents, now, "mba-x");
         let Decision::Execute(p) = d else {
             panic!("execute add");
         };
@@ -1502,7 +1752,7 @@ mod tests {
             "todo assign does not spawn a droid"
         );
 
-        let d = decide(
+        let d = chat_decide(
             None,
             "start an agent on planet fixture doing \"walk\"",
             &planets,
@@ -1514,7 +1764,7 @@ mod tests {
             panic!("confirm spawn");
         };
         assert!(spoken.starts_with("Add 'walk' to Fixture doing with Fixture Agent?"));
-        let d = decide(Some(pending), "do it", &planets, &agents, now, "mba-y");
+        let d = chat_decide(Some(pending), "do it", &planets, &agents, now, "mba-y");
         let Decision::Execute(p) = d else {
             panic!("execute spawn");
         };
@@ -1563,12 +1813,12 @@ mod tests {
     fn ambiguous_planet_asks_and_does_not_confirm() {
         let (st, planets, agents) = fixture();
         let hash = state_hash(&st);
-        let d = decide(
+        let d = chat_decide(
             None,
             "add a card milk to planet kan todo",
             &planets,
             &agents,
-            10,
+            std::time::Instant::now(),
             "mba-amb",
         );
         match d {
@@ -1591,9 +1841,7 @@ mod tests {
         let log_body = &src[log_at..log_at + src[log_at..].find("\n}\n").unwrap()];
         assert!(body.contains("log_board_add("));
         assert!(log_body.contains("mouth-board-add"), "{log_body}");
-        assert!(log_body.contains("\"planet\""));
-        assert!(log_body.contains("\"bucket\""));
-        assert!(log_body.contains("\"card\""));
+        assert!(log_body.contains("board_add_payload("), "{log_body}");
         let apply = src.find("fn apply_confirmed(").unwrap();
         let apply_body = &src[apply..apply + src[apply..].find("\n}\n").unwrap()];
         assert!(!apply_body.contains("agent_pickup"));
@@ -1622,5 +1870,330 @@ mod tests {
         let slice = &src[start..start + 400];
         assert!(slice.contains("mouth_route::run"));
         assert!(!slice.contains("needs_write_lane"));
+    }
+
+    // --- verify 4df2f22 fixes (B1, N1–N7, surviving mutations) ---------
+
+    #[allow(clippy::too_many_arguments)]
+    fn chat_decide(
+        pending: Option<PendingWrite>,
+        line: &str,
+        planets: &[PlanetRow],
+        agents: &[crate::state::AgentShortcut],
+        now: std::time::Instant,
+        id: &str,
+    ) -> Decision {
+        decide(pending, line, planets, agents, now, id, Origin::Chat, None)
+    }
+
+    fn ms(n: u64) -> std::time::Duration {
+        std::time::Duration::from_millis(n)
+    }
+
+    const ADD: &str = "add a card test-add to planet fixture todo";
+
+    fn fn_body<'a>(src: &'a str, sig: &str) -> &'a str {
+        let at = src.find(sig).unwrap_or_else(|| panic!("{sig}"));
+        &src[at..at + src[at..].find("\n}\n").expect("end")]
+    }
+
+    #[test]
+    fn b1_lines_without_a_real_planet_miss() {
+        let (_st, planets, agents) = fixture();
+        let now = std::time::Instant::now();
+        for line in [
+            "add a todo buy milk",
+            "please add a todo: call mom",
+            "can you make a card game for my kids?",
+            "add some cards to my deck",
+            "make a todo app in rust",
+            "put the card down",
+            "I want to start an agent someday, doing laundry now",
+        ] {
+            let d = chat_decide(None, line, &planets, &agents, now, "mba-b1");
+            assert!(matches!(d, Decision::Miss), "{line}: {d:?}");
+        }
+        // It keeps its base path: the write lane.
+        assert!(crate::mouth_gist::needs_write_lane("add a todo buy milk"));
+        // Matt's line still confirms.
+        let d = chat_decide(
+            None,
+            "add an agent in doing to planet Kansas",
+            &planets,
+            &agents,
+            now,
+            "mba-k",
+        );
+        assert!(matches!(d, Decision::Confirm { .. }), "{d:?}");
+        // Asks stay for: a literal "planet" with no name, an unknown named
+        // planet, a missing title, a missing agent.
+        for (line, want) in [
+            ("add a card milk to planet", "Which planet?"),
+            ("add a card milk to planet Mars todo", "No planet Mars."),
+            ("add a card to planet Kansas", "What title?"),
+            ("add a card milk to planet Clinic todo", "Which agent on Clinic?"),
+        ] {
+            match chat_decide(None, line, &planets, &agents, now, "mba-ask") {
+                Decision::Ask { spoken, .. } => assert_eq!(spoken, want, "{line}"),
+                other => panic!("{line}: ask, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn confirm_window_is_sixty_seconds_on_a_monotonic_clock() {
+        assert_eq!(CONFIRM_MS, 60_000);
+        let (_st, planets, agents) = fixture();
+        let t0 = std::time::Instant::now();
+        let Decision::Confirm { pending, .. } = chat_decide(None, ADD, &planets, &agents, t0, "t")
+        else {
+            panic!("confirm");
+        };
+        let d = chat_decide(
+            Some(pending.clone()),
+            "yes",
+            &planets,
+            &agents,
+            t0 + ms(59_999),
+            "x",
+        );
+        assert!(matches!(d, Decision::Execute(_)), "{d:?}");
+        let d = chat_decide(Some(pending), "yes", &planets, &agents, t0 + ms(60_000), "x");
+        assert!(matches!(d, Decision::Miss), "{d:?}");
+        let src = include_str!("mouth_route.rs");
+        assert!(src.contains("pub at: std::time::Instant,"));
+    }
+
+    #[test]
+    fn one_yes_consumes_the_pending() {
+        let (_st, planets, agents) = fixture();
+        let t0 = std::time::Instant::now();
+        let mut slot = None;
+        let d = step(&mut slot, ADD, &planets, &agents, t0, "mba-1", Origin::Chat, None);
+        assert!(matches!(d, Decision::Confirm { .. }), "{d:?}");
+        assert!(slot.is_some());
+        let d = step(&mut slot, "yes", &planets, &agents, t0 + ms(5), "mba-2", Origin::Chat, None);
+        assert!(matches!(d, Decision::Execute(_)), "{d:?}");
+        assert!(slot.is_none(), "yes must consume the pending");
+        let d = step(&mut slot, "yes", &planets, &agents, t0 + ms(9), "mba-3", Origin::Chat, None);
+        assert!(matches!(d, Decision::Miss), "second yes must not write twice: {d:?}");
+        // The live door runs every line through `step` on the one slot.
+        let body = fn_body(include_str!("mouth_route.rs"), "pub fn run_outcome(");
+        assert!(body.contains("step(\n"), "{body}");
+        assert!(body.contains("pending_slot().lock()"));
+    }
+
+    #[test]
+    fn stop_clears_the_pending() {
+        let (_st, planets, agents) = fixture();
+        let t0 = std::time::Instant::now();
+        for (stop, origin) in [
+            ("stop", Origin::Chat),
+            ("STOP.", Origin::Chat),
+            ("stop", Origin::Socket),
+        ] {
+            let mut slot = None;
+            let _ = step(&mut slot, ADD, &planets, &agents, t0, "mba-s", Origin::Chat, None);
+            assert!(slot.is_some());
+            let d = step(&mut slot, stop, &planets, &agents, t0, "mba-t", origin, None);
+            assert!(matches!(d, Decision::Miss));
+            assert!(slot.is_none(), "{stop} must clear the pending");
+            let d = step(&mut slot, "yes", &planets, &agents, t0, "mba-u", Origin::Chat, None);
+            assert!(matches!(d, Decision::Miss), "yes after stop: {d:?}");
+        }
+    }
+
+    fn resolved(bucket: &'static str) -> Resolved {
+        Resolved {
+            route: if bucket == "doing" { "agent-spawn" } else { "board-add" },
+            planet_id: "p-kansas".into(),
+            planet_name: "Kansas".into(),
+            bucket,
+            title: "secret milk".into(),
+            agent_id: "a-kansas".into(),
+            agent_name: "Kansas Agent".into(),
+        }
+    }
+
+    fn commit_calls(r: &Resolved, add_ok: bool) -> (String, Vec<String>) {
+        let calls = std::cell::RefCell::new(Vec::<String>::new());
+        let out = commit_with(
+            r,
+            |t, p, s| {
+                calls.borrow_mut().push(format!("add {t}|{p}|{s}"));
+                if add_ok {
+                    Ok("c-1".into())
+                } else {
+                    Err("boom".into())
+                }
+            },
+            |c, a| {
+                calls.borrow_mut().push(format!("assign {c}|{a}"));
+                Ok(())
+            },
+            |a, c| {
+                calls.borrow_mut().push(format!("pickup {a}|{c}"));
+                Ok(())
+            },
+            |c| calls.borrow_mut().push(format!("log {c}")),
+        );
+        (out, calls.into_inner())
+    }
+
+    #[test]
+    fn commit_picks_up_only_on_doing_and_never_adds_as_doing() {
+        let (out, calls) = commit_calls(&resolved("todo"), true);
+        assert_eq!(
+            calls,
+            ["add secret milk|p-kansas|todo", "assign c-1|a-kansas", "log c-1"],
+            "todo add: no pickup"
+        );
+        assert_eq!(out, "Added c-1 on Kansas.");
+        let (_, calls) = commit_calls(&resolved("doing"), true);
+        assert_eq!(
+            calls,
+            [
+                "add secret milk|p-kansas|todo",
+                "assign c-1|a-kansas",
+                "pickup a-kansas|c-1",
+                "log c-1"
+            ],
+            "doing: added as todo, then pickup with that card id"
+        );
+        let (out, calls) = commit_calls(&resolved("doing"), false);
+        assert_eq!(out, "boom");
+        assert_eq!(calls, ["add secret milk|p-kansas|todo"], "add error: no assign");
+        // The live door is this plan.
+        let body = fn_body(include_str!("mouth_route.rs"), "fn commit_board(");
+        assert!(body.contains("commit_with("), "{body}");
+    }
+
+    #[test]
+    fn board_add_log_has_no_title_or_line() {
+        let r = resolved("doing");
+        let v = board_add_payload(&r, "c-9");
+        let mut keys: Vec<String> = v.as_object().expect("obj").keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["agent", "bucket", "card", "planet"]);
+        assert!(!v.to_string().contains("secret milk"), "{v}");
+        let body = fn_body(include_str!("mouth_route.rs"), "fn log_board_add(");
+        assert!(body.contains("&board_add_payload(r, card_id)"), "{body}");
+    }
+
+    #[test]
+    fn longest_planet_and_agent_names_win() {
+        let (_st, planets, agents) = fixture();
+        let now = std::time::Instant::now();
+        let d = chat_decide(
+            None,
+            "add a card Fix login for Kansas Lab todo",
+            &planets,
+            &agents,
+            now,
+            "mba-lab",
+        );
+        let Decision::Confirm { pending, spoken } = d else {
+            panic!("confirm lab: {d:?}");
+        };
+        assert_eq!(pending.resolved.planet_id, "p-lab");
+        assert_eq!(pending.resolved.title, "Fix login");
+        assert_eq!(spoken, "Add 'Fix login' to Kansas Lab todo with Lab Agent? (yes / no)");
+        let d = chat_decide(
+            None,
+            "add a card Fix login to planet Kansas Lab with Kansas Agent",
+            &planets,
+            &agents,
+            now,
+            "mba-lab2",
+        );
+        let Decision::Confirm { pending, .. } = d else {
+            panic!("confirm named agent: {d:?}");
+        };
+        assert_eq!(pending.resolved.planet_id, "p-lab");
+        assert_eq!(pending.resolved.agent_id, "a-kansas");
+        assert_eq!(pending.resolved.title, "Fix login");
+        let d = chat_decide(
+            None,
+            "add a card Fix login to planet Kansas todo",
+            &planets,
+            &agents,
+            now,
+            "mba-k",
+        );
+        let Decision::Confirm { pending, .. } = d else {
+            panic!("confirm kansas: {d:?}");
+        };
+        assert_eq!(pending.resolved.planet_id, "p-kansas");
+    }
+
+    #[test]
+    fn confirm_is_bound_to_its_surface_and_pending_id() {
+        let (_st, planets, agents) = fixture();
+        let t0 = std::time::Instant::now();
+        let mut slot = None;
+        let sock = |slot: &mut Option<PendingWrite>, line: &str, id: Option<&str>| {
+            step(slot, line, &planets, &agents, t0, "mba-new", Origin::Socket, id)
+        };
+        // MCP / ctl proposes.
+        let d = sock(&mut slot, ADD, None);
+        let Decision::Confirm { pending, .. } = d else {
+            panic!("socket confirm: {d:?}");
+        };
+        assert_eq!(pending.origin, Origin::Socket);
+        let pid = pending.id.clone();
+        // Matt's unrelated chat "ok" does not confirm it and leaves it.
+        let d = step(&mut slot, "ok", &planets, &agents, t0, "x", Origin::Chat, None);
+        assert!(matches!(d, Decision::Miss), "{d:?}");
+        assert!(slot.is_some());
+        // companion.send cannot confirm it.
+        let d = step(&mut slot, "yes", &planets, &agents, t0, "x", Origin::Companion, None);
+        assert!(matches!(d, Decision::Miss), "{d:?}");
+        // A socket yes without the id, or with the wrong id, does nothing.
+        assert!(matches!(sock(&mut slot, "yes", None), Decision::Miss));
+        assert!(matches!(sock(&mut slot, "yes", Some("mba-wrong")), Decision::Miss));
+        assert!(slot.is_some());
+        // The matching pendingId confirms, once.
+        assert!(matches!(sock(&mut slot, "yes", Some(pid.as_str())), Decision::Execute(_)));
+        assert!(slot.is_none());
+
+        // A chat pending: a socket yes (even with its id) and companion.send
+        // cannot confirm it. Chat can.
+        let d = step(&mut slot, ADD, &planets, &agents, t0, "mba-chat", Origin::Chat, None);
+        assert!(matches!(d, Decision::Confirm { .. }));
+        assert!(matches!(sock(&mut slot, "yes", Some("mba-chat")), Decision::Miss));
+        let d = step(&mut slot, "yes", &planets, &agents, t0, "x", Origin::Companion, None);
+        assert!(matches!(d, Decision::Miss));
+        let d = step(&mut slot, "yes", &planets, &agents, t0, "x", Origin::Chat, None);
+        assert!(matches!(d, Decision::Execute(_)), "{d:?}");
+
+        // Two companion.send calls never write: the add proposes nothing.
+        let d = step(&mut slot, ADD, &planets, &agents, t0, "x", Origin::Companion, None);
+        assert!(matches!(d, Decision::Miss), "{d:?}");
+        assert!(slot.is_none());
+        let d = step(&mut slot, "yes", &planets, &agents, t0, "x", Origin::Companion, None);
+        assert!(matches!(d, Decision::Miss));
+
+        // Wiring: each surface names its origin; the socket passes pendingId.
+        let control = include_str!("control.rs");
+        let send = &control[control.find("\"companion.send\" =>").unwrap()..];
+        let send = &send[..send.find("\"companion.agents\"").unwrap()];
+        assert!(send.contains("Origin::Companion"), "{send}");
+        let run = &control[control.find("\"route.run\" =>").unwrap()..];
+        let run = &run[..run.find("\"gate.inject\"").unwrap()];
+        assert!(run.contains("Origin::Socket"), "{run}");
+        assert!(run.contains("arg_opt(args, \"pendingId\")"), "{run}");
+        let coord = include_str!("coordinator.rs");
+        let cmd = fn_body(coord, "pub async fn companion_send(");
+        assert!(cmd.contains("Origin::Chat"), "{cmd}");
+        assert!(coord.contains("mouth_route::run(&app, &line, origin)"));
+    }
+
+    #[test]
+    fn pending_ids_are_random_and_distinct() {
+        let a = new_pending_id();
+        let b = new_pending_id();
+        assert_ne!(a, b);
+        assert!(a.starts_with("mba-") && a.len() == 36, "{a}");
+        assert!(a[4..].bytes().all(|c| c.is_ascii_hexdigit()), "{a}");
     }
 }
