@@ -694,6 +694,7 @@ pub fn run() {
             panes::set_companion_host,
             panes::set_companion_composer_grow,
             panes::set_companion_host_hug,
+            panes::take_board_focus,
             show_rail,
             set_planets_hidden,
             needed_answer,

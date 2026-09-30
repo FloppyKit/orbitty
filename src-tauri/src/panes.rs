@@ -308,6 +308,46 @@ pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), St
     Ok(())
 }
 
+/// Last board-open planet, memory only. The kanban page takes it once
+/// on mount so a click that beat the webview listener still lands.
+const BOARD_FOCUS_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+struct BoardFocus {
+    id: String,
+    at: std::time::Instant,
+}
+
+static BOARD_FOCUS: std::sync::Mutex<Option<BoardFocus>> = std::sync::Mutex::new(None);
+
+pub(crate) fn remember_board_focus(id: &str) {
+    remember_board_focus_at(id, std::time::Instant::now());
+}
+
+pub(crate) fn remember_board_focus_at(id: &str, at: std::time::Instant) {
+    let Ok(mut slot) = BOARD_FOCUS.lock() else {
+        return;
+    };
+    *slot = Some(BoardFocus {
+        id: id.to_string(),
+        at,
+    });
+}
+
+/// Read-and-clear. `None` when empty or when `now` is at/after the 5s TTL.
+pub(crate) fn take_board_focus_at(now: std::time::Instant) -> Option<String> {
+    let mut slot = BOARD_FOCUS.lock().ok()?;
+    let held = slot.take()?;
+    if now.saturating_duration_since(held.at) >= BOARD_FOCUS_TTL {
+        return None;
+    }
+    Some(held.id)
+}
+
+#[tauri::command]
+pub fn take_board_focus() -> Option<String> {
+    take_board_focus_at(std::time::Instant::now())
+}
+
 /// Launchpad (`kanban`) and STARS (`stars`) are separate windows.
 pub(crate) fn show_shared_pane(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
     if mode == "stars" {
@@ -901,4 +941,24 @@ fn persist_companion_hidden(app: &tauri::AppHandle, _w: &tauri::WebviewWindow) {
     };
     crate::drawers::drawer_cache_refresh(&st);
     let _ = app.emit("state:changed", ());
+}
+
+#[cfg(test)]
+mod board_focus_tests {
+    use super::{remember_board_focus_at, take_board_focus_at};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn take_once_then_expired() {
+        let t0 = Instant::now();
+        remember_board_focus_at("planet-b", t0);
+        assert_eq!(
+            take_board_focus_at(t0 + Duration::from_secs(1)).as_deref(),
+            Some("planet-b")
+        );
+        assert_eq!(take_board_focus_at(t0 + Duration::from_secs(1)), None);
+
+        remember_board_focus_at("planet-a", t0);
+        assert_eq!(take_board_focus_at(t0 + Duration::from_secs(5)), None);
+    }
 }

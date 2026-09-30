@@ -56,6 +56,9 @@ pub(crate) unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
                     if let Some(app) = app_handle() {
                         // Full-page kanban (shared pane), this planet only.
                         let _ = crate::panes::show_shared_pane(app, "board");
+                        // In-memory backup for a kanban webview that has
+                        // not mounted the focus listener yet. Take-once, 5s.
+                        crate::panes::remember_board_focus(&pid);
                         let _ = app.emit("orbitty:focus-project", pid);
                     }
                 }

@@ -18,6 +18,7 @@
   import BoardChrome from "./board/Chrome.svelte";
   import BoardColumns from "./board/Columns.svelte";
   import BoardPreview from "./board/Preview.svelte";
+  import { resolveFocus } from "./board/focusProject";
   import "./board/board.css";
   import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import { mdLite } from "./mdLite";
@@ -263,12 +264,40 @@
   }
 
 
+  function projectIdList(): string[] {
+    return projects.map((p) => p.id);
+  }
+
   function applyFocusProject(raw: string | null | undefined) {
     const id = (raw ?? "").trim();
     if (!id) return;
-    pendingFocusProject = id;
-    selected = id;
+    const next = resolveFocus({
+      pending: id,
+      selected,
+      projectIds: projectIdList(),
+    });
+    pendingFocusProject = next.pending;
+    selected = next.selected;
     if (projects.some((p) => p.id === id)) raisePlanet(id);
+  }
+
+  /** loadState / pane show: apply a still-pending board click once, then clear. */
+  function applyPendingFocus() {
+    const before = pendingFocusProject;
+    const next = resolveFocus({
+      pending: before,
+      selected,
+      projectIds: projectIdList(),
+    });
+    pendingFocusProject = next.pending;
+    selected = next.selected;
+    if (
+      before &&
+      next.pending === null &&
+      projects.some((p) => p.id === before)
+    ) {
+      raisePlanet(before);
+    }
   }
 
   function onPlanetTabClick(id: string) {
@@ -276,6 +305,8 @@
       planetDidDrag = false;
       return;
     }
+    // A hand pick wins over an earlier board click.
+    pendingFocusProject = null;
     selected = id;
     raisePlanet(id);
   }
@@ -816,10 +847,7 @@
       themeId = KNOWN_THEMES.has(s.themeId) ? s.themeId : osThemeId();
       windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
       projects = s.projects ?? [];
-      if (pendingFocusProject) {
-        selected = pendingFocusProject;
-        if (projects.some((p) => p.id === pendingFocusProject)) raisePlanet(pendingFocusProject);
-      }
+      applyPendingFocus();
       tags = s.tags ?? [];
       kanbanCards = s.kanbanCards ?? [];
       pointsLedger = s.pointsLedger ?? [];
@@ -1867,6 +1895,14 @@
     unlistenFocusProject = await listen<string>("orbitty:focus-project", (e) => {
       applyFocusProject(e.payload);
     });
+    // A board click that fired before this listener existed is still in
+    // the in-memory take-once slot (5s). Read-and-clear, once per mount.
+    try {
+      const caught = await invoke<string | null>("take_board_focus");
+      if (caught) applyFocusProject(caught);
+    } catch {
+      // Command missing: later clicks still arrive on the listener.
+    }
     // HOST-SPLIT embedded: do not await load_state / AX on first well
     // mount — that IPC return was painting cards mid-rise and lagging
     // the sprite aside. Overlay Launchpad still hydrates in-line.
@@ -1895,12 +1931,7 @@
     unlistenVis = await listenPaneVis("kanban", (visible) => {
       if (visible) {
         void loadState().then(() => {
-          if (pendingFocusProject) {
-            selected = pendingFocusProject;
-            if (projects.some((p) => p.id === pendingFocusProject)) {
-              raisePlanet(pendingFocusProject);
-            }
-          }
+          applyPendingFocus();
         });
         refreshWindows();
         startRefreshTimer();
