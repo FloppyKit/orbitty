@@ -1175,8 +1175,9 @@ fn refine(
 
 /// Pure confirm machine. A confirm does not touch `PersistedState`.
 /// Timeout, "no", and another surface's reply return without
-/// [`Decision::Execute`]. A line with no real planet (and no literal
-/// "planet") is a Miss, so it keeps its base path (chat or write lane).
+/// [`Decision::Execute`]. A planet counts as named only on an exact
+/// case-insensitive name or id. Anything else, unless the line says the
+/// word "planet", is a Miss and keeps its base path (chat or write lane).
 #[allow(clippy::too_many_arguments)]
 pub fn decide(
     pending: Option<PendingWrite>,
@@ -1208,11 +1209,11 @@ pub fn decide(
         return Decision::Miss;
     };
     let parsed = refine(parsed, line, planets, agents);
-    let named = parsed
-        .planet
-        .as_deref()
-        .map(|t| !matches!(match_planet(t, planets), Hit::None))
-        .unwrap_or(false);
+    let named = parsed.planet.as_deref().is_some_and(|t| {
+        planets.iter().any(|p| {
+            p.name.trim().eq_ignore_ascii_case(t.trim()) || p.id.eq_ignore_ascii_case(t.trim())
+        })
+    });
     if !named && !has_word(&line.to_ascii_lowercase(), "planet") {
         return Decision::Miss;
     }
@@ -1666,6 +1667,23 @@ mod tests {
             trackers: None,
             workspace_root: None,
         });
+        // Matt-like names. Everyday words must not count as these planets
+        // unless the token is the exact name or id. Fixture only.
+        for (id, name) in [
+            ("p-prints", "prints"),
+            ("p-stars", "stars"),
+            ("p-dreamachine", "dreamachine"),
+            ("p-tanks", "tanks"),
+            ("p-jungle", "Jungle"),
+            ("p-work", "Work"),
+        ] {
+            st.projects.push(crate::state::Project {
+                id: id.into(),
+                name: name.into(),
+                trackers: None,
+                workspace_root: None,
+            });
+        }
         let lab = crate::state::AgentShortcut {
             id: "a-lab".into(),
             name: "Lab Agent".into(),
@@ -1909,9 +1927,61 @@ mod tests {
             "make a todo app in rust",
             "put the card down",
             "I want to start an agent someday, doing laundry now",
+            "add a todo to print the report",
+            "make a card for star wars fans",
+            "make a todo for dream journal",
+            "make a card on tank battles",
+            "put a card for jung quotes",
         ] {
-            let d = chat_decide(None, line, &planets, &agents, now, "mba-b1");
-            assert!(matches!(d, Decision::Miss), "{line}: {d:?}");
+            match chat_decide(None, line, &planets, &agents, now, "mba-b1") {
+                Decision::Miss => {}
+                Decision::Ask { spoken, .. } => {
+                    for name in ["prints", "stars", "dreamachine", "tanks", "Jungle"] {
+                        assert!(
+                            !spoken.to_ascii_lowercase().contains(&name.to_ascii_lowercase()),
+                            "{line} asked about {name}: {spoken}"
+                        );
+                    }
+                    panic!("{line} asked: {spoken}");
+                }
+                other => panic!("{line}: {other:?}"),
+            }
+        }
+        // Prefix without the word "planet" is not a named planet.
+        let d = chat_decide(
+            None,
+            "add a card X to kan todo",
+            &planets,
+            &agents,
+            now,
+            "mba-kan",
+        );
+        assert!(matches!(d, Decision::Miss), "to kan todo: {d:?}");
+        // Literal "planet" still asks when the token is only a prefix.
+        match chat_decide(
+            None,
+            "add a card X to planet kan todo",
+            &planets,
+            &agents,
+            now,
+            "mba-x3",
+        ) {
+            Decision::Ask { spoken, .. } => {
+                assert_eq!(spoken, "Which planet — Kansas or Kansas Lab?");
+            }
+            other => panic!("X3 ask, got {other:?}"),
+        }
+        // "Work" is an exact planet name, so this still asks.
+        match chat_decide(
+            None,
+            "add a card to work on later",
+            &planets,
+            &agents,
+            now,
+            "mba-work",
+        ) {
+            Decision::Ask { spoken, .. } => assert!(spoken.contains("Work"), "{spoken}"),
+            other => panic!("exact Work should ask, got {other:?}"),
         }
         // It keeps its base path: the write lane.
         assert!(crate::mouth_gist::needs_write_lane("add a todo buy milk"));
@@ -1938,6 +2008,44 @@ mod tests {
                 other => panic!("{line}: ask, got {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn miss_lines_stay_plain_chat() {
+        // Prod Grok/auto: empty reply_lane with free mode off, and any
+        // unknown lane, both become "grok" (effective_reply_lane /
+        // normalize_reply_lane). That string hits hop_lane_for's catch-all.
+        let settings = "grok";
+        let (_st, planets, agents) = fixture();
+        let now = std::time::Instant::now();
+        for line in [
+            "make a todo app in rust",
+            "make a todo app in rust for fun",
+            "Make a todo app in Rust.",
+            "make me a todo list app",
+            "can you make a card game for my kids?",
+            "make a card game for my kids",
+            "add some cards to my deck",
+            "put the card down",
+            "I want to start an agent someday, doing laundry now",
+            "add an agent",
+            "start an agent",
+        ] {
+            assert!(!crate::mouth_gist::needs_write_lane(line), "{line}");
+            assert_eq!(
+                crate::mouth_hop::hop_lane_for(settings, line, false, true),
+                "local",
+                "{line} local up"
+            );
+            assert_eq!(
+                crate::mouth_hop::hop_lane_for(settings, line, false, false),
+                "grok",
+                "{line} local down"
+            );
+            let d = chat_decide(None, line, &planets, &agents, now, "mba-miss");
+            assert!(matches!(d, Decision::Miss), "{line}: {d:?}");
+        }
+        assert!(crate::mouth_gist::needs_write_lane("add a todo buy milk"));
     }
 
     #[test]
@@ -2177,11 +2285,17 @@ mod tests {
         let control = include_str!("control.rs");
         let send = &control[control.find("\"companion.send\" =>").unwrap()..];
         let send = &send[..send.find("\"companion.agents\"").unwrap()];
-        assert!(send.contains("Origin::Companion"), "{send}");
+        assert!(
+            send.contains(
+                "arg_opt(args, \"path\"),\n                crate::mouth_route::Origin::Companion,"
+            ),
+            "{send}"
+        );
         let run = &control[control.find("\"route.run\" =>").unwrap()..];
         let run = &run[..run.find("\"gate.inject\"").unwrap()];
         assert!(run.contains("Origin::Socket"), "{run}");
         assert!(run.contains("arg_opt(args, \"pendingId\")"), "{run}");
+        assert!(run.contains("confirm.as_deref(),"), "{run}");
         let coord = include_str!("coordinator.rs");
         let cmd = fn_body(coord, "pub async fn companion_send(");
         assert!(cmd.contains("Origin::Chat"), "{cmd}");

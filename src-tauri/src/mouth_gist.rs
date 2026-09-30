@@ -34,29 +34,6 @@ pub fn needs_write_lane(line: &str) -> bool {
         || l.contains("mark done")
         || l.contains("delete the card")
         || l.contains("mint a")
-        || add_card_agent_or_todo(&l)
-        || matches!(
-            crate::mouth_route::classify(line),
-            Some("board-add" | "agent-spawn")
-        )
-}
-
-/// "add … card/agent/todo" is a write, so the hop skips the read snapshot.
-fn add_card_agent_or_todo(l: &str) -> bool {
-    let add = l.starts_with("add") || l.contains(" add ");
-    if !add {
-        return false;
-    }
-    let words = |w: &str| {
-        l.split(|c: char| !c.is_ascii_alphanumeric())
-            .any(|t| t == w)
-    };
-    words("card")
-        || words("cards")
-        || words("agent")
-        || words("agents")
-        || words("todo")
-        || words("todos")
 }
 
 pub fn needs_tools_lane(line: &str) -> bool {
@@ -428,13 +405,6 @@ mod tests {
         assert!(!needs_tools_lane("ok how about now?"));
         assert!(!needs_tools_lane("ping"));
         assert!(needs_write_lane("add a todo on fkt: milk"));
-        assert!(needs_write_lane("add an agent in doing to planet Kansas"));
-        assert!(needs_write_lane(
-            "add a card test-add to planet fixture todo"
-        ));
-        assert!(needs_write_lane(
-            "start an agent on planet fixture doing walk"
-        ));
         assert!(!needs_write_lane(
             "tell me about the todo list on planet orbitty"
         ));
