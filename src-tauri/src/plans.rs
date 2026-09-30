@@ -637,6 +637,13 @@ pub fn seal_note(roots: &Roots, go: &ParsedGo) -> Option<String> {
             "{id} is unsealed (no seal_hash; run go seal); not launching."
         ));
     };
+    // A trailing comment is not part of the parsed seal value, and the hash
+    // leaves the seal key line out. Refuse it so the comment cannot launch.
+    if let Some(key) = seal_line_trailing_comment(&go.yaml) {
+        return Some(format!(
+            "{id} has a trailing comment on {key}; not launching."
+        ));
+    }
     match seal_hash_of(roots, &go.path, &go.yaml, &go.header, &go.body) {
         Ok(got) if want.eq_ignore_ascii_case(&got) => None,
         Ok(_) => Some(format!(
@@ -657,10 +664,12 @@ const SEAL_KEYS: &[&str] = &["status", "sealed_at", "sealed_by", "seal_hash"];
 /// A separate lock file is hashed as its raw bytes under the part name
 /// `lock` (or `(no lock)` when the header has no lock). When the lock
 /// resolves to this GO file, the lock part is named `lock-self` instead:
-/// the GO's own header with `status` / `sealed_at` / `sealed_by` /
-/// `seal_hash` lines left out, then the body. Edits to those seal lines
-/// do not change the hash; any other header text (including comments),
-/// header value, or body byte does.
+/// the GO's own header with only the `status` / `sealed_at` / `sealed_by` /
+/// `seal_hash` key lines left out, then the body. Indented continuation
+/// lines under those keys stay hashed. Edits to the seal values do not
+/// change the hash; a continuation, any other header text (including
+/// comments), a header value, or a body byte does. A trailing comment on
+/// a seal line is refused at launch.
 pub fn seal_hash_of(
     roots: &Roots,
     go_path: &Path,
@@ -724,23 +733,17 @@ fn lock_is_self(lock: &Path, go: &Path) -> bool {
     }
 }
 
-/// Lock-part text for a GO that is its own lock. Top-level seal lines and
-/// their indented continuations are left out (same rule as `set_header_keys`);
-/// every other header line stays, `\r` stripped. Then a `---` fence and the
-/// body bytes.
+/// Lock-part text for a GO that is its own lock. Only the top-level seal
+/// key line itself (`status`, `sealed_at`, `sealed_by`, or `seal_hash`)
+/// is left out. Indented continuation lines and block-scalar payloads stay
+/// in the hashed text, so a multiline `|` or `>-` value, or an indented
+/// comment under a seal key, breaks the seal. Every other header line
+/// stays, `\r` stripped. Then a `---` fence and the body bytes.
 fn self_lock_text(yaml: &str, body: &str) -> String {
     let mut kept: Vec<String> = Vec::new();
-    let mut skipping = false;
     for raw_line in yaml.split('\n') {
         let line = raw_line.replace('\r', "");
-        if skipping {
-            if line.starts_with([' ', '\t']) {
-                continue;
-            }
-            skipping = false;
-        }
         if top_key(&line).is_some_and(|k| SEAL_KEYS.contains(&k)) {
-            skipping = true;
             continue;
         }
         kept.push(line);
@@ -834,8 +837,8 @@ pub fn seal_file_in(roots: &Roots, path: &Path, by: &str) -> Result<ParsedGo, St
         if bom { "\u{feff}" } else { "" }
     );
     // Verify the bytes about to be written. A self-lock's lock part comes
-    // from this yaml and body (seal lines left out), not from the pre-seal
-    // file still on disk.
+    // from this yaml and body (only the seal key lines left out), not from
+    // the pre-seal file still on disk.
     let parsed = parse_text(path, out.clone())?;
     if let Some(note) = seal_note(roots, &parsed) {
         return Err(format!("seal did not verify: {note}"));
@@ -883,6 +886,63 @@ fn write_sealed(path: &Path, out: &str) -> Result<(), String> {
         let _ = std::fs::remove_file(&tmp);
     }
     res
+}
+
+/// True when `line` has a YAML comment (`#` outside quotes, at the start
+/// of the line or after whitespace). `#` inside a quoted seal value stays
+/// part of that value.
+fn has_yaml_trailing_comment(line: &str) -> bool {
+    let b = line.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'"' => {
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'\\' {
+                        i += 2;
+                        continue;
+                    }
+                    if b[i] == b'"' {
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'\'' => {
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'\'' {
+                        if i + 1 < b.len() && b[i + 1] == b'\'' {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'#' if i == 0 || b[i - 1].is_ascii_whitespace() => return true,
+            _ => i += 1,
+        }
+    }
+    false
+}
+
+/// Seal key whose line carries a trailing comment, if any. The parsed
+/// value does not include that comment, so launch refuses the line itself.
+fn seal_line_trailing_comment(yaml: &str) -> Option<String> {
+    for raw_line in yaml.split('\n') {
+        let line = raw_line.trim_end_matches('\r');
+        if let Some(k) = top_key(line).filter(|k| SEAL_KEYS.contains(k)) {
+            if has_yaml_trailing_comment(line) {
+                return Some(k.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Top-level YAML key on this line, if it is a plain `key: ...` line.
@@ -2558,12 +2618,14 @@ mod tests {
         assert!(!plans_dir(&roots).join("a.md").exists());
     }
 
-    /// Fixed separate-lock inputs for S4. Hashed on the 86441b3 base
-    /// before the self-lock change; the constants below are that output.
+    /// Separate-lock fixture. The lock file includes `status: x` so stripping
+    /// seal lines out of a separate lock changes the pinned hash. The
+    /// 86441b3 bytes (lock text `LOCK-FIXED\n`, no status line) stay in
+    /// `separate_lock_86441b3_bytes_still_verify`.
     fn s4_fixture(roots: &Roots) -> (PathBuf, String) {
         let plans = plans_dir(roots);
         let lock = plans.join("lock.md");
-        write(&lock, "LOCK-FIXED\n");
+        write(&lock, "status: x\nLOCK-FIXED\n");
         let go = plans.join("go.md");
         let text = "---\nid: GO-S4\nstatus: ready\npush_allowed: false\nlock: \"{PLANS_DIR}/lock.md\"\n---\nBODY-FIXED\n";
         write(&go, text);
@@ -2572,19 +2634,22 @@ mod tests {
 
     #[test]
     fn separate_lock_hash_unchanged() {
-        // Hashes of these exact bytes at 86441b3 (separate lock / no lock).
-        const SEPARATE: &str = "b226a8e61191780177b6a34fb94969e616211a428fe79f9d5d54437d0775c875";
-        const NO_LOCK: &str = "dbbd6a61296ba85bea495aff6a04be68d0ee3d1350b1cae3b4faad12f4d5b6b2";
+        // Re-pinned after adding `status: x` to the lock fixture (X13).
+        // Stripping seal lines from the separate lock yields the 86441b3
+        // hash instead, so this pin fails closed.
+        const SEPARATE: &str = "510e20c58fb99549548b90bcb24288db6a2d3e80c49cd19ad5cca8511092f46c";
         let roots = temp_roots("s4");
         let (go, _) = s4_fixture(&roots);
         let parsed = parse_file(&go).unwrap();
         let hash = seal_hash_of(&roots, &go, &parsed.yaml, &parsed.header, &parsed.body).unwrap();
-        assert_eq!(hash, SEPARATE, "separate-lock hash drifted from 86441b3");
+        assert_eq!(hash, SEPARATE, "separate-lock pin (status: x in the lock) drifted");
         seal_file_in(&roots, &go, "matt").unwrap();
         let sealed = parse_file(&go).unwrap();
         assert_eq!(sealed.header.seal_hash.as_deref(), Some(SEPARATE));
         assert!(seal_note(&roots, &sealed).is_none());
         let lock = plans_dir(&roots).join("lock.md");
+        let lock_text = std::fs::read_to_string(&lock).unwrap();
+        assert!(lock_text.contains("status: x\n"), "{lock_text}");
         write(&lock, "LOCK-EDITED\n");
         let note = seal_note(&roots, &parse_file(&go).unwrap())
             .expect("lock edit breaks a separate-lock seal");
@@ -2593,8 +2658,29 @@ mod tests {
         let note = seal_note(&roots, &parse_file(&go).unwrap())
             .expect("a removed lock still refuses");
         assert!(note.contains("seal check failed") || note.contains("lock unreadable"), "{note}");
+    }
 
-        let go2 = plans_dir(&roots).join("nolock.md");
+    #[test]
+    fn separate_lock_86441b3_bytes_still_verify() {
+        // Hashes of these exact bytes at 86441b3 (separate lock / no lock).
+        const SEPARATE: &str = "b226a8e61191780177b6a34fb94969e616211a428fe79f9d5d54437d0775c875";
+        const NO_LOCK: &str = "dbbd6a61296ba85bea495aff6a04be68d0ee3d1350b1cae3b4faad12f4d5b6b2";
+        let roots = temp_roots("s4b3");
+        let plans = plans_dir(&roots);
+        let lock = plans.join("lock.md");
+        write(&lock, "LOCK-FIXED\n");
+        let go = plans.join("go.md");
+        let text = "---\nid: GO-S4\nstatus: ready\npush_allowed: false\nlock: \"{PLANS_DIR}/lock.md\"\n---\nBODY-FIXED\n";
+        write(&go, text);
+        let parsed = parse_file(&go).unwrap();
+        let hash = seal_hash_of(&roots, &go, &parsed.yaml, &parsed.header, &parsed.body).unwrap();
+        assert_eq!(hash, SEPARATE, "separate-lock hash drifted from 86441b3");
+        seal_file_in(&roots, &go, "matt").unwrap();
+        let sealed = parse_file(&go).unwrap();
+        assert_eq!(sealed.header.seal_hash.as_deref(), Some(SEPARATE));
+        assert!(seal_note(&roots, &sealed).is_none(), "86441b3 bytes must still verify");
+
+        let go2 = plans.join("nolock.md");
         write(&go2, "---\nid: GO-S4B\nstatus: ready\n---\nBODY-FIXED\n");
         let p2 = parse_file(&go2).unwrap();
         let h2 = seal_hash_of(&roots, &go2, &p2.yaml, &p2.header, &p2.body).unwrap();
@@ -2696,11 +2782,6 @@ mod tests {
         let raw = std::fs::read_to_string(&p).unwrap();
         assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_none());
 
-        let status_line = raw.lines().find(|l| l.starts_with("status:")).unwrap();
-        let commented = raw.replace(status_line, &format!("{status_line}  # tweaked"));
-        std::fs::write(&p, &commented).unwrap();
-        assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_none(), "status comment");
-
         let by_line = raw.lines().find(|l| l.starts_with("sealed_by:")).unwrap();
         std::fs::write(&p, raw.replace(by_line, "sealed_by: \"someone else\"")).unwrap();
         let g = parse_file(&p).unwrap();
@@ -2768,6 +2849,135 @@ mod tests {
             joined.push('\n');
         }
         joined
+    }
+
+    fn assert_payload_stays_off_the_launch(roots: &Roots, path: &Path, id: &str, payload: &str) {
+        let raw = std::fs::read_to_string(path).unwrap();
+        assert!(raw.contains(payload), "fixture missing {payload}");
+        let g = parse_file(path).unwrap_or_else(|e| panic!("{payload} should parse: {e}"));
+        let note = seal_note(roots, &g).unwrap_or_else(|| panic!("{payload} stayed sealed"));
+        assert!(note.contains("not launching"), "{payload}: {note}");
+        let v = status_json(roots, &g);
+        assert_eq!(v["sealed"], false, "{payload}: {v}");
+        assert!(v.get("query").is_none(), "{payload} reached the query: {v}");
+        assert!(
+            !v.to_string().contains(payload),
+            "{payload} reached status json: {v}"
+        );
+        match gate_in(roots, "", id, &[]) {
+            Gate::Refuse { note } => assert!(
+                !note.contains(payload),
+                "{payload} reached the gate note: {note}"
+            ),
+            other => panic!("{payload} reached the gate: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn self_lock_continuation_payload_breaks_seal() {
+        let roots = temp_roots("n1");
+        let p = plans_dir(&roots).join("go.md");
+        write(
+            &p,
+            "---\nid: GO-N1\nstatus: ready\nlock: \"{PLANS_DIR}/go.md\"\n---\nBODY\n",
+        );
+        seal_file_in(&roots, &p, "matt").unwrap();
+        let raw = std::fs::read_to_string(&p).unwrap();
+        assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_none());
+        let cases = [
+            (
+                "sealed_by: \"matt\"\n",
+                "sealed_by: |\n  BLOCK-PAYLOAD-LINE\n  BLOCK-PAYLOAD-NEXT\n",
+                "BLOCK-PAYLOAD-LINE",
+            ),
+            (
+                "sealed_by: \"matt\"\n",
+                "sealed_by: >-\n  FOLDED-PAYLOAD-LINE\n",
+                "FOLDED-PAYLOAD-LINE",
+            ),
+            (
+                "sealed_by: \"matt\"\n",
+                "sealed_by: \"matt\"\n  # INDENTED-UNDER-SEALED-BY\n",
+                "INDENTED-UNDER-SEALED-BY",
+            ),
+        ];
+        for (from, to, payload) in cases {
+            assert!(raw.contains(from), "fixture missing {from:?}");
+            std::fs::write(&p, raw.replace(from, to)).unwrap();
+            let note = seal_note(&roots, &parse_file(&p).unwrap())
+                .unwrap_or_else(|| panic!("{payload} stayed sealed"));
+            assert!(note.contains("changed since seal"), "{payload}: {note}");
+            assert_payload_stays_off_the_launch(&roots, &p, "GO-N1", payload);
+            std::fs::write(&p, &raw).unwrap();
+            assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_none());
+        }
+        for (prefix, payload) in [
+            ("sealed_at:", "INDENTED-UNDER-SEALED-AT"),
+            ("seal_hash:", "INDENTED-UNDER-SEAL-HASH"),
+        ] {
+            let line = raw.lines().find(|l| l.starts_with(prefix)).unwrap();
+            let edited = raw.replace(line, &format!("{line}\n  # {payload}"));
+            std::fs::write(&p, edited).unwrap();
+            let note = seal_note(&roots, &parse_file(&p).unwrap())
+                .unwrap_or_else(|| panic!("{payload} stayed sealed"));
+            assert!(note.contains("changed since seal"), "{payload}: {note}");
+            assert_payload_stays_off_the_launch(&roots, &p, "GO-N1", payload);
+            std::fs::write(&p, &raw).unwrap();
+        }
+    }
+
+    #[test]
+    fn seal_line_trailing_comment_refuses_payload() {
+        let roots = temp_roots("cmt");
+        let p = plans_dir(&roots).join("go.md");
+        write(
+            &p,
+            "---\nid: GO-CMT-SEAL\nstatus: ready\nlock: \"{PLANS_DIR}/go.md\"\n---\nBODY\n",
+        );
+        seal_file_in(&roots, &p, "matt").unwrap();
+        let raw = std::fs::read_to_string(&p).unwrap();
+        assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_none());
+        let cases = [
+            ("status:", "status: sealed # STATUS-COMMENT-PAYLOAD", "status", "STATUS-COMMENT-PAYLOAD"),
+            ("sealed_at:", "", "sealed_at", "SEALED-AT-COMMENT-PAYLOAD"),
+            ("sealed_by:", "", "sealed_by", "SEALED-BY-COMMENT-PAYLOAD"),
+            ("seal_hash:", "", "seal_hash", "SEAL-HASH-COMMENT-PAYLOAD"),
+        ];
+        for (prefix, exact, key, payload) in cases {
+            let line = raw.lines().find(|l| l.starts_with(prefix)).unwrap().to_string();
+            let replacement = if exact.is_empty() {
+                format!("{line} # {payload}")
+            } else {
+                exact.to_string()
+            };
+            std::fs::write(&p, raw.replace(&line, &replacement)).unwrap();
+            let g = parse_file(&p).unwrap();
+            assert_eq!(
+                g.header.status.as_deref().map(|s| s.to_ascii_lowercase()),
+                Some("sealed".into()),
+                "{payload} must still parse as sealed"
+            );
+            let note = seal_note(&roots, &g).unwrap_or_else(|| panic!("{payload} stayed sealed"));
+            assert!(
+                note.contains("trailing comment") && note.contains(key),
+                "{payload}: {note}"
+            );
+            assert_payload_stays_off_the_launch(&roots, &p, "GO-CMT-SEAL", payload);
+            std::fs::write(&p, &raw).unwrap();
+            assert!(seal_note(&roots, &parse_file(&p).unwrap()).is_none());
+        }
+        // Quoted status plus a comment, the form that used to stay sealed.
+        let line = raw.lines().find(|l| l.starts_with("status:")).unwrap();
+        std::fs::write(
+            &p,
+            raw.replace(line, "status: \"sealed\"  # QUOTED-STATUS-PAYLOAD"),
+        )
+        .unwrap();
+        let g = parse_file(&p).unwrap();
+        assert_eq!(g.header.status.as_deref(), Some("sealed"));
+        let note = seal_note(&roots, &g).unwrap();
+        assert!(note.contains("trailing comment") && note.contains("status"), "{note}");
+        assert_payload_stays_off_the_launch(&roots, &p, "GO-CMT-SEAL", "QUOTED-STATUS-PAYLOAD");
     }
 
     #[test]
@@ -2923,6 +3133,63 @@ mod tests {
         out.push_str(&src[..span.start]);
         out.push_str(&src[span.end..]);
         out
+    }
+
+    fn hash_with_part(yaml: &str, body: &str, lock_name: &str, lock: &str) -> String {
+        let doc: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let mut j = serde_json::to_value(doc).unwrap();
+        for k in SEAL_KEYS {
+            j.as_object_mut().unwrap().remove(*k);
+        }
+        let head = canonical_json(&j);
+        let mut h = Sha256::new();
+        h.update(b"orbitty-seal-v2\n");
+        for (name, part) in [("header", head.as_str()), ("body", body), (lock_name, lock)] {
+            h.update(format!("{name} {}\n", part.len()).as_bytes());
+            h.update(part.as_bytes());
+            h.update(b"\n");
+        }
+        hex_encode(&h.finalize())
+    }
+
+    #[test]
+    fn self_lock_hash_domain_is_lock_self() {
+        let roots = temp_roots("x8");
+        let go = plans_dir(&roots).join("go.md");
+        let body = "BODY-X8\n";
+        write(
+            &go,
+            "---\nid: GO-X8\nstatus: ready\nlock: \"{PLANS_DIR}/go.md\"\n---\nBODY-X8\n",
+        );
+        let parsed = parse_file(&go).unwrap();
+        assert_eq!(parsed.body, body);
+        let got = seal_hash_of(&roots, &go, &parsed.yaml, &parsed.header, &parsed.body).unwrap();
+        let lock = self_lock_text(&parsed.yaml, &parsed.body);
+        let expect = hash_with_part(&parsed.yaml, &parsed.body, "lock-self", &lock);
+        let separate = hash_with_part(&parsed.yaml, &parsed.body, "lock", &lock);
+        assert_eq!(got, expect, "self-lock hash must use the lock-self tag");
+        assert_ne!(got, separate, "lock-self must not fall back to the separate-lock tag");
+    }
+
+    #[test]
+    fn seal_file_in_verifies_before_write() {
+        let prod = include_str!("plans.rs").split("mod tests").next().unwrap();
+        let prod = strip_rust_comments(prod);
+        let body = fn_body(&prod, "seal_file_in");
+        let note_at = body.find("seal_note(").unwrap_or_else(|| {
+            panic!("seal_file_in must call seal_note before writing");
+        });
+        let verify_at = body.find("seal did not verify").unwrap_or_else(|| {
+            panic!("seal_file_in must refuse when the pre-write check fails");
+        });
+        let write_at = body
+            .find("write_sealed(")
+            .expect("seal_file_in must write through write_sealed");
+        assert!(note_at < write_at, "seal_note must run before write_sealed");
+        assert!(
+            verify_at < write_at,
+            "a failed pre-write check must return before write_sealed"
+        );
     }
 
     #[test]
