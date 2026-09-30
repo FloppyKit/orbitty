@@ -26,7 +26,17 @@ echo "==> Building release bundle (nightly)"
 mkdir -p src-tauri/target/release
 ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay
 (cd src-tauri && cargo build --release --bin orbitty-relay) || true
-npm run tauri build || echo "WARNING: tauri build failed (dmg?) — continuing if .app exists" >&2
+# Never install a stale bundle from the other channel: Nightly and Stable both
+# build into the same Orbitty.app, and only Nightly has dev-thin. Guarded rm:
+# SRC must be non-empty, end in .app, and sit under the tauri bundle dir.
+if [[ -n "${SRC:-}" && "$SRC" == *.app && "$SRC" == src-tauri/target/release/bundle/macos/* ]]; then
+  rm -rf -- "$SRC"
+else
+  echo "error: refusing to remove unexpected bundle path '${SRC:-}'" >&2
+  exit 1
+fi
+# dev-thin: Matt's THIN stamp (⌘⌥T) is Nightly-only; install-stable.sh builds without it.
+npm run tauri build -- --features dev-thin || echo "WARNING: tauri build failed (dmg?) — continuing if .app exists" >&2
 
 if [[ ! -d "$SRC" ]]; then
   echo "error: expected bundle at $SRC" >&2

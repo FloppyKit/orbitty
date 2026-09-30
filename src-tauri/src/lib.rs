@@ -24,6 +24,7 @@ mod companion_go;
 #[cfg(unix)]
 mod control;
 mod coordinator;
+mod thin;
 #[cfg(unix)]
 mod doing_fire;
 mod drawers;

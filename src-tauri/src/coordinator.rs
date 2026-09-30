@@ -857,59 +857,21 @@ pub fn companion_note(
     Ok(target)
 }
 
-/// Human "this chat is thin / new session needed". Snapshots the live
-/// thread, cheap-scans it (vivo_thin.py), notes the bubble. Does not
-/// wipe `turns` (forever mouth). Operator still starts the next job.
+/// Human "this chat is thin / new session needed". Dev-only.
+/// One nod. Does not copy the last user line into now.json, and does
+/// not wipe `turns`. The ⌘⌥T shortcut enters through this same function.
 #[tauri::command]
 pub fn companion_thin(app: tauri::AppHandle) -> Result<String, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/dude".into());
-    let script = PathBuf::from(&home)
-        .join(".buzz/RESEARCH/RGL_TESTBED/scripts/vivo_thin.py");
-    let py = PathBuf::from("/opt/homebrew/bin/python3");
-    let py = if py.exists() {
-        py
-    } else {
-        PathBuf::from("python3")
-    };
-    if !script.exists() {
-        let _ = crate::companion::companion_play(&app, "nod");
-        return companion_note(
-            app,
-            "THIN stamped (scanner missing). Start a new job when ready.".into(),
-            None,
-        );
-    }
-    let out = Command::new(&py)
-        .arg(&script)
-        .arg("stamp")
-        .output()
-        .map_err(|e| format!("thin stamp: {e}"))?;
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let line = stdout
-        .lines()
-        .next()
-        .unwrap_or("THIN stamped. Start a new job when ready.")
-        .trim()
-        .to_string();
-    let _ = crate::companion::companion_play(&app, "nod");
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        return companion_note(
-            app,
-            format!("THIN stamp failed. {err}").chars().take(200).collect(),
-            None,
-        );
-    }
-    let _ = line;
-    if let Ok(st) = crate::state::load_state(&app) {
-        let mut n = load_now();
-        let hint = st.companion.last_user_line.trim();
-        if !hint.is_empty() {
-            n.last_error = clip_now(hint, 160);
-        }
-        save_now(&n);
-    }
-    Ok(stdout.trim().to_string())
+    // Gate = cfg(any(debug_assertions, feature = "dev-thin")), via the shared const.
+    // One nod for the whole attempt (inside thin_flow). The stamp script does not play one.
+    crate::thin::thin_flow(
+        crate::thin::release_gate(crate::thin::THIN_ENABLED),
+        || crate::thin::stamp(&app),
+        || {
+            let _ = crate::companion::companion_play(&app, "nod");
+        },
+        |line| companion_note(app.clone(), line, None).map(|_| ()),
+    )
 }
 
 /// Overwrite fields of now.json (current job packet). Empty string
@@ -1691,9 +1653,12 @@ async fn companion_send_inner(
             Some(ActionIntercept::Run(shortcut, keep_you)) => {
                 let command = shortcut.command.clone();
                 let cwd = shortcut.cwd.clone();
+                let action_name = shortcut.name.clone();
                 let action_app = app.clone();
-                let result =
-                    tauri::async_runtime::spawn_blocking(move || run_action(action_app, command, cwd))
+                // Same door as the chord and action.run: a thin row goes to companion_thin.
+                let result = tauri::async_runtime::spawn_blocking(move || {
+                    crate::actions::dispatch_action(&action_app, &action_name, command, cwd)
+                })
                     .await
                     .map_err(|e| format!("run task: {e}"))
                     .and_then(|r| r);
@@ -2798,7 +2763,9 @@ pub fn run_action(
     command: String,
     cwd: Option<String>,
 ) -> Result<ActionResult, String> {
-    run_action_logged(&app, command, cwd)
+    // CheatSheet click (command only, no name): a thin row still goes to
+    // companion_thin, never `/bin/zsh -lc orbittyctl companion thin`.
+    crate::actions::dispatch_action(&app, "", command, cwd)
 }
 
 /// The logged run body, shared by the invoke
