@@ -21,6 +21,7 @@
   import "./board/board.css";
   import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import { mdLite } from "./mdLite";
+  import { linkErrText, requestLink } from "./linkOpen.svelte";
   import "./chrome.css";
   import "./boardStack.css";
   import "./mdLite.css";
@@ -924,18 +925,23 @@
   }
 
   async function openCardLink(card: KanbanCard, index = 0) {
+    const url = card.links?.[index]?.url;
+    if (!url) {
+      showLinkToast("no link");
+      return;
+    }
     try {
-      await invoke("open_card_link", { cardId: card.id, index });
+      await requestLink(url);
     } catch (e) {
-      showLinkToast(errText(e) || "couldn't open link");
+      showLinkToast(linkErrText(e));
     }
   }
 
   async function openUrl(url: string) {
     try {
-      await invoke("open_link", { url });
+      await requestLink(url);
     } catch (e) {
-      showLinkToast(errText(e) || "couldn't open link");
+      showLinkToast(linkErrText(e));
     }
   }
 

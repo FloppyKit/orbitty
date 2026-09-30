@@ -12,6 +12,7 @@
     clampWindowOpacity,
   } from "../themes/apply";
   import { mdLite, mdLiteLinkUrl, mdLiteKeyUrl } from "./mdLite";
+  import { linkErrText, requestLink } from "./linkOpen.svelte";
   import "./mdLite.css";
   import type {
     AverageWindow,
@@ -38,12 +39,12 @@
     if (!url) return;
     e.preventDefault();
     e.stopPropagation();
-    invoke("open_link", { url }).then(
+    requestLink(url).then(
       () => {
         linkMsg = "";
       },
       (err) => {
-        const msg = typeof err === "string" ? err : "couldn't open link";
+        const msg = linkErrText(err);
         linkMsg = /file not found/i.test(msg) ? "file not found" : msg;
       },
     );

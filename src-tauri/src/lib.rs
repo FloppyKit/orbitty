@@ -767,7 +767,12 @@ pub fn run() {
             coordinator::soul_path,
             coordinator::open_soul_in_editor,
             card_links::open_card_link,
+            card_links::click_link,
             card_links::open_link,
+            card_links::reveal_link,
+            card_links::list_link_approvals,
+            card_links::remove_link_approval,
+            card_links::clear_link_approvals,
         ])
         .setup(|app| {
             // one-time 0–4 → 1–5 checkin shift

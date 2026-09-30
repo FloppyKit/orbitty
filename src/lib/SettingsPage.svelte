@@ -88,6 +88,12 @@
   let privateRelay = $state(false);
   let privateRelayUrl = $state("");
   let replicaUrlNote = $state("");
+  interface LinkApprovalRow {
+    target: string;
+    kind: string;
+    approvedAt: string;
+  }
+  let linkApprovals = $state<LinkApprovalRow[]>([]);
 
   let packs = $state<PackInfo[]>([]);
   let packsDir = $state("");
@@ -426,6 +432,7 @@
     if (!document.hidden) {
       loadState();
       refreshPacks();
+      loadApprovals();
     }
   };
   let unlisten: (() => void) | undefined;
@@ -436,6 +443,7 @@
     await loadState();
     await loadPlans();
     await refreshPacks();
+    await loadApprovals();
     unlisten = await listen("state:changed", () => {
       loadState();
     });
@@ -469,6 +477,32 @@
   // Quiet Appearance-footer button — the same
   // confirm ⌘⇧Y opens, in its own small window (works with Settings
   // closed).
+  async function loadApprovals() {
+    try {
+      linkApprovals = await invoke<LinkApprovalRow[]>("list_link_approvals");
+    } catch {
+      linkApprovals = [];
+    }
+  }
+
+  async function removeApproval(target: string) {
+    try {
+      await invoke("remove_link_approval", { target });
+    } catch {
+      /* the list reloads either way */
+    }
+    await loadApprovals();
+  }
+
+  async function clearApprovals() {
+    try {
+      await invoke("clear_link_approvals");
+    } catch {
+      /* the list reloads either way */
+    }
+    await loadApprovals();
+  }
+
   function openYardWarn() {
     invoke("open_yard_warn_window").catch(() => {});
   }
@@ -758,6 +792,26 @@
             title="Show Action: ⌘?(⌘⇧/) on the dock"
           >Show Action ⌘? on dock</button>
         </div>
+        <p class="block-label">Approved links</p>
+        <p class="help">
+          The first open of a link asks. After you click Open or Run, that exact path or URL opens directly. A program asks again if its contents change. This list stays on this Mac.
+        </p>
+        {#if linkApprovals.length === 0}
+          <p class="help">None yet.</p>
+        {:else}
+          <ul class="approved">
+            {#each linkApprovals as row (row.target)}
+              <li>
+                <span class="path" title={row.target}>{row.target}</span>
+                <button
+                  type="button"
+                  class="mini ghost"
+                  onclick={() => removeApproval(row.target)}>Remove</button>
+              </li>
+            {/each}
+          </ul>
+          <button type="button" class="mini" onclick={clearApprovals}>Clear all</button>
+        {/if}
         <div class="yard-foot">
           <button
             class="mini ghost"
@@ -1196,6 +1250,26 @@
   }
   /* Quiet footer of the Appearance tab — not a
      section, not on launch. */
+  .approved {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .approved li {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .approved .path {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.72rem;
+    color: var(--dim);
+  }
   .yard-foot {
     margin-top: 12px;
     padding-top: 8px;

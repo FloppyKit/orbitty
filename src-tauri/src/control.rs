@@ -396,6 +396,12 @@ fn run_stars(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, 
     Ok(data)
 }
 
+/// Missing or non-boolean `run` stays false. ctl and MCP must not default to running a program.
+pub(crate) fn kanban_open_run_flag(args: &Value) -> bool {
+    let run = args.get("run").and_then(Value::as_bool).unwrap_or(false);
+    run
+}
+
 /// The v0 tool list — each arm calls the exact function the matching
 /// Tauri invoke handler calls. No new product behavior lives here.
 fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (i32, String)> {
@@ -653,7 +659,8 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                     .ok_or((ERR_OTHER, "kanban.open_link: n must be an integer".to_string()))?
                     as usize,
             };
-            crate::board::kanban_open_link(app, &id, n)
+            let run = kanban_open_run_flag(args);
+            crate::board::kanban_open_link(app, &id, n, run)
                 .map(to_data)
                 .map_err(tool_err)
         }
@@ -997,5 +1004,15 @@ mod tests {
         assert!(allowed(&Acl::Companion, "route.classify"));
         assert!(!allowed(&Acl::Companion, "route.run"));
         assert!(allowed(&Acl::Full, "route.run"));
+    }
+
+    #[test]
+    fn kanban_open_link_run_defaults_false() {
+        assert!(!kanban_open_run_flag(&serde_json::json!({})));
+        assert!(!kanban_open_run_flag(&serde_json::json!({"id": "c", "run": false})));
+        assert!(kanban_open_run_flag(&serde_json::json!({"run": true})));
+        assert!(!kanban_open_run_flag(&serde_json::json!({"run": "yes"})));
+        let src = include_str!("control.rs");
+        assert!(src.contains("let run = kanban_open_run_flag(args);"));
     }
 }

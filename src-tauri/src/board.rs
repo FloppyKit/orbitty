@@ -456,8 +456,27 @@ pub fn kanban_link_clear(app: &tauri::AppHandle, id: &str) -> Result<KanbanCard,
     write_links(app, &before, idx, None, "clear")
 }
 
+/// Forwards `run` to the launcher. orbittyctl and the MCP tool both come
+/// through here. Reads link-approvals.json and never writes it.
+pub(crate) fn dispatch_kanban_open(
+    url: &str,
+    run: bool,
+    approvals: &std::path::Path,
+) -> Result<String, String> {
+    let url = url.to_string();
+    card_links::ctl_open_at(&url, run, approvals)
+}
+
 /// Open link `n` (default 0). Read-only — status stays put.
-pub fn kanban_open_link(app: &tauri::AppHandle, id: &str, n: usize) -> Result<serde_json::Value, String> {
+/// Documents, folders, images, and https open. An executable is revealed
+/// in Finder unless `run` is set or that exact file is already approved.
+/// Reads link-approvals.json and never writes it.
+pub fn kanban_open_link(
+    app: &tauri::AppHandle,
+    id: &str,
+    n: usize,
+    run: bool,
+) -> Result<serde_json::Value, String> {
     let before = crate::state::load_state(app)?;
     let idx = card_index(&before, id, "kanban.open_link")?;
     let card = &before.kanban_cards[idx];
@@ -468,12 +487,13 @@ pub fn kanban_open_link(app: &tauri::AppHandle, id: &str, n: usize) -> Result<se
     let url = link.url.clone();
     let status = card.status.clone();
     let card_id = card.id.clone();
-    card_links::open_url(&url)?;
+    let action = dispatch_kanban_open(&url, run, &card_links::approvals_path(app)?)?;
     Ok(serde_json::json!({
         "id": card_id,
         "n": n,
         "url": url,
         "status": status,
+        "action": action,
     }))
 }
 
@@ -947,4 +967,60 @@ pub fn needed_answer(
         &serde_json::json!({ "cardId": after.kanban_cards[idx].id }),
     );
     Ok(after.kanban_cards[idx].clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dispatch_kanban_open;
+
+    fn temp_case(name: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "orbitty-link-board-{}-{}-{}",
+            std::process::id(),
+            name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn kanban_open_passes_the_run_flag() {
+        let _hook = crate::card_links::OpenGuard::arm();
+        let dir = temp_case("run");
+        let approvals = dir.join("link-approvals.json");
+        let seeded = b"{\"note\":\"n\",\"approvals\":[]}\n";
+        std::fs::write(&approvals, seeded).unwrap();
+        let cmd = dir.join("hello.command");
+        std::fs::write(&cmd, "echo hi\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&cmd).unwrap().permissions();
+            perms.set_mode(0o644);
+            std::fs::set_permissions(&cmd, perms).unwrap();
+        }
+        let before = std::fs::read(&approvals).unwrap();
+        assert_eq!(
+            dispatch_kanban_open(&cmd.to_string_lossy(), false, &approvals).unwrap(),
+            "reveal"
+        );
+        assert_eq!(std::fs::read(&approvals).unwrap(), before);
+        assert_eq!(
+            dispatch_kanban_open(&cmd.to_string_lossy(), true, &approvals).unwrap(),
+            "open"
+        );
+        assert_eq!(std::fs::read(&approvals).unwrap(), before);
+        let src = include_str!("board.rs");
+        assert!(src.contains("dispatch_kanban_open(&url, run,"));
+        assert!(src.contains("card_links::ctl_open_at(&url, run,"));
+        let add = src.find("pub fn kanban_link_add(").expect("kanban_link_add");
+        let add_body = &src[add..add + src[add..].find("pub fn kanban_link_rm(").unwrap()];
+        assert!(!add_body.contains("link-approvals"));
+        assert!(!add_body.contains("remember("));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
