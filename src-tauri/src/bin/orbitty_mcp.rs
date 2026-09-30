@@ -20,7 +20,7 @@ struct ToolDef {
     /// "kanban_assign" | "needed_open" |
     /// "log_append" | "action_add" | "action_run" | "action_rm" |
     /// "project_add" | "project_rm" | "project_rename" | "agent_add" |
-    /// "agent_pin" | "agent_pickup"
+    /// "agent_pin" | "agent_pickup" | "claim_project" | "claim_window"
     args: &'static str,
 }
 
@@ -77,6 +77,13 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "project.add", description: "Mint a project planet, or reuse + front the existing one on a same-name add (trim, case-insensitive; empty name refused)", args: "project_add" },
     ToolDef { name: "project.rm", description: "Remove a project planet by id; cards keep their projectId and live claims stay (walkers vanish on next habitat sync)", args: "project_rm" },
     ToolDef { name: "project.rename", description: "Rename a project planet, keeping its id (empty name refused)", args: "project_rename" },
+    // Claim verbs. Same names and arg keys control.rs reads
+    // (projectId, windowId). Forward-only; claim.* stays write-class.
+    ToolDef { name: "claim.front", description: "Claim the frontmost non-Orbitty window to the last-used planet (undo within ~3s with claim.undo)", args: "none" },
+    ToolDef { name: "claim.to", description: "Claim the frontmost non-Orbitty window to a planet by project id", args: "claim_project" },
+    ToolDef { name: "claim.change", description: "Retarget the pending (just-made) claim to another planet", args: "claim_project" },
+    ToolDef { name: "claim.undo", description: "Undo the last claim (~3s window)", args: "none" },
+    ToolDef { name: "claim.unclaim", description: "Drop a claim by window id (Layer-0 cleanup)", args: "claim_window" },
     // The action recipe file. list is read-safe;
     // add / run ride the companion profile (Spark mints + runs named
     // recipes, never a raw shell); rm needs full / named custom ("action.*").
@@ -477,6 +484,20 @@ fn input_schema(kind: &str) -> Value {
                 }
             }
         }),
+        "claim_project" => json!({
+            "type": "object",
+            "properties": {
+                "projectId": { "type": "string", "description": "Planet id (same key control.rs reads for claim.to and claim.change)" }
+            },
+            "required": ["projectId"]
+        }),
+        "claim_window" => json!({
+            "type": "object",
+            "properties": {
+                "windowId": { "type": "string", "description": "Window id (same key control.rs reads for claim.unclaim)" }
+            },
+            "required": ["windowId"]
+        }),
         _ => json!({ "type": "object", "properties": {} }),
     }
 }
@@ -759,6 +780,112 @@ fn write_message(stdout: &mut impl Write, v: &Value, framing: Framing) -> io::Re
         }
     }
     stdout.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool(name: &str) -> Value {
+        tools_list()["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("missing tool {name}"))
+            .clone()
+    }
+
+    fn required(name: &str) -> Vec<String> {
+        tool(name)["inputSchema"]["required"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn claim_tools_list_schemas() {
+        assert!(required("claim.front").is_empty(), "claim.front args none");
+        assert!(required("claim.undo").is_empty(), "claim.undo args none");
+        assert_eq!(required("claim.to"), vec!["projectId".to_string()]);
+        assert_eq!(required("claim.change"), vec!["projectId".to_string()]);
+        assert_eq!(required("claim.unclaim"), vec!["windowId".to_string()]);
+        for name in ["claim.to", "claim.change"] {
+            assert_eq!(
+                tool(name)["inputSchema"]["properties"]["projectId"]["type"],
+                "string",
+                "{name}"
+            );
+        }
+        assert_eq!(
+            tool("claim.unclaim")["inputSchema"]["properties"]["windowId"]["type"],
+            "string"
+        );
+    }
+
+    /// Every `"claim.<x>" =>` arm in control.rs, and every claim.* ToolDef.
+    fn control_claim_arms() -> Vec<String> {
+        let src = include_str!("../control.rs");
+        let mut names = Vec::new();
+        for line in src.lines() {
+            let t = line.trim_start();
+            let Some(rest) = t.strip_prefix("\"claim.") else {
+                continue;
+            };
+            let Some(end) = rest.find('"') else {
+                continue;
+            };
+            let verb = &rest[..end];
+            if verb.is_empty()
+                || !verb
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                continue;
+            }
+            if rest[end + 1..].trim_start().starts_with("=>") {
+                names.push(format!("claim.{verb}"));
+            }
+        }
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    #[test]
+    fn claim_tooldefs_match_control_arms() {
+        let arms = control_claim_arms();
+        let mut tools: Vec<String> = TOOLS
+            .iter()
+            .filter(|t| t.name.starts_with("claim."))
+            .map(|t| t.name.to_string())
+            .collect();
+        tools.sort();
+        assert_eq!(
+            tools, arms,
+            "each control.rs claim.* arm needs a ToolDef, and each claim.* ToolDef needs an arm"
+        );
+        assert!(
+            arms.contains(&"claim.change".to_string()),
+            "control.rs claim.change arm missing from the parity set"
+        );
+    }
+
+    #[test]
+    fn unknown_claim_tool_is_rejected() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "claim.bogus", "arguments": {} }
+        });
+        let reply = dispatch(&msg).expect("reply");
+        assert_eq!(reply["error"]["code"], -32602);
+    }
 }
 
 pub fn run() {

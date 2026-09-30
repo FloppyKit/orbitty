@@ -2,6 +2,7 @@
 //! One row per card. A save must not strip a live Doing run.
 
 use serde_json::json;
+use tauri::Emitter;
 
 use crate::state::{AgentRun, KanbanCard, PersistedState};
 
@@ -231,7 +232,19 @@ pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &
         return;
     }
     if heal_hack {
+        // Drops, window-save Done, and kanban_move all heal here.
+        // The heal writes the LED and emits nothing; the dock repaints
+        // only on state:changed, and only when the bit actually flips.
+        let before_live = crate::state::load_state(app)
+            .ok()
+            .map(|s| s.companion.hack_live);
         crate::coordinator::heal_stuck_hack(app);
+        let after_live = crate::state::load_state(app)
+            .ok()
+            .map(|s| s.companion.hack_live);
+        if before_live != after_live {
+            let _ = app.emit("state:changed", ());
+        }
     }
     if !changed {
         return;
@@ -576,6 +589,46 @@ mod tests {
         assert!(
             !cond.contains("drops.is_empty()"),
             "drops-only heal trigger: {cond}"
+        );
+    }
+
+    /// Call-site pin from VERIFY_SEC_HACK_LED_1449894 N4.
+    /// M1/M2: window-save Done (`changed` false) still heals — the text
+    /// keeps `else if !heal_hack`, not a bare `else`.
+    /// M9: kanban_move heals on `if heal_hack {`, not `if heal_hack && !changed`.
+    /// M8: that gate is not `drops.is_empty()` or `drops.len()`.
+    #[test]
+    fn attach_call_site_pins_window_kanban_and_drops() {
+        let src = include_str!("agent_runs.rs");
+        let start = src
+            .find("pub fn attach_on_moves(")
+            .expect("attach_on_moves");
+        let body = &src[start..];
+        let from = body.find("let heal_hack").expect("let heal_hack");
+        let heal_rel = body[from..]
+            .find("heal_stuck_hack")
+            .expect("heal_stuck_hack");
+        let between = &body[from..from + heal_rel];
+        assert!(
+            between.contains("else if !heal_hack"),
+            "M1/M2 window-save Done heal: {between}"
+        );
+        assert!(
+            between.contains("if heal_hack {"),
+            "M9 kanban_move heal: {between}"
+        );
+        assert!(
+            !between.contains("drops.is_empty()") && !between.contains("drops.len()"),
+            "M8 drops check: {between}"
+        );
+        let after = &body[from + heal_rel..];
+        let emit = after
+            .find("\"state:changed\"")
+            .expect("state:changed after heal");
+        let next = after.find("if !changed").unwrap_or(usize::MAX);
+        assert!(
+            emit < next,
+            "dock repaint must follow heal_stuck_hack before the event-log return"
         );
     }
 }
