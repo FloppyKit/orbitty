@@ -103,6 +103,20 @@ struct Request {
     token: Option<String>,
     tool: Option<String>,
     args: Option<Value>,
+    /// Top-level caller. Not read from `args`, so a tool argument cannot
+    /// impersonate the socket client. Missing or blank becomes `"socket"`.
+    #[serde(default)]
+    caller: Option<String>,
+}
+
+fn claim_origin_from(raw: Option<&str>) -> crate::claim_front::ClaimOrigin {
+    let trimmed = raw.unwrap_or("").trim();
+    let name = if trimmed.is_empty() {
+        "socket".to_string()
+    } else {
+        trimmed.chars().take(128).collect()
+    };
+    crate::claim_front::ClaimOrigin::Agent(name)
 }
 
 fn reply_ok(id: &Value, data: Value) -> Value {
@@ -304,8 +318,9 @@ fn dispatch(app: &tauri::AppHandle, req: Request) -> Value {
         return reply_err(&id, ERR_DENIED, "go.seal requires profile full");
     }
 
+    let origin = claim_origin_from(req.caller.as_deref());
     let args = req.args.unwrap_or(Value::Null);
-    match run_tool(app, &tool, &args) {
+    match run_tool(app, &tool, &args, &origin) {
         Ok(data) => reply_ok(&id, data),
         Err((code, msg)) => reply_err(&id, code, &msg),
     }
@@ -398,7 +413,12 @@ fn run_stars(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, 
 
 /// The v0 tool list — each arm calls the exact function the matching
 /// Tauri invoke handler calls. No new product behavior lives here.
-fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (i32, String)> {
+fn run_tool(
+    app: &tauri::AppHandle,
+    tool: &str,
+    args: &Value,
+    origin: &crate::claim_front::ClaimOrigin,
+) -> Result<Value, (i32, String)> {
     match tool {
         "app.status" => Ok(json!({
             "ok": true,
@@ -848,21 +868,21 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(|_| ok_true())
                 .map_err(tool_err)
         }
-        "claim.front" => crate::claim_front::claim_front(app)
+        "claim.front" => crate::claim_front::claim_front(app, origin)
             .map(|_| ok_true())
             .map_err(tool_err),
-        "claim.undo" => crate::claim_front::undo_last(app)
+        "claim.undo" => crate::claim_front::undo_last(app, origin)
             .map(|_| ok_true())
             .map_err(tool_err),
         "claim.to" => {
             let id = arg_str(args, "projectId")?;
-            crate::claim_front::claim_front_to_planet(app, &id)
+            crate::claim_front::claim_front_to_planet_origin(app, &id, origin)
                 .map(|_| ok_true())
                 .map_err(tool_err)
         }
         "claim.change" => {
             let id = arg_str(args, "projectId")?;
-            crate::claim_front::change_planet(app, &id)
+            crate::claim_front::change_planet(app, &id, origin)
                 .map(|_| ok_true())
                 .map_err(tool_err)
         }
@@ -997,5 +1017,98 @@ mod tests {
         assert!(allowed(&Acl::Companion, "route.classify"));
         assert!(!allowed(&Acl::Companion, "route.run"));
         assert!(allowed(&Acl::Full, "route.run"));
+    }
+
+    fn strip_rust_comments(src: &str) -> String {
+        let chars: Vec<char> = src.chars().collect();
+        let mut out = String::new();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '"' {
+                out.push('"');
+                i += 1;
+                while i < chars.len() {
+                    let c = chars[i];
+                    out.push(c);
+                    i += 1;
+                    if c == '\\' && i < chars.len() {
+                        out.push(chars[i]);
+                        i += 1;
+                        continue;
+                    }
+                    if c == '"' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
+                i += 2;
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                if i + 1 < chars.len() {
+                    i += 2;
+                }
+                continue;
+            }
+            out.push(chars[i]);
+            i += 1;
+        }
+        out
+    }
+
+    /// T8. Caller is the top-level request field. Claim arms never mint User.
+    #[test]
+    fn claim_caller_is_top_level_only() {
+        let req: Request = serde_json::from_str(
+            r#"{"v":1,"tool":"claim.undo","caller":"  mcp:cursor:9  ","args":{"caller":"spoof","projectId":"p"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            claim_origin_from(req.caller.as_deref()),
+            crate::claim_front::ClaimOrigin::Agent("mcp:cursor:9".into())
+        );
+        assert_eq!(req.args.unwrap()["caller"], "spoof");
+
+        let missing: Request =
+            serde_json::from_str(r#"{"tool":"claim.undo","args":{"caller":"spoof"}}"#).unwrap();
+        assert_eq!(
+            claim_origin_from(missing.caller.as_deref()),
+            crate::claim_front::ClaimOrigin::Agent("socket".into())
+        );
+
+        let empty: Request =
+            serde_json::from_str(r#"{"caller":"   ","tool":"claim.front"}"#).unwrap();
+        assert_eq!(
+            claim_origin_from(empty.caller.as_deref()),
+            crate::claim_front::ClaimOrigin::Agent("socket".into())
+        );
+
+        let long = "y".repeat(200);
+        match claim_origin_from(Some(&long)) {
+            crate::claim_front::ClaimOrigin::Agent(s) => assert_eq!(s.chars().count(), 128),
+            crate::claim_front::ClaimOrigin::User => panic!("caller must stay Agent"),
+        }
+
+        let stripped = strip_rust_comments(include_str!("control.rs"));
+        let start = stripped.find("fn run_tool(").expect("run_tool");
+        let body = &stripped[start..];
+        let claim_at = body.find("\"claim.").expect("claim arm");
+        let end = body[claim_at..]
+            .find("\"task.undo\"")
+            .expect("task.undo follows claim arms");
+        let region = &body[claim_at..claim_at + end];
+        assert!(
+            !region.contains("ClaimOrigin::User"),
+            "claim arms must not construct a User origin:\n{region}"
+        );
     }
 }

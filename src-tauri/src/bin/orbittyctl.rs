@@ -1645,7 +1645,13 @@ pub fn run() {
     // read guard exists only so a wedged server can't hold us forever.
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(360)));
 
-    let mut req = json!({ "v": 1, "id": "1", "tool": tool, "args": args });
+    let mut req = json!({
+        "v": 1,
+        "id": "1",
+        "tool": tool,
+        "args": args,
+        "caller": format!("ctl:{}", std::process::id()),
+    });
     if let Some(t) = tok {
         req["token"] = Value::String(t);
     }

@@ -1019,12 +1019,14 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "claim_front" => {
-                        if let Err(e) = claim_front::claim_front(app) {
+                        if let Err(e) = claim_front::claim_front(app, &claim_front::ClaimOrigin::User)
+                        {
                             eprintln!("claim-front: {e}");
                         }
                     }
                     "claim_undo" => {
-                        if let Err(e) = claim_front::undo_last(app) {
+                        if let Err(e) = claim_front::undo_last(app, &claim_front::ClaimOrigin::User)
+                        {
                             eprintln!("claim-undo: {e}");
                         }
                     }
