@@ -192,7 +192,23 @@ fn inside_buzz_at(home: &Path, p: &Path, depth: u32) -> bool {
 /// (a relative path would land in the app's cwd, `/`).
 #[cfg_attr(not(any(debug_assertions, feature = "dev-thin")), allow(dead_code))]
 pub(crate) fn check_paths(home: &Path, cfg: &ThinConfig) -> Result<(), String> {
-    for (what, p) in [("outputDir", &cfg.output_dir), ("script", &cfg.script)] {
+    let mut checks: Vec<(&str, &Path)> =
+        vec![("outputDir", cfg.output_dir.as_path()), ("script", cfg.script.as_path())];
+    // A bare interpreter name (`python3`) is looked up on PATH; anything with
+    // a `/` is a path and gets the same checks as the others.
+    let python = PathBuf::from(&cfg.python);
+    if cfg.python.contains('/') {
+        checks.push(("python", python.as_path()));
+    }
+    for (what, p) in checks {
+        // `..` can walk out of a missing folder into ~/.buzz before any
+        // component exists to stat, so it is refused outright.
+        if p
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(format!("thin.json {what} {} may not contain ..", p.display()));
+        }
         if !p.is_absolute() {
             return Err(format!("thin.json {what} {} must be an absolute path", p.display()));
         }
@@ -228,10 +244,21 @@ pub fn resolve_config(home: &Path, manifest_dir: &Path) -> ThinConfig {
     let file = read_thin_file(home);
     let script = nonblank(file.script.as_deref())
         .map(|s| expand_home(home, s))
-        .unwrap_or_else(|| manifest_dir.join("../scripts/thin/vivo_thin.py"));
-    let python = nonblank(file.python.as_deref())
-        .unwrap_or("python3")
-        .to_string();
+        // No `..` in the default: check_paths refuses any path that has one.
+        .unwrap_or_else(|| {
+            manifest_dir
+                .parent()
+                .unwrap_or(manifest_dir)
+                .join("scripts/thin/vivo_thin.py")
+        });
+    // `~/…` and `$HOME` expand like the other paths; a bare name stays a name.
+    let python = match nonblank(file.python.as_deref()) {
+        Some(s) if s.starts_with("~/") || s.contains("$HOME") => {
+            expand_home(home, s).to_string_lossy().into_owned()
+        }
+        Some(s) => s.to_string(),
+        None => "python3".to_string(),
+    };
     let output_dir = nonblank(file.output_dir.as_deref())
         .map(|s| expand_home(home, s))
         .unwrap_or_else(|| home.join(".config/orbitty/thin-stamps"));
@@ -678,7 +705,8 @@ pub(crate) mod tests {
         let cfg = resolve_config(&home, Path::new("/work/src-tauri"));
         assert_eq!(cfg.python, "python3");
         assert!(!cfg.python.contains("homebrew"));
-        assert!(cfg.script.ends_with("scripts/thin/vivo_thin.py"));
+        assert_eq!(cfg.script, Path::new("/work/scripts/thin/vivo_thin.py"));
+        assert!(check_paths(&home, &cfg).is_ok(), "the default config passes check_paths");
         assert_eq!(cfg.output_dir, home.join(".config/orbitty/thin-stamps"));
         assert!(!cfg.output_dir.to_string_lossy().contains(".buzz"));
         assert!(!cfg.script.to_string_lossy().contains(".buzz"));
@@ -1030,6 +1058,7 @@ not json companion-send\n";
 
     // N2 (T11): the landing check really reads the last events.jsonl line.
     #[test]
+    #[cfg(any(debug_assertions, feature = "dev-thin"))]
     fn landing_check_matches_the_last_event() {
         let dir = scratch("landed");
         let obs = Observation {
@@ -1077,11 +1106,22 @@ not json companion-send\n";
             "~/.buzz/RESEARCH/stamps",
             "~/.BUZZ/research/new",
             "$HOME/.Buzz/x",
-            &format!("{}/.buzz/../.buzz/y", home.display()),
         ] {
             let e = check(bad).expect_err(bad);
             assert!(e.contains("inside ~/.buzz"), "{bad}: {e}");
         }
+        // `..` is refused even when the folder it climbs out of is missing.
+        let through = format!("{}/.buzz/../.buzz/y", home.display());
+        for dots in [
+            "~/missing/../.buzz/x",
+            "~/a/b/../../.buzz/new",
+            "~/missing/../stamps",
+            through.as_str(),
+        ] {
+            let e = check(dots).expect_err(dots);
+            assert!(e.contains("may not contain .."), "{dots}: {e}");
+        }
+        assert!(!buzz.join("x").exists() && !buzz.join("new").exists());
         for rel in ["stamps", "./stamps", "~dude/stamps", "~user"] {
             let e = check(rel).expect_err(rel);
             assert!(e.contains("absolute"), "{rel}: {e}");
@@ -1117,6 +1157,63 @@ not json companion-send\n";
         let check = body.find("check_paths(&home, &cfg)").expect("check_paths call");
         let mkdir = body.find("create_dir_all(&cfg.output_dir)").expect("mkdir");
         assert!(check < mkdir);
-        assert!(body.contains("stamp_steps("));
+        // The meter is saved in exactly one place, inside stamp_steps (after
+        // the landing check), never on its own before the script runs.
+        let steps = body.find("stamp_steps(").expect("stamp_steps call");
+        assert_eq!(body.matches("save_meter(").count(), 1, "{body}");
+        assert!(body.find("save_meter(").unwrap() > steps, "{body}");
+    }
+
+    // N-H: a thin.json python *path* gets the .buzz, relative and `..` checks.
+    #[test]
+    fn thin_json_python_path_is_checked_too() {
+        let home = scratch("pyguard");
+        std::fs::create_dir_all(home.join(".buzz/RESEARCH/RGL_TESTBED/.venv/bin")).unwrap();
+        let cfg_dir = home.join(".config/orbitty");
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        let check = |py: &str| {
+            std::fs::write(
+                cfg_dir.join("thin.json"),
+                format!(r#"{{"python":{}}}"#, serde_json::to_string(py).unwrap()),
+            )
+            .unwrap();
+            check_paths(&home, &resolve_config(&home, Path::new("/work/src-tauri")))
+        };
+        assert!(check("python3").is_ok(), "bare name on PATH");
+        assert!(check("python3.12").is_ok());
+        assert!(check("/usr/bin/python3").is_ok());
+        assert!(check("~/.pyenv/shims/python").is_ok());
+        for bad in [
+            "~/.buzz/RESEARCH/RGL_TESTBED/.venv/bin/python",
+            "$HOME/.BUZZ/RESEARCH/RGL_TESTBED/.venv/bin/python",
+            &format!("{}/.Buzz/x/python", home.display()),
+        ] {
+            let e = check(bad).expect_err(bad);
+            assert!(e.contains("python") && e.contains("inside ~/.buzz"), "{bad}: {e}");
+        }
+        let e = check("bin/python").unwrap_err();
+        assert!(e.contains("python") && e.contains("absolute"), "{e}");
+        let e = check("~/missing/../.buzz/py").unwrap_err();
+        assert!(e.contains("may not contain .."), "{e}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // N-G: both install scripts remove the built bundle before tauri build,
+    // behind a guard that needs a non-empty SRC ending in .app.
+    #[test]
+    fn install_scripts_clear_the_bundle_before_building() {
+        for (name, src) in [
+            ("install-nightly.sh", include_str!("../../scripts/install-nightly.sh")),
+            ("install-stable.sh", include_str!("../../scripts/install-stable.sh")),
+        ] {
+            let guard = r#"if [[ -n "${SRC:-}" && "$SRC" == *.app && "$SRC" == src-tauri/target/release/bundle/macos/* ]]; then"#;
+            let g = src.find(guard).unwrap_or_else(|| panic!("{name}: guard missing"));
+            let rm = src.find("  rm -rf -- \"$SRC\"\n").unwrap_or_else(|| panic!("{name}: rm missing"));
+            let build = src.find("\nnpm run tauri build").unwrap_or_else(|| panic!("{name}: build"));
+            assert!(g < rm && rm < build, "{name}: rm must be guarded and before tauri build");
+            assert_eq!(src.matches("rm -rf -- \"$SRC\"").count(), 1, "{name}: one bundle rm");
+            let set = src.find("\nSRC=\"src-tauri/target/release/bundle/macos/").expect("SRC set");
+            assert!(set < g, "{name}: SRC is set before the rm");
+        }
     }
 }
