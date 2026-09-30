@@ -1,5 +1,6 @@
+<!-- LEGACY (to be replaced by the new companion pack, Matt 2026-09-29) -->
 <script lang="ts">
-  // a bundled 3D body (Tang / Female) living in
+  // a bundled 3D body (Female) living in
   // the exact slots SpiritStage owns — idle stage, hosted wellhead,
   // 96×96 corner — with the same .stage/.floatwrap markup so window
   // drag stays on the figure. three.js

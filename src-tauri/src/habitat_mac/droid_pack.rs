@@ -1,4 +1,4 @@
-//! 4-dir FF7 droid kits for agent walkers.
+//! 4-dir PSX-style droid kits for agent walkers.
 //!
 //! Three bodies (dog / penguin / octopus), four folders (e/s/w/n), four
 //! walk frames. Seed picks the body. Roam delta picks the folder. Dummy

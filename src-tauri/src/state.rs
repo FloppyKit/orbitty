@@ -640,6 +640,10 @@ pub fn companion_mode_default() -> String {
 
 /// The four modes are the whole allowlist —
 /// anything else is None so callers fail closed (never a silent spark).
+/// Companion body ids that were removed from the app. Kept only so old
+/// saves heal to the Spirit (`CompanionState::heal_retired_body`).
+pub const RETIRED_BODY_IDS: &[&str] = &["tang"];
+
 pub fn normalize_companion_mode(raw: &str) -> Option<String> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "spark" => Some("spark".into()),
@@ -666,6 +670,19 @@ impl CompanionState {
     /// One transcript: if `turns` is empty and a parked thread has
     /// lines, lift the longest parked thread so MODE-SPLIT history is
     /// not dropped. Do not swap on later mode changes.
+    pub fn heal_retired_body(&mut self) {
+        // A body id the app no longer ships (the retired 3D mesh) reads as
+        // the Spirit, so an old save lands on a working companion instead
+        // of a pack lookup that can only miss.
+        if self
+            .image_pack_id
+            .as_deref()
+            .is_some_and(|id| RETIRED_BODY_IDS.contains(&id))
+        {
+            self.image_pack_id = None;
+        }
+    }
+
     pub fn heal_modes(&mut self) {
         if normalize_companion_mode(&self.mode).is_none() {
             self.mode = companion_mode_default();
@@ -1062,6 +1079,7 @@ fn load_path(path: &std::path::Path) -> Result<PersistedState, String> {
             // Old saves heal here — mode defaults
             // spark, a pre-split transcript parks under spark.
             st.companion.heal_modes();
+            st.companion.heal_retired_body();
             Ok(st)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(PersistedState::default()),
@@ -1792,6 +1810,25 @@ mod tests {
             miss_top.is_empty() && miss_comp.is_empty(),
             "add to apply_writer_delta: {miss_top:?}; to apply_companion_delta: {miss_comp:?}"
         );
+    }
+
+    /// Old saves that picked the removed 3D body still load and land on
+    /// the Spirit; other picks and unknown old fields are untouched/ignored.
+    #[test]
+    fn old_save_with_retired_body_loads_as_spirit() {
+        let path = temp_state();
+        std::fs::write(
+            &path,
+            r#"{"themeId":"x","companion":{"imagePackId":"tang","lookAtTarget":{"x":1},"lookAt":true},"kanbanCards":[]}"#,
+        )
+        .unwrap();
+        let st = load_path(&path).expect("old save loads");
+        assert_eq!(st.companion.image_pack_id, None);
+        std::fs::write(&path, r#"{"companion":{"imagePackId":"female"}}"#).unwrap();
+        assert_eq!(load_path(&path).unwrap().companion.image_pack_id.as_deref(), Some("female"));
+        std::fs::write(&path, r#"{"companion":{"imagePackId":"my-pack"}}"#).unwrap();
+        assert_eq!(load_path(&path).unwrap().companion.image_pack_id.as_deref(), Some("my-pack"));
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

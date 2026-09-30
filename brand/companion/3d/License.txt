@@ -1,4 +1,3 @@
-Tang is derived from Jacob by jupifox (CC BY 4.0). Credit jupifox / Jacob; attribution required, do not block use.
 Female (Girl) is an original Orbitty companion mesh; ship as-is for Mini companion preview.
-No idle clip embedded in these GLBs; Mini may slow-orbit.
-Sources on Bot VM: /workspace/tang-viewer/assets/Tang.glb and Girl.glb (Girl = signed v44).
+No idle clip embedded in this GLB; Mini may slow-orbit.
+Source on Bot VM: the viewer's Girl.glb (signed v44).

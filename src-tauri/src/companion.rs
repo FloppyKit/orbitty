@@ -195,13 +195,13 @@ pub fn companion_frames(
 /// Resolve a bundled 3D companion body
 /// (`companion/3d/{id}.glb`) to its filesystem path — the webview wraps it
 /// with convertFileSrc for GLTFLoader (asset protocol scope:
-/// `$RESOURCE/companion/3d/**`). `tang` / `female` are reserved ids, never
+/// `$RESOURCE/companion/3d/**`). `female` is the reserved id, never
 /// pack folders; anything else (or a missing file) returns "" so the
 /// webview fails soft to the spirit — never an Err that blanks the window.
 #[tauri::command]
 pub fn companion_glb_url(app: tauri::AppHandle, id: String) -> Result<String, String> {
     let id = id.trim();
-    if !matches!(id, "tang" | "female") {
+    if id != "female" {
         return Ok(String::new());
     }
     let path = app
@@ -218,6 +218,7 @@ pub fn companion_glb_url(app: tauri::AppHandle, id: String) -> Result<String, St
     }
 }
 
+// LEGACY (to be replaced by the new companion pack, Matt 2026-09-29)
 /// The five allowlisted gestures on the 3D
 /// body. `wave` ships in the GLBs but is NOT allowlisted (shoulder not
 /// locked) — it and any other name are an honest error, never a silent
