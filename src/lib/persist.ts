@@ -285,6 +285,12 @@ export interface CompanionSlice {
   // from freeMode. Dedicated commands, same strip-trap as conductor.
   replyLane?: string;
   replyModel?: string;
+  // Online agent for "Ask online agent". Empty = ask each time.
+  // Rust-owned in the window-merge rule (same strip-trap as replyLane).
+  // No personal default.
+  handoffBackend?: string;
+  // Auto-handoff when the local model can't. Default off.
+  autoHandoff?: boolean;
 }
 
 export interface StarsCheckin {

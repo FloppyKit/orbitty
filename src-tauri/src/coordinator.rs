@@ -1362,7 +1362,13 @@ fn persist_companion_you(app: &tauri::AppHandle, line: &str) {
     }
 }
 
-fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) {
+/// Saves the them-row stripped and returns that same stripped string, so
+/// the live bubble never shows a button the saved row doesn't have.
+#[must_use]
+fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) -> String {
+    // Command output is not allowed to mint a handoff button either.
+    let stripped = crate::mouth_hop::strip_handoff_marks(them);
+    let them = stripped.as_str();
     if crate::state::update(app, |st| {
         if let Some(you) = you {
             st.companion.last_user_line = you.to_string();
@@ -1383,6 +1389,7 @@ fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &st
     {
         let _ = app.emit("state:changed", ());
     }
+    stripped
 }
 
 // GO-MH-2-APP: leftover map inject (read-only, fail open)
@@ -1579,6 +1586,18 @@ pub async fn companion_send(
     line: String,
     path: Option<String>,
 ) -> Result<String, String> {
+    // The app composer: a bare yes confirms a chat-made board write only.
+    companion_send_from(app, line, path, crate::mouth_route::Origin::Chat).await
+}
+
+/// [`companion_send`] naming its surface. Socket `companion.send` passes
+/// `Origin::Companion`, so it never proposes or confirms a board write.
+pub async fn companion_send_from(
+    app: tauri::AppHandle,
+    line: String,
+    path: Option<String>,
+    origin: crate::mouth_route::Origin,
+) -> Result<String, String> {
     let line = line.trim().replace('\n', " ");
     let attach = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
         Some(p) => Some(crate::attach::stat_path(p)?),
@@ -1596,7 +1615,7 @@ pub async fn companion_send(
         true,
         &serde_json::json!({ "n": line.chars().count(), "file": attach.is_some() }),
     );
-    let out = companion_send_inner(app.clone(), line, attach).await;
+    let out = companion_send_inner(app.clone(), line, attach, origin).await;
     crate::event_log::append_best(
         &app,
         "companion-reply",
@@ -1613,6 +1632,7 @@ async fn companion_send_inner(
     app: tauri::AppHandle,
     line: String,
     attach: Option<crate::attach::AttachInfo>,
+    origin: crate::mouth_route::Origin,
 ) -> Result<String, String> {
     // A chip means the line is for the AI — the local
     // todo:/go:/Action intercepts cannot take a file, so they stand down
@@ -1628,8 +1648,7 @@ async fn companion_send_inner(
                 Ok(s) => s,
                 Err(e) => e,
             };
-            persist_action_intercept(&app, Some(line.as_str()), &them);
-            return Ok(them);
+            return Ok(persist_action_intercept(&app, Some(line.as_str()), &them));
         }
     }
 
@@ -1640,8 +1659,7 @@ async fn companion_send_inner(
                 Ok(s) => s,
                 Err(e) => e,
             };
-            persist_action_intercept(&app, Some(line.as_str()), &them);
-            return Ok(them);
+            return Ok(persist_action_intercept(&app, Some(line.as_str()), &them));
         }
     }
 
@@ -1684,13 +1702,15 @@ async fn companion_send_inner(
                     }
                     Err(e) => e,
                 };
-                persist_action_intercept(&app, keep_you.then_some(line.as_str()), &them);
-                return Ok(them);
+                return Ok(persist_action_intercept(
+                    &app,
+                    keep_you.then_some(line.as_str()),
+                    &them,
+                ));
             }
             Some(ActionIntercept::Ambiguous) => {
                 let them = "which action? use the Launchpad well.".to_string();
-                persist_action_intercept(&app, None, &them);
-                return Ok(them);
+                return Ok(persist_action_intercept(&app, None, &them));
             }
             None => {}
         }
@@ -1709,8 +1729,11 @@ async fn companion_send_inner(
     // replyModel is still empty. One models GET, then the field sticks.
     crate::mouth_scan::pin_reply_if_empty(&app);
     // Existing verbs: the tool answers. A miss stays on the mouth below.
-    if attach.is_none() && !crate::mouth_gist::needs_write_lane(&line) {
-        if let Some(spoken) = crate::mouth_route::run(&app, &line) {
+    // Board add / agent spawn are writes. They still answer here, after
+    // one confirm, so a write does not fall through into a board snapshot.
+    if attach.is_none() {
+        if let Some(spoken) = crate::mouth_route::run(&app, &line, origin) {
+            let spoken = crate::mouth_hop::strip_handoff_marks(&spoken);
             if crate::state::update(&app, |st| {
                 st.companion.last_bot_line = spoken.clone();
                 st.companion.push_turn("them", &spoken);
@@ -1737,8 +1760,7 @@ async fn companion_send_inner(
     if attach.is_none() {
         match crate::mouth_ack::conduct(&app, &line).await {
             Some(crate::mouth_ack::Step::Final(them)) => {
-                persist_action_intercept(&app, None, &them);
-                return Ok(them);
+                return Ok(persist_action_intercept(&app, None, &them));
             }
             Some(crate::mouth_ack::Step::Chat(ack)) => {
                 hop_ack = ack.clone();
@@ -1755,23 +1777,32 @@ async fn companion_send_inner(
     // Grok hops get orbitty.hop.v0 (no pocket dump). Other backends
     // still get the leftover wrap. Persist + event log keep the raw line.
     let prompt = wrap_with_pocket(&app, &line);
-    // Chip: original path always. Office may add MarkItDown markdown
-    // (sidecar, detect-only). Images may ride Grok --prompt-json.
-    let (prompt, vision_path) = match &attach {
+    // Chip: original path always. Office may add MarkItDown markdown.
+    // Images ride only when the resolved lane's model can see.
+    let (prompt, vision_path, lane, model_vision) = match &attach {
         Some(a) => {
             let a = a.clone();
             let p = prompt.clone();
             let b = backend.clone();
+            let line_c = line.clone();
+            let app_c = app.clone();
             match tauri::async_runtime::spawn_blocking(move || {
-                crate::attach_send::prepare(&a, &p, &b)
+                let image = crate::attach_vision::is_image(&a.path);
+                let (lane, model_vision) = if b == "grok" {
+                    crate::mouth_hop::image_lane_vision(&app_c, &line_c, image)
+                } else {
+                    (b, false)
+                };
+                let prep = crate::attach_send::prepare(&a, &p, &lane, model_vision);
+                (prep.prompt, prep.vision_path, lane, model_vision)
             })
             .await
             {
-                Ok(prep) => (prep.prompt, prep.vision_path),
-                Err(_) => (prompt, None),
+                Ok(prep) => prep,
+                Err(_) => (prompt, None, backend.clone(), false),
             }
         }
-        None => (prompt, None),
+        None => (prompt, None, backend.clone(), false),
     };
     // Desk wrap only when the line looks like a board mint — not every
     // "hi". Planet ids stay available for todo: intercept without a chew.
@@ -1780,6 +1811,36 @@ async fn companion_send_inner(
     } else {
         prompt
     };
+    // A lane that can't see the image does not get to guess.
+    let image = attach
+        .as_ref()
+        .is_some_and(|a| crate::attach_vision::is_image(&a.path));
+    if image && crate::attach_vision::vision_gate_applies(&lane, model_vision) {
+        let path = attach
+            .as_ref()
+            .map(|a| a.path.clone())
+            .unwrap_or_default();
+        let reply =
+            crate::mouth_hop::refuse_or_handoff(&app, &line, &path, &lane).await?;
+        if crate::state::update(&app, |st| {
+            st.companion.last_bot_line = reply.clone();
+            let you_already_saved = st
+                .companion
+                .turns
+                .last()
+                .is_some_and(|t| t.role == "you" && t.text == you_line);
+            if !you_already_saved {
+                st.companion.push_turn("you", &you_line);
+            }
+            st.companion.push_turn("them", &reply);
+            Ok(())
+        })
+        .is_ok()
+        {
+            let _ = app.emit("state:changed", ());
+        }
+        return Ok(reply);
+    }
     // Plug map — unknown backend is an honest error,
     // never a silent Berd fallback.
     let reply = match backend.as_str() {
@@ -1805,6 +1866,9 @@ async fn companion_send_inner(
             ))
         }
     };
+    // No model or agent reply may carry a handoff trailer (a forged
+    // "Ask online agent" button). Only the vision gate above adds one.
+    let reply = crate::mouth_hop::strip_handoff_marks(&reply);
 
     // You-row already persisted before the model wait. Reply only here.
     if crate::state::update(&app, |st| {
@@ -1846,7 +1910,7 @@ async fn companion_send_berd(line: &str) -> Result<String, String> {
 /// and persisted in plug.json; later sends resume by
 /// `--session-id ID --resume` (`--name` is not a unique resume key).
 /// Honest error when goose is missing — no silent Berd fallback.
-async fn companion_send_goose(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
+pub(crate) async fn companion_send_goose(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
     let bin = find_on_path("goose").ok_or(
         "`goose` not found — install the Goose CLI or put it on PATH (Orbitty.app checks PATH + ~/.local/bin).",
     )?;
@@ -2165,7 +2229,7 @@ pub(crate) fn grok_reply_text(raw: &str) -> String {
         .to_string()
 }
 
-async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
+pub(crate) async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
     let bin = find_on_path("hermes")
         .ok_or("`hermes` not found — install Hermes or put it on PATH.")?;
 

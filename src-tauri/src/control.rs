@@ -438,10 +438,13 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let line = arg_str(args, "line")?;
             // Same Berd path as the composer — the async command body,
             // driven from this plain std thread via the app's runtime.
-            tauri::async_runtime::block_on(crate::coordinator::companion_send(
+            // Origin::Companion: a socket companion.send never proposes or
+            // confirms a board write (route.run --pending is the socket door).
+            tauri::async_runtime::block_on(crate::coordinator::companion_send_from(
                 app.clone(),
                 line,
                 arg_opt(args, "path"),
+                crate::mouth_route::Origin::Companion,
             ))
             .map(|reply| json!({ "reply": reply }))
             .map_err(tool_err)
@@ -771,13 +774,19 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         }
         "route.run" => {
             let line = arg_str(args, "line")?;
-            let spoken = crate::mouth_route::run(app, &line);
-            let tool = spoken
-                .as_ref()
-                .and_then(|_| crate::mouth_route::classify(&line));
+            // A yes / no only answers this caller's own proposal: it must
+            // carry the pendingId that proposal returned.
+            let confirm = arg_opt(args, "pendingId");
+            let out = crate::mouth_route::run_outcome(
+                app,
+                &line,
+                crate::mouth_route::Origin::Socket,
+                confirm.as_deref(),
+            );
             Ok(json!({
-                "tool": tool,
-                "spoken": spoken,
+                "tool": out.tool,
+                "spoken": out.spoken,
+                "pendingId": out.pending_id,
             }))
         }
         "gate.inject" => {
@@ -974,6 +983,8 @@ mod tests {
         "list planets",
         "list agents",
         "needed list on planet orbitty",
+        "add a card Buy milk to planet Kansas todo",
+        "add an agent in doing to planet Kansas",
         "tell me a joke",
         "STOP",
         "stop",

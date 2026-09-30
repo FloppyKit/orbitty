@@ -15,7 +15,7 @@ const SERVER_VERSION: &str = "0.1.0";
 struct ToolDef {
     name: &'static str,
     description: &'static str,
-    /// "none" | "id" | "line" | "route_line" | "profile" | "clip" | "kanban_add" |
+    /// "none" | "id" | "line" | "route_line" | "route_run" | "profile" | "clip" | "kanban_add" |
     /// "kanban_move" | "kanban_notes" | "kanban_link" | "kanban_open_link" |
     /// "kanban_assign" | "needed_open" |
     /// "log_append" | "action_add" | "action_run" | "action_rm" |
@@ -104,7 +104,7 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "shift.status", description: "Humming supervisor snapshot: on/off, mode, runner cap, agentRuns, next assigned pickups", args: "none" },
     ToolDef { name: "route.table", description: "Hang route table: the closed set of keyword tool ids (max 15). Read-only.", args: "none" },
     ToolDef { name: "route.classify", description: "Classify a Hang line to a route id, or null if it stays chat. Read-only, no side effects.", args: "route_line" },
-    ToolDef { name: "route.run", description: "Run a Hang line through the route table (same door as Hang). A miss returns null spoken. Write-class.", args: "route_line" },
+    ToolDef { name: "route.run", description: "Run a Hang line through the route table (same door as Hang). board-add and agent-spawn return pendingId and write only on a later yes that carries that pendingId. A miss returns null spoken. Write-class.", args: "route_run" },
     ToolDef { name: "shift.tick", description: "One supervisor pass: park ghost working rows, Needed-escalate blocked, pickup next assigned todo if Work/Hold", args: "none" },
     ToolDef { name: "shift.on", description: "Turn the 15s shift ticker on (Work/Hold pickups; Spark/Chat never auto-pickup)", args: "none" },
     ToolDef { name: "shift.off", description: "Turn the 15s shift ticker off", args: "none" },
@@ -130,6 +130,14 @@ fn input_schema(kind: &str) -> Value {
         "route_line" => json!({
             "type": "object",
             "properties": { "line": { "type": "string", "description": "Hang line" } },
+            "required": ["line"]
+        }),
+        "route_run" => json!({
+            "type": "object",
+            "properties": {
+                "line": { "type": "string", "description": "Hang line" },
+                "pendingId": { "type": "string", "description": "Confirm / decline only: the pendingId this caller's board-add or agent-spawn returned" }
+            },
             "required": ["line"]
         }),
         "profile" => json!({

@@ -11,7 +11,12 @@ pub struct Prepared {
     pub vision_path: Option<String>,
 }
 
-pub fn prepare(info: &AttachInfo, user_prompt: &str, backend: &str) -> Prepared {
+pub fn prepare(
+    info: &AttachInfo,
+    user_prompt: &str,
+    lane: &str,
+    model_vision: bool,
+) -> Prepared {
     let path_note = format!(
         "[file: {} ({}, {}) — original path; read it there with your tools.]",
         info.path,
@@ -25,7 +30,7 @@ pub fn prepare(info: &AttachInfo, user_prompt: &str, backend: &str) -> Prepared 
     };
 
     if attach_vision::is_image(&info.path) {
-        if attach_vision::backend_has_vision(backend) {
+        if attach_vision::backend_has_vision(lane, model_vision) {
             return Prepared {
                 prompt,
                 vision_path: Some(info.path.clone()),
@@ -75,7 +80,7 @@ mod tests {
 
     #[test]
     fn rs_is_path_only() {
-        let p = prepare(&info("/tmp/x.rs", "x.rs"), "see this", "grok");
+        let p = prepare(&info("/tmp/x.rs", "x.rs"), "see this", "grok", true);
         assert!(p.prompt.contains("/tmp/x.rs"));
         assert!(!p.prompt.contains("markitdown"));
         assert!(p.vision_path.is_none());
@@ -83,14 +88,29 @@ mod tests {
 
     #[test]
     fn png_on_grok_sets_vision() {
-        let p = prepare(&info("/tmp/x.png", "x.png"), "what is this", "grok");
+        let p = prepare(&info("/tmp/x.png", "x.png"), "what is this", "grok", false);
         assert_eq!(p.vision_path.as_deref(), Some("/tmp/x.png"));
         assert!(!p.prompt.contains("no vision"));
     }
 
     #[test]
+    fn png_on_local_vlm_sets_vision() {
+        let p = prepare(&info("/tmp/x.png", "x.png"), "what is this", "local", true);
+        assert_eq!(p.vision_path.as_deref(), Some("/tmp/x.png"));
+        assert!(!p.prompt.contains("no vision"));
+    }
+
+    #[test]
+    fn png_on_local_text_is_honest() {
+        let p = prepare(&info("/tmp/x.png", "x.png"), "what is this", "local", false);
+        assert!(p.vision_path.is_none());
+        assert!(p.prompt.contains("no vision"));
+        assert!(p.prompt.contains("[file: /tmp/x.png"));
+    }
+
+    #[test]
     fn png_on_goose_is_honest() {
-        let p = prepare(&info("/tmp/x.png", "x.png"), "what is this", "goose");
+        let p = prepare(&info("/tmp/x.png", "x.png"), "what is this", "goose", true);
         assert!(p.vision_path.is_none());
         assert!(p.prompt.contains("no vision"));
     }

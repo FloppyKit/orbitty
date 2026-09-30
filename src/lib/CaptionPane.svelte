@@ -30,6 +30,7 @@
     ready = false,
     onSpeakError,
     onOverlayChange,
+    onHandoffReply,
   }: {
     expanded?: boolean;
     hosted?: boolean;
@@ -50,7 +51,52 @@
     // companion window (hug sprite-off / composer grow sprite-on) so
     // the reply fits whole instead of inner-scrolling.
     onOverlayChange?: (open: boolean, wantWin?: number) => void;
+    onHandoffReply?: (reply: string) => void;
   } = $props();
+
+  const HANDOFF_MARK = "\n[[handoff]]\n";
+  // B2: the trailer carries only the gate-issued offer id. The line and
+  // path stay in Rust; companion_handoff(id) uses them once.
+  type HandoffOffer = { reason: string; id: string };
+  const HANDOFF_ID = /^[0-9a-f]{32}$/;
+
+  function splitHandoff(text: string): { visible: string; offer: HandoffOffer | null } {
+    const i = text.lastIndexOf(HANDOFF_MARK);
+    if (i < 0) return { visible: text, offer: null };
+    const visible = text.slice(0, i);
+    try {
+      const v = JSON.parse(text.slice(i + HANDOFF_MARK.length));
+      if (
+        !v ||
+        typeof v.reason !== "string" ||
+        !v.reason ||
+        typeof v.id !== "string" ||
+        !HANDOFF_ID.test(v.id)
+      ) {
+        return { visible, offer: null };
+      }
+      return { visible, offer: { reason: v.reason, id: v.id } };
+    } catch {
+      return { visible: text, offer: null };
+    }
+  }
+
+  let asking = $state(false);
+  let askNote = $state("");
+
+  async function askOnline(offer: HandoffOffer) {
+    if (asking) return;
+    asking = true;
+    askNote = "";
+    try {
+      const reply = await invoke<string>("companion_handoff", { id: offer.id });
+      onHandoffReply?.(reply);
+    } catch (e) {
+      askNote = `${e}`;
+    } finally {
+      asking = false;
+    }
+  }
 
   // Collapsed pager
   // Only the collapsed view pages, and only the reply arriving right now
@@ -347,7 +393,7 @@
       releasePager();
       return;
     }
-    void arriveReply(tail.text, n - 1);
+    void arriveReply(splitHandoff(tail.text).visible, n - 1);
   });
 
   // The pager lives only on the collapsed view; expanding mid-page
@@ -439,6 +485,7 @@
     onclick={openLite}
   >
     {#each turns as t, i}
+      {@const parts = splitHandoff(t.text)}
       <div class="row" class:you={t.role === "you"} class:them={t.role !== "you"}>
         <!-- The transcript already shows the whole reply — no title
              tooltip / hover popup here; the .cc-full overlay is
@@ -450,7 +497,21 @@
           {#if i === pagedTurnIdx && pageViewHtml}
             {@html pageViewHtml}
           {:else}
-            {@html mdLite(t.text)}
+            {@html mdLite(parts.visible)}
+          {/if}
+          {#if parts.offer && t.role !== "you"}
+            <button
+              type="button"
+              class="ask"
+              disabled={asking}
+              onclick={(e) => {
+                e.stopPropagation();
+                if (parts.offer) void askOnline(parts.offer);
+              }}
+            >Ask online agent</button>
+            {#if askNote}
+              <p class="asknote">{askNote}</p>
+            {/if}
           {/if}
         </div>
       </div>
@@ -474,6 +535,7 @@
       </div>
     {/if}
     {#if botLine && !sending}
+      {@const bot = splitHandoff(botLine)}
       <div class="ccrow them" class:open={ccOpen}>
         <div
           class="cc bot"
@@ -483,7 +545,21 @@
           {#if pagedTurnIdx >= 0 && pageViewHtml && !ccOpen}
             {@html pageViewHtml}
           {:else}
-            {@html mdLite(botLine)}
+            {@html mdLite(bot.visible)}
+          {/if}
+          {#if bot.offer}
+            <button
+              type="button"
+              class="ask"
+              disabled={asking}
+              onclick={(e) => {
+                e.stopPropagation();
+                if (bot.offer) void askOnline(bot.offer);
+              }}
+            >Ask online agent</button>
+          {/if}
+          {#if askNote}
+            <p class="asknote">{askNote}</p>
           {/if}
         </div>
         {#if ccOpen}
@@ -493,7 +569,7 @@
             style:max-height="{fullMaxH}px"
             onclick={onFullClick}
           >
-            {@html mdLite(botLine)}
+            {@html mdLite(bot.visible)}
           </div>
         {/if}
       </div>
@@ -502,6 +578,28 @@
 {/if}
 
 <style>
+  .ask {
+    display: inline-block;
+    margin-top: 6px;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--accent, var(--edge));
+    border-radius: 7px;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .ask:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .asknote {
+    margin: 4px 0 0;
+    font-size: 0.68rem;
+    color: var(--dim);
+  }
   .caption {
     display: contents;
   }

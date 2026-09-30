@@ -6,9 +6,9 @@ use serde_json::{json, Value};
 
 pub const SCHEMA: &str = "orbitty.hop.v0";
 pub const CONSUME: &str =
-    "Consume orbitty.hop.v0. Answer the ask. Do not echo the JSON. If a Board snapshot is present: one kind lead sentence with the counts, then copy TODO / DOING / NEEDED titles. Do not invent status, Open tab, or what a GO means.";
+    "Consume orbitty.hop.v0. Answer the ask. Do not echo the JSON. If a Board snapshot is present: copy each planet and bucket line exactly (Kansas — Doing (5): …). Do not relabel a planet as Orbitty. Do not call Doing cards todos. Do not invent status, Open tab, or what a GO means.";
 pub const BOARD_LIST: &str =
-    "Board snapshot is the truth. Open with one kind sentence that names the counts (Okay, Orbitty has N todos right now:). Then copy the titles under TODO, DOING, and NEEDED as given. Skip empty buckets. Do not invent status, Open tab, or extra numbered lines.";
+    "Board snapshot is the truth. Name the planet and bucket exactly as written (Kansas — Doing (5): …). Copy those titles. Do not relabel a planet as Orbitty. Do not call a Doing bucket todos. Window-claim cards are already omitted. Skip empty buckets. Do not invent status, Open tab, or extra numbered lines.";
 const GIST_CAP: usize = 800;
 const ASK_CAP: usize = 200;
 const GOAL_CAP: usize = 80;
@@ -187,6 +187,53 @@ pub fn hop_system(soul: &str) -> String {
     }
 }
 
+pub fn file_note(prose: &str) -> Option<&str> {
+    prose.lines().find(|l| l.contains("[file:"))
+}
+
+fn ask_with_attach(line: &str, attach: Option<&str>) -> String {
+    let src = match attach {
+        Some(a) if !a.trim().is_empty() => format!("{line}\n{a}"),
+        _ => line.to_string(),
+    };
+    clip(&src, ASK_CAP)
+}
+
+/// Packed prompt for one harness. An attachment's `[file: …]` line (and
+/// markitdown text) stays even when Skip/Job/Tight would otherwise keep
+/// only the raw line or a clipped gist.
+pub fn pack_prompt(
+    mode: &str,
+    harness: Harness,
+    raw_line: &str,
+    prose: &str,
+    gist: Option<&str>,
+) -> String {
+    let mut packed = match harness {
+        Harness::Skip => format!("[orbitty-mode: {mode}]\n{raw_line}"),
+        Harness::Pocket => prose.to_string(),
+        Harness::Job | Harness::Tight => {
+            gist.filter(|g| !g.is_empty()).unwrap_or(prose).to_string()
+        }
+    };
+    if let Some(note) = file_note(prose) {
+        if !packed.contains("[file:") {
+            if !packed.ends_with('\n') {
+                packed.push('\n');
+            }
+            packed.push('\n');
+            packed.push_str(note);
+        }
+    }
+    if let Some(i) = prose.find("[markdown from markitdown]") {
+        if !packed.contains("[markdown from markitdown]") {
+            packed.push_str("\n\n");
+            packed.push_str(&prose[i..]);
+        }
+    }
+    packed
+}
+
 fn clip(s: &str, n: usize) -> String {
     let t = s.trim().replace('\n', " ");
     if t.chars().count() <= n {
@@ -229,7 +276,7 @@ fn history(app: &tauri::AppHandle, raw_line: &str) -> Vec<Value> {
         .map(|t| {
             json!({
                 "role": if t.role == "you" { "you" } else { "them" },
-                "n": clip(&t.text, HIST_N),
+                "n": clip(&crate::mouth_hop::strip_handoff_marks(&t.text), HIST_N),
             })
         })
         .collect()
@@ -303,6 +350,7 @@ pub fn build(
     ack: &str,
     lane: &str,
     history_on: bool,
+    attach: Option<&str>,
 ) -> Option<String> {
     let mode = crate::state::load_state(app)
         .ok()
@@ -329,7 +377,7 @@ pub fn build(
             "goal": goal,
             "constraints": constraints,
             "paths": paths,
-            "ask": clip(line, ASK_CAP),
+            "ask": ask_with_attach(line, attach),
         },
         "history": hist,
         "lane": lane,
@@ -360,6 +408,7 @@ mod tests {
         assert!(!needs_write_lane(
             "tell me about the todo list on planet orbitty"
         ));
+        assert!(!needs_write_lane("what's in Kansas doing?"));
     }
 
     #[test]
@@ -432,10 +481,38 @@ mod tests {
 
     #[test]
     fn board_list_asks_kind_lead() {
-        assert!(BOARD_LIST.contains("kind sentence"));
-        assert!(BOARD_LIST.contains("TODO"));
+        assert!(BOARD_LIST.contains("Kansas — Doing"));
+        assert!(BOARD_LIST.contains("Do not relabel"));
+        assert!(!BOARD_LIST.contains("Orbitty has"));
         assert!(!BOARD_LIST.contains("No extra story"));
-        assert!(CONSUME.contains("kind lead"));
-        assert!(CONSUME.contains("TODO"));
+        assert!(CONSUME.contains("Kansas — Doing"));
+        assert!(CONSUME.contains("Do not relabel"));
+    }
+
+    fn prose_with_file() -> String {
+        "what is this image?\n\n[file: /tmp/qr.png (qr.png, 12 B) — original path; read it there with your tools.]\n\n[markdown from markitdown]\nhello".into()
+    }
+
+    #[test]
+    fn every_harness_keeps_file_line() {
+        let prose = prose_with_file();
+        let gist = r#"{"schema":"orbitty.hop.v0","gist":{"ask":"what is this image?"}}"#;
+        for h in [Harness::Skip, Harness::Job, Harness::Tight, Harness::Pocket] {
+            let packed = pack_prompt("chat", h, "what is this image?", &prose, Some(gist));
+            assert!(packed.contains("[file: /tmp/qr.png"), "{}", h.as_str());
+            assert!(
+                packed.contains("[markdown from markitdown]"),
+                "{}",
+                h.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn gist_ask_keeps_a_short_file_line() {
+        let file =
+            "[file: /tmp/qr.png (qr.png, 12 B) — original path; read it there with your tools.]";
+        let ask = ask_with_attach("what is this", Some(file));
+        assert!(ask.contains("[file: /tmp/qr.png"));
     }
 }
