@@ -119,6 +119,113 @@ fn claim_origin_from(raw: Option<&str>) -> crate::claim_front::ClaimOrigin {
     crate::claim_front::ClaimOrigin::Agent(name)
 }
 
+/// Claim-caller pins live here, not at the tail of `mod tests`, so a
+/// later append in that module (kanban open-link) does not collide.
+#[cfg(test)]
+mod claim_caller_tests {
+    use super::*;
+
+    fn strip_rust_comments(src: &str) -> String {
+        let chars: Vec<char> = src.chars().collect();
+        let mut out = String::new();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '"' {
+                out.push('"');
+                i += 1;
+                while i < chars.len() {
+                    let c = chars[i];
+                    out.push(c);
+                    i += 1;
+                    if c == '\\' && i < chars.len() {
+                        out.push(chars[i]);
+                        i += 1;
+                        continue;
+                    }
+                    if c == '"' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
+                i += 2;
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                if i + 1 < chars.len() {
+                    i += 2;
+                }
+                continue;
+            }
+            out.push(chars[i]);
+            i += 1;
+        }
+        out
+    }
+
+    /// T8. Caller is the top-level request field. Claim arms never mint User.
+    #[test]
+    fn claim_caller_is_top_level_only() {
+        let req: Request = serde_json::from_str(
+            r#"{"v":1,"tool":"claim.undo","caller":"  mcp:cursor:9  ","args":{"caller":"spoof","projectId":"p"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            claim_origin_from(req.caller.as_deref()),
+            crate::claim_front::ClaimOrigin::Agent("mcp:cursor:9".into())
+        );
+        assert_eq!(req.args.unwrap()["caller"], "spoof");
+
+        let missing: Request =
+            serde_json::from_str(r#"{"tool":"claim.undo","args":{"caller":"spoof"}}"#).unwrap();
+        assert_eq!(
+            claim_origin_from(missing.caller.as_deref()),
+            crate::claim_front::ClaimOrigin::Agent("socket".into())
+        );
+
+        let empty: Request =
+            serde_json::from_str(r#"{"caller":"   ","tool":"claim.front"}"#).unwrap();
+        assert_eq!(
+            claim_origin_from(empty.caller.as_deref()),
+            crate::claim_front::ClaimOrigin::Agent("socket".into())
+        );
+
+        assert_eq!(
+            claim_origin_from(Some("user")),
+            crate::claim_front::ClaimOrigin::Agent("user".into())
+        );
+
+        let long = "y".repeat(200);
+        match claim_origin_from(Some(&long)) {
+            crate::claim_front::ClaimOrigin::Agent(s) => assert_eq!(s.chars().count(), 128),
+            crate::claim_front::ClaimOrigin::User => panic!("caller must stay Agent"),
+        }
+
+        let stripped = strip_rust_comments(include_str!("control.rs"));
+        // Newline anchor: this module sits above `run_tool`, so a bare
+        // `fn run_tool(` would hit the string in this test first.
+        let start = stripped.find("\nfn run_tool(").expect("run_tool");
+        let body = &stripped[start..];
+        let claim_at = body.find("\"claim.").expect("claim arm");
+        let end = body[claim_at..]
+            .find("\"task.undo\"")
+            .expect("task.undo follows claim arms");
+        let region = &body[claim_at..claim_at + end];
+        assert!(
+            !region.contains("ClaimOrigin::User"),
+            "claim arms must not construct a User origin:\n{region}"
+        );
+    }
+}
+
 fn reply_ok(id: &Value, data: Value) -> Value {
     json!({ "v": 1, "id": id, "ok": true, "data": data })
 }
@@ -1017,98 +1124,5 @@ mod tests {
         assert!(allowed(&Acl::Companion, "route.classify"));
         assert!(!allowed(&Acl::Companion, "route.run"));
         assert!(allowed(&Acl::Full, "route.run"));
-    }
-
-    fn strip_rust_comments(src: &str) -> String {
-        let chars: Vec<char> = src.chars().collect();
-        let mut out = String::new();
-        let mut i = 0;
-        while i < chars.len() {
-            if chars[i] == '"' {
-                out.push('"');
-                i += 1;
-                while i < chars.len() {
-                    let c = chars[i];
-                    out.push(c);
-                    i += 1;
-                    if c == '\\' && i < chars.len() {
-                        out.push(chars[i]);
-                        i += 1;
-                        continue;
-                    }
-                    if c == '"' {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
-                i += 2;
-                while i < chars.len() && chars[i] != '\n' {
-                    i += 1;
-                }
-                continue;
-            }
-            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
-                i += 2;
-                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
-                    i += 1;
-                }
-                if i + 1 < chars.len() {
-                    i += 2;
-                }
-                continue;
-            }
-            out.push(chars[i]);
-            i += 1;
-        }
-        out
-    }
-
-    /// T8. Caller is the top-level request field. Claim arms never mint User.
-    #[test]
-    fn claim_caller_is_top_level_only() {
-        let req: Request = serde_json::from_str(
-            r#"{"v":1,"tool":"claim.undo","caller":"  mcp:cursor:9  ","args":{"caller":"spoof","projectId":"p"}}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            claim_origin_from(req.caller.as_deref()),
-            crate::claim_front::ClaimOrigin::Agent("mcp:cursor:9".into())
-        );
-        assert_eq!(req.args.unwrap()["caller"], "spoof");
-
-        let missing: Request =
-            serde_json::from_str(r#"{"tool":"claim.undo","args":{"caller":"spoof"}}"#).unwrap();
-        assert_eq!(
-            claim_origin_from(missing.caller.as_deref()),
-            crate::claim_front::ClaimOrigin::Agent("socket".into())
-        );
-
-        let empty: Request =
-            serde_json::from_str(r#"{"caller":"   ","tool":"claim.front"}"#).unwrap();
-        assert_eq!(
-            claim_origin_from(empty.caller.as_deref()),
-            crate::claim_front::ClaimOrigin::Agent("socket".into())
-        );
-
-        let long = "y".repeat(200);
-        match claim_origin_from(Some(&long)) {
-            crate::claim_front::ClaimOrigin::Agent(s) => assert_eq!(s.chars().count(), 128),
-            crate::claim_front::ClaimOrigin::User => panic!("caller must stay Agent"),
-        }
-
-        let stripped = strip_rust_comments(include_str!("control.rs"));
-        let start = stripped.find("fn run_tool(").expect("run_tool");
-        let body = &stripped[start..];
-        let claim_at = body.find("\"claim.").expect("claim arm");
-        let end = body[claim_at..]
-            .find("\"task.undo\"")
-            .expect("task.undo follows claim arms");
-        let region = &body[claim_at..claim_at + end];
-        assert!(
-            !region.contains("ClaimOrigin::User"),
-            "claim arms must not construct a User origin:\n{region}"
-        );
     }
 }

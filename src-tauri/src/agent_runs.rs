@@ -723,5 +723,42 @@ mod tests {
         assert!(after < flipped, "after-snapshot must precede the flip guard");
         assert!(flipped < emit, "flip guard must precede the emit");
         assert!(emit < ret, "emit must precede if !changed");
+
+        // Golden copy of the heal gate. Substring pins miss an extra else,
+        // a nested `if changed` around the heal, a shadowed after_live, and
+        // an emit wrapped in `if false`.
+        const GOLDEN: &str = "let heal_hack = needs_hack_heal(&drops, &dones, &went_done, &cur.agent_runs); if changed { if crate::board::save_with_events(app, &prev, &cur).is_err() { return; } } else if !heal_hack { return; } if heal_hack { let before_live = crate::state::load_state(app) .ok() .map(|s| s.companion.hack_live); crate::coordinator::heal_stuck_hack(app); let after_live = crate::state::load_state(app) .ok() .map(|s| s.companion.hack_live); if hack_flipped(before_live, after_live) { let _ = app.emit(\"state:changed\", ()); }";
+        assert_eq!(collapsed_heal_gate(&stripped), GOLDEN);
+    }
+
+    /// Comment-stripped span from `let heal_hack` through the closing `}`
+    /// of `if hack_flipped`, whitespace collapsed.
+    fn collapsed_heal_gate(stripped_fn: &str) -> String {
+        let start = stripped_fn.find("let heal_hack").expect("let heal_hack");
+        let guard = "if hack_flipped(before_live, after_live) {";
+        let guard_at = stripped_fn[start..]
+            .find(guard)
+            .expect(guard)
+            + start;
+        let mut depth = 0i32;
+        let mut end = None;
+        for (i, c) in stripped_fn[guard_at..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(guard_at + i + c.len_utf8());
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let end = end.expect("hack_flipped close");
+        stripped_fn[start..end]
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }

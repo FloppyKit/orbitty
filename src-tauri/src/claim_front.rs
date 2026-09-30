@@ -29,6 +29,10 @@ struct CardUndo {
     prev_window_id: Option<String>,
     prev_title: String,
     prev_last_touched_at: f64,
+    /// Title and touch the claim itself wrote. Undo puts the previous
+    /// values back only while the card still holds these.
+    written_title: String,
+    written_last_touched_at: f64,
 }
 
 /// One pending undo. Reverses that window's claim only — never a
@@ -44,7 +48,17 @@ struct PendingUndo {
     card: Option<CardUndo>,
 }
 
-static PENDING: Mutex<Option<PendingUndo>> = Mutex::new(None);
+/// One slot per origin. An agent arm writes only the agent slot, so a
+/// pending tray/dock/app undo is never overwritten.
+struct PendingSlots {
+    user: Option<PendingUndo>,
+    agent: Option<PendingUndo>,
+}
+
+static PENDING: Mutex<PendingSlots> = Mutex::new(PendingSlots {
+    user: None,
+    agent: None,
+});
 
 fn now_secs() -> f64 {
     SystemTime::now()
@@ -186,12 +200,21 @@ fn capture_undo(
         .kanban_cards
         .iter()
         .find(|c| c.window_id.as_deref() == Some(window_id) && c.status != "done")
-        .map(|c| CardUndo {
-            id: c.id.clone(),
-            prev_project_id: c.project_id.clone(),
-            prev_window_id: c.window_id.clone(),
-            prev_title: c.title.clone(),
-            prev_last_touched_at: c.last_touched_at,
+        .map(|c| {
+            let written = after.kanban_cards.iter().find(|a| a.id == c.id);
+            CardUndo {
+                id: c.id.clone(),
+                prev_project_id: c.project_id.clone(),
+                prev_window_id: c.window_id.clone(),
+                prev_title: c.title.clone(),
+                prev_last_touched_at: c.last_touched_at,
+                written_title: written
+                    .map(|a| a.title.clone())
+                    .unwrap_or_else(|| c.title.clone()),
+                written_last_touched_at: written
+                    .map(|a| a.last_touched_at)
+                    .unwrap_or(c.last_touched_at),
+            }
         });
     PendingUndo {
         window_id: window_id.to_string(),
@@ -249,8 +272,12 @@ fn undo_claim_in(st: &mut PersistedState, p: &PendingUndo) -> Result<(), String>
             if card.project_id == p.written_project_id {
                 card.project_id = cu.prev_project_id.clone();
                 card.window_id = cu.prev_window_id.clone();
-                card.title = cu.prev_title.clone();
-                card.last_touched_at = cu.prev_last_touched_at;
+                if card.title == cu.written_title {
+                    card.title = cu.prev_title.clone();
+                }
+                if card.last_touched_at == cu.written_last_touched_at {
+                    card.last_touched_at = cu.prev_last_touched_at;
+                }
             }
         }
     }
@@ -270,6 +297,54 @@ fn try_take(
     Ok(slot.take().expect("pending checked"))
 }
 
+enum PendingWhich {
+    User,
+    Agent,
+}
+
+/// User undo/change uses the user slot while it is unexpired, and falls
+/// back to the agent slot only when the user slot is empty or expired.
+/// An agent only ever sees the agent slot.
+fn which_pending(slots: &PendingSlots, caller: &ClaimOrigin, now: SystemTime) -> PendingWhich {
+    match caller {
+        ClaimOrigin::Agent(_) => PendingWhich::Agent,
+        ClaimOrigin::User => {
+            let user_live = slots.user.as_ref().is_some_and(|p| now <= p.expires);
+            if user_live {
+                PendingWhich::User
+            } else if slots.agent.as_ref().is_some_and(|p| now <= p.expires) {
+                PendingWhich::Agent
+            } else if slots.user.is_some() {
+                PendingWhich::User
+            } else {
+                PendingWhich::Agent
+            }
+        }
+    }
+}
+
+fn slot_mut(slots: &mut PendingSlots, which: PendingWhich) -> &mut Option<PendingUndo> {
+    match which {
+        PendingWhich::User => &mut slots.user,
+        PendingWhich::Agent => &mut slots.agent,
+    }
+}
+
+fn slot_ref(slots: &PendingSlots, which: PendingWhich) -> &Option<PendingUndo> {
+    match which {
+        PendingWhich::User => &slots.user,
+        PendingWhich::Agent => &slots.agent,
+    }
+}
+
+/// Arm into the origin's own slot. An agent arm never writes the user slot.
+fn arm_into(slots: &mut PendingSlots, pending: PendingUndo) {
+    match pending.origin {
+        ClaimOrigin::User => slots.user = Some(pending),
+        ClaimOrigin::Agent(_) => slots.agent = Some(pending),
+    }
+}
+
 fn arm_undo(
     before: &PersistedState,
     after: &PersistedState,
@@ -283,8 +358,8 @@ fn arm_undo(
         origin,
         SystemTime::now() + Duration::from_secs(3),
     );
-    if let Ok(mut slot) = PENDING.lock() {
-        *slot = Some(pending);
+    if let Ok(mut slots) = PENDING.lock() {
+        arm_into(&mut slots, pending);
     }
 }
 
@@ -308,10 +383,12 @@ fn emit_toast(app: &AppHandle, project: &Project, w: &WindowInfo) {
 
 pub fn undo_last(app: &AppHandle, caller: &ClaimOrigin) -> Result<(), String> {
     let pending = {
-        let mut slot = PENDING
+        let mut slots = PENDING
             .lock()
             .map_err(|_| "nothing to undo".to_string())?;
-        try_take(&mut slot, caller, SystemTime::now())?
+        let now = SystemTime::now();
+        let which = which_pending(&slots, caller, now);
+        try_take(slot_mut(&mut slots, which), caller, now)?
     };
     let current = crate::state::load_state(app)?;
     let mut after = current.clone();
@@ -326,10 +403,14 @@ pub fn change_planet(
     caller: &ClaimOrigin,
 ) -> Result<(), String> {
     let (window_id, origin) = {
-        let slot = PENDING
+        let slots = PENDING
             .lock()
             .map_err(|_| "nothing to change".to_string())?;
-        let p = slot.as_ref().ok_or_else(|| "nothing to change".to_string())?;
+        let now = SystemTime::now();
+        let which = which_pending(&slots, caller, now);
+        let p = slot_ref(&slots, which)
+            .as_ref()
+            .ok_or_else(|| "nothing to change".to_string())?;
         check_pending(p, caller, SystemTime::now(), "change")?;
         (p.window_id.clone(), p.origin.clone())
     };
@@ -1020,5 +1101,257 @@ mod tests {
         let taken = try_take(&mut slot, &agent("b"), now).unwrap();
         assert_eq!(taken.origin, agent("b"));
         assert!(slot.is_none());
+    }
+
+    #[test]
+    fn v1_user_title_edit_on_retargeted_card_survives_undo() {
+        let w = win("W", "notes");
+        let list = vec![w.clone()];
+        let mut before = PersistedState::default();
+        before.projects = vec![project("A", "A"), project("B", "B")];
+        before.claims.push(claim_of("W", "A", 5, "pack"));
+        before.kanban_cards.push(card_of("c1", "A", "orig title", Some("W"), "doing", 1.0));
+        let mut after = before.clone();
+        apply_claim(&mut after, &w, "B", &list);
+        let p = capture_undo(&before, &after, "W", agent("mcp:x:1"), future());
+        let c = after.kanban_cards.iter_mut().find(|c| c.id == "c1").unwrap();
+        c.title = "renamed by Matt".into();
+        c.notes = Some("note added".into());
+        undo_claim_in(&mut after, &p).unwrap();
+        let c = after.kanban_cards.iter().find(|c| c.id == "c1").unwrap();
+        assert_eq!(c.project_id, "A", "retarget undone");
+        assert_eq!(c.notes.as_deref(), Some("note added"), "note kept");
+        assert_eq!(c.title, "renamed by Matt", "unrelated title edit in the window was reverted");
+    }
+
+    /// Mirror of V1: a user touch of `last_touched_at` survives; an untouched title still restores.
+    #[test]
+    fn v1_user_last_touched_edit_on_retargeted_card_survives_undo() {
+        let w = win("W", "notes");
+        let list = vec![w.clone()];
+        let mut before = PersistedState::default();
+        before.projects = vec![project("A", "A"), project("B", "B")];
+        before
+            .kanban_cards
+            .push(card_of("c1", "A", "", Some("W"), "doing", 1.0));
+        let mut after = before.clone();
+        apply_claim(&mut after, &w, "B", &list);
+        let p = capture_undo(&before, &after, "W", agent("mcp:x:1"), future());
+        let c = after.kanban_cards.iter_mut().find(|c| c.id == "c1").unwrap();
+        c.last_touched_at = 42.0;
+        undo_claim_in(&mut after, &p).unwrap();
+        let c = after.kanban_cards.iter().find(|c| c.id == "c1").unwrap();
+        assert_eq!(c.project_id, "A", "retarget undone");
+        assert_eq!(c.window_id.as_deref(), Some("W"));
+        assert_eq!(c.last_touched_at, 42.0, "user last_touched_at edit survives");
+        assert_eq!(c.title, "", "untouched title still restores");
+    }
+
+    /// N1. An agent claim must not burn a pending tray/app undo.
+    #[test]
+    fn agent_claim_never_overwrites_pending_user_undo() {
+        let (w1, w2) = (win("W1", "mine"), win("W2", "agent"));
+        let list = vec![w1.clone(), w2.clone()];
+        let mut s0 = PersistedState::default();
+        s0.projects = vec![project("A", "A")];
+        let mut s1 = s0.clone();
+        apply_claim(&mut s1, &w1, "A", &list);
+        let mut slots = PendingSlots {
+            user: None,
+            agent: None,
+        };
+        arm_into(
+            &mut slots,
+            capture_undo(&s0, &s1, "W1", ClaimOrigin::User, future()),
+        );
+        let mut s2 = s1.clone();
+        apply_claim(&mut s2, &w2, "A", &list);
+        arm_into(
+            &mut slots,
+            capture_undo(&s1, &s2, "W2", agent("mcp:x:1"), future()),
+        );
+        let now = SystemTime::now();
+        let which = which_pending(&slots, &ClaimOrigin::User, now);
+        let p = try_take(slot_mut(&mut slots, which), &ClaimOrigin::User, now).unwrap();
+        assert_eq!(p.window_id, "W1");
+        undo_claim_in(&mut s2, &p).unwrap();
+        assert!(
+            !s2.claims.iter().any(|c| c.window_id == "W1"),
+            "Matt's own claim undone"
+        );
+        assert!(
+            s2.claims.iter().any(|c| c.window_id == "W2"),
+            "agent claim untouched"
+        );
+        let now = SystemTime::now();
+        let which = which_pending(&slots, &agent("mcp:x:1"), now);
+        let p2 = try_take(slot_mut(&mut slots, which), &agent("mcp:x:1"), now).unwrap();
+        assert_eq!(p2.window_id, "W2");
+        undo_claim_in(&mut s2, &p2).unwrap();
+        assert!(!s2.claims.iter().any(|c| c.window_id == "W2"));
+    }
+
+    /// C1. Expiry is inclusive at `now == expires` (`now > expires`).
+    #[test]
+    fn check_pending_exact_expiry_is_inclusive() {
+        let e = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let p = pending(agent("mcp:x:1"), e);
+        for verb in ["change", "undo"] {
+            assert!(
+                check_pending(&p, &agent("mcp:x:1"), e, verb).is_ok(),
+                "{verb} at expiry"
+            );
+            let err = check_pending(
+                &p,
+                &agent("mcp:x:1"),
+                e + Duration::from_millis(1),
+                verb,
+            )
+            .unwrap_err();
+            assert_eq!(err, format!("{verb} expired"));
+        }
+    }
+
+    /// C4. Caller compare is case-sensitive.
+    #[test]
+    fn agent_compare_is_case_sensitive() {
+        let now = UNIX_EPOCH;
+        let p = pending(agent("mcp:Cursor:1"), future());
+        for other in ["MCP:CURSOR:1", "mcp:cursor:1"] {
+            for verb in ["undo", "change"] {
+                assert_eq!(
+                    check_pending(&p, &agent(other), now, verb).unwrap_err(),
+                    "not your claim",
+                    "{other:?} {verb}"
+                );
+            }
+        }
+    }
+
+    /// C5. Caller compare does not trim.
+    #[test]
+    fn agent_compare_does_not_trim() {
+        let now = UNIX_EPOCH;
+        let p = pending(agent("mcp:Cursor:1"), future());
+        for verb in ["undo", "change"] {
+            assert_eq!(
+                check_pending(&p, &agent(" mcp:Cursor:1"), now, verb).unwrap_err(),
+                "not your claim",
+                "{verb}"
+            );
+        }
+    }
+
+    fn strip_rust_comments(src: &str) -> String {
+        let chars: Vec<char> = src.chars().collect();
+        let mut out = String::new();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '"' {
+                out.push('"');
+                i += 1;
+                while i < chars.len() {
+                    let c = chars[i];
+                    out.push(c);
+                    i += 1;
+                    if c == '\\' && i < chars.len() {
+                        out.push(chars[i]);
+                        i += 1;
+                        continue;
+                    }
+                    if c == '"' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
+                i += 2;
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                if i + 1 < chars.len() {
+                    i += 2;
+                }
+                continue;
+            }
+            out.push(chars[i]);
+            i += 1;
+        }
+        out
+    }
+
+    fn fn_body<'a>(src: &'a str, name: &str) -> &'a str {
+        let marker = format!("fn {name}(");
+        let start = src.find(&marker).unwrap_or_else(|| panic!("missing {name}"));
+        let bytes = src.as_bytes();
+        let mut i = start;
+        while i < bytes.len() && bytes[i] != b'{' {
+            i += 1;
+        }
+        let mut depth = 0i32;
+        let mut in_str = false;
+        let mut escape = false;
+        while i < bytes.len() {
+            let c = bytes[i] as char;
+            if in_str {
+                if escape {
+                    escape = false;
+                } else if c == '\\' {
+                    escape = true;
+                } else if c == '"' {
+                    in_str = false;
+                }
+                i += 1;
+                continue;
+            }
+            match c {
+                '"' => in_str = true,
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &src[start..=i];
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        panic!("unclosed {name}");
+    }
+
+    /// C11. change_planet checks the pending slot before it re-claims.
+    #[test]
+    fn change_planet_checks_pending_before_claim_window() {
+        let stripped = strip_rust_comments(include_str!("claim_front.rs"));
+        let body = fn_body(&stripped, "change_planet");
+        let check = body
+            .find("check_pending(p, caller, SystemTime::now(), \"change\")?")
+            .expect("check_pending");
+        let claim = body.find("claim_window(").expect("claim_window");
+        assert!(
+            check < claim,
+            "C11 change_planet must check_pending before claim_window"
+        );
+    }
+
+    /// C13. undo_last takes through try_take, never a bare slot.take().
+    #[test]
+    fn undo_last_uses_try_take() {
+        let stripped = strip_rust_comments(include_str!("claim_front.rs"));
+        let body = fn_body(&stripped, "undo_last");
+        assert!(body.contains("try_take("), "C13 undo_last must call try_take");
+        assert!(
+            !body.contains(".take()"),
+            "C13 undo_last must not bare-take the slot:\n{body}"
+        );
     }
 }
