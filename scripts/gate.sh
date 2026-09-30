@@ -5,7 +5,10 @@
 #   no new /Users or .buzz literals under src-tauri/src and src
 #   (case-insensitive: /users/, ~/.BUZZ and a bare "/Users" count too)
 # Exit 0 ok, 1 a check failed, 2 a tool or input is missing.
-# Never installs, never uses the network, never writes a file.
+# Never installs and never uses the network. --quick and --compare-errors write nothing; the full gate's cargo test writes src-tauri/target and npm run check may write .svelte-kit.
+# A stale TEMP entry is reported only when there are no new hits; it still exits 1.
+# TEMP is case-sensitive and is read from the reason field only (everything after the second tab).
+# A reason may contain max=N. That entry may cover at most N matching lines; more exits 1 (over cap).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -81,19 +84,36 @@ run_compare() {
 }
 
 load_allowlist() {
-  typeset -g -a ALLOW_PATH ALLOW_SUB ALLOW_TEMP ALLOW_USED ALLOW_LINE
+  typeset -g -a ALLOW_PATH ALLOW_SUB ALLOW_TEMP ALLOW_USED ALLOW_LINE ALLOW_MAX ALLOW_COUNT
   ALLOW_PATH=()
   ALLOW_SUB=()
   ALLOW_TEMP=()
   ALLOW_USED=()
   ALLOW_LINE=()
+  ALLOW_MAX=()
+  ALLOW_COUNT=()
   if [[ ! -f "$allowlist" ]]; then
     echo "literal scan: missing $allowlist" >&2
     exit 2
   fi
-  local path substr rest
-  while IFS=$'\t' read -r path substr rest || [[ -n "${path:-}" ]]; do
-    [[ -z "${path:-}" ]] && continue
+  local line path substr rest max token after
+  # Split on tab without collapsing an empty field (IFS would turn
+  # path<TAB><TAB>reason into a non-empty substring).
+  while IFS= read -r line || [[ -n "${line:-}" ]]; do
+    [[ -z "${line:-}" ]] && continue
+    path="${line%%$'\t'*}"
+    if [[ "$line" != *$'\t'* ]]; then
+      substr=""
+      rest=""
+    else
+      after="${line#*$'\t'}"
+      substr="${after%%$'\t'*}"
+      if [[ "$after" == "$substr" ]]; then
+        rest=""
+      else
+        rest="${after#*$'\t'}"
+      fi
+    fi
     [[ "$path" == \#* ]] && continue
     if [[ -z "${substr:-}" ]]; then
       echo "literal scan: allowlist entry missing substring: $path" >&2
@@ -110,6 +130,20 @@ load_allowlist() {
     fi
     ALLOW_USED+=(0)
     ALLOW_LINE+=("$path	$substr")
+    # max=N comes from the reason only, never the substring
+    # (orbittyctl.rs's substring contains "(max 8)").
+    # No max= means uncapped (0). max=0 or a non-number exits 2.
+    max=0
+    if [[ "${rest:-}" =~ 'max=([^[:space:]]*)' ]]; then
+      token="${match[1]}"
+      if [[ ! "$token" =~ '^[0-9]+$' ]] || (( 10#$token == 0 )); then
+        echo "literal scan: bad max= in allowlist entry: $path" >&2
+        exit 2
+      fi
+      max="$token"
+    fi
+    ALLOW_MAX+=("$max")
+    ALLOW_COUNT+=(0)
   done < "$allowlist"
 }
 
@@ -147,6 +181,7 @@ run_literal_scan() {
         if [[ ${ALLOW_PATH[i]} == "$path" ]] && literal_contains "${content:l}" "${ALLOW_SUB[i]:l}"; then
           matched=1
           ALLOW_USED[i]=1
+          ALLOW_COUNT[i]=$((ALLOW_COUNT[i] + 1))
         fi
       done
       if (( matched )); then
@@ -171,12 +206,40 @@ run_literal_scan() {
   # Other entries may be for lines another branch carries; warn only.
   if (( ${#stale_plain} > 0 )); then
     echo "literal scan: note: ${#stale_plain} allowlist entries match nothing in this tree" >&2
+    local entry
+    for entry in "${stale_plain[@]}"; do
+      print -r -- "  unmatched: $entry" >&2
+    done
   fi
 
-  if (( ${#bad} > 0 )); then
-    for hit in "${bad[@]}"; do
-      print -r -- "$hit"
-    done
+  local -a over
+  over=()
+  for ((i = 1; i <= ${#ALLOW_PATH}; i++)); do
+    if (( 10#${ALLOW_MAX[i]} > 0 && 10#${ALLOW_COUNT[i]} > 10#${ALLOW_MAX[i]} )); then
+      over+=("over cap: ${ALLOW_PATH[i]}"$'\t'"${ALLOW_SUB[i]} (${ALLOW_COUNT[i]} > max=${ALLOW_MAX[i]})")
+    fi
+  done
+
+  if (( ${#bad} > 0 || ${#over} > 0 )); then
+    if (( ${#bad} > 0 )); then
+      for hit in "${bad[@]}"; do
+        print -r -- "$hit"
+      done
+    fi
+    if (( ${#over} > 0 )); then
+      local line
+      for line in "${over[@]}"; do
+        print -r -- "$line"
+      done
+    fi
+    if (( ${#bad} > 0 && ${#over} > 0 )); then
+      echo "literal scan: FAIL (${#bad} new, ${#over} over cap)"
+      exit 1
+    fi
+    if (( ${#over} > 0 )); then
+      echo "literal scan: FAIL (${#over} over cap)"
+      exit 1
+    fi
     echo "literal scan: FAIL (${#bad} new)"
     exit 1
   fi
@@ -187,7 +250,17 @@ run_literal_scan() {
     echo "literal scan: FAIL (${#stale_temp} stale TEMP allowlist entries; remove them)"
     exit 1
   fi
-  echo "literal scan: ok ($allow_n allowlisted, 0 new)"
+  local caps=""
+  for ((i = 1; i <= ${#ALLOW_PATH}; i++)); do
+    if (( 10#${ALLOW_MAX[i]} > 0 )); then
+      caps+=" ${ALLOW_COUNT[i]}/${ALLOW_MAX[i]}"
+    fi
+  done
+  if [[ -n "$caps" ]]; then
+    echo "literal scan: ok ($allow_n allowlisted, 0 new; caps${caps})"
+  else
+    echo "literal scan: ok ($allow_n allowlisted, 0 new)"
+  fi
 }
 
 run_cargo() {
