@@ -221,6 +221,8 @@ mod reg {
 /// Persists through the one save door only when the list changed.
 /// Returns the resulting list for the boot combo sync.
 pub fn bake_defaults(app: &tauri::AppHandle) -> Vec<ActionShortcut> {
+    // CTL-BUNDLE (alpha #11): these seeded chords stay bare `orbittyctl` on PATH.
+    // Launchers use the running app's bundled orbittyctl plus `--sock`.
     const SEEDS: [(&str, &str, &str); 3] = [
         ("companion", "cmd+alt+o", "orbittyctl companion open"),
         ("kanban", "cmd+alt+k", "orbittyctl kanban open"),

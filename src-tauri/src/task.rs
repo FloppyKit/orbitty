@@ -30,6 +30,52 @@ struct Meta {
     snapshot: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     undone_at: Option<f64>,
+    /// Liveness hints for the process running this task, so boot can
+    /// tell a still-running (or cleanly exited) agent from a dead one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pid: Option<u32>,
+    /// Terminal `.command` launcher pid file: written with `$$` at start,
+    /// removed by the EXIT trap. Missing = the script exited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pid_file: Option<String>,
+    /// herdr door: the agent name (`herdr agent get <name>`). On the task
+    /// itself so boot can probe it even if a whole-state save dropped the
+    /// card's agentRuns row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    herdr_agent: Option<String>,
+}
+
+/// What launch_agent learned about the process it handed off to.
+#[derive(Default, Clone, Debug)]
+pub struct LiveHint {
+    pub pid: Option<u32>,
+    pub pid_file: Option<PathBuf>,
+    pub herdr_agent: Option<String>,
+}
+
+/// The per-run launcher pid file recorded on this task, if any
+/// (agent_stop uses it to end exactly this run).
+pub fn recorded_pid_file(app: &AppHandle, task_id: &str) -> Option<PathBuf> {
+    let meta = read_meta(&tasks_root(app).ok()?.join(task_id))?;
+    meta.pid_file.map(PathBuf::from)
+}
+
+/// Record liveness hints on an open task (best-effort).
+pub fn note_live(app: &AppHandle, task_id: &str, hint: &LiveHint) {
+    let Ok(root) = tasks_root(app) else {
+        return;
+    };
+    let dir = root.join(task_id);
+    let Some(mut meta) = read_meta(&dir) else {
+        return;
+    };
+    if meta.ended_at.is_some() {
+        return;
+    }
+    meta.pid = hint.pid;
+    meta.pid_file = hint.pid_file.as_ref().map(|p| p.to_string_lossy().into_owned());
+    meta.herdr_agent = hint.herdr_agent.clone();
+    let _ = write_meta(&dir, &meta);
 }
 
 fn now_secs() -> f64 {
@@ -90,6 +136,31 @@ fn read_meta(dir: &Path) -> Option<Meta> {
     serde_json::from_str(&s).ok()
 }
 
+/// A card edit from native must bump `lastTouchedAt` strictly past the
+/// copy any window already holds: `merge_window_save` breaks a tie in the
+/// window's favor, so an unbumped edit (taskId / taskReason) was wiped by
+/// the next stale window save.
+/// Clamped to now + 60 s: a bogus future stamp (clock rolled back, a ms
+/// value) is pulled back instead of carried forward. A sane prev (≤ now +
+/// 60 s) still yields a stamp strictly greater than prev. When the saved
+/// stamp is already past now + 60 s, `apply_card_delta` still accepts
+/// this clamped edit so taskId is not dropped.
+fn touch(card: &mut KanbanCard) {
+    let now = now_secs();
+    let prev = card.last_touched_at.min(now + 60.0);
+    card.last_touched_at = now.max(prev + 0.001);
+}
+
+fn stamp_task_id(card: &mut KanbanCard, task_id: &str) {
+    card.task_id = Some(task_id.into());
+    touch(card);
+}
+
+fn stamp_task_reason(card: &mut KanbanCard, reason: &str) {
+    card.task_reason = Some(reason.into());
+    touch(card);
+}
+
 fn stamp_card(app: &AppHandle, card_id: &str, task_id: &str) {
     let Ok(before) = crate::state::load_state(app) else {
         return;
@@ -98,7 +169,7 @@ fn stamp_card(app: &AppHandle, card_id: &str, task_id: &str) {
     let Some(c) = after.kanban_cards.iter_mut().find(|c| c.id == card_id) else {
         return;
     };
-    c.task_id = Some(task_id.into());
+    stamp_task_id(c, task_id);
     let _ = crate::board::save_with_events(app, &before, &after);
 }
 
@@ -139,6 +210,9 @@ pub fn start(app: &AppHandle, project_id: &str, card_id: Option<&str>) -> Option
         reason: None,
         snapshot,
         undone_at: None,
+        pid: None,
+        pid_file: None,
+        herdr_agent: None,
     };
     let _ = write_meta(&dir, &meta);
     if let Some(cid) = card_id {
@@ -183,7 +257,7 @@ pub fn end(app: &AppHandle, task_id: &str, reason: &str) {
         };
         let mut after = before.clone();
         if let Some(c) = after.kanban_cards.iter_mut().find(|c| c.id == cid) {
-            c.task_reason = Some(reason.into());
+            stamp_task_reason(c, reason);
         }
         let _ = crate::board::save_with_events(app, &before, &after);
     }
@@ -295,7 +369,148 @@ pub fn set_workspace_root(app: &AppHandle, project_id: &str, path: &str) -> Resu
     crate::board::save_with_events(app, &before, &after)
 }
 
-/// Orphans (no endedAt) → Needed, no relaunch. Sweep clones older than 7 days.
+/// Is this pid a live process? kill(pid, 0): 0 or EPERM = exists.
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    if pid == 0 || pid > i32::MAX as u32 {
+        return false;
+    }
+    if unsafe { kill(pid as i32, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(1) // EPERM
+}
+
+#[cfg(not(unix))]
+fn pid_alive(_pid: u32) -> bool {
+    false
+}
+
+/// Terminal launcher pid file → Some(alive?) ; None = no file (the
+/// script's EXIT trap removed it, i.e. it exited).
+fn pid_file_alive(path: &Path) -> Option<bool> {
+    let s = fs::read_to_string(path).ok()?;
+    Some(s.trim().parse::<u32>().map(pid_alive).unwrap_or(false))
+}
+
+/// How long a Terminal launcher gets to write its pid file.
+const PID_FILE_GRACE_SECS: f64 = 30.0;
+
+fn young_missing_pid_file(missing: bool, started_at: f64, now: f64) -> bool {
+    missing && now - started_at < PID_FILE_GRACE_SECS
+}
+
+/// Everything boot learned about one open (no endedAt) task.
+#[derive(Default, Debug, Clone, Copy)]
+struct Probe {
+    /// Recorded child pid: Some(alive?).
+    pid: Option<bool>,
+    /// Launcher pid file: None = no file known; Some(None) = known but
+    /// gone (clean exit); Some(Some(alive?)) = file present.
+    pid_file: Option<Option<bool>>,
+    /// herdr pane agent for this card: Some(alive?).
+    herdr: Option<bool>,
+    /// A probe could not answer (herdr timeout / error). Maybe-alive:
+    /// leave the task open and let the next boot look again.
+    unknown: bool,
+    /// The task's card is still in Doing.
+    card_doing: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Verdict {
+    /// Process still running — leave the task open, no Needed.
+    Alive,
+    /// Process gone but the card already left Doing — close quietly.
+    Exited,
+    /// Process gone and the card is stuck in Doing — the real "died".
+    Died,
+}
+
+/// Only call a run dead when every known liveness signal says gone.
+/// An unanswered probe is never evidence of death.
+fn classify(p: &Probe) -> Verdict {
+    let alive = p.pid == Some(true)
+        || p.pid_file == Some(Some(true))
+        || p.herdr == Some(true);
+    if alive || p.unknown {
+        Verdict::Alive
+    } else if p.card_doing {
+        Verdict::Died
+    } else {
+        Verdict::Exited
+    }
+}
+
+fn probe(meta: &Meta, st: Option<&crate::state::PersistedState>, context_dir: Option<&Path>) -> Probe {
+    probe_with(meta, st, context_dir, &crate::herdr::agent_alive)
+}
+
+/// `herdr_alive` is injectable for tests (real: herdr::agent_alive).
+fn probe_with(
+    meta: &Meta,
+    st: Option<&crate::state::PersistedState>,
+    context_dir: Option<&Path>,
+    herdr_alive: &dyn Fn(&str) -> Option<bool>,
+) -> Probe {
+    let card = meta
+        .card_id
+        .as_deref()
+        .and_then(|cid| st.and_then(|s| s.kanban_cards.iter().find(|c| c.id == cid)));
+    let card_doing = card.map(|c| c.status == "doing").unwrap_or(false);
+    // Pid file: recorded path, else the per-shortcut launcher path
+    // (context/agent-<shortcut>.pid) for tasks written before the hint.
+    let pid_file = meta
+        .pid_file
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| {
+            let sc = card.and_then(|c| c.assigned_agent_id.as_deref())?;
+            let dir = context_dir?;
+            Some(dir.join(format!("agent-{}.pid", crate::coordinator::safe_id(sc))))
+        })
+        .map(|p| pid_file_alive(&p));
+    // Only report a pid-file signal we can trust: a recorded path, or a
+    // derived one that actually exists (legacy derive with no file says
+    // nothing — that launcher may never have been a Terminal door).
+    let pid_file = match (meta.pid_file.is_some(), pid_file) {
+        (true, pf) => pf,
+        (false, Some(Some(a))) => Some(Some(a)),
+        _ => None,
+    };
+    // F1-C: a recorded pid file that doesn't exist YET on a task that
+    // just started is Terminal not having run `echo $$` — not an exit.
+    let young_missing = young_missing_pid_file(
+        meta.pid_file.is_some() && pid_file == Some(None),
+        meta.started_at,
+        now_secs(),
+    );
+    // Some(None) = there is a herdr run but the probe couldn't answer.
+    // The task's own herdr_agent first (survives a wiped agentRuns row),
+    // then the card's run-row record (tasks from before the hint).
+    let herdr_name: Option<String> = meta.herdr_agent.clone().or_else(|| {
+        let cid = meta.card_id.as_deref()?;
+        let run = st?.agent_runs.iter().find(|r| r.card_id == cid)?;
+        Some(run.herdr.as_ref()?.agent_name.clone())
+    });
+    let herdr_probe: Option<Option<bool>> = herdr_name.as_deref().map(herdr_alive);
+    Probe {
+        pid: meta.pid.map(pid_alive),
+        pid_file,
+        herdr: herdr_probe.flatten(),
+        unknown: matches!(herdr_probe, Some(None)) || young_missing,
+        card_doing,
+    }
+}
+
+/// Orphans (no endedAt): only a run whose process is really gone while
+/// its card is still Doing → Needed ("died"). A still-running agent is
+/// left open; a gone one whose card already moved closes quietly. Sweep
+/// clones older than 7 days. The liveness probes (pid, pid file, herdr
+/// CLI) run on a worker thread so boot never waits on them.
 pub fn boot(app: &AppHandle) {
     let Ok(root) = tasks_root(app) else {
         return;
@@ -305,35 +520,67 @@ pub fn boot(app: &AppHandle) {
     let Ok(rd) = fs::read_dir(&root) else {
         return;
     };
+    let mut open: Vec<(PathBuf, Meta)> = Vec::new();
     for ent in rd.flatten() {
         let dir = ent.path();
         if !dir.is_dir() {
             continue;
         }
-        let Some(mut meta) = read_meta(&dir) else {
+        let Some(meta) = read_meta(&dir) else {
             continue;
         };
         if meta.ended_at.is_none() {
-            let why = format!(
-                "task={} card={} This run died — resume or drop.",
-                meta.task_id,
-                meta.card_id.as_deref().unwrap_or("-")
-            );
-            let _ = crate::board::needed_open(
-                app,
-                "This run died — resume or drop?",
-                &meta.project_id,
-                Some(&why),
-            );
-            meta.ended_at = Some(now);
-            meta.reason = Some("crashed".into());
-            let _ = write_meta(&dir, &meta);
+            open.push((dir, meta));
         } else if let Some(end) = meta.ended_at {
             if now - end > week {
                 let _ = fs::remove_dir_all(&dir);
             }
         }
     }
+    if open.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        // No readable state = can't tell Doing from Done: leave every
+        // open task for the next boot rather than guess.
+        let Ok(st) = crate::state::load_state(&app) else {
+            return;
+        };
+        let st = Some(st);
+        let context_dir = app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|d| d.join("context"));
+        for (dir, mut meta) in open {
+            let p = probe(&meta, st.as_ref(), context_dir.as_deref());
+            match classify(&p) {
+                Verdict::Alive => {}
+                Verdict::Exited => {
+                    meta.ended_at = Some(now_secs());
+                    meta.reason = Some("exited".into());
+                    let _ = write_meta(&dir, &meta);
+                }
+                Verdict::Died => {
+                    let why = format!(
+                        "task={} card={} This run died — resume or drop.",
+                        meta.task_id,
+                        meta.card_id.as_deref().unwrap_or("-")
+                    );
+                    let _ = crate::board::needed_open(
+                        &app,
+                        "This run died — resume or drop?",
+                        &meta.project_id,
+                        Some(&why),
+                    );
+                    meta.ended_at = Some(now_secs());
+                    meta.reason = Some("crashed".into());
+                    let _ = write_meta(&dir, &meta);
+                }
+            }
+        }
+    });
 }
 
 pub fn project_for_cwd(app: &AppHandle, cwd: Option<&str>) -> Option<String> {
@@ -356,4 +603,221 @@ pub fn project_for_cwd(app: &AppHandle, cwd: Option<&str>) -> Option<String> {
         })
         .map(|p| p.id.clone())
         .next()
+}
+#[cfg(test)]
+mod stamp_tests {
+    use super::*;
+    use crate::state::{apply_writer_delta, merge_window_save, PersistedState};
+
+    fn card(id: &str, touched: f64) -> KanbanCard {
+        let raw = format!(
+            r#"{{"id":"{id}","title":"T","projectId":"p","status":"doing","createdAt":1.0,"lastTouchedAt":{touched},"goalAligned":true,"clinicalOrMaster":false,"pointsAwarded":0}}"#
+        );
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    /// N1: a window loaded the card at lastTouchedAt=5.0 (pre-stamp).
+    /// Native stamps taskId, then taskReason. The window then saves its
+    /// stale copy with the SAME lastTouchedAt — the stamps must survive.
+    #[test]
+    fn stale_same_touch_window_save_keeps_task_id_and_reason() {
+        let mut disk = PersistedState::default();
+        disk.kanban_cards.push(card("c1", 5.0));
+        let window = disk.clone(); // snapshot before any stamp
+
+        // task::start → stamp_card (through the writer delta, as
+        // save_with_events applies it under the lock).
+        let before = disk.clone();
+        let mut after = before.clone();
+        stamp_task_id(&mut after.kanban_cards[0], "t-abc");
+        apply_writer_delta(&mut disk, &before, &after);
+        assert!(disk.kanban_cards[0].last_touched_at > 5.0);
+
+        // task::end → taskReason.
+        let before = disk.clone();
+        let mut after = before.clone();
+        stamp_task_reason(&mut after.kanban_cards[0], "done");
+        apply_writer_delta(&mut disk, &before, &after);
+
+        let (merged, _) = merge_window_save(&disk, &window);
+        let c = merged.kanban_cards.iter().find(|c| c.id == "c1").unwrap();
+        assert_eq!(c.task_id.as_deref(), Some("t-abc"));
+        assert_eq!(c.task_reason.as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn touch_is_strictly_newer_and_clamps_the_future() {
+        let mut c = card("c1", 5.0);
+        touch(&mut c);
+        assert!(c.last_touched_at > 5.0);
+        // Slightly ahead (clock skew within 60 s): still strictly newer.
+        let ahead = now_secs() + 30.0;
+        let mut c = card("c2", ahead);
+        touch(&mut c);
+        assert!(c.last_touched_at > ahead);
+        // Bogus far-future / ms stamp: clamped to about now + 60 s.
+        for bogus in [now_secs() + 1000.0, 1.7e12] {
+            let mut c = card("c3", bogus);
+            let before = now_secs();
+            touch(&mut c);
+            assert!(c.last_touched_at > before && c.last_touched_at <= now_secs() + 60.01);
+        }
+    }
+
+    /// F1: a far-future saved stamp sits above touch()'s clamp, so the
+    /// writer delta must still keep the stamped taskId.
+    #[test]
+    fn far_future_saved_stamp_keeps_task_id() {
+        let mut disk = PersistedState::default();
+        disk.kanban_cards.push(card("c1", 1.7e12));
+        let before = disk.clone();
+        let mut after = before.clone();
+        stamp_task_id(&mut after.kanban_cards[0], "t-abc");
+        assert!(after.kanban_cards[0].last_touched_at < 1.7e12);
+        apply_writer_delta(&mut disk, &before, &after);
+        assert_eq!(disk.kanban_cards[0].task_id.as_deref(), Some("t-abc"));
+    }
+}
+
+#[cfg(test)]
+mod boot_liveness_tests {
+    use super::*;
+
+    fn p(pid: Option<bool>, pid_file: Option<Option<bool>>, herdr: Option<bool>, doing: bool) -> Probe {
+        Probe { pid, pid_file, herdr, unknown: false, card_doing: doing }
+    }
+
+    #[test]
+    fn probe_error_with_card_in_doing_is_never_died() {
+        // herdr timed out / errored: unknown, even with every other
+        // signal saying gone and the card still in Doing.
+        let mut q = p(Some(false), Some(None), None, true);
+        q.unknown = true;
+        assert_eq!(classify(&q), Verdict::Alive);
+        let mut q = p(None, None, None, true);
+        q.unknown = true;
+        assert_eq!(classify(&q), Verdict::Alive);
+    }
+
+    #[test]
+    fn live_process_is_never_died() {
+        assert_eq!(classify(&p(Some(true), None, None, true)), Verdict::Alive);
+        assert_eq!(classify(&p(None, Some(Some(true)), None, true)), Verdict::Alive);
+        assert_eq!(classify(&p(None, None, Some(true), true)), Verdict::Alive);
+        // Any one live signal wins over dead ones.
+        assert_eq!(classify(&p(Some(false), Some(None), Some(true), true)), Verdict::Alive);
+    }
+
+    #[test]
+    fn gone_with_card_in_doing_is_died() {
+        assert_eq!(classify(&p(Some(false), None, None, true)), Verdict::Died);
+        assert_eq!(classify(&p(None, Some(Some(false)), None, true)), Verdict::Died);
+        assert_eq!(classify(&p(None, Some(None), None, true)), Verdict::Died);
+        assert_eq!(classify(&p(None, None, Some(false), true)), Verdict::Died);
+        // No hint at all (synchronous action run the app itself owned).
+        assert_eq!(classify(&p(None, None, None, true)), Verdict::Died);
+    }
+
+    #[test]
+    fn gone_with_card_moved_on_closes_quietly() {
+        assert_eq!(classify(&p(Some(false), None, None, false)), Verdict::Exited);
+        assert_eq!(classify(&p(None, Some(None), None, false)), Verdict::Exited);
+        assert_eq!(classify(&p(None, None, None, false)), Verdict::Exited);
+    }
+
+    fn doing_state(card_id: &str) -> crate::state::PersistedState {
+        let raw = format!(
+            r#"{{"id":"{card_id}","title":"T","projectId":"p","status":"doing","createdAt":1.0,"lastTouchedAt":1.0,"goalAligned":true,"clinicalOrMaster":false,"pointsAwarded":0}}"#
+        );
+        let card: crate::state::KanbanCard = serde_json::from_str(&raw).unwrap();
+        let mut st = crate::state::PersistedState::default();
+        st.kanban_cards.push(card);
+        st
+    }
+
+    fn herdr_task(card_id: &str, agent: Option<&str>) -> Meta {
+        Meta {
+            task_id: "t-1".into(),
+            project_id: "p".into(),
+            card_id: Some(card_id.into()),
+            started_at: 0.0,
+            snapshot: "skipped".into(),
+            herdr_agent: agent.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn herdr_task_without_run_row_uses_task_hint() {
+        // F1-D: the agentRuns row (and its herdr record) was wiped by a
+        // stale whole-state save; the task still names its herdr agent.
+        let st = doing_state("c1");
+        assert!(st.agent_runs.is_empty());
+        let meta = herdr_task("c1", Some("c1"));
+        let asked = std::cell::RefCell::new(Vec::new());
+        let alive = |name: &str| {
+            asked.borrow_mut().push(name.to_string());
+            Some(true)
+        };
+        let p = probe_with(&meta, Some(&st), None, &alive);
+        assert_eq!(asked.borrow().as_slice(), ["c1".to_string()]);
+        assert!(p.card_doing);
+        assert_eq!(classify(&p), Verdict::Alive, "live herdr agent must not be died");
+        // herdr can't answer → unknown → still not died.
+        let p = probe_with(&meta, Some(&st), None, &|_| None);
+        assert_eq!(classify(&p), Verdict::Alive);
+        // herdr says agent_not_found → genuinely gone, card in Doing → died.
+        let p = probe_with(&meta, Some(&st), None, &|_| Some(false));
+        assert_eq!(classify(&p), Verdict::Died);
+    }
+
+    #[test]
+    fn missing_pid_file_on_a_young_task_is_unknown() {
+        assert!(young_missing_pid_file(true, 1000.0, 1010.0));
+        assert!(!young_missing_pid_file(true, 1000.0, 1031.0));
+        assert!(!young_missing_pid_file(false, 1000.0, 1001.0));
+    }
+
+    #[test]
+    fn two_runs_of_one_shortcut_get_their_own_pid_files() {
+        let dir = std::path::Path::new("/tmp/ctx");
+        let (sa, pa) = crate::coordinator::terminal_run_paths(dir, "grok row", "t-1a");
+        let (sb, pb) = crate::coordinator::terminal_run_paths(dir, "grok row", "t-1b");
+        assert_ne!(pa, pb);
+        assert_ne!(sa, sb);
+        assert_eq!(pa, dir.join("agent-grok_row-t-1a.pid"));
+        assert_eq!(sa, dir.join("agent-grok_row-t-1a.command"));
+        // Run B exiting (its trap removes only ITS file) leaves A's file:
+        let tmp = std::env::temp_dir().join(format!("orbitty-2runs-{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+        let (_, a) = crate::coordinator::terminal_run_paths(&tmp, "s", "ta");
+        let (_, b) = crate::coordinator::terminal_run_paths(&tmp, "s", "tb");
+        fs::write(&a, format!("{}\n", std::process::id())).unwrap();
+        fs::write(&b, "4000000\n").unwrap();
+        let _ = fs::remove_file(&b);
+        assert_eq!(pid_file_alive(&a), Some(true));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn pid_alive_self_and_dead() {
+        assert!(pid_alive(std::process::id()));
+        assert!(!pid_alive(0));
+        // A pid far above the macOS pid_max (99998) is never a process.
+        assert!(!pid_alive(4_000_000));
+    }
+
+    #[test]
+    fn pid_file_states() {
+        let dir = std::env::temp_dir().join(format!("orbitty-pidf-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let f = dir.join("agent-x.pid");
+        let _ = fs::remove_file(&f);
+        assert_eq!(pid_file_alive(&f), None);
+        fs::write(&f, format!("{}\n", std::process::id())).unwrap();
+        assert_eq!(pid_file_alive(&f), Some(true));
+        fs::write(&f, "4000000\n").unwrap();
+        assert_eq!(pid_file_alive(&f), Some(false));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

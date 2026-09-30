@@ -67,6 +67,33 @@ fn fired<'a>(before: &PersistedState, after: &'a PersistedState) -> Vec<(&'a Kan
 /// standing-rules gate can born-answer it (actor "rule") and the watch
 /// dispatches as if Matt typed the answer; a miss / collide pings open.
 fn mint_or_reuse(app: &tauri::AppHandle, card: &KanbanCard, go: &str) {
+    let urls: Vec<String> = card
+        .links
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|l| l.url.clone())
+        .collect();
+    if let crate::plans::Gate::Refuse { note } = crate::plans::gate_for_card(&card.id, &card.title, &urls)
+    {
+        let _ = crate::board::kanban_note_append(app, &card.id, &note);
+        crate::event_log::append_best(
+            app,
+            "go-launch",
+            None,
+            Some(&card.project_id),
+            Some("agent"),
+            true,
+            &serde_json::json!({
+                "id": go,
+                "cardId": card.id,
+                "route": "doing",
+                "launched": false,
+                "note": note,
+            }),
+        );
+        return;
+    }
     let Ok(st) = crate::state::load_state(app) else {
         return;
     };
@@ -134,6 +161,25 @@ pub fn spawn_fire_and_attach(app: &tauri::AppHandle, before: PersistedState, aft
 mod tests {
     use super::*;
 
+    /// Wiring guard: a doing GO goes through the seal gate before the
+    /// "who runs this" question is minted; a refusal appends a note and
+    /// returns.
+    #[test]
+    fn doing_fire_runs_the_go_gate_before_minting() {
+        let src = include_str!("doing_fire.rs");
+        let start = src.find("fn mint_or_reuse(").unwrap();
+        let body = &src[start..start + src[start..].find("\n}\n").unwrap()];
+        let gate = body
+            .find("crate::plans::gate_for_card(")
+            .expect("doing_fire must call the GO gate");
+        let mint = body.find("load_state(").expect("mint path");
+        assert!(gate < mint, "the gate must run before minting");
+        let arm = &body[..mint];
+        assert!(arm.contains("Gate::Refuse {"), "{arm}");
+        assert!(arm.contains("kanban_note_append"), "{arm}");
+        assert!(arm.contains("return;"), "{arm}");
+    }
+
     fn card(id: &str, kind: &str, status: &str, title: &str) -> KanbanCard {
         KanbanCard {
             id: id.into(),
@@ -164,6 +210,7 @@ mod tests {
             trackers: None,
             task_id: None,
             task_reason: None,
+            links: None,
         }
     }
 

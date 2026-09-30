@@ -759,9 +759,10 @@ pub fn set_companion_pack(app: tauri::AppHandle, pack_id: String) -> Result<Opti
             return Err(format!("companion pack {pid:?} missing"));
         }
     }
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.image_pack_id = id.clone();
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.image_pack_id = id.clone();
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(id)
 }
@@ -799,9 +800,10 @@ pub fn set_companion_agent(app: tauri::AppHandle, profile: String) -> Result<Str
             ))
         }
     }
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.agent_profile = p.clone();
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.agent_profile = p.clone();
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(p)
 }
@@ -817,9 +819,10 @@ pub fn set_companion_mode(app: tauri::AppHandle, mode: String) -> Result<String,
             mode.trim()
         )
     })?;
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.switch_mode(&m);
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.switch_mode(&m);
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(m)
 }
@@ -836,19 +839,20 @@ pub fn companion_note(
     if line.is_empty() {
         return Err("companion note needs a line.".into());
     }
-    let mut st = crate::state::load_state(&app)?;
-    // load_state healed the mode, so st.companion.mode is allowlist-clean.
-    let target = match mode.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(raw) => crate::state::normalize_companion_mode(raw).ok_or_else(|| {
-            format!("unknown companion mode {raw:?} — spark | chat | work | hold")
-        })?,
-        None => st.companion.mode.clone(),
-    };
-    // One transcript: notes always land on the live thread.
-    let _ = target;
-    st.companion.last_bot_line = line.clone();
-    st.companion.push_turn("them", &line);
-    crate::state::save_state(&app, &st)?;
+    let target = crate::state::update(&app, |st| {
+        // load_state healed the mode, so st.companion.mode is allowlist-clean.
+        let target = match mode.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(raw) => crate::state::normalize_companion_mode(raw).ok_or_else(|| {
+                format!("unknown companion mode {raw:?} — spark | chat | work | hold")
+            })?,
+            None => st.companion.mode.clone(),
+        };
+        // One transcript: notes always land on the live thread.
+        let _ = target;
+        st.companion.last_bot_line = line.clone();
+        st.companion.push_turn("them", &line);
+        Ok(target)
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(target)
 }
@@ -952,7 +956,30 @@ pub fn set_companion_hack(
     who: Option<String>,
     project_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let mut st = crate::state::load_state(&app)?;
+    let (hack_live, hack_who, hack_project_id) = crate::state::update(&app, |st| {
+        apply_hack(st, live, who, project_id);
+        Ok((
+            st.companion.hack_live,
+            st.companion.hack_who.clone(),
+            st.companion.hack_project_id.clone(),
+        ))
+    })?;
+    let _ = app.emit("state:changed", ());
+    Ok(serde_json::json!({
+        "live": hack_live,
+        "who": hack_who,
+        "projectId": hack_project_id,
+    }))
+}
+
+/// Hack fields only. Callers must already be inside `state::update` or
+/// go through `set_companion_hack`, which is.
+fn apply_hack(
+    st: &mut crate::state::PersistedState,
+    live: bool,
+    who: Option<String>,
+    project_id: Option<String>,
+) {
     st.companion.hack_live = live;
     st.companion.hack_who = if live {
         who.map(|w| w.trim().to_string())
@@ -968,13 +995,6 @@ pub fn set_companion_hack(
     } else {
         None
     };
-    crate::state::save_state(&app, &st)?;
-    let _ = app.emit("state:changed", ());
-    Ok(serde_json::json!({
-        "live": st.companion.hack_live,
-        "who": st.companion.hack_who,
-        "projectId": st.companion.hack_project_id,
-    }))
 }
 
 fn run_is_seated(r: &crate::state::AgentRun) -> bool {
@@ -1019,33 +1039,33 @@ fn who_from_run(st: &crate::state::PersistedState, r: &crate::state::AgentRun) -
 /// working|starting|blocked and dark LED → on (who from shortcut
 /// harness or herdr kind); no seated run and lit LED → off.
 pub fn heal_stuck_hack(app: &tauri::AppHandle) {
-    let Ok(st) = crate::state::load_state(app) else {
-        return;
-    };
-    match (seated_live(&st), st.companion.hack_live) {
-        (Some(r), false) => {
-            let who = who_from_run(&st, r);
-            let project_id = if r.planet_id.trim().is_empty() {
-                None
-            } else {
-                Some(r.planet_id.clone())
-            };
-            let _ = set_companion_hack(app.clone(), true, who, project_id);
+    let _ = crate::state::update(app, |st| {
+        let seated = seated_live(st).cloned();
+        match (seated.as_ref(), st.companion.hack_live) {
+            (Some(r), false) => {
+                let who = who_from_run(st, r);
+                let project_id = if r.planet_id.trim().is_empty() {
+                    None
+                } else {
+                    Some(r.planet_id.clone())
+                };
+                apply_hack(st, true, who, project_id);
+            }
+            (None, true) => apply_hack(st, false, None, None),
+            _ => {}
         }
-        (None, true) => {
-            let _ = set_companion_hack(app.clone(), false, None, None);
-        }
-        _ => {}
-    }
+        Ok(())
+    });
 }
 
 /// Persist Talk source (`system` | `hotkey`).
 #[tauri::command]
 pub fn set_companion_talk_source(app: tauri::AppHandle, source: String) -> Result<String, String> {
     let src = crate::state::normalize_talk_source(&source);
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.talk_source = src.clone();
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.talk_source = src.clone();
+        Ok(())
+    })?;
     crate::talk::stop_if_any();
     let _ = app.emit("state:changed", ());
     Ok(src)
@@ -1054,9 +1074,10 @@ pub fn set_companion_talk_source(app: tauri::AppHandle, source: String) -> Resul
 /// Persist expand/collapse so the window reopens the way it was left.
 #[tauri::command]
 pub fn set_companion_expanded(app: tauri::AppHandle, expanded: bool) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.expanded = expanded;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.expanded = expanded;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     // Expanding while hugged restores the tall
     // idle FIRST — the transcript is never a 120px slab.
@@ -1082,27 +1103,28 @@ pub fn set_companion_view(
     surface: String,
     view: String,
 ) -> Result<String, String> {
-    let mut st = crate::state::load_state(&app)?;
-    let written = match surface.trim().to_ascii_lowercase().as_str() {
-        "collapsed" => {
-            let v = crate::state::normalize_companion_view(&view, "full");
-            st.companion.view_collapsed = v.clone();
-            v
-        }
-        "expanded" => {
-            let v = crate::state::normalize_companion_view(&view, "head");
-            st.companion.view_expanded = v.clone();
-            v
-        }
-        "all" => {
-            let v = crate::state::normalize_companion_view(&view, "full");
-            st.companion.view_collapsed = v.clone();
-            st.companion.view_expanded = v.clone();
-            v
-        }
-        other => return Err(format!("bad companion surface: {other:?}")),
-    };
-    crate::state::save_state(&app, &st)?;
+    let written = crate::state::update(&app, |st| {
+        let written = match surface.trim().to_ascii_lowercase().as_str() {
+            "collapsed" => {
+                let v = crate::state::normalize_companion_view(&view, "full");
+                st.companion.view_collapsed = v.clone();
+                v
+            }
+            "expanded" => {
+                let v = crate::state::normalize_companion_view(&view, "head");
+                st.companion.view_expanded = v.clone();
+                v
+            }
+            "all" => {
+                let v = crate::state::normalize_companion_view(&view, "full");
+                st.companion.view_collapsed = v.clone();
+                st.companion.view_expanded = v.clone();
+                v
+            }
+            other => return Err(format!("bad companion surface: {other:?}")),
+        };
+        Ok(written)
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(written)
 }
@@ -1122,15 +1144,19 @@ pub fn set_companion_sprite(
     enabled: bool,
     hug_height: Option<f64>,
 ) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    if st.companion.sprite != enabled {
-        st.companion.sprite = enabled;
-        crate::state::save_state(&app, &st)?;
+    let expanded = crate::state::update(&app, |st| {
+        let changed = st.companion.sprite != enabled;
+        if changed {
+            st.companion.sprite = enabled;
+        }
+        Ok((changed, st.companion.expanded))
+    })?;
+    if expanded.0 {
         let _ = app.emit("state:changed", ());
     }
     if enabled {
         crate::panes::unhug_companion(&app);
-    } else if !st.companion.expanded {
+    } else if !expanded.1 {
         // Shed any sprite-on composer grow FIRST
         // — the hug stash must be the true tall idle, never grown.
         crate::panes::ungrow_companion_composer(&app);
@@ -1167,9 +1193,10 @@ pub fn set_companion_speak(app: tauri::AppHandle, enabled: bool) -> Result<(), S
     if !enabled {
         stop_say();
     }
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.speak_replies = enabled;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.speak_replies = enabled;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -1178,9 +1205,10 @@ pub fn set_companion_speak(app: tauri::AppHandle, enabled: bool) -> Result<(), S
 #[tauri::command]
 pub fn set_companion_speak_volume(app: tauri::AppHandle, volume: f32) -> Result<(), String> {
     let volume = volume.clamp(0.0, 1.0);
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.speak_volume = volume;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.companion.speak_volume = volume;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -1190,13 +1218,14 @@ pub fn set_companion_speak_volume(app: tauri::AppHandle, volume: f32) -> Result<
 /// a destination (one save, one state:changed, no JS race).
 #[tauri::command]
 pub fn set_companion_captions(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.companion.captions = enabled;
-    let collapsed = !enabled && st.companion.expanded;
-    if collapsed {
-        st.companion.expanded = false;
-    }
-    crate::state::save_state(&app, &st)?;
+    let collapsed = crate::state::update(&app, |st| {
+        st.companion.captions = enabled;
+        let collapsed = !enabled && st.companion.expanded;
+        if collapsed {
+            st.companion.expanded = false;
+        }
+        Ok(collapsed)
+    })?;
     let _ = app.emit("state:changed", ());
     if collapsed {
         crate::companion_clear::expanded_changed(&app, false);
@@ -1213,9 +1242,10 @@ pub fn set_companion_captions(app: tauri::AppHandle, enabled: bool) -> Result<()
 /// pane toggle and the companion's Prompts toggle — same key either way.
 #[tauri::command]
 pub fn set_stars_prompts(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.stars.prompts_opt_in = enabled;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.stars.prompts_opt_in = enabled;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -1225,9 +1255,10 @@ pub fn set_stars_prompts(app: tauri::AppHandle, enabled: bool) -> Result<(), Str
 /// sig. One show per day, no loop.
 #[tauri::command]
 pub fn ack_stars_prompt(app: tauri::AppHandle, ack: String) -> Result<(), String> {
-    let mut st = crate::state::load_state(&app)?;
-    st.stars.prompts_ack = ack;
-    crate::state::save_state(&app, &st)?;
+    crate::state::update(&app, |st| {
+        st.stars.prompts_ack = ack;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -1351,7 +1382,7 @@ fn match_action_line(
 /// the reply meant a hung send showed nothing and state:changed wiped
 /// the optimistic bubble.
 fn persist_companion_you(app: &tauri::AppHandle, line: &str) {
-    if let Ok(mut st) = crate::state::load_state(app) {
+    if crate::state::update(app, |st| {
         st.companion.last_user_line = line.to_string();
         let you_already_saved = st
             .companion
@@ -1361,13 +1392,16 @@ fn persist_companion_you(app: &tauri::AppHandle, line: &str) {
         if !you_already_saved {
             st.companion.push_turn("you", line);
         }
-        let _ = crate::state::save_state(app, &st);
+        Ok(())
+    })
+    .is_ok()
+    {
         let _ = app.emit("state:changed", ());
     }
 }
 
 fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) {
-    if let Ok(mut st) = crate::state::load_state(app) {
+    if crate::state::update(app, |st| {
         if let Some(you) = you {
             st.companion.last_user_line = you.to_string();
             let you_already_saved = st
@@ -1381,7 +1415,10 @@ fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &st
         }
         st.companion.last_bot_line = them.to_string();
         st.companion.push_turn("them", them);
-        let _ = crate::state::save_state(app, &st);
+        Ok(())
+    })
+    .is_ok()
+    {
         let _ = app.emit("state:changed", ());
     }
 }
@@ -1709,10 +1746,13 @@ async fn companion_send_inner(
     // Existing verbs: the tool answers. A miss stays on the mouth below.
     if attach.is_none() && !crate::mouth_gist::needs_write_lane(&line) {
         if let Some(spoken) = crate::mouth_route::run(&app, &line) {
-            if let Ok(mut st) = crate::state::load_state(&app) {
+            if crate::state::update(&app, |st| {
                 st.companion.last_bot_line = spoken.clone();
                 st.companion.push_turn("them", &spoken);
-                let _ = crate::state::save_state(&app, &st);
+                Ok(())
+            })
+            .is_ok()
+            {
                 let _ = app.emit("state:changed", ());
             }
             return Ok(spoken);
@@ -1802,7 +1842,7 @@ async fn companion_send_inner(
     };
 
     // You-row already persisted before the model wait. Reply only here.
-    if let Ok(mut st) = crate::state::load_state(&app) {
+    if crate::state::update(&app, |st| {
         st.companion.last_bot_line = reply.clone();
         let you_already_saved = st
             .companion
@@ -1813,7 +1853,10 @@ async fn companion_send_inner(
             st.companion.push_turn("you", &you_line);
         }
         st.companion.push_turn("them", &reply);
-        let _ = crate::state::save_state(&app, &st);
+        Ok(())
+    })
+    .is_ok()
+    {
         let _ = app.emit("state:changed", ());
     }
     Ok(reply)
@@ -1893,8 +1936,9 @@ pub(crate) fn goose_args(
     // Equals form, one argv: clap takes everything after `=` literally,
     // even a value that starts with `-`.
     args.push(format!("--system={soul}"));
-    args.push("-t".into());
-    args.push(line.to_string());
+    // Same equals form for the line: `-t <line>` rejects a line starting
+    // with `-`.
+    args.push(format!("--text={line}"));
     args
 }
 
@@ -2007,7 +2051,8 @@ pub(crate) fn grok_args(
 ) -> Vec<String> {
     let mut args: Vec<String> = match vision_json {
         Some(j) => vec!["--prompt-json".into(), j.to_string()],
-        None => vec!["-p".into(), line.to_string()],
+        // Attached: `-p <line>` rejects a line starting with `-`.
+        None => vec![format!("--single={line}")],
     };
     if minted {
         args.push("--resume".into());
@@ -2787,7 +2832,7 @@ pub(crate) fn run_action_logged(
                 format!("task: {t}")
             }
         };
-        crate::board::kanban_add_as(app, &title, p, "doing", "action", None)
+        crate::board::kanban_add_as(app, &title, p, "doing", "action", None, Vec::new())
             .ok()
             .map(|c| c.id)
     });
@@ -2897,11 +2942,31 @@ fn write_agent_query(
     shortcut: &crate::state::AgentShortcut,
     project_name: Option<&str>,
     titles: &[String],
+    go_text: Option<&str>,
 ) -> Result<(PathBuf, usize), String> {
     let dir = app_data(app)?.join("context");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     let path = dir.join(format!("agent-{}.md", safe_id(&shortcut.id)));
+    let (body, skipped) = agent_query_body(shortcut, project_name, titles, go_text);
+    crate::plans::enforce_cap(&body)?;
+    std::fs::write(&path, body).map_err(|e| format!("write {}: {e}", path.display()))?;
+    Ok((path, skipped))
+}
+
+/// The query file text (pure, so the GO handoff is testable): header, the
+/// full GO text when a GO launches, md paths, extra, planet titles.
+fn agent_query_body(
+    shortcut: &crate::state::AgentShortcut,
+    project_name: Option<&str>,
+    titles: &[String],
+    go_text: Option<&str>,
+) -> (String, usize) {
     let mut body = format!("# {}\n\nOrbitty agent shortcut context.\n", shortcut.name);
+    if let Some(go_text) = go_text.map(str::trim).filter(|s| !s.is_empty()) {
+        body.push_str("\n\n## GO\n\n");
+        body.push_str(go_text);
+        body.push('\n');
+    }
     let mut skipped = 0usize;
     for raw in &shortcut.md_paths {
         let p = raw.trim();
@@ -2934,9 +2999,12 @@ fn write_agent_query(
     }
     if shortcut.project_id.is_some() || !titles.is_empty() {
         let name = project_name.unwrap_or("Planet");
-        body.push_str(&format!(
-            "\n\n## Planet context — {name} (titles only, no file contents)\n"
-        ));
+        let heading = if go_text.is_some() {
+            format!("\n\n## Planet context — {name}\n")
+        } else {
+            format!("\n\n## Planet context — {name} (titles only, no file contents)\n")
+        };
+        body.push_str(&heading);
         if titles.is_empty() {
             body.push_str("(no claimed windows or open to-dos)\n");
         } else {
@@ -2945,8 +3013,16 @@ fn write_agent_query(
             }
         }
     }
-    std::fs::write(&path, body).map_err(|e| format!("write {}: {e}", path.display()))?;
-    Ok((path, skipped))
+    (body, skipped)
+}
+
+/// Resolved GO handed to every launch door (pickup, Terminal, herdr, clerk).
+pub struct GoLaunch {
+    pub parsed: crate::plans::ParsedGo,
+    pub run: crate::plans::ResolvedRun,
+    pub route: &'static str,
+    pub card_id: String,
+    pub project_id: String,
 }
 
 /// The visible-harness door shared by cursor /
@@ -2959,32 +3035,399 @@ fn write_agent_query(
 /// a stuck on-light is a leftover, not a feature); HUP (Terminal window
 /// closed) exits through the same trap. Silent + best-effort: a missing
 /// ctl never noises up the harness session.
-fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
-    let script = query.with_extension("command");
-    let ctl = std::env::var("HOME")
-        .map(|h| format!("{h}/.local/bin/orbittyctl"))
-        .unwrap_or_else(|_| "orbittyctl".into());
-    let pidf = query.with_extension("pid");
-    let body = format!(
-        "#!/bin/zsh\nprompt=\"$(cat \"{q}\")\"\necho $$ > \"{pid}\"\ntrap 'exit' HUP\ntrap '\"{ctl}\" companion hack -- off >/dev/null 2>&1 || true; rm -f \"{pid}\"' EXIT\n{exec_line}\n",
-        q = query.display(),
-        pid = pidf.display(),
-    );
-    std::fs::write(&script, &body)
-        .map_err(|e| format!("write {}: {e}", script.display()))?;
+/// Per-launch Terminal launcher paths in `context/`:
+/// `agent-<shortcut>-<run>.command` / `.pid`. Per RUN, not per shortcut —
+/// two runs of one shortcut used to share `agent-<shortcut>.pid`, and the
+/// second run's EXIT trap deleted the file the first still needed (boot
+/// then called the live first run dead; stop could kill the wrong one).
+/// `run` is the task id, else the card id, else a launch nonce.
+pub(crate) fn terminal_run_paths(context_dir: &Path, shortcut_id: &str, run: &str) -> (PathBuf, PathBuf) {
+    let stem = format!("agent-{}-{}", safe_id(shortcut_id), safe_id(run));
+    (
+        context_dir.join(format!("{stem}.command")),
+        context_dir.join(format!("{stem}.pid")),
+    )
+}
+
+/// Sibling of the running app binary. Nightly's trap must call Nightly's
+/// orbittyctl, never a PATH copy.
+pub(crate) fn bundled_orbittyctl() -> PathBuf {
+    match std::env::current_exe() {
+        Ok(exe) => exe
+            .parent()
+            .map(|d| d.join("orbittyctl"))
+            .unwrap_or_else(|| PathBuf::from("orbittyctl")),
+        Err(_) => PathBuf::from("orbittyctl"),
+    }
+}
+
+pub(crate) fn control_sock_path(app: &tauri::AppHandle) -> PathBuf {
+    app.path()
+        .app_data_dir()
+        .map(|d| d.join("control.sock"))
+        .unwrap_or_else(|_| PathBuf::from("control.sock"))
+}
+
+/// Empty setting: Ghostty when the app bundle is installed, else Terminal.
+pub(crate) fn resolve_agent_terminal(setting: &str, ghostty_installed: bool) -> &'static str {
+    match setting.trim().to_ascii_lowercase().as_str() {
+        "ghostty" => "Ghostty",
+        "terminal" => "Terminal",
+        _ => {
+            if ghostty_installed {
+                "Ghostty"
+            } else {
+                "Terminal"
+            }
+        }
+    }
+}
+
+fn ghostty_installed() -> bool {
+    Path::new("/Applications/Ghostty.app").is_dir()
+}
+
+pub(crate) fn open_terminal_argv(app_name: &str, script: &Path) -> Vec<String> {
+    vec!["-a".into(), app_name.into(), script.display().to_string()]
+}
+
+/// POSIX single-quote one value for a zsh line: `'…'`, each `'` → `'\''`.
+/// Nothing inside single quotes expands (`$()`, backticks, `;`, newlines).
+/// Same law as `sh_quote` (the Terminal query launcher's).
+pub(crate) fn sq(s: &str) -> String {
+    sh_quote(s)
+}
+
+/// `.command` body. The EXIT trap calls the bundled ctl with this app's
+/// socket. Every interpolated value is single-quoted (`sq`), and the trap
+/// names a cleanup function so no path is re-parsed inside a trap string.
+/// The trap never names `~/.local/bin`.
+pub(crate) fn agent_command_body(
+    query: &Path,
+    script: &Path,
+    pidf: &Path,
+    exec_line: &str,
+    ctl: &Path,
+    sock: &Path,
+    cwd: Option<&str>,
+) -> String {
+    let cd = match cwd.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(dir) => format!("cd {} || exit 1\n", sq(dir)),
+        None => String::new(),
+    };
+    let q = sq(&query.display().to_string());
+    let pid = sq(&pidf.display().to_string());
+    let script = sq(&script.display().to_string());
+    let ctl = sq(&ctl.display().to_string());
+    let sock = sq(&sock.display().to_string());
+    format!(
+        "#!/bin/zsh\n{cd}prompt=\"$(cat {q})\"\necho $$ > {pid}\norbitty_cleanup() {{\n  {ctl} --sock {sock} companion hack -- off >/dev/null 2>&1 || true\n  rm -f {pid} {script}\n}}\ntrap 'exit' HUP\ntrap orbitty_cleanup EXIT\n{exec_line}\n"
+    )
+}
+
+/// Where a project permission file must never go: `/`, `$HOME` itself,
+/// and anything under `$HOME/.cursor` (the user-global Cursor dir). Both
+/// sides are canonicalized, so `$HOME/sub/..` or a symlink can't slip
+/// past. `None` = allowed. A main (non-linked) checkout — `~/orbitty`
+/// included — is allowed: the local exclude keeps the file out of commits.
+fn cursor_perm_refusal(workspace: &Path, home: Option<&Path>) -> Option<String> {
+    let Ok(ws) = std::fs::canonicalize(workspace) else {
+        return Some("workspace does not exist".into());
+    };
+    if !ws.is_dir() {
+        return Some("workspace is not a directory".into());
+    }
+    if ws == Path::new("/") {
+        return Some("workspace is /".into());
+    }
+    let home = home
+        .filter(|h| !h.as_os_str().is_empty())
+        .and_then(|h| std::fs::canonicalize(h).ok());
+    if let Some(home) = home {
+        if ws == home {
+            return Some("workspace is $HOME".into());
+        }
+        if ws.starts_with(home.join(".cursor")) {
+            return Some("workspace is inside ~/.cursor".into());
+        }
+    }
+    None
+}
+
+pub(crate) fn project_cli_path(workspace: &Path) -> PathBuf {
+    workspace.join(".cursor").join("cli.json")
+}
+
+/// What this app added to an untracked `cli.json` last time, so the next
+/// preset can take its own entries back without dropping the user's.
+fn managed_sidecar_path(workspace: &Path) -> PathBuf {
+    workspace.join(".cursor").join("orbitty-managed.json")
+}
+
+/// Patterns in the repo's local exclude. `**/` so a subdirectory
+/// workspace (`sub/.cursor/cli.json`) is covered too.
+const CURSOR_EXCLUDES: [&str; 2] = ["**/.cursor/cli.json", "**/.cursor/orbitty-managed.json"];
+
+/// `git -C <ws> <args>` stdout (trimmed) on success; `None` = not a repo /
+/// git missing / failed.
+fn git_out(workspace: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(workspace)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The exclude file git actually reads for this workspace:
+/// `git rev-parse --git-path info/exclude` (the COMMON dir for a linked
+/// worktree, correct from any subdirectory). `None` = not a git repo.
+fn exclude_file(workspace: &Path) -> Option<PathBuf> {
+    let raw = git_out(workspace, &["rev-parse", "--git-path", "info/exclude"])?;
+    if raw.is_empty() {
+        return None;
+    }
+    let p = PathBuf::from(raw);
+    Some(if p.is_absolute() { p } else { workspace.join(p) })
+}
+
+/// `.cursor/cli.json` (relative to the workspace) is tracked in git.
+fn cli_json_tracked(workspace: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(workspace)
+        .args(["ls-files", "--error-unmatch", "--", ".cursor/cli.json"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Keep the project permission file out of commits. Local exclude only —
+/// never the product `.gitignore`, never `git add`. Idempotent.
+fn local_exclude(exclude: &Path) -> Result<(), String> {
+    if let Some(dir) = exclude.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    }
+    let mut existing = std::fs::read_to_string(exclude).unwrap_or_default();
+    let missing: Vec<&str> = CURSOR_EXCLUDES
+        .iter()
+        .copied()
+        .filter(|p| !existing.lines().any(|l| l.trim() == *p))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    if !existing.is_empty() && !existing.ends_with('\n') {
+        existing.push('\n');
+    }
+    for p in missing {
+        existing.push_str(p);
+        existing.push('\n');
+    }
+    std::fs::write(exclude, existing).map_err(|e| format!("write {}: {e}", exclude.display()))
+}
+
+fn str_list(v: &serde_json::Value) -> Vec<String> {
+    v.as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// Union-merge one list: the user's entries (file minus what we added
+/// last time) stay in order, ours are appended. Returns (merged, added)
+/// where `added` is ours that the user didn't already have.
+fn union_list(file: &[String], ours_before: &[String], ours_now: &[&str]) -> (Vec<String>, Vec<String>) {
+    let mut merged: Vec<String> = file
+        .iter()
+        .filter(|t| !ours_before.contains(t))
+        .cloned()
+        .collect();
+    let mut added = Vec::new();
+    for t in ours_now {
+        if !merged.iter().any(|m| m == t) {
+            merged.push((*t).to_string());
+            added.push((*t).to_string());
+        }
+    }
+    (merged, added)
+}
+
+/// Undo for one `install_cursor_permissions` write: the launch that
+/// needed it failed, so put the files back the way they were.
+pub(crate) struct CursorPermUndo {
+    files: Vec<(PathBuf, Option<Vec<u8>>)>,
+    made_dir: Option<PathBuf>,
+}
+
+impl CursorPermUndo {
+    pub(crate) fn rollback(self) {
+        for (path, prev) in self.files {
+            match prev {
+                Some(bytes) => {
+                    let _ = std::fs::write(&path, bytes);
+                }
+                None => {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+        if let Some(dir) = self.made_dir {
+            let _ = std::fs::remove_dir(dir); // only if now empty
+        }
+    }
+}
+
+/// Write the run workspace's `.cursor/cli.json` permissions for this
+/// preset. Never touches the user-global Cursor CLI config.
+/// - Refuses `/`, `$HOME` and `~/.cursor/…` (canonical paths).
+/// - A TRACKED `.cursor/cli.json` is the repo's own — left untouched.
+/// - An untracked one is union-merged: the user's allow/deny stay (a user
+///   deny is never dropped), ours are appended; what we added is recorded
+///   in `.cursor/orbitty-managed.json` so the next preset can take it back.
+/// - In a git repo, `**/.cursor/cli.json` goes in the exclude git reads
+///   (`rev-parse --git-path info/exclude`); never `git add`.
+/// Cleanup: delete `.cursor/cli.json` + `.cursor/orbitty-managed.json`.
+pub(crate) fn install_cursor_permissions(workspace: &Path, preset: &str) -> Result<CursorPermUndo, String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    install_cursor_permissions_with_home(workspace, preset, home.as_deref())
+}
+
+fn install_cursor_permissions_with_home(
+    workspace: &Path,
+    preset: &str,
+    home: Option<&Path>,
+) -> Result<CursorPermUndo, String> {
+    if let Some(why) = cursor_perm_refusal(workspace, home) {
+        return Err(format!("no project workspace for cursor permissions: {why}"));
+    }
+    let exclude = exclude_file(workspace);
+    if exclude.is_some() && cli_json_tracked(workspace) {
+        return Err("tracked .cursor/cli.json left untouched".into());
+    }
+    let path = project_cli_path(workspace);
+    let sidecar = managed_sidecar_path(workspace);
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_else(|| workspace.join(".cursor"));
+    let prev_cli = std::fs::read(&path).ok();
+    let prev_side = std::fs::read(&sidecar).ok();
+    let mut root = match prev_cli.as_deref() {
+        Some(raw) => match serde_json::from_slice::<serde_json::Value>(raw) {
+            Ok(v) if v.is_object() => v,
+            Ok(_) => return Err(format!("{} is not a JSON object; left untouched", path.display())),
+            Err(_) => return Err(format!("{} is not valid JSON; left untouched", path.display())),
+        },
+        None => serde_json::json!({ "version": 1 }),
+    };
+    let managed: serde_json::Value = prev_side
+        .as_deref()
+        .and_then(|b| serde_json::from_slice(b).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let ours = crate::agents::cursor_permissions_value(preset);
+    let ours_allow: Vec<&str> = ours["allow"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect();
+    let ours_deny: Vec<&str> = ours["deny"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect();
+    let file_perm = root.get("permissions").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let (allow, added_allow) = union_list(&str_list(&file_perm["allow"]), &str_list(&managed["allow"]), &ours_allow);
+    let (deny, added_deny) = union_list(&str_list(&file_perm["deny"]), &str_list(&managed["deny"]), &ours_deny);
+    if root.get("version").is_none() {
+        root["version"] = serde_json::json!(1);
+    }
+    let mut perm = if file_perm.is_object() { file_perm } else { serde_json::json!({}) };
+    perm["allow"] = serde_json::json!(allow);
+    perm["deny"] = serde_json::json!(deny);
+    root["permissions"] = perm;
+
+    // Exclude first: the file never exists un-ignored in a repo.
+    if let Some(ex) = exclude.as_deref() {
+        local_exclude(ex)?;
+    }
+    let made_dir = if dir.is_dir() {
+        None
+    } else {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+        Some(dir.clone())
+    };
+    let undo = CursorPermUndo {
+        files: vec![(path.clone(), prev_cli), (sidecar.clone(), prev_side)],
+        made_dir,
+    };
+    let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())? + "\n";
+    let side = serde_json::to_string_pretty(&serde_json::json!({
+        "allow": added_allow,
+        "deny": added_deny,
+    }))
+    .map_err(|e| e.to_string())?
+        + "\n";
+    if let Err(e) = std::fs::write(&path, text).and_then(|_| std::fs::write(&sidecar, side)) {
+        undo.rollback();
+        return Err(format!("write {}: {e}", path.display()));
+    }
+    Ok(undo)
+}
+
+fn open_agent_terminal(
+    app: &tauri::AppHandle,
+    query: &Path,
+    script: &Path,
+    pidf: &Path,
+    exec_line: &str,
+    cwd: Option<&str>,
+    planet_id: Option<&str>,
+) -> Result<String, String> {
+    let ctl = bundled_orbittyctl();
+    let sock = control_sock_path(app);
+    let setting = crate::state::load_state(app)
+        .map(|st| st.agent_terminal.clone())
+        .unwrap_or_default();
+    let app_name = resolve_agent_terminal(&setting, ghostty_installed());
+    let body = agent_command_body(query, script, pidf, exec_line, &ctl, &sock, cwd);
+    std::fs::write(script, &body).map_err(|e| format!("write {}: {e}", script.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755));
     }
-    if spawn_detached("open", &[script.to_string_lossy().as_ref()]) {
-        Ok(())
+    let argv = open_terminal_argv(app_name, script);
+    let argv_ref: Vec<&str> = argv.iter().map(String::as_str).collect();
+    if spawn_detached("open", &argv_ref) {
+        crate::event_log::append_best(
+            app,
+            "agent-terminal",
+            None,
+            planet_id,
+            Some("agent"),
+            true,
+            &serde_json::json!({ "app": app_name }),
+        );
+        Ok(app_name.to_string())
     } else {
         Err(format!(
-            "Couldn't open Terminal launcher. Query file ready: {}",
+            "Couldn't open {app_name} launcher. Query file ready: {}",
             query.display()
         ))
     }
+}
+
+/// A row value failed launch validation: log it, and hand back the
+/// human-facing error (the launch is refused; nothing ran).
+fn launch_refused(app: &tauri::AppHandle, planet: Option<&str>, harness: &str, why: &str) -> String {
+    crate::event_log::append_best(
+        app,
+        "agent-launch-refused",
+        None,
+        planet,
+        Some("agent"),
+        true,
+        &serde_json::json!({ "harness": harness, "reason": why }),
+    );
+    format!("{harness} launch refused: {why}")
 }
 
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
@@ -2996,12 +3439,45 @@ fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
 /// traps EXIT, the hermes door waits on the child.
 pub fn launch_agent(
     app: tauri::AppHandle,
-    shortcut: crate::state::AgentShortcut,
+    mut shortcut: crate::state::AgentShortcut,
     project_name: Option<String>,
     titles: Vec<String>,
+    mut go_launch: Option<GoLaunch>,
 ) -> Result<String, String> {
     #[cfg(unix)]
     crate::gate_caps::check(&app)?;
+    // push_allowed is enforced by the launcher rule in the prompt only; no
+    // harness has a push flag. git_push without push_allowed is refused here.
+    let push_ok = if let Some(g) = go_launch.as_mut() {
+        let primary_ok = match g.run.harness.as_str() {
+            "cursor" => find_on_path("cursor-agent").is_some(),
+            "goose" => find_on_path("goose").is_some(),
+            "grok" => find_on_path("grok").is_some(),
+            "herdr" => find_on_path("herdr").is_some() || find_on_path("grok").is_some(),
+            _ => true,
+        };
+        g.run = crate::plans::apply_fallback(&g.run, primary_ok);
+        let push_ok = crate::plans::push_decision(&g.run)?;
+        let door = crate::plans::door_harness(&g.run.harness);
+        if door == "manual" {
+            let _ = std::process::Command::new("open").arg(&g.parsed.path).status();
+            record_go_launch(&app, g);
+            return Ok(format!(
+                "Opened {} (harness manual). Nothing launched.",
+                g.parsed.path.display()
+            ));
+        }
+        shortcut.harness = door;
+        if !g.run.model.is_empty() {
+            if shortcut.harness == "cursor" {
+                crate::agents::validate_model(&g.run.model)?;
+            }
+            shortcut.model = Some(g.run.model.clone());
+        }
+        push_ok
+    } else {
+        false
+    };
     let pid = shortcut.project_id.clone().unwrap_or_default();
     let card_id = crate::state::load_state(&app).ok().and_then(|st| {
         titles.first().and_then(|t| {
@@ -3015,43 +3491,122 @@ pub fn launch_agent(
     } else {
         crate::task::start(&app, &pid, card_id.as_deref())
     };
-    let (query, skipped) = write_agent_query(&app, &shortcut, project_name.as_deref(), &titles)?;
+    let go_text = go_launch
+        .as_ref()
+        .map(|g| crate::plans::launch_text(&g.parsed, push_ok));
+    let (query, skipped) =
+        write_agent_query(&app, &shortcut, project_name.as_deref(), &titles, go_text.as_deref())?;
     let skip_note = if skipped > 0 {
         format!(" Skipped {skipped} unreadable md path(s).")
     } else {
         String::new()
     };
+    // Boot liveness (task::boot): what we handed off to, per door.
+    let mut hint = crate::task::LiveHint::default();
+    let run_tag = task_id.clone().or_else(|| card_id.clone()).unwrap_or_else(|| {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        format!("n{ms:x}")
+    });
+    let context_dir = query
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (terminal_script, terminal_pid_file) =
+        terminal_run_paths(&context_dir, &shortcut.id, &run_tag);
+    let ws_state = crate::state::load_state(&app).ok();
+    let workspace = crate::herdr::planet_cwd(ws_state.as_ref(), &pid, project_name.as_deref());
+    let planet_for_log = shortcut.project_id.as_deref().filter(|p| !p.is_empty());
     let out: Result<String, String> = (|| {
     match shortcut.harness.trim().to_ascii_lowercase().as_str() {
         "cursor" => {
+            let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
+            // The model reaches herdr argv and a zsh line: refuse, never strip.
+            let model = crate::agents::launch_model(&shortcut)
+                .map_err(|why| launch_refused(&app, planet_for_log, "cursor", &why))?;
+            let ws = Path::new(&workspace);
+            // Project permissions exist only for a launch that happened.
+            // The file is written once a door is chosen: before
+            // herdr::branch() for the herdr door (herdr starts
+            // cursor-agent itself, so it must already be there), and again
+            // for the terminal door once cursor-agent is found. Either is
+            // rolled back if that door doesn't launch (herdr skip, open
+            // failure). Refusals (tracked cli.json, /, $HOME, ~/.cursor) are
+            // logged and the launch still goes. A main checkout, ~/orbitty
+            // included, is allowed; the local exclude keeps it uncommitted.
+            let install = || match install_cursor_permissions(ws, preset) {
+                Ok(undo) => Some(undo),
+                Err(why) => {
+                    crate::event_log::append_best(
+                        &app,
+                        "cursor-permissions",
+                        None,
+                        planet_for_log,
+                        Some("agent"),
+                        true,
+                        &serde_json::json!({ "reason": why, "preset": preset }),
+                    );
+                    None
+                }
+            };
+            // Herdr door: herdr starts cursor-agent itself, so the file must
+            // be there before branch(). A skip takes it back.
+            let undo = install();
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+                crate::herdr::Branch::Skip => {
+                    if let Some(u) = undo {
+                        u.rollback();
+                    }
+                }
+                crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                    hint.herdr_agent = Some(agent);
+                    return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
+                }
+            }
+            // Terminal door: only once the CLI is known to exist.
             let Some(bin) = find_on_path("cursor-agent") else {
                 return Err(
                     "cursor-agent not on PATH — install the Cursor CLI or pick another harness."
                         .to_string(),
                 );
             };
-            // cursor-agent's chat is a TTY TUI: open it in Terminal via a
-            // .command launcher with the query file as the initial prompt.
-            // No `exec` — the launcher's EXIT trap owns the LED off.
-            let model_arg = shortcut
-                .model
-                .as_deref()
-                .map(str::trim)
-                .filter(|m| !m.is_empty())
-                .map(|m| format!(" --model \"{}\"", m.replace('"', "")))
-                .unwrap_or_default();
-            open_agent_terminal(
+            let exec = crate::agents::cursor_exec_line(&bin.display().to_string(), &model, preset);
+            let undo = install();
+            let opened = match open_agent_terminal(
+                &app,
                 &query,
-                &format!("\"{}\"{model_arg} \"$prompt\"", bin.display()),
-            )?;
+                &terminal_script,
+                &terminal_pid_file,
+                &exec,
+                Some(workspace.as_str()),
+                planet_for_log,
+            ) {
+                Ok(o) => o,
+                Err(e) => {
+                    if let Some(u) = undo {
+                        u.rollback();
+                    }
+                    return Err(e);
+                }
+            };
+            hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
-                "Opened cursor-agent in Terminal. Query: {}.{skip_note}",
+                "Opened cursor-agent in {opened}. Query: {}.{skip_note}",
                 query.display()
             ))
         }
-        // Goose and grok are named doors with the
-        // same visible Terminal handoff as cursor — never a silent hermes.
+        // Goose is not a herdr kind. branch() logs the skip, then the
+        // terminal door runs. Never a silent hermes.
         "goose" => {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+                crate::herdr::Branch::Skip => {}
+                crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                    hint.herdr_agent = Some(agent);
+                    return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
+                }
+            }
             let Some(bin) = find_on_path("goose") else {
                 return Err(
                     "`goose` not on PATH — install the Goose CLI or pick another harness."
@@ -3060,26 +3615,30 @@ pub fn launch_agent(
             };
             // Same full-tools builtin set as the companion goose mouth
             // (BLOCK-MH-4): the agent can act, not just talk.
-            open_agent_terminal(
+            let opened = open_agent_terminal(
+                &app,
                 &query,
-                &format!(
-                    "\"{}\" run --with-builtin=developer,computercontroller -t \"$prompt\"",
-                    bin.display()
-                ),
+                &terminal_script,
+                &terminal_pid_file,
+                &crate::agents::goose_exec_line(&bin.display().to_string()),
+                Some(workspace.as_str()),
+                planet_for_log,
             )?;
+            hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
-                "Opened goose run in Terminal. Query: {}.{skip_note}",
+                "Opened goose run in {opened}. Query: {}.{skip_note}",
                 query.display()
             ))
         }
         "grok" => {
             // The herdr branch of this door —
             // pane first, agent second, when herdr is present + up.
-            // Skip falls through to the Terminal launcher unchanged
+            // Skip falls through to the terminal launcher
             // (one skip line was already logged; never a dual-launch).
             match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
                 crate::herdr::Branch::Skip => {}
-                crate::herdr::Branch::Up(m) | crate::herdr::Branch::Blocked(m) => {
+                crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                    hint.herdr_agent = Some(agent);
                     return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
                 }
             }
@@ -3089,35 +3648,34 @@ pub fn launch_agent(
                         .to_string(),
                 );
             };
-            open_agent_terminal(&query, &format!("\"{}\" -p \"$prompt\"", bin.display()))?;
+            let opened = open_agent_terminal(
+                &app,
+                &query,
+                &terminal_script,
+                &terminal_pid_file,
+                &crate::agents::grok_exec_line(&bin.display().to_string()),
+                Some(workspace.as_str()),
+                planet_for_log,
+            )?;
+            hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
-                "Opened grok in Terminal. Query: {}.{skip_note}",
+                "Opened grok in {opened}. Query: {}.{skip_note}",
                 query.display()
             ))
         }
-        // Hermes door: hermes -p <profile> chat with the query file.
-        // no Terminal
-        // launcher here, so a waiter thread owns the off — the dock LED
-        // goes dark when the hermes process exits (the Terminal doors do
-        // it through the .command EXIT trap). Detached stdio, never a
-        // poll.
+        // Hermes tries herdr first. On skip, hermes -p <profile> chat
+        // with the query file. No terminal launcher on that fallback, so
+        // a waiter thread owns the LED off. Detached stdio, never a poll.
         "hermes" => {
-            let profile = {
-                let p = shortcut.profile.trim();
-                if p.is_empty() { "grok" } else { p }
-            };
-            let mut args: Vec<String> = vec![
-                "-p".into(),
-                profile.into(),
-                "chat".into(),
-                "--create-if-missing".into(),
-                "-Q".into(),
-                "--query-file".into(),
-                query.display().to_string(),
-            ];
-            if let Some(m) = shortcut.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-                args.push("-m".into());
-                args.push(m.to_string());
+            // Profile + model reach hermes argv: validated before any door.
+            let args = crate::agents::hermes_args(&shortcut, &query)
+                .map_err(|why| launch_refused(&app, planet_for_log, "hermes", &why))?;
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+                crate::herdr::Branch::Skip => {}
+                crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                    hint.herdr_agent = Some(agent);
+                    return Ok(format!("{m} Query: {}.{skip_note}", query.display()));
+                }
             }
             let spawned = Command::new("hermes")
                 .args(&args)
@@ -3127,13 +3685,21 @@ pub fn launch_agent(
                 .spawn();
             match spawned {
                 Ok(mut child) => {
+                    hint.pid = Some(child.id());
                     let app2 = app.clone();
+                    let tid = task_id.clone();
                     std::thread::spawn(move || {
-                        let _ = child.wait();
-                        let _ = set_companion_hack(app2, false, None, None);
+                        let ok = child.wait().map(|st| st.success()).unwrap_or(false);
+                        let _ = set_companion_hack(app2.clone(), false, None, None);
+                        // Observed exit: close the task so boot never
+                        // has to guess about it.
+                        if let Some(tid) = tid {
+                            crate::task::end(&app2, &tid, if ok { "done" } else { "failed" });
+                        }
                     });
                     Ok(format!(
-                        "Launched hermes -p {profile} chat. Query: {}.{skip_note}",
+                        "Launched hermes {} chat. Query: {}.{skip_note}",
+                        args[0],
                         query.display()
                     ))
                 }
@@ -3148,7 +3714,8 @@ pub fn launch_agent(
         // `opencode serve`d as the mouth. No Terminal door exists for it,
         // so a skip is an honest error, not a fall-through.
         "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
-            crate::herdr::Branch::Up(m) | crate::herdr::Branch::Blocked(m) => {
+            crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
+                hint.herdr_agent = Some(agent);
                 Ok(format!("{m} Query: {}.{skip_note}", query.display()))
             }
             crate::herdr::Branch::Skip => Err(
@@ -3164,7 +3731,49 @@ pub fn launch_agent(
     if let (Some(tid), Err(_)) = (task_id.as_deref(), &out) {
         crate::task::end(&app, tid, "failed");
     }
+    if let (Some(tid), Ok(_)) = (task_id.as_deref(), &out) {
+        if hint.pid.is_some() || hint.pid_file.is_some() || hint.herdr_agent.is_some() {
+            crate::task::note_live(&app, tid, &hint);
+        }
+    }
+    if out.is_ok() {
+        if let Some(g) = go_launch.as_ref() {
+            record_go_launch(&app, g);
+        }
+    }
     out
+}
+
+fn record_go_launch(app: &tauri::AppHandle, g: &GoLaunch) {
+    let id = g.parsed.id();
+    let unsupported = crate::plans::unsupported_tools(&g.run.harness, &g.run.tools);
+    crate::event_log::append_best(
+        app,
+        "go-launch",
+        None,
+        Some(&g.project_id),
+        Some("agent"),
+        true,
+        &serde_json::json!({
+            "id": id,
+            "file": g.parsed.path.display().to_string(),
+            "sha256": crate::plans::sha256_hex(g.parsed.raw.as_bytes()),
+            "runner": g.run.runner,
+            "harness": g.run.harness,
+            "tools": g.run.tools,
+            "route": g.route,
+            "cardId": g.card_id,
+            "fallback": g.run.fell_back,
+            "fallbackWhy": g.run.fallback_why,
+            "unsupported": unsupported,
+        }),
+    );
+    let line = if let Some(why) = g.run.fallback_why.as_deref() {
+        format!("Launched {id} via fallback {} / {} — {why}", g.run.runner, g.run.harness)
+    } else {
+        format!("Launched {id} via {} / {}.", g.run.runner, g.run.harness)
+    };
+    let _ = crate::board::kanban_note_append(app, &g.card_id, &line);
 }
 
 #[cfg(target_os = "macos")]
@@ -3215,4 +3824,564 @@ mod mac {
             false
         }
     }
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn row() -> crate::state::AgentShortcut {
+        crate::state::AgentShortcut {
+            id: "a1".into(),
+            name: "orbitty-cursor".into(),
+            harness: "cursor".into(),
+            profile: String::new(),
+            model: None,
+            md_paths: vec![],
+            project_id: Some("p1".into()),
+            extra: None,
+            permissions: "read-only".into(),
+        }
+    }
+
+    #[test]
+    fn query_file_carries_the_full_go_text() {
+        let titles = vec!["GO-ORBITTY-X".to_string()];
+        let go = "---\nid: GO-ORBITTY-X\n---\nBODY-SENTINEL\n\n## Launcher rules\n\n- git push: NOT allowed";
+        let (body, _) = agent_query_body(&row(), Some("orbitty"), &titles, Some(go));
+        assert!(body.contains("## GO\n\n---\nid: GO-ORBITTY-X"), "{body}");
+        assert!(body.contains("BODY-SENTINEL"), "{body}");
+        assert!(body.contains("git push: NOT allowed"), "{body}");
+        assert!(!body.contains("titles only"), "{body}");
+        // GO text comes before the planet titles.
+        assert!(body.find("BODY-SENTINEL").unwrap() < body.find("- GO-ORBITTY-X").unwrap());
+        let (plain, _) = agent_query_body(&row(), Some("orbitty"), &titles, None);
+        assert!(!plain.contains("## GO"), "{plain}");
+        assert!(plain.contains("titles only"), "{plain}");
+    }
+
+    #[test]
+    fn terminal_setting_picks_ghostty_when_empty_and_installed() {
+        assert_eq!(resolve_agent_terminal("", true), "Ghostty");
+        assert_eq!(resolve_agent_terminal("", false), "Terminal");
+        assert_eq!(resolve_agent_terminal("ghostty", false), "Ghostty");
+        assert_eq!(resolve_agent_terminal("terminal", true), "Terminal");
+        assert_eq!(resolve_agent_terminal("nope", true), "Ghostty");
+        assert_eq!(resolve_agent_terminal("nope", false), "Terminal");
+    }
+
+    #[test]
+    fn command_script_uses_bundled_ctl_and_sock() {
+        let ctl = PathBuf::from("/Applications/Orbitty Nightly.app/Contents/MacOS/orbittyctl");
+        let sock = PathBuf::from("/tmp/nightly/control.sock");
+        let body = agent_command_body(
+            Path::new("/tmp/q.md"),
+            Path::new("/tmp/run.command"),
+            Path::new("/tmp/run.pid"),
+            "\"/usr/local/bin/cursor-agent\" --model \"grok-4.7-high\" \"$prompt\"",
+            &ctl,
+            &sock,
+            Some("/tmp/workspace"),
+        );
+        assert!(body.contains(ctl.to_str().unwrap()));
+        assert!(body.contains("--sock"));
+        assert!(body.contains(sock.to_str().unwrap()));
+        assert!(body.contains("cd '/tmp/workspace'"));
+        assert!(body.contains("trap orbitty_cleanup EXIT"));
+        assert!(!body.contains(".local/bin"));
+        let argv = open_terminal_argv("Ghostty", Path::new("/tmp/run.command"));
+        assert_eq!(
+            argv,
+            vec![
+                "-a".to_string(),
+                "Ghostty".to_string(),
+                "/tmp/run.command".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn cursor_permissions_land_in_the_worktree_exclude() {
+        let dir = std::env::temp_dir().join(format!(
+            "orbitty-cursor-perm-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let init = std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(&dir)
+            .status()
+            .expect("git init");
+        assert!(init.success(), "git init");
+        install_cursor_permissions(&dir, "read-only").unwrap();
+        let cli_path = project_cli_path(&dir);
+        assert!(cli_path.ends_with(".cursor/cli.json"));
+        assert!(!cli_path.to_string_lossy().contains("cli-config.json"));
+        let raw = std::fs::read_to_string(&cli_path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let allow = v["permissions"]["allow"].as_array().unwrap();
+        assert!(allow.iter().any(|t| t == "Shell(find)"));
+        assert!(allow.iter().any(|t| t == "Shell(head)"));
+        assert!(allow.iter().all(|t| !t.as_str().unwrap_or("").starts_with("Write(")));
+        assert!(v["permissions"]["deny"].as_array().unwrap().iter().any(|t| t == "Write(**)"));
+        let exclude = std::fs::read_to_string(dir.join(".git/info/exclude")).unwrap();
+        assert!(exclude.lines().any(|l| l.trim() == "**/.cursor/cli.json"));
+
+        let mut root: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        root["editor"] = serde_json::json!({ "vimMode": true });
+        std::fs::write(&cli_path, serde_json::to_string_pretty(&root).unwrap()).unwrap();
+        install_cursor_permissions(&dir, "workspace-write").unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cli_path).unwrap()).unwrap();
+        assert_eq!(v["editor"]["vimMode"], true);
+        assert!(v["permissions"]["allow"].as_array().unwrap().iter().any(|t| t == "Write(**)"));
+        assert!(v["permissions"]["allow"].as_array().unwrap().iter().all(|t| {
+            !t.as_str().unwrap_or("").starts_with("Write(/")
+        }));
+        assert!(v["permissions"]["deny"].as_array().unwrap().is_empty());
+
+        install_cursor_permissions(&dir, "full-auto").unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cli_path).unwrap()).unwrap();
+        assert!(v["permissions"]["deny"].as_array().unwrap().is_empty());
+
+        let home = std::env::var("HOME").unwrap_or_default();
+        if !home.is_empty() {
+            assert!(install_cursor_permissions(Path::new(&home), "read-only").is_err());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "orbitty-cl-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::canonicalize(&d).unwrap()
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    }
+
+    fn repo_with_commit(dir: &Path) {
+        git(dir, &["init", "-q", "-b", "main"]);
+        std::fs::write(dir.join("README"), "x\n").unwrap();
+        git(dir, &["add", "README"]);
+        git(dir, &["commit", "-q", "-m", "init", "--no-verify"]);
+    }
+
+    fn arr(v: &serde_json::Value, key: &str) -> Vec<String> {
+        v["permissions"][key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn linked_worktree_cli_json_is_ignored() {
+        let base = tmp("wt");
+        let main = base.join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        repo_with_commit(&main);
+        let wt = base.join("wt");
+        git(&main, &["worktree", "add", "-q", "-b", "wt", wt.to_str().unwrap()]);
+        install_cursor_permissions_with_home(&wt, "read-only", None).unwrap();
+        assert!(project_cli_path(&wt).is_file());
+        assert_eq!(git(&wt, &["status", "--porcelain", "-uall"]).trim(), "");
+        git(&wt, &["check-ignore", "-q", ".cursor/cli.json"]);
+        let common = std::fs::read_to_string(main.join(".git/info/exclude")).unwrap();
+        assert!(common.lines().any(|l| l == "**/.cursor/cli.json"));
+        // Idempotent: a second install doesn't duplicate the pattern.
+        install_cursor_permissions_with_home(&wt, "read-only", None).unwrap();
+        let common = std::fs::read_to_string(main.join(".git/info/exclude")).unwrap();
+        assert_eq!(common.lines().filter(|l| *l == "**/.cursor/cli.json").count(), 1);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn subdirectory_workspace_cli_json_is_ignored() {
+        let base = tmp("sub");
+        repo_with_commit(&base);
+        let sub = base.join("pkg").join("app");
+        std::fs::create_dir_all(&sub).unwrap();
+        install_cursor_permissions_with_home(&sub, "read-only", None).unwrap();
+        assert!(sub.join(".cursor/cli.json").is_file());
+        assert_eq!(git(&base, &["status", "--porcelain", "-uall"]).trim(), "");
+        git(&sub, &["check-ignore", "-q", ".cursor/cli.json"]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn tracked_cli_json_is_left_untouched() {
+        let base = tmp("tracked");
+        repo_with_commit(&base);
+        std::fs::create_dir_all(base.join(".cursor")).unwrap();
+        let theirs = "{\n  \"version\": 1,\n  \"permissions\": {\"allow\": [\"Shell(npm)\"], \"deny\": [\"Shell(rm)\"]}\n}\n";
+        std::fs::write(base.join(".cursor/cli.json"), theirs).unwrap();
+        git(&base, &["add", ".cursor/cli.json"]);
+        git(&base, &["commit", "-q", "-m", "cfg", "--no-verify"]);
+        let err = install_cursor_permissions_with_home(&base, "read-only", None).err().unwrap();
+        assert!(err.contains("tracked .cursor/cli.json left untouched"), "{err}");
+        assert_eq!(std::fs::read_to_string(base.join(".cursor/cli.json")).unwrap(), theirs);
+        assert!(!base.join(".cursor/orbitty-managed.json").exists());
+        assert_eq!(git(&base, &["status", "--porcelain", "-uall"]).trim(), "");
+        // Same from a subdirectory of the repo root? Not applicable: the
+        // tracked file is the root's; a sub workspace has its own path.
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn untracked_cli_json_keeps_user_lists_across_presets() {
+        let base = tmp("merge");
+        let user = serde_json::json!({
+            "version": 1,
+            "editor": {"vimMode": true},
+            "permissions": {"allow": ["Shell(npm)"], "deny": ["Shell(rm)", "Write(**)"]}
+        });
+        std::fs::create_dir_all(base.join(".cursor")).unwrap();
+        std::fs::write(base.join(".cursor/cli.json"), user.to_string()).unwrap();
+        install_cursor_permissions_with_home(&base, "read-only", None).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(base.join(".cursor/cli.json")).unwrap()).unwrap();
+        let (allow, deny) = (arr(&v, "allow"), arr(&v, "deny"));
+        assert_eq!(allow[0], "Shell(npm)");
+        assert!(allow.contains(&"Shell(find)".to_string()));
+        assert_eq!(&deny[..2], &["Shell(rm)".to_string(), "Write(**)".to_string()]);
+        assert!(deny.contains(&"Shell(find:*-delete*)".to_string()));
+        assert_eq!(deny.iter().filter(|d| *d == "Write(**)").count(), 1);
+        assert_eq!(v["editor"]["vimMode"], true);
+
+        // workspace-write: our read-only denies go, the user's stay —
+        // including their own Write(**) deny.
+        install_cursor_permissions_with_home(&base, "workspace-write", None).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(base.join(".cursor/cli.json")).unwrap()).unwrap();
+        let (allow, deny) = (arr(&v, "allow"), arr(&v, "deny"));
+        assert_eq!(deny, vec!["Shell(rm)".to_string(), "Write(**)".to_string()]);
+        assert!(allow.contains(&"Shell(npm)".to_string()));
+        assert!(allow.contains(&"Write(**)".to_string()));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn failed_launch_rolls_the_permission_file_back() {
+        let base = tmp("undo");
+        let undo = install_cursor_permissions_with_home(&base, "read-only", None).unwrap();
+        assert!(project_cli_path(&base).is_file());
+        undo.rollback();
+        assert!(!base.join(".cursor").exists());
+
+        std::fs::create_dir_all(base.join(".cursor")).unwrap();
+        let mine = "{\"version\":1,\"permissions\":{\"allow\":[\"Shell(npm)\"]}}";
+        std::fs::write(project_cli_path(&base), mine).unwrap();
+        let undo = install_cursor_permissions_with_home(&base, "full-auto", None).unwrap();
+        assert_ne!(std::fs::read_to_string(project_cli_path(&base)).unwrap(), mine);
+        undo.rollback();
+        assert_eq!(std::fs::read_to_string(project_cli_path(&base)).unwrap(), mine);
+        assert!(!base.join(".cursor/orbitty-managed.json").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn refuses_home_and_global_cursor_dir() {
+        let home = tmp("home");
+        let sub = home.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let h = Some(home.as_path());
+        assert!(cursor_perm_refusal(&home, h).is_some());
+        assert!(cursor_perm_refusal(&sub.join(".."), h).is_some(), "$HOME/sub/.. must be $HOME");
+        assert!(cursor_perm_refusal(&home.join("."), h).is_some());
+        #[cfg(unix)]
+        {
+            let link = home.join("sub/homelink");
+            std::os::unix::fs::symlink(&home, &link).unwrap();
+            assert!(cursor_perm_refusal(&link, h).is_some(), "symlink to $HOME");
+        }
+        let gcur = home.join(".cursor/projects");
+        std::fs::create_dir_all(&gcur).unwrap();
+        assert!(cursor_perm_refusal(&home.join(".cursor"), h).is_some());
+        assert!(cursor_perm_refusal(&gcur, h).is_some());
+        assert!(cursor_perm_refusal(&sub, h).is_none());
+        assert!(cursor_perm_refusal(Path::new("/"), h).is_some());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// N4 decision: the main (non-linked) checkout — a temp `$HOME/orbitty`
+    /// stands in for `~/orbitty` via the injected home — gets the preset,
+    /// kept out of commits by its own info/exclude.
+    #[test]
+    fn main_checkout_gets_preset_and_stays_uncommitted() {
+        let home = tmp("mainco");
+        let orb = home.join("orbitty");
+        std::fs::create_dir_all(&orb).unwrap();
+        repo_with_commit(&orb);
+        // Non-linked: git dir == common dir.
+        assert_eq!(
+            git(&orb, &["rev-parse", "--git-dir"]).trim(),
+            git(&orb, &["rev-parse", "--git-common-dir"]).trim()
+        );
+        let h = Some(home.as_path());
+        assert!(cursor_perm_refusal(&orb, h).is_none());
+        install_cursor_permissions_with_home(&orb, "read-only", h).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(project_cli_path(&orb)).unwrap()).unwrap();
+        assert!(arr(&v, "allow").contains(&"Shell(find)".to_string()));
+        assert!(arr(&v, "deny").contains(&"Write(**)".to_string()));
+        let exclude = std::fs::read_to_string(orb.join(".git/info/exclude")).unwrap();
+        assert!(exclude.lines().any(|l| l == "**/.cursor/cli.json"));
+        assert_eq!(git(&orb, &["status", "--porcelain", "-uall"]).trim(), "");
+        git(&orb, &["check-ignore", "-q", ".cursor/cli.json"]);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// N1 source guard: the launch doors validate their row values FIRST.
+    /// Cursor: `launch_model(&shortcut)…?` before permissions, herdr and the
+    /// terminal. Hermes: `hermes_args(&shortcut, &query)…?` before herdr
+    /// and the spawn. Byte offsets inside each `launch_agent` arm.
+    fn launch_arm<'a>(src: &'a str, start: &str, next: &str) -> &'a str {
+        let body = &src[src.find("pub fn launch_agent(").expect("launch_agent")..];
+        let a = body.find(start).unwrap_or_else(|| panic!("no arm {start}"));
+        let b = a + body[a..].find(next).unwrap_or_else(|| panic!("no arm {next}"));
+        &body[a..b]
+    }
+
+    /// Offset of `call`, asserting its statement ends in `?;`.
+    fn checked_call(arm: &str, call: &str) -> usize {
+        let at = arm.find(call).unwrap_or_else(|| panic!("missing {call}"));
+        let stmt_end = at + arm[at..].find(';').unwrap();
+        assert!(arm[..stmt_end].ends_with('?'), "{call} must end in `?;`");
+        at
+    }
+
+    #[test]
+    fn launch_doors_validate_before_herdr_and_spawn() {
+        let src = include_str!("coordinator.rs");
+        let cursor = launch_arm(src, "\n        \"cursor\" => {", "\n        \"goose\" => {");
+        let at = checked_call(cursor, "crate::agents::launch_model(&shortcut)");
+        for later in ["install_cursor_permissions(", "crate::herdr::branch(", "open_agent_terminal("] {
+            let pos = cursor.find(later).unwrap_or_else(|| panic!("cursor arm lost {later}"));
+            assert!(at < pos, "launch_model must come before {later}");
+        }
+        assert!(!cursor.contains("cursor_model("), "cursor arm resolves the model via launch_model");
+
+        let hermes = launch_arm(src, "\n        \"hermes\" => {", "\n        \"opencode\" =>");
+        let at = checked_call(hermes, "crate::agents::hermes_args(&shortcut, &query)");
+        for later in ["crate::herdr::branch(", "Command::new(\"hermes\")"] {
+            let pos = hermes.find(later).unwrap_or_else(|| panic!("hermes arm lost {later}"));
+            assert!(at < pos, "hermes_args must come before {later}");
+        }
+        assert!(!hermes.contains("\"-m\"") && !hermes.contains("\"-p\""), "hermes argv comes from hermes_args");
+    }
+
+    #[test]
+    fn sq_escapes_single_quotes() {
+        assert_eq!(sq("a b"), "'a b'");
+        assert_eq!(sq("it's"), "'it'\\''s'");
+        assert_eq!(sq(""), "''");
+    }
+
+    fn find_pwned(dir: &Path, hits: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            // The hostile names contain "PWNED" mid-name; a marker that
+            // actually ran is a file NAMED PWNED_*.
+            if p.file_name().unwrap().to_string_lossy().starts_with("PWNED") {
+                hits.push(p.clone());
+            }
+            if p.is_dir() && !p.is_symlink() {
+                find_pwned(&p, hits);
+            }
+        }
+    }
+
+    /// Run a generated terminal door under zsh with a stub that records its
+    /// argv NUL-separated; returns that argv.
+    fn run_door_with_prompt(tag: &str, name: &str, exec_for: impl Fn(&str) -> String, prompt: &str) -> (String, Vec<String>) {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tmp(tag);
+        let exe = |n: &str| {
+            let p = base.join(n);
+            std::fs::write(&p, "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\000' \"$a\"; done > \"$0.args\"\n").unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let bin = exe(name);
+        let ctl = exe("orbittyctl");
+        let query = base.join("q.md");
+        std::fs::write(&query, prompt).unwrap();
+        let exec = exec_for(bin.to_str().unwrap());
+        let script = base.join("run.command");
+        let body = agent_command_body(&query, &script, &base.join("run.pid"), &exec, &ctl, &base.join("sock"), Some(base.to_str().unwrap()));
+        std::fs::write(&script, &body).unwrap();
+        let run = std::process::Command::new("/bin/zsh").arg(&script).current_dir(&base).output().unwrap();
+        assert!(run.status.success(), "run: {}", String::from_utf8_lossy(&run.stderr));
+        let raw = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
+        let args = raw.trim_end_matches('\0').split('\0').map(String::from).collect();
+        let _ = std::fs::remove_dir_all(&base);
+        (exec, args)
+    }
+
+    const DASHED: &str = "---\nid: GO-DASHES\n---\n-t and -p and --force are text here $(touch PWNED_D)";
+
+    #[test]
+    fn goose_prompt_starting_with_dashes_is_the_attached_text_value() {
+        if !Path::new("/bin/zsh").exists() {
+            return;
+        }
+        let (exec, args) = run_door_with_prompt("goose", "goose", crate::agents::goose_exec_line, DASHED);
+        assert!(exec.ends_with(" --text=\"$prompt\""), "{exec}");
+        assert!(!exec.contains(" -t "), "{exec}");
+        assert_eq!(args, vec!["run".to_string(), "--with-builtin=developer,computercontroller".into(), format!("--text={DASHED}")]);
+        let mouth = goose_args("soul", DASHED, None, true);
+        assert_eq!(mouth.last().unwrap(), &format!("--text={DASHED}"));
+        assert!(!mouth.iter().any(|a| a == "-t" || a == DASHED));
+    }
+
+    #[test]
+    fn grok_prompt_starting_with_dashes_is_the_attached_single_value() {
+        if !Path::new("/bin/zsh").exists() {
+            return;
+        }
+        let (exec, args) = run_door_with_prompt("grok", "grok", crate::agents::grok_exec_line, DASHED);
+        assert!(exec.ends_with(" --single=\"$prompt\""), "{exec}");
+        assert!(!exec.contains(" -p "), "{exec}");
+        assert_eq!(args, vec![format!("--single={DASHED}")]);
+        let mouth = grok_args("sid", false, "soul", DASHED, true, None);
+        assert_eq!(mouth[0], format!("--single={DASHED}"));
+        assert!(!mouth.iter().any(|a| a == "-p" || a == DASHED));
+    }
+
+    /// A GO passed as the prompt starts with `---`; the generated cursor
+    /// command must put `--` right before it, and the prompt must arrive
+    /// as one exact argument.
+    #[test]
+    fn cursor_prompt_starting_with_dashes_follows_end_of_options() {
+        if !Path::new("/bin/zsh").exists() {
+            eprintln!("no /bin/zsh; skipped");
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let base = tmp("dashes");
+        let exe = |name: &str| {
+            let p = base.join(name);
+            std::fs::write(&p, "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\000' \"$a\"; done > \"$0.args\"\n").unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let bin = exe("cursor-agent");
+        let ctl = exe("orbittyctl");
+        let prompt = "---\nid: GO-DASHES\ntools: [shell]\n---\n--force is not a flag here";
+        let query = base.join("q.md");
+        std::fs::write(&query, prompt).unwrap();
+        let exec = crate::agents::cursor_exec_line(bin.to_str().unwrap(), "grok-4.7-high", "full-auto");
+        assert!(exec.ends_with(" -- \"$prompt\""), "{exec}");
+        let script = base.join("run.command");
+        let body = agent_command_body(
+            &query,
+            &script,
+            &base.join("run.pid"),
+            &exec,
+            &ctl,
+            &base.join("sock"),
+            Some(base.to_str().unwrap()),
+        );
+        std::fs::write(&script, &body).unwrap();
+        let run = std::process::Command::new("/bin/zsh").arg(&script).current_dir(&base).output().unwrap();
+        assert!(run.status.success(), "run: {}", String::from_utf8_lossy(&run.stderr));
+        let raw = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
+        let args: Vec<&str> = raw.trim_end_matches('\0').split('\0').collect();
+        assert_eq!(args, vec!["--model=grok-4.7-high", "--force", "--trust", "--", prompt]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// B2: hostile dir / model / query / pid / script / bin / ctl / sock
+    /// values. `zsh -n` must parse the body, and running it must execute
+    /// nothing from any value, pass each value through verbatim, and still
+    /// run the cleanup trap.
+    #[test]
+    fn command_body_survives_hostile_values_under_zsh() {
+        if !Path::new("/bin/zsh").exists() {
+            eprintln!("no /bin/zsh; skipped");
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let base = tmp("zsh");
+        let evil = "x 'q' \"dq\" $(touch PWNED_S) `touch PWNED_B`; touch PWNED_C\nnl & | < >";
+        let dir = base.join(format!("dir {evil}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = |name: String, body: &str| {
+            let p = base.join(name);
+            std::fs::write(&p, body).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let rec = "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\n";
+        let bin = exe(format!("bin {evil}"), rec);
+        let ctl = exe(format!("ctl {evil}"), rec);
+        let sock = base.join(format!("sock {evil}"));
+        let query = base.join(format!("q {evil}.md"));
+        std::fs::write(&query, "hello $(touch PWNED_PROMPT)").unwrap();
+        let pidf = base.join(format!("pid {evil}.pid"));
+        let script = base.join(format!("run {evil}.command"));
+        let model = format!("m {evil}");
+        let exec = crate::agents::cursor_exec_line(bin.to_str().unwrap(), &model, "read-only");
+        let body = agent_command_body(
+            &query,
+            &script,
+            &pidf,
+            &exec,
+            &ctl,
+            &sock,
+            Some(dir.to_str().unwrap()),
+        );
+        std::fs::write(&script, &body).unwrap();
+        let n = std::process::Command::new("/bin/zsh").arg("-n").arg(&script).output().unwrap();
+        assert!(n.status.success(), "zsh -n: {}\n{body}", String::from_utf8_lossy(&n.stderr));
+        let run = std::process::Command::new("/bin/zsh")
+            .arg(&script)
+            .current_dir(&base)
+            .output()
+            .unwrap();
+        assert!(run.status.success(), "run: {}", String::from_utf8_lossy(&run.stderr));
+        let mut hits = Vec::new();
+        find_pwned(&base, &mut hits);
+        assert!(hits.is_empty(), "executed: {hits:?}");
+        let bin_args = std::fs::read_to_string(format!("{}.args", bin.display())).unwrap();
+        assert_eq!(
+            bin_args,
+            format!("--model={model}\n--\nhello $(touch PWNED_PROMPT)\n")
+        );
+        let ctl_args = std::fs::read_to_string(format!("{}.args", ctl.display())).unwrap();
+        assert_eq!(
+            ctl_args,
+            format!("--sock\n{}\ncompanion\nhack\n--\noff\n", sock.display())
+        );
+        assert!(!pidf.exists(), "cleanup removed the pid file");
+        assert!(!script.exists(), "cleanup removed the script");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
 }

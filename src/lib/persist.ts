@@ -73,6 +73,11 @@ export type NeededState = "open" | "later" | "answered" | "skipped";
 export type Actor = "user" | "agent" | "action" | "vps";
 export type Difficulty = "trivial" | "easy" | "medium" | "hard";
 
+export interface CardLink {
+  url: string;
+  label?: string | null;
+}
+
 export interface Subtask {
   id: string;
   title: string;
@@ -87,6 +92,11 @@ export interface Tracker {
   kind?: "number" | "timer";
   // Epoch ms while a timer is running. Stop folds the delta into value.
   runningSince?: number;
+}
+
+export interface CardTombstone {
+  id: string;
+  lastTouchedAt: number;
 }
 
 export interface KanbanCard {
@@ -127,6 +137,9 @@ export interface KanbanCard {
   trackers?: Tracker[];
   taskId?: string | null;
   taskReason?: string | null;
+  // file:// or https:// links. Additive — window maps spread the card,
+  // so a board/rail save round-trips this instead of dropping it.
+  links?: CardLink[] | null;
 }
 
 export interface PointsEntry {
@@ -175,6 +188,10 @@ export interface AgentShortcut {
   // Free-text extra instructions — pickup
   // concatenates them into the query file after the md paths.
   extra?: string | null;
+  // Cursor CLI preset. "read-only" | "workspace-write" | "full-auto".
+  // Missing = read-only. full-auto is the only preset that passes
+  // the CLI --force / --trust flags.
+  permissions?: string;
 }
 
 // One row per doing-run — the agent walker on
@@ -347,6 +364,8 @@ export interface PersistedState {
   collapsedSectionIds: string[];
   nudgeSuppressedWindowIds: string[];
   kanbanCards: KanbanCard[];
+  /** Removed card ids. A later save restores a card only when its lastTouchedAt is newer. */
+  cardTombstones?: CardTombstone[];
   pointsLedger: PointsEntry[];
   titleOverrides: TitleOverride[];
   autohideRowChrome: boolean;
@@ -399,6 +418,9 @@ export interface PersistedState {
   privateRelayUrl?: string;
   // Unused expanded planets marble after this idle. "1h"|"4h"|"12h"|"never". Default 4h.
   planetIdle?: string;
+  // No-herdr terminal. "ghostty" | "terminal" | "". Empty = Ghostty if
+  // installed, else Terminal. Omitted on a save keeps the disk value.
+  agentTerminal?: string;
   // ctl `shift on` ticker. Default off. Optional so older writers type-check.
   shiftOn?: boolean;
   companion: CompanionSlice;

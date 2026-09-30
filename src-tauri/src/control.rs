@@ -219,6 +219,12 @@ const READ_TOOLS: &[&str] = &[
     // companion.*, so it does not reach route.run.
     "route.table",
     "route.classify",
+    // Plans folder and GO status are reads. Setting them, sealing,
+    // and migrate --apply stay write-class (full / named custom).
+    "settings.plans_dir",
+    "settings.runner",
+    "go.status",
+    "plans.migrate",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -293,6 +299,10 @@ fn dispatch(app: &tauri::AppHandle, req: Request) -> Value {
             &format!("tool {tool:?} denied by control.json"),
         );
     }
+    // go.seal is Matt-only: profile full, plus a confirm flag in the handler.
+    if tool == "go.seal" && !matches!(acl, Acl::Full) {
+        return reply_err(&id, ERR_DENIED, "go.seal requires profile full");
+    }
 
     let args = req.args.unwrap_or(Value::Null);
     match run_tool(app, &tool, &args) {
@@ -317,6 +327,43 @@ fn arg_opt(args: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+/// `kanban.add` links: omitted = none. Each item is `{url, label?}`.
+fn arg_links(args: &Value) -> Result<Vec<crate::state::CardLink>, (i32, String)> {
+    let Some(v) = args.get("links") else {
+        return Ok(Vec::new());
+    };
+    if v.is_null() {
+        return Ok(Vec::new());
+    }
+    let arr = v.as_array().ok_or((
+        ERR_OTHER,
+        "kanban.add: links must be an array".to_string(),
+    ))?;
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        let url = item
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or((
+                ERR_OTHER,
+                "kanban.add: each link needs a string \"url\"".to_string(),
+            ))?;
+        let label = item
+            .get("label")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        out.push(crate::state::CardLink {
+            url: url.to_string(),
+            label,
+        });
+    }
+    Ok(out)
 }
 
 /// AX-gated fns already return "accessibility not granted" — surface that
@@ -482,7 +529,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             .map(to_data)
             .map_err(tool_err)
         }
-        "packs.list" => crate::packs::list_packs(app.clone())
+        "packs.list" => crate::packs::list_packs_sync(app.clone())
             .map(to_data)
             .map_err(tool_err),
         "sleeper.wake" => {
@@ -528,10 +575,18 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let title = arg_str(args, "title")?;
             let project = arg_opt(args, "projectId").unwrap_or_default();
             let status = arg_opt(args, "status").unwrap_or_default();
+            let links = arg_links(args)?;
             // Optional one-line summary (notes).
-            crate::board::kanban_add(app, &title, &project, &status, arg_opt(args, "notes").as_deref())
-                .map(to_data)
-                .map_err(tool_err)
+            crate::board::kanban_add(
+                app,
+                &title,
+                &project,
+                &status,
+                arg_opt(args, "notes").as_deref(),
+                links,
+            )
+            .map(to_data)
+            .map_err(tool_err)
         }
         // Set a card's notes (first line = the
         // board-row summary). `notes` must be a string; empty clears —
@@ -545,6 +600,60 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 )
             })?;
             crate::board::kanban_notes(app, &id, notes)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // Append one line to the notes (same write ACL). Unknown to an
+        // older app, so a new client never falls back to a replace.
+        "kanban.note_append" => {
+            let id = arg_str(args, "id")?;
+            let line = arg_str(args, "line")?;
+            crate::board::kanban_note_append(app, &id, &line)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // Same write ACL as kanban.notes. Exactly one of add / rm / clear.
+        "kanban.link" => {
+            let id = arg_str(args, "id")?;
+            let clear = args.get("clear").and_then(Value::as_bool).unwrap_or(false);
+            let rm = arg_opt(args, "rm");
+            let add = arg_opt(args, "add");
+            let modes = [clear, rm.is_some(), add.is_some()]
+                .into_iter()
+                .filter(|on| *on)
+                .count();
+            if modes != 1 {
+                return Err((
+                    ERR_OTHER,
+                    "kanban.link: pass exactly one of add, rm, clear".into(),
+                ));
+            }
+            if clear {
+                crate::board::kanban_link_clear(app, &id)
+                    .map(to_data)
+                    .map_err(tool_err)
+            } else if let Some(url) = rm {
+                crate::board::kanban_link_rm(app, &id, &url)
+                    .map(to_data)
+                    .map_err(tool_err)
+            } else {
+                let url = add.unwrap_or_default();
+                let label = arg_opt(args, "label");
+                crate::board::kanban_link_add(app, &id, &url, label)
+                    .map(to_data)
+                    .map_err(tool_err)
+            }
+        }
+        "kanban.open_link" => {
+            let id = arg_str(args, "id")?;
+            let n = match args.get("n") {
+                None | Some(Value::Null) => 0usize,
+                Some(v) => v
+                    .as_u64()
+                    .ok_or((ERR_OTHER, "kanban.open_link: n must be an integer".to_string()))?
+                    as usize,
+            };
+            crate::board::kanban_open_link(app, &id, n)
                 .map(to_data)
                 .map_err(tool_err)
         }
@@ -615,6 +724,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 md_paths,
                 arg_opt(args, "extra").as_deref(),
                 arg_opt(args, "projectId").as_deref(),
+                arg_opt(args, "permissions").as_deref(),
             )
             .map(to_data)
             .map_err(tool_err)
@@ -785,6 +895,56 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 content,
             );
             Ok(to_data(ack))
+        }
+        "settings.plans_dir" => crate::plans::settings_snapshot().map_err(tool_err),
+        "settings.plans_dir_set" => {
+            let path = arg_str(args, "path")?;
+            crate::plans::set_plans_dir(&path).map_err(tool_err)
+        }
+        "settings.runner" => crate::plans::settings_snapshot().map_err(tool_err),
+        "settings.runner_set" => {
+            let runner = arg_opt(args, "runner").unwrap_or_default();
+            let harness = arg_opt(args, "harness").unwrap_or_default();
+            let model = arg_opt(args, "model").unwrap_or_default();
+            crate::plans::set_runner(&runner, &harness, &model).map_err(tool_err)
+        }
+        "go.status" => crate::plans::status_value(
+            arg_opt(args, "file").as_deref(),
+            arg_opt(args, "go").as_deref(),
+            arg_opt(args, "card").as_deref(),
+            arg_opt(args, "title").as_deref(),
+        )
+        .map_err(tool_err),
+        "go.seal" => {
+            let confirm = args.get("confirm").and_then(Value::as_bool).unwrap_or(false);
+            if !confirm {
+                return Err((ERR_OTHER, "go.seal: pass --confirm".into()));
+            }
+            let file = arg_str(args, "file")?;
+            let by = arg_str(args, "by")?;
+            crate::plans::seal_file(std::path::Path::new(&file), &by)
+                .map(|g| {
+                    to_data(serde_json::json!({
+                        "id": g.id(),
+                        "file": g.path.display().to_string(),
+                        "status": g.header.status,
+                        "sealedAt": g.header.sealed_at,
+                        "sealedBy": g.header.sealed_by,
+                        "sealHash": g.header.seal_hash,
+                    }))
+                })
+                .map_err(tool_err)
+        }
+        "plans.migrate" => {
+            let roots = crate::plans::Roots::real();
+            Ok(to_data(serde_json::json!({
+                "dryRun": true,
+                "files": crate::plans::migrate_list(&roots),
+            })))
+        }
+        "plans.migrate_apply" => {
+            let roots = crate::plans::Roots::real();
+            crate::plans::migrate_apply(&roots).map_err(tool_err)
         }
         other => Err((ERR_OTHER, format!("unknown tool {other:?}"))),
     }

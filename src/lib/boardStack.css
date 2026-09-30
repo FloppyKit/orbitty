@@ -393,6 +393,72 @@
   color: var(--accent);
 }
 
+.k-linkchip {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--accent, #6e4db0);
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.k-toast {
+  position: fixed;
+  z-index: 80;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  max-width: min(28rem, calc(100% - 24px));
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--edge);
+  background: var(--panel, #1c1c1e);
+  color: var(--ink, #fff);
+  font-size: 0.82rem;
+}
+
+.d-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.d-linkrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.d-linkopen {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--accent, #6e4db0);
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.d-linkadd {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .k-needchip {
   font-size: 0.62rem;
   font-weight: 700;

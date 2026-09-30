@@ -16,6 +16,12 @@
   font-style: italic;
 }
 
+.md-lite a[data-link] {
+  color: var(--accent, #6e4db0);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .md-lite code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.78em;

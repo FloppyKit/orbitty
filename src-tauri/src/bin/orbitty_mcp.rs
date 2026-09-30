@@ -16,7 +16,8 @@ struct ToolDef {
     name: &'static str,
     description: &'static str,
     /// "none" | "id" | "line" | "route_line" | "profile" | "clip" | "kanban_add" |
-    /// "kanban_move" | "kanban_notes" | "kanban_assign" | "needed_open" |
+    /// "kanban_move" | "kanban_notes" | "kanban_link" | "kanban_open_link" |
+    /// "kanban_assign" | "needed_open" |
     /// "log_append" | "action_add" | "action_run" | "action_rm" |
     /// "project_add" | "project_rm" | "project_rename" | "agent_add" |
     /// "agent_pin" | "agent_pickup"
@@ -61,10 +62,13 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "state.get", description: "Read persisted Orbitty state", args: "none" },
     // The four write tools. control.json ACL still
     // applies — read / companion profiles get denied (4).
-    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move); optional notes = the board row's one-line summary", args: "kanban_add" },
+    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move); optional notes = the board row's one-line summary; optional links = file:// or https:// (max 8)", args: "kanban_add" },
     ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
     // Set/clear the summary line. Same write ACL.
     ToolDef { name: "kanban.notes", description: "Set a card's notes (first line paints as the board-row summary; the drawer edits the rest); empty string clears", args: "kanban_notes" },
+    ToolDef { name: "kanban.note_append", description: "Append one line to a card's notes, keeping the existing notes (a repeat of the same line is a no-op). Same write ACL as kanban.notes.", args: "kanban_note_append" },
+    ToolDef { name: "kanban.link", description: "Add, remove, or clear a card link (file:// or https:// only, max 8). Same write ACL as kanban.notes. Does not change notes or status.", args: "kanban_link" },
+    ToolDef { name: "kanban.open_link", description: "Open a card link with macOS open (default app, Finder, or the browser). n defaults to 0. Does not change card status.", args: "kanban_open_link" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
     // The planet control plane, next to the kanban
@@ -85,10 +89,18 @@ const TOOLS: &[ToolDef] = &[
     // (full / named custom only). The harness is per row, required on
     // add — unknown harness errors honestly, never a silent hermes.
     ToolDef { name: "agent.list", description: "List agent rows (id, name, harness, profile, model, md paths, extra, pinned planet)", args: "none" },
-    ToolDef { name: "agent.add", description: "Mint an agent row: name + harness (cursor|goose|grok|hermes, required) with optional profile / model / mdPaths / extra / projectId pin", args: "agent_add" },
+    ToolDef { name: "agent.add", description: "Mint an agent row: name + harness (cursor|goose|grok|hermes, required) with optional profile / model / permissions (read-only|workspace-write|full-auto) / mdPaths / extra / projectId pin. New cursor rows default model grok-4.7-high and permissions read-only.", args: "agent_add" },
     ToolDef { name: "agent.rm", description: "Remove an agent row by id; cards keep their assignedAgentId (project.rm law)", args: "id" },
     ToolDef { name: "agent.pin", description: "Pin an agent row to a planet (project id or unique planet name)", args: "agent_pin" },
     ToolDef { name: "agent.pickup", description: "Pick the oldest assigned open Todo (the row's planet when pinned), move it doing, and launch the row's harness with the card title; no match = honest empty, no spawn", args: "agent_pickup" },
+    ToolDef { name: "settings.plans_dir", description: "Read the shared plansDir (visible ~/Orbitty GOs unless set) and the default runner", args: "none" },
+    ToolDef { name: "settings.plans_dir_set", description: "Set the shared plansDir used by Nightly and stable", args: "plans_dir_set" },
+    ToolDef { name: "settings.runner", description: "Read defaultRunner (Cursor harness, model grok-4.7-high, herdr fallback)", args: "none" },
+    ToolDef { name: "settings.runner_set", description: "Set defaultRunner runner, harness, and model", args: "runner_set" },
+    ToolDef { name: "go.status", description: "Resolve a GO and report whether it is sealed", args: "go_status" },
+    ToolDef { name: "go.seal", description: "Seal a GO file (profile full and confirm). Writes status, sealed_at, sealed_by, and seal_hash.", args: "go_seal" },
+    ToolDef { name: "plans.migrate", description: "Dry-run: list files that would copy from the back-compat plans folder into plansDir. Never deletes.", args: "none" },
+    ToolDef { name: "plans.migrate_apply", description: "Copy those files into plansDir. Never deletes. Not part of a normal GO run.", args: "none" },
     ToolDef { name: "shift.status", description: "Humming supervisor snapshot: on/off, mode, runner cap, agentRuns, next assigned pickups", args: "none" },
     ToolDef { name: "route.table", description: "Hang route table: the closed set of keyword tool ids (max 15). Read-only.", args: "none" },
     ToolDef { name: "route.classify", description: "Classify a Hang line to a route id, or null if it stays chat. Read-only, no side effects.", args: "route_line" },
@@ -144,9 +156,41 @@ fn input_schema(kind: &str) -> Value {
                     "enum": ["todo", "doing"],
                     "description": "Initial column (default todo; done is never minted)"
                 },
-                "notes": { "type": "string", "description": "One-line runner summary (first line paints on the board row); omitted/empty = none" }
+                "notes": { "type": "string", "description": "One-line runner summary (first line paints on the board row); omitted/empty = none" },
+                "links": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "description": "Optional file:// or https:// links. A bare /Users/… path is stored as a file URL.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": { "type": "string" },
+                            "label": { "type": "string" }
+                        },
+                        "required": ["url"]
+                    }
+                }
             },
             "required": ["title"]
+        }),
+        "kanban_link" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "add": { "type": "string", "description": "URL to add (file://, https://, or a bare /Users/… path). Pass exactly one of add, rm, clear." },
+                "label": { "type": "string", "description": "Optional label for --add" },
+                "rm": { "type": "string", "description": "URL to remove" },
+                "clear": { "type": "boolean", "description": "Remove every link on the card" }
+            },
+            "required": ["id"]
+        }),
+        "kanban_open_link" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "n": { "type": "integer", "minimum": 0, "description": "Link index. Default 0." }
+            },
+            "required": ["id"]
         }),
         // Empty string is meaningful: clears.
         "kanban_notes" => json!({
@@ -156,6 +200,14 @@ fn input_schema(kind: &str) -> Value {
                 "notes": { "type": "string", "description": "Notes text (first line is the board-row summary); empty string clears" }
             },
             "required": ["id", "notes"]
+        }),
+        "kanban_note_append" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "line": { "type": "string", "description": "One line to append to the notes" }
+            },
+            "required": ["id", "line"]
         }),
         "kanban_move" => json!({
             "type": "object",
@@ -245,7 +297,8 @@ fn input_schema(kind: &str) -> Value {
                     "description": "Launch door on the row — required, never a product default"
                 },
                 "profile": { "type": "string", "description": "Harness profile (session tweak on the row)" },
-                "model": { "type": "string", "description": "Model override (session tweak)" },
+                "model": { "type": "string", "description": "Model override. Omitted on a cursor row stores grok-4.7-high." },
+                "permissions": { "type": "string", "enum": ["read-only", "workspace-write", "full-auto"], "description": "Cursor CLI preset. Omitted = read-only. full-auto is the only value that passes --force and --trust." },
                 "mdPaths": {
                     "type": "array",
                     "items": { "type": "string" },
@@ -263,6 +316,39 @@ fn input_schema(kind: &str) -> Value {
                 "projectId": { "type": "string", "description": "Project id or unique planet name" }
             },
             "required": ["id", "projectId"]
+        }),
+        "plans_dir_set" => json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "plansDir path" }
+            },
+            "required": ["path"]
+        }),
+        "runner_set" => json!({
+            "type": "object",
+            "properties": {
+                "runner": { "type": "string", "description": "Agent row name, e.g. orbitty-cursor" },
+                "harness": { "type": "string", "description": "cursor | goose | grok | herdr | manual" },
+                "model": { "type": "string", "description": "Model id, e.g. grok-4.7-high" }
+            }
+        }),
+        "go_status" => json!({
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "GO file path" },
+                "go": { "type": "string", "description": "GO id token" },
+                "card": { "type": "string", "description": "Card id for header card_id match" },
+                "title": { "type": "string", "description": "Card title, if it differs from the GO id" }
+            }
+        }),
+        "go_seal" => json!({
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "GO file to seal" },
+                "by": { "type": "string", "description": "Who is sealing (e.g. matt)" },
+                "confirm": { "type": "boolean", "description": "Must be true" }
+            },
+            "required": ["file", "by", "confirm"]
         }),
         "agent_pickup" => json!({
             "type": "object",
