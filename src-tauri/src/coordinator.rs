@@ -1400,10 +1400,13 @@ fn persist_companion_you(app: &tauri::AppHandle, line: &str) {
     }
 }
 
-fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) {
+/// Saves the them-row stripped and returns that same stripped string, so
+/// the live bubble never shows a button the saved row doesn't have.
+#[must_use]
+fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) -> String {
     // Command output is not allowed to mint a handoff button either.
-    let them = crate::mouth_hop::strip_handoff_marks(them);
-    let them = them.as_str();
+    let stripped = crate::mouth_hop::strip_handoff_marks(them);
+    let them = stripped.as_str();
     if crate::state::update(app, |st| {
         if let Some(you) = you {
             st.companion.last_user_line = you.to_string();
@@ -1424,6 +1427,7 @@ fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &st
     {
         let _ = app.emit("state:changed", ());
     }
+    stripped
 }
 
 // GO-MH-2-APP: leftover map inject (read-only, fail open)
@@ -1682,8 +1686,7 @@ async fn companion_send_inner(
                 Ok(s) => s,
                 Err(e) => e,
             };
-            persist_action_intercept(&app, Some(line.as_str()), &them);
-            return Ok(them);
+            return Ok(persist_action_intercept(&app, Some(line.as_str()), &them));
         }
     }
 
@@ -1694,8 +1697,7 @@ async fn companion_send_inner(
                 Ok(s) => s,
                 Err(e) => e,
             };
-            persist_action_intercept(&app, Some(line.as_str()), &them);
-            return Ok(them);
+            return Ok(persist_action_intercept(&app, Some(line.as_str()), &them));
         }
     }
 
@@ -1735,13 +1737,15 @@ async fn companion_send_inner(
                     }
                     Err(e) => e,
                 };
-                persist_action_intercept(&app, keep_you.then_some(line.as_str()), &them);
-                return Ok(them);
+                return Ok(persist_action_intercept(
+                    &app,
+                    keep_you.then_some(line.as_str()),
+                    &them,
+                ));
             }
             Some(ActionIntercept::Ambiguous) => {
                 let them = "which action? use the Launchpad well.".to_string();
-                persist_action_intercept(&app, None, &them);
-                return Ok(them);
+                return Ok(persist_action_intercept(&app, None, &them));
             }
             None => {}
         }
@@ -1791,8 +1795,7 @@ async fn companion_send_inner(
     if attach.is_none() {
         match crate::mouth_ack::conduct(&app, &line).await {
             Some(crate::mouth_ack::Step::Final(them)) => {
-                persist_action_intercept(&app, None, &them);
-                return Ok(them);
+                return Ok(persist_action_intercept(&app, None, &them));
             }
             Some(crate::mouth_ack::Step::Chat(ack)) => {
                 hop_ack = ack.clone();

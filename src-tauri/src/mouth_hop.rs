@@ -1612,6 +1612,21 @@ mod tests {
         assert!(m < strip && strip < save, "strip must sit between the model call and the save");
         let intercept = body_of(coord, "fn persist_action_intercept(");
         assert!(intercept.contains("strip_handoff_marks(them)"));
+        // N-D: the other strip points.
+        let route = send
+            .find("crate::mouth_route::run(&app, &line, origin)")
+            .expect("route door");
+        let route_strip = send[route..]
+            .find("let spoken = crate::mouth_hop::strip_handoff_marks(&spoken);")
+            .expect("route answer strips");
+        let route_save = send[route..].find("push_turn(\"them\", &spoken)").unwrap();
+        assert!(route_strip < route_save, "route strip must precede its save");
+        let gist = include_str!("mouth_gist.rs");
+        let hist = body_of(gist, "fn history(");
+        assert!(hist.contains("clip(&crate::mouth_hop::strip_handoff_marks(&t.text), HIST_N)"), "{hist}");
+        let roll = include_str!("mouth_roll.rs");
+        let prompt = body_of(roll, "pub fn handoff_prompt(");
+        assert!(prompt.contains("crate::mouth_hop::strip_handoff_marks(&t.text)"), "{prompt}");
         let me = include_str!("mouth_hop.rs");
         let button = body_of(me, "pub async fn companion_handoff(");
         let s = button.find("let answer = strip_handoff_marks(&answer);").expect("button strips");
@@ -1619,6 +1634,43 @@ mod tests {
         let gate = body_of(me, "pub async fn refuse_or_handoff(");
         assert!(gate.contains("let answer = strip_handoff_marks(&answer);"));
         assert!(gate.contains("issue_handoff(line, path)"));
+    }
+
+    // N-A: every intercept door returns the stripped string it saved.
+    #[test]
+    fn intercept_doors_return_the_stripped_row() {
+        let coord = include_str!("coordinator.rs");
+        let send = body_of(coord, "async fn companion_send_inner(");
+        let calls = send.matches("persist_action_intercept(").count();
+        let returned = send.matches("return Ok(persist_action_intercept(").count();
+        assert_eq!(calls, 5, "todo, go, action run, ambiguous, conductor Final");
+        assert_eq!(returned, calls, "a door saves stripped but returns raw text");
+        assert!(!send.contains("return Ok(them);"), "raw them returned");
+        let intercept = body_of(coord, "fn persist_action_intercept(");
+        assert!(intercept.contains("-> String {"), "{intercept}");
+        let s = intercept
+            .find("let stripped = crate::mouth_hop::strip_handoff_marks(them);")
+            .expect("strip first");
+        assert!(s < intercept.find("push_turn(\"them\", them)").unwrap());
+        assert!(intercept.trim_end().ends_with("stripped"), "returns the stripped row");
+    }
+
+    // N-C: ids are unique and every byte position varies.
+    #[test]
+    fn handoff_ids_are_unique_and_high_entropy() {
+        let mut seen = std::collections::HashSet::new();
+        let mut per_pos: Vec<std::collections::HashSet<u8>> = vec![Default::default(); 16];
+        for _ in 0..1000 {
+            let id = new_handoff_id().expect("urandom");
+            assert!(is_handoff_id(&id), "{id}");
+            for (k, pos) in per_pos.iter_mut().enumerate() {
+                pos.insert(u8::from_str_radix(&id[k * 2..k * 2 + 2], 16).unwrap());
+            }
+            assert!(seen.insert(id), "duplicate id");
+        }
+        for (k, pos) in per_pos.iter().enumerate() {
+            assert!(pos.len() > 64, "byte {k} barely varies: {} values", pos.len());
+        }
     }
 
     // B2: offers are server-issued, single use; the button sends only an id.
@@ -1640,7 +1692,9 @@ mod tests {
         assert_eq!(take_handoff(&format!(" {other} ")).unwrap().line, "second");
         // Bounded: the oldest open offer falls off.
         let first = issue_handoff("old", "/tmp/o.png").unwrap();
-        let rest: Vec<String> = (0..PENDING_HANDOFF_CAP)
+        // N-B: the cap is pinned, and the loop is a literal 16.
+        assert_eq!(PENDING_HANDOFF_CAP, 16);
+        let rest: Vec<String> = (0..16)
             .map(|i| issue_handoff(&format!("n{i}"), "/tmp/n.png").unwrap())
             .collect();
         assert!(take_handoff(&first).is_err(), "evicted");
@@ -1658,6 +1712,8 @@ mod tests {
         let pane = include_str!("../../src/lib/CaptionPane.svelte");
         assert!(pane.contains("invoke<string>(\"companion_handoff\", { id: offer.id })"));
         assert!(!pane.contains("path: offer.path"));
+        // N-E: no button on the you-row.
+        assert!(pane.contains("{#if parts.offer && t.role !== \"you\"}"));
     }
 
     // B2: model history never carries a trailer back to the model.
