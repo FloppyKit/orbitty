@@ -281,13 +281,16 @@
     if (projects.some((p) => p.id === id)) raisePlanet(id);
   }
 
-  /** loadState / pane show: apply a still-pending board click once, then clear. */
+  /** loadState / pane show: apply a still-pending board click once, then clear.
+   * A loaded list that lacks the id drops it (deleted planet) and does not
+   * move the selection. */
   function applyPendingFocus() {
     const before = pendingFocusProject;
     const next = resolveFocus({
       pending: before,
       selected,
       projectIds: projectIdList(),
+      projectsLoaded: projects.length > 0,
     });
     pendingFocusProject = next.pending;
     selected = next.selected;
@@ -1894,14 +1897,21 @@
     // BOARD-MARK: full-page kanban → this planet (do not require projects[] yet).
     unlistenFocusProject = await listen<string>("orbitty:focus-project", (e) => {
       applyFocusProject(e.payload);
+      // Delivered event consumes the take-once slot so a remount cannot
+      // re-apply it. The embedded Well does not own the slot.
+      if (!embedded) {
+        void invoke("take_board_focus").catch(() => {});
+      }
     });
-    // A board click that fired before this listener existed is still in
-    // the in-memory take-once slot (5s). Read-and-clear, once per mount.
-    try {
-      const caught = await invoke<string | null>("take_board_focus");
-      if (caught) applyFocusProject(caught);
-    } catch {
-      // Command missing: later clicks still arrive on the listener.
+    // Click that beat this listener: read-and-clear once. Embedded
+    // instances skip it so a Well opened within 5s cannot steal it.
+    if (!embedded) {
+      try {
+        const caught = await invoke<string | null>("take_board_focus");
+        if (caught) applyFocusProject(caught);
+      } catch {
+        // Command missing: later clicks still arrive on the listener.
+      }
     }
     // HOST-SPLIT embedded: do not await load_state / AX on first well
     // mount — that IPC return was painting cards mid-rise and lagging

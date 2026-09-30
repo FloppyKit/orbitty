@@ -962,3 +962,88 @@ mod board_focus_tests {
         assert_eq!(take_board_focus_at(t0 + Duration::from_secs(5)), None);
     }
 }
+
+/// Pins the board-focus wiring that the store test cannot see.
+/// `lib.rs` is read-only here; these tests only `include_str!` it.
+#[cfg(test)]
+mod board_focus_wiring_pins {
+    fn strip_comments(src: &str) -> String {
+        let mut out = String::with_capacity(src.len());
+        let mut chars = src.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '/' && chars.peek() == Some(&'/') {
+                chars.next();
+                while let Some(&d) = chars.peek() {
+                    if d == '\n' {
+                        break;
+                    }
+                    chars.next();
+                }
+                continue;
+            }
+            if c == '/' && chars.peek() == Some(&'*') {
+                chars.next();
+                while let Some(d) = chars.next() {
+                    if d == '*' && chars.peek() == Some(&'/') {
+                        chars.next();
+                        break;
+                    }
+                }
+                continue;
+            }
+            if c == '"' {
+                out.push('"');
+                while let Some(d) = chars.next() {
+                    out.push(d);
+                    if d == '\\' {
+                        if let Some(e) = chars.next() {
+                            out.push(e);
+                        }
+                        continue;
+                    }
+                    if d == '"' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            out.push(c);
+        }
+        out
+    }
+
+    /// R5 + R7: remember the same `pid` the emit sends, with no statement
+    /// between them.
+    #[test]
+    fn mouse_up_remembers_pid_then_emits_same_pid() {
+        let src = strip_comments(include_str!("habitat_mac/mouse_up.rs"));
+        let needle = "remember_board_focus(&pid)";
+        let at = src
+            .find(needle)
+            .expect("remember_board_focus(&pid) before the emit");
+        assert_eq!(src.matches(needle).count(), 1, "one remember of &pid");
+        let after = &src[at + needle.len()..];
+        let semi = after.find(';').expect("remember statement");
+        let rest = after[semi + 1..].trim_start();
+        let expect = "let _ = app.emit(\"orbitty:focus-project\", pid);";
+        assert!(
+            rest.starts_with(expect),
+            "next statement was {:?}",
+            rest.lines().next().unwrap_or("")
+        );
+    }
+
+    /// R6: the command is on the invoke-handler list.
+    #[test]
+    fn lib_registers_take_board_focus() {
+        let src = strip_comments(include_str!("lib.rs"));
+        let start = src.find("generate_handler!").expect("generate_handler");
+        let list = &src[start..];
+        let end = list.find(']').expect("handler list");
+        let block = &list[..=end];
+        assert!(
+            block.contains("panes::take_board_focus,"),
+            "take_board_focus missing from generate_handler"
+        );
+    }
+}
