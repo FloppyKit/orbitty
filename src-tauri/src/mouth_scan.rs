@@ -277,7 +277,7 @@ pub fn suggest_for(ram_gb: u64, apple: bool, scanned: &[ScannedModel]) -> Vec<Mo
     let why = if have {
         format!("Fits this Mac ({mac}) — already in the list above.")
     } else {
-        format!("Fits this Mac ({mac}). Load Gemma 4 E4B in LM Studio (MiniHangar).")
+        format!("Fits this Mac ({mac}). Load Gemma 4 E4B in LM Studio.")
     };
     vec![MouthSuggest {
         job: "reply".into(),

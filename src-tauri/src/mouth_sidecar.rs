@@ -6,7 +6,17 @@ use std::sync::Mutex;
 use serde::Deserialize;
 use serde_json::json;
 
-const SIDECAR: &str = "http://127.0.0.1:13121";
+#[cfg(test)]
+use std::cell::{Cell, RefCell};
+
+// Test double for the config file and `ORBITTY_MOUTH_SIDECAR_URL`.
+// Outer `None` means "read the process". Inner `None` means "absent".
+#[cfg(test)]
+thread_local! {
+    static TEST_ENV: RefCell<Option<Option<String>>> = RefCell::new(None);
+    static TEST_FILE: RefCell<Option<Option<String>>> = RefCell::new(None);
+    static HTTP_HITS: Cell<u32> = Cell::new(0);
+}
 /// Per-send ceiling. Slower than this keeps the keyword classifier.
 pub const SWAP_IN_MS: f64 = 200.0;
 /// Below this P, the pick is noise — keywords own it.
@@ -79,17 +89,122 @@ fn normalize_verb(v: &str) -> Option<&'static str> {
     }
 }
 
-/// One classify. None = down, slow, low-P, or junk — caller uses keywords.
+/// Sidecar base URL when configured, else off. Env wins over the file.
+/// Only `http://127.0.0.1:<port>` and `http://localhost:<port>` count;
+/// anything else is off (logged once). No HTTP from the caller when this
+/// is `None`.
+fn enabled_url() -> Option<String> {
+    if let Some(raw) = env_url() {
+        return accept_loopback(&raw);
+    }
+    let text = config_text()?;
+    let cfg: SidecarFile = serde_json::from_str(&text).ok()?;
+    let url = cfg.url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    accept_loopback(url)
+}
+
+fn env_url() -> Option<String> {
+    let raw = env_url_raw()?;
+    let t = raw.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
+}
+
+fn env_url_raw() -> Option<String> {
+    #[cfg(test)]
+    {
+        let forced = TEST_ENV.with(|c| c.borrow().clone());
+        if let Some(v) = forced {
+            return v;
+        }
+    }
+    std::env::var("ORBITTY_MOUTH_SIDECAR_URL").ok()
+}
+
+fn config_text() -> Option<String> {
+    #[cfg(test)]
+    {
+        let forced = TEST_FILE.with(|c| c.borrow().clone());
+        if let Some(v) = forced {
+            return v;
+        }
+    }
+    let home = std::env::var("HOME").ok()?;
+    if home.is_empty() {
+        return None;
+    }
+    let path = std::path::PathBuf::from(home).join(".config/orbitty/mouth-sidecar.json");
+    std::fs::read_to_string(path).ok()
+}
+
+#[derive(Deserialize)]
+struct SidecarFile {
+    #[serde(default)]
+    url: String,
+}
+
+/// Loopback only. A trailing slash is fine; a path, query, or other host is not.
+fn accept_loopback(raw: &str) -> Option<String> {
+    match parse_loopback(raw.trim()) {
+        Some(url) => Some(url),
+        None => {
+            if !raw.trim().is_empty() {
+                log_rejected_once(raw.trim());
+            }
+            None
+        }
+    }
+}
+
+fn parse_loopback(s: &str) -> Option<String> {
+    let rest = s.strip_prefix("http://")?;
+    if rest.contains('@') || rest.contains('?') || rest.contains('#') {
+        return None;
+    }
+    let (host, port) = rest.split_once(':')?;
+    if host != "127.0.0.1" && host != "localhost" {
+        return None;
+    }
+    let port = match port.strip_suffix('/') {
+        Some(p) if !p.contains('/') => p,
+        Some(_) => return None,
+        None if port.contains('/') => return None,
+        None => port,
+    };
+    if port.is_empty() || !port.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let p: u16 = port.parse().ok()?;
+    if p == 0 {
+        return None;
+    }
+    Some(format!("http://{host}:{p}"))
+}
+
+fn log_rejected_once(url: &str) {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        eprintln!("mouth-sidecar: non-loopback url refused ({url}); sidecar off");
+    });
+}
+
+/// One classify. None = off, down, slow, low-P, or junk — caller uses keywords.
+/// Off (no config / bad url) returns before any HTTP.
 pub fn classify(line: &str) -> Option<Classify> {
+    let url = enabled_url()?;
+    #[cfg(test)]
+    HTTP_HITS.with(|n| n.set(n.get() + 1));
     let body = json!({ "line": line });
-    let (status, text) = crate::mouth_hop::curl_json(
-        "POST",
-        &format!("{SIDECAR}/classify"),
-        None,
-        Some(&body),
-        1,
-    )
-    .ok()?;
+    let (status, text) =
+        crate::mouth_hop::curl_json("POST", &format!("{url}/classify"), None, Some(&body), 1)
+            .ok()?;
     if !(200..=299).contains(&status) {
         return None;
     }
@@ -151,5 +266,80 @@ mod tests {
         assert_eq!(normalize_verb("CHAT"), Some("chat"));
         assert_eq!(normalize_verb("think"), None);
         assert_eq!(normalize_verb("do-go"), Some("do-go"));
+    }
+
+    struct CfgGuard;
+
+    impl CfgGuard {
+        fn set(env: Option<&str>, file: Option<&str>) -> Self {
+            TEST_ENV.with(|c| *c.borrow_mut() = Some(env.map(str::to_owned)));
+            TEST_FILE.with(|c| *c.borrow_mut() = Some(file.map(str::to_owned)));
+            HTTP_HITS.with(|n| n.set(0));
+            CfgGuard
+        }
+    }
+
+    impl Drop for CfgGuard {
+        fn drop(&mut self) {
+            TEST_ENV.with(|c| *c.borrow_mut() = None);
+            TEST_FILE.with(|c| *c.borrow_mut() = None);
+            HTTP_HITS.with(|n| n.set(0));
+        }
+    }
+
+    #[test]
+    fn absent_file_is_off() {
+        let _g = CfgGuard::set(None, None);
+        assert!(enabled_url().is_none());
+    }
+
+    #[test]
+    fn loopback_url_is_on_with_that_url() {
+        let _g = CfgGuard::set(
+            None,
+            Some(r#"{"url":"http://127.0.0.1:13121","weights":"/w"}"#),
+        );
+        assert_eq!(enabled_url().as_deref(), Some("http://127.0.0.1:13121"));
+        drop(_g);
+        let _g = CfgGuard::set(None, Some(r#"{"url":"http://localhost:13121/"}"#));
+        assert_eq!(enabled_url().as_deref(), Some("http://localhost:13121"));
+    }
+
+    #[test]
+    fn non_loopback_is_off() {
+        let _g = CfgGuard::set(None, Some(r#"{"url":"http://10.1.2.3:13121"}"#));
+        assert!(enabled_url().is_none());
+        drop(_g);
+        let _g = CfgGuard::set(None, Some(r#"{"url":"https://127.0.0.1:13121"}"#));
+        assert!(enabled_url().is_none());
+    }
+
+    #[test]
+    fn env_override_wins() {
+        let _g = CfgGuard::set(
+            Some("http://127.0.0.1:4242"),
+            Some(r#"{"url":"http://localhost:13121"}"#),
+        );
+        assert_eq!(enabled_url().as_deref(), Some("http://127.0.0.1:4242"));
+        drop(_g);
+        let _g = CfgGuard::set(
+            Some("http://example.com:13121"),
+            Some(r#"{"url":"http://127.0.0.1:13121"}"#),
+        );
+        assert!(enabled_url().is_none());
+    }
+
+    #[test]
+    fn malformed_json_is_off() {
+        let _g = CfgGuard::set(None, Some("{not json"));
+        assert!(enabled_url().is_none());
+    }
+
+    #[test]
+    fn absent_config_classify_returns_none_without_http() {
+        let _g = CfgGuard::set(None, None);
+        assert!(classify("ship the gate").is_none());
+        let hits = HTTP_HITS.with(|n| n.get());
+        assert_eq!(hits, 0, "classify must not HTTP when the sidecar is off");
     }
 }

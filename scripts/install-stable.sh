@@ -220,6 +220,11 @@ PLIST
   launchctl bootout "gui/${UID_NUM}/space.orbitty.mouth" >/dev/null 2>&1 || true
   if ! launchctl bootstrap "gui/${UID_NUM}" "$MOUTH_PLIST"; then
     echo "WARNING: launchctl bootstrap space.orbitty.mouth failed — keywords stay Quick ack" >&2
+  elif [[ ! -f "$HOME/.config/orbitty/mouth-sidecar.json" ]]; then
+    mkdir -p "$HOME/.config/orbitty"
+    printf '%s\n' "{\"url\":\"http://127.0.0.1:13121\",\"weights\":\"$MOUTH_WEIGHTS\"}" \
+      > "$HOME/.config/orbitty/mouth-sidecar.json"
+    chmod 600 "$HOME/.config/orbitty/mouth-sidecar.json"
   fi
 else
   echo "WARNING: sidecar/mouth/.venv missing — Quick ack stays keywords" >&2
