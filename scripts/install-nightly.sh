@@ -75,6 +75,14 @@ elif [[ -d "$STABLE_SUPPORT" && -d "$NIGHTLY_SUPPORT" && ! -L "$NIGHTLY_SUPPORT"
   echo "==> Nightly support dir exists as real folder (not linked) — leaving alone"
 fi
 
+# BEGIN mouth-sidecar-config (GO-ORBITTY-DEMATT-RUNTIME-FIX-R2)
+if [[ -f "$HOME/Library/LaunchAgents/space.orbitty.mouth.plist" && ! -f "$HOME/.config/orbitty/mouth-sidecar.json" ]]; then
+  mkdir -p "$HOME/.config/orbitty"
+  printf '%s\n' '{"url":"http://127.0.0.1:13121"}' > "$HOME/.config/orbitty/mouth-sidecar.json"
+  chmod 600 "$HOME/.config/orbitty/mouth-sidecar.json"
+fi
+# END mouth-sidecar-config
+
 echo ""
 echo "Done. Dogfood THIS app only:"
 echo "  1. Quit daily Orbitty (tray → Quit) if both would fight."

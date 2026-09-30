@@ -61,7 +61,7 @@ def _weights_from_config() -> str | None:
     if not isinstance(weights, str):
         return None
     weights = weights.strip()
-    return weights or None
+    return os.path.expanduser(weights) or None
 
 
 def weights_path() -> str | None:

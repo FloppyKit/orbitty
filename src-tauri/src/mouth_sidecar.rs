@@ -187,11 +187,34 @@ fn parse_loopback(s: &str) -> Option<String> {
     Some(format!("http://{host}:{p}"))
 }
 
+/// Replace userinfo with `***` so a refused URL cannot log a password.
+/// Everything between `://` (or the start, if there is no scheme) and the
+/// last `@` in the authority becomes `***`. URLs with no `@` pass through.
+fn redact_userinfo(url: &str) -> String {
+    let scheme_end = match url.find("://") {
+        Some(i) => i + 3,
+        None => 0,
+    };
+    let rest = &url[scheme_end..];
+    let authority_len = rest
+        .find(|c: char| c == '/' || c == '?' || c == '#')
+        .unwrap_or(rest.len());
+    let Some(at) = rest[..authority_len].rfind('@') else {
+        return url.to_string();
+    };
+    let mut out = String::with_capacity(url.len());
+    out.push_str(&url[..scheme_end]);
+    out.push_str("***");
+    out.push_str(&url[scheme_end + at..]);
+    out
+}
+
 fn log_rejected_once(url: &str) {
     use std::sync::Once;
     static ONCE: Once = Once::new();
+    let shown = redact_userinfo(url);
     ONCE.call_once(|| {
-        eprintln!("mouth-sidecar: non-loopback url refused ({url}); sidecar off");
+        eprintln!("mouth-sidecar: non-loopback url refused ({shown}); sidecar off");
     });
 }
 
@@ -333,6 +356,30 @@ mod tests {
     fn malformed_json_is_off() {
         let _g = CfgGuard::set(None, Some("{not json"));
         assert!(enabled_url().is_none());
+    }
+
+    #[test]
+    fn redact_userinfo_hides_password() {
+        let out = redact_userinfo("http://user:pw@127.0.0.1:13121");
+        assert!(!out.contains("pw"), "{out}");
+        assert!(!out.contains("user"), "{out}");
+        assert!(out.contains("***@127.0.0.1"), "{out}");
+    }
+
+    #[test]
+    fn redact_userinfo_leaves_plain_url() {
+        let url = "http://127.0.0.1:13121";
+        assert_eq!(redact_userinfo(url), url);
+    }
+
+    #[test]
+    fn redact_userinfo_hides_at_evil() {
+        let url = "http://127.0.0.1:13121@evil.com:80";
+        let out = redact_userinfo(url);
+        assert_ne!(out, url);
+        assert!(out.contains("***@evil"), "{out}");
+        assert!(!out.contains("127.0.0.1"), "{out}");
+        assert_eq!(redact_userinfo("http://@evil"), "http://***@evil");
     }
 
     #[test]

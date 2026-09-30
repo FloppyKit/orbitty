@@ -56,6 +56,13 @@ class WeightsPathTests(unittest.TestCase):
         os.environ["ORBITTY_MOUTH_WEIGHTS"] = "/from/env"
         self.assertEqual(engine.weights_path(), "/from/env")
 
+    def test_config_tilde_expands_home(self):
+        self._write({"weights": "~/models/x"})
+        self.assertEqual(
+            engine.weights_path(),
+            os.path.join(self.tmp.name, "models", "x"),
+        )
+
     def test_malformed_config_is_none(self):
         self._write("{")
         self.assertIsNone(engine.weights_path())
