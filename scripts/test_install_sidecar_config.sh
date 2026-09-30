@@ -6,7 +6,7 @@ umask 022
 
 here=${0:A:h}
 nightly=$here/install-nightly.sh
-stable=$here/install-stable.sh
+kitchen=$here/install-kitchen.sh
 
 typeset -a temps
 cleanup() {
@@ -51,14 +51,20 @@ run_block() {
 nightly_block=$(extract_between "$nightly" \
   "# BEGIN mouth-sidecar-config (GO-ORBITTY-DEMATT-RUNTIME-FIX-R2)" \
   "# END mouth-sidecar-config")
-stable_block=$(extract_between "$stable" \
-  "# BEGIN mouth-sidecar-config-stable" \
-  "# END mouth-sidecar-config-stable")
+kitchen_block=$(extract_between "$kitchen" \
+  "# BEGIN mouth-sidecar-config-kitchen" \
+  "# END mouth-sidecar-config-kitchen")
 
 if [[ -n ${nightly_block//[[:space:]]/} ]]; then
   pass "nightly-4-block-nonempty"
 else
   bad "nightly-4-block-nonempty"
+fi
+
+if [[ -n ${kitchen_block//[[:space:]]/} ]]; then
+  pass "kitchen-block-nonempty"
+else
+  bad "kitchen-block-nonempty"
 fi
 
 # 1. plist exists, config missing → write url, valid JSON, mode 600.
@@ -108,15 +114,15 @@ else
   bad "nightly-3-no-plist-no-write"
 fi
 
-stable_one() {
+kitchen_one() {
   local name=$1 weights=$2 home cfg mode
-  if [[ -z ${stable_block//[[:space:]]/} ]]; then
+  if [[ -z ${kitchen_block//[[:space:]]/} ]]; then
     bad "$name"
     return
   fi
   mk
   home=$REPLY
-  run_block "$home" "$stable_block" "$weights"
+  run_block "$home" "$kitchen_block" "$weights"
   cfg=$home/.config/orbitty/mouth-sidecar.json
   if [[ ! -f $cfg ]]; then
     bad "$name"
@@ -130,8 +136,93 @@ stable_one() {
   fi
 }
 
-stable_one "stable-normal" "models/normal"
-stable_one "stable-quote" 'models/say"quote'
-stable_one "stable-backslash" 'models/back\slash'
+kitchen_one "kitchen-quote" 'models/say"quote'
+kitchen_one "kitchen-backslash" 'models/back\slash'
+
+mk
+home=$REPLY
+run_block "$home" "$kitchen_block" "models/normal"
+cfg=$home/.config/orbitty/mouth-sidecar.json
+mode=$(stat -f %Lp "$cfg" 2>/dev/null || print missing)
+if [[ -f $cfg && $mode == 600 ]] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); raise SystemExit(0 if d.get("url")=="http://127.0.0.1:13121" and d.get("weights")=="models/normal" else 1)' "$cfg"; then
+  pass "cfg_written_600_valid_json"
+else
+  bad "cfg_written_600_valid_json"
+fi
+
+dangling_case() {
+  local name=$1 block=$2 weights=${3-}
+  mk
+  local home=$REPLY
+  local outside
+  mk
+  outside=$REPLY
+  mkdir -p "$home/.config/orbitty"
+  if [[ $name == nightly_* ]]; then
+    mkdir -p "$home/Library/LaunchAgents"
+    : > "$home/Library/LaunchAgents/space.orbitty.mouth.plist"
+  fi
+  ln -s "$outside/victim.json" "$home/.config/orbitty/mouth-sidecar.json"
+  local link_before
+  link_before=$(readlink "$home/.config/orbitty/mouth-sidecar.json")
+  if [[ -n $weights ]]; then
+    run_block "$home" "$block" "$weights"
+  else
+    run_block "$home" "$block"
+  fi
+  local cfg=$home/.config/orbitty/mouth-sidecar.json
+  if [[ -L $cfg && ! -e $cfg && $(readlink "$cfg") == "$link_before" \
+        && ! -e $outside/victim.json ]]; then
+    pass "$name"
+  else
+    bad "$name"
+  fi
+}
+
+dangling_case "nightly_cfg_dangling_symlink_no_write" "$nightly_block"
+dangling_case "kitchen_cfg_dangling_symlink_no_write" "$kitchen_block" "models/normal"
+
+# PATH without python3: no config file, no temp left, block exits 0.
+mk
+home=$REPLY
+bindir=$home/bin
+mkdir -p "$bindir"
+for c in mkdir mktemp chmod mv rm; do
+  ln -s "$(command -v "$c")" "$bindir/$c"
+done
+print -r -- "$kitchen_block" > "$home/block.zsh"
+zsh_bin=$(command -v zsh)
+if HOME=$home MOUTH_WEIGHTS="models/normal" PATH="$bindir" "$zsh_bin" "$home/block.zsh"; then
+  cfg=$home/.config/orbitty/mouth-sidecar.json
+  leftovers=$(find "$home/.config" -name '.mouth-sidecar.json.*' -print 2>/dev/null || true)
+  if [[ ! -e $cfg && ! -L $cfg && -z $leftovers ]]; then
+    pass "kitchen_cfg_no_python3_no_file"
+  else
+    bad "kitchen_cfg_no_python3_no_file"
+  fi
+else
+  bad "kitchen_cfg_no_python3_no_file"
+fi
+
+# ~/.config/orbitty is a file: block must not abort a following DONE line.
+mk
+home=$REPLY
+mkdir -p "$home/Library/LaunchAgents" "$home/.config"
+: > "$home/Library/LaunchAgents/space.orbitty.mouth.plist"
+: > "$home/.config/orbitty"
+{
+  print -r -- "set -euo pipefail"
+  print -r -- "$nightly_block"
+  print -r -- "echo DONE"
+} > "$home/runner.zsh"
+if out=$(HOME=$home zsh "$home/runner.zsh" 2>&1); then
+  if [[ $out == *DONE* ]]; then
+    pass "nightly_cfg_dir_is_file_nonfatal"
+  else
+    bad "nightly_cfg_dir_is_file_nonfatal"
+  fi
+else
+  bad "nightly_cfg_dir_is_file_nonfatal"
+fi
 
 exit $fail

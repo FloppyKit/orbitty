@@ -188,18 +188,15 @@ fn parse_loopback(s: &str) -> Option<String> {
 }
 
 /// Replace userinfo with `***` so a refused URL cannot log a password.
-/// Everything between `://` (or the start, if there is no scheme) and the
-/// last `@` in the authority becomes `***`. URLs with no `@` pass through.
+/// The last `@` in the remainder after `://` (or in the whole string, if
+/// there is no scheme) is the cut. URLs with no `@` pass through.
 fn redact_userinfo(url: &str) -> String {
     let scheme_end = match url.find("://") {
         Some(i) => i + 3,
         None => 0,
     };
     let rest = &url[scheme_end..];
-    let authority_len = rest
-        .find(|c: char| c == '/' || c == '?' || c == '#')
-        .unwrap_or(rest.len());
-    let Some(at) = rest[..authority_len].rfind('@') else {
+    let Some(at) = rest.rfind('@') else {
         return url.to_string();
     };
     let mut out = String::with_capacity(url.len());
@@ -209,12 +206,18 @@ fn redact_userinfo(url: &str) -> String {
     out
 }
 
+fn refused_msg(url: &str) -> String {
+    format!(
+        "mouth-sidecar: non-loopback url refused ({}); sidecar off",
+        redact_userinfo(url)
+    )
+}
+
 fn log_rejected_once(url: &str) {
     use std::sync::Once;
     static ONCE: Once = Once::new();
-    let shown = redact_userinfo(url);
     ONCE.call_once(|| {
-        eprintln!("mouth-sidecar: non-loopback url refused ({shown}); sidecar off");
+        eprintln!("{}", refused_msg(url));
     });
 }
 
@@ -380,6 +383,99 @@ mod tests {
         assert!(out.contains("***@evil"), "{out}");
         assert!(!out.contains("127.0.0.1"), "{out}");
         assert_eq!(redact_userinfo("http://@evil"), "http://***@evil");
+    }
+
+    fn strip_rust_comments(src: &str) -> String {
+        let b = src.as_bytes();
+        let mut out = String::with_capacity(src.len());
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] == b'/' && i + 1 < b.len() && b[i + 1] == b'/' {
+                i += 2;
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            } else if b[i] == b'/' && i + 1 < b.len() && b[i + 1] == b'*' {
+                i += 2;
+                while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                    i += 1;
+                }
+                if i + 1 < b.len() {
+                    i += 2;
+                }
+            } else if b[i] == b'"' {
+                out.push('"');
+                i += 1;
+                while i < b.len() {
+                    let c = b[i];
+                    out.push(c as char);
+                    i += 1;
+                    if c == b'\\' && i < b.len() {
+                        out.push(b[i] as char);
+                        i += 1;
+                    } else if c == b'"' {
+                        break;
+                    }
+                }
+            } else {
+                out.push(b[i] as char);
+                i += 1;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn refused_msg_d1_pins_log_rejected_once() {
+        let msg = refused_msg("http://user:pw@evil.com");
+        assert_eq!(
+            msg,
+            "mouth-sidecar: non-loopback url refused (http://***@evil.com); sidecar off"
+        );
+        assert!(!msg.contains("pw"), "{msg}");
+        assert!(!msg.contains("user"), "{msg}");
+        let src = include_str!("mouth_sidecar.rs");
+        let start = src
+            .find("fn log_rejected_once(")
+            .expect("log_rejected_once");
+        let rest = &src[start..];
+        let end = rest.find("\n///").expect("doc after log_rejected_once");
+        let body = strip_rust_comments(&rest[..end]);
+        assert!(
+            body.contains("refused_msg(url)"),
+            "log_rejected_once must call refused_msg(url): {body}"
+        );
+        assert!(
+            !body.contains("{url}"),
+            "log_rejected_once must not format {{url}}: {body}"
+        );
+    }
+
+    #[test]
+    fn redact_userinfo_rfind_not_find_d2() {
+        let out = redact_userinfo("http://u:p@ss@evil");
+        assert_eq!(out, "http://***@evil");
+        assert!(!out.contains("ss"), "{out}");
+    }
+
+    #[test]
+    fn redact_userinfo_no_scheme_d5() {
+        let out = redact_userinfo("u:pw@evil.com:80");
+        assert_eq!(out, "***@evil.com:80");
+        assert!(!out.contains("pw"), "{out}");
+    }
+
+    #[test]
+    fn redact_userinfo_password_hash_question_slash() {
+        for url in [
+            "http://u:pa#ss@evil",
+            "http://u:pa?ss@evil",
+            "http://u:pa/ss@evil",
+        ] {
+            let out = redact_userinfo(url);
+            assert_eq!(out, "http://***@evil", "{url} -> {out}");
+            assert!(!out.contains("pa"), "{url} -> {out}");
+        }
     }
 
     #[test]
