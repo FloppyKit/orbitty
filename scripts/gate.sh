@@ -2,7 +2,8 @@
 # GO-ORBITTY-LOCAL-GATE: one local gate both install scripts run.
 #   cargo test --lib
 #   npm run check vs scripts/gate_baseline.json
-#   no new /Users/ or .buzz literals under src-tauri/src and src
+#   no new /Users or .buzz literals under src-tauri/src and src
+#   (case-insensitive: /users/, ~/.BUZZ and a bare "/Users" count too)
 # Exit 0 ok, 1 a check failed, 2 a tool or input is missing.
 # Never installs, never uses the network, never writes a file.
 set -euo pipefail
@@ -80,9 +81,12 @@ run_compare() {
 }
 
 load_allowlist() {
-  typeset -g -a ALLOW_PATH ALLOW_SUB
+  typeset -g -a ALLOW_PATH ALLOW_SUB ALLOW_TEMP ALLOW_USED ALLOW_LINE
   ALLOW_PATH=()
   ALLOW_SUB=()
+  ALLOW_TEMP=()
+  ALLOW_USED=()
+  ALLOW_LINE=()
   if [[ ! -f "$allowlist" ]]; then
     echo "literal scan: missing $allowlist" >&2
     exit 2
@@ -97,6 +101,15 @@ load_allowlist() {
     fi
     ALLOW_PATH+=("$path")
     ALLOW_SUB+=("$substr")
+    # A reason containing TEMP marks an entry that must be removed once
+    # its line is gone (a stale TEMP entry fails the scan).
+    if literal_contains "${rest:-}" "TEMP"; then
+      ALLOW_TEMP+=(1)
+    else
+      ALLOW_TEMP+=(0)
+    fi
+    ALLOW_USED+=(0)
+    ALLOW_LINE+=("$path	$substr")
   done < "$allowlist"
 }
 
@@ -108,7 +121,9 @@ run_literal_scan() {
   load_allowlist
   local hits rc=0
   # color.ui=never so allowlist substrings match source text, not ANSI codes.
-  hits=$(git --no-pager -c color.ui=never grep -n -I -e '/Users/' -e '\.buzz' -- src-tauri/src src) || rc=$?
+  # Case-insensitive: /users/, ~/.BUZZ, and "/Users" with no trailing slash.
+  # The /users match stops at a word character, so /usersettings is not a hit.
+  hits=$(git --no-pager -c color.ui=never grep -n -I -i -E -e '/users([^a-z0-9_]|$)' -e '\.buzz' -- src-tauri/src src) || rc=$?
   if (( rc > 1 )); then
     echo "literal scan: git grep failed (exit $rc)" >&2
     exit 2
@@ -126,10 +141,12 @@ run_literal_scan() {
       rest=${hit#*:}
       content=${rest#*:}
       matched=0
+      # Every matching entry counts as used (for the stale check below).
+      # Substrings compare case-insensitively, like the grep.
       for ((i = 1; i <= ${#ALLOW_PATH}; i++)); do
-        if [[ ${ALLOW_PATH[i]} == "$path" ]] && literal_contains "$content" "${ALLOW_SUB[i]}"; then
+        if [[ ${ALLOW_PATH[i]} == "$path" ]] && literal_contains "${content:l}" "${ALLOW_SUB[i]:l}"; then
           matched=1
-          break
+          ALLOW_USED[i]=1
         fi
       done
       if (( matched )); then
@@ -140,11 +157,34 @@ run_literal_scan() {
     done <<< "$hits"
   fi
 
+  local -a stale_temp stale_plain
+  stale_temp=()
+  stale_plain=()
+  for ((i = 1; i <= ${#ALLOW_PATH}; i++)); do
+    (( ALLOW_USED[i] )) && continue
+    if (( ALLOW_TEMP[i] )); then
+      stale_temp+=("${ALLOW_LINE[i]}")
+    else
+      stale_plain+=("${ALLOW_LINE[i]}")
+    fi
+  done
+  # Other entries may be for lines another branch carries; warn only.
+  if (( ${#stale_plain} > 0 )); then
+    echo "literal scan: note: ${#stale_plain} allowlist entries match nothing in this tree" >&2
+  fi
+
   if (( ${#bad} > 0 )); then
     for hit in "${bad[@]}"; do
       print -r -- "$hit"
     done
     echo "literal scan: FAIL (${#bad} new)"
+    exit 1
+  fi
+  if (( ${#stale_temp} > 0 )); then
+    for hit in "${stale_temp[@]}"; do
+      print -r -- "stale TEMP entry: $hit"
+    done
+    echo "literal scan: FAIL (${#stale_temp} stale TEMP allowlist entries; remove them)"
     exit 1
   fi
   echo "literal scan: ok ($allow_n allowlisted, 0 new)"

@@ -5,6 +5,8 @@
 # (c) new .buzz/ literal → 1
 # (d) allowlisted line → 0
 # plus: allowlist does not hide a different literal, and --compare-errors.
+# N1: a stale TEMP allowlist entry fails; other stale entries only warn.
+# N4: /users/, ~/.BUZZ and a bare "/Users" are hits; /usersettings is not.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -122,6 +124,85 @@ if [[ "$rc" == 1 && "$out" == *'/Users/someone/other'* && "$out" != *'/Users/all
   pass "allowlist_does_not_hide_other_literal"
 else
   fail "allowlist_does_not_hide_other_literal (exit $rc)"
+  print -r -- "$out" >&2
+fi
+
+# --- N1: stale TEMP entry fails, stale plain entry warns, used TEMP passes ---
+tmp=$(make_fixture)
+printf '%s\n' $'src/lib/gone.ts\t/Users/old/line\t# TEMP until X lands' >> "$tmp/scripts/gate_allowlist.txt"
+commit_fixture "$tmp" "stale temp entry"
+rc=0
+out=$("$tmp/scripts/gate.sh" --quick 2>&1) || rc=$?
+if [[ "$rc" == 1 && "$out" == *"stale TEMP entry: src/lib/gone.ts"* && "$out" == *"FAIL (1 stale TEMP"* ]]; then
+  pass "stale_temp_entry_exits_1"
+else
+  fail "stale_temp_entry_exits_1 (exit $rc)"
+  print -r -- "$out" >&2
+fi
+
+tmp=$(make_fixture)
+printf '%s\n' $'src/lib/gone.ts\t/Users/old/line\t# another branch carries this' >> "$tmp/scripts/gate_allowlist.txt"
+commit_fixture "$tmp" "stale plain entry"
+rc=0
+out=$("$tmp/scripts/gate.sh" --quick 2>&1) || rc=$?
+if [[ "$rc" == 0 && "$out" == *"1 allowlist entries match nothing"* && "$out" == *"literal scan: ok"* ]]; then
+  pass "stale_plain_entry_warns_exits_0"
+else
+  fail "stale_plain_entry_warns_exits_0 (exit $rc)"
+  print -r -- "$out" >&2
+fi
+
+tmp=$(make_fixture)
+printf '%s\n' $'src/lib/t.ts\t/Users/temp/keep\t# TEMP until X lands' >> "$tmp/scripts/gate_allowlist.txt"
+printf '%s\n' 'export const p = "/Users/temp/keep";' > "$tmp/src/lib/t.ts"
+commit_fixture "$tmp" "temp entry in use"
+rc=0
+out=$("$tmp/scripts/gate.sh" --quick 2>&1) || rc=$?
+if [[ "$rc" == 0 && "$out" == *"literal scan: ok (1 allowlisted, 0 new)"* ]]; then
+  pass "temp_entry_in_use_exits_0"
+else
+  fail "temp_entry_in_use_exits_0 (exit $rc)"
+  print -r -- "$out" >&2
+fi
+
+# --- N4: case and trailing-slash variants ---
+for variant in 'export const p = "/users/someone/x";' 'export const p = "~/.BUZZ/secret";' 'export const p = "/Users";' 'export const p = "/USERS/x";'; do
+  tmp=$(make_fixture)
+  printf '%s\n' "$variant" > "$tmp/src/lib/v.ts"
+  commit_fixture "$tmp" "variant"
+  rc=0
+  out=$("$tmp/scripts/gate.sh" --quick 2>&1) || rc=$?
+  if [[ "$rc" == 1 && "$out" == *"src/lib/v.ts"* ]]; then
+    pass "variant_is_a_hit: $variant"
+  else
+    fail "variant_is_a_hit: $variant (exit $rc)"
+    print -r -- "$out" >&2
+  fi
+done
+
+tmp=$(make_fixture)
+printf '%s\n' 'export const p = "/usersettings/panel";' 'export const q = "/api/users_list";' > "$tmp/src/lib/nothit.ts"
+commit_fixture "$tmp" "not a users path"
+rc=0
+out=$("$tmp/scripts/gate.sh" --quick 2>&1) || rc=$?
+if [[ "$rc" == 0 && "$out" == *"literal scan: ok (0 allowlisted, 0 new)"* ]]; then
+  pass "usersettings_is_not_a_hit"
+else
+  fail "usersettings_is_not_a_hit (exit $rc)"
+  print -r -- "$out" >&2
+fi
+
+# A file-wide .buzz entry also covers ~/.BUZZ lines (case-insensitive match).
+tmp=$(make_fixture)
+printf '%s\n' $'src/lib/guard.ts\t.buzz\t# file-wide guard' >> "$tmp/scripts/gate_allowlist.txt"
+printf '%s\n' 'export const a = "~/.buzz/x";' 'export const b = "~/.BUZZ/y";' > "$tmp/src/lib/guard.ts"
+commit_fixture "$tmp" "file-wide buzz"
+rc=0
+out=$("$tmp/scripts/gate.sh" --quick 2>&1) || rc=$?
+if [[ "$rc" == 0 && "$out" == *"literal scan: ok (2 allowlisted, 0 new)"* ]]; then
+  pass "file_wide_buzz_entry_covers_case_variants"
+else
+  fail "file_wide_buzz_entry_covers_case_variants (exit $rc)"
   print -r -- "$out" >&2
 fi
 
