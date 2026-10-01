@@ -15,7 +15,7 @@ const SERVER_VERSION: &str = "0.1.0";
 struct ToolDef {
     name: &'static str,
     description: &'static str,
-    /// "none" | "id" | "line" | "route_line" | "route_run" | "profile" | "clip" | "kanban_add" |
+    /// "none" | "id" | "line" | "route_line" | "route_run" | "profile" | "backend_id" | "clip" | "kanban_add" |
     /// "kanban_move" | "kanban_notes" | "kanban_link" | "kanban_open_link" |
     /// "kanban_assign" | "needed_open" |
     /// "log_append" | "action_add" | "action_run" | "action_rm" |
@@ -56,6 +56,8 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "companion.send", description: "Send a line on the companion Berd path", args: "line" },
     ToolDef { name: "companion.agents", description: "List companion agent profiles", args: "none" },
     ToolDef { name: "companion.set_agent", description: "Set the companion agent profile", args: "profile" },
+    ToolDef { name: "companion.harnesses", description: "List companion harnesses detected on this Mac, plus the current pick", args: "none" },
+    ToolDef { name: "companion.set_backend", description: "Set the companion harness (goose, grok, or hermes). Empty id clears. Same ACL class as companion.set_agent.", args: "backend_id" },
     ToolDef { name: "companion.play", description: "Play an allowlisted gesture clip on the 3D companion body (no-op on the spirit sheet)", args: "clip" },
     ToolDef { name: "packs.list", description: "List installed sprite packs", args: "none" },
     ToolDef { name: "sleeper.wake", description: "Wake a sleeper by id", args: "id" },
@@ -151,6 +153,11 @@ fn input_schema(kind: &str) -> Value {
             "type": "object",
             "properties": { "profile": { "type": "string", "description": "Agent profile id" } },
             "required": ["profile"]
+        }),
+        "backend_id" => json!({
+            "type": "object",
+            "properties": { "id": { "type": "string", "description": "Harness id: goose, grok, or hermes. Empty string clears." } },
+            "required": ["id"]
         }),
         "clip" => json!({
             "type": "object",
@@ -883,6 +890,17 @@ mod tests {
             arms.contains(&"claim.change".to_string()),
             "control.rs claim.change arm missing from the parity set"
         );
+    }
+
+    #[test]
+    fn companion_harness_tools_are_listed() {
+        assert!(TOOLS
+            .iter()
+            .any(|t| t.name == "companion.harnesses" && t.args == "none"));
+        assert!(TOOLS
+            .iter()
+            .any(|t| t.name == "companion.set_backend" && t.args == "backend_id"));
+        assert_eq!(required("companion.set_backend"), vec!["id".to_string()]);
     }
 
     #[test]

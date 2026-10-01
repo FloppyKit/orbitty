@@ -597,6 +597,11 @@ pub struct CompanionState {
     /// Default off.
     #[serde(default)]
     pub auto_handoff: bool,
+    /// Companion harness: "goose" | "grok" | "hermes". "" = unset.
+    /// ORBITTY_COMPANION_BACKEND overrides this when it is set. berd is
+    /// env-only and is not stored here.
+    #[serde(default)]
+    pub backend: String,
 }
 
 /// S2.4: one saved companion turn. role: "you" | "them".
@@ -782,6 +787,7 @@ impl Default for CompanionState {
             reply_model: String::new(),
             handoff_backend: String::new(),
             auto_handoff: false,
+            backend: String::new(),
         }
     }
 }
@@ -1200,6 +1206,7 @@ pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (P
     out.companion.reply_model = disk.companion.reply_model.clone();
     out.companion.handoff_backend = disk.companion.handoff_backend.clone();
     out.companion.auto_handoff = disk.companion.auto_handoff;
+    out.companion.backend = disk.companion.backend.clone();
     out.shift_on = disk.shift_on;
     out.peer_chrome = disk.peer_chrome;
     if out.last_claim_project_id.is_none() {
@@ -1412,6 +1419,7 @@ fn apply_companion_delta(live: &mut CompanionState, before: &CompanionState, aft
         &after.handoff_backend,
     );
     take_changed(&mut live.auto_handoff, &before.auto_handoff, &after.auto_handoff);
+    take_changed(&mut live.backend, &before.backend, &after.backend);
 }
 
 fn upsert_tombstone(tombs: &mut Vec<CardTombstone>, id: &str, at: f64) {
@@ -1986,6 +1994,35 @@ mod tests {
     }
 
     #[test]
+    fn fresh_backend_is_empty_and_stale_window_cannot_strip_it() {
+        let c = CompanionState::default();
+        assert!(c.backend.is_empty());
+        let partial: CompanionState = serde_json::from_str(r#"{"visible":true}"#).unwrap();
+        assert!(partial.backend.is_empty());
+        let saved = serde_json::to_value(&c).unwrap();
+        assert_eq!(saved["backend"], "");
+
+        let mut disk = PersistedState::default();
+        disk.companion.backend = "hermes".into();
+        let mut incoming = disk.clone();
+        incoming.companion.backend.clear();
+        let (merged, _) = merge_window_save(&disk, &incoming);
+        assert_eq!(merged.companion.backend, "hermes");
+
+        let before = PersistedState::default();
+        let after = before.clone();
+        let mut live = PersistedState::default();
+        live.companion.backend = "hermes".into();
+        apply_writer_delta(&mut live, &before, &after);
+        assert_eq!(live.companion.backend, "hermes");
+
+        let mut changed = before.clone();
+        changed.companion.backend = "grok".into();
+        apply_writer_delta(&mut live, &before, &changed);
+        assert_eq!(live.companion.backend, "grok");
+    }
+
+    #[test]
     fn window_merge_stale_card_loses_and_rust_slices_stay() {
         let mut disk = PersistedState::default();
         disk.kanban_cards.push(touch_card(
@@ -2008,6 +2045,7 @@ mod tests {
         disk.companion.reply_model = "e4b".into();
         disk.companion.handoff_backend = "goose".into();
         disk.companion.auto_handoff = true;
+        disk.companion.backend = "hermes".into();
         disk.shift_on = true;
         disk.peer_chrome = true;
         disk.last_claim_project_id = Some("planet".into());
@@ -2025,6 +2063,7 @@ mod tests {
         incoming.companion.reply_model.clear();
         incoming.companion.handoff_backend.clear();
         incoming.companion.auto_handoff = false;
+        incoming.companion.backend.clear();
         incoming.shift_on = false;
         incoming.peer_chrome = false;
         incoming.last_claim_project_id = None;
@@ -2046,6 +2085,7 @@ mod tests {
         assert_eq!(merged.companion.reply_model, "e4b");
         assert_eq!(merged.companion.handoff_backend, "goose");
         assert!(merged.companion.auto_handoff);
+        assert_eq!(merged.companion.backend, "hermes");
         assert!(merged.shift_on);
         assert!(merged.peer_chrome);
         assert_eq!(merged.last_claim_project_id.as_deref(), Some("planet"));

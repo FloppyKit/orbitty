@@ -300,18 +300,83 @@ pub fn handoff_choices(grok: bool, goose: bool, hermes: bool, openrouter: bool) 
     out
 }
 
-fn cli_present(name: &str) -> bool {
-    crate::coordinator::find_on_path(name).is_some()
+fn cli_path(name: &str) -> Option<PathBuf> {
+    crate::coordinator::find_on_path(name)
 }
 
-fn grok_cli_present() -> bool {
-    if cli_present("grok") {
-        return true;
+fn cli_present(name: &str) -> bool {
+    cli_path(name).is_some()
+}
+
+fn grok_cli_path() -> Option<PathBuf> {
+    if let Some(p) = cli_path("grok") {
+        return Some(p);
     }
     std::env::var("HOME")
         .ok()
         .map(|h| PathBuf::from(h).join(".grok").join("bin").join("grok"))
-        .is_some_and(|p| p.is_file())
+        .filter(|p| p.is_file())
+}
+
+fn grok_cli_present() -> bool {
+    grok_cli_path().is_some()
+}
+
+/// One row of the Mouth harness picker. `present` is the same probe the
+/// handoff list uses. Absent rows keep an empty path.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessChoice {
+    pub id: String,
+    pub label: String,
+    pub present: bool,
+    pub path: String,
+}
+
+/// Fake-flag input for `harness_choices_from`. Probes fill this; tests do not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HarnessProbe {
+    pub goose: bool,
+    pub goose_path: String,
+    pub grok: bool,
+    pub grok_path: String,
+    pub hermes: bool,
+    pub hermes_path: String,
+}
+
+fn choice(id: &str, label: &str, present: bool, path: &str) -> HarnessChoice {
+    HarnessChoice {
+        id: id.into(),
+        label: label.into(),
+        present,
+        path: if present { path.to_string() } else { String::new() },
+    }
+}
+
+pub fn harness_choices_from(probe: &HarnessProbe) -> Vec<HarnessChoice> {
+    vec![
+        choice("goose", "Goose", probe.goose, &probe.goose_path),
+        choice("grok", "Grok", probe.grok, &probe.grok_path),
+        choice("hermes", "Hermes", probe.hermes, &probe.hermes_path),
+    ]
+}
+
+pub fn harness_probe() -> HarnessProbe {
+    let goose = cli_path("goose");
+    let grok = grok_cli_path();
+    let hermes = cli_path("hermes");
+    HarnessProbe {
+        goose: goose.is_some(),
+        goose_path: goose.map(|p| p.display().to_string()).unwrap_or_default(),
+        grok: grok.is_some(),
+        grok_path: grok.map(|p| p.display().to_string()).unwrap_or_default(),
+        hermes: hermes.is_some(),
+        hermes_path: hermes.map(|p| p.display().to_string()).unwrap_or_default(),
+    }
+}
+
+pub fn harness_choices() -> Vec<HarnessChoice> {
+    harness_choices_from(&harness_probe())
 }
 
 /// Catalog E4B if it is up, else any other E4B id.
@@ -765,5 +830,31 @@ mod tests {
             .map(|c| c.id)
             .collect();
         assert_eq!(ids, ["grok", "hermes", "openrouter"]);
+    }
+
+    #[test]
+    fn harness_choices_follow_fake_presence_flags() {
+        let probe = HarnessProbe {
+            goose: true,
+            goose_path: "/opt/goose".into(),
+            grok: false,
+            grok_path: "/opt/hidden-grok".into(),
+            hermes: true,
+            hermes_path: "/opt/hermes".into(),
+        };
+        let rows = harness_choices_from(&probe);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].id, "goose");
+        assert_eq!(rows[0].label, "Goose");
+        assert!(rows[0].present);
+        assert_eq!(rows[0].path, "/opt/goose");
+        assert_eq!(rows[1].id, "grok");
+        assert!(!rows[1].present);
+        assert!(rows[1].path.is_empty());
+        assert_eq!(rows[2].id, "hermes");
+        assert_eq!(rows[2].label, "Hermes");
+        assert!(rows[2].present);
+        assert_eq!(rows[2].path, "/opt/hermes");
+        assert!(rows.iter().all(|r| r.id != "berd"));
     }
 }

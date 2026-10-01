@@ -15,6 +15,7 @@ mod card_links;
 mod claim_front;
 mod chars;
 mod companion;
+mod companion_backend;
 mod companion_clear;
 mod companion_desk;
 #[cfg(unix)]
@@ -724,6 +725,8 @@ pub fn run() {
             attach::companion_attach_pick,
             coordinator::companion_agents,
             coordinator::set_companion_agent,
+            companion_backend::companion_harnesses,
+            companion_backend::set_companion_backend,
             coordinator::set_companion_mode,
             interrupt_gate::interrupt_gate_set_armed,
             interrupt_gate::interrupt_gate_status,

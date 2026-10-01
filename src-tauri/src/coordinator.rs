@@ -134,25 +134,13 @@ pub fn launch_coordinator(
 }
 
 // Companion: plug map
-// The mouth is a plug map now — off the Berd/Goose combo. Default mouth is
-// **Goose** (`goose run` + plug.json session); `grok` is a mouth; `hermes`
-// is compat; `berd` (`berdctl` + ~/.agents/companions/orbitty-primary) is
-// the hidden escape only. Never Cursor / OpenCode / ocx / Claude / Codex /
-// Pi. ORBITTY_COMPANION_BACKEND picks; an unknown value is an honest
-// error at send — never a silent Berd fallback.
-
-/// Plug map: unset/empty/`goose` → `goose` (default mouth); `grok`;
-/// `hermes` (compat); `berd` (hidden escape). Anything else is returned
-/// raw so the send path can fail on it honestly.
-fn companion_backend() -> String {
-    let raw = std::env::var("ORBITTY_COMPANION_BACKEND").unwrap_or_default();
-    let b = raw.trim().to_ascii_lowercase();
-    if b.is_empty() {
-        "goose".into()
-    } else {
-        b
-    }
-}
+// The mouth is a plug map. Order: non-empty ORBITTY_COMPANION_BACKEND
+// (override) → companion.backend in state → legacy "goose" only when
+// goose is on PATH → unset. goose, grok, and hermes are the Mouth picks.
+// berd (berdctl) is the hidden escape and only arrives through the env
+// var. Never Cursor / OpenCode / ocx / Claude / Codex / Pi. An unknown
+// value is an honest error at send — never a silent Berd fallback.
+// Unset returns one plain row and does not call a model.
 
 /// pub(crate): mouth_hop keeps the BYOK OpenRouter key next to plug.json.
 pub(crate) fn companions_root() -> PathBuf {
@@ -712,7 +700,7 @@ pub struct CompanionAgents {
 /// is an honest error (the page degrades to a single "default" row).
 #[tauri::command]
 pub fn companion_agents(app: tauri::AppHandle) -> Result<CompanionAgents, String> {
-    let backend = companion_backend();
+    let (backend, source) = crate::companion_backend::require_send_backend(&app)?;
     let (agents, selected) = match backend.as_str() {
         "hermes" => {
             let mut a = vec!["default".to_string()];
@@ -732,8 +720,8 @@ pub fn companion_agents(app: tauri::AppHandle) -> Result<CompanionAgents, String
             (agents, selected)
         }
         other => {
-            return Err(format!(
-                "Unknown ORBITTY_COMPANION_BACKEND {other:?} — goose, grok, hermes, or berd."
+            return Err(crate::companion_backend::unknown_backend_message(
+                other, source,
             ))
         }
     };
@@ -773,7 +761,7 @@ pub fn set_companion_pack(app: tauri::AppHandle, pack_id: String) -> Result<Opti
 /// Hermes path: next send continues that profile's orbitty-companion thread.
 #[tauri::command]
 pub fn set_companion_agent(app: tauri::AppHandle, profile: String) -> Result<String, String> {
-    let backend = companion_backend();
+    let (backend, source) = crate::companion_backend::require_send_backend(&app)?;
     let p = profile.trim().to_string();
     match backend.as_str() {
         "hermes" => {
@@ -795,8 +783,8 @@ pub fn set_companion_agent(app: tauri::AppHandle, profile: String) -> Result<Str
             update_soul_pointer(&p);
         }
         other => {
-            return Err(format!(
-                "Unknown ORBITTY_COMPANION_BACKEND {other:?} — goose, grok, hermes, or berd."
+            return Err(crate::companion_backend::unknown_backend_message(
+                other, source,
             ))
         }
     }
@@ -1571,9 +1559,10 @@ pub(crate) fn wrap_with_pocket(app: &tauri::AppHandle, line: &str) -> String {
 }
 
 /// Companion composer send path.
-/// Default: Goose mouth (`goose run`, plug.json session). `grok` mouth;
-/// `hermes` compat; `berd` hidden escape (bound session from
-/// `~/.agents/companions/orbitty-primary/session.json` via `berdctl`).
+/// Harness order: env override, saved companion.backend, legacy goose
+/// when goose is on PATH, else one plain row and no model call.
+/// `hermes` keeps its profile thread. `berd` is the hidden env escape
+/// (bound session from the companion plug via `berdctl`).
 /// Never hosts a model inside Orbitty. Async; UI disables Send in flight.
 /// Appends `companion-send` / `companion-reply`
 /// (best-effort) — content is `{ "n": <chars> }` only, never the line.
@@ -1717,13 +1706,35 @@ async fn companion_send_inner(
         }
     }
 
-    let backend = companion_backend();
+    let resolved = crate::companion_backend::resolve_companion_backend(&app);
+    if resolved.unknown {
+        return Err(crate::companion_backend::unknown_backend_message(
+            &resolved.pick.id,
+            resolved.pick.source,
+        ));
+    }
+    let backend_source = resolved.pick.source;
+    let backend = resolved.pick.id;
     // A file-only send still needs a you-row — the
     // chip's name stands in for the empty line (never a blank bubble).
     let you_line = match &attach {
         Some(a) if line.is_empty() => format!("[file] {}", a.name),
         _ => line.clone(),
     };
+    if backend.is_empty() {
+        let row = crate::companion_backend::NO_HARNESS_ROW.to_string();
+        persist_companion_you(&app, &you_line);
+        if crate::state::update(&app, |st| {
+            st.companion.last_bot_line = row.clone();
+            st.companion.push_turn("them", &row);
+            Ok(())
+        })
+        .is_ok()
+        {
+            let _ = app.emit("state:changed", ());
+        }
+        return Ok(row);
+    }
     persist_companion_you(&app, &you_line);
     // Pin Quick mouth when LM Studio is serving the catalog E4B and
     // replyModel is still empty. One models GET, then the field sticks.
@@ -1861,8 +1872,8 @@ async fn companion_send_inner(
         "hermes" => companion_send_hermes(&app, &prompt).await?,
         "berd" => companion_send_berd(&prompt).await?,
         other => {
-            return Err(format!(
-                "Unknown ORBITTY_COMPANION_BACKEND {other:?} — goose, grok, hermes, or berd."
+            return Err(crate::companion_backend::unknown_backend_message(
+                other, backend_source,
             ))
         }
     };

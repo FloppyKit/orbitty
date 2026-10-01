@@ -5,6 +5,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
   import type { PersistedState } from "./persist";
+  import { linkErrText, requestLink } from "./linkOpen.svelte";
 
   type ReplyLane = "grok" | "local" | "openrouter" | "free";
   type ScannedModel = {
@@ -51,6 +52,19 @@
   let handoffBackend = $state("");
   let autoHandoff = $state(false);
   let handoffChoices = $state<{ id: string; label: string }[]>([]);
+  type HarnessChoice = { id: string; label: string; present: boolean; path: string };
+  type HarnessPick = {
+    choices: HarnessChoice[];
+    id: string;
+    source: string;
+    envOverride: boolean;
+  };
+  let harnesses = $state<HarnessPick | null>(null);
+  let harnessNote = $state<string | null>(null);
+
+  const GOOSE_DOWNLOAD = "https://block.github.io/goose/";
+  const HERMES_DOWNLOAD =
+    "https://hermes-agent.nousresearch.com/docs/getting-started/installation";
 
   function healLane(raw: string | undefined, freeMode: boolean): ReplyLane {
     const s = (raw ?? "").trim().toLowerCase();
@@ -90,6 +104,38 @@
       handoffChoices = await invoke<{ id: string; label: string }[]>("handoff_backends");
     } catch {
       handoffChoices = [];
+    }
+  }
+
+  async function loadHarnesses() {
+    try {
+      harnesses = await invoke<HarnessPick>("companion_harnesses");
+    } catch {
+      harnesses = null;
+    }
+  }
+
+  async function pickHarness(id: string) {
+    if (harnesses?.envOverride) return;
+    harnessNote = null;
+    try {
+      const saved = await invoke<{
+        backend: string;
+        envOverride: boolean;
+        message: string;
+      }>("set_companion_backend", { id });
+      harnessNote = saved.envOverride ? saved.message : null;
+      await loadHarnesses();
+    } catch (e) {
+      harnessNote = `${e}`;
+    }
+  }
+
+  async function openDownload(url: string) {
+    try {
+      await requestLink(url);
+    } catch (e) {
+      harnessNote = linkErrText(e);
     }
   }
 
@@ -214,9 +260,11 @@
     await loadState();
     await loadKeyStatus();
     await loadHandoffChoices();
+    await loadHarnesses();
     await rescan();
     unlisten = await listen("state:changed", () => {
       loadState();
+      loadHarnesses();
     });
     document.addEventListener("visibilitychange", onVisibility);
   });
@@ -225,6 +273,9 @@
     document.removeEventListener("visibilitychange", onVisibility);
   });
 
+  const presentHarnesses = $derived(
+    (harnesses?.choices ?? []).filter((h) => h.present),
+  );
   const showLocalPick = $derived(
     replyLane === "local" || replyLane === "free",
   );
@@ -244,6 +295,49 @@
 </script>
 
 <p class="block-label">Mouth</p>
+
+<div class="mouth-row">
+  <span class="mouth-k">Harness</span>
+  <div class="mouth-v">
+    {#if presentHarnesses.length > 0}
+      <div class="setting-row" role="group" aria-label="Companion harness">
+        {#each presentHarnesses as h (h.id)}
+          <button
+            class="mini"
+            class:active={harnesses?.id === h.id}
+            aria-pressed={harnesses?.id === h.id}
+            disabled={harnesses?.envOverride === true}
+            onclick={() => pickHarness(h.id)}
+            title={h.label}
+          >{h.label}</button>
+        {/each}
+      </div>
+    {:else}
+      <p class="help">No harness found on this Mac. Goose and Hermes are free.</p>
+      <div class="setting-row">
+        <button
+          class="mini"
+          type="button"
+          onclick={() => openDownload(GOOSE_DOWNLOAD)}
+          title="Goose download"
+        >Goose</button>
+        <button
+          class="mini"
+          type="button"
+          onclick={() => openDownload(HERMES_DOWNLOAD)}
+          title="Hermes download"
+        >Hermes</button>
+      </div>
+    {/if}
+    {#if harnesses?.envOverride}
+      <p class="help">set by ORBITTY_COMPANION_BACKEND</p>
+    {/if}
+    {#if harnessNote}
+      <p class="help">{harnessNote}</p>
+    {/if}
+    <p class="help">Who runs the companion. Reply lane applies when Harness is Grok.</p>
+  </div>
+</div>
 
 <div class="mouth-row">
   <span class="mouth-k">Reply</span>

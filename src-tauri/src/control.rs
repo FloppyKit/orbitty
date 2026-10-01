@@ -458,6 +458,21 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
+        // Same companion.* ACL class as companion.set_agent (not a read).
+        "companion.harnesses" => crate::companion_backend::companion_harnesses(app.clone())
+            .map(to_data)
+            .map_err(tool_err),
+        "companion.set_backend" => {
+            let id = match args.get("id").and_then(|v| v.as_str()) {
+                Some(s) => s.trim().to_string(),
+                None => {
+                    return Err((ERR_OTHER, "missing arg \"id\"".to_string()));
+                }
+            };
+            crate::companion_backend::set_companion_backend(app.clone(), id)
+                .map(to_data)
+                .map_err(tool_err)
+        }
         // Same ACL class as companion.send
         // (companion.* — never read-only). Unknown clip = honest error.
         "companion.play" => {

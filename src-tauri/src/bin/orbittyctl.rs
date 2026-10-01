@@ -30,6 +30,8 @@ commands:
   companion send [--file PATH] -- \"line\"
   companion agents
   companion set-agent -- <profile>
+  companion harnesses
+  companion set-backend -- <id>     goose | grok | hermes; \"\" clears
   companion play -- <clip>         idle · think · nod · look-left · look-right
   companion mode -- spark|chat|work|hold
   companion free-mode -- on|off
@@ -633,6 +635,10 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["companion", "agents"] => Ok(("companion.agents", json!({}))),
         ["companion", "set-agent"] => {
             Ok(("companion.set_agent", json!({ "profile": payload(o)? })))
+        }
+        ["companion", "harnesses"] => Ok(("companion.harnesses", json!({}))),
+        ["companion", "set-backend"] => {
+            Ok(("companion.set_backend", json!({ "id": payload(o)? })))
         }
         // `companion play nod` and `companion play -- nod` both land here.
         ["companion", "play", ..] => Ok(("companion.play", json!({ "clip": payload(o)? }))),
@@ -1304,6 +1310,37 @@ fn print_human(tool: &str, data: &Value) {
             }
         }
         "companion.set_agent" => println!("agent: {}", data.as_str().unwrap_or("")),
+        "companion.harnesses" => {
+            let id = data["id"].as_str().unwrap_or("");
+            let source = data["source"].as_str().unwrap_or("");
+            if id.is_empty() {
+                println!("harness: (unset)");
+            } else {
+                println!("harness: {id} ({source})");
+            }
+            if data["envOverride"].as_bool() == Some(true) {
+                println!("set by ORBITTY_COMPANION_BACKEND");
+            }
+            if let Some(arr) = data["choices"].as_array() {
+                for c in arr {
+                    let cid = c["id"].as_str().unwrap_or("");
+                    let mark = if c["present"].as_bool().unwrap_or(false) {
+                        "present"
+                    } else {
+                        "absent"
+                    };
+                    println!("  {cid}  {mark}");
+                }
+            }
+        }
+        "companion.set_backend" => {
+            let msg = data["message"].as_str().unwrap_or("");
+            if msg.is_empty() {
+                println!("harness: {}", data["backend"].as_str().unwrap_or(""));
+            } else {
+                println!("{msg}");
+            }
+        }
         "companion.play" => println!("playing: {}", data["played"].as_str().unwrap_or("")),
         "companion.mode" => println!("mode: {}", data.as_str().unwrap_or("")),
         "companion.free_mode" => println!(
@@ -1806,6 +1843,23 @@ mod tests {
         assert_eq!(args["template"], "ledger");
         assert_eq!(args["answers"]["cloud"], false);
         assert_eq!(args["answers"]["spokes"], true);
+    }
+
+    #[test]
+    fn companion_harness_verbs_parse() {
+        let o = parse(&argv(&["companion", "harnesses"])).unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "companion.harnesses");
+        assert!(args.as_object().unwrap().is_empty());
+
+        let o = parse(&argv(&["companion", "set-backend", "--", "hermes"])).unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "companion.set_backend");
+        assert_eq!(args["id"], "hermes");
+
+        let o = parse(&argv(&["companion", "set-backend", "--", ""])).unwrap();
+        let (_, args) = tool_call(&o).unwrap();
+        assert_eq!(args["id"], "");
     }
 }
 
