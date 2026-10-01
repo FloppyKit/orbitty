@@ -1,8 +1,8 @@
 //! Companion harness pick.
 //! Order: non-empty `ORBITTY_COMPANION_BACKEND` (override) → non-empty
 //! `companion.backend` → legacy `goose` only when goose is on PATH → unset.
-//! `berd` is valid from the env var only. OpenRouter and local stay on
-//! the Reply lane.
+//! `berd` is valid from the env var only. `direct` is a built-in picker
+//! id (no CLI). OpenRouter and local stay on the Reply lane.
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -55,11 +55,11 @@ fn norm(raw: &str) -> String {
 }
 
 fn env_sendable(id: &str) -> bool {
-    matches!(id, "goose" | "grok" | "hermes" | "berd")
+    matches!(id, "goose" | "grok" | "hermes" | "berd" | "direct")
 }
 
 fn state_sendable(id: &str) -> bool {
-    matches!(id, "goose" | "grok" | "hermes")
+    matches!(id, "goose" | "grok" | "hermes" | "direct")
 }
 
 /// Pure pick. Tests pass explicit strings and flags; this does not read
@@ -107,9 +107,9 @@ pub fn resolve_backend(env: &str, state: &str, detected: Detected) -> BackendRes
 /// came from the env override.
 pub fn unknown_backend_message(id: &str, source: BackendSource) -> String {
     if source == BackendSource::Env {
-        format!("Unknown ORBITTY_COMPANION_BACKEND {id:?} — goose, grok, hermes, or berd.")
+        format!("Unknown ORBITTY_COMPANION_BACKEND {id:?} — goose, grok, hermes, berd, or direct.")
     } else {
-        format!("Unknown harness {id:?} — goose, grok, or hermes.")
+        format!("Unknown harness {id:?} — goose, grok, hermes, or direct.")
     }
 }
 
@@ -117,8 +117,8 @@ pub fn unknown_backend_message(id: &str, source: BackendSource) -> String {
 pub fn validate_companion_backend(raw: &str) -> Result<String, String> {
     let s = norm(raw);
     match s.as_str() {
-        "" | "goose" | "grok" | "hermes" => Ok(s),
-        _ => Err(format!("Unknown harness {s:?} — goose, grok, or hermes.")),
+        "" | "goose" | "grok" | "hermes" | "direct" => Ok(s),
+        _ => Err(unknown_backend_message(&s, BackendSource::State)),
     }
 }
 
@@ -319,6 +319,7 @@ mod tests {
         assert_eq!(validate_companion_backend("").unwrap(), "");
         assert_eq!(validate_companion_backend(" GOOSE ").unwrap(), "goose");
         assert_eq!(validate_companion_backend("grok").unwrap(), "grok");
+        assert_eq!(validate_companion_backend(" Direct ").unwrap(), "direct");
         assert!(validate_companion_backend("berd").is_err());
         assert!(validate_companion_backend("openrouter").is_err());
         assert!(validate_companion_backend("local").is_err());

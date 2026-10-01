@@ -623,6 +623,42 @@ fn openrouter_chat(
     openai_chat_content(&text)
 }
 
+/// OpenAI-compatible `{base}/chat/completions`. Base is validated before
+/// any curl. Vision parts use the OpenAI wire; Direct passes no image
+/// because the compat lane is text-only.
+pub(crate) fn compat_chat(
+    base: &str,
+    key: &str,
+    model: &str,
+    messages: &[Value],
+    vision_path: Option<&str>,
+) -> Result<String, String> {
+    let base = crate::direct_lane::validate_direct_base(base)?;
+    if base.is_empty() {
+        return Err("no base url".into());
+    }
+    let model = model.trim();
+    if model.is_empty() {
+        return Err("no model".into());
+    }
+    let messages = match apply_vision_or_honest(
+        messages,
+        vision_path,
+        crate::attach_vision::VisionWire::OpenAi,
+    ) {
+        Ok(m) => m,
+        Err(e) if e == crate::attach_vision::oversize_line() => return Ok(e),
+        Err(e) => return Err(e),
+    };
+    let body = json!({ "model": model, "messages": messages });
+    let url = format!("{base}/chat/completions");
+    let (status, text) = curl_json("POST", &url, Some(key), Some(&body), 90)?;
+    if !(200..=299).contains(&status) {
+        return Err(format!("http {status}: {}", json_error_note(&text)));
+    }
+    openai_chat_content(&text)
+}
+
 /// Paid/BYOK handoff model. Never the free lane and never `openrouter/auto`.
 const OPENROUTER_HANDOFF_MODEL: &str = "openai/gpt-4o-mini";
 
@@ -693,7 +729,9 @@ pub fn hop_lane_for(settings: &str, line: &str, has_attach: bool, local_up: bool
     match settings {
         "local" => "local",
         "openrouter" => "openrouter_free",
-        "free" => {
+        // compat on the grok harness is Free Mode: never the paid lane,
+        // and never this file's compat HTTP call (that belongs to Direct).
+        "free" | "compat" => {
             if local_up {
                 "local"
             } else {
@@ -921,6 +959,7 @@ pub fn normalize_reply_lane(raw: &str) -> String {
         "local" | "lmstudio" | "ollama" => "local".into(),
         "openrouter" | "or" => "openrouter".into(),
         "free" | "freemode" | "free-mode" | "free_mode" | "free mode" => "free".into(),
+        "compat" => "compat".into(),
         _ => "grok".into(),
     }
 }
@@ -950,6 +989,7 @@ fn free_lanes_reply(
     prompt: &str,
     notes: &mut Vec<String>,
     try_local: bool,
+    try_compat: bool,
     try_or: bool,
     vision_path: Option<&str>,
 ) -> Option<(&'static str, String)> {
@@ -967,6 +1007,29 @@ fn free_lanes_reply(
             Ok((lane, r)) if !r.is_empty() => return Some((lane, r)),
             Ok(_) => notes.push("local: empty reply".into()),
             Err(e) => notes.push(format!("local: {e}")),
+        }
+    }
+    if try_compat {
+        // Text only. The function can attach an image; Direct does not ask it to.
+        if vision_path.is_some() {
+            notes.push("compat: text only".into());
+        } else {
+            let (base, model) = crate::state::load_state(app)
+                .map(|s| (s.companion.direct_base_url.clone(), s.companion.direct_model.clone()))
+                .unwrap_or_default();
+            match crate::direct_lane::read_secret_file(&crate::direct_lane::direct_key_path()) {
+                Some(key) => {
+                    let msgs = messages.get_or_insert_with(|| {
+                        hop_messages(app, &soul, raw_line, prompt, false, include_history)
+                    });
+                    match compat_chat(&base, &key, &model, msgs, None) {
+                        Ok(r) if !r.is_empty() => return Some(("compat", r)),
+                        Ok(_) => notes.push("compat: empty reply".into()),
+                        Err(e) => notes.push(format!("compat: {e}")),
+                    }
+                }
+                None => notes.push("compat: no key".into()),
+            }
         }
     }
     if try_or {
@@ -994,7 +1057,7 @@ fn free_lanes_reply(
 /// One honest them-row when no lane answered — the line is already
 /// persisted as a you-row, the transcript never resets, and the bubble
 /// says why instead of going silent.
-fn honest_down_line(free_mode: bool, notes: &[String]) -> String {
+pub(crate) fn honest_down_line(free_mode: bool, notes: &[String]) -> String {
     let tried = notes.join("; ");
     if free_mode {
         format!(
@@ -1009,12 +1072,15 @@ fn honest_down_line(free_mode: bool, notes: &[String]) -> String {
     }
 }
 
-fn run_free_lanes(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_free_lanes(
     app: tauri::AppHandle,
     raw_line: String,
     prompt: String,
     skip_grok: bool,
+    direct: bool,
     try_local: bool,
+    try_compat: bool,
     try_or: bool,
     mut notes: Vec<String>,
     vision_path: Option<String>,
@@ -1025,11 +1091,17 @@ fn run_free_lanes(
         &prompt,
         &mut notes,
         try_local,
+        try_compat,
         try_or,
         vision_path.as_deref(),
     );
     match hopped {
         Some((lane, reply)) => {
+            let fields = if direct {
+                json!({ "lane": lane, "direct": true })
+            } else {
+                json!({ "lane": lane, "freeMode": skip_grok })
+            };
             crate::event_log::append_best(
                 &app,
                 "companion-hop",
@@ -1037,11 +1109,12 @@ fn run_free_lanes(
                 None,
                 Some("agent"),
                 true,
-                &json!({ "lane": lane, "freeMode": skip_grok }),
+                &fields,
             );
             Ok(reply)
         }
-        None => Ok(honest_down_line(skip_grok, &notes)),
+        // Direct never uses the Free Mode sentence (a compat key may be paid).
+        None => Ok(honest_down_line(!direct && skip_grok, &notes)),
     }
 }
 
@@ -1121,7 +1194,7 @@ pub async fn send_with_hops(
     let (try_local, try_or) = match settings.as_str() {
         "local" => (true, false),
         "openrouter" => (false, true),
-        "free" => (true, true),
+        "free" | "compat" => (true, true),
         _ if hop_lane == "local" => (true, false),
         _ => (true, true),
     };
@@ -1131,7 +1204,7 @@ pub async fn send_with_hops(
         let to = try_or;
         let vision = vision_path.map(str::to_string);
         return tauri::async_runtime::spawn_blocking(move || {
-            run_free_lanes(a, r, p, true, tl, to, Vec::new(), vision)
+            run_free_lanes(a, r, p, true, false, tl, false, to, Vec::new(), vision)
         })
         .await
         .map_err(|e| format!("hop task: {e}"))?;
@@ -1149,7 +1222,7 @@ pub async fn send_with_hops(
             let (a, r, p) = (app.clone(), raw_line.to_string(), packed);
             let vision = vision.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                run_free_lanes(a, r, p, false, true, true, vec![note], vision)
+                run_free_lanes(a, r, p, false, false, true, false, true, vec![note], vision)
             })
             .await
             .map_err(|e| format!("hop task: {e}"))?
@@ -1458,6 +1531,7 @@ mod tests {
         assert_eq!(normalize_reply_lane("openrouter"), "openrouter");
         assert_eq!(normalize_reply_lane("free"), "free");
         assert_eq!(normalize_reply_lane("Free Mode"), "free");
+        assert_eq!(normalize_reply_lane("compat"), "compat");
         assert_eq!(normalize_reply_lane(""), "grok");
         assert_eq!(normalize_reply_lane("paid"), "grok");
     }
@@ -1466,6 +1540,9 @@ mod tests {
     fn hop_lane_free_stays_off_paid_grok() {
         assert_eq!(hop_lane_for("free", "what is this", true, true), "local");
         assert_eq!(hop_lane_for("free", "what is this", true, false), "openrouter_free");
+        assert_eq!(hop_lane_for("compat", "what is this", true, true), "local");
+        assert_eq!(hop_lane_for("compat", "what is this", true, false), "openrouter_free");
+        assert_ne!(hop_lane_for("compat", "ship the lane", false, false), "grok");
         assert_eq!(hop_lane_for("local", "what is this", true, true), "local");
         assert_eq!(hop_lane_for("grok", "what is this", true, true), "grok");
     }

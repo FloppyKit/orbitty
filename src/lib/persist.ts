@@ -285,11 +285,17 @@ export interface CompanionSlice {
   // from freeMode. Dedicated commands, same strip-trap as conductor.
   replyLane?: string;
   replyModel?: string;
-  // Companion harness: goose | grok | hermes. Empty = unset.
+  // Companion harness: goose | grok | hermes | direct. Empty = unset.
   // ORBITTY_COMPANION_BACKEND overrides when set. Rust-owned in the
   // window-merge rule (same strip-trap as handoffBackend). berd is
-  // env-only and is not stored here.
+  // env-only and is not stored here. direct is built in (no CLI).
   backend?: string;
+  // Direct compat endpoint. The key is NOT here — native keeps it
+  // 0600 at companions/orbitty-primary/direct.key. Rust-owned in the
+  // window-merge rule (same strip-trap as replyLane). A compat key
+  // is not part of Free Mode.
+  directBaseUrl?: string;
+  directModel?: string;
   // Online agent for "Ask online agent". Empty = ask each time.
   // Rust-owned in the window-merge rule (same strip-trap as replyLane).
   // No personal default.

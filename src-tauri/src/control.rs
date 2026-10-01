@@ -473,6 +473,14 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 .map(to_data)
                 .map_err(tool_err)
         }
+        // Dry run. companion.* ACL, not a read. Never calls a model or writes.
+        // The key is not settable on this socket.
+        "companion.route" => {
+            let line = arg_str(args, "line")?;
+            crate::direct_lane::companion_route(app.clone(), line)
+                .map(to_data)
+                .map_err(tool_err)
+        }
         // Same ACL class as companion.send
         // (companion.* — never read-only). Unknown clip = honest error.
         "companion.play" => {
@@ -1024,6 +1032,11 @@ mod tests {
         assert!(!READ_TOOLS.contains(&"route.run"));
         assert!(read_ok("route.classify"));
         assert!(!read_ok("route.run"));
+        assert!(!READ_TOOLS.contains(&"companion.route"));
+        assert!(!read_ok("companion.route"));
+        assert!(!allowed(&Acl::Read, "companion.route"));
+        assert!(allowed(&Acl::Companion, "companion.route"));
+        assert!(allowed(&Acl::Full, "companion.route"));
         assert!(allowed(&Acl::Read, "route.classify"));
         assert!(allowed(&Acl::Read, "route.table"));
         assert!(!allowed(&Acl::Read, "route.run"));

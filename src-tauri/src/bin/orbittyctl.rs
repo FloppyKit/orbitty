@@ -31,7 +31,8 @@ commands:
   companion agents
   companion set-agent -- <profile>
   companion harnesses
-  companion set-backend -- <id>     goose | grok | hermes; \"\" clears
+  companion set-backend -- <id>     goose | grok | hermes | direct; \"\" clears
+  companion route -- \"line\"         dry run: route, backend, source, lanes
   companion play -- <clip>         idle · think · nod · look-left · look-right
   companion mode -- spark|chat|work|hold
   companion free-mode -- on|off
@@ -639,6 +640,9 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["companion", "harnesses"] => Ok(("companion.harnesses", json!({}))),
         ["companion", "set-backend"] => {
             Ok(("companion.set_backend", json!({ "id": payload(o)? })))
+        }
+        ["companion", "route"] => {
+            Ok(("companion.route", json!({ "line": payload(o)? })))
         }
         // `companion play nod` and `companion play -- nod` both land here.
         ["companion", "play", ..] => Ok(("companion.play", json!({ "clip": payload(o)? }))),
@@ -1341,6 +1345,18 @@ fn print_human(tool: &str, data: &Value) {
                 println!("{msg}");
             }
         }
+        "companion.route" => {
+            println!("route: {}", data["route"].as_str().unwrap_or(""));
+            println!(
+                "backend: {} ({})",
+                data["backend"].as_str().unwrap_or(""),
+                data["source"].as_str().unwrap_or("")
+            );
+            if let Some(arr) = data["lanes"].as_array() {
+                let lanes: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+                println!("lanes: {}", lanes.join(", "));
+            }
+        }
         "companion.play" => println!("playing: {}", data["played"].as_str().unwrap_or("")),
         "companion.mode" => println!("mode: {}", data.as_str().unwrap_or("")),
         "companion.free_mode" => println!(
@@ -1860,6 +1876,25 @@ mod tests {
         let o = parse(&argv(&["companion", "set-backend", "--", ""])).unwrap();
         let (_, args) = tool_call(&o).unwrap();
         assert_eq!(args["id"], "");
+    }
+
+    #[test]
+    fn companion_route_request_matches_mcp() {
+        let o = parse(&argv(&["companion", "route", "--", "board"])).unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "companion.route");
+        let req = json!({ "v": 1, "id": "1", "tool": tool, "args": args });
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            r#"{"args":{"line":"board"},"id":"1","tool":"companion.route","v":1}"#
+        );
+        let o = parse(&argv(&["companion", "route", "--", "say \"hi\""])).unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        let req = json!({ "v": 1, "id": "1", "tool": tool, "args": args });
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            "{\"args\":{\"line\":\"say \\\"hi\\\"\"},\"id\":\"1\",\"tool\":\"companion.route\",\"v\":1}"
+        );
     }
 }
 

@@ -597,11 +597,19 @@ pub struct CompanionState {
     /// Default off.
     #[serde(default)]
     pub auto_handoff: bool,
-    /// Companion harness: "goose" | "grok" | "hermes". "" = unset.
+    /// Companion harness: "goose" | "grok" | "hermes" | "direct". "" = unset.
     /// ORBITTY_COMPANION_BACKEND overrides this when it is set. berd is
-    /// env-only and is not stored here.
+    /// env-only and is not stored here. direct is built in (no CLI).
     #[serde(default)]
     pub backend: String,
+    /// OpenAI-compatible base URL for the Direct compat lane.
+    /// Empty = not set. http only for loopback. The key is NOT here —
+    /// it lives 0600 in companions/orbitty-primary/direct.key.
+    #[serde(default)]
+    pub direct_base_url: String,
+    /// Model id for that compat base. Empty = not set.
+    #[serde(default)]
+    pub direct_model: String,
 }
 
 /// S2.4: one saved companion turn. role: "you" | "them".
@@ -788,6 +796,8 @@ impl Default for CompanionState {
             handoff_backend: String::new(),
             auto_handoff: false,
             backend: String::new(),
+            direct_base_url: String::new(),
+            direct_model: String::new(),
         }
     }
 }
@@ -1207,6 +1217,8 @@ pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (P
     out.companion.handoff_backend = disk.companion.handoff_backend.clone();
     out.companion.auto_handoff = disk.companion.auto_handoff;
     out.companion.backend = disk.companion.backend.clone();
+    out.companion.direct_base_url = disk.companion.direct_base_url.clone();
+    out.companion.direct_model = disk.companion.direct_model.clone();
     out.shift_on = disk.shift_on;
     out.peer_chrome = disk.peer_chrome;
     if out.last_claim_project_id.is_none() {
@@ -1420,6 +1432,12 @@ fn apply_companion_delta(live: &mut CompanionState, before: &CompanionState, aft
     );
     take_changed(&mut live.auto_handoff, &before.auto_handoff, &after.auto_handoff);
     take_changed(&mut live.backend, &before.backend, &after.backend);
+    take_changed(
+        &mut live.direct_base_url,
+        &before.direct_base_url,
+        &after.direct_base_url,
+    );
+    take_changed(&mut live.direct_model, &before.direct_model, &after.direct_model);
 }
 
 fn upsert_tombstone(tombs: &mut Vec<CardTombstone>, id: &str, at: f64) {
@@ -2023,6 +2041,24 @@ mod tests {
     }
 
     #[test]
+    fn direct_endpoint_fields_are_covered_and_the_key_is_not() {
+        let src = include_str!("state.rs");
+        let comp = struct_fields(src, "pub struct CompanionState {");
+        assert!(comp.iter().any(|f| f == "direct_base_url"));
+        assert!(comp.iter().any(|f| f == "direct_model"));
+        assert!(comp.iter().all(|f| !f.to_ascii_lowercase().contains("key")));
+        let companion = fn_body(src, "fn apply_companion_delta(");
+        assert!(names_field(companion, "direct_base_url"));
+        assert!(names_field(companion, "direct_model"));
+        assert!(!companion.contains("direct_key"));
+        let c = CompanionState::default();
+        let v = serde_json::to_value(&c).unwrap();
+        assert_eq!(v["directBaseUrl"], "");
+        assert_eq!(v["directModel"], "");
+        assert!(v.get("directKey").is_none());
+    }
+
+    #[test]
     fn window_merge_stale_card_loses_and_rust_slices_stay() {
         let mut disk = PersistedState::default();
         disk.kanban_cards.push(touch_card(
@@ -2046,6 +2082,8 @@ mod tests {
         disk.companion.handoff_backend = "goose".into();
         disk.companion.auto_handoff = true;
         disk.companion.backend = "hermes".into();
+        disk.companion.direct_base_url = "https://example.test/v1".into();
+        disk.companion.direct_model = "m".into();
         disk.shift_on = true;
         disk.peer_chrome = true;
         disk.last_claim_project_id = Some("planet".into());
@@ -2064,6 +2102,8 @@ mod tests {
         incoming.companion.handoff_backend.clear();
         incoming.companion.auto_handoff = false;
         incoming.companion.backend.clear();
+        incoming.companion.direct_base_url.clear();
+        incoming.companion.direct_model.clear();
         incoming.shift_on = false;
         incoming.peer_chrome = false;
         incoming.last_claim_project_id = None;
@@ -2086,6 +2126,8 @@ mod tests {
         assert_eq!(merged.companion.handoff_backend, "goose");
         assert!(merged.companion.auto_handoff);
         assert_eq!(merged.companion.backend, "hermes");
+        assert_eq!(merged.companion.direct_base_url, "https://example.test/v1");
+        assert_eq!(merged.companion.direct_model, "m");
         assert!(merged.shift_on);
         assert!(merged.peer_chrome);
         assert_eq!(merged.last_claim_project_id.as_deref(), Some("planet"));

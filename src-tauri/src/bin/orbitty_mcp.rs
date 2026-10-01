@@ -57,7 +57,8 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "companion.agents", description: "List companion agent profiles", args: "none" },
     ToolDef { name: "companion.set_agent", description: "Set the companion agent profile", args: "profile" },
     ToolDef { name: "companion.harnesses", description: "List companion harnesses detected on this Mac, plus the current pick", args: "none" },
-    ToolDef { name: "companion.set_backend", description: "Set the companion harness (goose, grok, or hermes). Empty id clears. Same ACL class as companion.set_agent.", args: "backend_id" },
+    ToolDef { name: "companion.set_backend", description: "Set the companion harness (goose, grok, hermes, or direct). Empty id clears. Same ACL class as companion.set_agent.", args: "backend_id" },
+    ToolDef { name: "companion.route", description: "Dry-run the companion send route for a line. Returns route, backend, source, and lanes. Does not call a model or write. Keys are not set here.", args: "line" },
     ToolDef { name: "companion.play", description: "Play an allowlisted gesture clip on the 3D companion body (no-op on the spirit sheet)", args: "clip" },
     ToolDef { name: "packs.list", description: "List installed sprite packs", args: "none" },
     ToolDef { name: "sleeper.wake", description: "Wake a sleeper by id", args: "id" },
@@ -156,7 +157,7 @@ fn input_schema(kind: &str) -> Value {
         }),
         "backend_id" => json!({
             "type": "object",
-            "properties": { "id": { "type": "string", "description": "Harness id: goose, grok, or hermes. Empty string clears." } },
+            "properties": { "id": { "type": "string", "description": "Harness id: goose, grok, hermes, or direct. Empty string clears." } },
             "required": ["id"]
         }),
         "clip" => json!({
@@ -901,6 +902,24 @@ mod tests {
             .iter()
             .any(|t| t.name == "companion.set_backend" && t.args == "backend_id"));
         assert_eq!(required("companion.set_backend"), vec!["id".to_string()]);
+        assert!(TOOLS.iter().any(|t| t.name == "companion.route" && t.args == "line"));
+        assert_eq!(required("companion.route"), vec!["line".to_string()]);
+        assert_eq!(
+            tool("companion.route")["inputSchema"]["properties"]["line"]["type"],
+            "string"
+        );
+        let args = json!({ "line": "board" });
+        let req = json!({ "v": 1, "id": "1", "tool": "companion.route", "args": args });
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            r#"{"args":{"line":"board"},"id":"1","tool":"companion.route","v":1}"#
+        );
+        let args = json!({ "line": "say \"hi\"" });
+        let req = json!({ "v": 1, "id": "1", "tool": "companion.route", "args": args });
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            "{\"args\":{\"line\":\"say \\\"hi\\\"\"},\"id\":\"1\",\"tool\":\"companion.route\",\"v\":1}"
+        );
     }
 
     #[test]

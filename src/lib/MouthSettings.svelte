@@ -7,7 +7,7 @@
   import type { PersistedState } from "./persist";
   import { linkErrText, requestLink } from "./linkOpen.svelte";
 
-  type ReplyLane = "grok" | "local" | "openrouter" | "free";
+  type ReplyLane = "grok" | "local" | "openrouter" | "free" | "compat";
   type ScannedModel = {
     id: string;
     source: string;
@@ -46,6 +46,12 @@
   });
   let orBusy = $state(false);
   let orNote = $state<string | null>(null);
+  let directBase = $state("");
+  let directModel = $state("");
+  let directKeyDraft = $state("");
+  let directKey = $state<{ set: boolean; tail: string }>({ set: false, tail: "" });
+  let directBusy = $state(false);
+  let directNote = $state<string | null>(null);
   let scan = $state<MouthScan | null>(null);
   let pullBusy = $state(false);
   let pullNote = $state<string | null>(null);
@@ -72,6 +78,7 @@
     if (s === "openrouter" || s === "or") return "openrouter";
     if (s === "free" || s === "freemode" || s === "free-mode" || s === "free_mode")
       return "free";
+    if (s === "compat") return "compat";
     if (s === "grok") return "grok";
     return freeMode ? "free" : "grok";
   }
@@ -84,6 +91,8 @@
       conductorOn = s.companion?.conductorOn ?? false;
       handoffBackend = s.companion?.handoffBackend ?? "";
       autoHandoff = s.companion?.autoHandoff ?? false;
+      directBase = s.companion?.directBaseUrl ?? "";
+      directModel = s.companion?.directModel ?? "";
     } catch {
       /* next scan still paints */
     }
@@ -96,6 +105,14 @@
       );
     } catch {
       orKey = { set: false, source: "", tail: "" };
+    }
+  }
+
+  async function loadDirectKey() {
+    try {
+      directKey = await invoke<{ set: boolean; tail: string }>("direct_key_status");
+    } catch {
+      directKey = { set: false, tail: "" };
     }
   }
 
@@ -239,6 +256,48 @@
     orBusy = false;
   }
 
+  async function saveDirectEndpoint() {
+    if (directBusy) return;
+    directBusy = true;
+    directNote = null;
+    try {
+      const saved = await invoke<{ base: string; model: string }>("set_direct_endpoint", {
+        base: directBase.trim(),
+        model: directModel.trim(),
+      });
+      directBase = saved.base;
+      directModel = saved.model;
+    } catch (e) {
+      directNote = `${e}`;
+    }
+    directBusy = false;
+  }
+
+  async function saveDirectKey() {
+    if (directBusy) return;
+    directBusy = true;
+    directNote = null;
+    try {
+      directKey = await invoke("set_direct_key", { key: directKeyDraft.trim() });
+      directKeyDraft = "";
+    } catch (e) {
+      directNote = `${e}`;
+    }
+    directBusy = false;
+  }
+
+  async function clearDirectKey() {
+    if (directBusy) return;
+    directBusy = true;
+    directNote = null;
+    try {
+      directKey = await invoke("set_direct_key", { key: "" });
+    } catch (e) {
+      directNote = `${e}`;
+    }
+    directBusy = false;
+  }
+
   async function pullSuggest(tag: string) {
     if (pullBusy || !tag) return;
     pullBusy = true;
@@ -259,6 +318,7 @@
   onMount(async () => {
     await loadState();
     await loadKeyStatus();
+    await loadDirectKey();
     await loadHandoffChoices();
     await loadHarnesses();
     await rescan();
@@ -273,6 +333,7 @@
     document.removeEventListener("visibilitychange", onVisibility);
   });
 
+  const harnessIsDirect = $derived(harnesses?.id === "direct");
   const presentHarnesses = $derived(
     (harnesses?.choices ?? []).filter((h) => h.present),
   );
@@ -335,7 +396,7 @@
     {#if harnessNote}
       <p class="help">{harnessNote}</p>
     {/if}
-    <p class="help">Who runs the companion. Reply lane applies when Harness is Grok.</p>
+    <p class="help">Who runs the companion. Reply lane applies when Harness is Grok or Direct.</p>
   </div>
 </div>
 
@@ -343,13 +404,15 @@
   <span class="mouth-k">Reply</span>
   <div class="mouth-v">
     <div class="setting-row" role="group" aria-label="Who writes the reply">
-      <button
-        class="mini"
-        class:active={replyLane === "grok"}
-        aria-pressed={replyLane === "grok"}
-        onclick={() => pickReply("grok")}
-        title="Paid Grok via your existing grok CLI login"
-      >Grok (paid)</button>
+      {#if !harnessIsDirect}
+        <button
+          class="mini"
+          class:active={replyLane === "grok"}
+          aria-pressed={replyLane === "grok"}
+          onclick={() => pickReply("grok")}
+          title="Paid Grok via your existing grok CLI login"
+        >Grok (paid)</button>
+      {/if}
       <button
         class="mini"
         class:active={replyLane === "local"}
@@ -364,12 +427,23 @@
         onclick={() => pickReply("openrouter")}
         title="OpenRouter free models — needs a key"
       >OpenRouter free</button>
+      {#if harnessIsDirect}
+        <button
+          class="mini"
+          class:active={replyLane === "compat"}
+          aria-pressed={replyLane === "compat"}
+          onclick={() => pickReply("compat")}
+          title="One OpenAI-compatible base URL and key. Text only. Not part of Free Mode."
+        >Compat</button>
+      {/if}
       <button
         class="mini"
         class:active={replyLane === "free"}
         aria-pressed={replyLane === "free"}
         onclick={() => pickReply("free")}
-        title="Local first, then OpenRouter free. Paid Grok never runs."
+        title={harnessIsDirect
+          ? "Local first, then OpenRouter. A compat key is not part of Free Mode."
+          : "Local first, then OpenRouter free. Paid Grok never runs."}
       >Free Mode</button>
     </div>
     {#if showLocalPick}
@@ -412,8 +486,43 @@
     {#if pullNote}
       <p class="help">{pullNote}</p>
     {/if}
+    {#if harnessIsDirect}
+      <div class="setting-row">
+        <input
+          class="keyin"
+          type="text"
+          bind:value={directBase}
+          placeholder="https://host/v1"
+          aria-label="Compat base URL"
+          spellcheck="false"
+        />
+        <input
+          class="keyin"
+          type="text"
+          bind:value={directModel}
+          placeholder="model id"
+          aria-label="Compat model"
+          spellcheck="false"
+        />
+        <button
+          class="mini"
+          disabled={directBusy}
+          onclick={saveDirectEndpoint}
+          title="Save the compat base URL and model"
+        >Save</button>
+      </div>
+      {#if directNote}
+        <p class="help err">{directNote}</p>
+      {/if}
+      <p class="help">http is only allowed for localhost. The key is saved separately, never in state.</p>
+    {/if}
     <p class="help">
-      Who writes the real English. Free Mode never bills Grok.
+      {#if harnessIsDirect}
+        Who writes the real English. Free Mode here is local, then OpenRouter.
+        A compat key is its own lane and is not called free.
+      {:else}
+        Who writes the real English. Free Mode never bills Grok.
+      {/if}
     </p>
   </div>
 </div>
@@ -527,6 +636,39 @@
         OpenRouter is optional. Grok uses your existing CLI login — no key here.
       {/if}
     </p>
+    {#if harnessIsDirect}
+      <div class="setting-row">
+        <input
+          class="keyin"
+          type="password"
+          bind:value={directKeyDraft}
+          placeholder="Compat key"
+          aria-label="Compat API key"
+          onkeydown={(e) => e.key === "Enter" && saveDirectKey()}
+        />
+        <button
+          class="mini"
+          disabled={directBusy || directKeyDraft.trim().length === 0}
+          onclick={saveDirectKey}
+          title="Save the compat key locally — never in state.json"
+        >Save</button>
+        {#if directKey.set}
+          <button
+            class="mini ghost"
+            disabled={directBusy}
+            onclick={clearDirectKey}
+            title="Delete the saved compat key file"
+          >Clear</button>
+        {/if}
+      </div>
+      <p class="help">
+        {#if directKey.set}
+          Compat key saved locally (…{directKey.tail}). It is not part of Free Mode.
+        {:else}
+          Compat key is optional and not part of Free Mode. It stays in a local file.
+        {/if}
+      </p>
+    {/if}
   </div>
 </div>
 

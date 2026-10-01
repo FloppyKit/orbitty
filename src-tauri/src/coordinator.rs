@@ -136,11 +136,13 @@ pub fn launch_coordinator(
 // Companion: plug map
 // The mouth is a plug map. Order: non-empty ORBITTY_COMPANION_BACKEND
 // (override) → companion.backend in state → legacy "goose" only when
-// goose is on PATH → unset. goose, grok, and hermes are the Mouth picks.
-// berd (berdctl) is the hidden escape and only arrives through the env
-// var. Never Cursor / OpenCode / ocx / Claude / Codex / Pi. An unknown
-// value is an honest error at send — never a silent Berd fallback.
-// Unset returns one plain row and does not call a model.
+// goose is on PATH → unset. goose, grok, hermes, and direct are the
+// Mouth picks. berd (berdctl) is the hidden escape and only arrives
+// through the env var. direct never spawns a CLI. Never Cursor /
+// OpenCode / ocx / Claude / Codex / Pi. An unknown value is an honest
+// error at send — never a silent Berd fallback.
+// Unset returns one plain row and does not call a model. Local verbs
+// still answer when nothing is picked.
 
 /// pub(crate): mouth_hop keeps the BYOK OpenRouter key next to plug.json.
 pub(crate) fn companions_root() -> PathBuf {
@@ -1323,6 +1325,22 @@ fn match_action_line(
     None
 }
 
+pub(crate) fn action_line_hits(shortcuts: &[crate::state::ActionShortcut], line: &str) -> bool {
+    match_action_line(shortcuts, line).is_some()
+}
+
+fn log_companion_route(app: &tauri::AppHandle, route: &str) {
+    crate::event_log::append_best(
+        app,
+        "companion-route",
+        None,
+        None,
+        Some("agent"),
+        true,
+        &serde_json::json!({ "route": route }),
+    );
+}
+
 /// Intercept persist: them-line always lands; you-line only when the line
 /// read as chat. Same duplicate-you skip + cap 40 as the normal send path.
 /// push_turn lands on the one companion transcript
@@ -1707,43 +1725,47 @@ async fn companion_send_inner(
     }
 
     let resolved = crate::companion_backend::resolve_companion_backend(&app);
-    if resolved.unknown {
-        return Err(crate::companion_backend::unknown_backend_message(
-            &resolved.pick.id,
-            resolved.pick.source,
-        ));
-    }
-    let backend_source = resolved.pick.source;
-    let backend = resolved.pick.id;
+    let reply_lane = crate::mouth_hop::effective_reply_lane(&app);
     // A file-only send still needs a you-row — the
     // chip's name stands in for the empty line (never a blank bubble).
     let you_line = match &attach {
         Some(a) if line.is_empty() => format!("[file] {}", a.name),
         _ => line.clone(),
     };
-    if backend.is_empty() {
-        let row = crate::companion_backend::NO_HARNESS_ROW.to_string();
+    let miss = crate::direct_lane::send_route(crate::direct_lane::RouteInput {
+        local_hit: false,
+        attach: attach.is_some(),
+        resolve: resolved.clone(),
+        reply_lane: reply_lane.clone(),
+    });
+    // A picked harness still saves the you-row before the verb, as before.
+    // Unset / unknown wait until a local hit, so a miss does not persist
+    // a line that is about to error.
+    let picked = matches!(
+        miss,
+        crate::direct_lane::SendRoute::Direct(_) | crate::direct_lane::SendRoute::Mouth(_)
+    );
+    if picked {
         persist_companion_you(&app, &you_line);
-        if crate::state::update(&app, |st| {
-            st.companion.last_bot_line = row.clone();
-            st.companion.push_turn("them", &row);
-            Ok(())
-        })
-        .is_ok()
-        {
-            let _ = app.emit("state:changed", ());
-        }
-        return Ok(row);
     }
-    persist_companion_you(&app, &you_line);
-    // Pin Quick mouth when LM Studio is serving the catalog E4B and
-    // replyModel is still empty. One models GET, then the field sticks.
-    crate::mouth_scan::pin_reply_if_empty(&app);
+    // Local board/status verbs answer before NoHarness / Unknown,
+    // including when the env value is unknown. An attachment never
+    // takes this door (N5).
     // Existing verbs: the tool answers. A miss stays on the mouth below.
     // Board add / agent spawn are writes. They still answer here, after
     // one confirm, so a write does not fall through into a board snapshot.
     if attach.is_none() {
         if let Some(spoken) = crate::mouth_route::run(&app, &line, origin) {
+            if !picked {
+                persist_companion_you(&app, &you_line);
+            }
+            let hit = crate::direct_lane::send_route(crate::direct_lane::RouteInput {
+                local_hit: true,
+                attach: false,
+                resolve: resolved.clone(),
+                reply_lane: reply_lane.clone(),
+            });
+            log_companion_route(&app, hit.log_name());
             let spoken = crate::mouth_hop::strip_handoff_marks(&spoken);
             if crate::state::update(&app, |st| {
                 st.companion.last_bot_line = spoken.clone();
@@ -1757,6 +1779,32 @@ async fn companion_send_inner(
             return Ok(spoken);
         }
     }
+    log_companion_route(&app, miss.log_name());
+    if let crate::direct_lane::SendRoute::Unknown(msg) = &miss {
+        return Err(msg.clone());
+    }
+    let backend_source = resolved.pick.source;
+    let backend = resolved.pick.id;
+    if matches!(miss, crate::direct_lane::SendRoute::NoHarness) {
+        let row = crate::companion_backend::NO_HARNESS_ROW.to_string();
+        persist_companion_you(&app, &you_line);
+        if crate::state::update(&app, |st| {
+            st.companion.last_bot_line = row.clone();
+            st.companion.push_turn("them", &row);
+            Ok(())
+        })
+        .is_ok()
+        {
+            let _ = app.emit("state:changed", ());
+        }
+        return Ok(row);
+    }
+    if !picked {
+        persist_companion_you(&app, &you_line);
+    }
+    // Pin Quick mouth when LM Studio is serving the catalog E4B and
+    // replyModel is still empty. One models GET, then the field sticks.
+    crate::mouth_scan::pin_reply_if_empty(&app);
     // The conductor — a slim local fast ack in
     // front of the mouth (Settings toggle; off = today's path exactly).
     // Runs on the RAW line (pocket/desk wraps are for the mouth, not the
@@ -1799,8 +1847,21 @@ async fn companion_send_inner(
             let app_c = app.clone();
             match tauri::async_runtime::spawn_blocking(move || {
                 let image = crate::attach_vision::is_image(&a.path);
-                let (lane, model_vision) = if b == "grok" {
-                    crate::mouth_hop::image_lane_vision(&app_c, &line_c, image)
+                let (lane, model_vision) = if b == "grok" || b == "direct" {
+                    let settings = crate::mouth_hop::effective_reply_lane(&app_c);
+                    if b == "direct"
+                        && crate::mouth_hop::normalize_reply_lane(&settings) == "compat"
+                    {
+                        crate::direct_lane::direct_vision(&settings, "compat", false)
+                    } else {
+                        let (hop, vision) =
+                            crate::mouth_hop::image_lane_vision(&app_c, &line_c, image);
+                        if b == "direct" {
+                            crate::direct_lane::direct_vision(&settings, &hop, vision)
+                        } else {
+                            (hop, vision)
+                        }
+                    }
                 } else {
                     (b, false)
                 };
@@ -1861,6 +1922,16 @@ async fn companion_send_inner(
         // OpenRouter free with the hop packet. Same bubble either way.
         "grok" => {
             crate::mouth_hop::send_with_hops(
+                &app,
+                &line,
+                &prompt,
+                &hop_ack,
+                vision_path.as_deref(),
+            )
+            .await?
+        }
+        "direct" => {
+            crate::direct_lane::send(
                 &app,
                 &line,
                 &prompt,

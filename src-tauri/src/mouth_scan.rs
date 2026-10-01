@@ -358,6 +358,7 @@ pub fn harness_choices_from(probe: &HarnessProbe) -> Vec<HarnessChoice> {
         choice("goose", "Goose", probe.goose, &probe.goose_path),
         choice("grok", "Grok", probe.grok, &probe.grok_path),
         choice("hermes", "Hermes", probe.hermes, &probe.hermes_path),
+        choice("direct", "Direct (no CLI)", true, ""),
     ]
 }
 
@@ -843,7 +844,7 @@ mod tests {
             hermes_path: "/opt/hermes".into(),
         };
         let rows = harness_choices_from(&probe);
-        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.len(), 4);
         assert_eq!(rows[0].id, "goose");
         assert_eq!(rows[0].label, "Goose");
         assert!(rows[0].present);
@@ -855,6 +856,10 @@ mod tests {
         assert_eq!(rows[2].label, "Hermes");
         assert!(rows[2].present);
         assert_eq!(rows[2].path, "/opt/hermes");
+        assert_eq!(rows[3].id, "direct");
+        assert_eq!(rows[3].label, "Direct (no CLI)");
+        assert!(rows[3].present);
+        assert!(rows[3].path.is_empty());
         assert!(rows.iter().all(|r| r.id != "berd"));
     }
 }

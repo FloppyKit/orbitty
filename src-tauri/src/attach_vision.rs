@@ -37,7 +37,7 @@ pub fn backend_has_vision(lane: &str, model_vision: bool) -> bool {
 pub fn vision_gate_applies(lane: &str, model_vision: bool) -> bool {
     matches!(
         lane.trim().to_ascii_lowercase().as_str(),
-        "local" | "openrouter_free"
+        "local" | "openrouter_free" | "compat"
     ) && !model_vision
 }
 
@@ -288,6 +288,8 @@ mod tests {
         }
         assert!(vision_gate_applies("local", false));
         assert!(vision_gate_applies("openrouter_free", false));
+        assert!(vision_gate_applies("compat", false));
+        assert!(!vision_gate_applies("compat", true));
         assert!(vision_gate_applies(" LOCAL ", false));
         assert!(!vision_gate_applies("local", true));
         assert!(!vision_gate_applies("openrouter_free", true));

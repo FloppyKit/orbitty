@@ -16,6 +16,7 @@ mod claim_front;
 mod chars;
 mod companion;
 mod companion_backend;
+mod direct_lane;
 mod companion_clear;
 mod companion_desk;
 #[cfg(unix)]
@@ -727,6 +728,9 @@ pub fn run() {
             coordinator::set_companion_agent,
             companion_backend::companion_harnesses,
             companion_backend::set_companion_backend,
+            direct_lane::direct_key_status,
+            direct_lane::set_direct_key,
+            direct_lane::set_direct_endpoint,
             coordinator::set_companion_mode,
             interrupt_gate::interrupt_gate_set_armed,
             interrupt_gate::interrupt_gate_status,
