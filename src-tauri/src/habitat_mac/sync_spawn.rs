@@ -34,7 +34,19 @@ fn order_front_later(panel: *mut Object) {
     extern "C" fn lift(ctx: *mut std::ffi::c_void) {
         unsafe {
             let panel = ctx as *mut Object;
+            if panel.is_null() {
+                return;
+            }
+            // On screen, then paint. materialize cannot display: drawRect
+            // takes the habitat lock, and that lock is still held on the
+            // mint sync. A clear first frame stayed clear until the rail
+            // name resized the panel — and that resize opens the planet.
             let _: () = msg_send![panel, orderFrontRegardless];
+            let view: *mut Object = msg_send![panel, contentView];
+            if !view.is_null() {
+                let _: () = msg_send![view, setNeedsDisplay: true];
+            }
+            let _: () = msg_send![panel, display];
         }
     }
     unsafe {
@@ -158,17 +170,23 @@ pub(crate) fn materialize(
         // Borderless panels never draw a title, but the name shows up
         // in window lists / screen-recording prompts.
         let _: () = msg_send![panel, setTitle: ns_string(&format!("Orbitty — {name}"))];
-        // display:true — a first frame with display:false stays a clear
-        // window until something else resizes it (the name click).
-        panel_set_frame(panel, panel_frame(&state, side), true);
+        // The panel is born 10×10. setContentView fits the view to that
+        // rect, and the marble is drawn at the view center — so a view
+        // left at 10×10 clips the disc to nothing. Width+height sizable
+        // (2|16) keeps later resizes filling the panel.
+        let _: () = msg_send![view, setAutoresizingMask: 18usize];
+        let _: () = msg_send![view, setFrame: NSRect::new(0.0, 0.0, side, side)];
+        // display:false while the habitat lock is held. The paint is
+        // order_front_later, after this planet is inserted.
+        panel_set_frame(panel, panel_frame(&state, side), false);
+        let _: () = msg_send![view, setFrame: NSRect::new(0.0, 0.0, side, side)];
         if h.planets_hidden {
             let _: () = msg_send![panel, orderOut: std::ptr::null::<Object>()];
         } else {
             let _: () = msg_send![panel, orderFrontRegardless];
-            let _: () = msg_send![view, setNeedsDisplay: true];
             // The mint click finishes after this sync and leaves whatever
-            // was already on the middle screen in front. Lift again once
-            // that click has returned.
+            // was already on the middle screen in front. Lift and paint
+            // once that click has returned — same marble frame, no expand.
             order_front_later(panel);
         }
         planet.panel = panel as usize;
