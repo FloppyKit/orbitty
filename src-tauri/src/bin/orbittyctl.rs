@@ -16,6 +16,8 @@ use std::process::exit;
 const EXIT_OTHER: i32 = 1;
 const EXIT_NOT_RUNNING: i32 = 2;
 
+// LEGACY (to be replaced by the new companion pack, Matt 2026-09-29): the `companion play` gesture list
+// (idle · think · nod · look-left · look-right) inside USAGE below.
 const USAGE: &str = "orbittyctl — drive a running Orbitty over its local control socket
 
 usage: orbittyctl [--json] [--token T] [--sock PATH] <command>
@@ -28,6 +30,9 @@ commands:
   companion send [--file PATH] -- \"line\"
   companion agents
   companion set-agent -- <profile>
+  companion harnesses
+  companion set-backend -- <id>     goose | grok | hermes | direct; \"\" clears
+  companion route -- \"line\"         dry run: route, backend, source, lanes
   companion play -- <clip>         idle · think · nod · look-left · look-right
   companion mode -- spark|chat|work|hold
   companion free-mode -- on|off
@@ -37,12 +42,17 @@ commands:
   companion hack -- on|off [--who cursor] [--project P]
   kanban open
   kanban add --title \"t\" [--project P] [--status todo|doing] [--notes \"n\"]
+            [--link URL [--link-label L]]...
   kanban move --id <id> --status todo|doing|done
   kanban notes --id <card> -- \"text\"      empty \"\" clears
+  kanban notes --id <card> --append -- \"line\"   adds one line, keeps the rest
+  kanban link --id <card> --add URL [--label L] | --rm URL | --clear
+  kanban open-link --id <card> [--n 0] [--run]
   kanban assign --id <card> --agent <agent>   empty --agent \"\" unassigns
   agent list
   agent add --name N --harness cursor|goose|grok|hermes|pi [--profile P]
-            [--model M] [--md PATH]... [--extra TEXT] [--project P]
+            [--model M] [--permissions read-only|workspace-write|full-auto]
+            [--md PATH]... [--extra TEXT] [--project P]
   agent rm --id <id>
   agent pin --id <id> --project P
   agent pickup --id <id> | --name <name> [--card <card>]
@@ -53,7 +63,7 @@ commands:
   gate inject CHATTER|STOP
   route table
   route classify -- \"line\"
-  route run -- \"line\"
+  route run [--pending ID] -- \"line\"
   relay status
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
   project add --name N
@@ -95,6 +105,11 @@ commands:
   packs list
   sleeper wake --id <id>
   state get
+  settings plans-dir [--set PATH]
+  settings runner [--name N --harness H --model M]
+  go status --file PATH | --go GO-ID [--card ID]
+  go seal --file PATH --by NAME --confirm
+  plans migrate [--dry-run | --apply]
 
 flags:
   --json        machine JSON on stdout (data, or the full error object)
@@ -110,6 +125,13 @@ companion are denied (exit 4).
 kanban add takes --notes (the board row's one-line
 summary; first line paints, the drawer edits the rest) and kanban notes
 sets/clears it on an existing card — same save door, same write ACL.
+kanban link and kanban open-link use that same ACL. --link is repeatable
+(max 8). Only file:// and https:// are accepted; a bare /Users/… path
+is stored as a file URL. open-link opens documents, folders, images, and
+https. An executable, script, or bundle is revealed in Finder unless
+--run is passed or that exact file is already in the approvals list.
+open-link reads that list and never writes it. An approval is recorded
+only when you click Open or Run in the Orbitty preview.
 
 project add / rm / rename mint, kill, and rename
 planets through the same save door (habitat paints whatever projects[]
@@ -124,7 +146,10 @@ Combos register globally on persist; reserved (cmd+shift+o, cmd+space) or
 taken chords show [conflict] in action list.
 
 agent add mints a row (--harness required —
-cursor|goose|grok|hermes|pi, never a silent default), agent pin sets its
+cursor|goose|grok|hermes|pi, never a silent default). A cursor row with no
+--model stores grok-4.7-high. --permissions defaults to read-only;
+full-auto is the only preset that passes the CLI force/trust flags.
+agent pin sets its
 planet, kanban assign writes the card's assignedAgentId (empty --agent
 unassigns), and agent pickup moves the oldest assigned todo to doing and
 launches the row's harness with that title (every harness lights the dock
@@ -145,9 +170,13 @@ runs — write-class ACL.
 route table and route classify are read-safe. classify only names
 which existing door a Hang line would hit, or that the line stays chat.
 It writes nothing. route run calls that same door (including the
-companion-hop log). A miss returns tool null and spoken null, exit 0.
-route run is write-class (full / named custom). The companion profile
-does not reach it.
+companion-hop log). board-add and agent-spawn return pendingId and do
+not write until a later `route run --pending ID -- yes` (or ok / do
+it) with the pendingId that proposal returned. A yes from another
+surface or without the id confirms nothing. no (with the id) or a
+60s timeout drops the pending write. A miss returns tool null and
+spoken null, exit 0. route run is write-class (full / named custom).
+The companion profile does not reach it.
 
 relay status is read-safe. relay replica --url sets the
 optional one-user VPS URL (Tailscale 100.64/10:13120 or
@@ -193,11 +222,27 @@ struct Opts {
     harness: Option<String>,
     profile: Option<String>,
     model: Option<String>,
+    permissions: Option<String>,
     md: Vec<String>,
     extra: Option<String>,
     agent: Option<String>,
     /// kanban assign --window (empty clears).
     window: Option<String>,
+    /// kanban add --link URL (repeatable), optional --link-label on the last.
+    links: Vec<(String, Option<String>)>,
+    /// kanban link --add URL
+    add: Option<String>,
+    /// kanban link --rm URL
+    rm: Option<String>,
+    /// kanban link --label
+    label: Option<String>,
+    /// kanban link --clear
+    clear: bool,
+    /// kanban open-link --n
+    n: Option<String>,
+    /// kanban open-link --run (executables; otherwise they are revealed).
+    /// Does not record an approval.
+    run: bool,
     card: Option<String>,
     file: Option<String>,
     url: Option<String>,
@@ -220,6 +265,17 @@ struct Opts {
     cloud: Option<String>,
     words: Vec<String>,
     tail: Vec<String>,
+    /// settings plans-dir --set PATH
+    set: Option<String>,
+    confirm: bool,
+    /// kanban notes --append
+    append: bool,
+    dry_run: bool,
+    apply: bool,
+    /// go status --go GO-ID
+    go_id: Option<String>,
+    /// route run --pending ID (the pendingId a board-add returned)
+    pending: Option<String>,
 }
 
 fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -244,10 +300,18 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         harness: None,
         profile: None,
         model: None,
+        permissions: None,
         md: Vec::new(),
         extra: None,
         agent: None,
         window: None,
+        links: Vec::new(),
+        add: None,
+        rm: None,
+        label: None,
+        clear: false,
+        n: None,
+        run: false,
         card: None,
         file: None,
         url: None,
@@ -270,6 +334,13 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
         cloud: None,
         words: Vec::new(),
         tail: Vec::new(),
+        set: None,
+        confirm: false,
+        append: false,
+        dry_run: false,
+        apply: false,
+        go_id: None,
+        pending: None,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -314,12 +385,39 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.profile = Some(it.next().ok_or("--profile needs a value")?.clone())
             }
             "--model" => o.model = Some(it.next().ok_or("--model needs a value")?.clone()),
+            "--permissions" => {
+                o.permissions = Some(it.next().ok_or("--permissions needs a value")?.clone())
+            }
             "--md" => o.md.push(it.next().ok_or("--md needs a path")?.clone()),
             "--extra" => o.extra = Some(it.next().ok_or("--extra needs a value")?.clone()),
             // Kept as Some("") when passed empty — kanban assign unassigns.
             "--agent" => o.agent = Some(it.next().ok_or("--agent needs a value")?.clone()),
             "--window" => o.window = Some(it.next().ok_or("--window needs a value")?.clone()),
+            "--link" => {
+                let url = it.next().ok_or("--link needs a URL")?.clone();
+                o.links.push((url, None));
+            }
+            "--link-label" => {
+                let label = it.next().ok_or("--link-label needs a value")?.clone();
+                let last = o
+                    .links
+                    .last_mut()
+                    .ok_or("--link-label needs a preceding --link")?;
+                if last.1.is_some() {
+                    return Err("one --link-label per --link".into());
+                }
+                last.1 = Some(label);
+            }
+            "--add" => o.add = Some(it.next().ok_or("--add needs a URL")?.clone()),
+            "--rm" => o.rm = Some(it.next().ok_or("--rm needs a URL")?.clone()),
+            "--label" => o.label = Some(it.next().ok_or("--label needs a value")?.clone()),
+            "--clear" => o.clear = true,
+            "--n" => o.n = Some(it.next().ok_or("--n needs a number")?.clone()),
+            "--run" => o.run = true,
             "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
+            "--pending" => {
+                o.pending = Some(it.next().ok_or("--pending needs a pendingId")?.clone())
+            }
             "--file" => o.file = Some(it.next().ok_or("--file needs a path")?.clone()),
             // Kept as Some("") when passed empty — relay replica clears.
             "--url" => o.url = Some(it.next().ok_or("--url needs a value")?.clone()),
@@ -342,6 +440,12 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.answers = Some(it.next().ok_or("--answers needs a value")?.clone())
             }
             "--by" => o.by = Some(it.next().ok_or("--by needs a value")?.clone()),
+            "--set" => o.set = Some(it.next().ok_or("--set needs a value")?.clone()),
+            "--confirm" => o.confirm = true,
+            "--append" => o.append = true,
+            "--dry-run" => o.dry_run = true,
+            "--apply" => o.apply = true,
+            "--go" => o.go_id = Some(it.next().ok_or("--go needs a value")?.clone()),
             "--range" => o.range = Some(it.next().ok_or("--range needs a value")?.clone()),
             "--spokes" => o.spokes = Some(it.next().ok_or("--spokes needs a value")?.clone()),
             "--wins" => o.wins = Some(it.next().ok_or("--wins needs a value")?.clone()),
@@ -380,10 +484,29 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.profile = Some(s["--profile=".len()..].to_string())
             }
             s if s.starts_with("--model=") => o.model = Some(s["--model=".len()..].to_string()),
+            s if s.starts_with("--permissions=") => {
+                o.permissions = Some(s["--permissions=".len()..].to_string())
+            }
             s if s.starts_with("--file=") => o.file = Some(s["--file=".len()..].to_string()),
             s if s.starts_with("--md=") => o.md.push(s["--md=".len()..].to_string()),
             s if s.starts_with("--extra=") => o.extra = Some(s["--extra=".len()..].to_string()),
             s if s.starts_with("--agent=") => o.agent = Some(s["--agent=".len()..].to_string()),
+            s if s.starts_with("--link=") => o.links.push((s["--link=".len()..].to_string(), None)),
+            s if s.starts_with("--link-label=") => {
+                let label = s["--link-label=".len()..].to_string();
+                let last = o
+                    .links
+                    .last_mut()
+                    .ok_or("--link-label needs a preceding --link")?;
+                if last.1.is_some() {
+                    return Err("one --link-label per --link".into());
+                }
+                last.1 = Some(label);
+            }
+            s if s.starts_with("--add=") => o.add = Some(s["--add=".len()..].to_string()),
+            s if s.starts_with("--rm=") => o.rm = Some(s["--rm=".len()..].to_string()),
+            s if s.starts_with("--label=") => o.label = Some(s["--label=".len()..].to_string()),
+            s if s.starts_with("--n=") => o.n = Some(s["--n=".len()..].to_string()),
             s if s.starts_with("--url=") => o.url = Some(s["--url=".len()..].to_string()),
             s if s.starts_with("--date=") => o.date = Some(s["--date=".len()..].to_string()),
             s if s.starts_with("--axis=") => o.axis = Some(s["--axis=".len()..].to_string()),
@@ -403,6 +526,8 @@ fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.answers = Some(s["--answers=".len()..].to_string())
             }
             s if s.starts_with("--by=") => o.by = Some(s["--by=".len()..].to_string()),
+            s if s.starts_with("--set=") => o.set = Some(s["--set=".len()..].to_string()),
+            s if s.starts_with("--go=") => o.go_id = Some(s["--go=".len()..].to_string()),
             s if s.starts_with("--range=") => o.range = Some(s["--range=".len()..].to_string()),
             s if s.starts_with("--spokes=") => o.spokes = Some(s["--spokes=".len()..].to_string()),
             s if s.starts_with("--wins=") => o.wins = Some(s["--wins=".len()..].to_string()),
@@ -511,6 +636,13 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["companion", "agents"] => Ok(("companion.agents", json!({}))),
         ["companion", "set-agent"] => {
             Ok(("companion.set_agent", json!({ "profile": payload(o)? })))
+        }
+        ["companion", "harnesses"] => Ok(("companion.harnesses", json!({}))),
+        ["companion", "set-backend"] => {
+            Ok(("companion.set_backend", json!({ "id": payload(o)? })))
+        }
+        ["companion", "route"] => {
+            Ok(("companion.route", json!({ "line": payload(o)? })))
         }
         // `companion play nod` and `companion play -- nod` both land here.
         ["companion", "play", ..] => Ok(("companion.play", json!({ "clip": payload(o)? }))),
@@ -623,11 +755,66 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             if let Some(n) = opt(&o.notes) {
                 a["notes"] = json!(n);
             }
+            if !o.links.is_empty() {
+                let arr: Vec<Value> = o
+                    .links
+                    .iter()
+                    .map(|(url, label)| {
+                        let mut v = json!({ "url": url });
+                        if let Some(l) = label {
+                            v["label"] = json!(l);
+                        }
+                        v
+                    })
+                    .collect();
+                a["links"] = json!(arr);
+            }
             Ok(("kanban.add", a))
+        }
+        ["kanban", "link"] => {
+            let id = need_id(o)?;
+            let modes = [o.clear, o.rm.is_some(), o.add.is_some()]
+                .into_iter()
+                .filter(|on| *on)
+                .count();
+            if modes != 1 {
+                return Err(
+                    "kanban link: pass exactly one of --add URL, --rm URL, or --clear".into(),
+                );
+            }
+            if o.clear {
+                Ok(("kanban.link", json!({ "id": id, "clear": true })))
+            } else if let Some(url) = o.rm.clone() {
+                Ok(("kanban.link", json!({ "id": id, "rm": url })))
+            } else {
+                let mut a = json!({ "id": id, "add": o.add.clone().unwrap_or_default() });
+                if let Some(l) = opt(&o.label) {
+                    a["label"] = json!(l);
+                }
+                Ok(("kanban.link", a))
+            }
+        }
+        ["kanban", "open-link"] => {
+            let id = need_id(o)?;
+            let mut a = json!({ "id": id });
+            if let Some(n) = opt(&o.n) {
+                let n: u64 = n
+                    .parse()
+                    .map_err(|_| format!("kanban open-link: --n must be an integer, got {n:?}"))?;
+                a["n"] = json!(n);
+            }
+            if o.run {
+                a["run"] = json!(true);
+            }
+            Ok(("kanban.open_link", a))
         }
         // Set/clear a card's one-line summary. The
         // text is the `--` payload; `-- ""` clears (payload keeps Some("")),
         // so the clear always reaches the server as an empty string.
+        ["kanban", "notes"] if o.append => Ok((
+            "kanban.note_append",
+            json!({ "id": need_id(o)?, "line": payload(o)? }),
+        )),
         ["kanban", "notes"] => Ok((
             "kanban.notes",
             json!({ "id": need_id(o)?, "notes": payload(o)? }),
@@ -679,6 +866,9 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             if let Some(m) = opt(&o.model) {
                 a["model"] = json!(m);
             }
+            if let Some(p) = opt(&o.permissions) {
+                a["permissions"] = json!(p);
+            }
             let mds: Vec<String> = o
                 .md
                 .iter()
@@ -719,7 +909,13 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["gate", "status"] => Ok(("gate.status", json!({}))),
         ["route", "table"] => Ok(("route.table", json!({}))),
         ["route", "classify"] => Ok(("route.classify", json!({ "line": payload(o)? }))),
-        ["route", "run"] => Ok(("route.run", json!({ "line": payload(o)? }))),
+        ["route", "run"] => {
+            let mut a = json!({ "line": payload(o)? });
+            if let Some(p) = opt(&o.pending) {
+                a["pendingId"] = json!(p);
+            }
+            Ok(("route.run", a))
+        }
         ["gate", "inject", kind] => Ok(("gate.inject", json!({ "kind": *kind }))),
         ["shift", "tick"] => Ok(("shift.tick", json!({}))),
         ["shift", "on"] => Ok(("shift.on", json!({}))),
@@ -954,6 +1150,50 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["sleeper", "wake"] => Ok(("sleeper.wake", json!({ "id": need_id(o)? }))),
         ["state", "get"] => Ok(("state.get", json!({}))),
         [] => Err(format!("no command\n\n{USAGE}")),
+        ["settings", "plans-dir"] => {
+            if let Some(p) = opt(&o.set) {
+                Ok(("settings.plans_dir_set", json!({ "path": p })))
+            } else {
+                Ok(("settings.plans_dir", json!({})))
+            }
+        }
+        ["settings", "runner"] => {
+            if o.name.is_some() || o.harness.is_some() || o.model.is_some() {
+                let mut a = json!({});
+                put_opt(&mut a, "runner", &o.name);
+                put_opt(&mut a, "harness", &o.harness);
+                put_opt(&mut a, "model", &o.model);
+                Ok(("settings.runner_set", a))
+            } else {
+                Ok(("settings.runner", json!({})))
+            }
+        }
+        ["go", "status"] => {
+            let mut a = json!({});
+            put_opt(&mut a, "file", &o.file);
+            put_opt(&mut a, "go", &o.go_id);
+            put_opt(&mut a, "card", &o.card);
+            put_opt(&mut a, "title", &o.title);
+            Ok(("go.status", a))
+        }
+        ["go", "seal"] => {
+            let file = opt(&o.file).ok_or("go seal needs --file")?;
+            let by = opt(&o.by).ok_or("go seal needs --by")?;
+            if !o.confirm {
+                return Err("go seal needs --confirm".into());
+            }
+            Ok(("go.seal", json!({ "file": file, "by": by, "confirm": true })))
+        }
+        ["plans", "migrate"] => {
+            if o.apply && o.dry_run {
+                return Err("plans migrate: pass only one of --dry-run or --apply".into());
+            }
+            if o.apply {
+                Ok(("plans.migrate_apply", json!({})))
+            } else {
+                Ok(("plans.migrate", json!({ "dryRun": true })))
+            }
+        }
         other => Err(format!("unknown command: {}\n\n{USAGE}", other.join(" "))),
     }
 }
@@ -1074,6 +1314,49 @@ fn print_human(tool: &str, data: &Value) {
             }
         }
         "companion.set_agent" => println!("agent: {}", data.as_str().unwrap_or("")),
+        "companion.harnesses" => {
+            let id = data["id"].as_str().unwrap_or("");
+            let source = data["source"].as_str().unwrap_or("");
+            if id.is_empty() {
+                println!("harness: (unset)");
+            } else {
+                println!("harness: {id} ({source})");
+            }
+            if data["envOverride"].as_bool() == Some(true) {
+                println!("set by ORBITTY_COMPANION_BACKEND");
+            }
+            if let Some(arr) = data["choices"].as_array() {
+                for c in arr {
+                    let cid = c["id"].as_str().unwrap_or("");
+                    let mark = if c["present"].as_bool().unwrap_or(false) {
+                        "present"
+                    } else {
+                        "absent"
+                    };
+                    println!("  {cid}  {mark}");
+                }
+            }
+        }
+        "companion.set_backend" => {
+            let msg = data["message"].as_str().unwrap_or("");
+            if msg.is_empty() {
+                println!("harness: {}", data["backend"].as_str().unwrap_or(""));
+            } else {
+                println!("{msg}");
+            }
+        }
+        "companion.route" => {
+            println!("route: {}", data["route"].as_str().unwrap_or(""));
+            println!(
+                "backend: {} ({})",
+                data["backend"].as_str().unwrap_or(""),
+                data["source"].as_str().unwrap_or("")
+            );
+            if let Some(arr) = data["lanes"].as_array() {
+                let lanes: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+                println!("lanes: {}", lanes.join(", "));
+            }
+        }
         "companion.play" => println!("playing: {}", data["played"].as_str().unwrap_or("")),
         "companion.mode" => println!("mode: {}", data.as_str().unwrap_or("")),
         "companion.free_mode" => println!(
@@ -1134,12 +1417,25 @@ fn print_human(tool: &str, data: &Value) {
         ),
         // The reply is the card; notes
         // absent = cleared back to title-only.
-        "kanban.notes" => {
+        "kanban.notes" | "kanban.note_append" => {
             let id = data["id"].as_str().unwrap_or("?");
             match data["notes"].as_str().filter(|n| !n.is_empty()) {
                 Some(n) => println!("notes {id} — {}", n.lines().next().unwrap_or("")),
                 None => println!("notes cleared {id}"),
             }
+        }
+        "kanban.link" => {
+            let id = data["id"].as_str().unwrap_or("?");
+            let n = data["links"].as_array().map(|a| a.len()).unwrap_or(0);
+            println!("links {id} — {n}");
+        }
+        "kanban.open_link" => {
+            println!(
+                "opened {} n={} {}",
+                data["id"].as_str().unwrap_or("?"),
+                data["n"].as_u64().unwrap_or(0),
+                data["url"].as_str().unwrap_or("")
+            );
         }
         // Agent roster printers.
         "kanban.assign" => {
@@ -1563,6 +1859,42 @@ mod tests {
         assert_eq!(args["template"], "ledger");
         assert_eq!(args["answers"]["cloud"], false);
         assert_eq!(args["answers"]["spokes"], true);
+    }
+
+    #[test]
+    fn companion_harness_verbs_parse() {
+        let o = parse(&argv(&["companion", "harnesses"])).unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "companion.harnesses");
+        assert!(args.as_object().unwrap().is_empty());
+
+        let o = parse(&argv(&["companion", "set-backend", "--", "hermes"])).unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "companion.set_backend");
+        assert_eq!(args["id"], "hermes");
+
+        let o = parse(&argv(&["companion", "set-backend", "--", ""])).unwrap();
+        let (_, args) = tool_call(&o).unwrap();
+        assert_eq!(args["id"], "");
+    }
+
+    #[test]
+    fn companion_route_request_matches_mcp() {
+        let o = parse(&argv(&["companion", "route", "--", "board"])).unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "companion.route");
+        let req = json!({ "v": 1, "id": "1", "tool": tool, "args": args });
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            r#"{"args":{"line":"board"},"id":"1","tool":"companion.route","v":1}"#
+        );
+        let o = parse(&argv(&["companion", "route", "--", "say \"hi\""])).unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        let req = json!({ "v": 1, "id": "1", "tool": tool, "args": args });
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            "{\"args\":{\"line\":\"say \\\"hi\\\"\"},\"id\":\"1\",\"tool\":\"companion.route\",\"v\":1}"
+        );
     }
 }
 

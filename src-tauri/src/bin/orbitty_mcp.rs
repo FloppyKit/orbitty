@@ -15,11 +15,12 @@ const SERVER_VERSION: &str = "0.1.0";
 struct ToolDef {
     name: &'static str,
     description: &'static str,
-    /// "none" | "id" | "line" | "route_line" | "profile" | "clip" | "kanban_add" |
-    /// "kanban_move" | "kanban_notes" | "kanban_assign" | "needed_open" |
+    /// "none" | "id" | "line" | "route_line" | "route_run" | "profile" | "backend_id" | "clip" | "kanban_add" |
+    /// "kanban_move" | "kanban_notes" | "kanban_link" | "kanban_open_link" |
+    /// "kanban_assign" | "needed_open" |
     /// "log_append" | "action_add" | "action_run" | "action_rm" |
     /// "project_add" | "project_rm" | "project_rename" | "agent_add" |
-    /// "agent_pin" | "agent_pickup"
+    /// "agent_pin" | "agent_pickup" | "claim_project" | "claim_window"
     args: &'static str,
 }
 
@@ -55,16 +56,22 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "companion.send", description: "Send a line on the companion Berd path", args: "line" },
     ToolDef { name: "companion.agents", description: "List companion agent profiles", args: "none" },
     ToolDef { name: "companion.set_agent", description: "Set the companion agent profile", args: "profile" },
+    ToolDef { name: "companion.harnesses", description: "List companion harnesses detected on this Mac, plus the current pick", args: "none" },
+    ToolDef { name: "companion.set_backend", description: "Set the companion harness (goose, grok, hermes, or direct). Empty id clears. Same ACL class as companion.set_agent.", args: "backend_id" },
+    ToolDef { name: "companion.route", description: "Dry-run the companion send route for a line. Returns route, backend, source, and lanes. Does not call a model or write. Keys are not set here.", args: "line" },
     ToolDef { name: "companion.play", description: "Play an allowlisted gesture clip on the 3D companion body (no-op on the spirit sheet)", args: "clip" },
     ToolDef { name: "packs.list", description: "List installed sprite packs", args: "none" },
     ToolDef { name: "sleeper.wake", description: "Wake a sleeper by id", args: "id" },
     ToolDef { name: "state.get", description: "Read persisted Orbitty state", args: "none" },
     // The four write tools. control.json ACL still
     // applies — read / companion profiles get denied (4).
-    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move); optional notes = the board row's one-line summary", args: "kanban_add" },
+    ToolDef { name: "kanban.add", description: "Mint a kanban todo as actor agent (status todo|doing; done is earned via kanban.move); optional notes = the board row's one-line summary; optional links = file:// or https:// (max 8)", args: "kanban_add" },
     ToolDef { name: "kanban.move", description: "Move a card todo|doing|done; done is the checkbox complete door (points + daily cap), no unclaim", args: "kanban_move" },
     // Set/clear the summary line. Same write ACL.
     ToolDef { name: "kanban.notes", description: "Set a card's notes (first line paints as the board-row summary; the drawer edits the rest); empty string clears", args: "kanban_notes" },
+    ToolDef { name: "kanban.note_append", description: "Append one line to a card's notes, keeping the existing notes (a repeat of the same line is a no-op). Same write ACL as kanban.notes.", args: "kanban_note_append" },
+    ToolDef { name: "kanban.link", description: "Add, remove, or clear a card link (file:// or https:// only, max 8). Same write ACL as kanban.notes. Does not change notes or status.", args: "kanban_link" },
+    ToolDef { name: "kanban.open_link", description: "Open a card link. Documents, folders, images, and https open. An executable, script, or bundle is revealed in Finder unless run is true or that exact file was already approved in the app. Reads link-approvals.json and never writes it. n defaults to 0. Does not change card status.", args: "kanban_open_link" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
     // The planet control plane, next to the kanban
@@ -73,6 +80,13 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "project.add", description: "Mint a project planet, or reuse + front the existing one on a same-name add (trim, case-insensitive; empty name refused)", args: "project_add" },
     ToolDef { name: "project.rm", description: "Remove a project planet by id; cards keep their projectId and live claims stay (walkers vanish on next habitat sync)", args: "project_rm" },
     ToolDef { name: "project.rename", description: "Rename a project planet, keeping its id (empty name refused)", args: "project_rename" },
+    // Claim verbs. Same names and arg keys control.rs reads
+    // (projectId, windowId). Forward-only; claim.* stays write-class.
+    ToolDef { name: "claim.front", description: "Claim the frontmost non-Orbitty window to the last-used planet (undo within ~3s with claim.undo)", args: "none" },
+    ToolDef { name: "claim.to", description: "Claim the frontmost non-Orbitty window to a planet by project id", args: "claim_project" },
+    ToolDef { name: "claim.change", description: "Retarget the pending (just-made) claim to another planet", args: "claim_project" },
+    ToolDef { name: "claim.undo", description: "Undo the last claim (~3s window)", args: "none" },
+    ToolDef { name: "claim.unclaim", description: "Drop a claim by window id (Layer-0 cleanup)", args: "claim_window" },
     // The action recipe file. list is read-safe;
     // add / run ride the companion profile (Spark mints + runs named
     // recipes, never a raw shell); rm needs full / named custom ("action.*").
@@ -85,14 +99,22 @@ const TOOLS: &[ToolDef] = &[
     // (full / named custom only). The harness is per row, required on
     // add — unknown harness errors honestly, never a silent hermes.
     ToolDef { name: "agent.list", description: "List agent rows (id, name, harness, profile, model, md paths, extra, pinned planet)", args: "none" },
-    ToolDef { name: "agent.add", description: "Mint an agent row: name + harness (cursor|goose|grok|hermes|pi, required) with optional profile / model / mdPaths / extra / projectId pin", args: "agent_add" },
+    ToolDef { name: "agent.add", description: "Mint an agent row: name + harness (cursor|goose|grok|hermes|pi, required) with optional profile / model / permissions (read-only|workspace-write|full-auto) / mdPaths / extra / projectId pin. New cursor rows default model grok-4.7-high and permissions read-only.", args: "agent_add" },
     ToolDef { name: "agent.rm", description: "Remove an agent row by id; cards keep their assignedAgentId (project.rm law)", args: "id" },
     ToolDef { name: "agent.pin", description: "Pin an agent row to a planet (project id or unique planet name)", args: "agent_pin" },
     ToolDef { name: "agent.pickup", description: "Pick the oldest assigned open Todo (the row's planet when pinned), move it doing, and launch the row's harness with the card title; no match = honest empty, no spawn", args: "agent_pickup" },
+    ToolDef { name: "settings.plans_dir", description: "Read the shared plansDir (visible ~/Orbitty GOs unless set) and the default runner", args: "none" },
+    ToolDef { name: "settings.plans_dir_set", description: "Set the shared plansDir used by Nightly and stable", args: "plans_dir_set" },
+    ToolDef { name: "settings.runner", description: "Read defaultRunner (Cursor harness, model grok-4.7-high, herdr fallback)", args: "none" },
+    ToolDef { name: "settings.runner_set", description: "Set defaultRunner runner, harness, and model", args: "runner_set" },
+    ToolDef { name: "go.status", description: "Resolve a GO and report whether it is sealed", args: "go_status" },
+    ToolDef { name: "go.seal", description: "Seal a GO file (profile full and confirm). Writes status, sealed_at, sealed_by, and seal_hash.", args: "go_seal" },
+    ToolDef { name: "plans.migrate", description: "Dry-run: list files that would copy from the back-compat plans folder into plansDir. Never deletes.", args: "none" },
+    ToolDef { name: "plans.migrate_apply", description: "Copy those files into plansDir. Never deletes. Not part of a normal GO run.", args: "none" },
     ToolDef { name: "shift.status", description: "Humming supervisor snapshot: on/off, mode, runner cap, agentRuns, next assigned pickups", args: "none" },
     ToolDef { name: "route.table", description: "Hang route table: the closed set of keyword tool ids (max 15). Read-only.", args: "none" },
     ToolDef { name: "route.classify", description: "Classify a Hang line to a route id, or null if it stays chat. Read-only, no side effects.", args: "route_line" },
-    ToolDef { name: "route.run", description: "Run a Hang line through the route table (same door as Hang). A miss returns null spoken. Write-class.", args: "route_line" },
+    ToolDef { name: "route.run", description: "Run a Hang line through the route table (same door as Hang). board-add and agent-spawn return pendingId and write only on a later yes that carries that pendingId. A miss returns null spoken. Write-class.", args: "route_run" },
     ToolDef { name: "shift.tick", description: "One supervisor pass: park ghost working rows, Needed-escalate blocked, pickup next assigned todo if Work/Hold", args: "none" },
     ToolDef { name: "shift.on", description: "Turn the 15s shift ticker on (Work/Hold pickups; Spark/Chat never auto-pickup)", args: "none" },
     ToolDef { name: "shift.off", description: "Turn the 15s shift ticker off", args: "none" },
@@ -120,15 +142,29 @@ fn input_schema(kind: &str) -> Value {
             "properties": { "line": { "type": "string", "description": "Hang line" } },
             "required": ["line"]
         }),
+        "route_run" => json!({
+            "type": "object",
+            "properties": {
+                "line": { "type": "string", "description": "Hang line" },
+                "pendingId": { "type": "string", "description": "Confirm / decline only: the pendingId this caller's board-add or agent-spawn returned" }
+            },
+            "required": ["line"]
+        }),
         "profile" => json!({
             "type": "object",
             "properties": { "profile": { "type": "string", "description": "Agent profile id" } },
             "required": ["profile"]
         }),
+        "backend_id" => json!({
+            "type": "object",
+            "properties": { "id": { "type": "string", "description": "Harness id: goose, grok, hermes, or direct. Empty string clears." } },
+            "required": ["id"]
+        }),
         "clip" => json!({
             "type": "object",
             "properties": { "clip": {
                 "type": "string",
+                // LEGACY (to be replaced by the new companion pack, Matt 2026-09-29)
                 "enum": ["idle", "think", "nod", "look-left", "look-right"],
                 "description": "Gesture clip name (allowlist; unknown names error)"
             } },
@@ -144,9 +180,42 @@ fn input_schema(kind: &str) -> Value {
                     "enum": ["todo", "doing"],
                     "description": "Initial column (default todo; done is never minted)"
                 },
-                "notes": { "type": "string", "description": "One-line runner summary (first line paints on the board row); omitted/empty = none" }
+                "notes": { "type": "string", "description": "One-line runner summary (first line paints on the board row); omitted/empty = none" },
+                "links": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "description": "Optional file:// or https:// links. A bare /Users/… path is stored as a file URL.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": { "type": "string" },
+                            "label": { "type": "string" }
+                        },
+                        "required": ["url"]
+                    }
+                }
             },
             "required": ["title"]
+        }),
+        "kanban_link" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "add": { "type": "string", "description": "URL to add (file://, https://, or a bare /Users/… path). Pass exactly one of add, rm, clear." },
+                "label": { "type": "string", "description": "Optional label for --add" },
+                "rm": { "type": "string", "description": "URL to remove" },
+                "clear": { "type": "boolean", "description": "Remove every link on the card" }
+            },
+            "required": ["id"]
+        }),
+        "kanban_open_link" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "n": { "type": "integer", "minimum": 0, "description": "Link index. Default 0." },
+                "run": { "type": "boolean", "description": "Run an executable. Without this, an unapproved executable is revealed in Finder. Does not record an approval." }
+            },
+            "required": ["id"]
         }),
         // Empty string is meaningful: clears.
         "kanban_notes" => json!({
@@ -156,6 +225,14 @@ fn input_schema(kind: &str) -> Value {
                 "notes": { "type": "string", "description": "Notes text (first line is the board-row summary); empty string clears" }
             },
             "required": ["id", "notes"]
+        }),
+        "kanban_note_append" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card id" },
+                "line": { "type": "string", "description": "One line to append to the notes" }
+            },
+            "required": ["id", "line"]
         }),
         "kanban_move" => json!({
             "type": "object",
@@ -245,7 +322,8 @@ fn input_schema(kind: &str) -> Value {
                     "description": "Launch door on the row — required, never a product default"
                 },
                 "profile": { "type": "string", "description": "Harness profile (session tweak on the row)" },
-                "model": { "type": "string", "description": "Model override (session tweak)" },
+                "model": { "type": "string", "description": "Model override. Omitted on a cursor row stores grok-4.7-high." },
+                "permissions": { "type": "string", "enum": ["read-only", "workspace-write", "full-auto"], "description": "Cursor CLI preset. Omitted = read-only. full-auto is the only value that passes --force and --trust." },
                 "mdPaths": {
                     "type": "array",
                     "items": { "type": "string" },
@@ -263,6 +341,39 @@ fn input_schema(kind: &str) -> Value {
                 "projectId": { "type": "string", "description": "Project id or unique planet name" }
             },
             "required": ["id", "projectId"]
+        }),
+        "plans_dir_set" => json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "plansDir path" }
+            },
+            "required": ["path"]
+        }),
+        "runner_set" => json!({
+            "type": "object",
+            "properties": {
+                "runner": { "type": "string", "description": "Agent row name, e.g. orbitty-cursor" },
+                "harness": { "type": "string", "description": "cursor | goose | grok | herdr | manual" },
+                "model": { "type": "string", "description": "Model id, e.g. grok-4.7-high" }
+            }
+        }),
+        "go_status" => json!({
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "GO file path" },
+                "go": { "type": "string", "description": "GO id token" },
+                "card": { "type": "string", "description": "Card id for header card_id match" },
+                "title": { "type": "string", "description": "Card title, if it differs from the GO id" }
+            }
+        }),
+        "go_seal" => json!({
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "GO file to seal" },
+                "by": { "type": "string", "description": "Who is sealing (e.g. matt)" },
+                "confirm": { "type": "boolean", "description": "Must be true" }
+            },
+            "required": ["file", "by", "confirm"]
         }),
         "agent_pickup" => json!({
             "type": "object",
@@ -390,6 +501,20 @@ fn input_schema(kind: &str) -> Value {
                     "description": "How far back done cards count. Omitted = all. User lines always count as now."
                 }
             }
+        }),
+        "claim_project" => json!({
+            "type": "object",
+            "properties": {
+                "projectId": { "type": "string", "description": "Planet id (same key control.rs reads for claim.to and claim.change)" }
+            },
+            "required": ["projectId"]
+        }),
+        "claim_window" => json!({
+            "type": "object",
+            "properties": {
+                "windowId": { "type": "string", "description": "Window id (same key control.rs reads for claim.unclaim)" }
+            },
+            "required": ["windowId"]
         }),
         _ => json!({ "type": "object", "properties": {} }),
     }
@@ -673,6 +798,141 @@ fn write_message(stdout: &mut impl Write, v: &Value, framing: Framing) -> io::Re
         }
     }
     stdout.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool(name: &str) -> Value {
+        tools_list()["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("missing tool {name}"))
+            .clone()
+    }
+
+    fn required(name: &str) -> Vec<String> {
+        tool(name)["inputSchema"]["required"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn claim_tools_list_schemas() {
+        assert!(required("claim.front").is_empty(), "claim.front args none");
+        assert!(required("claim.undo").is_empty(), "claim.undo args none");
+        assert_eq!(required("claim.to"), vec!["projectId".to_string()]);
+        assert_eq!(required("claim.change"), vec!["projectId".to_string()]);
+        assert_eq!(required("claim.unclaim"), vec!["windowId".to_string()]);
+        for name in ["claim.to", "claim.change"] {
+            assert_eq!(
+                tool(name)["inputSchema"]["properties"]["projectId"]["type"],
+                "string",
+                "{name}"
+            );
+        }
+        assert_eq!(
+            tool("claim.unclaim")["inputSchema"]["properties"]["windowId"]["type"],
+            "string"
+        );
+    }
+
+    /// Every `"claim.<x>" =>` arm in control.rs, and every claim.* ToolDef.
+    fn control_claim_arms() -> Vec<String> {
+        let src = include_str!("../control.rs");
+        let mut names = Vec::new();
+        for line in src.lines() {
+            let t = line.trim_start();
+            let Some(rest) = t.strip_prefix("\"claim.") else {
+                continue;
+            };
+            let Some(end) = rest.find('"') else {
+                continue;
+            };
+            let verb = &rest[..end];
+            if verb.is_empty()
+                || !verb
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                continue;
+            }
+            if rest[end + 1..].trim_start().starts_with("=>") {
+                names.push(format!("claim.{verb}"));
+            }
+        }
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    #[test]
+    fn claim_tooldefs_match_control_arms() {
+        let arms = control_claim_arms();
+        let mut tools: Vec<String> = TOOLS
+            .iter()
+            .filter(|t| t.name.starts_with("claim."))
+            .map(|t| t.name.to_string())
+            .collect();
+        tools.sort();
+        assert_eq!(
+            tools, arms,
+            "each control.rs claim.* arm needs a ToolDef, and each claim.* ToolDef needs an arm"
+        );
+        assert!(
+            arms.contains(&"claim.change".to_string()),
+            "control.rs claim.change arm missing from the parity set"
+        );
+    }
+
+    #[test]
+    fn companion_harness_tools_are_listed() {
+        assert!(TOOLS
+            .iter()
+            .any(|t| t.name == "companion.harnesses" && t.args == "none"));
+        assert!(TOOLS
+            .iter()
+            .any(|t| t.name == "companion.set_backend" && t.args == "backend_id"));
+        assert_eq!(required("companion.set_backend"), vec!["id".to_string()]);
+        assert!(TOOLS.iter().any(|t| t.name == "companion.route" && t.args == "line"));
+        assert_eq!(required("companion.route"), vec!["line".to_string()]);
+        assert_eq!(
+            tool("companion.route")["inputSchema"]["properties"]["line"]["type"],
+            "string"
+        );
+        let args = json!({ "line": "board" });
+        let req = json!({ "v": 1, "id": "1", "tool": "companion.route", "args": args });
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            r#"{"args":{"line":"board"},"id":"1","tool":"companion.route","v":1}"#
+        );
+        let args = json!({ "line": "say \"hi\"" });
+        let req = json!({ "v": 1, "id": "1", "tool": "companion.route", "args": args });
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            "{\"args\":{\"line\":\"say \\\"hi\\\"\"},\"id\":\"1\",\"tool\":\"companion.route\",\"v\":1}"
+        );
+    }
+
+    #[test]
+    fn unknown_claim_tool_is_rejected() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "claim.bogus", "arguments": {} }
+        });
+        let reply = dispatch(&msg).expect("reply");
+        assert_eq!(reply["error"]["code"], -32602);
+    }
 }
 
 pub fn run() {

@@ -3,8 +3,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 
+use crate::card_links::{self, MAX_LINKS};
 use crate::event_log;
-use crate::state::{KanbanCard, PersistedState, PointsEntry, Project};
+use crate::state::{CardLink, KanbanCard, PersistedState, PointsEntry, Project};
 
 /// Same daily points cap as the board (KanbanPage DAILY_CAP).
 const DAILY_CAP: u32 = 12;
@@ -68,10 +69,13 @@ pub(crate) fn save_with_events(
     before: &PersistedState,
     after: &PersistedState,
 ) -> Result<(), String> {
-    let mut next = after.clone();
-    crate::todo_trees::reconcile(&mut next);
-    crate::state::save_state(app, &next)?;
-    event_log::diff_claims(app, &before.claims, &after.claims);
+    let (claims_before, claims_after) = crate::state::update(app, |live| {
+        let claims_before = live.claims.clone();
+        crate::state::apply_writer_delta(live, before, after);
+        crate::todo_trees::reconcile(live);
+        Ok((claims_before, live.claims.clone()))
+    })?;
+    event_log::diff_claims(app, &claims_before, &claims_after);
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -133,8 +137,9 @@ pub fn kanban_add(
     project_id: &str,
     status: &str,
     notes: Option<&str>,
+    links: Vec<CardLink>,
 ) -> Result<KanbanCard, String> {
-    kanban_add_as(app, title, project_id, status, "agent", notes)
+    kanban_add_as(app, title, project_id, status, "agent", notes, links)
 }
 
 /// Same door as `kanban.add`; `actor` is who minted ("agent" for MCP/ctl,
@@ -146,6 +151,7 @@ pub fn kanban_add_as(
     status: &str,
     actor: &str,
     notes: Option<&str>,
+    links: Vec<CardLink>,
 ) -> Result<KanbanCard, String> {
     let title = title.trim();
     if title.is_empty() {
@@ -160,6 +166,7 @@ pub fn kanban_add_as(
             ))
         }
     };
+    let links = normalize_new_links(links)?;
     let before = crate::state::load_state(app)?;
     let project_id = resolve_project(&before, project_id, "kanban.add")?;
     let now = now_secs();
@@ -195,6 +202,7 @@ pub fn kanban_add_as(
         trackers: None,
         task_id: None,
         task_reason: None,
+        links,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
@@ -348,6 +356,7 @@ pub fn kanban_notes(app: &tauri::AppHandle, id: &str, notes: &str) -> Result<Kan
     } else {
         Some(notes.to_string())
     };
+    after.kanban_cards[idx].last_touched_at = now_secs();
     save_with_events(app, &before, &after)?;
     event_log::append_best(
         app,
@@ -357,6 +366,166 @@ pub fn kanban_notes(app: &tauri::AppHandle, id: &str, notes: &str) -> Result<Kan
         Some("agent"),
         true,
         &serde_json::json!({ "cardId": after.kanban_cards[idx].id, "cleared": notes.is_empty() }),
+    );
+    Ok(after.kanban_cards[idx].clone())
+}
+
+/// Append one line to a card's notes (never replaces them). A repeat of
+/// the same line is a no-op. `kanban notes --append` (tool
+/// `kanban.note_append`) is this, for orbitty-needed's refusal notes.
+pub fn kanban_note_append(
+    app: &tauri::AppHandle,
+    id: &str,
+    line: &str,
+) -> Result<KanbanCard, String> {
+    let line = line.trim();
+    let before = crate::state::load_state(app)?;
+    let Some(card) = before.kanban_cards.iter().find(|c| c.id == id.trim()) else {
+        return Err(format!("kanban.note_append: unknown card id {id:?}"));
+    };
+    if line.is_empty() {
+        return Ok(card.clone());
+    }
+    let joined = crate::plans::join_note(card.notes.as_deref(), line);
+    kanban_notes(app, id, &joined)
+}
+
+fn normalize_new_links(links: Vec<CardLink>) -> Result<Option<Vec<CardLink>>, String> {
+    if links.is_empty() {
+        return Ok(None);
+    }
+    if links.len() > MAX_LINKS {
+        return Err(format!("kanban.add: a card holds at most {MAX_LINKS} links"));
+    }
+    let mut out = Vec::with_capacity(links.len());
+    for link in links {
+        out.push(CardLink {
+            url: card_links::normalize_link(&link.url).map_err(|e| format!("kanban.add: {e}"))?,
+            label: card_links::clean_label(link.label).map_err(|e| format!("kanban.add: {e}"))?,
+        });
+    }
+    Ok(Some(out))
+}
+
+/// `kanban.link` — add, remove, or clear. Same write door as `kanban.notes`.
+/// Does not touch `notes` or `status`.
+pub fn kanban_link_add(
+    app: &tauri::AppHandle,
+    id: &str,
+    url: &str,
+    label: Option<String>,
+) -> Result<KanbanCard, String> {
+    let url = card_links::normalize_link(url).map_err(|e| format!("kanban.link: {e}"))?;
+    let label = card_links::clean_label(label).map_err(|e| format!("kanban.link: {e}"))?;
+    let before = crate::state::load_state(app)?;
+    let idx = card_index(&before, id, "kanban.link")?;
+    let mut links = before.kanban_cards[idx].links.clone().unwrap_or_default();
+    if let Some(existing) = links.iter_mut().find(|l| l.url == url) {
+        if existing.label == label {
+            return Ok(before.kanban_cards[idx].clone());
+        }
+        existing.label = label;
+    } else {
+        if links.len() >= MAX_LINKS {
+            return Err(format!("kanban.link: a card holds at most {MAX_LINKS} links"));
+        }
+        links.push(CardLink { url, label });
+    }
+    write_links(app, &before, idx, Some(links), "add")
+}
+
+pub fn kanban_link_rm(app: &tauri::AppHandle, id: &str, url: &str) -> Result<KanbanCard, String> {
+    let url = card_links::normalize_link(url).map_err(|e| format!("kanban.link: {e}"))?;
+    let before = crate::state::load_state(app)?;
+    let idx = card_index(&before, id, "kanban.link")?;
+    let mut links = before.kanban_cards[idx].links.clone().unwrap_or_default();
+    let n = links.len();
+    links.retain(|l| l.url != url);
+    if links.len() == n {
+        return Err(format!("kanban.link: link not on card {id:?}"));
+    }
+    write_links(app, &before, idx, if links.is_empty() { None } else { Some(links) }, "rm")
+}
+
+pub fn kanban_link_clear(app: &tauri::AppHandle, id: &str) -> Result<KanbanCard, String> {
+    let before = crate::state::load_state(app)?;
+    let idx = card_index(&before, id, "kanban.link")?;
+    if before.kanban_cards[idx].links.is_none() {
+        return Ok(before.kanban_cards[idx].clone());
+    }
+    write_links(app, &before, idx, None, "clear")
+}
+
+/// Forwards `run` to the launcher. orbittyctl and the MCP tool both come
+/// through here. Reads link-approvals.json and never writes it.
+pub(crate) fn dispatch_kanban_open(
+    url: &str,
+    run: bool,
+    approvals: &std::path::Path,
+) -> Result<String, String> {
+    let url = url.to_string();
+    card_links::ctl_open_at(&url, run, approvals)
+}
+
+/// Open link `n` (default 0). Read-only — status stays put.
+/// Documents, folders, images, and https open. An executable is revealed
+/// in Finder unless `run` is set or that exact file is already approved.
+/// Reads link-approvals.json and never writes it.
+pub fn kanban_open_link(
+    app: &tauri::AppHandle,
+    id: &str,
+    n: usize,
+    run: bool,
+) -> Result<serde_json::Value, String> {
+    let before = crate::state::load_state(app)?;
+    let idx = card_index(&before, id, "kanban.open_link")?;
+    let card = &before.kanban_cards[idx];
+    let links = card.links.as_deref().unwrap_or(&[]);
+    let link = links.get(n).ok_or_else(|| {
+        format!("kanban.open_link: card {id:?} has no link at n={n}")
+    })?;
+    let url = link.url.clone();
+    let status = card.status.clone();
+    let card_id = card.id.clone();
+    let action = dispatch_kanban_open(&url, run, &card_links::approvals_path(app)?)?;
+    Ok(serde_json::json!({
+        "id": card_id,
+        "n": n,
+        "url": url,
+        "status": status,
+        "action": action,
+    }))
+}
+
+fn card_index(state: &PersistedState, id: &str, who: &str) -> Result<usize, String> {
+    state
+        .kanban_cards
+        .iter()
+        .position(|c| c.id == id.trim())
+        .ok_or_else(|| format!("{who}: unknown card id {id:?}"))
+}
+
+fn write_links(
+    app: &tauri::AppHandle,
+    before: &PersistedState,
+    idx: usize,
+    links: Option<Vec<CardLink>>,
+    op: &str,
+) -> Result<KanbanCard, String> {
+    let mut after = before.clone();
+    after.kanban_cards[idx].links = links;
+    after.kanban_cards[idx].last_touched_at = now_secs();
+    let card_id = after.kanban_cards[idx].id.clone();
+    let project_id = after.kanban_cards[idx].project_id.clone();
+    save_with_events(app, before, &after)?;
+    event_log::append_best(
+        app,
+        "board-link",
+        None,
+        Some(&project_id),
+        Some("agent"),
+        true,
+        &serde_json::json!({ "cardId": card_id, "op": op }),
     );
     Ok(after.kanban_cards[idx].clone())
 }
@@ -399,12 +568,9 @@ fn is_exact_go_token(title: &str) -> bool {
 }
 
 /// Fallback for tokens outside the table: the first non-empty `Matt:` line
-/// of the nest prompt file `~/.buzz/PLANS/_GO_<TOKEN>_PROMPT.md`
-/// (dash→underscore slug, same PLANS dir needed_rules uses).
+/// of the legacy prompt file (plansDir, then the back-compat plans folder).
 fn go_prompt_blurb(title: &str) -> Option<String> {
-    let path = std::path::PathBuf::from(std::env::var("HOME").ok()?)
-        .join(".buzz/PLANS")
-        .join(format!("_{}_PROMPT.md", title.replace('-', "_")));
+    let path = crate::plans::legacy_prompt_file(title)?;
     let raw = std::fs::read_to_string(path).ok()?;
     raw.lines()
         .filter_map(|l| l.trim().strip_prefix("Matt:"))
@@ -726,6 +892,7 @@ pub fn needed_open(
         trackers: None,
         task_id: None,
         task_reason: None,
+        links: None,
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
@@ -800,4 +967,60 @@ pub fn needed_answer(
         &serde_json::json!({ "cardId": after.kanban_cards[idx].id }),
     );
     Ok(after.kanban_cards[idx].clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dispatch_kanban_open;
+
+    fn temp_case(name: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "orbitty-link-board-{}-{}-{}",
+            std::process::id(),
+            name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn kanban_open_passes_the_run_flag() {
+        let _hook = crate::card_links::OpenGuard::arm();
+        let dir = temp_case("run");
+        let approvals = dir.join("link-approvals.json");
+        let seeded = b"{\"note\":\"n\",\"approvals\":[]}\n";
+        std::fs::write(&approvals, seeded).unwrap();
+        let cmd = dir.join("hello.command");
+        std::fs::write(&cmd, "echo hi\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&cmd).unwrap().permissions();
+            perms.set_mode(0o644);
+            std::fs::set_permissions(&cmd, perms).unwrap();
+        }
+        let before = std::fs::read(&approvals).unwrap();
+        assert_eq!(
+            dispatch_kanban_open(&cmd.to_string_lossy(), false, &approvals).unwrap(),
+            "reveal"
+        );
+        assert_eq!(std::fs::read(&approvals).unwrap(), before);
+        assert_eq!(
+            dispatch_kanban_open(&cmd.to_string_lossy(), true, &approvals).unwrap(),
+            "open"
+        );
+        assert_eq!(std::fs::read(&approvals).unwrap(), before);
+        let src = include_str!("board.rs");
+        assert!(src.contains("dispatch_kanban_open(&url, run,"));
+        assert!(src.contains("card_links::ctl_open_at(&url, run,"));
+        let add = src.find("pub fn kanban_link_add(").expect("kanban_link_add");
+        let add_body = &src[add..add + src[add..].find("pub fn kanban_link_rm(").unwrap()];
+        assert!(!add_body.contains("link-approvals"));
+        assert!(!add_body.contains("remember("));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

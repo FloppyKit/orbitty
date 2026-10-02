@@ -68,7 +68,12 @@
   let planetIdle = $state("4h");
   let talkSource = $state<"system" | "hotkey">("system");
   let cheatSheetHint = $state(true);
-  let section = $state<"appearance" | "packs">("appearance");
+  let section = $state<"appearance" | "packs" | "plans">("appearance");
+  let plansDir = $state("");
+  let plansRunner = $state("");
+  let plansModel = $state("");
+  let plansHarness = $state("");
+  let plansNote = $state("");
   // Companion body picker (Appearance): Spirit + role:companion packs.
   // Same persist as the old companion-row select — set_companion_pack
   // emits state:changed, and the companion window hot-swaps the art.
@@ -83,6 +88,12 @@
   let privateRelay = $state(false);
   let privateRelayUrl = $state("");
   let replicaUrlNote = $state("");
+  interface LinkApprovalRow {
+    target: string;
+    kind: string;
+    approvedAt: string;
+  }
+  let linkApprovals = $state<LinkApprovalRow[]>([]);
 
   let packs = $state<PackInfo[]>([]);
   let packsDir = $state("");
@@ -98,6 +109,42 @@
   function normalizeTalk(raw: string | undefined): "system" | "hotkey" {
     const s = (raw ?? "").trim().toLowerCase();
     return s === "hotkey" || s === "handy" ? "hotkey" : "system";
+  }
+
+  async function loadPlans() {
+    try {
+      const s = await invoke<{
+        plansDir: string;
+        runner: string;
+        harness: string;
+        model: string;
+      }>("plans_settings");
+      plansDir = s.plansDir ?? "";
+      plansRunner = s.runner ?? "";
+      plansHarness = s.harness ?? "";
+      plansModel = s.model ?? "";
+    } catch (e) {
+      plansNote = String(e);
+    }
+  }
+
+  async function revealPlans() {
+    plansNote = "";
+    try {
+      await invoke("plans_reveal");
+    } catch (e) {
+      plansNote = String(e);
+    }
+  }
+
+  async function savePlansDir() {
+    plansNote = "";
+    try {
+      const s = await invoke<{ plansDir: string }>("plans_set_dir", { path: plansDir });
+      plansDir = s.plansDir ?? plansDir;
+    } catch (e) {
+      plansNote = String(e);
+    }
   }
 
   async function loadState() {
@@ -385,6 +432,7 @@
     if (!document.hidden) {
       loadState();
       refreshPacks();
+      loadApprovals();
     }
   };
   let unlisten: (() => void) | undefined;
@@ -393,7 +441,9 @@
   onMount(async () => {
     invoke("ensure_glass").catch(() => {});
     await loadState();
+    await loadPlans();
     await refreshPacks();
+    await loadApprovals();
     unlisten = await listen("state:changed", () => {
       loadState();
     });
@@ -427,6 +477,32 @@
   // Quiet Appearance-footer button — the same
   // confirm ⌘⇧Y opens, in its own small window (works with Settings
   // closed).
+  async function loadApprovals() {
+    try {
+      linkApprovals = await invoke<LinkApprovalRow[]>("list_link_approvals");
+    } catch {
+      linkApprovals = [];
+    }
+  }
+
+  async function removeApproval(target: string) {
+    try {
+      await invoke("remove_link_approval", { target });
+    } catch {
+      /* the list reloads either way */
+    }
+    await loadApprovals();
+  }
+
+  async function clearApprovals() {
+    try {
+      await invoke("clear_link_approvals");
+    } catch {
+      /* the list reloads either way */
+    }
+    await loadApprovals();
+  }
+
   function openYardWarn() {
     invoke("open_yard_warn_window").catch(() => {});
   }
@@ -453,6 +529,11 @@
       class="tab"
       class:on={section === "packs"}
       onclick={() => (section = "packs")}>Packs</button
+    >
+    <button
+      class="tab"
+      class:on={section === "plans"}
+      onclick={() => (section = "plans")}>Plans</button
     >
   </nav>
 
@@ -570,22 +651,17 @@
             aria-label="Companion body"
             title="Which body the companion wears — the blessed Spirit, a bundled 3D body, or an imported companion pack"
           >
+            <!-- LEGACY (to be replaced by the new companion pack, Matt 2026-09-29) -->
             <option value="spirit">Spirit</option>
             <!-- Reserved bundled-GLB ids, never
                  pack folders. Spirit stays the default. -->
-            <option value="tang">Tang · 3D</option>
+            <!-- LEGACY (to be replaced by the new companion pack, Matt 2026-09-29) -->
             <option value="female">Female · 3D</option>
             {#each bodyPacks as p (p.id)}
               <option value={p.id}>{p.name}</option>
             {/each}
           </select>
         </div>
-        {#if bodyId === "tang"}
-          <p class="help">
-            Tang is derived from Jacob by jupifox (CC BY 4.0) — credit
-            jupifox / Jacob.
-          </p>
-        {/if}
         <p class="block-label">Talk</p>
         <div class="setting-row">
           <button
@@ -716,6 +792,26 @@
             title="Show Action: ⌘?(⌘⇧/) on the dock"
           >Show Action ⌘? on dock</button>
         </div>
+        <p class="block-label">Approved links</p>
+        <p class="help">
+          The first open of a link asks. After you click Open or Run, that exact path or URL opens directly. A program asks again if its contents change. This list stays on this Mac.
+        </p>
+        {#if linkApprovals.length === 0}
+          <p class="help">None yet.</p>
+        {:else}
+          <ul class="approved">
+            {#each linkApprovals as row (row.target)}
+              <li>
+                <span class="path" title={row.target}>{row.target}</span>
+                <button
+                  type="button"
+                  class="mini ghost"
+                  onclick={() => removeApproval(row.target)}>Remove</button>
+              </li>
+            {/each}
+          </ul>
+          <button type="button" class="mini" onclick={clearApprovals}>Clear all</button>
+        {/if}
         <div class="yard-foot">
           <button
             class="mini ghost"
@@ -724,7 +820,7 @@
           >Herding Cats…</button>
         </div>
       </section>
-    {:else}
+    {:else if section === "packs"}
       <section class="panel">
         <div class="setting-row">
           <button
@@ -783,6 +879,21 @@
           files — Orbitty never downloads art. Missing license warns, never
           blocks.
         </p>
+      </section>
+    {:else if section === "plans"}
+      <section class="panel">
+        <p class="block-label">Plans folder</p>
+        <div class="setting-row">
+          <input class="plans-path" bind:value={plansDir} spellcheck="false" />
+          <button class="mini" onclick={savePlansDir}>Save</button>
+          <button class="mini" onclick={revealPlans} title="Reveal in Finder">Reveal in Finder</button>
+        </div>
+        <p class="help">Shared by Nightly and stable. Default is the visible Orbitty GOs folder in your home.</p>
+        <p class="block-label">Default runner</p>
+        <p class="help">{plansRunner} · {plansHarness} · {plansModel}</p>
+        {#if plansNote}
+          <p class="help err">{plansNote}</p>
+        {/if}
       </section>
     {/if}
   </div>
@@ -874,6 +985,17 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 4px;
+  }
+  .plans-path {
+    flex: 1;
+    min-width: 12rem;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 3px 8px;
   }
   .mini {
     font: inherit;
@@ -1128,6 +1250,26 @@
   }
   /* Quiet footer of the Appearance tab — not a
      section, not on launch. */
+  .approved {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .approved li {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .approved .path {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.72rem;
+    color: var(--dim);
+  }
   .yard-foot {
     margin-top: 12px;
     padding-top: 8px;

@@ -219,6 +219,12 @@ const READ_TOOLS: &[&str] = &[
     // companion.*, so it does not reach route.run.
     "route.table",
     "route.classify",
+    // Plans folder and GO status are reads. Setting them, sealing,
+    // and migrate --apply stay write-class (full / named custom).
+    "settings.plans_dir",
+    "settings.runner",
+    "go.status",
+    "plans.migrate",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -293,6 +299,10 @@ fn dispatch(app: &tauri::AppHandle, req: Request) -> Value {
             &format!("tool {tool:?} denied by control.json"),
         );
     }
+    // go.seal is Matt-only: profile full, plus a confirm flag in the handler.
+    if tool == "go.seal" && !matches!(acl, Acl::Full) {
+        return reply_err(&id, ERR_DENIED, "go.seal requires profile full");
+    }
 
     let args = req.args.unwrap_or(Value::Null);
     match run_tool(app, &tool, &args) {
@@ -317,6 +327,43 @@ fn arg_opt(args: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+/// `kanban.add` links: omitted = none. Each item is `{url, label?}`.
+fn arg_links(args: &Value) -> Result<Vec<crate::state::CardLink>, (i32, String)> {
+    let Some(v) = args.get("links") else {
+        return Ok(Vec::new());
+    };
+    if v.is_null() {
+        return Ok(Vec::new());
+    }
+    let arr = v.as_array().ok_or((
+        ERR_OTHER,
+        "kanban.add: links must be an array".to_string(),
+    ))?;
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        let url = item
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or((
+                ERR_OTHER,
+                "kanban.add: each link needs a string \"url\"".to_string(),
+            ))?;
+        let label = item
+            .get("label")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        out.push(crate::state::CardLink {
+            url: url.to_string(),
+            label,
+        });
+    }
+    Ok(out)
 }
 
 /// AX-gated fns already return "accessibility not granted" — surface that
@@ -347,6 +394,12 @@ fn run_stars(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, 
         crate::board::save_with_events(app, &before, &st).map_err(tool_err)?;
     }
     Ok(data)
+}
+
+/// Missing or non-boolean `run` stays false. ctl and MCP must not default to running a program.
+pub(crate) fn kanban_open_run_flag(args: &Value) -> bool {
+    let run = args.get("run").and_then(Value::as_bool).unwrap_or(false);
+    run
 }
 
 /// The v0 tool list — each arm calls the exact function the matching
@@ -385,10 +438,13 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let line = arg_str(args, "line")?;
             // Same Berd path as the composer — the async command body,
             // driven from this plain std thread via the app's runtime.
-            tauri::async_runtime::block_on(crate::coordinator::companion_send(
+            // Origin::Companion: a socket companion.send never proposes or
+            // confirms a board write (route.run --pending is the socket door).
+            tauri::async_runtime::block_on(crate::coordinator::companion_send_from(
                 app.clone(),
                 line,
                 arg_opt(args, "path"),
+                crate::mouth_route::Origin::Companion,
             ))
             .map(|reply| json!({ "reply": reply }))
             .map_err(tool_err)
@@ -399,6 +455,29 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         "companion.set_agent" => {
             let profile = arg_str(args, "profile")?;
             crate::coordinator::set_companion_agent(app.clone(), profile)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // Same companion.* ACL class as companion.set_agent (not a read).
+        "companion.harnesses" => crate::companion_backend::companion_harnesses(app.clone())
+            .map(to_data)
+            .map_err(tool_err),
+        "companion.set_backend" => {
+            let id = match args.get("id").and_then(|v| v.as_str()) {
+                Some(s) => s.trim().to_string(),
+                None => {
+                    return Err((ERR_OTHER, "missing arg \"id\"".to_string()));
+                }
+            };
+            crate::companion_backend::set_companion_backend(app.clone(), id)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // Dry run. companion.* ACL, not a read. Never calls a model or writes.
+        // The key is not settable on this socket.
+        "companion.route" => {
+            let line = arg_str(args, "line")?;
+            crate::direct_lane::companion_route(app.clone(), line)
                 .map(to_data)
                 .map_err(tool_err)
         }
@@ -482,7 +561,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             .map(to_data)
             .map_err(tool_err)
         }
-        "packs.list" => crate::packs::list_packs(app.clone())
+        "packs.list" => crate::packs::list_packs_sync(app.clone())
             .map(to_data)
             .map_err(tool_err),
         "sleeper.wake" => {
@@ -528,10 +607,18 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             let title = arg_str(args, "title")?;
             let project = arg_opt(args, "projectId").unwrap_or_default();
             let status = arg_opt(args, "status").unwrap_or_default();
+            let links = arg_links(args)?;
             // Optional one-line summary (notes).
-            crate::board::kanban_add(app, &title, &project, &status, arg_opt(args, "notes").as_deref())
-                .map(to_data)
-                .map_err(tool_err)
+            crate::board::kanban_add(
+                app,
+                &title,
+                &project,
+                &status,
+                arg_opt(args, "notes").as_deref(),
+                links,
+            )
+            .map(to_data)
+            .map_err(tool_err)
         }
         // Set a card's notes (first line = the
         // board-row summary). `notes` must be a string; empty clears —
@@ -545,6 +632,61 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 )
             })?;
             crate::board::kanban_notes(app, &id, notes)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // Append one line to the notes (same write ACL). Unknown to an
+        // older app, so a new client never falls back to a replace.
+        "kanban.note_append" => {
+            let id = arg_str(args, "id")?;
+            let line = arg_str(args, "line")?;
+            crate::board::kanban_note_append(app, &id, &line)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        // Same write ACL as kanban.notes. Exactly one of add / rm / clear.
+        "kanban.link" => {
+            let id = arg_str(args, "id")?;
+            let clear = args.get("clear").and_then(Value::as_bool).unwrap_or(false);
+            let rm = arg_opt(args, "rm");
+            let add = arg_opt(args, "add");
+            let modes = [clear, rm.is_some(), add.is_some()]
+                .into_iter()
+                .filter(|on| *on)
+                .count();
+            if modes != 1 {
+                return Err((
+                    ERR_OTHER,
+                    "kanban.link: pass exactly one of add, rm, clear".into(),
+                ));
+            }
+            if clear {
+                crate::board::kanban_link_clear(app, &id)
+                    .map(to_data)
+                    .map_err(tool_err)
+            } else if let Some(url) = rm {
+                crate::board::kanban_link_rm(app, &id, &url)
+                    .map(to_data)
+                    .map_err(tool_err)
+            } else {
+                let url = add.unwrap_or_default();
+                let label = arg_opt(args, "label");
+                crate::board::kanban_link_add(app, &id, &url, label)
+                    .map(to_data)
+                    .map_err(tool_err)
+            }
+        }
+        "kanban.open_link" => {
+            let id = arg_str(args, "id")?;
+            let n = match args.get("n") {
+                None | Some(Value::Null) => 0usize,
+                Some(v) => v
+                    .as_u64()
+                    .ok_or((ERR_OTHER, "kanban.open_link: n must be an integer".to_string()))?
+                    as usize,
+            };
+            let run = kanban_open_run_flag(args);
+            crate::board::kanban_open_link(app, &id, n, run)
                 .map(to_data)
                 .map_err(tool_err)
         }
@@ -615,6 +757,7 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
                 md_paths,
                 arg_opt(args, "extra").as_deref(),
                 arg_opt(args, "projectId").as_deref(),
+                arg_opt(args, "permissions").as_deref(),
             )
             .map(to_data)
             .map_err(tool_err)
@@ -654,13 +797,19 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
         }
         "route.run" => {
             let line = arg_str(args, "line")?;
-            let spoken = crate::mouth_route::run(app, &line);
-            let tool = spoken
-                .as_ref()
-                .and_then(|_| crate::mouth_route::classify(&line));
+            // A yes / no only answers this caller's own proposal: it must
+            // carry the pendingId that proposal returned.
+            let confirm = arg_opt(args, "pendingId");
+            let out = crate::mouth_route::run_outcome(
+                app,
+                &line,
+                crate::mouth_route::Origin::Socket,
+                confirm.as_deref(),
+            );
             Ok(json!({
-                "tool": tool,
-                "spoken": spoken,
+                "tool": out.tool,
+                "spoken": out.spoken,
+                "pendingId": out.pending_id,
             }))
         }
         "gate.inject" => {
@@ -786,6 +935,56 @@ fn run_tool(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (
             );
             Ok(to_data(ack))
         }
+        "settings.plans_dir" => crate::plans::settings_snapshot().map_err(tool_err),
+        "settings.plans_dir_set" => {
+            let path = arg_str(args, "path")?;
+            crate::plans::set_plans_dir(&path).map_err(tool_err)
+        }
+        "settings.runner" => crate::plans::settings_snapshot().map_err(tool_err),
+        "settings.runner_set" => {
+            let runner = arg_opt(args, "runner").unwrap_or_default();
+            let harness = arg_opt(args, "harness").unwrap_or_default();
+            let model = arg_opt(args, "model").unwrap_or_default();
+            crate::plans::set_runner(&runner, &harness, &model).map_err(tool_err)
+        }
+        "go.status" => crate::plans::status_value(
+            arg_opt(args, "file").as_deref(),
+            arg_opt(args, "go").as_deref(),
+            arg_opt(args, "card").as_deref(),
+            arg_opt(args, "title").as_deref(),
+        )
+        .map_err(tool_err),
+        "go.seal" => {
+            let confirm = args.get("confirm").and_then(Value::as_bool).unwrap_or(false);
+            if !confirm {
+                return Err((ERR_OTHER, "go.seal: pass --confirm".into()));
+            }
+            let file = arg_str(args, "file")?;
+            let by = arg_str(args, "by")?;
+            crate::plans::seal_file(std::path::Path::new(&file), &by)
+                .map(|g| {
+                    to_data(serde_json::json!({
+                        "id": g.id(),
+                        "file": g.path.display().to_string(),
+                        "status": g.header.status,
+                        "sealedAt": g.header.sealed_at,
+                        "sealedBy": g.header.sealed_by,
+                        "sealHash": g.header.seal_hash,
+                    }))
+                })
+                .map_err(tool_err)
+        }
+        "plans.migrate" => {
+            let roots = crate::plans::Roots::real();
+            Ok(to_data(serde_json::json!({
+                "dryRun": true,
+                "files": crate::plans::migrate_list(&roots),
+            })))
+        }
+        "plans.migrate_apply" => {
+            let roots = crate::plans::Roots::real();
+            crate::plans::migrate_apply(&roots).map_err(tool_err)
+        }
         other => Err((ERR_OTHER, format!("unknown tool {other:?}"))),
     }
 }
@@ -807,6 +1006,8 @@ mod tests {
         "list planets",
         "list agents",
         "needed list on planet orbitty",
+        "add a card Buy milk to planet Kansas todo",
+        "add an agent in doing to planet Kansas",
         "tell me a joke",
         "STOP",
         "stop",
@@ -831,11 +1032,26 @@ mod tests {
         assert!(!READ_TOOLS.contains(&"route.run"));
         assert!(read_ok("route.classify"));
         assert!(!read_ok("route.run"));
+        assert!(!READ_TOOLS.contains(&"companion.route"));
+        assert!(!read_ok("companion.route"));
+        assert!(!allowed(&Acl::Read, "companion.route"));
+        assert!(allowed(&Acl::Companion, "companion.route"));
+        assert!(allowed(&Acl::Full, "companion.route"));
         assert!(allowed(&Acl::Read, "route.classify"));
         assert!(allowed(&Acl::Read, "route.table"));
         assert!(!allowed(&Acl::Read, "route.run"));
         assert!(allowed(&Acl::Companion, "route.classify"));
         assert!(!allowed(&Acl::Companion, "route.run"));
         assert!(allowed(&Acl::Full, "route.run"));
+    }
+
+    #[test]
+    fn kanban_open_link_run_defaults_false() {
+        assert!(!kanban_open_run_flag(&serde_json::json!({})));
+        assert!(!kanban_open_run_flag(&serde_json::json!({"id": "c", "run": false})));
+        assert!(kanban_open_run_flag(&serde_json::json!({"run": true})));
+        assert!(!kanban_open_run_flag(&serde_json::json!({"run": "yes"})));
+        let src = include_str!("control.rs");
+        assert!(src.contains("let run = kanban_open_run_flag(args);"));
     }
 }

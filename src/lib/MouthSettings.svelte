@@ -5,8 +5,9 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
   import type { PersistedState } from "./persist";
+  import { linkErrText, requestLink } from "./linkOpen.svelte";
 
-  type ReplyLane = "grok" | "local" | "openrouter" | "free";
+  type ReplyLane = "grok" | "local" | "openrouter" | "free" | "compat";
   type ScannedModel = {
     id: string;
     source: string;
@@ -45,9 +46,31 @@
   });
   let orBusy = $state(false);
   let orNote = $state<string | null>(null);
+  let directBase = $state("");
+  let directModel = $state("");
+  let directKeyDraft = $state("");
+  let directKey = $state<{ set: boolean; tail: string }>({ set: false, tail: "" });
+  let directBusy = $state(false);
+  let directNote = $state<string | null>(null);
   let scan = $state<MouthScan | null>(null);
   let pullBusy = $state(false);
   let pullNote = $state<string | null>(null);
+  let handoffBackend = $state("");
+  let autoHandoff = $state(false);
+  let handoffChoices = $state<{ id: string; label: string }[]>([]);
+  type HarnessChoice = { id: string; label: string; present: boolean; path: string };
+  type HarnessPick = {
+    choices: HarnessChoice[];
+    id: string;
+    source: string;
+    envOverride: boolean;
+  };
+  let harnesses = $state<HarnessPick | null>(null);
+  let harnessNote = $state<string | null>(null);
+
+  const GOOSE_DOWNLOAD = "https://block.github.io/goose/";
+  const HERMES_DOWNLOAD =
+    "https://hermes-agent.nousresearch.com/docs/getting-started/installation";
 
   function healLane(raw: string | undefined, freeMode: boolean): ReplyLane {
     const s = (raw ?? "").trim().toLowerCase();
@@ -55,6 +78,7 @@
     if (s === "openrouter" || s === "or") return "openrouter";
     if (s === "free" || s === "freemode" || s === "free-mode" || s === "free_mode")
       return "free";
+    if (s === "compat") return "compat";
     if (s === "grok") return "grok";
     return freeMode ? "free" : "grok";
   }
@@ -65,6 +89,10 @@
       replyLane = healLane(s.companion?.replyLane, s.companion?.freeMode ?? false);
       replyModel = s.companion?.replyModel ?? "";
       conductorOn = s.companion?.conductorOn ?? false;
+      handoffBackend = s.companion?.handoffBackend ?? "";
+      autoHandoff = s.companion?.autoHandoff ?? false;
+      directBase = s.companion?.directBaseUrl ?? "";
+      directModel = s.companion?.directModel ?? "";
     } catch {
       /* next scan still paints */
     }
@@ -77,6 +105,74 @@
       );
     } catch {
       orKey = { set: false, source: "", tail: "" };
+    }
+  }
+
+  async function loadDirectKey() {
+    try {
+      directKey = await invoke<{ set: boolean; tail: string }>("direct_key_status");
+    } catch {
+      directKey = { set: false, tail: "" };
+    }
+  }
+
+  async function loadHandoffChoices() {
+    try {
+      handoffChoices = await invoke<{ id: string; label: string }[]>("handoff_backends");
+    } catch {
+      handoffChoices = [];
+    }
+  }
+
+  async function loadHarnesses() {
+    try {
+      harnesses = await invoke<HarnessPick>("companion_harnesses");
+    } catch {
+      harnesses = null;
+    }
+  }
+
+  async function pickHarness(id: string) {
+    if (harnesses?.envOverride) return;
+    harnessNote = null;
+    try {
+      const saved = await invoke<{
+        backend: string;
+        envOverride: boolean;
+        message: string;
+      }>("set_companion_backend", { id });
+      harnessNote = saved.envOverride ? saved.message : null;
+      await loadHarnesses();
+    } catch (e) {
+      harnessNote = `${e}`;
+    }
+  }
+
+  async function openDownload(url: string) {
+    try {
+      await requestLink(url);
+    } catch (e) {
+      harnessNote = linkErrText(e);
+    }
+  }
+
+  async function saveHandoffBackend() {
+    try {
+      const saved = await invoke<string>("set_companion_handoff_backend", {
+        backend: handoffBackend,
+      });
+      handoffBackend = saved;
+    } catch {
+      /* state:changed restores */
+    }
+  }
+
+  async function saveAutoHandoff(on: boolean) {
+    autoHandoff = on;
+    try {
+      await invoke("set_companion_auto_handoff", { enabled: on });
+    } catch {
+      /* state:changed restores */
     }
   }
 
@@ -160,6 +256,48 @@
     orBusy = false;
   }
 
+  async function saveDirectEndpoint() {
+    if (directBusy) return;
+    directBusy = true;
+    directNote = null;
+    try {
+      const saved = await invoke<{ base: string; model: string }>("set_direct_endpoint", {
+        base: directBase.trim(),
+        model: directModel.trim(),
+      });
+      directBase = saved.base;
+      directModel = saved.model;
+    } catch (e) {
+      directNote = `${e}`;
+    }
+    directBusy = false;
+  }
+
+  async function saveDirectKey() {
+    if (directBusy) return;
+    directBusy = true;
+    directNote = null;
+    try {
+      directKey = await invoke("set_direct_key", { key: directKeyDraft.trim() });
+      directKeyDraft = "";
+    } catch (e) {
+      directNote = `${e}`;
+    }
+    directBusy = false;
+  }
+
+  async function clearDirectKey() {
+    if (directBusy) return;
+    directBusy = true;
+    directNote = null;
+    try {
+      directKey = await invoke("set_direct_key", { key: "" });
+    } catch (e) {
+      directNote = `${e}`;
+    }
+    directBusy = false;
+  }
+
   async function pullSuggest(tag: string) {
     if (pullBusy || !tag) return;
     pullBusy = true;
@@ -180,9 +318,13 @@
   onMount(async () => {
     await loadState();
     await loadKeyStatus();
+    await loadDirectKey();
+    await loadHandoffChoices();
+    await loadHarnesses();
     await rescan();
     unlisten = await listen("state:changed", () => {
       loadState();
+      loadHarnesses();
     });
     document.addEventListener("visibilitychange", onVisibility);
   });
@@ -191,6 +333,10 @@
     document.removeEventListener("visibilitychange", onVisibility);
   });
 
+  const harnessIsDirect = $derived(harnesses?.id === "direct");
+  const presentHarnesses = $derived(
+    (harnesses?.choices ?? []).filter((h) => h.present),
+  );
   const showLocalPick = $derived(
     replyLane === "local" || replyLane === "free",
   );
@@ -212,16 +358,61 @@
 <p class="block-label">Mouth</p>
 
 <div class="mouth-row">
+  <span class="mouth-k">Harness</span>
+  <div class="mouth-v">
+    {#if presentHarnesses.length > 0}
+      <div class="setting-row" role="group" aria-label="Companion harness">
+        {#each presentHarnesses as h (h.id)}
+          <button
+            class="mini"
+            class:active={harnesses?.id === h.id}
+            aria-pressed={harnesses?.id === h.id}
+            disabled={harnesses?.envOverride === true}
+            onclick={() => pickHarness(h.id)}
+            title={h.label}
+          >{h.label}</button>
+        {/each}
+      </div>
+    {:else}
+      <p class="help">No harness found on this Mac. Goose and Hermes are free.</p>
+      <div class="setting-row">
+        <button
+          class="mini"
+          type="button"
+          onclick={() => openDownload(GOOSE_DOWNLOAD)}
+          title="Goose download"
+        >Goose</button>
+        <button
+          class="mini"
+          type="button"
+          onclick={() => openDownload(HERMES_DOWNLOAD)}
+          title="Hermes download"
+        >Hermes</button>
+      </div>
+    {/if}
+    {#if harnesses?.envOverride}
+      <p class="help">set by ORBITTY_COMPANION_BACKEND</p>
+    {/if}
+    {#if harnessNote}
+      <p class="help">{harnessNote}</p>
+    {/if}
+    <p class="help">Who runs the companion. Reply lane applies when Harness is Grok or Direct.</p>
+  </div>
+</div>
+
+<div class="mouth-row">
   <span class="mouth-k">Reply</span>
   <div class="mouth-v">
     <div class="setting-row" role="group" aria-label="Who writes the reply">
-      <button
-        class="mini"
-        class:active={replyLane === "grok"}
-        aria-pressed={replyLane === "grok"}
-        onclick={() => pickReply("grok")}
-        title="Paid Grok via your existing grok CLI login"
-      >Grok (paid)</button>
+      {#if !harnessIsDirect}
+        <button
+          class="mini"
+          class:active={replyLane === "grok"}
+          aria-pressed={replyLane === "grok"}
+          onclick={() => pickReply("grok")}
+          title="Paid Grok via your existing grok CLI login"
+        >Grok (paid)</button>
+      {/if}
       <button
         class="mini"
         class:active={replyLane === "local"}
@@ -236,12 +427,23 @@
         onclick={() => pickReply("openrouter")}
         title="OpenRouter free models — needs a key"
       >OpenRouter free</button>
+      {#if harnessIsDirect}
+        <button
+          class="mini"
+          class:active={replyLane === "compat"}
+          aria-pressed={replyLane === "compat"}
+          onclick={() => pickReply("compat")}
+          title="One OpenAI-compatible base URL and key. Text only. Not part of Free Mode."
+        >Compat</button>
+      {/if}
       <button
         class="mini"
         class:active={replyLane === "free"}
         aria-pressed={replyLane === "free"}
         onclick={() => pickReply("free")}
-        title="Local first, then OpenRouter free. Paid Grok never runs."
+        title={harnessIsDirect
+          ? "Local first, then OpenRouter. A compat key is not part of Free Mode."
+          : "Local first, then OpenRouter free. Paid Grok never runs."}
       >Free Mode</button>
     </div>
     {#if showLocalPick}
@@ -284,8 +486,43 @@
     {#if pullNote}
       <p class="help">{pullNote}</p>
     {/if}
+    {#if harnessIsDirect}
+      <div class="setting-row">
+        <input
+          class="keyin"
+          type="text"
+          bind:value={directBase}
+          placeholder="https://host/v1"
+          aria-label="Compat base URL"
+          spellcheck="false"
+        />
+        <input
+          class="keyin"
+          type="text"
+          bind:value={directModel}
+          placeholder="model id"
+          aria-label="Compat model"
+          spellcheck="false"
+        />
+        <button
+          class="mini"
+          disabled={directBusy}
+          onclick={saveDirectEndpoint}
+          title="Save the compat base URL and model"
+        >Save</button>
+      </div>
+      {#if directNote}
+        <p class="help err">{directNote}</p>
+      {/if}
+      <p class="help">http is only allowed for localhost. The key is saved separately, never in state.</p>
+    {/if}
     <p class="help">
-      Who writes the real English. Free Mode never bills Grok.
+      {#if harnessIsDirect}
+        Who writes the real English. Free Mode here is local, then OpenRouter.
+        A compat key is its own lane and is not called free.
+      {:else}
+        Who writes the real English. Free Mode never bills Grok.
+      {/if}
     </p>
   </div>
 </div>
@@ -315,6 +552,48 @@
     <p class="help">
       A fast “heard you” before the real reply. Built-in is the 1B sidecar
       on this Mac when it is hot; otherwise the tiny classifier. Never Grok.
+    </p>
+  </div>
+</div>
+
+<div class="mouth-row">
+  <span class="mouth-k">Handoff</span>
+  <div class="mouth-v">
+    <div class="setting-row">
+      <select
+        class="bodypick"
+        bind:value={handoffBackend}
+        onchange={saveHandoffBackend}
+        aria-label="Online agent for handoff"
+      >
+        <option value="">Ask me each time</option>
+        {#each handoffChoices as b (b.id)}
+          <option value={b.id}>{b.label}</option>
+        {/each}
+        {#if handoffBackend && !handoffChoices.some((b) => b.id === handoffBackend)}
+          <option value={handoffBackend}>{handoffBackend}</option>
+        {/if}
+      </select>
+    </div>
+    <div class="setting-row" role="group" aria-label="Auto-handoff when the local model can't">
+      <button
+        class="mini"
+        class:active={!autoHandoff}
+        aria-pressed={!autoHandoff}
+        onclick={() => saveAutoHandoff(false)}
+        title="Show Ask online agent and wait for a click"
+      >Auto off</button>
+      <button
+        class="mini"
+        class:active={autoHandoff}
+        aria-pressed={autoHandoff}
+        onclick={() => saveAutoHandoff(true)}
+        title="Send to the online agent above when the local model can't"
+      >Auto on</button>
+    </div>
+    <p class="help">
+      Online agent for handoff. When a local model can't do the ask, the
+      chat offers Ask online agent. Auto sends it straight there. Default off.
     </p>
   </div>
 </div>
@@ -357,6 +636,39 @@
         OpenRouter is optional. Grok uses your existing CLI login — no key here.
       {/if}
     </p>
+    {#if harnessIsDirect}
+      <div class="setting-row">
+        <input
+          class="keyin"
+          type="password"
+          bind:value={directKeyDraft}
+          placeholder="Compat key"
+          aria-label="Compat API key"
+          onkeydown={(e) => e.key === "Enter" && saveDirectKey()}
+        />
+        <button
+          class="mini"
+          disabled={directBusy || directKeyDraft.trim().length === 0}
+          onclick={saveDirectKey}
+          title="Save the compat key locally — never in state.json"
+        >Save</button>
+        {#if directKey.set}
+          <button
+            class="mini ghost"
+            disabled={directBusy}
+            onclick={clearDirectKey}
+            title="Delete the saved compat key file"
+          >Clear</button>
+        {/if}
+      </div>
+      <p class="help">
+        {#if directKey.set}
+          Compat key saved locally (…{directKey.tail}). It is not part of Free Mode.
+        {:else}
+          Compat key is optional and not part of Free Mode. It stays in a local file.
+        {/if}
+      </p>
+    {/if}
   </div>
 </div>
 

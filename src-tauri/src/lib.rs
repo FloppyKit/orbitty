@@ -11,9 +11,12 @@ mod agent_stop;
 mod agents;
 #[cfg(unix)]
 mod board;
+mod card_links;
 mod claim_front;
 mod chars;
 mod companion;
+mod companion_backend;
+mod direct_lane;
 mod companion_clear;
 mod companion_desk;
 #[cfg(unix)]
@@ -23,6 +26,7 @@ mod companion_go;
 #[cfg(unix)]
 mod control;
 mod coordinator;
+mod thin;
 #[cfg(unix)]
 mod doing_fire;
 mod drawers;
@@ -46,6 +50,7 @@ mod mouth_roll;
 mod needed_rules;
 mod nextcard;
 mod panes;
+mod plans;
 mod habitat;
 mod herdr;
 mod droid_inspect;
@@ -180,9 +185,10 @@ fn sync_habitat(app: tauri::AppHandle, snapshot: habitat::HabitatSnapshot) -> Re
 /// R-click Planets dest: hide or show every desktop disc.
 #[tauri::command]
 fn set_planets_hidden(app: tauri::AppHandle, hidden: bool) -> Result<(), String> {
-    let mut st = state::load_state(&app)?;
-    st.companion.planets_hidden = hidden;
-    state::save_state(&app, &st)?;
+    state::update(&app, |st| {
+        st.companion.planets_hidden = hidden;
+        Ok(())
+    })?;
     habitat::set_planets_hidden(hidden);
     let _ = app.emit("state:changed", ());
     Ok(())
@@ -384,6 +390,30 @@ fn toggle_cheatsheet(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn plans_settings() -> Result<serde_json::Value, String> {
+    crate::plans::settings_snapshot()
+}
+
+#[tauri::command]
+fn plans_reveal() -> Result<(), String> {
+    crate::plans::reveal_plans_dir()
+}
+
+#[tauri::command]
+fn plans_set_dir(path: String) -> Result<serde_json::Value, String> {
+    crate::plans::set_plans_dir(&path)
+}
+
+#[tauri::command]
+fn plans_set_runner(
+    runner: String,
+    harness: String,
+    model: String,
+) -> Result<serde_json::Value, String> {
+    crate::plans::set_runner(&runner, &harness, &model)
+}
+
+#[tauri::command]
 fn agent_pickup(
     app: tauri::AppHandle,
     id: Option<String>,
@@ -563,61 +593,43 @@ fn load_state(app: tauri::AppHandle) -> Result<state::PersistedState, String> {
     Ok(st)
 }
 
-#[tauri::command]
-fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result<(), String> {
-    // This command is the one native writer of
-    // `claims` — diff disk-before against the incoming snapshot and emit
-    // claim/unclaim (best-effort; a dead log never fails the save). A
-    // missing/corrupt old file skips the diff rather than inventing churn.
-    let before = state::load_state(&app).ok();
-    // whole-state writers never OWN
-    // companion.free_mode — the set_companion_free_mode command (Settings
-    // toggle / companion.free_mode ctl tool) is the only door. Carry the
-    // disk value forward so a stale or omitted incoming flag can never
-    // strip Free Mode back off (the agentRuns strip-trap).
-    if let Some(b) = before.as_ref() {
-        state.companion.free_mode = b.companion.free_mode;
-        // Same strip-trap for the conductor pair —
-        // the set_companion_conductor* commands are the only doors.
-        state.companion.conductor_on = b.companion.conductor_on;
-        state.companion.conductor_model = b.companion.conductor_model.clone();
-        state.companion.reply_lane = b.companion.reply_lane.clone();
-        state.companion.reply_model = b.companion.reply_model.clone();
-        // ctl `shift on|off` is the only door.
-        state.shift_on = b.shift_on;
-        // Layer-0 claim (tray/Dock/planet) owns lastClaimProjectId.
-        // Rail whole-state writers omit it and would wipe the default.
-        if state.last_claim_project_id.is_none() {
-            state.last_claim_project_id = b.last_claim_project_id.clone();
-        }
-        // PEER-CHROME: set_peer_chrome is the only door (Settings /
-        // graduate). Rail whole-state writers omit the flag — always
-        // carry disk forward (same pattern as free_mode).
-        state.peer_chrome = b.peer_chrome;
-    }
-    #[cfg(unix)]
-    crate::agent_runs::reconcile_incoming(&mut state);
-    crate::todo_trees::reconcile(&mut state);
-    if let Some(b) = before.as_ref() {
-        for c in &b.kanban_cards {
-            if c.task_id.is_some() && !state.kanban_cards.iter().any(|x| x.id == c.id) {
-                state.kanban_cards.push(c.clone());
-            }
-        }
-    }
-    state::save_state(&app, &state)?;
-    if let Some(before) = before.as_ref() {
-        event_log::diff_claims(&app, &before.claims, &state.claims);
-        // After the save returns so the
-        // board column is not waiting on Needed mint + extra saves.
+#[tauri::command(rename = "save_state")]
+fn save_window_state(app: tauri::AppHandle, state: state::PersistedState) -> Result<(), String> {
+    // Window writers merge under the lock. Rust-owned slices
+    // (agentRuns, companion.hack*, the carry-list fields) stay on disk.
+    // Cards merge by lastTouchedAt; a newer tombstone is the only delete.
+    let (before, after, stats) = state::update(&app, |disk| {
+        let before = disk.clone();
+        let (mut merged, stats) = state::merge_window_save(disk, &state);
         #[cfg(unix)]
-        doing_fire::spawn_fire_and_attach(&app, before.clone(), state.clone());
-    }
+        crate::agent_runs::reconcile_incoming(&mut merged);
+        crate::todo_trees::reconcile(&mut merged);
+        *disk = merged.clone();
+        Ok((before, merged, stats))
+    })?;
+    event_log::append_best(
+        &app,
+        "state-save-merge",
+        None,
+        None,
+        None,
+        true,
+        &serde_json::json!({
+            "window": true,
+            "kept_disk": stats.kept_disk,
+            "took_incoming": stats.took_incoming,
+        }),
+    );
+    event_log::diff_claims(&app, &before.claims, &after.claims);
+    // After the save returns so the
+    // board column is not waiting on Needed mint + extra saves.
+    #[cfg(unix)]
+    doing_fire::spawn_fire_and_attach(&app, before, after.clone());
     // Keep the separate Kanban window in sync with the rail's writes.
     let _ = app.emit("state:changed", ());
     // Every persist re-syncs action combo
     // registrations (best-effort — a collision marks conflict, never errs).
-    actions::sync_combos(&app, &state.action_shortcuts);
+    actions::sync_combos(&app, &after.action_shortcuts);
     Ok(())
 }
 
@@ -626,9 +638,10 @@ fn save_state(app: tauri::AppHandle, mut state: state::PersistedState) -> Result
 /// save_state strip-traps this flag so rail writers cannot wipe it.
 #[tauri::command]
 fn set_peer_chrome(app: tauri::AppHandle, on: bool) -> Result<(), String> {
-    let mut st = state::load_state(&app)?;
-    st.peer_chrome = on;
-    state::save_state(&app, &st)?;
+    state::update(&app, |st| {
+        st.peer_chrome = on;
+        Ok(())
+    })?;
     let _ = app.emit("state:changed", ());
     Ok(())
 }
@@ -638,6 +651,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                drawers::clear_pane_mounted(webview.label());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             list_windows,
             focus_window,
@@ -654,7 +672,7 @@ pub fn run() {
             open_accessibility_settings,
             prompt_accessibility,
             load_state,
-            save_state,
+            save_window_state,
             set_peer_chrome,
             event_log::log_event,
             set_vibrancy,
@@ -671,6 +689,7 @@ pub fn run() {
             rail_toggle::dest_open_state,
             drawers::companion_drag_begin,
             drawers::pane_drag_begin,
+            drawers::pane_mounted,
             companion::companion_frames,
             companion::companion_glb_url,
             panes::hide_window,
@@ -682,6 +701,10 @@ pub fn run() {
             set_planets_hidden,
             needed_answer,
             needed_rule_add,
+            plans_settings,
+            plans_reveal,
+            plans_set_dir,
+            plans_set_runner,
             agent_pickup,
             bring_all_front,
             bring_planet_front,
@@ -703,6 +726,11 @@ pub fn run() {
             attach::companion_attach_pick,
             coordinator::companion_agents,
             coordinator::set_companion_agent,
+            companion_backend::companion_harnesses,
+            companion_backend::set_companion_backend,
+            direct_lane::direct_key_status,
+            direct_lane::set_direct_key,
+            direct_lane::set_direct_endpoint,
             coordinator::set_companion_mode,
             interrupt_gate::interrupt_gate_set_armed,
             interrupt_gate::interrupt_gate_status,
@@ -721,6 +749,10 @@ pub fn run() {
             mouth_hop::set_companion_free_mode,
             mouth_hop::set_companion_reply_lane,
             mouth_hop::set_companion_reply_model,
+            mouth_hop::set_companion_handoff_backend,
+            mouth_hop::set_companion_auto_handoff,
+            mouth_hop::companion_handoff,
+            mouth_scan::handoff_backends,
             mouth_hop::set_openrouter_key,
             mouth_hop::openrouter_key_status,
             mouth_scan::mouth_scan,
@@ -746,6 +778,13 @@ pub fn run() {
             coordinator::save_soul,
             coordinator::soul_path,
             coordinator::open_soul_in_editor,
+            card_links::open_card_link,
+            card_links::click_link,
+            card_links::open_link,
+            card_links::reveal_link,
+            card_links::list_link_approvals,
+            card_links::remove_link_approval,
+            card_links::clear_link_approvals,
         ])
         .setup(|app| {
             // one-time 0–4 → 1–5 checkin shift

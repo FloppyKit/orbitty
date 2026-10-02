@@ -73,6 +73,11 @@ export type NeededState = "open" | "later" | "answered" | "skipped";
 export type Actor = "user" | "agent" | "action" | "vps";
 export type Difficulty = "trivial" | "easy" | "medium" | "hard";
 
+export interface CardLink {
+  url: string;
+  label?: string | null;
+}
+
 export interface Subtask {
   id: string;
   title: string;
@@ -87,6 +92,11 @@ export interface Tracker {
   kind?: "number" | "timer";
   // Epoch ms while a timer is running. Stop folds the delta into value.
   runningSince?: number;
+}
+
+export interface CardTombstone {
+  id: string;
+  lastTouchedAt: number;
 }
 
 export interface KanbanCard {
@@ -127,6 +137,9 @@ export interface KanbanCard {
   trackers?: Tracker[];
   taskId?: string | null;
   taskReason?: string | null;
+  // file:// or https:// links. Additive — window maps spread the card,
+  // so a board/rail save round-trips this instead of dropping it.
+  links?: CardLink[] | null;
 }
 
 export interface PointsEntry {
@@ -175,6 +188,10 @@ export interface AgentShortcut {
   // Free-text extra instructions — pickup
   // concatenates them into the query file after the md paths.
   extra?: string | null;
+  // Cursor CLI preset. "read-only" | "workspace-write" | "full-auto".
+  // Missing = read-only. full-auto is the only preset that passes
+  // the CLI --force / --trust flags.
+  permissions?: string;
 }
 
 // One row per doing-run — the agent walker on
@@ -268,6 +285,23 @@ export interface CompanionSlice {
   // from freeMode. Dedicated commands, same strip-trap as conductor.
   replyLane?: string;
   replyModel?: string;
+  // Companion harness: goose | grok | hermes | direct. Empty = unset.
+  // ORBITTY_COMPANION_BACKEND overrides when set. Rust-owned in the
+  // window-merge rule (same strip-trap as handoffBackend). berd is
+  // env-only and is not stored here. direct is built in (no CLI).
+  backend?: string;
+  // Direct compat endpoint. The key is NOT here — native keeps it
+  // 0600 at companions/orbitty-primary/direct.key. Rust-owned in the
+  // window-merge rule (same strip-trap as replyLane). A compat key
+  // is not part of Free Mode.
+  directBaseUrl?: string;
+  directModel?: string;
+  // Online agent for "Ask online agent". Empty = ask each time.
+  // Rust-owned in the window-merge rule (same strip-trap as replyLane).
+  // No personal default.
+  handoffBackend?: string;
+  // Auto-handoff when the local model can't. Default off.
+  autoHandoff?: boolean;
 }
 
 export interface StarsCheckin {
@@ -347,6 +381,8 @@ export interface PersistedState {
   collapsedSectionIds: string[];
   nudgeSuppressedWindowIds: string[];
   kanbanCards: KanbanCard[];
+  /** Removed card ids. A later save restores a card only when its lastTouchedAt is newer. */
+  cardTombstones?: CardTombstone[];
   pointsLedger: PointsEntry[];
   titleOverrides: TitleOverride[];
   autohideRowChrome: boolean;
@@ -399,6 +435,9 @@ export interface PersistedState {
   privateRelayUrl?: string;
   // Unused expanded planets marble after this idle. "1h"|"4h"|"12h"|"never". Default 4h.
   planetIdle?: string;
+  // No-herdr terminal. "ghostty" | "terminal" | "". Empty = Ghostty if
+  // installed, else Terminal. Omitted on a save keeps the disk value.
+  agentTerminal?: string;
   // ctl `shift on` ticker. Default off. Optional so older writers type-check.
   shiftOn?: boolean;
   companion: CompanionSlice;

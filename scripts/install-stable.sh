@@ -13,6 +13,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# GO-ORBITTY-LOCAL-GATE: before any build. ORBITTY_SKIP_GATE=1 skips.
+if [[ "${ORBITTY_SKIP_GATE:-}" == "1" ]]; then
+  echo "============================================================" >&2
+  echo "WARNING: gate skipped (ORBITTY_SKIP_GATE=1)" >&2
+  echo "============================================================" >&2
+else
+  if ! scripts/gate.sh; then
+    echo "ERROR: local gate failed; refusing to build" >&2
+    exit 1
+  fi
+fi
+
 APP_NAME="Orbitty.app"
 SRC="src-tauri/target/release/bundle/macos/$APP_NAME"
 DEST="$HOME/Applications/$APP_NAME"
@@ -43,6 +55,15 @@ ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay
 # Ensure the hyphen binary exists for the link target (built later too).
 (cd src-tauri && cargo build --release --bin orbitty-relay) || true
 
+# Never install a stale bundle from the other channel: Nightly and Stable both
+# build into the same Orbitty.app, and only Nightly has the THIN feature. Guarded rm:
+# SRC must be non-empty, end in .app, and sit under the tauri bundle dir.
+if [[ -n "${SRC:-}" && "$SRC" == *.app && "$SRC" == src-tauri/target/release/bundle/macos/* ]]; then
+  rm -rf -- "$SRC"
+else
+  echo "error: refusing to remove unexpected bundle path '${SRC:-}'" >&2
+  exit 1
+fi
 # The dmg step may fail (hdiutil quirks); the .app is what we install, so a
 # dmg failure is not fatal as long as the .app bundle exists.
 npm run tauri build || echo "WARNING: tauri build failed (dmg?) — continuing if the .app exists" >&2

@@ -11,7 +11,8 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
-  import { mdLite } from "./mdLite";
+  import { mdLite, mdLiteLinkUrl, mdLiteKeyUrl } from "./mdLite";
+  import { linkErrText, requestLink } from "./linkOpen.svelte";
   import "./mdLite.css";
   import type {
     AverageWindow,
@@ -29,6 +30,24 @@
     return window.matchMedia("(prefers-color-scheme: dark)").matches
       ? "systemDark"
       : "systemLight";
+  }
+
+  let linkMsg = $state("");
+
+  function openLite(e: MouseEvent | KeyboardEvent) {
+    const url = e instanceof KeyboardEvent ? mdLiteKeyUrl(e) : mdLiteLinkUrl(e.target);
+    if (!url) return;
+    e.preventDefault();
+    e.stopPropagation();
+    requestLink(url).then(
+      () => {
+        linkMsg = "";
+      },
+      (err) => {
+        const msg = linkErrText(err);
+        linkMsg = /file not found/i.test(msg) ? "file not found" : msg;
+      },
+    );
   }
   let themeId = $state(osThemeId());
   let windowOpacity = $state(1.0);
@@ -419,7 +438,14 @@
       {#if lpTab === "needed" && neededCard}
         <p class="nc-title">{neededCard.title}</p>
         {#if neededCard.neededWhy}
-          <div class="nc-why md-lite">{@html mdLite(neededCard.neededWhy)}</div>
+          <div
+            class="nc-why md-lite"
+            role="button"
+            tabindex="0"
+            onclick={(e) => openLite(e)}
+            onkeydown={(e) => openLite(e)}
+          >{@html mdLite(neededCard.neededWhy)}</div>
+          {#if linkMsg}<p class="nc-why">{linkMsg}</p>{/if}
         {/if}
         <div class="nc-answer">
           <input
@@ -436,7 +462,16 @@
       {:else if todoCard}
         <p class="nc-title">{todoCard.title}</p>
         {#if todoCard.notes}
-          <div class="nc-why md-lite">{@html mdLite(todoCard.notes)}</div>
+          <div
+            class="nc-why md-lite"
+            role="button"
+            tabindex="0"
+            onclick={(e) => openLite(e)}
+            onkeydown={(e) => openLite(e)}
+          >{@html mdLite(todoCard.notes)}</div>
+        {/if}
+        {#if linkMsg}
+          <p class="nc-why">{linkMsg}</p>
         {/if}
         <button class="nc-defer" onclick={() => completeTodo(todoCard)}>Done</button>
       {:else}

@@ -84,7 +84,7 @@ pub fn intercept(app: &tauri::AppHandle, line: &str) -> Option<Result<String, St
 }
 
 fn run(app: &tauri::AppHandle, parsed: TodoLine) -> Result<String, String> {
-    let card = board::kanban_add_as(app, &parsed.title, &parsed.project, "todo", "user", None)?;
+    let card = board::kanban_add_as(app, &parsed.title, &parsed.project, "todo", "user", None, Vec::new())?;
     if let Some(agent) = parsed.agent.as_deref() {
         agents::kanban_assign(app, &card.id, agent).map_err(|e| format!("todo: {e}"))?;
     }

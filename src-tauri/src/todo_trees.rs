@@ -183,6 +183,7 @@ mod tests {
             trackers: None,
             task_id: None,
             task_reason: None,
+            links: None,
         }
     }
 

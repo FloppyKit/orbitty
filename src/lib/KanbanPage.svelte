@@ -21,6 +21,7 @@
   import "./board/board.css";
   import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import { mdLite } from "./mdLite";
+  import { linkErrText, requestLink } from "./linkOpen.svelte";
   import "./chrome.css";
   import "./boardStack.css";
   import "./mdLite.css";
@@ -119,6 +120,8 @@
   let collapsedSectionIds = $state<string[]>([]);
 
   let detailId = $state<string | null>(null);
+  let linkToast = $state("");
+  let linkToastTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Launchpad ring: arrows walk, Enter opens, Esc backs, Shift+Enter grabs.
   const menuRing = new MenuRing();
@@ -898,11 +901,80 @@
       fn(s);
       await invoke("save_state", { state: s });
       await loadState();
-    } catch {
+    } catch (e) {
       // Optimistic column paint already moved the card; reload disk
       // so a failed save does not leave a lying column.
       await loadState();
+      const msg = errText(e);
+      if (/link/i.test(msg)) showLinkToast(msg);
     }
+  }
+
+  function errText(e: unknown): string {
+    if (typeof e === "string") return e;
+    if (e instanceof Error) return e.message;
+    return "";
+  }
+
+  function showLinkToast(msg: string) {
+    linkToast = /file not found/i.test(msg) ? "file not found" : msg;
+    clearTimeout(linkToastTimer);
+    linkToastTimer = setTimeout(() => {
+      linkToast = "";
+    }, 4000);
+  }
+
+  async function openCardLink(card: KanbanCard, index = 0) {
+    const url = card.links?.[index]?.url;
+    if (!url) {
+      showLinkToast("no link");
+      return;
+    }
+    try {
+      await requestLink(url);
+    } catch (e) {
+      showLinkToast(linkErrText(e));
+    }
+  }
+
+  async function openUrl(url: string) {
+    try {
+      await requestLink(url);
+    } catch (e) {
+      showLinkToast(linkErrText(e));
+    }
+  }
+
+  function addCardLink(card: KanbanCard, url: string, label: string) {
+    const nextUrl = url.trim();
+    if (!nextUrl) return;
+    const nextLabel = label.trim();
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards.map((c) => {
+        if (c.id !== card.id) return c;
+        const cur = c.links ?? [];
+        if (cur.some((l) => l.url === nextUrl)) return c;
+        return {
+          ...c,
+          links: [...cur, { url: nextUrl, label: nextLabel || undefined }],
+          lastTouchedAt: Date.now() / 1000,
+        };
+      });
+    });
+  }
+
+  function removeCardLink(card: KanbanCard, url: string) {
+    mutate((s) => {
+      s.kanbanCards = s.kanbanCards.map((c) => {
+        if (c.id !== card.id) return c;
+        const links = (c.links ?? []).filter((l) => l.url !== url);
+        return {
+          ...c,
+          links: links.length ? links : undefined,
+          lastTouchedAt: Date.now() / 1000,
+        };
+      });
+    });
   }
 
   // Complete — the only door that retires a sprite and can mint points.
@@ -1248,7 +1320,9 @@
     if (notes === (card.notes ?? "")) return;
     mutate((s) => {
       s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id ? { ...c, notes: notes || undefined } : c,
+        c.id === card.id
+          ? { ...c, notes: notes || undefined, lastTouchedAt: Date.now() / 1000 }
+          : c,
       );
     });
   }
@@ -1467,7 +1541,12 @@
   function deleteTodo(card: KanbanCard) {
     if (card.kind === "window" || card.kind === "needed") return;
     const id = card.id;
+    const now = Date.now() / 1000;
     mutate((s) => {
+      s.cardTombstones = [
+        ...(s.cardTombstones ?? []).filter((t) => t.id !== id),
+        { id, lastTouchedAt: now },
+      ];
       s.kanbanCards = s.kanbanCards
         .filter((c) => c.id !== id)
         .map((c) =>
@@ -1879,6 +1958,9 @@
 {/snippet}
 
 <main class="kanban" class:embedded>
+  {#if linkToast}
+    <div class="k-toast" role="status">{linkToast}</div>
+  {/if}
   <BoardChrome
     bind:selected
     bind:hermesNote
@@ -1954,6 +2036,7 @@
       {subProgress}
       {toggleDoing}
       {toggleOpenSubtasks}
+      {openCardLink}
       {viewCols}
       {armNeededMouth}
       {kanbanCards}
@@ -1999,6 +2082,10 @@
       {resetPreviewWidth}
       {saveNotes}
       {saveTitle}
+      {addCardLink}
+      {removeCardLink}
+      {openCardLink}
+      {openUrl}
       {setAgent}
       {setDue}
       {setPlanet}

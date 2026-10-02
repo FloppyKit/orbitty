@@ -31,8 +31,13 @@ pub fn stop_resets(app: &tauri::AppHandle, before: &PersistedState, drops: &[Str
                 run.map(|r| r.agent_shortcut_id.as_str())
                     .filter(|s| !s.is_empty())
             });
+        let task_id = before
+            .kanban_cards
+            .iter()
+            .find(|c| c.id == *card_id)
+            .and_then(|c| c.task_id.as_deref());
         if let Some(sid) = shortcut_id {
-            terminal_stop(app, sid);
+            terminal_stop(app, sid, card_id, task_id);
         }
     }
     // LED heal is after the run row is dropped (attach_on_moves save).
@@ -54,14 +59,44 @@ pub(crate) fn herdr_stop(h: &AgentRunHerdr) {
     }
 }
 
-fn terminal_stop(app: &tauri::AppHandle, shortcut_id: &str) {
+/// End exactly this card's Terminal run. Launchers are per run now
+/// (`agent-<shortcut>-<task|card>.pid`); the task's recorded path wins,
+/// then the card-tagged path (no task), then the legacy shared
+/// `agent-<shortcut>.pid` for runs launched before per-run files.
+fn terminal_stop(app: &tauri::AppHandle, shortcut_id: &str, card_id: &str, task_id: Option<&str>) {
     let Ok(dir) = app.path().app_data_dir() else {
         return;
     };
-    let pidf = dir
-        .join("context")
-        .join(format!("agent-{}.pid", crate::coordinator::safe_id(shortcut_id)));
-    kill_pidfile(&pidf);
+    let ctx = dir.join("context");
+    let recorded = task_id.and_then(|t| crate::task::recorded_pid_file(app, t));
+    for pidf in stop_candidates(&ctx, shortcut_id, card_id, task_id, recorded) {
+        if pidf.is_file() {
+            kill_pidfile(&pidf);
+            return;
+        }
+    }
+}
+
+fn stop_candidates(
+    ctx: &Path,
+    shortcut_id: &str,
+    card_id: &str,
+    task_id: Option<&str>,
+    recorded: Option<std::path::PathBuf>,
+) -> Vec<std::path::PathBuf> {
+    let mut v = Vec::new();
+    // A task with a recorded per-run file is new-era: never fall back to
+    // the legacy shared file (it could belong to another run).
+    let legacy_ok = recorded.is_none();
+    v.extend(recorded);
+    if let Some(t) = task_id {
+        v.push(crate::coordinator::terminal_run_paths(ctx, shortcut_id, t).1);
+    }
+    v.push(crate::coordinator::terminal_run_paths(ctx, shortcut_id, card_id).1);
+    if legacy_ok {
+        v.push(ctx.join(format!("agent-{}.pid", crate::coordinator::safe_id(shortcut_id))));
+    }
+    v
 }
 
 fn kill_pidfile(pidf: &Path) {
@@ -98,6 +133,33 @@ mod tests {
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
+    }
+
+    #[test]
+    fn stop_prefers_this_runs_pid_file_then_legacy() {
+        let ctx = Path::new("/ctx");
+        // Recorded per-run file: no legacy shared fallback.
+        let v = stop_candidates(ctx, "s1", "c9", Some("t-7"), Some(ctx.join("rec.pid")));
+        assert_eq!(
+            v,
+            vec![
+                ctx.join("rec.pid"),
+                ctx.join("agent-s1-t-7.pid"),
+                ctx.join("agent-s1-c9.pid"),
+            ]
+        );
+        // Old task with no recorded file: legacy last.
+        let v = stop_candidates(ctx, "s1", "c9", Some("t-7"), None);
+        assert_eq!(
+            v,
+            vec![
+                ctx.join("agent-s1-t-7.pid"),
+                ctx.join("agent-s1-c9.pid"),
+                ctx.join("agent-s1.pid"),
+            ]
+        );
+        let v = stop_candidates(ctx, "s1", "c9", None, None);
+        assert_eq!(v, vec![ctx.join("agent-s1-c9.pid"), ctx.join("agent-s1.pid")]);
     }
 
     #[test]

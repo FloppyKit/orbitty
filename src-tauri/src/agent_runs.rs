@@ -2,6 +2,7 @@
 //! One row per card. A save must not strip a live Doing run.
 
 use serde_json::json;
+use tauri::Emitter;
 
 use crate::state::{AgentRun, KanbanCard, PersistedState};
 
@@ -100,6 +101,96 @@ fn stripped(before: &PersistedState, after: &PersistedState) -> Vec<AgentRun> {
         .collect()
 }
 
+/// Dock hack LED heal. A drop removes a row. `went_done` is a row this
+/// pass flipped to `done`. Window save runs `reconcile_incoming` first,
+/// so that flip is a no-op and `went_done` stays empty while the row is
+/// already `done` — the LED is still orphaned if nothing seated is
+/// working|starting|blocked. `dones` plus the current rows covers that
+/// pass. Mint-only and strip-heal-only passes leave both lists empty.
+fn needs_hack_heal(
+    drops: &[String],
+    dones: &[String],
+    went_done: &[(String, String)],
+    runs: &[AgentRun],
+) -> bool {
+    if !drops.is_empty() || !went_done.is_empty() {
+        return true;
+    }
+    dones
+        .iter()
+        .any(|id| runs.iter().any(|r| &r.card_id == id && r.state == "done"))
+}
+
+/// Row edits for one attach pass. No AppHandle — the save, the hack
+/// heal, and the event log stay in `attach_on_moves`.
+fn apply_run_edits<'a>(
+    cur: &mut PersistedState,
+    after_cards: &'a [KanbanCard],
+    mints: &[String],
+    dones: &[String],
+    drops: &[String],
+    heals: &[AgentRun],
+) -> (bool, Vec<&'a KanbanCard>, Vec<(String, String)>) {
+    let mut changed = false;
+    let mut attached: Vec<&KanbanCard> = Vec::new();
+    let mut went_done: Vec<(String, String)> = Vec::new();
+    for card_id in mints {
+        let Some(card) = after_cards.iter().find(|c| &c.id == card_id) else {
+            continue;
+        };
+        // Upsert — one row per card, never a second walker.
+        match cur.agent_runs.iter_mut().find(|r| &r.card_id == card_id) {
+            Some(r) => {
+                r.planet_id = card.project_id.clone();
+                r.agent_shortcut_id = card.assigned_agent_id.clone().unwrap_or_default();
+                r.state = "working".into();
+            }
+            None => cur.agent_runs.push(AgentRun {
+                card_id: card.id.clone(),
+                planet_id: card.project_id.clone(),
+                agent_shortcut_id: card.assigned_agent_id.clone().unwrap_or_default(),
+                state: "working".into(),
+                herdr: None,
+            }),
+        }
+        changed = true;
+        attached.push(card);
+    }
+    for card_id in dones {
+        if let Some(r) = cur.agent_runs.iter_mut().find(|r| &r.card_id == card_id) {
+            if r.state != "done" {
+                r.state = "done".into();
+                went_done.push((card_id.clone(), r.planet_id.clone()));
+                changed = true;
+            }
+        }
+    }
+    for card_id in drops {
+        let n = cur.agent_runs.len();
+        cur.agent_runs.retain(|r| &r.card_id != card_id);
+        changed |= cur.agent_runs.len() != n;
+    }
+    for row in heals {
+        // A mint this pass already rewrote the row — never twins.
+        if cur.agent_runs.iter().any(|r| r.card_id == row.card_id) {
+            continue;
+        }
+        let Some(card) = after_cards.iter().find(|c| c.id == row.card_id) else {
+            continue;
+        };
+        cur.agent_runs.push(AgentRun {
+            card_id: row.card_id.clone(),
+            planet_id: card.project_id.clone(),
+            agent_shortcut_id: card.assigned_agent_id.clone().unwrap_or_default(),
+            state: row.state.clone(),
+            herdr: row.herdr.clone(),
+        });
+        changed = true;
+        attached.push(card);
+    }
+    (changed, attached, went_done)
+}
+
 /// The wire: call with the disk-before snapshot and the just-saved state
 /// from each kanban-move door, AFTER doing-fire (its Needed mint saves
 /// again — this loads the post-fire state, and the heal re-carries any
@@ -118,81 +209,45 @@ pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &
         return;
     };
     let prev = cur.clone();
-    let mut changed = false;
     // Events collect through the mutation and fire only after the save
     // lands — `agent-run-attach` means the row is on disk, never before.
-    let mut attached: Vec<&KanbanCard> = Vec::new();
-    let mut went_done: Vec<(String, String)> = Vec::new();
-    for card_id in &mints {
-        let Some(card) = after.kanban_cards.iter().find(|c| &c.id == card_id) else {
-            continue;
-        };
-        // Upsert — one row per card, never a second walker.
-        match cur.agent_runs.iter_mut().find(|r| &r.card_id == card_id) {
-            Some(r) => {
-                r.planet_id = card.project_id.clone();
-                r.agent_shortcut_id =
-                    card.assigned_agent_id.clone().unwrap_or_default();
-                r.state = "working".into();
-            }
-            None => cur.agent_runs.push(AgentRun {
-                card_id: card.id.clone(),
-                planet_id: card.project_id.clone(),
-                agent_shortcut_id: card
-                    .assigned_agent_id
-                    .clone()
-                    .unwrap_or_default(),
-                state: "working".into(),
-                herdr: None,
-            }),
+    let (changed, attached, went_done) = apply_run_edits(
+        &mut cur,
+        &after.kanban_cards,
+        &mints,
+        &dones,
+        &drops,
+        &heals,
+    );
+    // Window save already stored `done` via reconcile_incoming, so
+    // `changed` is false and the old early return skipped the heal.
+    // Still clear an orphaned dock LED; do not write a second save.
+    let heal_hack = needs_hack_heal(&drops, &dones, &went_done, &cur.agent_runs);
+    if changed {
+        // The one save door — claims are untouched, so the diff is silent.
+        if crate::board::save_with_events(app, &prev, &cur).is_err() {
+            return;
         }
-        changed = true;
-        attached.push(card);
+    } else if !heal_hack {
+        return;
     }
-    for card_id in &dones {
-        if let Some(r) = cur.agent_runs.iter_mut().find(|r| &r.card_id == card_id) {
-            if r.state != "done" {
-                r.state = "done".into();
-                went_done.push((card_id.clone(), r.planet_id.clone()));
-                changed = true;
-            }
+    if heal_hack {
+        // Drops, window-save Done, and kanban_move all heal here.
+        // The heal writes the LED and emits nothing; the dock repaints
+        // only on state:changed, and only when the bit actually flips.
+        let before_live = crate::state::load_state(app)
+            .ok()
+            .map(|s| s.companion.hack_live);
+        crate::coordinator::heal_stuck_hack(app);
+        let after_live = crate::state::load_state(app)
+            .ok()
+            .map(|s| s.companion.hack_live);
+        if before_live != after_live {
+            let _ = app.emit("state:changed", ());
         }
-    }
-    for card_id in &drops {
-        let n = cur.agent_runs.len();
-        cur.agent_runs.retain(|r| &r.card_id != card_id);
-        changed |= cur.agent_runs.len() != n;
-    }
-    for row in &heals {
-        // A mint this pass already rewrote the row — never twins.
-        if cur.agent_runs.iter().any(|r| r.card_id == row.card_id) {
-            continue;
-        }
-        let Some(card) = after.kanban_cards.iter().find(|c| c.id == row.card_id) else {
-            continue;
-        };
-        cur.agent_runs.push(AgentRun {
-            card_id: row.card_id.clone(),
-            planet_id: card.project_id.clone(),
-            agent_shortcut_id: card
-                .assigned_agent_id
-                .clone()
-                .unwrap_or_default(),
-            state: row.state.clone(),
-            herdr: row.herdr.clone(),
-        });
-        changed = true;
-        attached.push(card);
     }
     if !changed {
         return;
-    }
-    // The one save door — claims are untouched, so the diff is silent.
-    if crate::board::save_with_events(app, &prev, &cur).is_err() {
-        return;
-    }
-    if !drops.is_empty() {
-        crate::coordinator::heal_stuck_hack(app);
     }
     for card in attached {
         crate::event_log::append_best(
@@ -255,6 +310,7 @@ mod tests {
             trackers: None,
             task_id: None,
             task_reason: None,
+            links: None,
         }
     }
 
@@ -368,5 +424,211 @@ mod tests {
         st.agent_runs = vec![run("c-1", "working")];
         reconcile_incoming(&mut st);
         assert!(st.agent_runs.is_empty());
+    }
+
+    #[test]
+    fn needs_hack_heal_truth_table() {
+        let went = vec![("c".to_string(), "p-1".to_string())];
+        // done-only: this pass flipped the row
+        assert!(needs_hack_heal(&[], &[], &went, &[]));
+        // done-only: reconcile_incoming already stored done, so went_done is empty
+        let mut already = run("c", "done");
+        already.agent_shortcut_id = "a-1".into();
+        assert!(needs_hack_heal(&[], &["c".to_string()], &[], &[already]));
+        // drop-only
+        assert!(needs_hack_heal(&["c".to_string()], &[], &[], &[]));
+
+        // mint-only: gated todo→doing, no drop and no done
+        let mut before = PersistedState::default();
+        before.kanban_cards = vec![card("c-m", "todo", "todo", "GO-ORBITTY-M", Some("a-1"))];
+        let mut after = before.clone();
+        after.kanban_cards[0].status = "doing".into();
+        let (mints, dones, drops) = transitions(&before, &after);
+        assert!(!mints.is_empty() && dones.is_empty() && drops.is_empty());
+        let mut cur = before.clone();
+        let (_, _, went_done) =
+            apply_run_edits(&mut cur, &after.kanban_cards, &mints, &dones, &drops, &[]);
+        assert!(went_done.is_empty());
+        assert!(!needs_hack_heal(&drops, &dones, &went_done, &cur.agent_runs));
+
+        // strip-heal-only: the card stays Doing, the dropped row is restored
+        let mut before = PersistedState::default();
+        before.kanban_cards = vec![card("c-h", "todo", "doing", "GO-ORBITTY-H", Some("a-1"))];
+        before.agent_runs = vec![seated("c-h", "working")];
+        let mut after = before.clone();
+        after.agent_runs.clear();
+        let (mints, dones, drops) = transitions(&before, &after);
+        let heals = stripped(&before, &after);
+        assert!(mints.is_empty() && dones.is_empty() && drops.is_empty() && !heals.is_empty());
+        let mut cur = after.clone();
+        let (_, _, went_done) = apply_run_edits(
+            &mut cur,
+            &after.kanban_cards,
+            &mints,
+            &dones,
+            &drops,
+            &heals,
+        );
+        assert!(went_done.is_empty());
+        assert!(cur.agent_runs.iter().any(is_seated_live));
+        assert!(!needs_hack_heal(&drops, &dones, &went_done, &cur.agent_runs));
+    }
+
+    /// Local copy of `coordinator::seated_live`. That function stays
+    /// private; coordinator.rs is outside this GO's fence.
+    fn is_seated_live(r: &AgentRun) -> bool {
+        let seated = !r.agent_shortcut_id.trim().is_empty()
+            || r.herdr
+                .as_ref()
+                .is_some_and(|h| !h.agent_name.trim().is_empty());
+        seated && matches!(r.state.as_str(), "working" | "starting" | "blocked")
+    }
+
+    fn seated(id: &str, state: &str) -> AgentRun {
+        let mut r = run(id, state);
+        r.agent_shortcut_id = format!("agent-{id}");
+        r
+    }
+
+    #[test]
+    fn done_leaves_no_seated_live_run() {
+        // Predicate pin: shortcut or herdr name, and working|starting|blocked.
+        assert!(is_seated_live(&seated("a", "working")));
+        assert!(is_seated_live(&seated("a", "starting")));
+        assert!(is_seated_live(&seated("a", "blocked")));
+        assert!(!is_seated_live(&seated("a", "done")));
+        assert!(!is_seated_live(&run("bare", "working")));
+        let mut herdr_row = run("h", "working");
+        herdr_row.herdr = Some(crate::state::AgentRunHerdr {
+            agent_name: "grok".into(),
+            ..Default::default()
+        });
+        assert!(is_seated_live(&herdr_row));
+
+        // Board move: disk row still working. The same edits attach applies.
+        let mut before = PersistedState::default();
+        before.kanban_cards = vec![card("A", "todo", "doing", "GO-ORBITTY-A", Some("agent-A"))];
+        before.agent_runs = vec![seated("A", "working")];
+        let mut after = before.clone();
+        after.kanban_cards[0].status = "done".into();
+        let (mints, dones, drops) = transitions(&before, &after);
+        let heals = stripped(&before, &after);
+        assert!(mints.is_empty() && drops.is_empty() && heals.is_empty());
+        assert_eq!(dones, vec!["A".to_string()]);
+        let mut cur = before.clone();
+        let (changed, _, went_done) = apply_run_edits(
+            &mut cur,
+            &after.kanban_cards,
+            &mints,
+            &dones,
+            &drops,
+            &heals,
+        );
+        assert!(changed);
+        assert_eq!(cur.agent_runs[0].state, "done");
+        assert!(cur.agent_runs.iter().all(|r| !is_seated_live(r)));
+        assert!(needs_hack_heal(&drops, &dones, &went_done, &cur.agent_runs));
+
+        // Window save: reconcile_incoming already stored done, so this
+        // pass flips nothing. The heal decision is still on.
+        let mut cur = before.clone();
+        cur.agent_runs[0].state = "done".into();
+        let (changed, _, went_done) = apply_run_edits(
+            &mut cur,
+            &after.kanban_cards,
+            &mints,
+            &dones,
+            &drops,
+            &heals,
+        );
+        assert!(!changed);
+        assert!(went_done.is_empty());
+        assert!(cur.agent_runs.iter().all(|r| !is_seated_live(r)));
+        assert!(needs_hack_heal(&drops, &dones, &went_done, &cur.agent_runs));
+
+        // A second seated run still working: heal would leave the LED on.
+        let mut before = PersistedState::default();
+        before.kanban_cards = vec![
+            card("A", "todo", "doing", "GO-ORBITTY-A", Some("agent-A")),
+            card("B", "todo", "doing", "GO-ORBITTY-B", Some("agent-B")),
+        ];
+        before.agent_runs = vec![seated("A", "working"), seated("B", "working")];
+        let mut after = before.clone();
+        after.kanban_cards[0].status = "done".into();
+        let (mints, dones, drops) = transitions(&before, &after);
+        let heals = stripped(&before, &after);
+        let mut cur = before.clone();
+        let (_, _, went_done) = apply_run_edits(
+            &mut cur,
+            &after.kanban_cards,
+            &mints,
+            &dones,
+            &drops,
+            &heals,
+        );
+        let live: Vec<_> = cur
+            .agent_runs
+            .iter()
+            .filter(|r| is_seated_live(r))
+            .collect();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].card_id, "B");
+        assert!(needs_hack_heal(&drops, &dones, &went_done, &cur.agent_runs));
+
+        // The call site, not only the helper: restoring `if !drops.is_empty()`
+        // around heal_stuck_hack is the orphan glow.
+        let src = include_str!("agent_runs.rs");
+        let start = src
+            .find("pub fn attach_on_moves(")
+            .expect("attach_on_moves");
+        let body = &src[start..];
+        assert!(body.contains("needs_hack_heal("));
+        let heal = body.find("heal_stuck_hack").expect("heal_stuck_hack");
+        let gate = body[..heal].rfind("if ").expect("heal gate");
+        let cond = &body[gate..heal];
+        assert!(
+            !cond.contains("drops.is_empty()"),
+            "drops-only heal trigger: {cond}"
+        );
+    }
+
+    /// Call-site pin from VERIFY_SEC_HACK_LED_1449894 N4.
+    /// M1/M2: window-save Done (`changed` false) still heals — the text
+    /// keeps `else if !heal_hack`, not a bare `else`.
+    /// M9: kanban_move heals on `if heal_hack {`, not `if heal_hack && !changed`.
+    /// M8: that gate is not `drops.is_empty()` or `drops.len()`.
+    #[test]
+    fn attach_call_site_pins_window_kanban_and_drops() {
+        let src = include_str!("agent_runs.rs");
+        let start = src
+            .find("pub fn attach_on_moves(")
+            .expect("attach_on_moves");
+        let body = &src[start..];
+        let from = body.find("let heal_hack").expect("let heal_hack");
+        let heal_rel = body[from..]
+            .find("heal_stuck_hack")
+            .expect("heal_stuck_hack");
+        let between = &body[from..from + heal_rel];
+        assert!(
+            between.contains("else if !heal_hack"),
+            "M1/M2 window-save Done heal: {between}"
+        );
+        assert!(
+            between.contains("if heal_hack {"),
+            "M9 kanban_move heal: {between}"
+        );
+        assert!(
+            !between.contains("drops.is_empty()") && !between.contains("drops.len()"),
+            "M8 drops check: {between}"
+        );
+        let after = &body[from + heal_rel..];
+        let emit = after
+            .find("\"state:changed\"")
+            .expect("state:changed after heal");
+        let next = after.find("if !changed").unwrap_or(usize::MAX);
+        assert!(
+            emit < next,
+            "dock repaint must follow heal_stuck_hack before the event-log return"
+        );
     }
 }

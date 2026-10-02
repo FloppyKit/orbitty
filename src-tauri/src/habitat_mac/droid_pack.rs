@@ -1,4 +1,4 @@
-//! 4-dir FF7 droid kits for agent walkers.
+//! 4-dir PSX-style droid kits for agent walkers.
 //!
 //! Three bodies (dog / penguin / octopus), four folders (e/s/w/n), four
 //! walk frames. Seed picks the body. Roam delta picks the folder. Dummy
@@ -85,27 +85,32 @@ pub(crate) fn ready(h: &Habitat) -> bool {
 }
 
 /// Pick e/s/w/n from a disc-space step. +x east, +y south (toward camera).
-/// Tiny steps and near-diagonals keep `prev` so the body doesn't flicker.
+///
+/// Diagonals face their horizontal travel (E/W by the sign of dx), the
+/// same side the window walkers' `facing_left` mirror uses. The old
+/// band kept `prev` on any near-diagonal, so a droid that last walked
+/// west and then went north-east kept its west sheet — walking
+/// backwards. Hysteresis instead of a hold: once horizontal, a step must
+/// be clearly vertical (ay ≥ 1.4·ax) to turn N/S; from N/S it turns
+/// horizontal below 1.15. Tiny steps keep `prev`.
 pub(crate) fn dir_from_delta(dx: f64, dy: f64, prev: u8) -> u8 {
     if dx * dx + dy * dy < 0.002 * 0.002 {
         return prev;
     }
     let ax = dx.abs();
     let ay = dy.abs();
-    if ax >= ay * 1.15 {
-        if dx < 0.0 {
-            DIR_W
-        } else {
-            DIR_E
-        }
-    } else if ay >= ax * 1.15 {
+    let was_horizontal = prev == DIR_E || prev == DIR_W;
+    let vertical_gate = if was_horizontal { 1.4 } else { 1.15 };
+    if ay >= ax * vertical_gate {
         if dy > 0.0 {
             DIR_S
         } else {
             DIR_N
         }
+    } else if dx < 0.0 {
+        DIR_W
     } else {
-        prev
+        DIR_E
     }
 }
 
@@ -150,6 +155,51 @@ mod tests {
         assert_eq!(dir_from_delta(-1.0, 0.0, 0), DIR_W);
         assert_eq!(dir_from_delta(0.0, 1.0, 0), DIR_S);
         assert_eq!(dir_from_delta(0.0, -1.0, 0), DIR_N);
+    }
+
+    /// All 8 compass steps, from every previous facing: cardinals are
+    /// cardinal, diagonals face their horizontal travel — never the
+    /// opposite side (the backwards penguin).
+    #[test]
+    fn eight_directions_from_any_prev() {
+        let d = std::f64::consts::FRAC_1_SQRT_2;
+        let cases: [((f64, f64), u8); 8] = [
+            ((1.0, 0.0), DIR_E),
+            ((d, d), DIR_E),   // SE
+            ((0.0, 1.0), DIR_S),
+            ((-d, d), DIR_W),  // SW
+            ((-1.0, 0.0), DIR_W),
+            ((-d, -d), DIR_W), // NW
+            ((0.0, -1.0), DIR_N),
+            ((d, -d), DIR_E),  // NE
+        ];
+        for prev in [DIR_E, DIR_S, DIR_W, DIR_N] {
+            for ((dx, dy), want) in cases {
+                assert_eq!(
+                    dir_from_delta(dx, dy, prev),
+                    want,
+                    "step ({dx:.2},{dy:.2}) prev {prev}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn diagonal_never_faces_away_from_travel() {
+        // The reported bug: last walked west, now heading north-east.
+        assert_eq!(dir_from_delta(0.7, -0.7, DIR_W), DIR_E);
+        assert_eq!(dir_from_delta(-0.7, 0.72, DIR_E), DIR_W);
+    }
+
+    #[test]
+    fn hysteresis_between_horizontal_and_vertical() {
+        // ay/ax = 1.25 sits between the gates: a vertical walker stays
+        // vertical (≥ 1.15), a horizontal one stays horizontal (< 1.4).
+        assert_eq!(dir_from_delta(0.4, 0.5, DIR_S), DIR_S);
+        assert_eq!(dir_from_delta(0.4, 0.5, DIR_E), DIR_E);
+        // Clearly vertical turns a horizontal walker.
+        assert_eq!(dir_from_delta(0.3, 0.6, DIR_E), DIR_S);
+        assert_eq!(dir_from_delta(-0.3, -0.6, DIR_W), DIR_N);
     }
 
     #[test]

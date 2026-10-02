@@ -160,7 +160,7 @@
   // glbFailed is the session fail-soft latch — a 3D miss reverts to the
   // spirit (persisted) instead of leaving a black stage.
   let glbFailed = $state(false);
-  const is3D = $derived(bodyId === "tang" || bodyId === "female");
+  const is3D = $derived(bodyId === "female");
 
   let expanded = $state(false);
   let turns = $state<CompanionTurn[]>([]);
@@ -1135,7 +1135,7 @@
   // fallback under Companion3D (and what a 3D failure lands on).
   async function loadArt() {
     const packId =
-      bodyId === "spirit" || bodyId === "tang" || bodyId === "female"
+      bodyId === "spirit" || bodyId === "female"
         ? null
         : bodyId;
     try {
@@ -1618,6 +1618,9 @@
     ready={captionReady}
     onSpeakError={onCaptionSpeakError}
     onOverlayChange={onCaptionOverlayChange}
+    onHandoffReply={(reply) => {
+      botLine = reply;
+    }}
   />
 {/snippet}
 

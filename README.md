@@ -2,7 +2,7 @@
 
 Mac habitat for **what is actually running**. A window becomes a sprite only after you claim it onto a project planet. Unclaimed work is nothing — the rail may list it; the desk stays empty.
 
-Identifier `space.orbitty.mac`. MIT. Not an EHR: titles and metadata only, never PHI.
+Identifier `space.orbitty.mac`. Apache-2.0. Not an EHR: titles and metadata only, never PHI.
 
 ## The loop
 
