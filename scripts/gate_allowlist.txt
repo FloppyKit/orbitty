@@ -4,6 +4,8 @@
 # (case-insensitive, like the scan). Line numbers are not part of the match.
 # A reason containing TEMP must be removed once its line is gone: a stale TEMP entry fails the gate.
 # Other entries that match nothing only print a note (they may cover another branch's lines).
+# A reason may contain max=N (a positive integer). That entry may cover at most N hits;
+# one more fails the gate. Raising N is a deliberate, reviewable change. No max= means uncapped.
 src-tauri/src/bin/orbitty_mcp.rs	                    "description": "Optional file:// or https:// links. A bare /Users/… path is stored as a file URL.",	# help text: a bare /Users/ path
 src-tauri/src/bin/orbitty_mcp.rs	                "add": { "type": "string", "description": "URL to add (file://, https://, or a bare /Users/… path). Pass exactly one of add, rm, clear." },	# help text: a bare /Users/ path
 src-tauri/src/bin/orbittyctl.rs	(max 8). Only file:// and https:// are accepted; a bare /Users/… path	# help text: a bare /Users/ path
@@ -27,9 +29,9 @@ src-tauri/src/windows_mac.rs	/// `file:///Users/…` (or `file://localhost/…`)
 src/lib/NeededRuleRow.svelte	  // rule while answering a Needed. Lock: ~/.buzz/PLANS/ORBITTY_NEEDED_RULES_LOCK_v0.md	# comment naming a lock doc under ~/.buzz/PLANS
 src/lib/mdLite.ts	// file://, https://, and bare /Users/… paths become <a data-link> spans	# comment about file URLs
 src/lib/mdLite.ts	// Already-escaped text. Only file:///…, https://…, and bare /Users/….	# comment about file URLs
-src-tauri/src/plans.rs	.buzz	# file-wide: .buzz refusal guards + tests (GO-STANDARD r4/r5)
-src-tauri/src/thin.rs	.buzz	# file-wide: THIN .buzz refusal guard + tests (MH-ARCHIVE)
-src-tauri/src/actions.rs	.buzz	# file-wide: THIN door guard tests (MH-ARCHIVE)
+src-tauri/src/plans.rs	.buzz	# max=101 file-wide: .buzz refusal guards + tests (GO-STANDARD r4/r5)
+src-tauri/src/thin.rs	.buzz	# max=37 file-wide: THIN .buzz refusal guard + tests (MH-ARCHIVE)
+src-tauri/src/actions.rs	.buzz	# max=6 file-wide: THIN door guard tests (MH-ARCHIVE)
 src-tauri/src/card_links.rs	            normalize_link("file:///Users/dude/Orbitty%20GOs/x.md").unwrap(),	# link tests as rustfmt splits them (LINK-OPEN-SAFE stack)
 src-tauri/src/card_links.rs	            normalize_link("file://Users/dude/Orbitty GOs/x.md").unwrap(),	# link tests as rustfmt splits them (LINK-OPEN-SAFE stack)
 src-tauri/src/card_links.rs	            normalize_link("FILE://Users/dude/Orbitty%20GOs/x.md").unwrap(),	# link tests as rustfmt splits them (LINK-OPEN-SAFE stack)
