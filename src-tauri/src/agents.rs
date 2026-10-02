@@ -5,8 +5,8 @@ use serde_json::{json, Value};
 
 use crate::state::{AgentShortcut, PersistedState};
 
-/// The four named harness doors in `coordinator::launch_agent`.
-pub const HARNESSES: [&str; 4] = ["cursor", "goose", "grok", "hermes"];
+/// Named harness doors in `coordinator::launch_agent`.
+pub const HARNESSES: [&str; 5] = ["cursor", "goose", "grok", "hermes", "pi"];
 
 /// Lowercase + allowlist. Unknown = honest error — never a fall-through.
 fn normalize_harness(raw: &str) -> Result<String, String> {
@@ -15,7 +15,8 @@ fn normalize_harness(raw: &str) -> Result<String, String> {
         Ok(h)
     } else {
         Err(format!(
-            "unknown harness {raw:?} — cursor | goose | grok | hermes"
+            "unknown harness {raw:?} — {}",
+            HARNESSES.join(" | ")
         ))
     }
 }
@@ -316,7 +317,7 @@ pub fn agent_pickup(
         .find(|p| p.id == card.project_id)
         .map(|p| p.name.clone());
     // light the dock BEFORE
-    // the harness is up — every harness (cursor | goose | grok | hermes),
+    // the harness is up — every harness (cursor | goose | grok | hermes | pi),
     // the same door as cursor-go. The pinned planet rides along so the
     // dest/planet menus glow it while the run is live. Off lands with the
     // harness exit (the launcher's own hook — coordinator's doors); a
@@ -359,4 +360,15 @@ pub fn agent_pickup(
         "harness": agent.harness,
         "launch": launch,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_harness;
+
+    #[test]
+    fn pi_is_a_named_door() {
+        assert_eq!(normalize_harness("Pi").unwrap(), "pi");
+        assert!(normalize_harness("claude").is_err());
+    }
 }

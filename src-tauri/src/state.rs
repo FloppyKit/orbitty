@@ -769,7 +769,7 @@ pub struct ActionShortcut {
 pub struct AgentShortcut {
     pub id: String,
     pub name: String,
-    /// "cursor" | "goose" | "grok" | "hermes" — per row, picked on
+    /// "cursor" | "goose" | "grok" | "hermes" | "pi" — per row, picked on
     /// `agent add` (never a product-wide default).
     pub harness: String,
     pub profile: String,

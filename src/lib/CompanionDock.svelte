@@ -39,6 +39,7 @@
     goose: "Goose",
     grok: "Grok",
     hermes: "Hermes",
+    pi: "Pi",
     spark: "Spark mouth",
   };
 

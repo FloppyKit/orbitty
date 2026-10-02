@@ -2987,10 +2987,40 @@ fn open_agent_terminal(query: &Path, exec_line: &str) -> Result<(), String> {
     }
 }
 
+/// Where a Pi session should start. A planet workspace wins. The orbitty
+/// planet keeps that field empty on purpose, and its code is ~/orbitty.
+fn pi_workdir(
+    app: &tauri::AppHandle,
+    shortcut: &crate::state::AgentShortcut,
+    project_name: Option<&str>,
+) -> Option<String> {
+    if let Some(pid) = shortcut.project_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Ok(st) = crate::state::load_state(app) {
+            if let Some(root) = st
+                .projects
+                .iter()
+                .find(|p| p.id == pid)
+                .and_then(|p| p.workspace_root.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                return Some(root.to_string());
+            }
+        }
+    }
+    if project_name
+        .map(|n| n.eq_ignore_ascii_case("orbitty"))
+        .unwrap_or(false)
+    {
+        return std::env::var("HOME").ok().map(|h| format!("{h}/orbitty"));
+    }
+    None
+}
+
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
 /// writes the query file and hands off — it never runs the model.
 /// The harness is per row (cursor | goose | grok
-/// | hermes) with a named door each — an unknown harness is an honest
+/// | hermes | pi) with a named door each — an unknown harness is an honest
 /// error, never a silent hermes dump. Each door also owns the dock LED
 /// off for the run it launched (pickup lit it): the Terminal `.command`
 /// traps EXIT, the hermes door waits on the child.
@@ -3143,6 +3173,41 @@ pub fn launch_agent(
                 )),
             }
         }
+        // Pi door: same visible Terminal handoff as cursor. The query
+        // file is the first message. A model on the row is optional;
+        // otherwise Pi uses its own default.
+        "pi" => {
+            let Some(bin) = find_on_path("pi") else {
+                return Err(
+                    "`pi` not on PATH — install from https://pi.dev/install.sh or pick another harness."
+                        .to_string(),
+                );
+            };
+            let model_arg = shortcut
+                .model
+                .as_deref()
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+                .map(|m| format!(" --model {}", sh_quote(m)))
+                .unwrap_or_default();
+            let cd = match pi_workdir(&app, &shortcut, project_name.as_deref()) {
+                Some(dir) if std::path::Path::new(&dir).is_dir() => {
+                    format!("cd {} || exit 1\n", sh_quote(&dir))
+                }
+                _ => String::new(),
+            };
+            open_agent_terminal(
+                &query,
+                &format!(
+                    "{cd}{}{model_arg} -- \"$prompt\"",
+                    sh_quote(&bin.display().to_string())
+                ),
+            )?;
+            Ok(format!(
+                "Opened pi in Terminal. Query: {}.{skip_note}",
+                query.display()
+            ))
+        }
         // Opencode is a herdr kind, detect-only
         // — legal with `opencode` on PATH, never prompt-installed, never
         // `opencode serve`d as the mouth. No Terminal door exists for it,
@@ -3157,7 +3222,7 @@ pub fn launch_agent(
             ),
         },
         other => Err(format!(
-            "unknown harness {other:?} — cursor | goose | grok | hermes (set per agent row; never a silent hermes)"
+            "unknown harness {other:?} — cursor | goose | grok | hermes | pi (set per agent row; never a silent hermes)"
         )),
     }
     })();

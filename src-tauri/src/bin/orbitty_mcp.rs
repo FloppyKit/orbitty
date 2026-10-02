@@ -85,7 +85,7 @@ const TOOLS: &[ToolDef] = &[
     // (full / named custom only). The harness is per row, required on
     // add — unknown harness errors honestly, never a silent hermes.
     ToolDef { name: "agent.list", description: "List agent rows (id, name, harness, profile, model, md paths, extra, pinned planet)", args: "none" },
-    ToolDef { name: "agent.add", description: "Mint an agent row: name + harness (cursor|goose|grok|hermes, required) with optional profile / model / mdPaths / extra / projectId pin", args: "agent_add" },
+    ToolDef { name: "agent.add", description: "Mint an agent row: name + harness (cursor|goose|grok|hermes|pi, required) with optional profile / model / mdPaths / extra / projectId pin", args: "agent_add" },
     ToolDef { name: "agent.rm", description: "Remove an agent row by id; cards keep their assignedAgentId (project.rm law)", args: "id" },
     ToolDef { name: "agent.pin", description: "Pin an agent row to a planet (project id or unique planet name)", args: "agent_pin" },
     ToolDef { name: "agent.pickup", description: "Pick the oldest assigned open Todo (the row's planet when pinned), move it doing, and launch the row's harness with the card title; no match = honest empty, no spawn", args: "agent_pickup" },
@@ -241,7 +241,7 @@ fn input_schema(kind: &str) -> Value {
                 "name": { "type": "string", "description": "Agent name (empty refused)" },
                 "harness": {
                     "type": "string",
-                    "enum": ["cursor", "goose", "grok", "hermes"],
+                    "enum": ["cursor", "goose", "grok", "hermes", "pi"],
                     "description": "Launch door on the row — required, never a product default"
                 },
                 "profile": { "type": "string", "description": "Harness profile (session tweak on the row)" },

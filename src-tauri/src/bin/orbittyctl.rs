@@ -41,7 +41,7 @@ commands:
   kanban notes --id <card> -- \"text\"      empty \"\" clears
   kanban assign --id <card> --agent <agent>   empty --agent \"\" unassigns
   agent list
-  agent add --name N --harness cursor|goose|grok|hermes [--profile P]
+  agent add --name N --harness cursor|goose|grok|hermes|pi [--profile P]
             [--model M] [--md PATH]... [--extra TEXT] [--project P]
   agent rm --id <id>
   agent pin --id <id> --project P
@@ -124,7 +124,7 @@ Combos register globally on persist; reserved (cmd+shift+o, cmd+space) or
 taken chords show [conflict] in action list.
 
 agent add mints a row (--harness required —
-cursor|goose|grok|hermes, never a silent default), agent pin sets its
+cursor|goose|grok|hermes|pi, never a silent default), agent pin sets its
 planet, kanban assign writes the card's assignedAgentId (empty --agent
 unassigns), and agent pickup moves the oldest assigned todo to doing and
 launches the row's harness with that title (every harness lights the dock
@@ -662,10 +662,10 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["agent", "add"] => {
             let h = need_flag(&o.harness, "--harness")?.to_ascii_lowercase();
             match h.as_str() {
-                "cursor" | "goose" | "grok" | "hermes" => {}
+                "cursor" | "goose" | "grok" | "hermes" | "pi" => {}
                 other => {
                     return Err(format!(
-                        "unknown harness {other:?} — cursor | goose | grok | hermes"
+                        "unknown harness {other:?} — cursor | goose | grok | hermes | pi"
                     ))
                 }
             }
