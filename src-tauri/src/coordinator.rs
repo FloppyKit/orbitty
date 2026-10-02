@@ -3528,36 +3528,6 @@ fn open_agent_terminal(
     }
 }
 
-/// Where a Pi session should start. A planet workspace wins. The orbitty
-/// planet keeps that field empty on purpose, and its code is ~/orbitty.
-fn pi_workdir(
-    app: &tauri::AppHandle,
-    shortcut: &crate::state::AgentShortcut,
-    project_name: Option<&str>,
-) -> Option<String> {
-    if let Some(pid) = shortcut.project_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        if let Ok(st) = crate::state::load_state(app) {
-            if let Some(root) = st
-                .projects
-                .iter()
-                .find(|p| p.id == pid)
-                .and_then(|p| p.workspace_root.as_deref())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-            {
-                return Some(root.to_string());
-            }
-        }
-    }
-    if project_name
-        .map(|n| n.eq_ignore_ascii_case("orbitty"))
-        .unwrap_or(false)
-    {
-        return std::env::var("HOME").ok().map(|h| format!("{h}/orbitty"));
-    }
-    None
-}
-
 /// A row value failed launch validation: log it, and hand back the
 /// human-facing error (the launch is refused; nothing ran).
 fn launch_refused(app: &tauri::AppHandle, planet: Option<&str>, harness: &str, why: &str) -> String {
@@ -3862,28 +3832,35 @@ pub fn launch_agent(
                         .to_string(),
                 );
             };
-            let model_arg = shortcut
+            let model_arg = match shortcut
                 .model
                 .as_deref()
                 .map(str::trim)
                 .filter(|m| !m.is_empty())
-                .map(|m| format!(" --model {}", sh_quote(m)))
-                .unwrap_or_default();
-            let cd = match pi_workdir(&app, &shortcut, project_name.as_deref()) {
-                Some(dir) if std::path::Path::new(&dir).is_dir() => {
-                    format!("cd {} || exit 1\n", sh_quote(&dir))
+            {
+                Some(m) => {
+                    crate::agents::validate_model(m)
+                        .map_err(|why| launch_refused(&app, planet_for_log, "pi", &why))?;
+                    format!(" --model {}", crate::coordinator::sq(m))
                 }
-                _ => String::new(),
+                None => String::new(),
             };
-            open_agent_terminal(
+            let exec = format!(
+                "{}{model_arg} -- \"$prompt\"",
+                crate::coordinator::sq(&bin.display().to_string())
+            );
+            let opened = open_agent_terminal(
+                &app,
                 &query,
-                &format!(
-                    "{cd}{}{model_arg} -- \"$prompt\"",
-                    sh_quote(&bin.display().to_string())
-                ),
+                &terminal_script,
+                &terminal_pid_file,
+                &exec,
+                Some(workspace.as_str()),
+                planet_for_log,
             )?;
+            hint.pid_file = Some(terminal_pid_file.clone());
             Ok(format!(
-                "Opened pi in Terminal. Query: {}.{skip_note}",
+                "Opened pi in {opened}. Query: {}.{skip_note}",
                 query.display()
             ))
         }
