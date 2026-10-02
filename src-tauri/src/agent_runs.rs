@@ -191,6 +191,12 @@ fn apply_run_edits<'a>(
     (changed, attached, went_done)
 }
 
+/// True when heal changed the dock LED bit. `None` is a failed load, so
+/// a missing side counts as a flip.
+fn hack_flipped(before: Option<bool>, after: Option<bool>) -> bool {
+    before != after
+}
+
 /// The wire: call with the disk-before snapshot and the just-saved state
 /// from each kanban-move door, AFTER doing-fire (its Needed mint saves
 /// again — this loads the post-fire state, and the heal re-carries any
@@ -242,7 +248,7 @@ pub fn attach_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &
         let after_live = crate::state::load_state(app)
             .ok()
             .map(|s| s.companion.hack_live);
-        if before_live != after_live {
+        if hack_flipped(before_live, after_live) {
             let _ = app.emit("state:changed", ());
         }
     }
@@ -630,5 +636,129 @@ mod tests {
             emit < next,
             "dock repaint must follow heal_stuck_hack before the event-log return"
         );
+    }
+
+    /// T10. The LED flip is inequality, including a missing load.
+    #[test]
+    fn hack_flipped_is_inequality() {
+        assert!(hack_flipped(Some(true), Some(false)));
+        assert!(hack_flipped(Some(false), Some(true)));
+        assert!(!hack_flipped(Some(true), Some(true)));
+        assert!(!hack_flipped(Some(false), Some(false)));
+        assert!(!hack_flipped(None, None));
+        assert!(hack_flipped(None, Some(true)));
+        assert!(hack_flipped(None, Some(false)));
+        assert!(hack_flipped(Some(false), None));
+    }
+
+    fn strip_rust_comments(src: &str) -> String {
+        let chars: Vec<char> = src.chars().collect();
+        let mut out = String::new();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '"' {
+                out.push('"');
+                i += 1;
+                while i < chars.len() {
+                    let c = chars[i];
+                    out.push(c);
+                    i += 1;
+                    if c == '\\' && i < chars.len() {
+                        out.push(chars[i]);
+                        i += 1;
+                        continue;
+                    }
+                    if c == '"' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
+                i += 2;
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                if i + 1 < chars.len() {
+                    i += 2;
+                }
+                continue;
+            }
+            out.push(chars[i]);
+            i += 1;
+        }
+        out
+    }
+
+    /// T11. Comment-stripped order of the heal emit. E1b / E2' / E4 fail this.
+    #[test]
+    fn attach_on_moves_pins_hack_emit_order() {
+        let src = include_str!("agent_runs.rs");
+        let start = src
+            .find("pub fn attach_on_moves(")
+            .expect("attach_on_moves");
+        let body = &src[start..];
+        let end = body.find("\n#[cfg(test)]").unwrap_or(body.len());
+        let stripped = strip_rust_comments(&body[..end]);
+        let before = stripped.find("let before_live").expect("let before_live");
+        let heal = stripped
+            .find("heal_stuck_hack(app)")
+            .expect("heal_stuck_hack(app)");
+        let after = stripped.find("let after_live").expect("let after_live");
+        let guard = "if hack_flipped(before_live, after_live) {";
+        let flipped = stripped.find(guard).expect(guard);
+        let emit = stripped
+            .find("app.emit(\"state:changed\"")
+            .expect("app.emit state:changed");
+        let ret = stripped.find("if !changed").expect("if !changed");
+        assert!(before < heal, "before-snapshot must precede the heal");
+        assert!(heal < after, "heal must precede the after-snapshot");
+        assert!(after < flipped, "after-snapshot must precede the flip guard");
+        assert!(flipped < emit, "flip guard must precede the emit");
+        assert!(emit < ret, "emit must precede if !changed");
+
+        // Golden copy of the heal gate. Substring pins miss an extra else,
+        // a nested `if changed` around the heal, a shadowed after_live, and
+        // an emit wrapped in `if false`.
+        const GOLDEN: &str = "let heal_hack = needs_hack_heal(&drops, &dones, &went_done, &cur.agent_runs); if changed { if crate::board::save_with_events(app, &prev, &cur).is_err() { return; } } else if !heal_hack { return; } if heal_hack { let before_live = crate::state::load_state(app) .ok() .map(|s| s.companion.hack_live); crate::coordinator::heal_stuck_hack(app); let after_live = crate::state::load_state(app) .ok() .map(|s| s.companion.hack_live); if hack_flipped(before_live, after_live) { let _ = app.emit(\"state:changed\", ()); }";
+        assert_eq!(collapsed_heal_gate(&stripped), GOLDEN);
+    }
+
+    /// Comment-stripped span from `let heal_hack` through the closing `}`
+    /// of `if hack_flipped`, whitespace collapsed.
+    fn collapsed_heal_gate(stripped_fn: &str) -> String {
+        let start = stripped_fn.find("let heal_hack").expect("let heal_hack");
+        let guard = "if hack_flipped(before_live, after_live) {";
+        let guard_at = stripped_fn[start..]
+            .find(guard)
+            .expect(guard)
+            + start;
+        let mut depth = 0i32;
+        let mut end = None;
+        for (i, c) in stripped_fn[guard_at..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(guard_at + i + c.len_utf8());
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let end = end.expect("hack_flipped close");
+        stripped_fn[start..end]
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }

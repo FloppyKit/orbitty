@@ -6,7 +6,12 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
+
+/// Client name from the first `initialize`. Each MCP client spawns its
+/// own orbitty-mcp process, so the pid separates two sessions.
+static MCP_CLIENT_NAME: OnceLock<String> = OnceLock::new();
 
 const PROTOCOL: &str = "2024-11-05";
 const SERVER_NAME: &str = "orbitty";
@@ -84,8 +89,8 @@ const TOOLS: &[ToolDef] = &[
     // (projectId, windowId). Forward-only; claim.* stays write-class.
     ToolDef { name: "claim.front", description: "Claim the frontmost non-Orbitty window to the last-used planet (undo within ~3s with claim.undo)", args: "none" },
     ToolDef { name: "claim.to", description: "Claim the frontmost non-Orbitty window to a planet by project id", args: "claim_project" },
-    ToolDef { name: "claim.change", description: "Retarget the pending (just-made) claim to another planet", args: "claim_project" },
-    ToolDef { name: "claim.undo", description: "Undo the last claim (~3s window)", args: "none" },
+    ToolDef { name: "claim.change", description: "Retarget your own pending claim (~3 s window) to another planet", args: "claim_project" },
+    ToolDef { name: "claim.undo", description: "Undo your own pending claim (~3 s): reverses only that window's claim, never other changes; tray/app claims can't be undone over MCP", args: "none" },
     ToolDef { name: "claim.unclaim", description: "Drop a claim by window id (Layer-0 cleanup)", args: "claim_window" },
     // The action recipe file. list is read-safe;
     // add / run ride the companion profile (Spark mints + runs named
@@ -564,6 +569,36 @@ fn token(sock: &std::path::Path) -> Option<String> {
     })
 }
 
+fn client_name_from(msg: &Value) -> String {
+    msg.pointer("/params/clientInfo/name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn remember_client_name(msg: &Value) {
+    let _ = MCP_CLIENT_NAME.set(client_name_from(msg));
+}
+
+fn mcp_caller() -> String {
+    let name = MCP_CLIENT_NAME.get().map(String::as_str).unwrap_or("unknown");
+    format!("mcp:{name}:{}", std::process::id())
+}
+
+/// Control-socket body. `caller` is top-level so it cannot be set from
+/// tool arguments. `args` is forwarded unchanged.
+fn control_request(tool: &str, args: Value) -> Value {
+    json!({
+        "v": 1,
+        "id": "1",
+        "tool": tool,
+        "args": args,
+        "caller": mcp_caller(),
+    })
+}
+
 /// One request → one reply on the Unix control socket.
 fn unix_call(tool: &str, args: Value) -> Result<Value, String> {
     let sock = sock_path();
@@ -582,7 +617,7 @@ fn unix_call(tool: &str, args: Value) -> Result<Value, String> {
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(360)));
 
-    let mut req = json!({ "v": 1, "id": "1", "tool": tool, "args": args });
+    let mut req = control_request(tool, args);
     if let Some(t) = token(&sock) {
         req["token"] = Value::String(t);
     }
@@ -642,6 +677,7 @@ fn dispatch(msg: &Value) -> Option<Value> {
 
     match method {
         "initialize" => {
+            remember_client_name(msg);
             let client_ver = msg
                 .pointer("/params/protocolVersion")
                 .and_then(|v| v.as_str())
@@ -932,6 +968,36 @@ mod tests {
         });
         let reply = dispatch(&msg).expect("reply");
         assert_eq!(reply["error"]["code"], -32602);
+    }
+
+    /// T9. caller is top-level on the forwarded request. args pass through.
+    #[test]
+    fn forwarded_request_pins_top_level_caller() {
+        let init = json!({
+            "params": { "clientInfo": { "name": "  cursor  " } }
+        });
+        assert_eq!(client_name_from(&init), "cursor");
+        let blank = json!({ "params": { "clientInfo": { "name": "   " } } });
+        assert_eq!(client_name_from(&blank), "unknown");
+
+        let args = json!({ "projectId": "planet-a", "caller": "not-me" });
+        let req = control_request("claim.to", args);
+        let caller = req["caller"].as_str().expect("top-level caller");
+        assert!(caller.starts_with("mcp:"), "{caller}");
+        let pid = caller.rsplit(':').next().unwrap();
+        assert!(pid.chars().all(|c| c.is_ascii_digit()), "{caller}");
+        assert_eq!(req["args"]["caller"], "not-me");
+        assert_eq!(req["args"]["projectId"], "planet-a");
+        assert_eq!(req["tool"], "claim.to");
+        assert_ne!(req["caller"], "not-me");
+        assert!(tool("claim.undo")["description"]
+            .as_str()
+            .unwrap()
+            .contains("your own pending claim"));
+        assert!(tool("claim.change")["description"]
+            .as_str()
+            .unwrap()
+            .contains("~3 s"));
     }
 }
 
