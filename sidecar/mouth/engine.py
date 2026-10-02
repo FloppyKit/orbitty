@@ -1,12 +1,15 @@
 """Harsha-style constrained classify for Orbitty Quick ack.
 
 Not a chat model. Prefill once, slice logits over a closed verb set
-(and a closed ack set). Weights stay on MiniHangar. Apache-2.0 idea:
-harshatheg parallel constrained decode (logit slice, not JSON-mode).
+(and a closed ack set). Weights come from ORBITTY_MOUTH_WEIGHTS or
+~/.config/orbitty/mouth-sidecar.json — never a path baked into this
+file. Apache-2.0 idea: harshatheg parallel constrained decode
+(logit slice, not JSON-mode).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Any
@@ -25,8 +28,9 @@ ACK_BY_VERB = {
 ACK_ROOM_MS = 80.0
 SWAP_IN_MS = 200.0
 
-DEFAULT_WEIGHTS = os.path.expanduser(
-    "/Volumes/MiniHangar/models/orbitty-mouth/mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+_NO_WEIGHTS = (
+    "no weights configured (set ORBITTY_MOUTH_WEIGHTS or "
+    "weights in ~/.config/orbitty/mouth-sidecar.json)"
 )
 
 _model = None
@@ -35,8 +39,36 @@ _mx = None
 _load_err: str | None = None
 
 
-def weights_path() -> str:
-    return os.environ.get("ORBITTY_MOUTH_WEIGHTS", DEFAULT_WEIGHTS).strip() or DEFAULT_WEIGHTS
+def _config_path() -> str | None:
+    home = os.environ.get("HOME", "").strip()
+    if not home:
+        return None
+    return os.path.join(home, ".config", "orbitty", "mouth-sidecar.json")
+
+
+def _weights_from_config() -> str | None:
+    path = _config_path()
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    weights = data.get("weights")
+    if not isinstance(weights, str):
+        return None
+    weights = weights.strip()
+    return os.path.expanduser(weights) or None
+
+
+def weights_path() -> str | None:
+    env = os.environ.get("ORBITTY_MOUTH_WEIGHTS", "").strip()
+    if env:
+        return env
+    return _weights_from_config()
 
 
 def ready() -> bool:
@@ -52,6 +84,9 @@ def load_model() -> None:
     if _model is not None:
         return
     path = weights_path()
+    if not path:
+        _load_err = _NO_WEIGHTS
+        return
     if not os.path.isdir(path):
         _load_err = f"weights missing: {path}"
         return

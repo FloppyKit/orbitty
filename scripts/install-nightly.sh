@@ -23,10 +23,11 @@ fi
 APP_NAME="Orbitty Nightly.app"
 SRC="src-tauri/target/release/bundle/macos/Orbitty.app"
 DEST="$HOME/Applications/$APP_NAME"
-IDENTITY="Orbitty Local Codesign"
 BUNDLE_ID="space.orbitty.mac.nightly"
 STABLE_SUPPORT="$HOME/Library/Application Support/space.orbitty.mac"
 NIGHTLY_SUPPORT="$HOME/Library/Application Support/$BUNDLE_ID"
+source "$PWD/scripts/install_lib.sh"
+IDENTITY="$(resolve_sign_identity)"
 
 IDS="$(security find-identity -v -p codesigning)" || true
 if ! grep -q "$IDENTITY" <<< "$IDS"; then
@@ -34,6 +35,12 @@ if ! grep -q "$IDENTITY" <<< "$IDS"; then
   exit 1
 fi
 
+echo "==> Cleaning build-tree bundle"
+clean_build_bundle "$PWD"
+echo "==> Building orbittyctl (before tauri build)"
+(cd src-tauri && cargo build --release --bin orbittyctl)
+echo "==> Building orbitty-mcp (before tauri build)"
+(cd src-tauri && cargo build --release --bin orbitty-mcp)
 echo "==> Building release bundle (nightly)"
 mkdir -p src-tauri/target/release
 ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay
@@ -95,6 +102,47 @@ if [[ -d "$STABLE_SUPPORT" && ! -e "$NIGHTLY_SUPPORT" ]]; then
 elif [[ -d "$STABLE_SUPPORT" && -d "$NIGHTLY_SUPPORT" && ! -L "$NIGHTLY_SUPPORT" ]]; then
   echo "==> Nightly support dir exists as real folder (not linked) — leaving alone"
 fi
+
+# BEGIN mouth-sidecar-config (GO-ORBITTY-DEMATT-RUNTIME-FIX-R2)
+if [[ -f "$HOME/Library/LaunchAgents/space.orbitty.mouth.plist" ]]; then
+  if ! (
+    cfg="$HOME/.config/orbitty/mouth-sidecar.json"
+    dir="$HOME/.config/orbitty"
+    if [[ -L $dir ]]; then
+      echo "WARNING: mouth sidecar config not written ($dir is a symlink)" >&2
+      exit 0
+    fi
+    if [[ -e $cfg || -L $cfg ]]; then
+      exit 0
+    fi
+    if ! mkdir -p -- "$dir"; then
+      exit 1
+    fi
+    tmp=$(mktemp "$dir/.mouth-sidecar.json.XXXXXX") || exit 1
+    if ! chmod 600 "$tmp"; then
+      rm -f -- "$tmp"
+      exit 1
+    fi
+    if ! printf '%s\n' '{"url":"http://127.0.0.1:13121"}' > "$tmp"; then
+      rm -f -- "$tmp"
+      exit 1
+    fi
+    if [[ ! -s $tmp ]]; then
+      rm -f -- "$tmp"
+      exit 1
+    fi
+    if ! mv -f -- "$tmp" "$cfg"; then
+      rm -f -- "$tmp"
+      exit 1
+    fi
+  ); then
+    echo "WARNING: mouth sidecar config not written (could not create the config file)" >&2
+  fi
+fi
+# END mouth-sidecar-config
+
+warn_stale_path_ctl "$DEST/Contents/MacOS/orbittyctl"
+echo "a PATH orbittyctl without --sock drives Stable, not Nightly"
 
 echo ""
 echo "Done. Dogfood THIS app only:"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import struct
+import sys
 import zlib
 from PIL import Image
 
@@ -99,8 +100,14 @@ def fill_frac(im: Image.Image) -> float:
 
 
 def main() -> None:
-    light = knock_out("/Users/dude/Downloads/IcoB.jpg", keep_dark=True)
-    dark = knock_out("/Users/dude/Downloads/IcoW.jpg", keep_dark=False)
+    if len(sys.argv) != 3:
+        print(
+            "usage: prep_tray_from_matt.py <IcoB.jpg> <IcoW.jpg>",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    light = knock_out(sys.argv[1], keep_dark=True)
+    dark = knock_out(sys.argv[2], keep_dark=False)
     print("light fill", round(fill_frac(light), 3), "dark fill", round(fill_frac(dark), 3))
     write_png(os.path.join(BRAND, "orbitty-tray-light.png"), light)
     write_png(os.path.join(BRAND, "orbitty-tray-dark.png"), dark)
