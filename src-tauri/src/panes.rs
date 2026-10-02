@@ -308,6 +308,46 @@ pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), St
     Ok(())
 }
 
+/// Last board-open planet, memory only. The kanban page takes it once
+/// on mount so a click that beat the webview listener still lands.
+const BOARD_FOCUS_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+struct BoardFocus {
+    id: String,
+    at: std::time::Instant,
+}
+
+static BOARD_FOCUS: std::sync::Mutex<Option<BoardFocus>> = std::sync::Mutex::new(None);
+
+pub(crate) fn remember_board_focus(id: &str) {
+    remember_board_focus_at(id, std::time::Instant::now());
+}
+
+pub(crate) fn remember_board_focus_at(id: &str, at: std::time::Instant) {
+    let Ok(mut slot) = BOARD_FOCUS.lock() else {
+        return;
+    };
+    *slot = Some(BoardFocus {
+        id: id.to_string(),
+        at,
+    });
+}
+
+/// Read-and-clear. `None` when empty or when `now` is at/after the 5s TTL.
+pub(crate) fn take_board_focus_at(now: std::time::Instant) -> Option<String> {
+    let mut slot = BOARD_FOCUS.lock().ok()?;
+    let held = slot.take()?;
+    if now.saturating_duration_since(held.at) >= BOARD_FOCUS_TTL {
+        return None;
+    }
+    Some(held.id)
+}
+
+#[tauri::command]
+pub fn take_board_focus() -> Option<String> {
+    take_board_focus_at(std::time::Instant::now())
+}
+
 /// Launchpad (`kanban`) and STARS (`stars`) are separate windows.
 pub(crate) fn show_shared_pane(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
     if mode == "stars" {
@@ -901,4 +941,109 @@ fn persist_companion_hidden(app: &tauri::AppHandle, _w: &tauri::WebviewWindow) {
     };
     crate::drawers::drawer_cache_refresh(&st);
     let _ = app.emit("state:changed", ());
+}
+
+#[cfg(test)]
+mod board_focus_tests {
+    use super::{remember_board_focus_at, take_board_focus_at};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn take_once_then_expired() {
+        let t0 = Instant::now();
+        remember_board_focus_at("planet-b", t0);
+        assert_eq!(
+            take_board_focus_at(t0 + Duration::from_secs(1)).as_deref(),
+            Some("planet-b")
+        );
+        assert_eq!(take_board_focus_at(t0 + Duration::from_secs(1)), None);
+
+        remember_board_focus_at("planet-a", t0);
+        assert_eq!(take_board_focus_at(t0 + Duration::from_secs(5)), None);
+    }
+}
+
+/// Pins the board-focus wiring that the store test cannot see.
+/// `lib.rs` is read-only here; these tests only `include_str!` it.
+#[cfg(test)]
+mod board_focus_wiring_pins {
+    fn strip_comments(src: &str) -> String {
+        let mut out = String::with_capacity(src.len());
+        let mut chars = src.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '/' && chars.peek() == Some(&'/') {
+                chars.next();
+                while let Some(&d) = chars.peek() {
+                    if d == '\n' {
+                        break;
+                    }
+                    chars.next();
+                }
+                continue;
+            }
+            if c == '/' && chars.peek() == Some(&'*') {
+                chars.next();
+                while let Some(d) = chars.next() {
+                    if d == '*' && chars.peek() == Some(&'/') {
+                        chars.next();
+                        break;
+                    }
+                }
+                continue;
+            }
+            if c == '"' {
+                out.push('"');
+                while let Some(d) = chars.next() {
+                    out.push(d);
+                    if d == '\\' {
+                        if let Some(e) = chars.next() {
+                            out.push(e);
+                        }
+                        continue;
+                    }
+                    if d == '"' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            out.push(c);
+        }
+        out
+    }
+
+    /// R5 + R7: remember the same `pid` the emit sends, with no statement
+    /// between them.
+    #[test]
+    fn mouse_up_remembers_pid_then_emits_same_pid() {
+        let src = strip_comments(include_str!("habitat_mac/mouse_up.rs"));
+        let needle = "remember_board_focus(&pid)";
+        let at = src
+            .find(needle)
+            .expect("remember_board_focus(&pid) before the emit");
+        assert_eq!(src.matches(needle).count(), 1, "one remember of &pid");
+        let after = &src[at + needle.len()..];
+        let semi = after.find(';').expect("remember statement");
+        let rest = after[semi + 1..].trim_start();
+        let expect = "let _ = app.emit(\"orbitty:focus-project\", pid);";
+        assert!(
+            rest.starts_with(expect),
+            "next statement was {:?}",
+            rest.lines().next().unwrap_or("")
+        );
+    }
+
+    /// R6: the command is on the invoke-handler list.
+    #[test]
+    fn lib_registers_take_board_focus() {
+        let src = strip_comments(include_str!("lib.rs"));
+        let start = src.find("generate_handler!").expect("generate_handler");
+        let list = &src[start..];
+        let end = list.find(']').expect("handler list");
+        let block = &list[..=end];
+        assert!(
+            block.contains("panes::take_board_focus,"),
+            "take_board_focus missing from generate_handler"
+        );
+    }
 }
