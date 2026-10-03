@@ -80,6 +80,19 @@ pub fn reconcile_incoming(incoming: &mut PersistedState) {
     });
 }
 
+/// Walk-off finished. Window saves cannot delete this slice, so the
+/// rail's filter was written back and the droid walked west again.
+pub fn evict_walked_off(app: &tauri::AppHandle, card_id: &str) {
+    let dropped = crate::state::update(app, |st| {
+        let n = st.agent_runs.len();
+        st.agent_runs.retain(|r| r.card_id != card_id);
+        Ok(st.agent_runs.len() != n)
+    });
+    if matches!(dropped, Ok(true)) {
+        let _ = app.emit("state:changed", ());
+    }
+}
+
 /// The strip-trap heal: rows the incoming save DROPPED without moving
 /// the card. The card still reads Doing, so the run is still live —
 /// restore the row (the wire rebuilds planet/agent from the card's

@@ -176,7 +176,10 @@ pub(crate) fn emit_walked_off(entry_id: &str) {
             let card_id = card_id.to_string();
             let _ = std::thread::Builder::new()
                 .name("orbitty-shift-continue".into())
-                .spawn(move || crate::shift_continue::on_agent_walked_off(&app, &card_id));
+                .spawn(move || {
+                    crate::agent_runs::evict_walked_off(&app, &card_id);
+                    crate::shift_continue::on_agent_walked_off(&app, &card_id);
+                });
         }
     }
 }

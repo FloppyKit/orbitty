@@ -1513,11 +1513,28 @@ fn merge_cards(
             (None, None) => {}
         }
     }
+    // Lane order is the window's array, not disk-first. A drag that only
+    // reorders never changes lastTouchedAt, so disk-first ids froze the list.
+    out = order_like_incoming(out, incoming);
     tombs.retain(|t| match out.iter().find(|c| c.id == t.id) {
         Some(c) => t.last_touched_at > c.last_touched_at,
         None => true,
     });
     (out, tombs, kept, took)
+}
+
+/// Incoming order for cards the window still has. Disk-only survivors
+/// (another writer added them) stay, after that order.
+fn order_like_incoming(merged: Vec<KanbanCard>, incoming: &[KanbanCard]) -> Vec<KanbanCard> {
+    let mut rest = merged;
+    let mut out = Vec::with_capacity(rest.len());
+    for c in incoming {
+        if let Some(i) = rest.iter().position(|x| x.id == c.id) {
+            out.push(rest.remove(i));
+        }
+    }
+    out.append(&mut rest);
+    out
 }
 
 fn apply_card_delta(

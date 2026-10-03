@@ -534,8 +534,10 @@
 
   let viewCols = $derived.by(() => {
     if (!grabbedId || !grabCol) return boardCols;
-    if (grabGhost) return boardCols;
     const card = kanbanCards.find((c) => c.id === grabbedId);
+    // Keep the Start strip up while the card is floating over it.
+    // Same-column reorder still moves the slot.
+    if (grabGhost && card && grabCol !== card.status) return boardCols;
     if (!card) return boardCols;
     const out: Record<Status, KanbanCard[]> = {
       todo: boardCols.todo.filter((c) => c.id !== grabbedId),
@@ -1723,9 +1725,11 @@
     if (!grabbedId) return;
     const card = kanbanCards.find((c) => c.id === grabbedId);
     if (!card) return;
-    const over = colAtPoint(e.clientX, e.clientY);
+    const over = overStartStrip(e.clientX, e.clientY)
+      ? "doing"
+      : colAtPoint(e.clientX, e.clientY);
     grabCol = over === "doing" || over === "done" ? over : card.status;
-    grabIdx = rowAtPoint(grabCol, e.clientY);
+    grabIdx = rowAtPoint(grabCol === card.status ? card.status : grabCol, e.clientY);
     if (grabGhost) {
       grabGhost = {
         ...grabGhost,
@@ -1735,9 +1739,10 @@
     }
   }
 
-  function onPtrUp() {
+  function onPtrUp(e: PointerEvent) {
     const p = ptr;
     if (!p) return;
+    if (overStartStrip(e.clientX, e.clientY)) grabCol = "doing";
     const wasHeld = p.held;
     const stillHeld = !!grabbedId;
     ptrEnd();
@@ -1765,6 +1770,13 @@
     ungrab();
     e.preventDefault();
     e.stopPropagation();
+  }
+
+  function overStartStrip(x: number, y: number): boolean {
+    const strip = document.querySelector(".start-drop");
+    if (!strip) return false;
+    const r = strip.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
   }
 
   function colAtPoint(x: number, y: number): Status | null {

@@ -145,7 +145,7 @@
     class:child={!!card.parentId}
     class:lifted={floating}
     style={floating && grabGhost
-      ? `position:fixed;left:${grabGhost.x}px;top:${grabGhost.y}px;width:${grabGhost.w}px;z-index:40;margin:0;`
+      ? `position:fixed;left:${grabGhost.x}px;top:${grabGhost.y}px;width:${grabGhost.w}px;z-index:40;margin:0;pointer-events:none;`
       : undefined}
   >
   <button
