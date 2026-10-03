@@ -3894,6 +3894,7 @@ pub fn launch_agent(
     if out.is_ok() {
         if let Some(g) = go_launch.as_ref() {
             record_go_launch(&app, g);
+            crate::verify_close::arm(app.clone(), g.card_id.clone(), hint.pid_file.clone());
         }
     }
     out

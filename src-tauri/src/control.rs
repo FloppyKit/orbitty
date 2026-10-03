@@ -817,6 +817,11 @@ fn run_tool(
                 .map(to_data)
                 .map_err(tool_err)
         }
+        "verify.close" => {
+            let id = arg_str(args, "id")?;
+            crate::verify_close::arm(app.clone(), id, None);
+            Ok(json!({ "armed": true }))
+        }
         "kanban.move" => {
             let id = arg_str(args, "id")?;
             let status = arg_str(args, "status")?;

@@ -29,6 +29,7 @@ mod coordinator;
 mod thin;
 #[cfg(unix)]
 mod doing_fire;
+mod verify_close;
 mod drawers;
 mod event_keys;
 mod event_log;

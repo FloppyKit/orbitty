@@ -44,6 +44,7 @@ commands:
   kanban add --title \"t\" [--project P] [--status todo|doing] [--notes \"n\"]
             [--link URL [--link-label L]]...
   kanban move --id <id> --status todo|doing|done
+  verify close --id <card>          local Verify Bot after a writer; model is the saved default
   kanban notes --id <card> -- \"text\"      empty \"\" clears
   kanban notes --id <card> --append -- \"line\"   adds one line, keeps the rest
   kanban link --id <card> --add URL [--label L] | --rm URL | --clear
@@ -823,6 +824,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             "kanban.move",
             json!({ "id": need_id(o)?, "status": need_flag(&o.status, "--status")? }),
         )),
+        ["verify", "close"] => Ok(("verify.close", json!({ "id": need_id(o)? }))),
         // Assign a card to an agent row (id or
         // name server-side). `--agent ""` unassigns — the flag itself is
         // required so a bare `kanban assign --id` never silently clears.
