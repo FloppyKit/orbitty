@@ -21,7 +21,7 @@ use super::{
 };
 
 struct LaterShow {
-    panel: usize,
+    project_id: String,
     x: f64,
     y: f64,
     w: f64,
@@ -29,12 +29,12 @@ struct LaterShow {
 }
 
 /// Paint after this sync drops the habitat lock. drawRect takes that lock,
-/// so display here would deadlock. The deferred pass also re-applies the
-/// marble frame: a panel born at 10×10 stays a clear speck until something
-/// else resizes it, and that resize is the expand click.
-fn show_later(panel: *mut Object, frame: NSRect) {
+/// so display here would deadlock. The panel pointer from mint is not
+/// safe across the queue: a second sync can release it first, and messaging
+/// the old pointer crashes on launch. Look the live panel up, then paint.
+fn show_later(project_id: &str, frame: NSRect) {
     let job = Box::new(LaterShow {
-        panel: panel as usize,
+        project_id: project_id.to_string(),
         x: frame.origin.x,
         y: frame.origin.y,
         w: frame.size.width,
@@ -54,10 +54,17 @@ fn show_later(panel: *mut Object, frame: NSRect) {
             return;
         }
         let job = unsafe { Box::from_raw(ctx as *mut LaterShow) };
-        let panel = job.panel as *mut Object;
-        if panel.is_null() {
+        let panel = {
+            let h = super::lock();
+            h.planets
+                .get(&job.project_id)
+                .map(|p| p.panel)
+                .filter(|p| *p != 0)
+        };
+        let Some(panel) = panel else {
             return;
-        }
+        };
+        let panel = panel as *mut Object;
         unsafe {
             let frame = NSRect::new(job.x, job.y, job.w, job.h);
             super::panel_set_frame(panel, frame, true);
@@ -236,7 +243,7 @@ pub(crate) fn materialize(
             let _: () = msg_send![panel, orderFrontRegardless];
             // Lift and paint once this sync has dropped the lock. Same
             // marble frame — do not expand.
-            show_later(panel, frame);
+            show_later(project_id, frame);
         }
         planet.panel = panel as usize;
         planet.view = view as usize;
