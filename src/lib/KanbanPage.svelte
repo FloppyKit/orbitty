@@ -1653,7 +1653,7 @@
     e.preventDefault();
     const id = e.dataTransfer?.getData("text/plain") || dragCardId;
     const card = kanbanCards.find((c) => c.id === id);
-    if (card && col === "done") moveCard(card, col);
+    if (card && col !== card.status) moveCard(card, col);
     dragCardId = null;
     dropCol = null;
   }
@@ -1723,8 +1723,9 @@
     if (!grabbedId) return;
     const card = kanbanCards.find((c) => c.id === grabbedId);
     if (!card) return;
-    grabCol = card.status;
-    grabIdx = rowAtPoint(card.status, e.clientY);
+    const over = colAtPoint(e.clientX, e.clientY);
+    grabCol = over === "doing" || over === "done" ? over : card.status;
+    grabIdx = rowAtPoint(grabCol, e.clientY);
     if (grabGhost) {
       grabGhost = {
         ...grabGhost,

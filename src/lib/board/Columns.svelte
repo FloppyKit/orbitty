@@ -1,5 +1,6 @@
 <script lang="ts">
   import BoardNeeded from "./Needed.svelte";
+  import StartDrop from "./StartDrop.svelte";
   import type { CardLink, KanbanCard } from "../persist";
 
   function linkChipText(link: CardLink): string {
@@ -333,6 +334,13 @@
                 <button class="mini" onclick={() => mintTodo(newTodoTitle)}>Add</button>
               </div>
             {/if}
+            <StartDrop
+              active={!!(dragCardId || grabbedId) && viewCols.doing.length === 0}
+              dropOk={dropCol === "doing" || grabCol === "doing"}
+              onOver={(e) => onColDragOver(e, "doing")}
+              onLeave={(e) => onColDragLeave(e, "doing")}
+              onDrop={(e) => onColDrop(e, "doing")}
+            />
             <div class="doing-lane" data-col="doing">
             {#each viewCols.doing as card (card.id)}
               {@render stackCard(card)}
