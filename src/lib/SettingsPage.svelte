@@ -137,6 +137,21 @@
     }
   }
 
+  async function saveRunner() {
+    plansNote = "";
+    try {
+      await invoke("plans_set_runner", {
+        runner: plansRunner.trim(),
+        harness: plansHarness.trim(),
+        model: plansModel.trim(),
+        permissions: "workspace-write",
+      });
+      plansNote = "Saved.";
+    } catch (e) {
+      plansNote = String(e);
+    }
+  }
+
   async function savePlansDir() {
     plansNote = "";
     try {
@@ -890,7 +905,13 @@
         </div>
         <p class="help">Shared by Nightly and stable. Default is the visible Orbitty GOs folder in your home.</p>
         <p class="block-label">Default runner</p>
-        <p class="help">{plansRunner} · {plansHarness} · {plansModel}</p>
+        <p class="help">Doing uses this when a GO has no agent. A new install starts blank. Change it any time.</p>
+        <div class="setting-row">
+          <input class="plans-path" bind:value={plansRunner} placeholder="runner name" spellcheck="false" />
+          <input class="plans-path" bind:value={plansHarness} placeholder="cursor, grok, hermes, pi" spellcheck="false" />
+          <input class="plans-path" bind:value={plansModel} placeholder="model" spellcheck="false" />
+          <button class="mini" onclick={saveRunner}>Save</button>
+        </div>
         {#if plansNote}
           <p class="help err">{plansNote}</p>
         {/if}

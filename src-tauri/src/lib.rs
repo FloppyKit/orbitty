@@ -409,8 +409,9 @@ fn plans_set_runner(
     runner: String,
     harness: String,
     model: String,
+    permissions: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    crate::plans::set_runner(&runner, &harness, &model)
+    crate::plans::set_runner_choice(&runner, &harness, &model, permissions.as_deref())
 }
 
 #[tauri::command]

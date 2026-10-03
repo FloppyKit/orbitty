@@ -52,6 +52,9 @@ pub struct RunnerSpec {
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runner_fallback: Option<Fallback>,
+    /// Cursor preset when this default launches a row. Absent = the row's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -221,7 +224,17 @@ pub fn builtin_runner() -> RunnerSpec {
             harness: "herdr".into(),
             model: "grok".into(),
         }),
+        permissions: None,
     }
+}
+
+/// Saved default only. A fresh install has none — the user chooses.
+/// `builtin_runner` is not a product default.
+pub fn chosen_runner(roots: &Roots) -> Option<RunnerSpec> {
+    load_settings(roots).default_runner.and_then(|r| {
+        let named = !r.runner.trim().is_empty() || !r.harness.trim().is_empty();
+        named.then_some(r)
+    })
 }
 
 pub fn settings_snapshot() -> Result<Value, String> {
@@ -400,8 +413,23 @@ pub(crate) fn under_buzz(roots: &Roots, p: &Path) -> bool {
 }
 
 pub fn set_runner(runner: &str, harness: &str, model: &str) -> Result<Value, String> {
+    set_runner_choice(runner, harness, model, None)
+}
+
+pub fn set_runner_choice(
+    runner: &str,
+    harness: &str,
+    model: &str,
+    permissions: Option<&str>,
+) -> Result<Value, String> {
     let roots = Roots::real();
-    let mut spec = effective_runner(&roots);
+    let mut spec = chosen_runner(&roots).unwrap_or_else(|| RunnerSpec {
+        runner: String::new(),
+        harness: String::new(),
+        model: String::new(),
+        runner_fallback: None,
+        permissions: None,
+    });
     if let Some(v) = nonblank(Some(runner)) {
         spec.runner = v;
     }
@@ -410,6 +438,9 @@ pub fn set_runner(runner: &str, harness: &str, model: &str) -> Result<Value, Str
     }
     if let Some(v) = nonblank(Some(model)) {
         spec.model = v;
+    }
+    if let Some(v) = permissions.and_then(|p| nonblank(Some(p))) {
+        spec.permissions = Some(v);
     }
     let mut s = load_settings(&roots);
     s.default_runner = Some(spec);
@@ -1388,15 +1419,18 @@ pub fn join_note(existing: Option<&str>, line: &str) -> String {
 }
 
 fn snapshot(roots: &Roots) -> Value {
-    let run = effective_runner(roots);
+    let chosen = chosen_runner(roots);
+    let run = chosen.clone().unwrap_or_else(builtin_runner);
     json!({
         "plansDir": plans_dir(roots).display().to_string(),
         "busDir": bus_dir_in(roots).display().to_string(),
         "repoRoot": repo_root(roots).display().to_string(),
-        "runner": run.runner,
-        "harness": run.harness,
-        "model": run.model,
-        "runnerFallback": run.runner_fallback,
+        "runnerChosen": chosen.is_some(),
+        "runner": if chosen.is_some() { run.runner } else { String::new() },
+        "harness": if chosen.is_some() { run.harness } else { String::new() },
+        "model": if chosen.is_some() { run.model } else { String::new() },
+        "permissions": chosen.as_ref().and_then(|r| r.permissions.clone()),
+        "runnerFallback": chosen.as_ref().and_then(|r| r.runner_fallback.clone()),
     })
 }
 
