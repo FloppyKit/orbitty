@@ -20,8 +20,26 @@ use super::{
     MAX_MARBLE_PANELS, NSRect, Planet,
 };
 
-fn order_front_later(panel: *mut Object) {
-    let bits = panel as usize;
+struct LaterShow {
+    panel: usize,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+/// Paint after this sync drops the habitat lock. drawRect takes that lock,
+/// so display here would deadlock. The deferred pass also re-applies the
+/// marble frame: a panel born at 10×10 stays a clear speck until something
+/// else resizes it, and that resize is the expand click.
+fn show_later(panel: *mut Object, frame: NSRect) {
+    let job = Box::new(LaterShow {
+        panel: panel as usize,
+        x: frame.origin.x,
+        y: frame.origin.y,
+        w: frame.size.width,
+        h: frame.size.height,
+    });
     extern "C" {
         #[link_name = "_dispatch_main_q"]
         static DISPATCH_MAIN_Q: std::ffi::c_void;
@@ -32,30 +50,62 @@ fn order_front_later(panel: *mut Object) {
         );
     }
     extern "C" fn lift(ctx: *mut std::ffi::c_void) {
+        if ctx.is_null() {
+            return;
+        }
+        let job = unsafe { Box::from_raw(ctx as *mut LaterShow) };
+        let panel = job.panel as *mut Object;
+        if panel.is_null() {
+            return;
+        }
         unsafe {
-            let panel = ctx as *mut Object;
-            if panel.is_null() {
-                return;
-            }
-            // On screen, then paint. materialize cannot display: drawRect
-            // takes the habitat lock, and that lock is still held on the
-            // mint sync. A clear first frame stayed clear until the rail
-            // name resized the panel — and that resize opens the planet.
-            let _: () = msg_send![panel, orderFrontRegardless];
+            let frame = NSRect::new(job.x, job.y, job.w, job.h);
+            super::panel_set_frame(panel, frame, true);
             let view: *mut Object = msg_send![panel, contentView];
             if !view.is_null() {
+                let _: () = msg_send![view, setFrame: NSRect::new(0.0, 0.0, job.w, job.h)];
                 let _: () = msg_send![view, setNeedsDisplay: true];
             }
-            let _: () = msg_send![panel, display];
+            let _: () = msg_send![panel, orderFrontRegardless];
         }
     }
     unsafe {
         dispatch_async_f(
             std::ptr::addr_of!(DISPATCH_MAIN_Q) as *mut std::ffi::c_void,
-            bits as *mut std::ffi::c_void,
+            Box::into_raw(job) as *mut std::ffi::c_void,
             lift,
         );
     }
+}
+
+/// Cap is 12 marble panels. A new mint must still appear, so the least
+/// recently used other marble loses its panel and stays on the rail.
+fn evict_one_marble(h: &mut Habitat, keep: &str) -> bool {
+    let ids: Vec<String> = h
+        .planets
+        .iter()
+        .filter(|(id, p)| p.is_marble && id.as_str() != keep)
+        .map(|(id, _)| id.clone())
+        .collect();
+    let Some(victim) = ids.into_iter().min_by(|a, b| {
+        let ta = h.worlds.get(a).map(|w| w.last_used).unwrap_or(0.0);
+        let tb = h.worlds.get(b).map(|w| w.last_used).unwrap_or(0.0);
+        ta.partial_cmp(&tb).unwrap_or(std::cmp::Ordering::Equal)
+    }) else {
+        return false;
+    };
+    let Some(mut planet) = h.planets.remove(&victim) else {
+        return false;
+    };
+    audio::stop_audio(&mut planet);
+    unsafe {
+        let panel = planet.panel as *mut Object;
+        if !panel.is_null() {
+            let _: () = msg_send![panel, orderOut: std::ptr::null::<Object>()];
+            let _: () = msg_send![panel, release];
+        }
+    }
+    true
 }
 
 pub(crate) enum Fresh {
@@ -83,10 +133,9 @@ pub(crate) fn materialize(
     todo_trees: &[TodoTreeTick],
     tree_grow_days: f64,
 ) -> Fresh {
-    if collapsed_eff && marble_panels >= MAX_MARBLE_PANELS {
-        // 13th+ marble: the project stays on the rail list with NO panel.
-        // A slot frees when a marble expands or is unclaimed; that sync
-        // materializes the waitlist in rail order.
+    if collapsed_eff && marble_panels >= MAX_MARBLE_PANELS && !evict_one_marble(h, project_id)
+    {
+        // Cap full and nothing else to retire. Rail list only.
         return Fresh::Skip;
     }
     if !h.worlds.contains_key(project_id) {
@@ -178,16 +227,16 @@ pub(crate) fn materialize(
         let _: () = msg_send![view, setFrame: NSRect::new(0.0, 0.0, side, side)];
         // display:false while the habitat lock is held. The paint is
         // order_front_later, after this planet is inserted.
-        panel_set_frame(panel, panel_frame(&state, side), false);
+        let frame = panel_frame(&state, side);
+        panel_set_frame(panel, frame, false);
         let _: () = msg_send![view, setFrame: NSRect::new(0.0, 0.0, side, side)];
         if h.planets_hidden {
             let _: () = msg_send![panel, orderOut: std::ptr::null::<Object>()];
         } else {
             let _: () = msg_send![panel, orderFrontRegardless];
-            // The mint click finishes after this sync and leaves whatever
-            // was already on the middle screen in front. Lift and paint
-            // once that click has returned — same marble frame, no expand.
-            order_front_later(panel);
+            // Lift and paint once this sync has dropped the lock. Same
+            // marble frame — do not expand.
+            show_later(panel, frame);
         }
         planet.panel = panel as usize;
         planet.view = view as usize;
