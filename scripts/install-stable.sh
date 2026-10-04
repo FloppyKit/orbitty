@@ -87,8 +87,26 @@ if [[ ! -d "$SRC" ]]; then
   exit 1
 fi
 
+# Helpers keep their own signatures: sign each Contents/MacOS binary
+# except the main `orbitty`, then the bundle without --deep.
+sign_macos_helpers_then_app() {
+  local bundle=$1 macos=$1/Contents/MacOS f
+  if [[ -d $macos ]]; then
+    for f in "$macos"/*(N.); do
+      if [[ ${f:t} == orbitty ]]; then
+        continue
+      fi
+      codesign --force --sign "$IDENTITY" --timestamp=none "$f"
+    done
+  fi
+  codesign --force --sign "$IDENTITY" --timestamp=none "$bundle"
+}
+
+echo "==> Checking bundled orbittyctl"
+scripts/check_bundled_ctl.sh "$SRC"
+
 echo "==> Signing build-tree bundle with \"$IDENTITY\""
-codesign --force --deep --sign "$IDENTITY" --timestamp=none "$SRC"
+sign_macos_helpers_then_app "$SRC"
 
 echo "==> Verifying build-tree signature"
 codesign --verify --deep --strict --verbose=2 "$SRC"
@@ -107,7 +125,7 @@ ditto "$SRC" "$DEST"
 # Sign the INSTALLED app — the blessed path is what TCC sees, so it must
 # carry the stable identity itself, not just the build-tree bundle.
 echo "==> Signing installed $DEST with \"$IDENTITY\""
-codesign --force --deep --sign "$IDENTITY" --timestamp=none "$DEST"
+sign_macos_helpers_then_app "$DEST"
 
 echo "==> Verifying installed signature"
 codesign --verify --deep --strict --verbose=2 "$DEST"
@@ -124,6 +142,9 @@ if ! grep -q "^Authority=$IDENTITY$" <<< "$DEST_SIG"; then
   echo "============================================================" >&2
   exit 1
 fi
+
+echo "==> Checking installed orbittyctl"
+scripts/check_bundled_ctl.sh "$DEST"
 
 warn_stale_path_ctl "$DEST/Contents/MacOS/orbittyctl"
 
