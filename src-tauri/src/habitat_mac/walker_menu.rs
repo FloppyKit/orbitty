@@ -47,33 +47,18 @@ fn emit_walker_pack(entry_id: String, kind: Option<&str>, pack_id: Option<String
     }
 }
 
-/// The walker's sprite-assignment menu: import (image/folder), Generated,
-/// one item per walker pack, and the Being editor door. All verbs emit to
-/// the rail — the native side never writes claims.
+/// Walker right-click words. Assign is omitted when the rail has no planets.
+pub(crate) fn walker_menu_labels(has_planets: bool) -> Vec<&'static str> {
+    let mut labels = vec!["Change avatar…"];
+    if has_planets {
+        labels.push("Assign to planet");
+    }
+    labels
+}
+
+/// Change avatar… opens one flat popup. Assign to planet is the rail claim
+/// (habitat:walker-assign). The native side never writes claims.
 pub(crate) unsafe fn walker_context_menu(this: &Object, event: *mut Object, entry_id: &str) {
-    // Current pick for the check states (raw claim value; "" = Generated).
-    let cur_pack = {
-        let h = lock();
-        h.planets
-            .values()
-            .flat_map(|p| p.walkers.iter())
-            .find(|b| b.entry_id == entry_id)
-            .map(|b| b.sprite_pack_id.clone())
-            .unwrap_or_default()
-    };
-    // Walker packs only — companion bodies and habitat tiles stay out.
-    let packs = app_handle()
-        .and_then(|app| crate::packs::list_packs_sync(app.clone()).ok())
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|p| {
-            p.frame_count > 0
-                && !p.role.eq_ignore_ascii_case("companion")
-                && !p.role.eq_ignore_ascii_case("habitat")
-        })
-        .collect::<Vec<_>>();
-    // Lock dropped: popUpContextMenu runs modally and the target's actions
-    // re-lock on selection.
     let Some(target) = menu_target() else {
         return;
     };
@@ -82,72 +67,25 @@ pub(crate) unsafe fn walker_context_menu(this: &Object, event: *mut Object, entr
     if menu.is_null() {
         return;
     }
-    add_menu_item(
-        menu,
-        "Use my image…",
-        sel!(walkerUseImage:),
-        target,
-        entry_id,
-        None,
-        true,
-    );
-    add_menu_item(
-        menu,
-        "Folder…",
-        sel!(walkerUseFolder:),
-        target,
-        entry_id,
-        None,
-        true,
-    );
-    add_separator(menu);
-    // Pack list is a submenu — same shape as Assign to planet. The pick
-    // rides the represented object as `entryId␟packId` (unit separator).
-    let look: *mut Object = msg_send![class!(NSMenu), alloc];
-    let look: *mut Object = msg_send![look, initWithTitle: ns_string("")];
-    if !look.is_null() {
-        add_menu_item(
-            look,
-            "Generated",
-            sel!(walkerSetPack:),
-            target,
-            &format!("{entry_id}\u{1f}"),
-            Some(cur_pack.is_empty()),
-            true,
-        );
-        for p in &packs {
-            add_menu_item(
-                look,
-                &p.name,
-                sel!(walkerSetPack:),
-                target,
-                &format!("{entry_id}\u{1f}{}", p.id),
-                Some(cur_pack == p.id),
-                true,
-            );
-        }
-        let item: *mut Object = msg_send![class!(NSMenuItem), alloc];
-        let item: *mut Object = msg_send![item,
-            initWithTitle: ns_string("Look")
-            action: Sel::from_ptr(std::ptr::null())
-            keyEquivalent: ns_string("")];
-        if !item.is_null() {
-            let _: () = msg_send![item, setSubmenu: look];
-            let _: () = msg_send![menu, addItem: item];
-            let _: () = msg_send![item, release];
-        }
-        let _: () = msg_send![look, release];
-    }
-    add_separator(menu);
-    // Assign to planet IS the rail claim — the pick
-    // emits habitat:walker-assign and the rail rewrites projectId through
-    // the same persist door (one windowId, one planet; the open kanban
-    // card and the sprite follow the claim). No occupancy teleport.
     let names = {
         let h = lock();
         h.planet_names.clone()
     };
-    if !names.is_empty() {
+    let labels = walker_menu_labels(!names.is_empty());
+    add_menu_item(
+        menu,
+        labels[0],
+        sel!(walkerChangeAvatar:),
+        target,
+        entry_id,
+        None,
+        true,
+    );
+    // Assign to planet IS the rail claim — the pick emits
+    // habitat:walker-assign and the rail rewrites projectId through the
+    // same persist door. No occupancy teleport.
+    if labels.len() > 1 {
+        add_separator(menu);
         let sub: *mut Object = msg_send![class!(NSMenu), alloc];
         let sub: *mut Object = msg_send![sub, initWithTitle: ns_string("")];
         if !sub.is_null() {
@@ -164,7 +102,7 @@ pub(crate) unsafe fn walker_context_menu(this: &Object, event: *mut Object, entr
             }
             let item: *mut Object = msg_send![class!(NSMenuItem), alloc];
             let item: *mut Object = msg_send![item,
-                initWithTitle: ns_string("Assign to planet")
+                initWithTitle: ns_string(labels[1])
                 action: Sel::from_ptr(std::ptr::null())
                 keyEquivalent: ns_string("")];
             if !item.is_null() {
@@ -174,17 +112,7 @@ pub(crate) unsafe fn walker_context_menu(this: &Object, event: *mut Object, entr
             }
             let _: () = msg_send![sub, release];
         }
-        add_separator(menu);
     }
-    add_menu_item(
-        menu,
-        "Open being…",
-        sel!(walkerOpenBeing:),
-        target,
-        entry_id,
-        None,
-        true,
-    );
     let view = this as *const Object as *mut Object;
     pop_context_menu(menu, event, view);
     let _: () = msg_send![menu, release];
@@ -258,5 +186,23 @@ pub(crate) extern "C" fn walker_open_being(_this: &Object, _cmd: Sel, sender: *m
             }
         }
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::walker_menu_labels;
+
+    #[test]
+    fn walker_menu_is_change_avatar_and_assign() {
+        assert_eq!(walker_menu_labels(false), vec!["Change avatar…"]);
+        let full = walker_menu_labels(true);
+        assert_eq!(full, vec!["Change avatar…", "Assign to planet"]);
+        let blob = full.join("\n").to_ascii_lowercase();
+        assert!(!blob.contains("image"));
+        assert!(!blob.contains("folder"));
+        assert!(!blob.contains("look"));
+        assert!(!blob.contains("being"));
+        assert!(!blob.contains("pack"));
+    }
 }
 

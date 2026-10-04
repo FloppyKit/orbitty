@@ -10,36 +10,47 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use tauri::Emitter;
 
 use super::audio;
-use super::input::{add_menu_item, add_separator, pop_context_menu};
+use super::input::{add_menu_item, pop_context_menu};
 use super::input::boombox_click;
 use super::{
-    app_handle, boombox_hud, building_cap, layout_decor, lock, menu_target, now_epoch, ns_string,
-    plant_cap, sender_project_id, set_caption, world_entry, DecorKind, Habitat, Placement,
+    app_handle, boombox_hud, layout_decor, lock, menu_target, ns_string, sender_project_id,
+    set_caption, world_entry, DecorKind, Habitat, Placement,
 };
 
-/// Disc / marble context menu (minimize, claim front, décor, boombox, beach ball).
+/// Words on the disc menu. Beach ball is always the last row; `beach_ball`
+/// is the check the menu paints on it (the words do not change).
+pub(crate) fn planet_menu_items(
+    is_marble: bool,
+    has_box: bool,
+    beach_ball: bool,
+) -> Vec<&'static str> {
+    let _ = beach_ball;
+    vec![
+        if is_marble { "Expand" } else { "Minimize" },
+        if has_box {
+            "Remove boombox"
+        } else {
+            "Place boombox"
+        },
+        "Beach ball",
+    ]
+}
+
+/// Disc / marble context menu: Minimize/Expand, boombox, beach ball.
 pub(crate) unsafe fn planet_context_menu(
     this: &Object,
     event: *mut Object,
     project_id: &str,
     is_marble: bool,
 ) {
-    let (plant_left, mush_left, build_left, has_box, beach_ball) = {
+    let (has_box, beach_ball) = {
         let h = lock();
-        let now = now_epoch();
         h.worlds
             .get(project_id)
-            .map(|w| {
-                (
-                    plant_cap(w.first_seen, now).saturating_sub(w.plants.len()),
-                    plant_cap(w.first_seen, now).saturating_sub(w.mushrooms.len()),
-                    building_cap(w.first_seen, now).saturating_sub(w.buildings.len()),
-                    w.boombox_pos.is_some(),
-                    w.beach_ball,
-                )
-            })
-            .unwrap_or((3, 3, 1, false, false))
+            .map(|w| (w.boombox_pos.is_some(), w.beach_ball))
+            .unwrap_or((false, false))
     };
+    let rows = planet_menu_items(is_marble, has_box, beach_ball);
     // Lock dropped: popUpContextMenu runs modally and the target's actions
     // re-lock on selection.
     let Some(target) = menu_target() else {
@@ -50,84 +61,32 @@ pub(crate) unsafe fn planet_context_menu(
     if menu.is_null() {
         return;
     }
-    // One row toggles marble ↔ expanded (was two disabled-sibling rows).
+    // One row toggles marble ↔ expanded. Boombox is a live place/remove.
+    // Beach ball is checkable and stays off marbles (no walkers there).
     add_menu_item(
         menu,
-        if is_marble { "Expand" } else { "Minimize" },
+        rows[0],
         sel!(planetToggleMarble:),
         target,
-        &project_id,
+        project_id,
         None,
         true,
     );
     add_menu_item(
         menu,
-        "Put front window here",
-        sel!(planetClaimFront:),
-        target,
-        &project_id,
-        None,
-        true,
-    );
-    add_separator(menu);
-    add_menu_item(
-        menu,
-        &format!("Place plant ({plant_left} left)"),
-        sel!(planetTogglePlant:),
-        target,
-        &project_id,
-        None,
-        plant_left > 0,
-    );
-    add_menu_item(
-        menu,
-        &format!("Place mushroom ({mush_left} left)"),
-        sel!(planetToggleMushroom:),
-        target,
-        &project_id,
-        None,
-        mush_left > 0,
-    );
-    add_menu_item(
-        menu,
-        &format!("Place building ({build_left} left)"),
-        sel!(planetPlaceBuilding:),
-        target,
-        &project_id,
-        None,
-        build_left > 0,
-    );
-    add_separator(menu);
-    // live toggle — Place arms the drop-next-click
-    // path, Remove clears the placed box. Always enabled. Choose music
-    // stays on the disc too so a miss of the sprite still has a door.
-    add_menu_item(
-        menu,
-        if has_box { "Remove boombox" } else { "Place boombox" },
+        rows[1],
         sel!(planetToggleBoombox:),
         target,
-        &project_id,
+        project_id,
         None,
         true,
     );
     add_menu_item(
         menu,
-        "Choose music…",
-        sel!(planetChooseMusic:),
-        target,
-        &project_id,
-        None,
-        true,
-    );
-    // per-planet beach-ball keep-up — a
-    // checkable toggle persisted on the world slice next to the boombox.
-    // Marbles have no walkers: no ball.
-    add_menu_item(
-        menu,
-        "Beach ball",
+        rows[2],
         sel!(planetToggleBeachBall:),
         target,
-        &project_id,
+        project_id,
         Some(beach_ball),
         !is_marble,
     );
@@ -151,24 +110,29 @@ pub(crate) extern "C" fn menu_place_building(_this: &Object, _cmd: Sel, sender: 
 }
 
 /// Marble ↔ expanded. Rail owns collapse; next sync applies the size.
+/// The disc menu and an empty-surface double-click both land here.
+pub(crate) fn emit_marble_toggle(project_id: &str) {
+    let is_marble = lock()
+        .planets
+        .get(project_id)
+        .map(|p| p.is_marble)
+        .unwrap_or(false);
+    if let Some(app) = app_handle() {
+        let event = if is_marble {
+            "habitat:expand"
+        } else {
+            "habitat:collapse"
+        };
+        let _ = app.emit_to("main", event, project_id.to_string());
+    }
+}
+
 pub(crate) extern "C" fn menu_toggle_marble(_this: &Object, _cmd: Sel, sender: *mut Object) {
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
         let Some(id) = sender_project_id(sender) else {
             return;
         };
-        let is_marble = lock()
-            .planets
-            .get(&id)
-            .map(|p| p.is_marble)
-            .unwrap_or(false);
-        if let Some(app) = app_handle() {
-            let event = if is_marble {
-                "habitat:expand"
-            } else {
-                "habitat:collapse"
-            };
-            let _ = app.emit_to("main", event, id);
-        }
+        emit_marble_toggle(&id);
     }));
 }
 
@@ -371,4 +335,37 @@ pub(crate) extern "C" fn menu_boombox_volume(_this: &Object, _cmd: Sel, sender: 
             }
         }
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::planet_menu_items;
+
+    #[test]
+    fn planet_menu_is_minimize_boombox_beach_ball() {
+        for marble in [false, true] {
+            for has_box in [false, true] {
+                for ball in [false, true] {
+                    let items = planet_menu_items(marble, has_box, ball);
+                    assert_eq!(items.len(), 3, "{items:?}");
+                    assert_eq!(items[0], if marble { "Expand" } else { "Minimize" });
+                    assert_eq!(
+                        items[1],
+                        if has_box {
+                            "Remove boombox"
+                        } else {
+                            "Place boombox"
+                        }
+                    );
+                    assert_eq!(items[2], "Beach ball");
+                    let blob = items.join("\n").to_ascii_lowercase();
+                    assert!(!blob.contains("plant"), "{blob}");
+                    assert!(!blob.contains("mushroom"), "{blob}");
+                    assert!(!blob.contains("building"), "{blob}");
+                    assert!(!blob.contains("music"), "{blob}");
+                    assert!(!blob.contains("front window"), "{blob}");
+                }
+            }
+        }
+    }
 }
