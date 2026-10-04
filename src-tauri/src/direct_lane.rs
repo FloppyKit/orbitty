@@ -155,28 +155,63 @@ pub fn validate_direct_base(raw: &str) -> Result<String, String> {
     Ok(format!("{scheme}://{rest}"))
 }
 
+/// The host of an http(s) authority, strictly. Userinfo (`@`, raw or
+/// `%40`), backslashes, any `%` escape, whitespace / control chars and an
+/// empty host are refused outright, so `http://127.0.0.1:1@evil.com` can
+/// never pass as loopback. IPv6 only as a bracketed literal followed by
+/// nothing but `:port`. The port is digits only. Errors are fixed text and
+/// never echo the URL (or anything typed into it).
 fn host_of(rest: &str) -> Result<String, String> {
-    let hostport = rest.split(['/', '?', '#']).next().unwrap_or("");
-    if hostport.is_empty() {
-        return Err("Base URL must be http or https.".into());
+    let bad = || "Base URL must be http or https.".to_string();
+    if rest.contains('\\') || rest.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(bad());
     }
-    let host = if let Some(inner) = hostport.strip_prefix('[') {
-        let (h, _) = inner
-            .split_once(']')
-            .ok_or_else(|| "Base URL must be http or https.".to_string())?;
-        h.to_string()
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.is_empty() {
+        return Err(bad());
+    }
+    if authority.contains('@') {
+        return Err("Base URL must not carry a user or key before the host.".into());
+    }
+    if authority.contains('%') {
+        return Err(bad());
+    }
+    let (host, port) = if let Some(inner) = authority.strip_prefix('[') {
+        let (h, after) = inner.split_once(']').ok_or_else(bad)?;
+        if h.parse::<std::net::Ipv6Addr>().is_err() {
+            return Err(bad());
+        }
+        let port = match after {
+            "" => None,
+            p => Some(p.strip_prefix(':').ok_or_else(bad)?),
+        };
+        (h, port)
     } else {
-        hostport.split(':').next().unwrap_or("").to_string()
+        let (h, port) = match authority.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        };
+        if h.contains(['[', ']']) {
+            return Err(bad());
+        }
+        (h, port)
     };
     if host.is_empty() {
-        return Err("Base URL must be http or https.".into());
+        return Err(bad());
     }
-    Ok(host)
+    if let Some(p) = port {
+        if p.is_empty() || !p.chars().all(|c| c.is_ascii_digit()) || p.parse::<u16>().is_err() {
+            return Err(bad());
+        }
+    }
+    Ok(host.to_string())
 }
 
 fn is_loopback(host: &str) -> bool {
     let h = host.to_ascii_lowercase();
-    h == "localhost" || h == "::1" || is_ipv4_loopback(&h)
+    h == "localhost"
+        || h.parse::<std::net::Ipv6Addr>() == Ok(std::net::Ipv6Addr::LOCALHOST)
+        || is_ipv4_loopback(&h)
 }
 
 fn is_ipv4_loopback(host: &str) -> bool {
@@ -648,7 +683,9 @@ mod tests {
             assert!(!send.contains(banned), "{banned} in send");
             assert!(!prod.contains(banned), "{banned} in direct_lane");
         }
-        let coord = include_str!("coordinator.rs");
+        // The send arm, inside companion_send_inner (the agent-roster arms
+        // also name "direct" now, alongside grok).
+        let coord = body_of(include_str!("coordinator.rs"), "async fn companion_send_inner(");
         let at = coord.find("\"direct\" =>").expect("direct arm");
         let arm = &coord[at..];
         let arm = &arm[..arm.find("\"hermes\" =>").expect("hermes arm follows")];
@@ -731,6 +768,43 @@ mod tests {
         assert!(validate_direct_base("javascript:alert(1)").is_err());
         assert!(validate_direct_base("ftp://localhost").is_err());
         assert!(validate_direct_base("http://localhost.evil.com").is_err());
+        // Userinfo / encoding / IPv6 tricks: never plain http (or a key in the
+        // URL) to anything but real loopback. Errors are fixed text.
+        for bad in [
+            "http://127.0.0.1:1@evil.com/v1",
+            "http://localhost:x@evil.com/v1",
+            "http://user@127.0.0.1/v1",
+            "http://127.0.0.1%40evil.com/v1",
+            "http://127.0.0.1\\@evil.com/v1",
+            "http://evil.com\\@127.0.0.1/v1",
+            "http://[::1]@evil.com/v1",
+            "http://[::1]evil.com/v1",
+            "http://[::ffff:127.0.0.1]/v1",
+            "http://[::1%25en0]/v1",
+            "http://127.0.0.1:12a/v1",
+            "https://u:p@api.example.com/v1",
+            "http://:8080/v1",
+            "http://[]/v1",
+            "http://localhost:/v1",
+            "http://localhost:1:2/v1",
+            "http://127.0.0.1:99999/v1",
+            "http://local%68ost/v1",
+            "https://sk-secret-key@api.example.com/v1",
+        ] {
+            let err = validate_direct_base(bad).expect_err(bad);
+            assert!(!err.contains("evil"), "{bad} -> {err}");
+            assert!(!err.contains("sk-secret"), "{bad} -> {err}");
+            assert!(!err.contains("u:p"), "{bad} -> {err}");
+            assert!(!compat_configured(bad, "m", true), "{bad}");
+        }
+        for good in [
+            "http://localhost:1234/v1",
+            "http://127.0.0.1:11434/v1",
+            "http://[::1]:1234/v1",
+            "https://api.example.com/v1",
+        ] {
+            assert_eq!(validate_direct_base(good).unwrap(), good);
+        }
         assert!(!compat_configured("http://example.com", "m", true));
         assert!(compat_configured("https://api.example.com/v1", "m", true));
         assert!(!compat_configured("https://api.example.com/v1", "", true));
@@ -794,6 +868,122 @@ mod tests {
         assert!(ts.contains("directBaseUrl"));
         assert!(ts.contains("directModel"));
         assert!(!ts.contains("directKey"));
+    }
+
+    /// Lines of `body` from the `"goose" | "grok" | "berd" ...` arm on.
+    fn agent_arms(coord: &str, sig: &str) -> (String, String) {
+        let body = body_of(coord, sig);
+        let arm = body
+            .lines()
+            .find(|l| l.contains("\"goose\" | \"grok\" | \"berd\""))
+            .unwrap_or_else(|| panic!("four-cast arm in {sig}"))
+            .trim()
+            .to_string();
+        let other = &body[body.find("other =>").unwrap_or_else(|| panic!("other arm in {sig}"))..];
+        (arm, other.to_string())
+    }
+
+    #[test]
+    fn direct_takes_the_grok_agent_arm_and_unknown_still_errors() {
+        let coord = include_str!("coordinator.rs");
+        for sig in [
+            "pub fn companion_agents(app: tauri::AppHandle)",
+            "pub fn set_companion_agent(app: tauri::AppHandle, profile: String)",
+        ] {
+            let (arm, other) = agent_arms(coord, sig);
+            // Direct shares grok's companion soul / four-cast stems.
+            assert_eq!(arm, "\"goose\" | \"grok\" | \"berd\" | \"direct\" => {", "{sig}");
+            let body = body_of(coord, sig);
+            assert_eq!(body.matches("\"direct\"").count(), 1, "{sig}: direct only in the grok arm");
+            // Anything else is still the honest unknown-harness error.
+            let other = &other[..other.find("\n        }\n").expect("other arm end")];
+            assert!(other.contains("return Err(crate::companion_backend::unknown_backend_message("), "{sig}");
+        }
+        assert!(crate::companion_backend::unknown_backend_message("nope", BackendSource::State)
+            .starts_with("Unknown harness \"nope\""));
+    }
+
+    /// Pins M3. The local-verb door is gated only on "no attachment",
+    /// never on a picked harness: with nothing picked,
+    /// "what's on the board" still answers (bare `board` is not a local verb).
+    #[test]
+    fn local_verbs_are_not_gated_on_a_picked_harness() {
+        let coord = include_str!("coordinator.rs");
+        let send = body_of(coord, "async fn companion_send_inner(");
+        let route = send.find("crate::mouth_route::run(").expect("mouth_route::run");
+        let before = &send[..route];
+        let guard_at = before.rfind("\n").unwrap();
+        let line_start = before[..guard_at].rfind('\n').unwrap() + 1;
+        let guard = before[line_start..guard_at].trim();
+        assert_eq!(guard, "if attach.is_none() {", "the local-verb guard is attach only");
+        let call_line_end = route + send[route..].find('\n').unwrap();
+        let call_line = send[guard_at + 1..call_line_end].trim();
+        assert_eq!(
+            call_line,
+            "if let Some(spoken) = crate::mouth_route::run(&app, &line, origin) {"
+        );
+        // Inside the door, `picked` only decides whether the you-row is saved.
+        let door = &send[line_start..];
+        let door = &door[..door.find("return Ok(spoken);").expect("door returns")];
+        assert_eq!(door.matches("picked").count(), 1, "{door}");
+        assert!(door.contains("if !picked {\n                persist_companion_you("));
+    }
+
+    /// Split a call's argument list on top-level commas.
+    fn call_args(src: &str, call: &str) -> Vec<Vec<String>> {
+        let mut out = Vec::new();
+        let mut from = 0;
+        while let Some(at) = src[from..].find(call) {
+            let open = from + at + call.len();
+            let (mut depth, mut cur, mut args) = (0i32, String::new(), Vec::new());
+            for c in src[open..].chars() {
+                match c {
+                    '(' | '[' | '{' => {
+                        depth += 1;
+                        cur.push(c);
+                    }
+                    ')' | ']' | '}' if depth == 0 => break,
+                    ')' | ']' | '}' => {
+                        depth -= 1;
+                        cur.push(c);
+                    }
+                    ',' if depth == 0 => args.push(std::mem::take(&mut cur).trim().to_string()),
+                    _ => cur.push(c),
+                }
+            }
+            if !cur.trim().is_empty() {
+                args.push(cur.trim().to_string());
+            }
+            out.push(args);
+            from = open;
+        }
+        out
+    }
+
+    /// Pins M9. The grok harness (send_with_hops) never opens the compat
+    /// HTTP lane: every run_free_lanes call passes direct=false and
+    /// try_compat=false. Only direct_lane::send may try compat.
+    #[test]
+    fn grok_send_with_hops_never_tries_compat() {
+        let hop = include_str!("mouth_hop.rs");
+        let sig = body_of(hop, "pub(crate) fn run_free_lanes(");
+        let params: Vec<&str> = sig
+            .lines()
+            .skip(1)
+            .take_while(|l| !l.starts_with(')'))
+            .map(|l| l.trim().split(':').next().unwrap())
+            .collect();
+        assert_eq!(params[4], "direct");
+        assert_eq!(params[6], "try_compat");
+        let hops = body_of(hop, "pub async fn send_with_hops(");
+        let calls = call_args(hops, "run_free_lanes(");
+        assert_eq!(calls.len(), 2, "both grok free-lane calls are pinned");
+        for args in &calls {
+            assert_eq!(args.len(), 10, "{args:?}");
+            assert_eq!(args[4], "false", "grok path is never direct: {args:?}");
+            assert_eq!(args[6], "false", "grok path never tries compat: {args:?}");
+        }
+        assert!(!hops.contains("try_compat"));
     }
 
     #[test]

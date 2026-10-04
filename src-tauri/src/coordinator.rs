@@ -713,7 +713,7 @@ pub fn companion_agents(app: tauri::AppHandle) -> Result<CompanionAgents, String
             let selected = resolve_agent(&persisted, &a);
             (a, selected)
         }
-        "goose" | "grok" | "berd" => {
+        "goose" | "grok" | "berd" | "direct" => {
             let (agents, prefer) = berd_companion_stems();
             let persisted = crate::state::load_state(&app)
                 .map(|s| s.companion.agent_profile)
@@ -772,7 +772,7 @@ pub fn set_companion_agent(app: tauri::AppHandle, profile: String) -> Result<Str
                 return Err(format!("No Hermes profile named {p:?}."));
             }
         }
-        "goose" | "grok" | "berd" => {
+        "goose" | "grok" | "berd" | "direct" => {
             let stems = berd_agent_stems();
             if !stems.iter().any(|d| d == &p) {
                 return Err(format!("No agent named {p:?} under ~/.agents/agents."));
