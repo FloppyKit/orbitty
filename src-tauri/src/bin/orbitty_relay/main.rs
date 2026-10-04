@@ -1,6 +1,7 @@
 //! Loopback NIP-01 sidecar for t=orbitty 420/421/422.
 //! Default bind 127.0.0.1. Tailscale 100.64/10 ok for one-user VPS.
 //! Never 0.0.0.0. Device nsec is read for pubkey; never logged.
+//! A non-loopback serve refuses an nsec that matches device.npub (copied Mac key).
 
 mod nip;
 mod store;
@@ -112,6 +113,7 @@ fn main() {
 }
 
 fn serve(data_dir: &PathBuf, bind: &str) -> Result<(), String> {
+    nip::replica_refuses_owner_nsec(bind, data_dir)?;
     let pk = nip::load_allowlist_pubkey(data_dir)?;
     eprintln!("orbitty-relay: pubkey {pk}");
     let relay_dir = data_dir.join("relay");

@@ -1,5 +1,6 @@
 //! Device nsec for local NIP-01 ids. Not the FKT wallet.
-//! Never log the secret. Never Spark it. File 0600 in app data.
+//! Never log the secret. Never Spark it. File 0600 in app data
+//! (group/other bits are tightened on load).
 
 use secp256k1::{Keypair, Message, Secp256k1, SecretKey, XOnlyPublicKey, schnorr::Signature};
 use serde_json::Value;
@@ -203,7 +204,31 @@ fn generate_key() -> Result<DeviceKey, String> {
     Err("device key: urandom produced no valid secret".into())
 }
 
+/// Unix: if group/other bits are set, chmod 0600. Returns whether it tightened.
+fn ensure_private_mode(path: &Path) -> Result<bool, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::metadata(path).map_err(|_| "device key unreadable".to_string())?;
+        if meta.permissions().mode() & 0o077 != 0 {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|_| {
+                "device key: could not tighten permissions to 0600".to_string()
+            })?;
+            return Ok(true);
+        }
+        return Ok(false);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(false)
+    }
+}
+
 fn read_key(path: &Path) -> Result<DeviceKey, String> {
+    if ensure_private_mode(path)? {
+        eprintln!("orbitty: device.nsec permissions tightened to 0600");
+    }
     let raw = std::fs::read_to_string(path).map_err(|_| "device key unreadable".to_string())?;
     let hex = raw.trim();
     let bytes = parse_hex32(hex).ok_or_else(|| "device key malformed".to_string())?;
@@ -215,32 +240,55 @@ fn read_key(path: &Path) -> Result<DeviceKey, String> {
 }
 
 fn write_key(path: &Path, key: &DeviceKey) -> Result<(), String> {
-    let secret = key.keypair.secret_bytes();
-    let mut text = hex32(&secret);
-    text.push('\n');
+    let mut secret = key.keypair.secret_bytes();
+    let mut text = hex32(&secret).into_bytes();
+    secret.fill(0);
+    text.push(b'\n');
     let tmp = path.with_extension("nsec.tmp");
-    let mut opts = std::fs::OpenOptions::new();
-    opts.create(true).write(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
+    let result = (|| -> Result<(), String> {
+        // A leftover tmp keeps its old mode (OpenOptions::mode applies on
+        // create only). Remove it, or tighten it, before any secret bytes.
+        match std::fs::remove_file(&tmp) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => {
+                let _ = ensure_private_mode(&tmp)?;
+            }
+        }
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        {
+            use std::io::Write;
+            let mut f = opts
+                .open(&tmp)
+                .map_err(|e| format!("write device key: {e}"))?;
+            f.write_all(&text)
+                .map_err(|e| format!("write device key: {e}"))?;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| format!("write device key: {e}"))?;
+        }
+        std::fs::rename(&tmp, path).map_err(|e| format!("write device key: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
+    })();
+    text.fill(0);
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
-    {
-        use std::io::Write;
-        let mut f = opts
-            .open(&tmp)
-            .map_err(|e| format!("write device key: {e}"))?;
-        f.write_all(text.as_bytes())
-            .map_err(|e| format!("write device key: {e}"))?;
-    }
-    std::fs::rename(&tmp, path).map_err(|e| format!("write device key: {e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
+    result
 }
 
 fn parse_tags(v: Option<&Value>) -> Option<Vec<[String; 2]>> {
@@ -446,5 +494,88 @@ mod tests {
             "sig": "",
         });
         assert_eq!(classify_value(&v), LineClass::Corrupt);
+    }
+
+    fn secret_hex(key: &DeviceKey) -> String {
+        let mut secret = key.keypair.secret_bytes();
+        let hex = hex32(&secret);
+        secret.fill(0);
+        hex
+    }
+
+    #[cfg(unix)]
+    fn unix_mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn loose_nsec_is_tightened_to_0600_and_debug_hides_secret() {
+        let dir = tmpdir();
+        let path = key_path(&dir);
+        let key = generate_key().unwrap();
+        let hex = secret_hex(&key);
+        std::fs::write(&path, format!("{hex}\n")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let loaded = load_or_create_in(&dir).unwrap();
+        #[cfg(unix)]
+        assert_eq!(unix_mode(&path), 0o600, "0644 device.nsec must tighten to 0600");
+        let dbg = format!("{loaded:?}");
+        assert_eq!(dbg, "DeviceKey");
+        assert!(!dbg.contains(&hex), "Debug must not contain the secret hex");
+        std::fs::write(&path, format!("{hex}zz\n")).unwrap();
+        let err = read_key(&path).unwrap_err();
+        assert!(!err.contains(&hex), "error must not contain the secret hex");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stale_loose_tmp_never_stays_world_readable() {
+        let dir = tmpdir();
+        let path = key_path(&dir);
+        let tmp = path.with_extension("nsec.tmp");
+        assert_eq!(tmp.file_name().unwrap(), "device.nsec.tmp");
+        let key = generate_key().unwrap();
+        let hex = secret_hex(&key);
+        std::fs::write(&tmp, b"stale-loose\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        write_key(&path, &key).unwrap();
+        assert!(!tmp.exists(), "stale tmp must not survive the write");
+        #[cfg(unix)]
+        assert_eq!(unix_mode(&path), 0o600);
+        let dbg = format!("{key:?}");
+        assert!(!dbg.contains(&hex), "Debug must not contain the secret hex");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_key_removes_tmp_on_error_and_hides_secret() {
+        let dir = tmpdir();
+        let path = dir.join("device.nsec");
+        std::fs::create_dir(&path).unwrap();
+        let tmp = path.with_extension("nsec.tmp");
+        std::fs::write(&tmp, b"stale-loose\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let key = generate_key().unwrap();
+        let hex = secret_hex(&key);
+        let err = write_key(&path, &key).unwrap_err();
+        assert!(!err.contains(&hex), "error must not contain the secret hex");
+        assert!(
+            !tmp.exists(),
+            "device.nsec.tmp must be removed when the write fails"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
