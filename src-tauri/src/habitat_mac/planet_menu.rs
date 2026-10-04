@@ -17,22 +17,38 @@ use super::{
     set_caption, world_entry, DecorKind, Habitat, Placement,
 };
 
-/// Words on the disc menu. Beach ball is always the last row; `beach_ball`
-/// is the check the menu paints on it (the words do not change).
-pub(crate) fn planet_menu_items(
-    is_marble: bool,
-    has_box: bool,
-    beach_ball: bool,
-) -> Vec<&'static str> {
-    let _ = beach_ball;
+pub(crate) struct MenuRow {
+    label: &'static str,
+    selector: &'static str,
+    state: Option<bool>,
+    enabled: bool,
+}
+
+/// Disc menu rows. Beach ball is always last; its check is `state`.
+pub(crate) fn planet_menu_rows(is_marble: bool, has_box: bool, beach_ball: bool) -> Vec<MenuRow> {
     vec![
-        if is_marble { "Expand" } else { "Minimize" },
-        if has_box {
-            "Remove boombox"
-        } else {
-            "Place boombox"
+        MenuRow {
+            label: if is_marble { "Expand" } else { "Minimize" },
+            selector: "planetToggleMarble:",
+            state: None,
+            enabled: true,
         },
-        "Beach ball",
+        MenuRow {
+            label: if has_box {
+                "Remove boombox"
+            } else {
+                "Place boombox"
+            },
+            selector: "planetToggleBoombox:",
+            state: None,
+            enabled: true,
+        },
+        MenuRow {
+            label: "Beach ball",
+            selector: "planetToggleBeachBall:",
+            state: Some(beach_ball),
+            enabled: !is_marble,
+        },
     ]
 }
 
@@ -50,7 +66,7 @@ pub(crate) unsafe fn planet_context_menu(
             .map(|w| (w.boombox_pos.is_some(), w.beach_ball))
             .unwrap_or((false, false))
     };
-    let rows = planet_menu_items(is_marble, has_box, beach_ball);
+    let rows = planet_menu_rows(is_marble, has_box, beach_ball);
     // Lock dropped: popUpContextMenu runs modally and the target's actions
     // re-lock on selection.
     let Some(target) = menu_target() else {
@@ -63,33 +79,17 @@ pub(crate) unsafe fn planet_context_menu(
     }
     // One row toggles marble ↔ expanded. Boombox is a live place/remove.
     // Beach ball is checkable and stays off marbles (no walkers there).
-    add_menu_item(
-        menu,
-        rows[0],
-        sel!(planetToggleMarble:),
-        target,
-        project_id,
-        None,
-        true,
-    );
-    add_menu_item(
-        menu,
-        rows[1],
-        sel!(planetToggleBoombox:),
-        target,
-        project_id,
-        None,
-        true,
-    );
-    add_menu_item(
-        menu,
-        rows[2],
-        sel!(planetToggleBeachBall:),
-        target,
-        project_id,
-        Some(beach_ball),
-        !is_marble,
-    );
+    for row in &rows {
+        add_menu_item(
+            menu,
+            row.label,
+            Sel::register(row.selector),
+            target,
+            project_id,
+            row.state,
+            row.enabled,
+        );
+    }
     let view = this as *const Object as *mut Object;
     pop_context_menu(menu, event, view);
     let _: () = msg_send![menu, release];
@@ -144,25 +144,6 @@ pub(crate) extern "C" fn menu_minimize(this: &Object, cmd: Sel, sender: *mut Obj
 pub(crate) extern "C" fn menu_restore(this: &Object, cmd: Sel, sender: *mut Object) {
     menu_toggle_marble(this, cmd, sender);
 }
-
-pub(crate) extern "C" fn menu_claim_front(_this: &Object, _cmd: Sel, sender: *mut Object) {
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let Some(id) = sender_project_id(sender) else {
-            return;
-        };
-        if let Some(app) = app_handle() {
-            if let Err(e) = crate::claim_front::claim_front_to_planet(app, &id) {
-                eprintln!("planet-claim-front: {e}");
-                if let Some(planet) = lock().planets.get_mut(&id) {
-                    set_caption(planet, format!("claim: {e}"));
-                }
-            } else if let Some(planet) = lock().planets.get_mut(&id) {
-                set_caption(planet, "claimed here".into());
-            }
-        }
-    }));
-}
-
 
 pub(crate) extern "C" fn menu_toggle_plant(_this: &Object, _cmd: Sel, sender: *mut Object) {
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
@@ -339,14 +320,15 @@ pub(crate) extern "C" fn menu_boombox_volume(_this: &Object, _cmd: Sel, sender: 
 
 #[cfg(test)]
 mod tests {
-    use super::planet_menu_items;
+    use super::planet_menu_rows;
 
     #[test]
     fn planet_menu_is_minimize_boombox_beach_ball() {
         for marble in [false, true] {
             for has_box in [false, true] {
                 for ball in [false, true] {
-                    let items = planet_menu_items(marble, has_box, ball);
+                    let rows = planet_menu_rows(marble, has_box, ball);
+                    let items: Vec<&str> = rows.iter().map(|r| r.label).collect();
                     assert_eq!(items.len(), 3, "{items:?}");
                     assert_eq!(items[0], if marble { "Expand" } else { "Minimize" });
                     assert_eq!(
@@ -358,14 +340,32 @@ mod tests {
                         }
                     );
                     assert_eq!(items[2], "Beach ball");
+                    assert_eq!(rows[2].enabled, !marble);
+                    assert_eq!(rows[2].state, Some(ball));
                     let blob = items.join("\n").to_ascii_lowercase();
                     assert!(!blob.contains("plant"), "{blob}");
                     assert!(!blob.contains("mushroom"), "{blob}");
                     assert!(!blob.contains("building"), "{blob}");
                     assert!(!blob.contains("music"), "{blob}");
                     assert!(!blob.contains("front window"), "{blob}");
+                    assert!(!blob.contains("put front window here"), "{blob}");
                 }
             }
         }
+    }
+
+    #[test]
+    fn planet_menu_rows_pair_labels_with_selectors() {
+        let rows = planet_menu_rows(true, false, false);
+        let pairs: Vec<(&str, &str)> = rows.iter().map(|r| (r.label, r.selector)).collect();
+        assert_eq!(
+            pairs,
+            [
+                ("Expand", "planetToggleMarble:"),
+                ("Place boombox", "planetToggleBoombox:"),
+                ("Beach ball", "planetToggleBeachBall:"),
+            ]
+        );
+        assert!(!rows[2].enabled, "beach ball stays off a marble");
     }
 }

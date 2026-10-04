@@ -69,6 +69,19 @@ fn release_is_empty_surface(planet: &super::Planet, local: NSPoint) -> bool {
     )
 }
 
+/// Double-click with no real drag. Clicks other than 2 do not toggle.
+/// A panel drag of ≥4px, and any other grab, do not toggle.
+fn surface_toggle_gesture(clicks: usize, drag: Option<&Drag>) -> bool {
+    if clicks != 2 {
+        return false;
+    }
+    match drag {
+        Some(Drag::Panel { moved, .. }) if *moved >= 4.0 => false,
+        Some(Drag::Panel { .. }) | None => true,
+        Some(_) => false,
+    }
+}
+
 /// Stationary empty-surface double-click. A real panel drag (≥4px) and any
 /// other grab (décor, walker, slider, todo tree) are not this toggle.
 fn surface_toggle_id(
@@ -77,13 +90,8 @@ fn surface_toggle_id(
     local: NSPoint,
     clicks: usize,
 ) -> Option<String> {
-    if clicks != 2 {
+    if !surface_toggle_gesture(clicks, h.drag.as_ref()) {
         return None;
-    }
-    match &h.drag {
-        Some(Drag::Panel { moved, .. }) if *moved >= 4.0 => return None,
-        Some(Drag::Panel { .. }) | None => {}
-        Some(_) => return None,
     }
     let (project_id, planet) = h.planets.iter().find(|(_, p)| p.view == view_ptr)?;
     if !release_is_empty_surface(planet, local) {
@@ -296,6 +304,10 @@ pub(crate) unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
 #[cfg(test)]
 mod tests {
     use super::empty_surface_double;
+    use super::surface_toggle_gesture;
+    use super::Drag;
+    use super::NSPoint;
+    use super::super::{DecorKind, DecorRef};
 
     fn hit(
         over: bool,
@@ -323,5 +335,42 @@ mod tests {
         assert!(!hit(true, false, false, false, false, false, true, false, false));
         assert!(!hit(true, false, false, false, false, false, false, true, false));
         assert!(!hit(true, false, false, false, false, false, false, false, true));
+    }
+
+    fn panel(moved: f64) -> Drag {
+        Drag::Panel {
+            project_id: "p".into(),
+            grab_dx: 0.0,
+            grab_dy: 0.0,
+            start: NSPoint { x: 0.0, y: 0.0 },
+            moved,
+        }
+    }
+
+    #[test]
+    fn surface_toggle_gesture_is_a_still_double_click() {
+        assert!(!surface_toggle_gesture(0, None));
+        assert!(!surface_toggle_gesture(1, None));
+        assert!(surface_toggle_gesture(2, None));
+        assert!(!surface_toggle_gesture(3, None));
+        assert!(surface_toggle_gesture(2, Some(&panel(3.9))));
+        assert!(!surface_toggle_gesture(2, Some(&panel(4.0))));
+        let decor = Drag::Decor {
+            project_id: "p".into(),
+            decor: DecorRef {
+                kind: DecorKind::Plant,
+                index: 0,
+            },
+            start: NSPoint { x: 0.0, y: 0.0 },
+            moved: 0.0,
+        };
+        assert!(!surface_toggle_gesture(2, Some(&decor)));
+        let walker = Drag::Walker {
+            project_id: "p".into(),
+            entry_id: "e".into(),
+            start: NSPoint { x: 0.0, y: 0.0 },
+            moved: 0.0,
+        };
+        assert!(!surface_toggle_gesture(2, Some(&walker)));
     }
 }

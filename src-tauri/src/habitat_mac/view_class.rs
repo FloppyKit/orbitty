@@ -125,10 +125,6 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
         planet_menu::menu_toggle_marble as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
-        sel!(planetClaimFront:),
-        planet_menu::menu_claim_front as extern "C" fn(&Object, Sel, *mut Object),
-    );
-    decl.add_method(
         sel!(planetTogglePlant:),
         planet_menu::menu_toggle_plant as extern "C" fn(&Object, Sel, *mut Object),
     );

@@ -22,12 +22,16 @@ impl std::fmt::Debug for Device {
     }
 }
 
-/// Unix: if group/other bits are set, chmod 0600. Returns whether it tightened.
+/// Unix: group/other bits on a regular file are chmod'd to 0600.
+/// A directory is left at its mode. Returns whether it tightened.
 fn ensure_private_mode(path: &Path) -> Result<bool, String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let meta = std::fs::metadata(path).map_err(|_| "device key unreadable".to_string())?;
+        if !meta.is_file() {
+            return Ok(false);
+        }
         if meta.permissions().mode() & 0o077 != 0 {
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|_| {
                 "device key: could not tighten permissions to 0600".to_string()
@@ -70,9 +74,15 @@ fn bind_is_loopback(bind: &str) -> bool {
     host == "127.0.0.1" || host == "::1" || host == "localhost"
 }
 
-/// Refuse a non-loopback serve when `device.nsec` derives to the pubkey
-/// in `device.npub` (a copied Mac key). A distinct replica nsec, an
-/// npub-only dir, and any loopback bind are allowed. No secret in the error.
+/// Fixed, secret-free refusal when a non-loopback serve has `device.nsec`
+/// but `device.npub` is missing, unreadable, or not 64-hex.
+const REPLICA_NEEDS_OWNER_NPUB: &str = "refusing replica: device.nsec needs a valid device.npub (64-hex Mac owner key) to prove it is not the Mac key";
+
+/// Refuse a non-loopback serve when `device.nsec` is present unless
+/// `device.npub` is a 64-hex owner key that does not match it (a copied
+/// Mac key is still refused). A missing, unreadable, directory, empty,
+/// or non-64-hex npub (including bech32 `npub1…`) is refused. An
+/// npub-only dir and any loopback bind are allowed. No secret in the error.
 pub fn replica_refuses_owner_nsec(bind: &str, data_dir: &Path) -> Result<(), String> {
     if bind_is_loopback(bind) {
         return Ok(());
@@ -83,11 +93,11 @@ pub fn replica_refuses_owner_nsec(bind: &str, data_dir: &Path) -> Result<(), Str
     }
     let owner = match std::fs::read_to_string(data_dir.join("device.npub")) {
         Ok(s) => s,
-        Err(_) => return Ok(()),
+        Err(_) => return Err(REPLICA_NEEDS_OWNER_NPUB.into()),
     };
     let owner = owner.trim();
     if parse_hex32(owner).is_none() {
-        return Ok(());
+        return Err(REPLICA_NEEDS_OWNER_NPUB.into());
     }
     let device = load_device(&nsec)?;
     if device.pubkey.eq_ignore_ascii_case(owner) {
@@ -508,6 +518,124 @@ mod tests {
         assert!(replica_refuses_owner_nsec("127.0.0.1:13120", &dir).is_ok());
         assert!(replica_refuses_owner_nsec("[::1]:13120", &dir).is_ok());
         assert!(replica_refuses_owner_nsec("localhost:13120", &dir).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn assert_needs_owner_npub(err: String, sec: &str, leaked: &str) {
+        assert_eq!(err, super::REPLICA_NEEDS_OWNER_NPUB);
+        assert!(!err.contains(sec), "refusal must not contain the secret hex");
+        if !leaked.is_empty() {
+            assert!(!err.contains(leaked), "refusal must not echo the npub file");
+        }
+    }
+
+    #[test]
+    fn replica_nsec_without_valid_owner_npub_refused() {
+        let dir = scratch();
+        let (sec, pk) = mint_key();
+        let (other_sec, other_pk) = mint_key();
+        assert_ne!(pk, other_pk);
+        let nsec = dir.join("device.nsec");
+        let npub = dir.join("device.npub");
+        write_mode(&nsec, &format!("{sec}\n"), 0o600);
+        let bind = "100.64.0.1:13120";
+
+        std::fs::remove_file(&npub).ok();
+        assert_needs_owner_npub(
+            replica_refuses_owner_nsec(bind, &dir).unwrap_err(),
+            &sec,
+            "",
+        );
+
+        let body = format!("not-hex-{other_pk}");
+        std::fs::write(&npub, &body).unwrap();
+        assert_needs_owner_npub(
+            replica_refuses_owner_nsec(bind, &dir).unwrap_err(),
+            &sec,
+            &body,
+        );
+
+        std::fs::write(&npub, "\n").unwrap();
+        assert_needs_owner_npub(
+            replica_refuses_owner_nsec(bind, &dir).unwrap_err(),
+            &sec,
+            "",
+        );
+
+        let bech = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
+        std::fs::write(&npub, bech).unwrap();
+        assert_needs_owner_npub(
+            replica_refuses_owner_nsec(bind, &dir).unwrap_err(),
+            &sec,
+            bech,
+        );
+
+        std::fs::remove_file(&npub).unwrap();
+        std::fs::create_dir(&npub).unwrap();
+        assert_needs_owner_npub(
+            replica_refuses_owner_nsec(bind, &dir).unwrap_err(),
+            &sec,
+            "",
+        );
+        std::fs::remove_dir(&npub).unwrap();
+
+        std::fs::write(&npub, &other_pk).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&npub, std::fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        assert_needs_owner_npub(
+            replica_refuses_owner_nsec(bind, &dir).unwrap_err(),
+            &sec,
+            &other_pk,
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&npub, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        write_mode(&nsec, &format!("{other_sec}\n"), 0o600);
+        std::fs::write(&npub, &pk).unwrap();
+        assert!(replica_refuses_owner_nsec(bind, &dir).is_ok());
+
+        std::fs::remove_file(&nsec).unwrap();
+        assert!(replica_refuses_owner_nsec(bind, &dir).is_ok());
+
+        write_mode(&nsec, &format!("{sec}\n"), 0o600);
+        std::fs::remove_file(&npub).unwrap();
+        assert!(replica_refuses_owner_nsec("127.0.0.1:13120", &dir).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn group_readable_0640_nsec_is_tightened_to_0600() {
+        let dir = scratch();
+        let (sec, pk) = mint_key();
+        let path = dir.join("device.nsec");
+        write_mode(&path, &format!("{sec}\n"), 0o640);
+        let dev = load_device(&path).unwrap();
+        assert_eq!(dev.pubkey, pk);
+        #[cfg(unix)]
+        assert_eq!(unix_mode(&path), 0o600, "0640 device.nsec must tighten to 0600");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn directory_key_path_keeps_mode_and_is_unreadable() {
+        let dir = scratch();
+        let path = dir.join("device.nsec");
+        std::fs::create_dir(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let err = load_device(&path).unwrap_err();
+        assert_eq!(err, "device key unreadable");
+        #[cfg(unix)]
+        assert_eq!(unix_mode(&path), 0o755, "a directory at the key path is not chmod'd");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

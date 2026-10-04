@@ -51,6 +51,17 @@ pub(crate) enum AvatarVerb {
     EditBeing,
 }
 
+impl AvatarVerb {
+    fn selector_name(self) -> &'static str {
+        match self {
+            AvatarVerb::Pack => "walkerSetPack:",
+            AvatarVerb::AddImage => "walkerUseImage:",
+            AvatarVerb::AddFolder => "walkerUseFolder:",
+            AvatarVerb::EditBeing => "walkerOpenBeing:",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AvatarLine {
     Item {
@@ -172,12 +183,7 @@ unsafe fn pop_avatar_menu(entry_id: &str) {
                 checked,
                 verb,
             } => {
-                let action = match verb {
-                    AvatarVerb::Pack => sel!(walkerSetPack:),
-                    AvatarVerb::AddImage => sel!(walkerUseImage:),
-                    AvatarVerb::AddFolder => sel!(walkerUseFolder:),
-                    AvatarVerb::EditBeing => sel!(walkerOpenBeing:),
-                };
+                let action = Sel::register(verb.selector_name());
                 let state = match verb {
                     AvatarVerb::Pack => Some(*checked),
                     _ => None,
@@ -246,6 +252,14 @@ mod tests {
             &lines[5],
             AvatarLine::Item { label, verb: AvatarVerb::EditBeing, .. } if label == "Edit being…"
         ));
+    }
+
+    #[test]
+    fn avatar_verbs_name_their_selectors() {
+        assert_eq!(AvatarVerb::AddImage.selector_name(), "walkerUseImage:");
+        assert_eq!(AvatarVerb::AddFolder.selector_name(), "walkerUseFolder:");
+        assert_eq!(AvatarVerb::Pack.selector_name(), "walkerSetPack:");
+        assert_eq!(AvatarVerb::EditBeing.selector_name(), "walkerOpenBeing:");
     }
 
     #[test]
