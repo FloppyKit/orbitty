@@ -21,3 +21,8 @@ docs/cursor-runs/
 *.pid
 *.log
 __pycache__/
+
+# Local-only (kept on disk, out of git)
+.dogfood/
+nohup.out
+brand/droid-kit-v0/
