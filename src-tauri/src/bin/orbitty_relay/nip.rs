@@ -421,13 +421,17 @@ mod tests {
     }
 
     fn scratch() -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
         let p = std::env::temp_dir().join(format!(
-            "orbitty-relay-key-{}-{}",
+            "orbitty-relay-key-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
-                .unwrap_or(0)
+                .unwrap_or(0),
+            n
         ));
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).unwrap();
