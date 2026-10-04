@@ -62,7 +62,25 @@ if [[ ! -d "$SRC" ]]; then
   exit 1
 fi
 
-codesign --force --deep --sign "$IDENTITY" --timestamp=none "$SRC"
+# Helpers keep their own signatures: sign each Contents/MacOS binary
+# except the main `orbitty`, then the bundle without --deep.
+sign_macos_helpers_then_app() {
+  local bundle=$1 macos=$1/Contents/MacOS f
+  if [[ -d $macos ]]; then
+    for f in "$macos"/*(N.); do
+      if [[ ${f:t} == orbitty ]]; then
+        continue
+      fi
+      codesign --force --sign "$IDENTITY" --timestamp=none "$f"
+    done
+  fi
+  codesign --force --sign "$IDENTITY" --timestamp=none "$bundle"
+}
+
+echo "==> Checking bundled orbittyctl"
+scripts/check_bundled_ctl.sh "$SRC"
+
+sign_macos_helpers_then_app "$SRC"
 
 echo "==> Installing to $DEST (daily Orbitty.app untouched)"
 mkdir -p "$HOME/Applications"
@@ -91,9 +109,12 @@ fi
 # GO-ORBITTY-RENAME-MOVE: ditto merge leaves the pre-rename executable behind.
 # Drop this line once both installed apps are clean.
 
-codesign --force --deep --sign "$IDENTITY" --timestamp=none "$DEST"
+sign_macos_helpers_then_app "$DEST"
 codesign --verify --deep --strict --verbose=2 "$DEST"
 codesign -dvv "$DEST" 2>&1 | grep -E '^(Identifier|Authority)' || true
+
+echo "==> Checking installed orbittyctl"
+scripts/check_bundled_ctl.sh "$DEST"
 
 # Share stable worlds/kanban for dogfood (one-time symlink if absent).
 if [[ -d "$STABLE_SUPPORT" && ! -e "$NIGHTLY_SUPPORT" ]]; then

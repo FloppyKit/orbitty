@@ -2,6 +2,7 @@
 
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use crate::state::ActionShortcut;
 
@@ -217,8 +218,8 @@ mod reg {
 /// Persists through the one save door only when the list changed.
 /// Returns the resulting list for the boot combo sync.
 pub fn bake_defaults(app: &tauri::AppHandle) -> Vec<ActionShortcut> {
-    // CTL-BUNDLE (alpha #11): these seeded chords stay bare `orbittyctl` on PATH.
-    // Launchers use the running app's bundled orbittyctl plus `--sock`.
+    // Seeded chords stay human-readable bare `orbittyctl`.
+    // Dispatch rewrites the bare token to the bundled ctl with `--sock`.
     // `thin` is dev-only. The chord does not shell its command string:
     // dispatch_action sends it through companion_thin (same path as the button).
     let mut seeds: Vec<(&str, &str, &str)> = vec![
@@ -435,6 +436,28 @@ pub fn action_run(
     dispatch_action(app, &name, command, cwd)
 }
 
+/// If the trimmed command's first token is exactly `orbittyctl`, run the
+/// bundled ctl with this app's socket. Any other command is returned as-is.
+/// Stored rows stay bare; this is applied at dispatch, not at save.
+fn bundled_ctl_command(command: &str, ctl: &Path, sock: &Path) -> String {
+    let trimmed = command.trim();
+    let token_end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+    if &trimmed[..token_end] != "orbittyctl" {
+        return command.to_string();
+    }
+    let rest = trimmed[token_end..].trim_start();
+    let ctl_q = crate::coordinator::sq(&ctl.to_string_lossy());
+    if rest.contains("--sock") {
+        format!("{ctl_q} {rest}")
+    } else if rest.is_empty() {
+        let sock_q = crate::coordinator::sq(&sock.to_string_lossy());
+        format!("{ctl_q} --sock {sock_q}")
+    } else {
+        let sock_q = crate::coordinator::sq(&sock.to_string_lossy());
+        format!("{ctl_q} --sock {sock_q} {rest}")
+    }
+}
+
 /// Every action door shares this: the chord press, `action.run`, the chat
 /// line intercept and the CheatSheet click (`run_action`). A thin row never
 /// shells out (not the bare `orbittyctl` on PATH, which talks to Stable's
@@ -450,7 +473,15 @@ pub(crate) fn dispatch_action(
         command,
         cwd,
         || crate::coordinator::companion_thin(app.clone()),
-        |command, cwd| crate::coordinator::run_action_logged(app, command, cwd),
+        |command, cwd| {
+            let ctl = crate::coordinator::bundled_orbittyctl();
+            let command = if ctl.is_file() {
+                bundled_ctl_command(&command, &ctl, &crate::coordinator::control_sock_path(app))
+            } else {
+                command
+            };
+            crate::coordinator::run_action_logged(app, command, cwd)
+        },
     )
 }
 
@@ -485,6 +516,8 @@ const THIN_SEED: (&str, &str, &str) = ("thin", "cmd+alt+t", "orbittyctl companio
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     #[test]
     fn thin_seed_uses_the_shared_path() {
         let (name, combo, command) = super::THIN_SEED;
@@ -617,5 +650,98 @@ mod tests {
 
     fn fn_body_of_companion_thin() -> &'static str {
         crate::thin::tests::fn_body(include_str!("coordinator.rs"), "pub fn companion_thin(")
+    }
+
+    #[test]
+    fn bare_ctl_rewritten_with_sock() {
+        let ctl = Path::new("/Applications/Orbitty.app/Contents/MacOS/orbittyctl");
+        let sock = Path::new("/tmp/control.sock");
+        let got = super::bundled_ctl_command("orbittyctl kanban open", ctl, sock);
+        assert_eq!(
+            got,
+            format!(
+                "{} --sock {} kanban open",
+                crate::coordinator::sq(&ctl.to_string_lossy()),
+                crate::coordinator::sq(&sock.to_string_lossy()),
+            )
+        );
+    }
+
+    #[test]
+    fn existing_sock_not_doubled() {
+        let ctl = Path::new("/Applications/Orbitty.app/Contents/MacOS/orbittyctl");
+        let sock = Path::new("/tmp/control.sock");
+        let got = super::bundled_ctl_command(
+            "orbittyctl --sock /already.sock kanban open",
+            ctl,
+            sock,
+        );
+        assert_eq!(
+            got,
+            format!(
+                "{} --sock /already.sock kanban open",
+                crate::coordinator::sq(&ctl.to_string_lossy()),
+            )
+        );
+        assert_eq!(got.matches("--sock").count(), 1);
+        assert!(!got.contains("/tmp/control.sock"));
+    }
+
+    #[test]
+    fn absolute_path_untouched() {
+        let cmd = "/usr/local/bin/orbittyctl kanban open";
+        let got = super::bundled_ctl_command(cmd, Path::new("/a/orbittyctl"), Path::new("/b/sock"));
+        assert_eq!(got, cmd);
+    }
+
+    #[test]
+    fn ctl_prefix_word_untouched() {
+        let cmd = "orbittyctl2 kanban open";
+        let got = super::bundled_ctl_command(cmd, Path::new("/a/orbittyctl"), Path::new("/b/sock"));
+        assert_eq!(got, cmd);
+    }
+
+    #[test]
+    fn mid_command_untouched() {
+        let cmd = "echo orbittyctl";
+        let got = super::bundled_ctl_command(cmd, Path::new("/a/orbittyctl"), Path::new("/b/sock"));
+        assert_eq!(got, cmd);
+    }
+
+    #[test]
+    fn paths_with_spaces_single_quoted() {
+        let ctl = Path::new("/Applications/Orbitty Nightly.app/Contents/MacOS/orbittyctl");
+        let sock = Path::new("/tmp/nightly sock/control.sock");
+        let got = super::bundled_ctl_command("orbittyctl stars open", ctl, sock);
+        assert_eq!(
+            got,
+            "'/Applications/Orbitty Nightly.app/Contents/MacOS/orbittyctl' --sock '/tmp/nightly sock/control.sock' stars open"
+        );
+    }
+
+    #[test]
+    fn thin_row_still_routes_to_companion_thin() {
+        let (_, _, seeded) = super::THIN_SEED;
+        let rewritten = super::bundled_ctl_command(
+            seeded,
+            Path::new("/Applications/Orbitty.app/Contents/MacOS/orbittyctl"),
+            Path::new("/tmp/control.sock"),
+        );
+        assert_ne!(rewritten, seeded);
+        assert!(crate::thin::routes_to_companion_thin("thin", seeded));
+        let thin_calls = std::cell::Cell::new(0);
+        let r = super::dispatch_with(
+            "thin",
+            seeded.to_string(),
+            None,
+            || {
+                thin_calls.set(thin_calls.get() + 1);
+                Ok("THIN stamped".into())
+            },
+            |c, _| panic!("thin row shelled {c:?}"),
+        )
+        .unwrap();
+        assert_eq!(thin_calls.get(), 1);
+        assert!(r.ok && r.stdout == "THIN stamped");
     }
 }
