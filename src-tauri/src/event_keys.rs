@@ -1,5 +1,6 @@
 //! Device nsec for local NIP-01 ids. Not the FKT wallet.
-//! Never log the secret. Never Spark it. File 0600 in app data.
+//! Never log the secret. Never Spark it. File 0600 in app data
+//! (group/other bits are tightened on load).
 
 use secp256k1::{Keypair, Message, Secp256k1, SecretKey, XOnlyPublicKey, schnorr::Signature};
 use serde_json::Value;
@@ -203,7 +204,35 @@ fn generate_key() -> Result<DeviceKey, String> {
     Err("device key: urandom produced no valid secret".into())
 }
 
+/// Unix: group/other bits on a regular file are chmod'd to 0600.
+/// A directory is left at its mode. Returns whether it tightened.
+fn ensure_private_mode(path: &Path) -> Result<bool, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::metadata(path).map_err(|_| "device key unreadable".to_string())?;
+        if !meta.is_file() {
+            return Ok(false);
+        }
+        if meta.permissions().mode() & 0o077 != 0 {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|_| {
+                "device key: could not tighten permissions to 0600".to_string()
+            })?;
+            return Ok(true);
+        }
+        return Ok(false);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(false)
+    }
+}
+
 fn read_key(path: &Path) -> Result<DeviceKey, String> {
+    if ensure_private_mode(path)? {
+        eprintln!("orbitty: device.nsec permissions tightened to 0600");
+    }
     let raw = std::fs::read_to_string(path).map_err(|_| "device key unreadable".to_string())?;
     let hex = raw.trim();
     let bytes = parse_hex32(hex).ok_or_else(|| "device key malformed".to_string())?;
@@ -214,33 +243,57 @@ fn read_key(path: &Path) -> Result<DeviceKey, String> {
     })
 }
 
-fn write_key(path: &Path, key: &DeviceKey) -> Result<(), String> {
-    let secret = key.keypair.secret_bytes();
-    let mut text = hex32(&secret);
-    text.push('\n');
-    let tmp = path.with_extension("nsec.tmp");
+fn open_tmp_exclusive(path: &Path) -> std::io::Result<std::fs::File> {
     let mut opts = std::fs::OpenOptions::new();
-    opts.create(true).write(true).truncate(true);
+    opts.create_new(true).write(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    {
-        use std::io::Write;
-        let mut f = opts
-            .open(&tmp)
-            .map_err(|e| format!("write device key: {e}"))?;
-        f.write_all(text.as_bytes())
-            .map_err(|e| format!("write device key: {e}"))?;
+    opts.open(path)
+}
+
+fn write_key(path: &Path, key: &DeviceKey) -> Result<(), String> {
+    let mut secret = key.keypair.secret_bytes();
+    let mut text = hex32(&secret).into_bytes();
+    secret.fill(0);
+    text.push(b'\n');
+    let tmp = path.with_extension("nsec.tmp");
+    let result = (|| -> Result<(), String> {
+        // Drop a leftover tmp before the exclusive create. A hard link
+        // or a file re-planted at this path must not receive the secret.
+        match std::fs::remove_file(&tmp) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("write device key: could not remove stale tmp".into()),
+        }
+        {
+            use std::io::Write;
+            let mut f = open_tmp_exclusive(&tmp)
+                .map_err(|_| "write device key: could not create tmp".to_string())?;
+            f.write_all(&text)
+                .map_err(|e| format!("write device key: {e}"))?;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| format!("write device key: {e}"))?;
+        }
+        std::fs::rename(&tmp, path).map_err(|e| format!("write device key: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
+    })();
+    text.fill(0);
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
-    std::fs::rename(&tmp, path).map_err(|e| format!("write device key: {e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
+    result
 }
 
 fn parse_tags(v: Option<&Value>) -> Option<Vec<[String; 2]>> {
@@ -337,14 +390,18 @@ mod tests {
     use super::*;
 
     fn tmpdir() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
         let mut p = std::env::temp_dir();
         p.push(format!(
-            "orbitty-event-keys-{}-{}",
+            "orbitty-event-keys-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
-                .unwrap_or(0)
+                .unwrap_or(0),
+            n
         ));
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).unwrap();
@@ -446,5 +503,160 @@ mod tests {
             "sig": "",
         });
         assert_eq!(classify_value(&v), LineClass::Corrupt);
+    }
+
+    fn secret_hex(key: &DeviceKey) -> String {
+        let mut secret = key.keypair.secret_bytes();
+        let hex = hex32(&secret);
+        secret.fill(0);
+        hex
+    }
+
+    #[cfg(unix)]
+    fn unix_mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn loose_nsec_is_tightened_to_0600_and_debug_hides_secret() {
+        let dir = tmpdir();
+        let path = key_path(&dir);
+        let key = generate_key().unwrap();
+        let hex = secret_hex(&key);
+        std::fs::write(&path, format!("{hex}\n")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let loaded = load_or_create_in(&dir).unwrap();
+        #[cfg(unix)]
+        assert_eq!(unix_mode(&path), 0o600, "0644 device.nsec must tighten to 0600");
+        let dbg = format!("{loaded:?}");
+        assert_eq!(dbg, "DeviceKey");
+        assert!(!dbg.contains(&hex), "Debug must not contain the secret hex");
+        std::fs::write(&path, format!("{hex}zz\n")).unwrap();
+        let err = read_key(&path).unwrap_err();
+        assert!(!err.contains(&hex), "error must not contain the secret hex");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stale_loose_tmp_never_stays_world_readable() {
+        let dir = tmpdir();
+        let path = key_path(&dir);
+        let tmp = path.with_extension("nsec.tmp");
+        assert_eq!(tmp.file_name().unwrap(), "device.nsec.tmp");
+        let key = generate_key().unwrap();
+        let hex = secret_hex(&key);
+        std::fs::write(&tmp, b"stale-loose\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        write_key(&path, &key).unwrap();
+        assert!(!tmp.exists(), "stale tmp must not survive the write");
+        #[cfg(unix)]
+        assert_eq!(unix_mode(&path), 0o600);
+        let dbg = format!("{key:?}");
+        assert!(!dbg.contains(&hex), "Debug must not contain the secret hex");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_key_removes_tmp_on_error_and_hides_secret() {
+        let dir = tmpdir();
+        let path = dir.join("device.nsec");
+        std::fs::create_dir(&path).unwrap();
+        let tmp = path.with_extension("nsec.tmp");
+        std::fs::write(&tmp, b"stale-loose\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let key = generate_key().unwrap();
+        let hex = secret_hex(&key);
+        let err = write_key(&path, &key).unwrap_err();
+        assert!(!err.contains(&hex), "error must not contain the secret hex");
+        assert!(
+            !tmp.exists(),
+            "device.nsec.tmp must be removed when the write fails"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn group_readable_0640_nsec_is_tightened_to_0600() {
+        let dir = tmpdir();
+        let path = key_path(&dir);
+        let key = generate_key().unwrap();
+        let hex = secret_hex(&key);
+        std::fs::write(&path, format!("{hex}\n")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        }
+        let loaded = read_key(&path).unwrap();
+        assert_eq!(secret_hex(&loaded), hex);
+        #[cfg(unix)]
+        assert_eq!(unix_mode(&path), 0o600, "0640 device.nsec must tighten to 0600");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn directory_key_path_keeps_mode_and_is_unreadable() {
+        let dir = tmpdir();
+        let path = key_path(&dir);
+        std::fs::create_dir(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let err = read_key(&path).unwrap_err();
+        assert_eq!(err, "device key unreadable");
+        #[cfg(unix)]
+        assert_eq!(unix_mode(&path), 0o755, "a directory at the key path is not chmod'd");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_key_hard_link_tmp_does_not_receive_secret() {
+        let dir = tmpdir();
+        let path = key_path(&dir);
+        let decoy_path = dir.join("decoy-outside");
+        std::fs::write(&decoy_path, b"decoy").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&decoy_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let tmp = path.with_extension("nsec.tmp");
+        std::fs::hard_link(&decoy_path, &tmp).unwrap();
+        let key = generate_key().unwrap();
+        let hex = secret_hex(&key);
+        write_key(&path, &key).unwrap();
+        let decoy = std::fs::read_to_string(&decoy_path).unwrap();
+        assert_eq!(decoy, "decoy");
+        assert!(!decoy.contains(&hex), "hard-linked decoy must not receive the secret");
+        #[cfg(unix)]
+        assert_eq!(unix_mode(&path), 0o600);
+        assert!(!tmp.exists(), "tmp must not survive the write");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn open_tmp_exclusive_refuses_existing_tmp() {
+        let dir = tmpdir();
+        let tmp = dir.join("device.nsec.tmp");
+        std::fs::write(&tmp, b"already").unwrap();
+        let err = open_tmp_exclusive(&tmp).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&tmp).unwrap(), b"already");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

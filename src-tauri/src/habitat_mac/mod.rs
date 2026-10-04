@@ -28,6 +28,7 @@ mod input;
 mod mouse;
 mod mouse_up;
 mod walker_menu;
+mod avatar_popup;
 mod planet_menu;
 mod board_geom;
 mod decor_art;

@@ -15,6 +15,7 @@ use super::audio;
 use super::draw;
 use super::input;
 use super::mouse;
+use super::avatar_popup;
 use super::planet_menu;
 use super::walker_menu;
 use super::{panic_msg, NSRect};
@@ -124,10 +125,6 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
         planet_menu::menu_toggle_marble as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
-        sel!(planetClaimFront:),
-        planet_menu::menu_claim_front as extern "C" fn(&Object, Sel, *mut Object),
-    );
-    decl.add_method(
         sel!(planetTogglePlant:),
         planet_menu::menu_toggle_plant as extern "C" fn(&Object, Sel, *mut Object),
     );
@@ -185,6 +182,10 @@ unsafe fn register_menu_target_class() -> Option<&'static Class> {
     decl.add_method(
         sel!(walkerOpenBeing:),
         walker_menu::walker_open_being as extern "C" fn(&Object, Sel, *mut Object),
+    );
+    decl.add_method(
+        sel!(walkerChangeAvatar:),
+        avatar_popup::walker_change_avatar as extern "C" fn(&Object, Sel, *mut Object),
     );
     decl.add_method(
         sel!(walkerAssign:),

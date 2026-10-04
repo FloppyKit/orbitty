@@ -1,6 +1,8 @@
 //! Loopback NIP-01 sidecar for t=orbitty 420/421/422.
 //! Default bind 127.0.0.1. Tailscale 100.64/10 ok for one-user VPS.
 //! Never 0.0.0.0. Device nsec is read for pubkey; never logged.
+//! A non-loopback serve refuses an nsec that matches device.npub (copied Mac key)
+//! and an nsec that has no valid 64-hex owner npub.
 
 mod nip;
 mod store;
@@ -112,6 +114,7 @@ fn main() {
 }
 
 fn serve(data_dir: &PathBuf, bind: &str) -> Result<(), String> {
+    nip::replica_refuses_owner_nsec(bind, data_dir)?;
     let pk = nip::load_allowlist_pubkey(data_dir)?;
     eprintln!("orbitty-relay: pubkey {pk}");
     let relay_dir = data_dir.join("relay");
@@ -241,6 +244,62 @@ fn run_smoke(data_dir: &PathBuf, bind: &str) -> Result<(), String> {
 #[cfg(test)]
 mod bind_tests {
     use super::assert_private_bind;
+    use super::serve;
+
+    fn mint_pair() -> (String, String) {
+        use secp256k1::{Keypair, Secp256k1, SecretKey};
+        use std::io::Read;
+        let secp = Secp256k1::signing_only();
+        let mut urandom = std::fs::File::open("/dev/urandom").unwrap();
+        for _ in 0..8 {
+            let mut buf = [0u8; 32];
+            urandom.read_exact(&mut buf).unwrap();
+            if let Ok(sk) = SecretKey::from_slice(&buf) {
+                let kp = Keypair::from_secret_key(&secp, &sk);
+                let (xonly, _) = kp.x_only_public_key();
+                let sec: String = buf.iter().map(|b| format!("{b:02x}")).collect();
+                let pk: String = xonly.serialize().iter().map(|b| format!("{b:02x}")).collect();
+                buf.fill(0);
+                return (sec, pk);
+            }
+            buf.fill(0);
+        }
+        panic!("urandom produced no valid secret");
+    }
+
+    #[test]
+    fn serve_copied_nsec_refuses_before_store() {
+        let dir = std::env::temp_dir().join(format!(
+            "orbitty-relay-serve-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (sec, pk) = mint_pair();
+        std::fs::write(dir.join("device.nsec"), format!("{sec}\n")).unwrap();
+        std::fs::write(dir.join("device.npub"), &pk).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                dir.join("device.nsec"),
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+        }
+        let err = serve(&dir, "192.0.2.1:0").unwrap_err();
+        assert!(err.contains("refusing replica"), "{err}");
+        assert!(!err.contains(&sec), "refusal must not contain the secret hex");
+        assert!(
+            !dir.join("relay").exists(),
+            "serve must not open the store before the replica check"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn loopback_ok() {
