@@ -425,6 +425,7 @@ mod tests {
             "✔️ PASS",
             "日本語",
             "ÄÄÄx",
+            "aÄÄÄ",
             "Password reset needed",
             "PASSED with 3 failures",
             "pass: but build broke",
@@ -442,6 +443,29 @@ mod tests {
         assert_eq!(parse_verdict("fail: x"), Verdict::Fail("x".into()));
         assert_eq!(parse_verdict("HUMAN: y"), Verdict::Human("y".into()));
         assert_eq!(parse_verdict("FAIL:"), Verdict::Fail("no sentence".into()));
+    }
+
+    #[test]
+    fn pass_finish_moves_the_card_to_done() {
+        let src = include_str!("verify_close.rs");
+        let start = src.find("Finish::Done { spark } =>").expect("done arm");
+        let end = start + src[start..].find("Finish::Needed").expect("needed arm");
+        let done = &src[start..end];
+        assert!(done.contains("kanban_move(app, card_id, \"done\")"), "{done}");
+        assert!(!done.contains("\"doing\""), "{done}");
+    }
+
+    #[test]
+    fn launch_agent_arms_verify_close_after_success() {
+        let src = include_str!("coordinator.rs");
+        let start = src.find("pub fn launch_agent(").expect("launch_agent");
+        let body = &src[start..];
+        let end = body.find("\nfn record_go_launch").expect("record_go_launch");
+        let body = &body[..end];
+        assert!(
+            body.contains("crate::verify_close::arm_launch(app.clone(), g.card_id.clone(), &hint);")
+        );
+        assert!(!body.contains("crate::verify_close::arm(app.clone(), g.card_id.clone(), &hint);"));
     }
 
     fn hint(pid: Option<u32>, pid_file: Option<&str>, herdr: Option<&str>) -> LiveHint {
