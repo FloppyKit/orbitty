@@ -1,7 +1,8 @@
-//! `GO-*` todo→doing mints/reuses `Who runs this doing GO?`.
+//! A `GO-*` todo→doing drag launches the assigned agent row, or the saved
+//! default runner when the card has no assignment. No row and no default
+//! blocks with one Needed and leaves the card in Doing. The drag never
+//! marks the card done.
 //! Neededs and Dogfood titles are a no-op. Never companion send.
-
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::state::{KanbanCard, PersistedState};
 
@@ -9,28 +10,11 @@ use crate::state::{KanbanCard, PersistedState};
 /// the specific GO lives in the why, never in the title.
 pub const DOING_FIRE_TITLE: &str = "Who runs this doing GO?";
 
-fn now_secs() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+fn touched_secs() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
-}
-
-/// `planet=<name or id>` for the why line — the display name when the
-/// card's projectId resolves, else the raw id, else the inbox. The why
-/// stays one-token-per-key (machine-parseable), so a name with whitespace
-/// falls back to the id.
-fn planet_label(state: &PersistedState, project_id: &str) -> String {
-    if project_id.is_empty() {
-        return "inbox".into();
-    }
-    state
-        .projects
-        .iter()
-        .find(|p| p.id == project_id)
-        .map(|p| p.name.trim().to_string())
-        .filter(|n| !n.is_empty() && !n.chars().any(char::is_whitespace))
-        .unwrap_or_else(|| project_id.to_string())
 }
 
 /// The fire rule: `kind=todo`, was `todo` in the before snapshot, now
@@ -62,9 +46,11 @@ fn fired<'a>(before: &PersistedState, after: &'a PersistedState) -> Vec<(&'a Kan
 }
 
 /// What a todo→doing GO drag should do. Pure so the tests don't need a socket.
+#[derive(Debug)]
 pub(crate) enum Drag {
     /// One row. Launch it. Do not ask who, and do not mark the card done.
-    Launch { agent_id: String },
+    /// `via_default` is false when the card's assigned id picked the row.
+    Launch { agent_id: String, via_default: bool },
     /// Stay in Doing. One Needed, one sentence.
     Block { why: String },
 }
@@ -82,6 +68,7 @@ pub(crate) fn drag_decision(
         return if n == 1 {
             Drag::Launch {
                 agent_id: id.to_string(),
+                via_default: false,
             }
         } else if n == 0 {
             Drag::Block {
@@ -95,8 +82,7 @@ pub(crate) fn drag_decision(
     }
     let Some(spec) = chosen else {
         return Drag::Block {
-            why: "Choose a default runner in Settings. A new install does not ship one."
-                .into(),
+            why: "Choose a default runner in Settings. A new install does not ship one.".into(),
         };
     };
     let name = spec.runner.trim();
@@ -112,7 +98,10 @@ pub(crate) fn drag_decision(
         };
     }
     if let Some(id) = by_name.into_iter().next() {
-        return Drag::Launch { agent_id: id };
+        return Drag::Launch {
+            agent_id: id,
+            via_default: true,
+        };
     }
     let by_harness: Vec<_> = agents
         .iter()
@@ -125,18 +114,99 @@ pub(crate) fn drag_decision(
         };
     }
     if let Some(id) = by_harness.into_iter().next() {
-        return Drag::Launch { agent_id: id };
+        return Drag::Launch {
+            agent_id: id,
+            via_default: true,
+        };
     }
     Drag::Block {
-        why: format!(
-            "No agent row for runner {name} ({harness}). Add one, or change the default."
-        ),
+        why: format!("No agent row for runner {name} ({harness}). Add one, or change the default."),
     }
 }
 
-fn block(app: &tauri::AppHandle, card: &KanbanCard, why: &str) {
-    let _ = crate::board::kanban_note_append(app, &card.id, why);
-    let _ = crate::board::needed_open(app, DOING_FIRE_TITLE, &card.project_id, Some(why));
+/// Cursor preset when the saved default picked the row. An assigned row
+/// keeps its own model and permissions. Absent model on a default-picked
+/// row is filled; permissions overwrite only on that path.
+pub(crate) fn apply_default_preset(
+    agent: &mut crate::state::AgentShortcut,
+    spec: Option<&crate::plans::RunnerSpec>,
+    via_default: bool,
+) {
+    if !via_default {
+        return;
+    }
+    let Some(spec) = spec else {
+        return;
+    };
+    if agent
+        .model
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+        && !spec.model.trim().is_empty()
+    {
+        agent.model = Some(spec.model.trim().to_string());
+    }
+    if let Some(p) = spec
+        .permissions
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        agent.permissions = p.to_string();
+    }
+}
+
+/// Seal refusal and the runner/spend cap, before any launch.
+#[derive(Debug)]
+pub(crate) enum PreLaunch {
+    Refuse(String),
+    Capped(String),
+    Go,
+}
+
+pub(crate) fn pre_launch(gate: &crate::plans::Gate, caps: Result<(), String>) -> PreLaunch {
+    if let crate::plans::Gate::Refuse { note } = gate {
+        return PreLaunch::Refuse(note.clone());
+    }
+    match caps {
+        Err(why) => PreLaunch::Capped(why),
+        Ok(()) => PreLaunch::Go,
+    }
+}
+
+/// Plain-words why. No `key=value` token, so the standing rule cannot
+/// read a block as a launch answer.
+fn block_why(reason: &str, card_id: &str, go: &str) -> String {
+    format!("{reason} Card: {card_id}, {go}.")
+}
+
+/// The open `Who runs this doing GO?` Needed, with `why` written over the
+/// previous one. Same id. None when that Needed is not open.
+fn refreshed(st: &PersistedState, why: &str) -> Option<PersistedState> {
+    let idx = st.kanban_cards.iter().position(|c| {
+        c.kind.as_deref() == Some("needed")
+            && c.needed_state.as_deref() == Some("open")
+            && c.title.trim() == DOING_FIRE_TITLE
+    })?;
+    let mut after = st.clone();
+    let card = &mut after.kanban_cards[idx];
+    card.needed_why = Some(why.to_string());
+    card.last_touched_at = touched_secs();
+    Some(after)
+}
+
+fn block(app: &tauri::AppHandle, card: &KanbanCard, go: &str, reason: &str) {
+    let why = block_why(reason, &card.id, go);
+    let _ = crate::board::kanban_note_append(app, &card.id, &why);
+    if let Ok(st) = crate::state::load_state(app) {
+        if let Some(after) = refreshed(&st, &why) {
+            let _ = crate::board::save_with_events(app, &st, &after);
+            return;
+        }
+    }
+    let _ = crate::board::needed_open(app, DOING_FIRE_TITLE, &card.project_id, Some(&why));
 }
 
 fn launch_assigned(app: &tauri::AppHandle, card: &KanbanCard, go: &str) {
@@ -148,29 +218,38 @@ fn launch_assigned(app: &tauri::AppHandle, card: &KanbanCard, go: &str) {
         .map(|l| l.url.clone())
         .collect();
     let gate = crate::plans::gate_for_card(&card.id, &card.title, &urls);
-    if let crate::plans::Gate::Refuse { note } = &gate {
-        let note = note.clone();
-        block(app, card, &note);
-        crate::event_log::append_best(
-            app,
-            "go-launch",
-            None,
-            Some(&card.project_id),
-            Some("agent"),
-            true,
-            &serde_json::json!({
-                "id": go,
-                "cardId": card.id,
-                "route": "doing",
-                "launched": false,
-                "note": note,
-            }),
-        );
-        return;
-    }
-    if let Err(why) = crate::gate_caps::check(app) {
-        let _ = crate::board::kanban_note_append(app, &card.id, &why);
-        return;
+    // A refusal returns before the cap check. `check` can open its own
+    // Needed and write state; an unsealed card must not take that path.
+    let caps = if matches!(gate, crate::plans::Gate::Refuse { .. }) {
+        Ok(())
+    } else {
+        crate::gate_caps::check(app)
+    };
+    match pre_launch(&gate, caps) {
+        PreLaunch::Refuse(note) => {
+            block(app, card, go, &note);
+            crate::event_log::append_best(
+                app,
+                "go-launch",
+                None,
+                Some(&card.project_id),
+                Some("agent"),
+                true,
+                &serde_json::json!({
+                    "id": go,
+                    "cardId": card.id,
+                    "route": "doing",
+                    "launched": false,
+                    "note": note,
+                }),
+            );
+            return;
+        }
+        PreLaunch::Capped(why) => {
+            let _ = crate::board::kanban_note_append(app, &card.id, &why);
+            return;
+        }
+        PreLaunch::Go => {}
     }
     let Ok(st) = crate::state::load_state(app) else {
         return;
@@ -182,28 +261,21 @@ fn launch_assigned(app: &tauri::AppHandle, card: &KanbanCard, go: &str) {
         .collect();
     let chosen = crate::plans::chosen_runner(&crate::plans::Roots::real());
     match drag_decision(card.assigned_agent_id.as_deref(), &rows, chosen.as_ref()) {
-        Drag::Block { why } => block(app, card, &why),
-        Drag::Launch { agent_id } => {
+        Drag::Block { why } => block(app, card, go, &why),
+        Drag::Launch {
+            agent_id,
+            via_default,
+        } => {
             let Some(mut agent) = st
                 .agent_shortcuts
                 .iter()
                 .find(|a| a.id == agent_id)
                 .cloned()
             else {
-                block(app, card, "Assigned agent is gone. Pick another row.");
+                block(app, card, go, "Assigned agent is gone. Pick another row.");
                 return;
             };
-            if let Some(spec) = chosen.as_ref() {
-                if agent.model.as_deref().map(str::trim).unwrap_or("").is_empty()
-                    && !spec.model.trim().is_empty()
-                {
-                    agent.model = Some(spec.model.trim().to_string());
-                }
-                if let Some(p) = spec.permissions.as_deref().map(str::trim).filter(|s| !s.is_empty())
-                {
-                    agent.permissions = p.to_string();
-                }
-            }
+            apply_default_preset(&mut agent, chosen.as_ref(), via_default);
             let project_name = st
                 .projects
                 .iter()
@@ -237,7 +309,7 @@ fn launch_assigned(app: &tauri::AppHandle, card: &KanbanCard, go: &str) {
                 handoff,
             ) {
                 let _ = crate::coordinator::set_companion_hack(app.clone(), false, None, None);
-                block(app, card, &e);
+                block(app, card, go, &e);
                 return;
             }
             crate::event_log::append_best(
@@ -268,7 +340,11 @@ pub fn fire_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &Pe
 
 /// Doing-fire + walker attach after the column save has returned.
 /// Needed mint and cursor-go stay the same; they must not hitch the drag.
-pub fn spawn_fire_and_attach(app: &tauri::AppHandle, before: PersistedState, after: PersistedState) {
+pub fn spawn_fire_and_attach(
+    app: &tauri::AppHandle,
+    before: PersistedState,
+    after: PersistedState,
+) {
     let app = app.clone();
     let _ = std::thread::Builder::new()
         .name("orbitty-doing-fx".into())
@@ -283,21 +359,40 @@ pub fn spawn_fire_and_attach(app: &tauri::AppHandle, before: PersistedState, aft
 mod tests {
     use super::*;
 
-    /// Wiring guard: a doing GO goes through the seal gate before the
-    /// "who runs this" question is minted; a refusal appends a note and
-    /// returns.
+    /// Wiring guard: refusal and the runner cap each return before launch.
     #[test]
     fn doing_fire_runs_the_go_gate_before_launch() {
         let src = include_str!("doing_fire.rs");
-        let start = src.find("fn launch_assigned(").unwrap();
+        let pre_fn = src.find("fn pre_launch(").expect("pre_launch");
+        let start = src.find("fn launch_assigned(").expect("launch_assigned");
+        assert!(pre_fn < start, "pre_launch is the gate");
+        assert!(
+            src[pre_fn..start].contains("Gate::Refuse"),
+            "a refusal is a pre-launch stop"
+        );
         let body = &src[start..];
         let gate = body
-            .find("crate::plans::gate_for_card(")
+            .find("gate_for_card(")
             .expect("doing drag must call the GO gate");
+        let check = body.find("gate_caps::check").expect("runner cap");
+        let pre = body.find("pre_launch(").expect("pre_launch");
         let launch = body.find("launch_agent(").expect("launch path");
-        assert!(gate < launch, "the gate must run before launch");
-        assert!(body.contains("Gate::Refuse"), "{body}");
-        assert!(body.contains("return;"), "{body}");
+        assert!(
+            gate < check && check < launch && pre < launch,
+            "the gate and the cap run before launch"
+        );
+        let refuse = body.find("PreLaunch::Refuse").expect("refuse arm");
+        let capped = body.find("PreLaunch::Capped").expect("caps arm");
+        let go_arm = body.find("PreLaunch::Go").expect("go arm");
+        assert!(refuse < capped && capped < go_arm);
+        assert!(
+            body[refuse..capped].contains("return;"),
+            "Refuse arm must return before launch"
+        );
+        assert!(
+            body[capped..go_arm].contains("return;"),
+            "caps arm must return before launch"
+        );
     }
 
     #[test]
@@ -315,7 +410,13 @@ mod tests {
             ("a-2".into(), "pi".into(), "cursor".into()),
         ];
         match drag_decision(Some("a-pi"), &rows, None) {
-            Drag::Launch { agent_id } => assert_eq!(agent_id, "a-pi"),
+            Drag::Launch {
+                agent_id,
+                via_default,
+            } => {
+                assert_eq!(agent_id, "a-pi");
+                assert!(!via_default);
+            }
             Drag::Block { why } => panic!("{why}"),
         }
         let spec = crate::plans::RunnerSpec {
@@ -329,6 +430,211 @@ mod tests {
             Drag::Block { why } => assert!(why.contains("Two agent rows"), "{why}"),
             Drag::Launch { .. } => panic!("ambiguous name must block"),
         }
+    }
+
+    fn spec(model: &str, permissions: Option<&str>) -> crate::plans::RunnerSpec {
+        crate::plans::RunnerSpec {
+            runner: "orbitty-cursor".into(),
+            harness: "cursor".into(),
+            model: model.into(),
+            runner_fallback: None,
+            permissions: permissions.map(str::to_string),
+        }
+    }
+
+    fn row(permissions: &str, model: Option<&str>) -> crate::state::AgentShortcut {
+        crate::state::AgentShortcut {
+            id: "a-1".into(),
+            name: "row".into(),
+            harness: "cursor".into(),
+            profile: String::new(),
+            model: model.map(str::to_string),
+            md_paths: Vec::new(),
+            project_id: None,
+            extra: None,
+            permissions: permissions.into(),
+        }
+    }
+
+    #[test]
+    fn assigned_row_keeps_its_own_preset() {
+        let spec = spec("M", Some("workspace-write"));
+        let mut owned = row("read-only", Some("row-model"));
+        apply_default_preset(&mut owned, Some(&spec), false);
+        assert_eq!(owned.permissions, "read-only");
+        assert_eq!(owned.model.as_deref(), Some("row-model"));
+
+        let mut empty = row("read-only", None);
+        apply_default_preset(&mut empty, Some(&spec), false);
+        assert_eq!(empty.permissions, "read-only");
+        assert!(empty.model.as_deref().unwrap_or("").is_empty());
+
+        let mut blank = row("read-only", Some(""));
+        apply_default_preset(&mut blank, Some(&spec), false);
+        assert_eq!(blank.permissions, "read-only");
+        assert_eq!(blank.model.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn default_picked_row_gets_the_preset() {
+        let spec = spec("M", Some("workspace-write"));
+        let mut row = row("read-only", None);
+        apply_default_preset(&mut row, Some(&spec), true);
+        assert_eq!(row.permissions, "workspace-write");
+        assert_eq!(row.model.as_deref(), Some("M"));
+
+        let rows = vec![("a-pi".into(), "pi".into(), "pi".into())];
+        let named = crate::plans::RunnerSpec {
+            runner: "pi".into(),
+            harness: "pi".into(),
+            model: "M".into(),
+            runner_fallback: None,
+            permissions: Some("workspace-write".into()),
+        };
+        match drag_decision(None, &rows, Some(&named)) {
+            Drag::Launch {
+                agent_id,
+                via_default,
+            } => {
+                assert_eq!(agent_id, "a-pi");
+                assert!(via_default);
+            }
+            Drag::Block { why } => panic!("{why}"),
+        }
+        let harness_rows = vec![("a-c".into(), "other".into(), "cursor".into())];
+        let by_harness = crate::plans::RunnerSpec {
+            runner: "missing-name".into(),
+            harness: "cursor".into(),
+            model: "M".into(),
+            runner_fallback: None,
+            permissions: Some("workspace-write".into()),
+        };
+        match drag_decision(None, &harness_rows, Some(&by_harness)) {
+            Drag::Launch { via_default, .. } => assert!(via_default),
+            Drag::Block { why } => panic!("{why}"),
+        }
+    }
+
+    fn launched_gate() -> crate::plans::Gate {
+        crate::plans::Gate::Launch(crate::plans::ParsedGo {
+            path: std::path::PathBuf::new(),
+            raw: String::new(),
+            yaml: String::new(),
+            header: crate::plans::GoHeader::default(),
+            body: String::new(),
+            legacy: false,
+        })
+    }
+
+    #[test]
+    fn pre_launch_refuse_cap_and_go() {
+        let refuse = crate::plans::Gate::Refuse {
+            note: "unsealed".into(),
+        };
+        match pre_launch(&refuse, Ok(())) {
+            PreLaunch::Refuse(n) => assert_eq!(n, "unsealed"),
+            PreLaunch::Capped(w) => panic!("cap {w}"),
+            PreLaunch::Go => panic!("refusal must not launch"),
+        }
+        match pre_launch(&refuse, Err("over cap".into())) {
+            PreLaunch::Refuse(n) => assert_eq!(n, "unsealed"),
+            PreLaunch::Capped(w) => panic!("refuse wins before the cap {w}"),
+            PreLaunch::Go => panic!("refusal must not launch"),
+        }
+        let go = launched_gate();
+        match pre_launch(&go, Err("over cap".into())) {
+            PreLaunch::Capped(w) => assert!(w.contains("over cap"), "{w}"),
+            PreLaunch::Go => panic!("cap must not launch"),
+            PreLaunch::Refuse(n) => panic!("refuse {n}"),
+        }
+        match pre_launch(&go, Ok(())) {
+            PreLaunch::Go => {}
+            PreLaunch::Refuse(n) => panic!("refuse {n}"),
+            PreLaunch::Capped(w) => panic!("cap {w}"),
+        }
+    }
+
+    #[test]
+    fn two_rows_with_the_same_assigned_id_block() {
+        let rows = vec![
+            ("same".into(), "one".into(), "cursor".into()),
+            ("same".into(), "two".into(), "cursor".into()),
+        ];
+        match drag_decision(Some("same"), &rows, None) {
+            Drag::Block { why } => {
+                assert_eq!(why, "Two agent rows match this assignment.");
+            }
+            Drag::Launch { .. } => panic!("two assigned rows must block"),
+        }
+    }
+
+    #[test]
+    fn chosen_runner_is_none_without_settings_and_some_when_saved() {
+        let home = std::env::temp_dir().join(format!(
+            "orbitty-cr-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        let roots = crate::plans::Roots { home: home.clone() };
+        assert!(crate::plans::chosen_runner(&roots).is_none());
+        let dir = home.join(".config/orbitty");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("settings.json"),
+            r#"{"defaultRunner":{"runner":"pi","harness":"pi","model":"m"}}"#,
+        )
+        .unwrap();
+        let saved = crate::plans::chosen_runner(&roots).expect("saved runner");
+        assert_eq!(saved.runner, "pi");
+        assert_eq!(saved.harness, "pi");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn builtin_kitchen_row_does_not_launch() {
+        let rows = vec![("a-cur".into(), "orbitty-cursor".into(), "cursor".into())];
+        match drag_decision(None, &rows, None) {
+            Drag::Block { why } => {
+                assert!(why.contains("Choose a default runner"), "{why}");
+            }
+            Drag::Launch { .. } => panic!("the builtin row is not a default"),
+        }
+    }
+
+    #[test]
+    fn block_why_names_the_card_without_a_go_token() {
+        let why = block_why(
+            "Assigned agent is gone. Pick another row.",
+            "c-9",
+            "GO-ORBITTY-X",
+        );
+        assert_eq!(
+            why,
+            "Assigned agent is gone. Pick another row. Card: c-9, GO-ORBITTY-X."
+        );
+        assert!(why.split_whitespace().all(|tok| !tok.contains('=')));
+        assert!(crate::needed_rules::classify(DOING_FIRE_TITLE, "p-1", &why)
+            .go
+            .is_none());
+    }
+
+    #[test]
+    fn refresh_keeps_the_id_and_replaces_the_why() {
+        let mut st = PersistedState::default();
+        let mut n = card("n-1", "needed", "todo", DOING_FIRE_TITLE);
+        n.needed_state = Some("open".into());
+        n.needed_why = Some("X".into());
+        n.last_touched_at = 1.0;
+        st.kanban_cards = vec![n];
+        let after = refreshed(&st, "Y").expect("open needed");
+        assert_eq!(after.kanban_cards.len(), 1);
+        assert_eq!(after.kanban_cards[0].id, "n-1");
+        assert_eq!(after.kanban_cards[0].needed_why.as_deref(), Some("Y"));
+        assert!(after.kanban_cards[0].last_touched_at > 1.0);
     }
 
     fn card(id: &str, kind: &str, status: &str, title: &str) -> KanbanCard {

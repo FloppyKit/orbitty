@@ -371,7 +371,7 @@ pub fn set_workspace_root(app: &AppHandle, project_id: &str, path: &str) -> Resu
 
 /// Is this pid a live process? kill(pid, 0): 0 or EPERM = exists.
 #[cfg(unix)]
-fn pid_alive(pid: u32) -> bool {
+pub(crate) fn pid_alive(pid: u32) -> bool {
     extern "C" {
         fn kill(pid: i32, sig: i32) -> i32;
     }
@@ -385,7 +385,7 @@ fn pid_alive(pid: u32) -> bool {
 }
 
 #[cfg(not(unix))]
-fn pid_alive(_pid: u32) -> bool {
+pub(crate) fn pid_alive(_pid: u32) -> bool {
     false
 }
 
