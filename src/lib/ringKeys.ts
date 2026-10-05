@@ -79,3 +79,29 @@ export function tabTarget(
   const next = (gi + dir + live.length) % live.length;
   return live[next].stops[0] ?? null;
 }
+
+/** Groups in first-seen order. Stops with no group are left out, so an
+ *  empty group never appears. */
+export function surfaceGroups(
+  stops: { id: string; group?: string }[],
+): { id: string; stops: string[] }[] {
+  const out: { id: string; stops: string[] }[] = [];
+  for (const s of stops) {
+    if (!s.group) continue;
+    const found = out.find((g) => g.id === s.group);
+    if (found) found.stops.push(s.id);
+    else out.push({ id: s.group, stops: [s.id] });
+  }
+  return out;
+}
+
+/** Tab is eaten only with two or more groups. Under that, the browser
+ *  keeps Tab (`eat` false). Otherwise `id` is the next stop. */
+export function tabMove(
+  groups: { id: string; stops: string[] }[],
+  activeId: string | null,
+  dir: 1 | -1,
+): { eat: boolean; id: string | null } {
+  if (groups.length < 2) return { eat: false, id: null };
+  return { eat: true, id: tabTarget(groups, activeId, dir) };
+}

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { classifyKey, tabTarget } from "../src/lib/ringKeys.ts";
+import {
+  classifyKey,
+  surfaceGroups,
+  tabMove,
+  tabTarget,
+} from "../src/lib/ringKeys.ts";
 
 const surfaces = [
   { id: "needed", stops: ["n1"] },
@@ -36,10 +41,12 @@ test("T5 Shift+Tab reaches the ring", () => {
   assert.equal(classifyKey({ key: "Tab" }), "tab-next");
 });
 
-test("T6 a field keeps its Tab and arrows", () => {
+test("T6 a field keeps its Tab, arrows, and Esc", () => {
   assert.equal(classifyKey({ key: "Tab", inField: true }), null);
   assert.equal(classifyKey({ key: "Tab", shiftKey: true, inField: true }), null);
   assert.equal(classifyKey({ key: "ArrowDown", inField: true }), null);
+  // inField is an input, textarea, or select. Esc stays with the field.
+  assert.equal(classifyKey({ key: "Escape", inField: true }), null);
 });
 
 test("T7 chords are not the ring", () => {
@@ -64,10 +71,37 @@ test("T8 existing verbs unchanged", () => {
     null,
   );
   assert.equal(classifyKey({ key: "Escape" }), "back");
+  assert.equal(classifyKey({ key: "Escape", shiftKey: true }), null);
   assert.equal(classifyKey({ key: "ArrowUp", shiftKey: true }), null);
 });
 
 test("T9 Tab is never Esc", () => {
   assert.notEqual(classifyKey({ key: "Tab" }), "back");
   assert.notEqual(classifyKey({ key: "Tab", shiftKey: true }), "back");
+});
+
+test("T10 fewer than two surfaces leaves Tab alone", () => {
+  const one = surfaceGroups([
+    { id: "n1", group: "needed" },
+    { id: "n2", group: "needed" },
+    { id: "loose" },
+  ]);
+  assert.deepEqual(one, [{ id: "needed", stops: ["n1", "n2"] }]);
+  assert.deepEqual(tabMove(one, "n1", 1), { eat: false, id: null });
+  assert.deepEqual(tabMove(one, "n1", -1), { eat: false, id: null });
+  assert.deepEqual(tabMove([], null, 1), { eat: false, id: null });
+});
+
+test("T11 an active id outside every group picks an end", () => {
+  assert.equal(tabTarget(surfaces, "outside", 1), "n1");
+  assert.equal(tabTarget(surfaces, "outside", -1), "c1");
+});
+
+test("T12 two surfaces eat Tab and jump", () => {
+  const groups = surfaceGroups([
+    { id: "n1", group: "needed" },
+    { id: "c1", group: "todo" },
+  ]);
+  assert.deepEqual(tabMove(groups, "n1", 1), { eat: true, id: "c1" });
+  assert.deepEqual(tabMove(groups, "c1", -1), { eat: true, id: "n1" });
 });

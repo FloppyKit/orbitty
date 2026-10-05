@@ -1,6 +1,6 @@
 import { untrack } from "svelte";
 import "./menuKeys.css";
-import { classifyKey, tabTarget, type RingDir } from "./ringKeys";
+import { classifyKey, surfaceGroups, tabMove, type RingDir } from "./ringKeys";
 
 export type { RingDir };
 
@@ -132,25 +132,10 @@ export class MenuRing {
     this.setActive(this.stops[next].id);
   }
 
-  /** Groups in first-seen order. Empty groups never appear — a surface
-   *  with no stops is already absent. Tab eats the key only when two or
-   *  more of these exist; otherwise the browser keeps Tab. */
-  private surfaceGroups(): { id: string; stops: string[] }[] {
-    const out: { id: string; stops: string[] }[] = [];
-    for (const s of this.stops) {
-      if (!s.group) continue;
-      const found = out.find((g) => g.id === s.group);
-      if (found) found.stops.push(s.id);
-      else out.push({ id: s.group, stops: [s.id] });
-    }
-    return out;
-  }
-
   private onTab(dir: 1 | -1): boolean {
-    const groups = this.surfaceGroups();
-    if (groups.length < 2) return false;
-    const id = tabTarget(groups, this.activeId, dir);
-    if (id) this.select(id);
+    const move = tabMove(surfaceGroups(this.stops), this.activeId, dir);
+    if (!move.eat) return false;
+    if (move.id) this.select(move.id);
     return true;
   }
 

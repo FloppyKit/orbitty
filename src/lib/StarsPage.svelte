@@ -765,12 +765,17 @@
     if (!embedded) invoke("ensure_glass").catch(() => {});
     unlisten = await listen("state:changed", loadState);
     // Embedded: Esc is not eaten, so CompanionPage's bubble handler
-    // dismisses the well. Overlay: nothing else listens, so the last
-    // Esc hides this window (same hide_window the × button uses).
+    // dismisses the well. Overlay: an open Reflect sheet closes first
+    // and the window stays up. The next Esc hides this window (same
+    // hide_window the × button uses).
     detachMenuKeys = menuRing.attach(
       embedded
         ? undefined
         : () => {
+            if (reflectOpen) {
+              reflectOpen = false;
+              return true;
+            }
             invoke("hide_window", { label: hideLabel }).catch(() => {});
             return true;
           },
