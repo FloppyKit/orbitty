@@ -139,7 +139,6 @@
   let drawerOnRing = false;
 
   $effect(() => {
-    if (!embedded) return;
     const drawer = detailId
       ? kanbanCards.find((c) => c.id === detailId)
       : undefined;
@@ -165,6 +164,7 @@
     for (const c of neededRows) {
       stops.push({
         id: `needed-${c.id}`,
+        group: "needed",
         confirm: () => {
           neededSelectedId = c.id;
           armNeededMouth(c.id, c.title);
@@ -179,6 +179,7 @@
     tabIds.forEach((id, i) => {
       stops.push({
         id: `listtab-${id}`,
+        group: "tabs",
         confirm: () => {
           if (projects.some((p) => p.id === id)) onPlanetTabClick(id);
           else selected = id;
@@ -213,6 +214,7 @@
       colCards.forEach((card, ri) => {
         stops.push({
           id: `card-${card.id}`,
+          group: COLUMNS[ci].id,
           confirm: () => {
             // KANBAN-GRAB: Enter (pad A) on the held card is the drop,
             // not the drawer. The highlight is pinned to the held card,
@@ -1932,22 +1934,25 @@
         // Command missing: later clicks still arrive on the listener.
       }
     }
+    // KANBAN-GRAB: Esc (pad B) lets go of a held card first. Then the
+    // hosted well falls through so CompanionPage's bubble Esc dismisses
+    // it. The overlay has no bubble hide, so that last Esc hides the
+    // window. Tab never reaches this callback.
+    detachMenuKeys = menuRing.attach(() => {
+      if (grabbedId) {
+        ungrab();
+        return true;
+      }
+      if (!embedded) {
+        invoke("hide_window", { label: "kanban" }).catch(() => {});
+        return true;
+      }
+      return false;
+    });
     // HOST-SPLIT embedded: do not await load_state / AX on first well
     // mount — that IPC return was painting cards mid-rise and lagging
     // the sprite aside. Overlay Launchpad still hydrates in-line.
     if (embedded) {
-      detachMenuKeys = menuRing.attach(() => {
-        // KANBAN-GRAB: Esc (pad B) lets go of a held card first. An open
-        // drawer is its own ring surface and eats its Esc ahead of this
-        // root handler — the detailId branch only covers the sub-frame
-        // before the surface push lands. Then (CompanionPage's bubble
-        // Esc) the well.
-        if (grabbedId) {
-          ungrab();
-          return true;
-        }
-        return false;
-      });
       void loadState();
       return;
     }

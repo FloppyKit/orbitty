@@ -393,7 +393,6 @@
   }
 
   $effect(() => {
-    if (!embedded) return;
     const stops: RingStop[] = [
       {
         id: "stars-nav",
@@ -765,8 +764,18 @@
   onMount(async () => {
     if (!embedded) invoke("ensure_glass").catch(() => {});
     unlisten = await listen("state:changed", loadState);
+    // Embedded: Esc is not eaten, so CompanionPage's bubble handler
+    // dismisses the well. Overlay: nothing else listens, so the last
+    // Esc hides this window (same hide_window the × button uses).
+    detachMenuKeys = menuRing.attach(
+      embedded
+        ? undefined
+        : () => {
+            invoke("hide_window", { label: hideLabel }).catch(() => {});
+            return true;
+          },
+    );
     if (embedded) {
-      detachMenuKeys = menuRing.attach();
       void loadState().then(() => syncStarsDraft());
       document.addEventListener("visibilitychange", onVisibility);
       return;

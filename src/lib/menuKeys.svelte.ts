@@ -1,14 +1,19 @@
 import { untrack } from "svelte";
 import "./menuKeys.css";
+import { classifyKey, tabTarget, type RingDir } from "./ringKeys";
 
-// Hosted-well focus ring. Arrows move, Enter opens, Esc backs.
-// Shift+Enter grabs a Todo. One live ring; last attach() wins.
+export type { RingDir };
 
-export type RingDir = "left" | "right" | "up" | "down";
+// One focus ring for the hosted well and the overlay windows. Arrows
+// move, Enter opens, Esc backs, Shift+Enter grabs a Todo. Tab / Shift+Tab
+// walk surfaces when the current surface has two or more groups. One
+// live ring per webview; last attach() wins.
 
 export interface RingStop {
   /** Stable id — also the element's data-mkey, for scroll-into-view. */
   id: string;
+  /** Surface id for Tab. Stops without one are not a Tab stop. */
+  group?: string;
   /** A button: open / select. */
   confirm?: () => void;
   /**
@@ -127,43 +132,62 @@ export class MenuRing {
     this.setActive(this.stops[next].id);
   }
 
+  /** Groups in first-seen order. Empty groups never appear — a surface
+   *  with no stops is already absent. Tab eats the key only when two or
+   *  more of these exist; otherwise the browser keeps Tab. */
+  private surfaceGroups(): { id: string; stops: string[] }[] {
+    const out: { id: string; stops: string[] }[] = [];
+    for (const s of this.stops) {
+      if (!s.group) continue;
+      const found = out.find((g) => g.id === s.group);
+      if (found) found.stops.push(s.id);
+      else out.push({ id: s.group, stops: [s.id] });
+    }
+    return out;
+  }
+
+  private onTab(dir: 1 | -1): boolean {
+    const groups = this.surfaceGroups();
+    if (groups.length < 2) return false;
+    const id = tabTarget(groups, this.activeId, dir);
+    if (id) this.select(id);
+    return true;
+  }
+
   private handleKey(e: KeyboardEvent): boolean {
     // A field owns its caret — arrows type, Enter is its own, Esc blurs
     // (the blur half is CompanionPage's bubble Esc; never eaten here).
     const t = e.target as HTMLElement | null;
     const inField = !!t?.closest?.("input, textarea, select");
-    // KANBAN-GRAB: Shift+Enter is the X verb — the one chord the ring
-    // owns. A field keeps its newline (the composer binds Shift+Enter).
-    if (
-      e.key === "Enter" &&
-      e.shiftKey &&
-      !e.metaKey &&
-      !e.ctrlKey &&
-      !e.altKey
-    ) {
-      if (inField) return false;
+    const verb = classifyKey({
+      key: e.key,
+      shiftKey: e.shiftKey,
+      metaKey: e.metaKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      inField,
+    });
+    if (verb === null) return false;
+    // KANBAN-GRAB: Shift+Enter is the X verb. A stop with no grab
+    // handler does not eat the key. Tab never takes this branch.
+    if (verb === "grab") {
       const g = this.current()?.grab;
       if (!g) return false;
       g();
       return true;
     }
-    // Chords are not the ring: ⌘⌥←/→ yaw dests, ⌘⌥1/2/3 toggle them.
-    // Bare keys only.
-    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
-    if (inField) return false;
-
-    if (e.key === "Escape") return this.onEscape?.() ?? false;
-
-    const dir = e.key.startsWith("Arrow")
-      ? (e.key.slice(5).toLowerCase() as RingDir)
-      : null;
-    if (dir) {
+    if (verb === "tab-next" || verb === "tab-prev") {
+      return this.onTab(verb === "tab-next" ? 1 : -1);
+    }
+    if (verb === "back") return this.onEscape?.() ?? false;
+    if (typeof verb === "object") {
+      const dir = verb.arrow;
       if (this.stops.length === 0) return false;
       if (this.current()?.arrow?.(dir)) return true;
       this.move(dir === "left" || dir === "up" ? -1 : 1);
       return true;
     }
-    if (e.key === "Enter") {
+    if (verb === "confirm") {
       const cur = this.current();
       if (!cur?.confirm) return false;
       cur.confirm();

@@ -506,8 +506,8 @@
   // click (tab = select + raise/locate the disc, row = focus the window,
   // Unclaimed row = the claim picker, pick = claim). Esc closes the
   // picker / the + Planet mint first, then the well (CompanionPage's
-  // bubble Esc). Embedded only, and walkers on the disc never see these
-  // keys — the ring lives in the well, not the habitat.
+  // bubble Esc). The Inspector window attaches the same ring. Habitat
+  // walkers are not on this key path.
   const menuRing = new MenuRing();
 
   function confirmRingTab(id: string) {
@@ -523,7 +523,6 @@
   }
 
   $effect(() => {
-    if (!embedded) return;
     // Rows of the current slot first — the tab arrows drop into them.
     const rows: { id: string; confirm: () => void }[] = [];
     if (sheetSlot === "unclaimed") {
@@ -2358,19 +2357,17 @@
     if (!themeChosen) themeId = osThemeId();
   };
   onMount(async () => {
-    if (embedded) {
-      detachMenuKeys = menuRing.attach(() => {
-        if (claimPickerFor) {
-          claimPickerFor = null;
-          return true;
-        }
-        if (creatingProject) {
-          creatingProject = false;
-          return true;
-        }
-        return false;
-      });
-    }
+    detachMenuKeys = menuRing.attach(() => {
+      if (claimPickerFor) {
+        claimPickerFor = null;
+        return true;
+      }
+      if (creatingProject) {
+        creatingProject = false;
+        return true;
+      }
+      return false;
+    });
     try {
       const s = await invoke<PersistedState>("load_state");
       const migrated = migrateThemeId(s.themeId ?? "");
