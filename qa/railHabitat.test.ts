@@ -266,6 +266,8 @@ test("H9 ring order", () => {
   assert.deepEqual(
     stops.map((s) => s.id),
     [
+      "rstars",
+      "rsettings",
       "rcol-todo",
       "rcol-doing",
       "rcol-done",
@@ -281,7 +283,7 @@ test("H9 ring order", () => {
   );
   assert.deepEqual(
     stops.map((s) => s.group),
-    ["cols", "cols", "cols", "A", "A", "A", "A", "A", "A", "A", "B"],
+    ["front", "front", "cols", "cols", "cols", "A", "A", "A", "A", "A", "A", "A", "B"],
   );
   assert.equal(
     stops.some((s) => s.id === "rtile-b1" || s.id === "rsnap-bx" || s.id === "rtodos-B" || s.id === "rraise-B"),

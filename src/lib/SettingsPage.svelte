@@ -16,6 +16,7 @@
   import "./chrome.css";
   import MouthSettings from "./MouthSettings.svelte";
   import type { PersistedState } from "./persist";
+  import { RAIL_EDGES, stagePrefs, type RailEdge } from "./rail/habitat";
   import { maybeGraduatePeerChrome, peerChromeOn } from "./peerChrome";
 
   interface PackInfo {
@@ -61,6 +62,8 @@
   let windowOpacity = $state(1.0);
   let spriteScale = $state(1);
   let autohideRowChrome = $state(true);
+  let railEdge = $state<RailEdge>("left");
+  let railAutoHideOnBlur = $state(true);
   let hideTitles = $state(false);
   let hideAppIcons = $state(false);
   let peerChrome = $state(false);
@@ -176,6 +179,11 @@
       windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
       spriteScale = clampSpriteScale(s.spriteScale ?? 1);
       autohideRowChrome = s.autohideRowChrome ?? true;
+      {
+        const prefs = stagePrefs(s);
+        railEdge = prefs.railEdge;
+        railAutoHideOnBlur = prefs.railAutoHideOnBlur;
+      }
       hideTitles = s.hideTitles ?? false;
       hideAppIcons = s.hideAppIcons ?? false;
       marbleDrift = s.marbleDrift ?? false;
@@ -266,6 +274,32 @@
   function onSpriteScaleCommit() {
     onSpriteScaleInput();
     persistSettings();
+  }
+
+  async function saveRailStage(edge: RailEdge, autoHide: boolean) {
+    const prefs = stagePrefs({
+      railEdge: edge,
+      railAutoHideOnBlur: autoHide,
+      autohideRowChrome,
+    });
+    railEdge = prefs.railEdge;
+    railAutoHideOnBlur = prefs.railAutoHideOnBlur;
+    try {
+      await invoke("set_rail_stage_prefs", {
+        edge: prefs.railEdge,
+        autoHideOnBlur: prefs.railAutoHideOnBlur,
+      });
+    } catch {
+      /* the next click retries */
+    }
+  }
+
+  function pickRailEdge(edge: RailEdge) {
+    void saveRailStage(edge, railAutoHideOnBlur);
+  }
+
+  function toggleRailAutoHide() {
+    void saveRailStage(railEdge, !railAutoHideOnBlur);
   }
 
   function toggleAutohide() {
@@ -623,6 +657,27 @@
             onclick={toggleHideIcons}
             title="Hide app icons — rows collapse to title only"
           >Hide icons</button>
+        </div>
+        <p class="block-label">Rail</p>
+        <div class="setting-row" role="group" aria-label="Rail edge">
+          {#each RAIL_EDGES as edge (edge)}
+            <button
+              class="mini"
+              class:active={railEdge === edge}
+              aria-pressed={railEdge === edge}
+              onclick={() => pickRailEdge(edge)}
+              title="Park the inspector on this screen edge. This Mac only."
+            >{edge}</button>
+          {/each}
+        </div>
+        <div class="setting-row">
+          <button
+            class="mini"
+            class:active={railAutoHideOnBlur}
+            aria-pressed={railAutoHideOnBlur}
+            onclick={toggleRailAutoHide}
+            title="Hide the rail strip when focus leaves it. Separate from auto-hide row chrome."
+          >Auto-hide rail when focus leaves</button>
         </div>
         <p class="block-label">Peer chrome</p>
         <div class="setting-row">

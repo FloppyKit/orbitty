@@ -29,7 +29,7 @@
   }
 
   const FIXED: { chord: string; label: string }[] = [
-    { chord: "⌘⇧O", label: "Companion" },
+    { chord: "⌘⇧O", label: "Reveal rail" },
     { chord: "⌘⌥1", label: "Launchpad" },
     { chord: "⌘⌥2", label: "STARS" },
     { chord: "⌘⌥3", label: "Planets" },

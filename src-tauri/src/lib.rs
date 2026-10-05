@@ -304,10 +304,44 @@ pub(crate) fn show_rail_inner(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
+        drawers::rail_stage_apply(app, true);
         drawers::heal_rail(app);
         drawers::appkit_order_front(app, &window);
         let _ = window.set_focus();
     }
+}
+
+/// Machine rail edge + auto-hide. Not a planet pref. A later window
+/// `save_state` keeps these (merge copies them from disk).
+#[tauri::command]
+fn set_rail_stage_prefs(
+    app: tauri::AppHandle,
+    edge: String,
+    auto_hide_on_blur: bool,
+) -> Result<(), String> {
+    let edge = state::normalize_rail_edge(&edge).to_string();
+    state::update(&app, |st| {
+        st.rail_edge = edge.clone();
+        st.rail_auto_hide_on_blur = auto_hide_on_blur;
+        Ok(())
+    })?;
+    drawers::rail_stage_apply(&app, drawers::rail_stage_is_revealed());
+    let _ = app.emit(
+        "orbitty:rail-stage-prefs",
+        serde_json::json!({
+            "railEdge": edge,
+            "railAutoHideOnBlur": auto_hide_on_blur,
+        }),
+    );
+    Ok(())
+}
+
+/// Hover, hotkey, or auto-hide. `revealed` false parks the strip on the
+/// preferred edge and leaves the sliver.
+#[tauri::command]
+fn rail_stage_set(app: tauri::AppHandle, revealed: bool) -> Result<(), String> {
+    drawers::rail_stage_apply(&app, revealed);
+    Ok(())
 }
 
 /// Rail Home button: order every planet panel front (peer order among
@@ -701,6 +735,8 @@ pub fn run() {
             panes::set_companion_host_hug,
             panes::take_board_focus,
             show_rail,
+            set_rail_stage_prefs,
+            rail_stage_set,
             set_planets_hidden,
             needed_answer,
             needed_rule_add,
@@ -840,9 +876,9 @@ pub fn run() {
             // Sprite-pack drop folder + README (local import only).
             packs::ensure_packs_dir(app.handle());
 
-            // ⌘⇧O raises the companion and focuses its
-            // type field. Not a toggle — an already-visible companion stays
-            // up and just takes focus; "main" is never touched here.
+            // ⌘⇧O reveals the inspector rail (Matt locked 2026-10-05).
+            // Companion no longer owns this chord. Tray, dock Reopen, and
+            // the Actions ⌥⌘O row still open the companion.
             #[cfg(target_os = "macos")]
             {
                 use tauri_plugin_global_shortcut::{
@@ -855,8 +891,7 @@ pub fn run() {
                         if event.state() != ShortcutState::Pressed {
                             return;
                         }
-                        let _ = panes::show_companion(&handle);
-                        let _ = handle.emit_to("companion", "orbitty:companion-summon", ());
+                        drawers::rail_stage_toggle(&handle);
                     })?;
 
                 // ⌘⇧Y opens the Herding Cats confirm
@@ -864,8 +899,8 @@ pub fn run() {
                 // press while the confirm is up scoops it (hide = Cancel).
                 // While the clowder is out, ⌘⇧Y
                 // scoops all with no second warning (the exits table) —
-                // the pane toggle resumes once the yard is off. ⌘⇧O stays
-                // summon — never touched; actions.rs reserves both chords.
+                // the pane toggle resumes once the yard is off. ⌘⇧O is the
+                // rail reveal — never retargeted here; actions.rs reserves both chords.
                 let yard_warn = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyY);
                 let yard_handle = app.handle().clone();
                 app.global_shortcut()
@@ -969,7 +1004,7 @@ pub fn run() {
 
             // The tray is a remote for the
             // companion, not the rail. Left click raises the companion
-            // (caret in the field, same as ⌘⇧O); the right-click menu is
+            // (caret in the field). ⌘⇧O reveals the rail instead. The right-click menu is
             // chrome — Launchpad/STARS enter the companion's host well,
             // never the kanban/stars overlay.
             let claim_front_i = MenuItem::with_id(
@@ -1057,8 +1092,8 @@ pub fn run() {
                         // Second click hides —
                         // talk-stop + persist hidden ride hide_window.
                         // The caret summon fires on the show edge only;
-                        // left-click / ⌘⇧O / dock Reopen stay raise-only
-                        // summons (FRONT-HOLD).
+                        // left-click / dock Reopen stay raise-only
+                        // summons (FRONT-HOLD). ⌘⇧O reveals the rail.
                         if let Ok(true) = rail_toggle::toggle(app, "companion") {
                             let _ = app.emit_to("companion", "orbitty:companion-summon", ());
                         }
@@ -1115,6 +1150,9 @@ pub fn run() {
             claim_front::install_orbitty_dock_menu(app.handle().clone());
             windows::install_frontmost_tracker();
 
+            // Stage shell starts parked off the preferred edge (default left).
+            drawers::rail_stage_apply(app.handle(), false);
+
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -1122,8 +1160,8 @@ pub fn run() {
         .run(|app_handle, event| {
             match event {
                 // Dock icon click: raise the companion with the caret in
-                // the field (same as tray left-click / ⌘⇧O), even when it
-                // is already visible (macOS otherwise no-ops).
+                // the field (same as tray left-click), even when it
+                // is already visible (macOS otherwise no-ops). ⌘⇧O reveals the rail.
                 tauri::RunEvent::Reopen { .. } => {
                     let _ = panes::show_companion(app_handle);
                     let _ = app_handle.emit_to("companion", "orbitty:companion-summon", ());

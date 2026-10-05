@@ -192,10 +192,14 @@ export function raisePlan(
 }
 
 export function habitatStops(sections: readonly HabitatSection[]): HabitatStop[] {
-  const stops: HabitatStop[] = BOARD_COLS.map((c) => ({
-    id: `rcol-${c}`,
-    group: "cols",
-  }));
+  const stops: HabitatStop[] = [
+    { id: "rstars", group: "front" },
+    { id: "rsettings", group: "front" },
+    ...BOARD_COLS.map((c) => ({
+      id: `rcol-${c}`,
+      group: "cols",
+    })),
+  ];
   for (const s of sections) {
     stops.push({ id: `rhead-${s.pid}`, group: s.pid });
     if (!s.open) continue;
@@ -263,10 +267,15 @@ export type HabitatConfirm =
   | "toggleCol"
   | "focusTile"
   | "openSnap"
-  | "todos";
+  | "todos"
+  | "stars"
+  | "settings";
 
-/** Ring Enter for a habitat stop. Head expands; raise is its own stop. */
+/** Ring Enter for a habitat stop. Head expands; raise is its own stop.
+ *  Stars and Settings are the stage-strip front, never a planet raise. */
 export function habitatConfirm(id: string): HabitatConfirm | null {
+  if (id === "rstars") return "stars";
+  if (id === "rsettings") return "settings";
   if (id.startsWith("rhead-") && id.length > "rhead-".length) return "expand";
   if (id.startsWith("rraise-") && id.length > "rraise-".length) return "raise";
   if (id.startsWith("rcol-") && id.length > "rcol-".length) return "toggleCol";
@@ -313,4 +322,137 @@ export function habitatArrow(
 
   if (dir === "up" || dir === "down") return step(ids, activeId, dir === "down" ? 1 : -1);
   return null;
+}
+
+/** Screen edge the stage strip parks against. Missing or unknown → left. */
+export type RailEdge = "left" | "right" | "top" | "bottom";
+
+export const RAIL_EDGES: readonly RailEdge[] = ["left", "right", "top", "bottom"];
+
+/** Distinct from `autohideRowChrome` (row-button chrome). */
+export const RAIL_AUTO_HIDE_PREF = "railAutoHideOnBlur";
+
+export const ROW_CHROME_PREF = "autohideRowChrome";
+
+/** ⌘⇧O. Rail owns this chord. Companion stays on ⌥⌘O / tray / dock. */
+export const RAIL_REVEAL_ACTION = "rail-reveal";
+
+const RAIL_EDGE_SET = new Set<string>(RAIL_EDGES);
+
+export function normalizeRailEdge(raw: unknown): RailEdge {
+  return typeof raw === "string" && RAIL_EDGE_SET.has(raw) ? (raw as RailEdge) : "left";
+}
+
+export interface StagePrefs {
+  railEdge: RailEdge;
+  railAutoHideOnBlur: boolean;
+  autohideRowChrome: boolean;
+}
+
+/** Per-machine stage prefs. Auto-hide defaults on and is not the row-chrome flag. */
+export function stagePrefs(raw: {
+  railEdge?: unknown;
+  railAutoHideOnBlur?: unknown;
+  autohideRowChrome?: unknown;
+} | null | undefined): StagePrefs {
+  const src = raw ?? {};
+  return {
+    railEdge: normalizeRailEdge(src.railEdge),
+    railAutoHideOnBlur:
+      typeof src.railAutoHideOnBlur === "boolean" ? src.railAutoHideOnBlur : true,
+    autohideRowChrome:
+      typeof src.autohideRowChrome === "boolean" ? src.autohideRowChrome : true,
+  };
+}
+
+/** Hover near the preferred edge OR the rail hotkey. Either one reveals. */
+export function revealWanted(hoverEdge: boolean, hotkey: boolean): boolean {
+  return hoverEdge || hotkey;
+}
+
+/** Hide only when the auto-hide pref is on, focus has left, and the pointer
+ *  is outside the strip and the edge hit-zone. */
+export function autoHideWanted(opts: {
+  railAutoHideOnBlur: boolean;
+  focusInside: boolean;
+  pointerInside: boolean;
+}): boolean {
+  if (!opts.railAutoHideOnBlur) return false;
+  if (opts.focusInside || opts.pointerInside) return false;
+  return true;
+}
+
+/** Collapsed icon order: Stars, Settings, then planets. */
+export function stageStripIds(planetIds: readonly string[]): string[] {
+  return ["stars", "settings", ...planetIds];
+}
+
+export type StageRole = "icon" | "open" | "receded";
+
+/** One open id. Everyone else recedes. None open → every id is an icon. */
+export function stageRoles(
+  ids: readonly string[],
+  openId: string | null,
+): { id: string; role: StageRole }[] {
+  const open = openId && ids.includes(openId) ? openId : null;
+  return ids.map((id) => ({
+    id,
+    role: !open ? "icon" : id === open ? "open" : "receded",
+  }));
+}
+
+/** Click a planet: that one opens and the previous one closes.
+ *  Click the open planet again (back) and the pack returns to icons. */
+export function applyPlanetOpen(
+  openId: string | null,
+  planetIds: readonly string[],
+  clicked: string,
+): string | null {
+  if (!planetIds.includes(clicked)) return openId && planetIds.includes(openId) ? openId : null;
+  if (openId === clicked) return null;
+  return clicked;
+}
+
+export interface StageFront {
+  id: "stars" | "settings";
+  z: number;
+}
+
+/** Stars and Settings stay in front of an expanded planet. */
+export function stageFront(openId: string | null): { front: StageFront[]; openZ: number } {
+  void openId;
+  return {
+    front: [
+      { id: "stars", z: 40 },
+      { id: "settings", z: 39 },
+    ],
+    openZ: 10,
+  };
+}
+
+/** Global ⌘⇧O maps to rail reveal, never companion summon. */
+export function chordAction(chord: string): string | null {
+  const c = chord.trim().toLowerCase().replace(/\s+/g, "");
+  if (c === "cmd+shift+o" || c === "⌘⇧o") return RAIL_REVEAL_ACTION;
+  if (c === "cmd+alt+o" || c === "⌥⌘o") return "companion-open";
+  return null;
+}
+
+/** At most one section open. A save where every known id was open
+ *  (nothing stored collapsed) becomes the icon strip. */
+export function stageCollapsedIds(
+  saved: readonly string[],
+  sectionIds: readonly string[],
+): string[] {
+  if (sectionIds.length === 0) return [...saved];
+  const known = new Set(sectionIds);
+  const extra = saved.filter((id) => !known.has(id));
+  const collapsed = saved.filter((id) => known.has(id));
+  const open = sectionIds.filter((id) => !collapsed.includes(id));
+  if (collapsed.length === 0 && open.length === sectionIds.length) {
+    return [...extra, ...sectionIds];
+  }
+  if (open.length <= 1) return [...extra, ...collapsed];
+  const keep = open[0];
+  return [...extra, ...sectionIds.filter((id) => id !== keep)];
 }

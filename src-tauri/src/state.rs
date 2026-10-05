@@ -137,6 +137,15 @@ pub struct PersistedState {
     /// as ["todo"].
     #[serde(default = "rail_board_cols_default")]
     pub rail_board_cols: Vec<String>,
+    /// Stage Manager edge for this install. One state file is one machine,
+    /// so this is not a per-planet pref and is not a sync key.
+    /// "left" | "right" | "top" | "bottom". Missing or unknown → left.
+    #[serde(default = "rail_edge_default")]
+    pub rail_edge: String,
+    /// Hide the stage strip when focus leaves the rail. Distinct from
+    /// `autohide_row_chrome` (row-button chrome). Default on.
+    #[serde(default = "rail_auto_hide_default")]
+    pub rail_auto_hide_on_blur: bool,
     /// Cards a window or a Rust delete removed. A later save brings a
     /// card back only when that card's `lastTouchedAt` is newer than the
     /// stamp. Old builds ignore the key. Empty stays off disk.
@@ -178,6 +187,74 @@ fn planet_idle_default() -> String {
 
 fn rail_board_cols_default() -> Vec<String> {
     vec!["todo".into()]
+}
+
+fn rail_edge_default() -> String {
+    "left".into()
+}
+
+fn rail_auto_hide_default() -> bool {
+    true
+}
+
+/// "left" | "right" | "top" | "bottom". Anything else is left.
+pub fn normalize_rail_edge(raw: &str) -> &'static str {
+    match raw.trim() {
+        "right" => "right",
+        "top" => "top",
+        "bottom" => "bottom",
+        "left" => "left",
+        _ => "left",
+    }
+}
+
+/// Window origin on a top-left visible frame. Hidden keeps a 12px sliver
+/// on `edge`. Revealed sits 8px in from that same edge.
+pub fn rail_stage_frame(
+    edge: &str,
+    revealed: bool,
+    vx: f64,
+    vy: f64,
+    vw: f64,
+    vh: f64,
+    ww: f64,
+    wh: f64,
+) -> (f64, f64, f64, f64) {
+    let sliver = 12.0;
+    let inset = 8.0;
+    let w = if ww > 0.0 { ww } else { 360.0 };
+    let h = if wh > 0.0 { wh } else { 420.0 };
+    let (x, y) = match normalize_rail_edge(edge) {
+        "right" => {
+            let x = if revealed {
+                vx + vw - w - inset
+            } else {
+                vx + vw - sliver
+            };
+            let y = vy + ((vh - h) / 2.0).max(0.0);
+            (x, y)
+        }
+        "top" => {
+            let y = if revealed { vy + inset } else { vy - h + sliver };
+            let x = vx + ((vw - w) / 2.0).max(0.0);
+            (x, y)
+        }
+        "bottom" => {
+            let y = if revealed {
+                vy + vh - h - inset
+            } else {
+                vy + vh - sliver
+            };
+            let x = vx + ((vw - w) / 2.0).max(0.0);
+            (x, y)
+        }
+        _ => {
+            let x = if revealed { vx + inset } else { vx - w + sliver };
+            let y = vy + ((vh - h) / 2.0).max(0.0);
+            (x, y)
+        }
+    };
+    (x, y, w, h)
 }
 
 /// One unbound-todo tree on a planet disc.
@@ -315,6 +392,8 @@ impl Default for PersistedState {
             agent_terminal: String::new(),
             card_tombstones: Vec::new(),
             rail_board_cols: vec!["todo".into()],
+            rail_edge: rail_edge_default(),
+            rail_auto_hide_on_blur: true,
         }
     }
 }
@@ -1231,6 +1310,11 @@ pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (P
     out.companion.direct_model = disk.companion.direct_model.clone();
     out.shift_on = disk.shift_on;
     out.peer_chrome = disk.peer_chrome;
+    // Stage prefs are machine settings written by set_rail_stage_prefs.
+    // A window save that omits them deserializes to the defaults and must
+    // not wipe a saved edge or auto-hide choice.
+    out.rail_edge = disk.rail_edge.clone();
+    out.rail_auto_hide_on_blur = disk.rail_auto_hide_on_blur;
     if out.last_claim_project_id.is_none() {
         out.last_claim_project_id = disk.last_claim_project_id.clone();
     }
@@ -1379,6 +1463,12 @@ pub fn apply_writer_delta(live: &mut PersistedState, before: &PersistedState, af
         &mut live.rail_board_cols,
         &before.rail_board_cols,
         &after.rail_board_cols,
+    );
+    take_changed(&mut live.rail_edge, &before.rail_edge, &after.rail_edge);
+    take_changed(
+        &mut live.rail_auto_hide_on_blur,
+        &before.rail_auto_hide_on_blur,
+        &after.rail_auto_hide_on_blur,
     );
 }
 
@@ -2251,5 +2341,48 @@ mod tests {
         kept.rail_board_cols = vec!["keep".into()];
         apply_writer_delta(&mut kept, &after, &after);
         assert_eq!(kept.rail_board_cols, vec!["keep".to_string()]);
+    }
+
+    #[test]
+    fn rail_stage_prefs_default_left_and_survive_window_save() {
+        let missing: PersistedState = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.rail_edge, "left");
+        assert!(missing.rail_auto_hide_on_blur);
+        assert!(missing.autohide_row_chrome);
+        assert_eq!(normalize_rail_edge("nope"), "left");
+        assert_eq!(normalize_rail_edge("right"), "right");
+
+        let mut disk = PersistedState::default();
+        disk.rail_edge = "bottom".into();
+        disk.rail_auto_hide_on_blur = false;
+        disk.autohide_row_chrome = true;
+        let mut incoming = PersistedState::default();
+        incoming.rail_edge = "left".into();
+        incoming.rail_auto_hide_on_blur = true;
+        incoming.autohide_row_chrome = false;
+        let (merged, _) = merge_window_save(&disk, &incoming);
+        assert_eq!(merged.rail_edge, "bottom");
+        assert!(!merged.rail_auto_hide_on_blur);
+        assert!(!merged.autohide_row_chrome);
+
+        let (x, y, w, h) = rail_stage_frame("left", false, 0.0, 0.0, 1400.0, 900.0, 360.0, 420.0);
+        assert_eq!((x, y, w, h), (-348.0, 240.0, 360.0, 420.0));
+        let (x, _, _, _) = rail_stage_frame("left", true, 0.0, 0.0, 1400.0, 900.0, 360.0, 420.0);
+        assert_eq!(x, 8.0);
+        let (x, _, _, _) = rail_stage_frame("right", false, 0.0, 0.0, 1400.0, 900.0, 360.0, 420.0);
+        assert_eq!(x, 1388.0);
+        let (_, y, _, _) = rail_stage_frame("top", false, 0.0, 20.0, 1400.0, 900.0, 360.0, 420.0);
+        assert_eq!(y, 20.0 - 420.0 + 12.0);
+        let (_, y, _, _) = rail_stage_frame("bottom", true, 0.0, 0.0, 1400.0, 900.0, 360.0, 420.0);
+        assert_eq!(y, 900.0 - 420.0 - 8.0);
+
+        let before = PersistedState::default();
+        let mut after = before.clone();
+        after.rail_edge = "top".into();
+        after.rail_auto_hide_on_blur = false;
+        let mut live = PersistedState::default();
+        apply_writer_delta(&mut live, &before, &after);
+        assert_eq!(live.rail_edge, "top");
+        assert!(!live.rail_auto_hide_on_blur);
     }
 }

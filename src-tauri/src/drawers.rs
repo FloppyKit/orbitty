@@ -1330,10 +1330,69 @@ fn blossom_beside_rail(
     None
 }
 
+static RAIL_STAGE_REVEALED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn rail_stage_is_revealed() -> bool {
+    RAIL_STAGE_REVEALED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Park or reveal the inspector on the saved machine edge.
+/// Hidden keeps a 12px sliver so a hover can reveal it. The window stays
+/// visible either way — a fully hidden window cannot see the edge hover.
+pub(crate) fn rail_stage_apply(app: &tauri::AppHandle, revealed: bool) {
+    RAIL_STAGE_REVEALED.store(revealed, std::sync::atomic::Ordering::Relaxed);
+    let edge = state::load_state(app)
+        .map(|s| s.rail_edge)
+        .unwrap_or_else(|_| "left".into());
+    if let Some(w) = app.get_webview_window("main") {
+        if revealed {
+            let _ = w.unminimize();
+            let _ = w.show();
+        }
+        let pvfs = points_frames(&screen_visible_frames());
+        if let Some(vf) = pvfs.first().copied() {
+            let (ww, hh) = live_points_rect(&w)
+                .map(|r| (r.w.max(160.0), r.h.max(200.0)))
+                .unwrap_or((360.0, 420.0));
+            let (x, y, fw, fh) =
+                state::rail_stage_frame(&edge, revealed, vf.x, vf.y, vf.w, vf.h, ww, hh);
+            appkit_place_points(
+                &w,
+                &state::CompanionBounds {
+                    x,
+                    y,
+                    w: fw,
+                    h: fh,
+                },
+            );
+        }
+        if revealed {
+            appkit_order_front(app, &w);
+            let _ = w.set_focus();
+        }
+    }
+    let _ = app.emit_to(
+        "main",
+        "orbitty:rail-stage",
+        serde_json::json!({ "revealed": revealed }),
+    );
+}
+
+pub(crate) fn rail_stage_toggle(app: &tauri::AppHandle) {
+    rail_stage_apply(app, !rail_stage_is_revealed());
+}
+
 /// Show Orbitty / dock: if the rail is not mostly on any display,
 /// re-home it on the primary (left inset, vertically centered). Never
 /// a leash — chrome is not moved. Size is the live frame.
+/// A parked stage strip is intentionally mostly off-screen; re-home would
+/// pull that sliver back to the left inset, so a hidden strip stays parked.
 pub(crate) fn heal_rail(app: &tauri::AppHandle) {
+    if !rail_stage_is_revealed() {
+        rail_stage_apply(app, false);
+        return;
+    }
     let Some(w) = app.get_webview_window("main") else {
         return;
     };

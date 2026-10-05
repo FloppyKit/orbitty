@@ -19,6 +19,8 @@
   import RailList from "./rail/List.svelte";
   import RailClaimUi from "./rail/ClaimUi.svelte";
   import {
+    applyPlanetOpen,
+    autoHideWanted,
     boardSnapshot,
     habitatArrow,
     habitatConfirm,
@@ -26,10 +28,16 @@
     normalizeCols,
     planetCount,
     raisePlan,
+    revealWanted,
+    stageCollapsedIds,
+    stagePrefs,
+    stageRoles,
     tiles,
     toggleCol,
     type BoardCol,
     type HabitatSection,
+    type RailEdge,
+    type StageRole,
   } from "./rail/habitat";
   import type {
     ActionShortcut,
@@ -171,6 +179,11 @@
 
   // Settings (gear): chrome toggles, persisted in state.json.
   let autohideRowChrome = $state(true);
+  let railEdge = $state<RailEdge>("left");
+  let railAutoHideOnBlur = $state(true);
+  let stageRevealed = $state(false);
+  let pointerInside = false;
+  let focusInside = false;
   let hideTitles = $state(false);
   let hideAppIcons = $state(false);
   let railBoardCols = $state<BoardCol[]>(["todo"]);
@@ -454,8 +467,94 @@
     persist();
   }
 
+  function sectionIds(): string[] {
+    return [...projects.map((p) => p.id), UNMAPPED_KEY];
+  }
+
+  function openSectionId(): string | null {
+    const open = sectionIds().filter((id) => !isCollapsed(id));
+    return open.length === 1 ? open[0] : null;
+  }
+
+  function stageRole(pid: string): StageRole {
+    return stageRoles(sectionIds(), openSectionId()).find((r) => r.id === pid)?.role ?? "icon";
+  }
+
   function ensureExpand(pid: string) {
-    if (isCollapsed(pid)) toggleCollapse(pid);
+    const ids = sectionIds();
+    if (!ids.includes(pid)) return;
+    const nextOpen = applyPlanetOpen(openSectionId(), ids, pid);
+    collapsedSectionIds = nextOpen ? ids.filter((id) => id !== nextOpen) : [...ids];
+    persist();
+    void showStage();
+  }
+
+  function collapsePlanet(pid: string) {
+    if (!sectionIds().includes(pid) || isCollapsed(pid)) return;
+    collapsedSectionIds = [...collapsedSectionIds, pid];
+    persist();
+  }
+
+  function openStageDest(label: "stars" | "settings") {
+    void invoke("toggle_labeled", { label });
+  }
+
+  async function showStage() {
+    if (embedded) return;
+    stageRevealed = true;
+    try {
+      await invoke("rail_stage_set", { revealed: true });
+    } catch {
+      /* the strip still paints if the native place is unavailable */
+    }
+  }
+
+  async function parkStage() {
+    if (embedded) return;
+    stageRevealed = false;
+    try {
+      await invoke("rail_stage_set", { revealed: false });
+    } catch {
+      /* css parks the strip */
+    }
+  }
+
+  function maybeAutoHide() {
+    if (embedded || !stageRevealed) return;
+    if (!autoHideWanted({ railAutoHideOnBlur, focusInside, pointerInside })) return;
+    void parkStage();
+  }
+
+  function stagePointer(inside: boolean) {
+    if (embedded) return;
+    pointerInside = inside;
+    if (inside && revealWanted(true, false)) void showStage();
+    else maybeAutoHide();
+  }
+
+  function stageFocus(inside: boolean) {
+    if (embedded) return;
+    focusInside = inside;
+    if (!inside) maybeAutoHide();
+  }
+
+  function onWinBlur() {
+    stageFocus(false);
+  }
+
+  function applyStagePrefs(raw: {
+    railEdge?: unknown;
+    railAutoHideOnBlur?: unknown;
+    autohideRowChrome?: unknown;
+  }) {
+    const prefs = stagePrefs({
+      railEdge: raw.railEdge,
+      railAutoHideOnBlur: raw.railAutoHideOnBlur,
+      autohideRowChrome:
+        raw.autohideRowChrome === undefined ? autohideRowChrome : raw.autohideRowChrome,
+    });
+    railEdge = prefs.railEdge;
+    railAutoHideOnBlur = prefs.railAutoHideOnBlur;
   }
 
   // The hosted well (embedded) is a top strip of
@@ -587,6 +686,14 @@
     const action = habitatConfirm(id);
     if (action === "toggleCol") {
       toggleBoardCol(id.slice("rcol-".length));
+      return;
+    }
+    if (action === "stars") {
+      openStageDest("stars");
+      return;
+    }
+    if (action === "settings") {
+      openStageDest("settings");
       return;
     }
     if (action === "expand") {
@@ -1514,8 +1621,12 @@
   }
 
   function revealPlanet(projectId: string) {
-    if (!isCollapsed(projectId)) return;
-    collapsedSectionIds = collapsedSectionIds.filter((id) => id !== projectId);
+    const ids = sectionIds();
+    if (!ids.includes(projectId)) return;
+    collapsedSectionIds = [
+      ...collapsedSectionIds.filter((id) => !ids.includes(id)),
+      ...ids.filter((id) => id !== projectId),
+    ];
   }
 
   function newCardId(): string {
@@ -2483,6 +2594,8 @@
   let unlistenState: (() => void) | undefined;
   let unlistenTreeMove: (() => void) | undefined;
   let unlistenTreeGone: (() => void) | undefined;
+  let unlistenStage: (() => void) | undefined;
+  let unlistenStagePrefs: (() => void) | undefined;
 
   // Walker right-click menu pick. `kind` = import
   // first ("image" / "folder"); `packId` = direct pick (null = Generated).
@@ -2537,7 +2650,11 @@
       }
       tags = s.tags ?? [];
       windowTags = s.windowTags ?? [];
-      collapsedSectionIds = s.collapsedSectionIds ?? [];
+      collapsedSectionIds = stageCollapsedIds(s.collapsedSectionIds ?? [], [
+        ...(s.projects ?? []).map((p) => p.id),
+        UNMAPPED_KEY,
+      ]);
+      applyStagePrefs(s);
       nudgeSuppressed = s.nudgeSuppressedWindowIds ?? [];
       kanbanCards = s.kanbanCards ?? [];
       cardTombstones = s.cardTombstones ?? [];
@@ -2576,6 +2693,10 @@
       themeId = defaultThemeId();
     }
     stateLoaded = true;
+    if (!embedded) {
+      void parkStage();
+      window.addEventListener("blur", onWinBlur);
+    }
     // ORPHAN-CARDS: pre-heal saves may carry orphan window-cards. This
     // run is a safe no-op for demotion (windowsPolled is false until the
     // first tick) — the tick below re-claims the live ones.
@@ -2584,7 +2705,19 @@
     // Marble click on a planet expands the matching rail section; the
     // planet's right-click Minimize collapses it back.
     unlistenExpand = await listen<string>("habitat:expand", (e) => {
-      if (isCollapsed(e.payload)) toggleCollapse(e.payload);
+      if (!e.payload) return;
+      revealPlanet(e.payload);
+      persist();
+      void showStage();
+    });
+    unlistenStage = await listen<{ revealed?: boolean }>("orbitty:rail-stage", (e) => {
+      stageRevealed = !!e.payload?.revealed;
+    });
+    unlistenStagePrefs = await listen<{
+      railEdge?: string;
+      railAutoHideOnBlur?: boolean;
+    }>("orbitty:rail-stage-prefs", (e) => {
+      applyStagePrefs(e.payload ?? {});
     });
     unlistenCollapse = await listen<string>("habitat:collapse", (e) => {
       if (!isCollapsed(e.payload)) toggleCollapse(e.payload);
@@ -2798,6 +2931,7 @@
         windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
         spriteScale = clampSpriteScale(s.spriteScale ?? 1);
         autohideRowChrome = s.autohideRowChrome ?? autohideRowChrome;
+        applyStagePrefs(s);
         hideTitles = s.hideTitles ?? hideTitles;
         hideAppIcons = s.hideAppIcons ?? hideAppIcons;
         railBoardCols =
@@ -2874,6 +3008,9 @@
     unlistenState?.();
     unlistenTreeMove?.();
     unlistenTreeGone?.();
+    unlistenStage?.();
+    unlistenStagePrefs?.();
+    window.removeEventListener("blur", onWinBlur);
     osMedia.removeEventListener("change", onOsThemeChange);
   });
   // DIET-RAIL-SPLIT: surface for rail/* modules (getters keep $state live).
@@ -3036,6 +3173,11 @@
     raisePlanet,
     raisePlanetWindows,
     ensureExpand,
+    collapsePlanet,
+    openStageDest,
+    stageRole,
+    get railEdge() { return railEdge; },
+    get stageRevealed() { return stageRevealed; },
     openPlanetTodos,
     focusRow,
     toggleBoardCol,
@@ -3064,9 +3206,22 @@
 <main
   class="rail"
   class:embedded
+  class:stage-shell={!embedded}
+  class:stage-revealed={!embedded && stageRevealed}
+  class:stage-parked={!embedded && !stageRevealed}
+  data-edge={railEdge}
   class:autohide={autohideRowChrome}
   class:hide-titles={hideTitles}
   class:hide-icons={hideAppIcons}
+  onmouseenter={() => stagePointer(true)}
+  onmouseleave={() => stagePointer(false)}
+  onfocusin={() => stageFocus(true)}
+  onfocusout={(e) => {
+    const next = e.relatedTarget;
+    const stay =
+      next instanceof Node && e.currentTarget instanceof Node && e.currentTarget.contains(next);
+    stageFocus(stay);
+  }}
 >
   <RailChrome {rail} />
   <RailList {rail} />

@@ -27,7 +27,7 @@ fn parse_combo(combo: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, St
 }
 
 /// Never register these — a row carrying one shows `conflict`.
-/// ⌘⇧O = companion summon. ⌘⇧Y = Herding Cats confirm.
+/// ⌘⇧O = rail reveal. ⌘⇧Y = Herding Cats confirm.
 /// ⌘⇧N = next-card window (leftover).
 /// ⌘Space = Spotlight. Super-only letters below
 /// are Mac menu equivalents (Hide, Minimize, Quit, Close, …): Carbon

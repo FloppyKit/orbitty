@@ -1553,3 +1553,126 @@
     opacity: 1;
     pointer-events: auto;
   }
+
+  /* Stage Manager strip. Row-chrome autohide stays on .rail.autohide. */
+  .rail.stage-shell {
+    position: relative;
+    background: transparent;
+  }
+
+  .rail.stage-shell .list-head,
+  .rail.stage-shell .tag-filters,
+  .rail.stage-shell .railstack,
+  .rail.stage-shell .foot {
+    display: none;
+  }
+
+  .rail.stage-shell .stage-hit {
+    position: absolute;
+    z-index: 30;
+    pointer-events: auto;
+  }
+
+  .rail.stage-shell[data-edge="left"] .stage-hit {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 14px;
+  }
+
+  .rail.stage-shell[data-edge="right"] .stage-hit {
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 14px;
+  }
+
+  .rail.stage-shell[data-edge="top"] .stage-hit {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 14px;
+  }
+
+  .rail.stage-shell[data-edge="bottom"] .stage-hit {
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 14px;
+  }
+
+  .rail.stage-shell.stage-parked .chrome,
+  .rail.stage-shell.stage-parked .stage-strip,
+  .rail.stage-shell.stage-parked .scroll {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .stage-strip {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .stage-front {
+    display: flex;
+    gap: 8px;
+    position: relative;
+    z-index: 40;
+  }
+
+  .stage-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 52px;
+    min-height: 36px;
+    padding: 6px 10px;
+    border-radius: 14px;
+    border: 1px solid var(--edge);
+    background: var(--panel-fill, var(--panel));
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.72rem;
+    cursor: pointer;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+  }
+
+  .stage-icon.front {
+    z-index: 40;
+  }
+
+  .stage-planet {
+    position: relative;
+    z-index: 2;
+  }
+
+  .stage-planet.receded {
+    opacity: 0.42;
+    transform: scale(0.82);
+    transform-origin: left center;
+    z-index: 1;
+  }
+
+  .stage-planet.open {
+    z-index: 10;
+    width: 100%;
+    padding: 8px;
+    border-radius: 16px;
+    background: var(--bg-fill, var(--bg));
+  }
+
+  .rail.stage-shell[data-edge="top"] .stage-strip .wins,
+  .rail.stage-shell[data-edge="bottom"] .stage-strip .wins {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .rail.stage-shell[data-edge="top"] .stage-planet.open,
+  .rail.stage-shell[data-edge="bottom"] .stage-planet.open {
+    flex-basis: 100%;
+  }

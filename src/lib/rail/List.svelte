@@ -239,6 +239,28 @@
             a window onto it to claim.
           </p>
         {/if}
+        <div class="stage-hit" aria-hidden="true"></div>
+        <div class="stage-strip">
+        <div class="stage-front" aria-label="Rail">
+          <button
+            type="button"
+            class="stage-icon front"
+            data-mkey="rstars"
+            class:mkey-sel={rail.menuRing.activeId === "rstars"}
+            title="Stars"
+            aria-label="Stars"
+            onclick={() => rail.openStageDest("stars")}
+          >Stars</button>
+          <button
+            type="button"
+            class="stage-icon front"
+            data-mkey="rsettings"
+            class:mkey-sel={rail.menuRing.activeId === "rsettings"}
+            title="Settings"
+            aria-label="Settings"
+            onclick={() => rail.openStageDest("settings")}
+          >Settings</button>
+        </div>
         <div class="col-toggles" role="group" aria-label="Board columns">
           {#each [{ id: "todo", label: "Todo" }, { id: "doing", label: "Doing" }, { id: "done", label: "Done" }] as col (col.id)}
             <button
@@ -264,8 +286,11 @@
             {@const shown = rail.visibleRows(rows)}
             {@const agents = rail.agentRowsFor(p.id)}
             {@const snap = boardSnapshot(rail.kanbanCards, p.id, rail.railBoardCols)}
+            {@const role = rail.stageRole(p.id)}
             <li
-              class="section"
+              class="section stage-planet"
+              class:receded={role === "receded"}
+              class:open={role === "open"}
               class:drop-ok={rail.dropTarget === p.id}
               ondragenter={(e) => rail.onSectionDragEnter(e, p.id)}
               ondragover={(e) => rail.onSectionDragOver(e, p.id)}
@@ -275,26 +300,24 @@
               <div class="head-row">
                 <button
                   type="button"
-                  class="chev-btn"
-                  aria-expanded={!rail.isCollapsed(p.id)}
-                  aria-label={rail.isCollapsed(p.id) ? `Expand ${p.name}` : `Collapse ${p.name}`}
-                  title={rail.isCollapsed(p.id) ? "Expand" : "Collapse"}
-                  onclick={() => rail.toggleCollapse(p.id)}
-                >
-                  <span class="chev" class:open={!rail.isCollapsed(p.id)} aria-hidden="true">▸</span>
-                </button>
-                <PlanetHead
-                  name={p.name}
-                  chip={rail.planetCss(p.id)}
-                  count={shown.length + agents.length + rail.planetCount(p.id)}
-                  mkey={`rhead-${p.id}`}
-                  mkeySel={rail.menuRing.activeId === `rhead-${p.id}`}
-                  pid={p.id}
-                  dropOk={rail.dropTarget === p.id}
-                  hint="Expand this planet"
+                  class="stage-icon"
+                  data-mkey={`rhead-${p.id}`}
+                  class:mkey-sel={rail.menuRing.activeId === `rhead-${p.id}`}
+                  aria-expanded={role === "open"}
+                  aria-label={role === "open" ? p.name : `Expand ${p.name}`}
+                  title={p.name}
                   onclick={() => rail.ensureExpand(p.id)}
-                />
-                {#if !rail.isCollapsed(p.id)}
+                >{p.name.trim().charAt(0).toUpperCase() || "?"}</button>
+                {#if role === "open"}
+                  <PlanetHead
+                    name={p.name}
+                    chip={rail.planetCss(p.id)}
+                    count={shown.length + agents.length + rail.planetCount(p.id)}
+                    pid={p.id}
+                    dropOk={rail.dropTarget === p.id}
+                    hint="This planet is open"
+                    onclick={() => rail.collapsePlanet(p.id)}
+                  />
                   <button
                     type="button"
                     class="mini raise-btn"
@@ -304,13 +327,20 @@
                     aria-label={`Bring ${p.name} windows forward`}
                     onclick={() => rail.raisePlanetWindows(p.id)}
                   >Raise</button>
+                  <button
+                    type="button"
+                    class="mini ghost"
+                    title="Back — bring the other planets forward"
+                    aria-label={`Collapse ${p.name}`}
+                    onclick={() => rail.collapsePlanet(p.id)}
+                  >Back</button>
+                  <RailPlanetRm {rail} project={p} />
                 {/if}
-                <RailPlanetRm {rail} project={p} />
               </div>
               {#if rail.rmErrorFor?.id === p.id}
                 <p class="rm-err" role="alert">{rail.rmErrorFor.msg}</p>
               {/if}
-              {#if !rail.isCollapsed(p.id)}
+              {#if role === "open"}
                 {#if p.name.trim().toLowerCase() !== "void"}
                   <input
                     class="root-path"
@@ -378,7 +408,9 @@
           {/each}
 
           <li
-            class="section"
+            class="section stage-planet"
+            class:receded={rail.stageRole(rail.UNMAPPED_KEY) === "receded"}
+            class:open={rail.stageRole(rail.UNMAPPED_KEY) === "open"}
             class:drop-ok={rail.dropTarget === rail.UNMAPPED_KEY}
             ondragenter={(e) => rail.onSectionDragEnter(e, rail.UNMAPPED_KEY)}
             ondragover={(e) => rail.onSectionDragOver(e, rail.UNMAPPED_KEY)}
@@ -386,18 +418,17 @@
             ondrop={(e) => rail.onSectionDrop(e, null)}
           >
             <button
-              class="section-head"
-              onclick={() => rail.toggleCollapse(rail.UNMAPPED_KEY)}
-              aria-expanded={!rail.isCollapsed(rail.UNMAPPED_KEY)}
-              title={rail.isCollapsed(rail.UNMAPPED_KEY)
-                ? "Expand — you can also drop a window on this header"
-                : "Collapse"}
-            >
-              <span class="chev" class:open={!rail.isCollapsed(rail.UNMAPPED_KEY)} aria-hidden="true">▸</span>
-              <span class="section-name">Unmapped</span>
-              <span class="section-count">{rail.visibleRows(rail.unmapped).length}</span>
-            </button>
-            {#if !rail.isCollapsed(rail.UNMAPPED_KEY)}
+              type="button"
+              class="stage-icon"
+              aria-expanded={rail.stageRole(rail.UNMAPPED_KEY) === "open"}
+              title="Unmapped"
+              aria-label="Unmapped"
+              onclick={() =>
+                rail.stageRole(rail.UNMAPPED_KEY) === "open"
+                  ? rail.collapsePlanet(rail.UNMAPPED_KEY)
+                  : rail.ensureExpand(rail.UNMAPPED_KEY)}
+            >U</button>
+            {#if rail.stageRole(rail.UNMAPPED_KEY) === "open"}
               <ul class="wins">
                 {#each rail.visibleRows(rail.unmapped) as w (w.id)}
                   {@render winRow(w, null)}
@@ -411,6 +442,7 @@
             {/if}
           </li>
         </ul>
+        </div>
       {/if}
     {/if}
 
