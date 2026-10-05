@@ -18,6 +18,18 @@
   import RailChrome from "./rail/Chrome.svelte";
   import RailList from "./rail/List.svelte";
   import RailClaimUi from "./rail/ClaimUi.svelte";
+  import {
+    boardSnapshot,
+    habitatArrow,
+    habitatStops,
+    normalizeCols,
+    planetCount,
+    raisePlan,
+    tiles,
+    toggleCol,
+    type BoardCol,
+    type HabitatSection,
+  } from "./rail/habitat";
   import type {
     ActionShortcut,
     AgentRun,
@@ -160,6 +172,7 @@
   let autohideRowChrome = $state(true);
   let hideTitles = $state(false);
   let hideAppIcons = $state(false);
+  let railBoardCols = $state<BoardCol[]>(["todo"]);
   let spriteScale = $state(1);
   // Settings owns the toggle; the rail round-trips
   // it and rides it to the native habitat on the snapshot.
@@ -510,6 +523,117 @@
   // walkers are not on this key path.
   const menuRing = new MenuRing();
 
+  function toggleBoardCol(col: string) {
+    railBoardCols = toggleCol(railBoardCols, col);
+    persist();
+  }
+
+  async function focusRow(w: WindowInfo) {
+    try {
+      await invoke("focus_window", { id: w.id });
+    } catch {
+      /* app may refuse; the next tick shows where it landed */
+    }
+    touchClaim(w.id, true);
+    await tick();
+  }
+
+  async function raisePlanetWindows(pid: string) {
+    const plan = raisePlan(rowsFor(pid));
+    for (const id of plan.restore) {
+      try {
+        await invoke("restore_window", { id });
+      } catch {
+        /* a closed window drops out; focus still runs */
+      }
+    }
+    for (let i = 0; i < plan.focus.length; i++) {
+      try {
+        await invoke("focus_window", { id: plan.focus[i] });
+      } catch {
+        /* skip a window the OS will not raise */
+      }
+      if (i + 1 < plan.focus.length) {
+        await new Promise((r) => setTimeout(r, 40));
+      }
+    }
+    raisePlanet(pid);
+    await tick();
+  }
+
+  async function openPlanetTodos(pid: string) {
+    await openKanban();
+    emitTo("kanban", "orbitty:focus-project", pid).catch(() => {});
+    setTimeout(
+      () => emitTo("kanban", "orbitty:focus-project", pid).catch(() => {}),
+      400,
+    );
+  }
+
+  function rowById(id: string): WindowInfo | undefined {
+    for (const p of projects) {
+      const hit = rowsFor(p.id).find((w) => w.id === id);
+      if (hit) return hit;
+    }
+    return windows.find((w) => w.id === id);
+  }
+
+  function confirmHabitatStop(id: string) {
+    if (id.startsWith("rcol-")) {
+      toggleBoardCol(id.slice("rcol-".length));
+      return;
+    }
+    if (id.startsWith("rhead-")) {
+      void raisePlanetWindows(id.slice("rhead-".length));
+      return;
+    }
+    if (id.startsWith("rtile-")) {
+      const w = rowById(id.slice("rtile-".length));
+      if (!w) return;
+      if (w.sleeping) void wakeSleeper(w);
+      else void focusRow(w);
+      return;
+    }
+    if (id.startsWith("rsnap-")) {
+      void openKanbanFocus(id.slice("rsnap-".length));
+      return;
+    }
+    if (id.startsWith("rtodos-")) void openPlanetTodos(id.slice("rtodos-".length));
+  }
+
+  function syncInspectorRing() {
+    if (lane !== "projects") {
+      menuRing.setStops([]);
+      return;
+    }
+    const sections: HabitatSection[] = projects.map((p) => {
+      const open = !isCollapsed(p.id);
+      const shown = tiles(visibleRows(rowsFor(p.id))).shown;
+      const snap = boardSnapshot(kanbanCards, p.id, railBoardCols);
+      return {
+        pid: p.id,
+        open,
+        tileIds: shown.map((t) => t.id),
+        snapCols: snap
+          .filter((c) => c.items.length > 0)
+          .map((c) => c.items.map((card) => card.id)),
+        hasTodos: true,
+      };
+    });
+    const built = habitatStops(sections);
+    const stops: RingStop[] = built.map((stop) => ({
+      id: stop.id,
+      group: stop.group,
+      confirm: () => confirmHabitatStop(stop.id),
+      arrow: (dir) => {
+        const next = habitatArrow(sections, stop.id, dir);
+        if (next) menuRing.select(next);
+        return true;
+      },
+    }));
+    menuRing.setStops(stops);
+  }
+
   function confirmRingTab(id: string) {
     if (id === "ptab-add") {
       creatingProject = true;
@@ -523,6 +647,10 @@
   }
 
   $effect(() => {
+    if (!embedded) {
+      syncInspectorRing();
+      return;
+    }
     // Rows of the current slot first — the tab arrows drop into them.
     const rows: { id: string; confirm: () => void }[] = [];
     if (sheetSlot === "unclaimed") {
@@ -752,6 +880,7 @@
       autohideRowChrome,
       hideTitles,
       hideAppIcons,
+      railBoardCols,
       spriteScale,
       marbleDrift,
       peerChrome,
@@ -2409,6 +2538,7 @@
       // titles visible, one line, ellipsis.
       hideTitles = s.hideTitles ?? false;
       hideAppIcons = s.hideAppIcons ?? false;
+      railBoardCols = normalizeCols(s.railBoardCols);
       spriteScale = clampSpriteScale(s.spriteScale ?? 1);
       marbleDrift = s.marbleDrift ?? false;
       if (maybeGraduatePeerChrome(s)) {
@@ -2660,6 +2790,8 @@
         autohideRowChrome = s.autohideRowChrome ?? autohideRowChrome;
         hideTitles = s.hideTitles ?? hideTitles;
         hideAppIcons = s.hideAppIcons ?? hideAppIcons;
+        railBoardCols =
+          s.railBoardCols == null ? railBoardCols : normalizeCols(s.railBoardCols);
         marbleDrift = s.marbleDrift ?? marbleDrift;
         planetIdle = s.planetIdle ?? planetIdle;
         agentTerminal = s.agentTerminal ?? agentTerminal;
@@ -2892,6 +3024,17 @@
     titleFor,
     todosFor,
     raisePlanet,
+    raisePlanetWindows,
+    openPlanetTodos,
+    focusRow,
+    toggleBoardCol,
+    planetCount: (pid: string) => planetCount(kanbanCards, pid),
+    get railBoardCols() {
+      return railBoardCols;
+    },
+    set railBoardCols(v) {
+      railBoardCols = normalizeCols(v);
+    },
     toggleCollapse,
     toggleSoul,
     toggleTag,

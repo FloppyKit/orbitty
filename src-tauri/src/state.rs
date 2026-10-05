@@ -132,6 +132,11 @@ pub struct PersistedState {
     /// that sends ghostty or terminal wins; an omitted key stays "".
     #[serde(default)]
     pub agent_terminal: String,
+    /// Inspector rail board columns (`todo` / `doing` / `done`). Needed
+    /// always shows and is never stored. A save without the key loads
+    /// as ["todo"].
+    #[serde(default = "rail_board_cols_default")]
+    pub rail_board_cols: Vec<String>,
     /// Cards a window or a Rust delete removed. A later save brings a
     /// card back only when that card's `lastTouchedAt` is newer than the
     /// stamp. Old builds ignore the key. Empty stays off disk.
@@ -169,6 +174,10 @@ fn signed_locally_default() -> bool {
 
 fn planet_idle_default() -> String {
     "4h".into()
+}
+
+fn rail_board_cols_default() -> Vec<String> {
+    vec!["todo".into()]
 }
 
 /// One unbound-todo tree on a planet disc.
@@ -305,6 +314,7 @@ impl Default for PersistedState {
             planet_idle: planet_idle_default(),
             agent_terminal: String::new(),
             card_tombstones: Vec::new(),
+            rail_board_cols: vec!["todo".into()],
         }
     }
 }
@@ -1365,6 +1375,11 @@ pub fn apply_writer_delta(live: &mut PersistedState, before: &PersistedState, af
         &before.agent_terminal,
         &after.agent_terminal,
     );
+    take_changed(
+        &mut live.rail_board_cols,
+        &before.rail_board_cols,
+        &after.rail_board_cols,
+    );
 }
 
 fn wall_now_secs() -> f64 {
@@ -2208,5 +2223,33 @@ mod tests {
         let (merged, _) = merge_window_save(&disk, &incoming);
         assert_eq!(merged.kanban_cards.len(), 1);
         assert!(merged.card_tombstones.iter().all(|t| t.id != "c1"));
+    }
+
+    #[test]
+    fn rail_board_cols_default_and_delta() {
+        let missing: PersistedState = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.rail_board_cols, vec!["todo".to_string()]);
+
+        let round: PersistedState =
+            serde_json::from_str(r#"{"railBoardCols":["todo","done"]}"#).unwrap();
+        assert_eq!(
+            round.rail_board_cols,
+            vec!["todo".to_string(), "done".to_string()]
+        );
+        let encoded = serde_json::to_value(&round).unwrap();
+        assert_eq!(encoded["railBoardCols"], serde_json::json!(["todo", "done"]));
+
+        let mut before = PersistedState::default();
+        before.rail_board_cols = vec!["doing".into()];
+        let mut after = before.clone();
+        after.rail_board_cols = vec!["done".into()];
+        let mut live = PersistedState::default();
+        apply_writer_delta(&mut live, &before, &after);
+        assert_eq!(live.rail_board_cols, vec!["done".to_string()]);
+
+        let mut kept = PersistedState::default();
+        kept.rail_board_cols = vec!["keep".into()];
+        apply_writer_delta(&mut kept, &after, &after);
+        assert_eq!(kept.rail_board_cols, vec!["keep".to_string()]);
     }
 }

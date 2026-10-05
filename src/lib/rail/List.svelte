@@ -1,7 +1,11 @@
 <script lang="ts">
+  import PlanetHead from "../PlanetHead.svelte";
+  import type { AgentRun, KanbanCard, Project, WindowInfo } from "../persist";
   import RailPlanetRm from "./PlanetRm.svelte";
   import RailPlanetsSheet from "./PlanetsSheet.svelte";
-  import type { AgentRun, KanbanCard, Project, WindowInfo } from "../persist";
+  import BoardSnapshot from "./BoardSnapshot.svelte";
+  import WindowTiles from "./WindowTiles.svelte";
+  import { boardSnapshot } from "./habitat";
   import type { RailApi } from "./api";
 
   let { rail }: { rail: RailApi } = $props();
@@ -115,25 +119,6 @@
         {/if}
       </button>
     </div>
-  </li>
-
-{/snippet}
-
-{#snippet todoRow(card: KanbanCard)}
-  <li class="todo-row">
-    <button
-      class="circle-btn"
-      class:filling={rail.completingIds.includes(card.id)}
-      onclick={() => rail.circleComplete(card.id, () => rail.completeTodo(card))}
-      title="Complete — marks the to-do done"
-      aria-label="Complete to-do"
-      >{#if rail.completingIds.includes(card.id)}✓{/if}</button
-    >
-    <button
-      class="todo-name"
-      onclick={() => rail.openKanbanFocus(card.id)}
-      title="{card.title} — open in Lists">{card.title}</button
-    >
   </li>
 
 {/snippet}
@@ -254,6 +239,19 @@
             a window onto it to claim.
           </p>
         {/if}
+        <div class="col-toggles" role="group" aria-label="Board columns">
+          {#each [{ id: "todo", label: "Todo" }, { id: "doing", label: "Doing" }, { id: "done", label: "Done" }] as col (col.id)}
+            <button
+              type="button"
+              class="col-toggle"
+              class:on={rail.railBoardCols.includes(col.id)}
+              class:mkey-sel={rail.menuRing.activeId === `rcol-${col.id}`}
+              data-mkey={`rcol-${col.id}`}
+              aria-pressed={rail.railBoardCols.includes(col.id)}
+              onclick={() => rail.toggleBoardCol(col.id)}
+            >{col.label}</button>
+          {/each}
+        </div>
         {#if rail.wakeNote}
           <div class="hermes-note" class:err={rail.wakeNote.kind === "err"}>
             <span class="hermes-text">{rail.wakeNote.text}</span>
@@ -263,7 +261,9 @@
         <ul class="wins">
           {#each rail.projects as p (p.id)}
             {@const rows = rail.rowsFor(p.id)}
+            {@const shown = rail.visibleRows(rows)}
             {@const agents = rail.agentRowsFor(p.id)}
+            {@const snap = boardSnapshot(rail.kanbanCards, p.id, rail.railBoardCols)}
             <li
               class="section"
               class:drop-ok={rail.dropTarget === p.id}
@@ -274,26 +274,26 @@
             >
               <div class="head-row">
                 <button
-                  class="section-head"
-                  onclick={() => {
-                    rail.raisePlanet(p.id);
-                    rail.toggleCollapse(p.id);
-                  }}
+                  type="button"
+                  class="chev-btn"
                   aria-expanded={!rail.isCollapsed(p.id)}
-                  title={rail.isCollapsed(p.id)
-                    ? "Expand — you can also drop a window on this header"
-                    : "Collapse"}
+                  aria-label={rail.isCollapsed(p.id) ? `Expand ${p.name}` : `Collapse ${p.name}`}
+                  title={rail.isCollapsed(p.id) ? "Expand" : "Collapse"}
+                  onclick={() => rail.toggleCollapse(p.id)}
                 >
                   <span class="chev" class:open={!rail.isCollapsed(p.id)} aria-hidden="true">▸</span>
-                  <span
-                    class="planet-chip"
-                    style="background: {rail.planetCss(p.id)}"
-                    title={p.name}
-                    aria-hidden="true"
-                  ></span>
-                  <span class="section-name">{p.name}</span>
-                  <span class="section-count">{rail.visibleRows(rows).length + agents.length + rail.todosFor(p.id).length}</span>
                 </button>
+                <PlanetHead
+                  name={p.name}
+                  chip={rail.planetCss(p.id)}
+                  count={shown.length + agents.length + rail.planetCount(p.id)}
+                  mkey={`rhead-${p.id}`}
+                  mkeySel={rail.menuRing.activeId === `rhead-${p.id}`}
+                  pid={p.id}
+                  dropOk={rail.dropTarget === p.id}
+                  hint="Bring this planet's windows forward"
+                  onclick={() => rail.raisePlanetWindows(p.id)}
+                />
                 <RailPlanetRm {rail} project={p} />
               </div>
               {#if rail.rmErrorFor?.id === p.id}
@@ -309,24 +309,39 @@
                     onchange={(e) => rail.setWorkspaceRoot(p.id, e.currentTarget.value)}
                   />
                 {/if}
-                <ul class="wins">
-                  {#each rail.visibleRows(rows) as w (w.id)}
-                    {@render winRow(w, p)}
-                  {/each}
-                  {#each agents as r (r.cardId)}
-                    {@render agentRow(r)}
-                  {/each}
-                  {#each rail.todosFor(p.id) as card (card.id)}
-                    {@render todoRow(card)}
-                  {/each}
-                  {#if rail.visibleRows(rows).length === 0 && agents.length === 0 && rail.todosFor(p.id).length === 0}
-                    <li class="section-empty">
-                      {rail.tagFilter
-                        ? "No windows with this tag"
-                        : "Drop a window here to claim it"}
-                    </li>
-                  {/if}
-                  <li class="todo-add">
+                <WindowTiles {rail} project={p} rows={shown} />
+                <BoardSnapshot
+                  columns={snap}
+                  completingIds={rail.completingIds}
+                  activeId={rail.menuRing.activeId}
+                  onOpen={(id) => rail.openKanbanFocus(id)}
+                  onComplete={(id) => {
+                    const card = rail.kanbanCards.find((c: KanbanCard) => c.id === id);
+                    if (card) rail.circleComplete(card.id, () => rail.completeTodo(card));
+                  }}
+                />
+                <button
+                  type="button"
+                  class="todos-jump"
+                  class:mkey-sel={rail.menuRing.activeId === `rtodos-${p.id}`}
+                  data-mkey={`rtodos-${p.id}`}
+                  onclick={() => rail.openPlanetTodos(p.id)}
+                >Todos {rail.planetCount(p.id)} ›</button>
+                {#if agents.length > 0}
+                  <ul class="wins">
+                    {#each agents as r (r.cardId)}
+                      {@render agentRow(r)}
+                    {/each}
+                  </ul>
+                {/if}
+                {#if shown.length === 0 && agents.length === 0}
+                  <p class="section-empty">
+                    {rail.tagFilter
+                      ? "No windows with this tag"
+                      : "Drop a window here to claim it"}
+                  </p>
+                {/if}
+                <div class="todo-add">
                     {#if rail.addingTodoFor === p.id}
                       <span class="newproj">
                         <input
@@ -346,8 +361,7 @@
                         }}>+ To-do</button
                       >
                     {/if}
-                  </li>
-                </ul>
+                </div>
               {/if}
             </li>
           {/each}

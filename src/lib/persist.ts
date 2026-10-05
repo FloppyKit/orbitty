@@ -388,6 +388,8 @@ export interface PersistedState {
   autohideRowChrome: boolean;
   hideTitles: boolean;
   hideAppIcons: boolean;
+  /** Inspector snapshot columns (`todo` / `doing` / `done`). Missing → ["todo"]. */
+  railBoardCols?: string[];
   spriteScale: number;
   marbleDrift: boolean;
   /** PEER-CHROME: dock dest strip + rail STARS·Sky·Board·Comp stack. Demo off. */

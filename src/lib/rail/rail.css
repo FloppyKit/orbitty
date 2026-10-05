@@ -1317,3 +1317,235 @@
   .foot a:hover {
     text-decoration: underline;
   }
+
+  .col-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 2px 4px 8px;
+  }
+
+  .col-toggle {
+    font: inherit;
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dim);
+    background: transparent;
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+
+  .col-toggle.on {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .chev-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .head-row .planet-head {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+
+  .tile-grid {
+    display: grid;
+    gap: 4px;
+    padding: 2px 2px 6px;
+  }
+
+  .tile-wrap {
+    position: relative;
+    min-width: 0;
+  }
+
+  .tile-wrap.dragging {
+    opacity: 0.45;
+  }
+
+  .tile-wrap.zfade {
+    opacity: 0.75;
+  }
+
+  .tile-wrap.zpark {
+    opacity: 0.6;
+  }
+
+  .tile-wrap.zgone {
+    opacity: 0.45;
+  }
+
+  .tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    width: 100%;
+    min-width: 0;
+    padding: 4px 2px 3px;
+    font: inherit;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .tile:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .tile.front {
+    box-shadow: inset 0 0 0 1px var(--focus, #6e4db0);
+  }
+
+  .tile.stowed {
+    opacity: 0.55;
+  }
+
+  .tile.asleep {
+    opacity: 0.38;
+  }
+
+  .tile.asleep .tile-title {
+    font-style: italic;
+  }
+
+  .tile .app-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .tile-title {
+    width: 100%;
+    min-width: 0;
+    flex: none;
+    font-size: 0.62rem;
+    text-align: center;
+  }
+
+  .tile-mark {
+    font-size: 0.55rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .tile-circle {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    z-index: 1;
+  }
+
+  .tile-more {
+    align-self: center;
+    font-size: 0.68rem;
+    color: var(--dim);
+    padding: 4px;
+  }
+
+  .tile-rename {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .snap {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    padding: 2px 2px 6px;
+  }
+
+  .snap-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .snap-h {
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .snap-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .snap-card {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: inherit;
+    font-size: 0.68rem;
+    text-align: left;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 4px;
+    cursor: pointer;
+  }
+
+  .snap-card:hover {
+    color: var(--accent);
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .snap-more {
+    font-size: 0.62rem;
+    color: var(--dim);
+    padding-left: 4px;
+  }
+
+  .todos-jump {
+    align-self: flex-start;
+    margin: 0 2px 4px;
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 4px;
+    cursor: pointer;
+  }
+
+  .todos-jump:hover {
+    background: var(--panel-fill, var(--panel));
+  }
+
+  .rail.autohide .tile-wrap:hover .circle-btn,
+  .rail.autohide .tile-wrap:focus-within .circle-btn,
+  .rail.autohide .snap-item:hover .circle-btn,
+  .rail.autohide .snap-item:focus-within .circle-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
