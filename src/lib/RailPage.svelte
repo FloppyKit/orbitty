@@ -21,6 +21,7 @@
   import {
     boardSnapshot,
     habitatArrow,
+    habitatConfirm,
     habitatStops,
     normalizeCols,
     planetCount,
@@ -453,6 +454,10 @@
     persist();
   }
 
+  function ensureExpand(pid: string) {
+    if (isCollapsed(pid)) toggleCollapse(pid);
+  }
+
   // The hosted well (embedded) is a top strip of
   // planet tabs (Unclaimed · orbs · +) and one body. Windows only: no
   // Agents lane, tags, +To-do, Actions, or being editor in the well (the
@@ -579,26 +584,31 @@
   }
 
   function confirmHabitatStop(id: string) {
-    if (id.startsWith("rcol-")) {
+    const action = habitatConfirm(id);
+    if (action === "toggleCol") {
       toggleBoardCol(id.slice("rcol-".length));
       return;
     }
-    if (id.startsWith("rhead-")) {
-      void raisePlanetWindows(id.slice("rhead-".length));
+    if (action === "expand") {
+      ensureExpand(id.slice("rhead-".length));
       return;
     }
-    if (id.startsWith("rtile-")) {
+    if (action === "raise") {
+      void raisePlanetWindows(id.slice("rraise-".length));
+      return;
+    }
+    if (action === "focusTile") {
       const w = rowById(id.slice("rtile-".length));
       if (!w) return;
       if (w.sleeping) void wakeSleeper(w);
       else void focusRow(w);
       return;
     }
-    if (id.startsWith("rsnap-")) {
+    if (action === "openSnap") {
       void openKanbanFocus(id.slice("rsnap-".length));
       return;
     }
-    if (id.startsWith("rtodos-")) void openPlanetTodos(id.slice("rtodos-".length));
+    if (action === "todos") void openPlanetTodos(id.slice("rtodos-".length));
   }
 
   function syncInspectorRing() {
@@ -3025,6 +3035,7 @@
     todosFor,
     raisePlanet,
     raisePlanetWindows,
+    ensureExpand,
     openPlanetTodos,
     focusRow,
     toggleBoardCol,

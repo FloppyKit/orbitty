@@ -5,6 +5,7 @@ export interface RailHabitatApi {
   railBoardCols: string[];
   toggleBoardCol: (col: string) => void;
   raisePlanetWindows: (pid: string) => Promise<void>;
+  ensureExpand: (pid: string) => void;
   openPlanetTodos: (pid: string) => Promise<void>;
   focusRow: (w: WindowInfo) => Promise<void>;
   planetCount: (pid: string) => number;

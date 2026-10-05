@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   boardSnapshot,
   habitatArrow,
+  habitatConfirm,
   habitatStops,
   normalizeCols,
   planetCount,
@@ -269,6 +270,7 @@ test("H9 ring order", () => {
       "rcol-doing",
       "rcol-done",
       "rhead-A",
+      "rraise-A",
       "rtile-a1",
       "rtile-a2",
       "rsnap-n1",
@@ -279,16 +281,18 @@ test("H9 ring order", () => {
   );
   assert.deepEqual(
     stops.map((s) => s.group),
-    ["cols", "cols", "cols", "A", "A", "A", "A", "A", "A", "B"],
+    ["cols", "cols", "cols", "A", "A", "A", "A", "A", "A", "A", "B"],
   );
   assert.equal(
-    stops.some((s) => s.id === "rtile-b1" || s.id === "rsnap-bx" || s.id === "rtodos-B"),
+    stops.some((s) => s.id === "rtile-b1" || s.id === "rsnap-bx" || s.id === "rtodos-B" || s.id === "rraise-B"),
     false,
   );
 });
 
 test("H10 arrows", () => {
-  assert.equal(habitatArrow(ring, "rhead-A", "down"), "rtile-a1");
+  assert.equal(habitatArrow(ring, "rhead-A", "down"), "rraise-A");
+  assert.equal(habitatArrow(ring, "rraise-A", "down"), "rtile-a1");
+  assert.equal(habitatArrow(ring, "rtile-a1", "up"), "rraise-A");
   assert.equal(habitatArrow(ring, "rtodos-A", "down"), "rhead-B");
   assert.equal(habitatArrow(ring, "rhead-B", "up"), "rtodos-A");
   assert.equal(habitatArrow(ring, "rtile-a1", "right"), "rtile-a2");
@@ -296,4 +300,52 @@ test("H10 arrows", () => {
   assert.equal(habitatArrow(ring, "rhead-B", "down"), null);
   assert.equal(habitatArrow(ring, "rsnap-n1", "right"), "rsnap-t1");
   assert.equal(habitatArrow(ring, "rsnap-t1", "right"), null);
+});
+
+test("E1 head confirm is expand", () => {
+  assert.equal(habitatConfirm("rhead-A"), "expand");
+  assert.notEqual(habitatConfirm("rhead-A"), "raise");
+  assert.equal(habitatConfirm("rcol-todo"), "toggleCol");
+  assert.equal(habitatConfirm("rtile-a1"), "focusTile");
+  assert.equal(habitatConfirm("rsnap-n1"), "openSnap");
+  assert.equal(habitatConfirm("rtodos-A"), "todos");
+  assert.equal(habitatConfirm("rhead-"), null);
+  assert.equal(habitatConfirm("nope"), null);
+});
+
+test("E2 raise confirm is raise", () => {
+  assert.equal(habitatConfirm("rraise-A"), "raise");
+  assert.notEqual(habitatConfirm("rraise-A"), "expand");
+  assert.equal(habitatConfirm("rraise-"), null);
+});
+
+test("E3 raise stop only when open", () => {
+  const stops = habitatStops(ring);
+  const ids = stops.map((s) => s.id);
+  const head = ids.indexOf("rhead-A");
+  assert.ok(head >= 0);
+  assert.equal(ids[head + 1], "rraise-A");
+  assert.equal(ids[head + 2], "rtile-a1");
+  assert.deepEqual(
+    stops.filter((s) => s.group === "B").map((s) => s.id),
+    ["rhead-B"],
+  );
+});
+
+test("E4 arrows through raise", () => {
+  assert.equal(habitatArrow(ring, "rhead-A", "down"), "rraise-A");
+  assert.equal(habitatArrow(ring, "rraise-A", "down"), "rtile-a1");
+  assert.equal(habitatArrow(ring, "rtile-a1", "up"), "rraise-A");
+
+  const snapOnly: HabitatSection[] = [
+    { pid: "A", open: true, tileIds: [], snapCols: [["n1"]], hasTodos: false },
+  ];
+  assert.equal(habitatArrow(snapOnly, "rraise-A", "down"), "rsnap-n1");
+  assert.equal(habitatArrow(snapOnly, "rsnap-n1", "up"), "rraise-A");
+
+  const todosOnly: HabitatSection[] = [
+    { pid: "A", open: true, tileIds: [], snapCols: [], hasTodos: true },
+  ];
+  assert.equal(habitatArrow(todosOnly, "rraise-A", "down"), "rtodos-A");
+  assert.equal(habitatArrow(todosOnly, "rtodos-A", "up"), "rraise-A");
 });

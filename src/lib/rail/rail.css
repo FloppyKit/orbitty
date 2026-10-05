@@ -1364,6 +1364,10 @@
     width: auto;
   }
 
+  .head-row .raise-btn {
+    flex-shrink: 0;
+  }
+
   .tile-grid {
     display: grid;
     gap: 4px;

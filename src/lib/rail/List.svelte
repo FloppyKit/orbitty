@@ -291,9 +291,20 @@
                   mkeySel={rail.menuRing.activeId === `rhead-${p.id}`}
                   pid={p.id}
                   dropOk={rail.dropTarget === p.id}
-                  hint="Bring this planet's windows forward"
-                  onclick={() => rail.raisePlanetWindows(p.id)}
+                  hint="Expand this planet"
+                  onclick={() => rail.ensureExpand(p.id)}
                 />
+                {#if !rail.isCollapsed(p.id)}
+                  <button
+                    type="button"
+                    class="mini raise-btn"
+                    class:mkey-sel={rail.menuRing.activeId === `rraise-${p.id}`}
+                    data-mkey={`rraise-${p.id}`}
+                    title="Bring this planet's windows forward"
+                    aria-label={`Bring ${p.name} windows forward`}
+                    onclick={() => rail.raisePlanetWindows(p.id)}
+                  >Raise</button>
+                {/if}
                 <RailPlanetRm {rail} project={p} />
               </div>
               {#if rail.rmErrorFor?.id === p.id}

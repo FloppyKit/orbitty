@@ -199,6 +199,7 @@ export function habitatStops(sections: readonly HabitatSection[]): HabitatStop[]
   for (const s of sections) {
     stops.push({ id: `rhead-${s.pid}`, group: s.pid });
     if (!s.open) continue;
+    stops.push({ id: `rraise-${s.pid}`, group: s.pid });
     for (const id of s.tileIds) stops.push({ id: `rtile-${id}`, group: s.pid });
     for (const col of s.snapCols) {
       for (const id of col) stops.push({ id: `rsnap-${id}`, group: s.pid });
@@ -254,6 +255,25 @@ function snapArrow(
   const dest = section.snapCols[ci + (dir === "right" ? 1 : -1)];
   if (!dest || dest.length === 0) return null;
   return `rsnap-${dest[Math.min(ri, dest.length - 1)]}`;
+}
+
+export type HabitatConfirm =
+  | "expand"
+  | "raise"
+  | "toggleCol"
+  | "focusTile"
+  | "openSnap"
+  | "todos";
+
+/** Ring Enter for a habitat stop. Head expands; raise is its own stop. */
+export function habitatConfirm(id: string): HabitatConfirm | null {
+  if (id.startsWith("rhead-") && id.length > "rhead-".length) return "expand";
+  if (id.startsWith("rraise-") && id.length > "rraise-".length) return "raise";
+  if (id.startsWith("rcol-") && id.length > "rcol-".length) return "toggleCol";
+  if (id.startsWith("rtile-") && id.length > "rtile-".length) return "focusTile";
+  if (id.startsWith("rsnap-") && id.length > "rsnap-".length) return "openSnap";
+  if (id.startsWith("rtodos-") && id.length > "rtodos-".length) return "todos";
+  return null;
 }
 
 /** ↑/↓ walk the painted stop list. ←/→ stay inside a tile row or hop
