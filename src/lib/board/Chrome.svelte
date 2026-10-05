@@ -3,31 +3,17 @@
   import type { Project } from "../persist";
   // doneActorChips: Snippet from parent (also used in Columns).
   let {
-    dropCol,
     embedded,
-    grabCol,
     hermesNote = $bindable(),
     invoke,
     listTitle,
-    menuRing,
     onBannerMouseDown,
     onClose,
-    onColDragLeave,
-    onColDragOver,
-    onColDrop,
-    onPlanetPointerDown,
-    onPlanetTabClick,
-    onPlanetTabDblClick,
     onPopout,
     planetCss,
-    planetDragId,
-    planetDropId,
     planetIsLive,
-    projects,
-    selected = $bindable(),
+    selected,
     selectedProject,
-    sideCount,
-    toggleDoneChip,
     doneActorChips,
   } = $props();
 </script>
@@ -78,86 +64,6 @@
       aria-label={embedded ? "Dismiss Launchpad" : "Hide Lists"}>×</button
     >
   </header>
-
-  <div class="planet-strip" role="tablist" aria-label="Lists and planets">
-    <div class="strip-pins">
-      <button
-        type="button"
-        class="planet-tab"
-        class:sel={selected === "inbox"}
-        class:mkey-sel={menuRing.activeId === "listtab-inbox"}
-        data-mkey="listtab-inbox"
-        role="tab"
-        aria-selected={selected === "inbox"}
-        onclick={() => (selected = "inbox")}
-      >
-        <span class="planet-tab-name">Inbox</span>
-        <span class="side-count">{sideCount("inbox")}</span>
-      </button>
-      <button
-        type="button"
-        class="planet-tab"
-        class:sel={selected === "today"}
-        class:mkey-sel={menuRing.activeId === "listtab-today"}
-        data-mkey="listtab-today"
-        role="tab"
-        aria-selected={selected === "today"}
-        onclick={() => (selected = "today")}
-      >
-        <span class="planet-tab-name">Today</span>
-        <span class="side-count">{sideCount("today")}</span>
-      </button>
-      <button
-        type="button"
-        class="planet-tab"
-        class:sel={selected === "done"}
-        class:mkey-sel={menuRing.activeId === "listtab-done"}
-        data-mkey="listtab-done"
-        role="tab"
-        aria-selected={selected === "done"}
-        data-col="done"
-        class:drop-ok={dropCol === "done" || grabCol === "done"}
-        title="Done — click to show completed, click again to return"
-        onclick={() => toggleDoneChip()}
-        ondragover={(e) => onColDragOver(e, "done")}
-        ondragleave={(e) => onColDragLeave(e, "done")}
-        ondrop={(e) => onColDrop(e, "done")}
-      >
-        <span class="planet-tab-name">Done</span>
-        <span class="side-count">{sideCount("done")}</span>
-      </button>
-    </div>
-    <span class="strip-gap" aria-hidden="true"></span>
-    <div class="strip-planets">
-    {#each projects as p (p.id)}
-      <button
-        type="button"
-        class="planet-tab"
-        class:sel={selected === p.id}
-        class:drop-ok={planetDropId === p.id}
-        class:dragging={planetDragId === p.id}
-        class:mkey-sel={menuRing.activeId === `listtab-${p.id}`}
-        data-mkey={`listtab-${p.id}`}
-        data-pid={p.id}
-        role="tab"
-        aria-selected={selected === p.id}
-        title={p.name}
-        onpointerdown={(e) => onPlanetPointerDown(e, p.id)}
-        onclick={() => onPlanetTabClick(p.id)}
-        ondblclick={() => onPlanetTabDblClick(p.id)}
-      >
-        <span
-          class="planet-chip"
-          class:live={planetIsLive(p.id)}
-          style="background: {planetCss(p.id)}; --pglow: {planetCss(p.id)}"
-          aria-hidden="true"
-        ></span>
-        <span class="planet-tab-name">{p.name}</span>
-        <span class="side-count">{sideCount(p.id)}</span>
-      </button>
-    {/each}
-    </div>
-  </div>
 
   <div class="k-heads" onmousedown={onBannerMouseDown}>
     <div class="k-titlerow">

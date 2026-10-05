@@ -67,8 +67,14 @@
 .k-body {
   display: flex;
   min-height: 0;
-  padding: 0 16px 12px;
+  padding: 0 16px 12px 0;
   gap: 0;
+}
+
+.k-body > .planet-col {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-height: 0;
 }
 
 .k-main {

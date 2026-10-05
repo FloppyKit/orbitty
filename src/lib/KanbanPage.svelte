@@ -8,7 +8,7 @@
   // (`todo: … -planet --agent`).
   import { invoke } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, untrack } from "svelte";
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
@@ -18,7 +18,14 @@
   import BoardChrome from "./board/Chrome.svelte";
   import BoardColumns from "./board/Columns.svelte";
   import BoardPreview from "./board/Preview.svelte";
+  import PlanetColumn from "./board/PlanetColumn.svelte";
   import { resolveFocus } from "./board/focusProject";
+  import {
+    beforeIdAt,
+    columnArrow,
+    columnMode,
+    columnPx,
+  } from "./board/planetColumn";
   import "./board/board.css";
   import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import { mdLite } from "./mdLite";
@@ -87,13 +94,18 @@
   let agentShortcuts = $state<AgentShortcut[]>([]);
   let agentRuns = $state<AgentRun[]>([]);
   // writer on a planet glows that chip in the
-  // Launchpad strip (same flag the inspector sheet tabs already read).
+  // planet column (same flag the inspector sheet tabs already read).
   let hackProjectId = $state<string | null>(null);
   let selectedBeforeDone = $state("inbox");
   let neededSplit = $state(0.28);
   let previewWidth = $state(280);
   let mailEl: HTMLDivElement | null = $state(null);
   let bodyEl: HTMLDivElement | null = $state(null);
+  let kanbanEl: HTMLElement | null = $state(null);
+  // Session-only. "auto" collapses under COLUMN_AUTO_MIN_PX; a click wins.
+  let planetColPref = $state<"auto" | "open" | "icons">("auto");
+  let boardPx = $state(900);
+  const planetColMode = $derived(columnMode(boardPx, planetColPref));
   let addingTodo = $state(false);
   let newTodoTitle = $state("");
   let openSubtaskIds = $state<string[]>([]);
@@ -109,7 +121,7 @@
   // No Actions well here — actions are a Settings
   // list + `orbittyctl action` verbs; the slice still round-trips via
   // load → mutate → save.
-  // Shared so strip + and sidebar form stay one toggle.
+  // Shared so the Needed composer stays one toggle.
   let addingNeeded = $state(false);
 
   // Sidebar selection: a smart filter, Inbox, or a project id. Session-only.
@@ -158,6 +170,39 @@
       ungrab();
     }
     const stops: RingStop[] = [];
+    // Planet column is one surface, and the first one, so Tab walks
+    // planets → Needed → Todo → Doing → Done. Up/down walk the rows
+    // and wrap. Right drops into the first card of the first non-empty
+    // column, else the first Needed row. Left stays put.
+    const tabIds = ["inbox", "today", "done", ...projects.map((p) => p.id)];
+    const firstCard =
+      COLUMNS.map((c) => boardCols[c.id]).find((l) => l.length > 0)?.[0] ??
+      null;
+    const firstNeededId = neededRows[0]?.id ?? null;
+    for (const id of tabIds) {
+      stops.push({
+        id: `listtab-${id}`,
+        group: "tabs",
+        confirm: () => {
+          if (projects.some((p) => p.id === id)) onPlanetTabClick(id);
+          else selected = id;
+        },
+        arrow: (dir) => {
+          const next = columnArrow(tabIds, id, dir, {
+            firstCardId: firstCard?.id ?? null,
+            firstNeededId,
+          });
+          if (next == null) return true;
+          if (dir === "right") {
+            if (firstCard) menuRing.select(`card-${firstCard.id}`);
+            else menuRing.select(`needed-${next}`);
+            return true;
+          }
+          menuRing.select(`listtab-${next}`);
+          return true;
+        },
+      });
+    }
     // The Needed column is always open — the pile rows ride the ring
     // directly (no toggle stop). Enter on a row arms the composer
     // answer (the companion text box is the mouth) and lands the caret.
@@ -172,43 +217,6 @@
         },
       });
     }
-    // The planet strip is a ROW on this surface: left/right walk it,
-    // down drops into the first card of the first non-empty column, up
-    // climbs back to the Needed pile.
-    const tabIds = ["inbox", "today", "done", ...projects.map((p) => p.id)];
-    tabIds.forEach((id, i) => {
-      stops.push({
-        id: `listtab-${id}`,
-        group: "tabs",
-        confirm: () => {
-          if (projects.some((p) => p.id === id)) onPlanetTabClick(id);
-          else selected = id;
-        },
-        arrow: (dir) => {
-          if (dir === "left" || dir === "right") {
-            const n = tabIds.length;
-            const next = tabIds[(i + (dir === "left" ? -1 : 1) + n) % n];
-            menuRing.select(`listtab-${next}`);
-            return true;
-          }
-          if (dir === "down") {
-            const first = COLUMNS.map((c) => boardCols[c.id]).find(
-              (l) => l.length > 0,
-            )?.[0];
-            if (first) {
-              menuRing.select(`card-${first.id}`);
-              return true;
-            }
-            return false;
-          }
-          if (neededRows.length > 0) {
-            menuRing.select(`needed-${neededRows[neededRows.length - 1].id}`);
-            return true;
-          }
-          return false;
-        },
-      });
-    });
     const cols = COLUMNS.map((c) => boardCols[c.id]);
     cols.forEach((colCards, ci) => {
       colCards.forEach((card, ri) => {
@@ -330,15 +338,18 @@
     });
   }
 
-  function planetBeforeAt(clientX: number): string | null {
-    const els = document.querySelectorAll(".strip-planets .planet-tab");
-    for (const el of els) {
+  function planetBeforeAt(clientY: number): string | null {
+    const col = document.querySelector(".planet-col");
+    if (!col) return null;
+    const rows: { id: string; top: number; height: number }[] = [];
+    for (const el of col.querySelectorAll("[data-pid]")) {
+      if (!(el instanceof HTMLElement)) continue;
+      const id = el.getAttribute("data-pid");
+      if (!id) continue;
       const r = el.getBoundingClientRect();
-      if (clientX < r.left + r.width / 2) {
-        return el.getAttribute("data-pid");
-      }
+      rows.push({ id, top: r.top, height: r.height });
     }
-    return null;
+    return beforeIdAt(rows, clientY);
   }
 
   function onPlanetPointerDown(e: PointerEvent, id: string) {
@@ -346,10 +357,10 @@
     if (!(e.currentTarget instanceof HTMLElement)) return;
     e.stopPropagation();
     const tab = e.currentTarget;
-    const strip = tab.closest(".strip-planets");
+    const scroller = tab.closest(".planet-col-planets");
     const x0 = e.clientX;
     const y0 = e.clientY;
-    const scroll0 = strip instanceof HTMLElement ? strip.scrollLeft : 0;
+    const scroll0 = scroller instanceof HTMLElement ? scroller.scrollTop : 0;
     let dragging = false;
     let armed = true;
     const SLOP = 16;
@@ -359,14 +370,14 @@
       const dy = ev.clientY - y0;
       if (!dragging) {
         if (Math.hypot(dx, dy) < SLOP) return;
-        if (Math.abs(dy) > Math.abs(dx)) {
+        if (Math.abs(dx) > Math.abs(dy)) {
           armed = false;
           cleanup();
           return;
         }
         if (
-          strip instanceof HTMLElement &&
-          Math.abs(strip.scrollLeft - scroll0) > 2
+          scroller instanceof HTMLElement &&
+          Math.abs(scroller.scrollTop - scroll0) > 2
         ) {
           armed = false;
           cleanup();
@@ -376,7 +387,7 @@
         planetDidDrag = true;
         planetDragId = id;
       }
-      const before = planetBeforeAt(ev.clientX);
+      const before = planetBeforeAt(ev.clientY);
       planetDropId = before;
       reorderPlanetsLive(id, before);
     };
@@ -1203,14 +1214,20 @@
     window.addEventListener("pointerup", up);
   }
 
-  // Left column min = selected planet tab width (the chip+name above
-  // the mail stack). Preview min = one title row like "LED watch dogfood".
+  function columnWidthNow(): number {
+    return columnPx(columnMode(boardPx, planetColPref));
+  }
+
+  // Mail-stack floor plus the planet column. clampPreview subtracts this
+  // from the body so the list and the preview both keep a minimum when
+  // the column is open (168) or collapsed to chips (72).
   function mailMinPx(): number {
-    const tab = document.querySelector(
-      ".kanban .planet-strip .planet-tab.sel",
-    ) as HTMLElement | null;
-    if (tab) return Math.max(96, Math.ceil(tab.getBoundingClientRect().width));
-    return 120;
+    return 120 + columnWidthNow();
+  }
+
+  function togglePlanetCol() {
+    planetColPref = planetColMode === "open" ? "icons" : "open";
+    previewWidth = clampPreview(previewWidth);
   }
 
   function previewMinPx(): number {
@@ -1231,6 +1248,7 @@
     const cs = getComputedStyle(body);
     const pad =
       (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    // 6px is the east split. mailMinPx already includes the planet column.
     const avail = Math.max(body.clientWidth - pad - 6, 1);
     const maxPreview = Math.max(prevMin, avail - mailMinPx());
     return Math.min(maxPreview, Math.max(prevMin, px));
@@ -1274,6 +1292,21 @@
     const ro = new ResizeObserver(() => {
       previewWidth = clampPreview(previewWidth);
     });
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
+  $effect(() => {
+    const el = kanbanEl;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      boardPx = el.clientWidth;
+      untrack(() => {
+        previewWidth = clampPreview(previewWidth);
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   });
@@ -2016,40 +2049,47 @@
   </div>
 {/snippet}
 
-<main class="kanban" class:embedded>
+<main class="kanban" class:embedded bind:this={kanbanEl}>
   {#if linkToast}
     <div class="k-toast" role="status">{linkToast}</div>
   {/if}
   <BoardChrome
-    bind:selected
+    {selected}
     bind:hermesNote
     {embedded}
-    {dropCol}
-    {grabCol}
     {invoke}
     {listTitle}
-    {menuRing}
     {onBannerMouseDown}
     {onClose}
-    {onColDragLeave}
-    {onColDragOver}
-    {onColDrop}
-    {onPlanetPointerDown}
-    {onPlanetTabClick}
-    {onPlanetTabDblClick}
     {onPopout}
     {planetCss}
-    {planetDragId}
-    {planetDropId}
     {planetIsLive}
-    {projects}
     {selectedProject}
-    {sideCount}
-    {toggleDoneChip}
     {doneActorChips}
   />
 
   <div class="k-body" bind:this={bodyEl}>
+    <PlanetColumn
+      bind:selected
+      mode={planetColMode}
+      onToggle={togglePlanetCol}
+      {projects}
+      {sideCount}
+      {menuRing}
+      {planetCss}
+      {planetIsLive}
+      {planetDragId}
+      {planetDropId}
+      {dropCol}
+      {grabCol}
+      {onPlanetPointerDown}
+      {onPlanetTabClick}
+      {onPlanetTabDblClick}
+      {toggleDoneChip}
+      {onColDragOver}
+      {onColDragLeave}
+      {onColDrop}
+    />
     <BoardColumns
       bind:addingTodo
       bind:detailId
