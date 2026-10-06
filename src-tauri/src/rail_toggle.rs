@@ -90,6 +90,8 @@ pub fn dest_show(app: tauri::AppHandle, dest: String) -> Result<(), String> {
             Ok(())
         }
         "settings" => crate::panes::show_labeled(&app, "settings"),
+        "settings-beside" => crate::drawers::show_drawer_beside_rail(&app, "settings"),
+        "stars-beside" => crate::drawers::show_drawer_beside_rail(&app, "stars"),
         _ => Err(format!("dest_show: unknown dest {dest}")),
     }
 }

@@ -92,6 +92,8 @@ export interface Layer2Item {
   iconBase64?: string | null;
   appName?: string;
   frontmost?: boolean;
+  /** Stage Manager board tile. Cards live in the embed, not as doing/todo rows. */
+  preview?: boolean;
 }
 
 export type ArchConfirmAction = "board" | "wake" | "restore" | "focus";
@@ -455,6 +457,179 @@ export function archLayer2Items(opts: {
   return items;
 }
 
+/** Windows shown as preview tiles. The rest are a count, never invented rows. */
+export const PREVIEW_WINDOW_CAP = 8;
+/** Gap used by beside-rail placement. Matches drawers::DRAWER_GAP. */
+export const BESIDE_GAP = 8;
+/** A placed pane is adjacent when the gap toward the rail is at most this, or they overlap. */
+export const BESIDE_ADJACENT = 48;
+
+export interface PlaceRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface StagePreviewModel {
+  board: Layer2Item;
+  windows: Layer2Item[];
+  needed: Layer2Item[];
+  /** Claimed windows past PREVIEW_WINDOW_CAP. Not tiles and not fake window ids. */
+  overflow: number;
+  popOut: { stop: string; label: string };
+  /** Stage Manager order: one board tile, Needed, window tiles. No doing/todo. */
+  slots: Layer2Item[];
+}
+
+function windowItem(w: ArchRow): Layer2Item {
+  return {
+    kind: "window",
+    stop: `rl2-w-${w.id}`,
+    id: w.id,
+    title: w.title,
+    sleeping: !!w.sleeping,
+    minimized: !!(w.minimized || w.isMinimized),
+    iconBase64: w.iconBase64,
+    appName: w.appName,
+    frontmost: !!w.isFrontmost,
+  };
+}
+
+/** Stage Manager layer 2. Doing/todo cards stay inside the board tile.
+ *  Window art is the card fallback (icon, title, app, state) — no capture API. */
+export function stagePreviewModel(opts: {
+  pid: string;
+  cards: readonly ArchCard[];
+  rows: readonly ArchRow[];
+  maxWindows?: number;
+}): StagePreviewModel {
+  const maxWindows = opts.maxWindows ?? PREVIEW_WINDOW_CAP;
+  const pid = opts.pid;
+  const needed = opts.cards
+    .filter(
+      (c) =>
+        c.kind === "needed" &&
+        c.projectId === pid &&
+        (c.neededState === "open" || c.neededState === "later"),
+    )
+    .slice()
+    .sort(byCreated)
+    .map((c, i): Layer2Item => ({
+      kind: "needed",
+      stop: `rl2-n-${c.id ?? i}`,
+      id: c.id,
+      title: c.title,
+    }));
+  const cap = Math.max(0, maxWindows);
+  const windowRows = opts.rows.slice(0, cap);
+  const overflow = Math.max(0, opts.rows.length - windowRows.length);
+  const windows = windowRows.map(windowItem);
+  const board: Layer2Item = {
+    kind: "board",
+    preview: true,
+    stop: "rl2-board",
+    title: "Board",
+  };
+  return {
+    board,
+    windows,
+    needed,
+    overflow,
+    popOut: { stop: "rl2-pop", label: "Pop out" },
+    slots: [board, ...needed, ...windows],
+  };
+}
+
+function overlapAxes(a: PlaceRect, b: PlaceRect): { ox: number; oy: number } {
+  return {
+    ox: Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)),
+    oy: Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)),
+  };
+}
+
+function mostlyOn(rect: PlaceRect, frame: PlaceRect): boolean {
+  if (rect.w <= 0 || rect.h <= 0) return false;
+  const { ox, oy } = overlapAxes(rect, frame);
+  return ox >= rect.w * 0.5 && oy >= rect.h * 0.5;
+}
+
+/** Place `size` on the rail's display, inboard of the rail. `stale` is ignored:
+ *  a stage-originated open must not reopen a last-place on another screen. */
+export function placeBesideRail(
+  rail: PlaceRect,
+  size: { w: number; h: number },
+  frames: readonly PlaceRect[],
+  stale?: PlaceRect | null,
+): PlaceRect | null {
+  void stale;
+  if (frames.length === 0) return null;
+  const vf = frames.find((frame) => mostlyOn(rail, frame)) ?? frames[0];
+  const w = Math.max(1, Math.min(size.w, vf.w));
+  const h = Math.max(1, Math.min(size.h, vf.h));
+  const inboardRight = rail.x + rail.w / 2 < vf.x + vf.w * (2 / 3);
+  let x = inboardRight ? rail.x + rail.w + BESIDE_GAP : rail.x - BESIDE_GAP - w;
+  let y = rail.y;
+  if (x < vf.x) x = vf.x;
+  if (y < vf.y) y = vf.y;
+  if (x + w > vf.x + vf.w) x = Math.max(vf.x, vf.x + vf.w - w);
+  if (y + h > vf.y + vf.h) y = Math.max(vf.y, vf.y + vf.h - h);
+  return { x, y, w, h };
+}
+
+/** True when the pane shares the rail's display and sits against that rail. */
+export function besideRailAdjacent(placed: PlaceRect, rail: PlaceRect, frames: readonly PlaceRect[]): boolean {
+  const home = frames.find((frame) => mostlyOn(rail, frame));
+  if (!home || !mostlyOn(placed, home)) return false;
+  const gapRight = placed.x - (rail.x + rail.w);
+  const gapLeft = rail.x - (placed.x + placed.w);
+  const toward =
+    (gapRight >= -placed.w && gapRight <= BESIDE_ADJACENT) ||
+    (gapLeft >= -placed.w && gapLeft <= BESIDE_ADJACENT);
+  const yOverlap = Math.min(placed.y + placed.h, rail.y + rail.h) - Math.max(placed.y, rail.y);
+  return toward && yOverlap > 0;
+}
+
+export interface StackLayout {
+  needed: ZoneRect;
+  board: ZoneRect;
+  windows: ZoneRect[];
+  settings: ZoneRect;
+}
+
+/** Preview tiles inside the wheel's preview rect (beside the arch, same screen). */
+export function stageStackLayout(
+  edge: string,
+  frameW: number,
+  frameH: number,
+  windowCount: number,
+  neededCount: number,
+): StackLayout {
+  const area = wheelLayout(edge, frameW, frameH).preview;
+  const neededH = neededCount > 0 ? Math.min(44, Math.max(28, area.h * 0.08)) : 0;
+  const needed: ZoneRect = { x: area.x, y: area.y, w: area.w, h: neededH };
+  const bodyY = area.y + neededH + (neededH > 0 ? 8 : 0);
+  const bodyH = Math.max(0, area.y + area.h - bodyY);
+  const winW = windowCount > 0 ? Math.min(180, Math.max(120, area.w * 0.26)) : 0;
+  const gap = windowCount > 0 && winW > 0 ? 10 : 0;
+  const boardW = Math.max(0, area.w - (windowCount > 0 ? winW + gap : 0));
+  const board: ZoneRect = { x: area.x, y: bodyY, w: boardW, h: bodyH };
+  const windows: ZoneRect[] = [];
+  if (windowCount > 0 && winW > 0 && bodyH > 0) {
+    const colX = area.x + boardW + gap;
+    const tileH = bodyH / windowCount;
+    for (let i = 0; i < windowCount; i++) {
+      windows.push({ x: colX, y: bodyY + i * tileH, w: winW, h: tileH });
+    }
+  }
+  return {
+    needed,
+    board,
+    windows,
+    settings: { x: area.x, y: area.y, w: area.w, h: area.h },
+  };
+}
+
 export function archStart2(items: readonly Layer2Item[]): number {
   const i = items.findIndex((it) => it.kind === "board");
   if (i >= 0 && i + 1 < items.length) return i + 1;
@@ -588,16 +763,26 @@ function grow(zone: ZoneRect, slop: number): ZoneRect {
   };
 }
 
-/** Painted if the point is inside the arch, the open layer 2, the board, or the pinned strip. */
+/** Painted if the point is inside the arch, the open layer 2, the board, or the pinned strip.
+ *  Layer-2 Stage Manager tiles and the settings embed use the preview rect
+ *  (`layout.board`) so a pointer on a painted tile never counts as outside. */
 export function archPainted(
   layout: ArchLayout,
   point: { x: number; y: number },
-  opts: { front: ArchFront; pid: string | null; revealed: boolean; slop?: number },
+  opts: {
+    front: ArchFront;
+    pid: string | null;
+    revealed: boolean;
+    slop?: number;
+    embed?: "settings" | null;
+  },
 ): boolean {
   const slop = opts.slop ?? EDGE_SLOP;
   const zones: ZoneRect[] = [layout.arch, layout.pinned];
   if (opts.pid) zones.push(layout.layer2);
   if (opts.front === "board") zones.push(layout.board);
+  if (opts.front === "layer2" && opts.pid) zones.push(layout.board);
+  if (opts.embed === "settings") zones.push(layout.board);
   // Revealed is the stage flag the caller already has. Hysteresis, not this
   // test, decides whether a miss parks the drawer.
   void opts.revealed;

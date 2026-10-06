@@ -35,9 +35,7 @@
     archConfirm,
     ARCH_DWELL_MS,
     archFocusPid,
-    archLayer2Items,
     archLayout,
-    archOpenBoard,
     archPainted,
     archPointer,
     archZone,
@@ -47,6 +45,7 @@
     EDGE_HIDE_MS,
     edgeHover,
     edgeLeaveSide,
+    stagePreviewModel,
     type ArchState,
     type ArchZone,
     type ClaimSnap,
@@ -222,6 +221,7 @@
   let edgeHoverState: EdgeHoverState = { revealed: false, revealedAt: 0, outsideSince: null };
   let reduceMotion = $state(false);
   let arch = $state<ArchState>({ ...ARCH_IDLE });
+  let stageEmbed = $state<null | "settings">(null);
   let spinCenter = $state(0);
   let pointerInside = false;
   let focusInside = false;
@@ -537,7 +537,24 @@
   }
 
   function openStageDest(label: "stars" | "settings") {
-    void invoke("dest_show", { dest: label });
+    if (label === "stars") {
+      void invoke("dest_show", { dest: "stars-beside" });
+      return;
+    }
+    stageEmbed = "settings";
+  }
+
+  function closeStageEmbed() {
+    stageEmbed = null;
+  }
+
+  function popOutSettings() {
+    stageEmbed = null;
+    void invoke("dest_show", { dest: "settings-beside" });
+  }
+
+  function popOutBoard() {
+    void invoke("dest_show", { dest: "launchpad" });
   }
 
   function coachIsDue(): boolean {
@@ -634,7 +651,7 @@
     return archPainted(
       archLayout(railEdge, rect.width, rect.height),
       { x: e.clientX - rect.left, y: e.clientY - rect.top },
-      { front: arch.front, pid: arch.pid, revealed: stageRevealed },
+      { front: arch.front, pid: arch.pid, revealed: stageRevealed, embed: stageEmbed },
     );
   }
 
@@ -926,7 +943,7 @@
 
   function layer2For(pid: string | null): Layer2Item[] {
     if (!pid || pid === UNMAPPED_KEY) return [];
-    return archLayer2Items({
+    return stagePreviewModel({
       pid,
       cards: planetCards(pid),
       rows: rowsFor(pid).map((w) => ({
@@ -936,18 +953,20 @@
         isMinimized: !!w.isMinimized,
         iconBase64: w.iconBase64,
         appName: w.appName,
+        isFrontmost: !!w.isFrontmost,
       })),
-    });
+    }).slots;
   }
 
   function confirmLayer2Stop(id: string) {
     const item = layer2For(arch.pid).find((it) => it.stop === id);
     if (!item || !arch.pid) return;
-    const action = archConfirm(item);
-    if (action === "board") {
-      archDo(archOpenBoard(arch, UNMAPPED_KEY));
+    if (item.kind === "board" && item.preview) {
+      popOutBoard();
       return;
     }
+    if (item.kind !== "window") return;
+    const action = archConfirm(item);
     const w = rowsFor(arch.pid).find((row) => row.id === item.id);
     if (!w) return;
     if (action === "wake") void wakeSleeper(w);
@@ -1039,6 +1058,10 @@
     const applyArrow = (activeId: string, dir: string) => {
       const result = archArrow(arch, items, spinCenter, dir, railEdge, l2, activeId, due);
       if (!result) return;
+      if (arch.front === "layer2" && result.state.front === "board") {
+        popOutBoard();
+        return;
+      }
       archDo(result.state);
       if (result.stop) menuRing.select(result.stop);
     };
@@ -3398,6 +3421,10 @@
   const rail: import("./rail/api").RailApi = {
     UNMAPPED_KEY,
     get arch() { return arch; },
+    get stageEmbed() { return stageEmbed; },
+    closeStageEmbed,
+    popOutSettings,
+    popOutBoard,
     get claimFlash() { return claimFlash; },
     archDo,
     planetCards,

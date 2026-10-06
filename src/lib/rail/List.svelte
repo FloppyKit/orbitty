@@ -11,6 +11,7 @@
     normalizeStory,
   } from "./coach";
   import KanbanPage from "../KanbanPage.svelte";
+  import SettingsPage from "../SettingsPage.svelte";
   import RailPlanetsSheet from "./PlanetsSheet.svelte";
   import type { RailApi } from "./api";
   import {
@@ -35,13 +36,13 @@
     archEnter,
     archForward,
     archInitial,
-    archLayer2Items,
     archLayout,
-    archOpenBoard,
     archOrbitPath,
     archScroll2,
     archSlot,
     archZone,
+    stagePreviewModel,
+    stageStackLayout,
     STAGE_INK,
     STAGE_INK_DIM,
     STAGE_PLATTER_RGBA,
@@ -78,24 +79,27 @@
   );
   const offsets = $derived(items.map((_, i) => spinOffset(i, center, items.length)));
   const archState = $derived(rail.arch as ArchState);
-  const layer2 = $derived.by(() => {
+  const previewModel = $derived.by(() => {
     const pid = archState?.pid as string | null;
-    if (!pid || pid === rail.UNMAPPED_KEY) return [] as Layer2Item[];
-    const cards = (rail.planetCards(pid) ?? []) as ArchCard[];
-    const rows = rail.rowsFor(pid) as WindowInfo[];
-    return archLayer2Items({
+    if (!pid || pid === rail.UNMAPPED_KEY) return null;
+    return stagePreviewModel({
       pid,
-      cards,
-      rows: rows.map((w) => ({
-        id: w.id,
-        title: rail.titleFor(w),
-        sleeping: !!w.sleeping,
-        isMinimized: !!w.isMinimized,
-        iconBase64: w.iconBase64,
-        appName: w.appName,
-      })),
+      cards: (rail.planetCards(pid) ?? []) as ArchCard[],
+      rows: rowsAsArch(pid),
     });
   });
+  const layer2 = $derived(previewModel?.slots ?? ([] as Layer2Item[]));
+  const stacks = $derived(
+    previewModel
+      ? stageStackLayout(
+          stageEdge(),
+          frameW,
+          frameH,
+          previewModel.windows.length,
+          previewModel.needed.length,
+        )
+      : null,
+  );
 
   $effect(() => {
     const list = items;
@@ -120,7 +124,7 @@
   $effect(() => {
     const pid = archState?.pid as string | null;
     const front = archState?.front as ArchFront | undefined;
-    if (front !== "board" || !pid || pid === rail.UNMAPPED_KEY) return;
+    if ((front !== "board" && front !== "layer2") || !pid || pid === rail.UNMAPPED_KEY) return;
     boardPlanet = pid;
   });
 
@@ -252,9 +256,12 @@
     return archSlot(offsets[index] ?? 0, stageEdge(), 1, frameNow()).hidden;
   }
 
-  function layerHidden(index: number): boolean {
-    const k = index - (archState?.center2 ?? 0);
-    return archSlot(k, stageEdge(), 2, frameNow()).hidden;
+  function rectStyle(r: { x: number; y: number; w: number; h: number }): string {
+    return `left:${r.x}px;top:${r.y}px;width:${Math.max(0, r.w)}px;height:${Math.max(0, r.h)}px`;
+  }
+
+  function settingsBox(): string {
+    return rectStyle(stageStackLayout(stageEdge(), frameW, frameH, 0, 0).settings);
   }
 
   function platterStyle(which: "arch" | "layer2"): string {
@@ -353,12 +360,12 @@
     center = index;
     rail.menuRing.select(item.stop);
     if (item.kind === "planet" && item.pid) {
-      const l2 = archLayer2Items({
+      const model = stagePreviewModel({
         pid: item.pid,
         cards: rail.planetCards(item.pid) as ArchCard[],
         rows: rowsAsArch(item.pid),
       });
-      rail.archDo(archEnter(rail.arch, item, l2));
+      rail.archDo(archEnter(rail.arch, item, model.slots));
       return;
     }
     if (item.kind === "unmapped") {
@@ -371,6 +378,18 @@
     else if (action === "newProject") rail.creatingProject = true;
   }
 
+  function selectLayer(item: Layer2Item) {
+    const i = layer2.findIndex((it) => it.stop === item.stop);
+    if (i < 0) return;
+    rail.archDo({
+      front: rail.arch.front,
+      pid: rail.arch.pid,
+      center2: i,
+      pending: null,
+    });
+    rail.menuRing?.select(item.stop);
+  }
+
   function onLayerClick(item: Layer2Item) {
     const front = (rail.arch?.front ?? "arch") as ArchFront;
     if (front !== "layer2") {
@@ -378,11 +397,13 @@
       else rail.archDo(archForward(rail.arch));
       return;
     }
-    const action = archConfirm(item);
-    if (action === "board") {
-      rail.archDo(archOpenBoard(rail.arch, rail.UNMAPPED_KEY));
+    selectLayer(item);
+    if (item.kind === "board" && item.preview) {
+      rail.popOutBoard();
       return;
     }
+    if (item.kind !== "window") return;
+    const action = archConfirm(item);
     const pid = rail.arch?.pid as string | null;
     if (!pid || !item.id) return;
     const w = (rail.rowsFor(pid) as WindowInfo[]).find((row) => row.id === item.id);
@@ -390,12 +411,6 @@
     if (action === "wake") void rail.wakeSleeper(w);
     else if (action === "restore") void rail.restore(w).then(() => rail.focusRow(w));
     else void rail.focusRow(w);
-  }
-
-  function l2Label(item: Layer2Item): string {
-    if (item.kind === "board") return "Open board";
-    if (item.kind === "more") return `+${item.count ?? 0} more`;
-    return item.title || "Untitled";
   }
 
   const coachStory = $derived(normalizeStory(rail.starterStory));
@@ -558,14 +573,6 @@
       stroke-width="1.8"
       stroke-linecap="round"
     />
-  </svg>
-{/snippet}
-
-{#snippet boardGlyph()}
-  <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
-    <rect x="6" y="7" width="6" height="18" rx="1.4" fill="none" stroke="#8a8f98" stroke-width="1.6" />
-    <rect x="13" y="7" width="6" height="12" rx="1.4" fill="none" stroke="#8a8f98" stroke-width="1.6" />
-    <rect x="20" y="7" width="6" height="15" rx="1.4" fill="none" stroke="#8a8f98" stroke-width="1.6" />
   </svg>
 {/snippet}
 
@@ -838,79 +845,93 @@
                   style={platterStyle("layer2")}
                   onclick={() => rail.archDo(archState.front === "board" ? archBack(rail.arch) : archForward(rail.arch))}
                 ></button>
-              {:else}
-                <div class="arch-platter layer2-platter" aria-hidden="true" style={platterStyle("layer2")}></div>
-              {/if}
-              <ul class="arch-list">
-                {#each layer2 as item, i (item.stop)}
-                  <li
-                    class="l2-slot"
-                    class:is-hidden={layerHidden(i)}
-                    class:is-selected={i === archState.center2 && archState.front === "layer2"}
-                    style={slotStyle(i - archState.center2, 2, boardTint())}
+              {:else if stacks && previewModel}
+                <div class="stage-stacks">
+                  {#if previewModel.needed.length > 0}
+                    <div class="stage-needed" data-stage-needed style={rectStyle(stacks.needed)}>
+                      {#each previewModel.needed as item (item.stop)}
+                        <button
+                          type="button"
+                          class="needed-chip"
+                          data-mkey={item.stop}
+                          class:mkey-sel={rail.menuRing.activeId === item.stop}
+                          class:is-selected={layer2[archState.center2]?.stop === item.stop}
+                          onclick={() => selectLayer(item)}
+                        >
+                          <span class="l2-bang" aria-hidden="true">!</span>
+                          <span>{item.title || "Needed"}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                  <div
+                    class="stage-board-tile"
+                    data-stage-board
+                    data-mkey={previewModel.board.stop}
+                    class:is-selected={layer2[archState.center2]?.stop === previewModel.board.stop}
+                    style={rectStyle(stacks.board)}
                   >
+                    <div class="stage-board-bar">
+                      <span>Board</span>
+                      {#if previewModel.overflow > 0}
+                        <span class="stage-overflow">+{previewModel.overflow} more</span>
+                      {/if}
+                      <button
+                        type="button"
+                        class="mini"
+                        data-mkey={previewModel.popOut.stop}
+                        onclick={() => rail.popOutBoard()}
+                      >{previewModel.popOut.label}</button>
+                    </div>
+                    <div class="stage-board-body">
+                      <KanbanPage embedded railPlanet={boardPlanet} />
+                    </div>
+                  </div>
+                  {#each previewModel.windows as item, i (item.stop)}
                     <button
                       type="button"
-                      class="l2-hit"
+                      class="win-preview"
+                      data-win-preview={item.id}
                       data-mkey={item.stop}
                       class:mkey-sel={rail.menuRing.activeId === item.stop}
-                      tabindex={layerHidden(i) ? -1 : 0}
-                      aria-label={l2Label(item)}
-                      title={l2Label(item)}
+                      class:is-selected={layer2[archState.center2]?.stop === item.stop}
+                      style={rectStyle(stacks.windows[i])}
+                      aria-label={item.title || "Window"}
                       onclick={() => onLayerClick(item)}
                     >
-                      <span class="l2-vis">
-                      {#if item.kind === "window"}
-                        {#if item.iconBase64}
-                          <img class="app-icon" src="data:image/png;base64,{item.iconBase64}" alt="" />
-                        {:else}
-                          <span class="app-icon fallback" aria-hidden="true">{(item.appName || "?").charAt(0)}</span>
-                        {/if}
-                        <span class="l2-copy">
-                          <span class="l2-title">{l2Label(item)}</span>
-                          {#if item.appName}<span class="l2-app">{item.appName}</span>{/if}
-                        </span>
-                        {#if item.sleeping}<span class="l2-moon" aria-hidden="true">☾</span>{/if}
-                        {#if item.minimized && !item.sleeping}<span class="l2-dock" aria-hidden="true"></span>{/if}
-                      {:else if item.kind === "needed"}
-                        <span class="l2-bang" aria-hidden="true">!</span>
-                        <span class="l2-title">{l2Label(item)}</span>
-                      {:else if item.kind === "doing" || item.kind === "todo"}
-                        <span class="l2-dot" class:is-doing={item.kind === "doing"} aria-hidden="true"></span>
-                        <span class="l2-title">{l2Label(item)}</span>
-                      {:else if item.kind === "more"}
-                        <span class="l2-title">{l2Label(item)}</span>
+                      {#if item.iconBase64}
+                        <img class="win-preview-icon" src="data:image/png;base64,{item.iconBase64}" alt="" />
                       {:else}
-                        <span class="arch-glyph l2-glyph">{@render boardGlyph()}</span>
-                        <span class="l2-title">Open board</span>
+                        <span class="win-preview-icon fallback" aria-hidden="true">{(item.appName || "?").charAt(0)}</span>
                       {/if}
+                      <span class="win-preview-copy">
+                        <span class="win-preview-title">{item.title || "Untitled"}</span>
+                        {#if item.appName}<span class="win-preview-app">{item.appName}</span>{/if}
+                        <span class="win-preview-state">{windowStateLabel(item)}</span>
                       </span>
                     </button>
-                    {#if item.kind === "window"}
-                      <span class="l2-preview">
-                        {#if item.iconBase64}
-                          <img class="l2-preview-icon" src="data:image/png;base64,{item.iconBase64}" alt="" />
-                        {:else}
-                          <span class="l2-preview-icon fallback" aria-hidden="true">{(item.appName || "?").charAt(0)}</span>
-                        {/if}
-                        <span class="l2-preview-copy">
-                          <span class="l2-preview-title">{item.title || "Untitled"}</span>
-                          {#if item.appName}<span class="l2-preview-app">{item.appName}</span>{/if}
-                          <span class="l2-preview-state">{windowStateLabel(item)}</span>
-                        </span>
-                      </span>
-                    {/if}
-                  </li>
-                {/each}
-              </ul>
+                  {/each}
+                </div>
+              {/if}
             {/if}
           </div>
         {/if}
-        <div class="spin-board" class:is-off={archState.front !== "board"} style={`--planet:${boardTint()}`}>
-          <div class="spin-kanban">
-            <KanbanPage embedded railPlanet={boardPlanet} />
+        {#if archState.front === "board"}
+          <div class="spin-board" style={`--planet:${boardTint()}`}>
+            <div class="spin-kanban">
+              <KanbanPage embedded railPlanet={boardPlanet} />
+            </div>
           </div>
-        </div>
+        {/if}
+        {#if rail.stageEmbed === "settings"}
+          <div class="stage-settings" data-stage-settings style={settingsBox()}>
+            <SettingsPage
+              embedded
+              onClose={() => rail.closeStageEmbed()}
+              onPopOut={() => rail.popOutSettings()}
+            />
+          </div>
+        {/if}
         </div>
         {/if}
       {/if}

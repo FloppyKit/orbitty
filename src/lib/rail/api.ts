@@ -22,6 +22,10 @@ export interface RailHabitatApi {
 export interface RailStageArchApi {
   arch: ArchState;
   archDo: (next: ArchState) => void;
+  stageEmbed: "settings" | null;
+  closeStageEmbed: () => void;
+  popOutSettings: () => void;
+  popOutBoard: () => void;
   planetCards: (pid: string) => KanbanCard[];
   spinCenter: number;
   reduceMotion: boolean;

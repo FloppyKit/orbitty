@@ -57,6 +57,16 @@
   // before load_state lands — an empty themeId on an opaque drawer is a
   // white-on-white first paint. themeChosen stays false until a saved id
   // or an explicit pick, so the seed is never persisted as a choice.
+  let {
+    embedded = false,
+    onClose,
+    onPopOut,
+  }: {
+    embedded?: boolean;
+    onClose?: () => void;
+    onPopOut?: () => void;
+  } = $props();
+
   let themeId = $state(osThemeId());
   let themeChosen = $state(false);
   let windowOpacity = $state(1.0);
@@ -470,7 +480,7 @@
     if (!themeId) return;
     document.documentElement.dataset.theme = themeId;
     applyHostTokens(themeId);
-    invoke("ensure_glass").catch(() => {});
+    if (!embedded) invoke("ensure_glass").catch(() => {});
   });
   $effect(() => {
     if (!themeId) return;
@@ -488,7 +498,7 @@
   let unlistenFocus: (() => void) | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   onMount(async () => {
-    invoke("ensure_glass").catch(() => {});
+    if (!embedded) invoke("ensure_glass").catch(() => {});
     await loadState();
     await loadPlans();
     await refreshPacks();
@@ -497,6 +507,7 @@
       loadState();
     });
     document.addEventListener("visibilitychange", onVisibility);
+    if (embedded) return;
     const win = getCurrentWindow();
     unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
       if (focused) {
@@ -561,11 +572,18 @@
   }
 </script>
 
-<main class="settings">
+<main class="settings" class:embedded>
   <!-- One drag source: JS startDragging on this banner. Drawers are
-       borderless — no native Overlay strip competing with the click. -->
-  <header class="s-banner" onmousedown={onBannerMouseDown}>
+       borderless — no native Overlay strip competing with the click.
+       Embedded in the rail, this banner does not drag the stage window. -->
+  <header class="s-banner" onmousedown={(e) => { if (!embedded) onBannerMouseDown(e); }}>
     <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">tty</span></span> Settings</h1>
+    {#if embedded}
+      <span class="embed-actions">
+        <button type="button" class="mini" onclick={() => onPopOut?.()}>Pop out</button>
+        <button type="button" class="mini ghost" aria-label="Close settings" onclick={() => onClose?.()}>×</button>
+      </span>
+    {/if}
   </header>
 
   <nav class="tabs" aria-label="Settings sections">
@@ -976,6 +994,18 @@
 </main>
 
 <style>
+  .settings.embedded {
+    height: 100%;
+    min-height: 0;
+  }
+  .settings.embedded .s-banner {
+    cursor: default;
+  }
+  .embed-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+  }
   .settings {
     height: 100vh;
     overflow: hidden;

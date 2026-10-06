@@ -1273,6 +1273,75 @@ fn centered_on_frame(vf: VisibleFrame, size: (f64, f64), cascade: f64) -> state:
     r
 }
 
+/// Stage-originated settings/stars: park on the rail's display, inboard of
+/// the rail. `stale` is a last-place on any screen and is ignored — a
+/// saved frame on another display must not win this open.
+fn place_beside_rail_display(
+    rail: &state::CompanionBounds,
+    size: (f64, f64),
+    frames: &[VisibleFrame],
+    stale: Option<&state::CompanionBounds>,
+) -> Option<state::CompanionBounds> {
+    let _ = stale;
+    if frames.is_empty() {
+        return None;
+    }
+    let vf = frames
+        .iter()
+        .copied()
+        .find(|vf| rect_mostly_on(rail, vf))
+        .unwrap_or(frames[0]);
+    let w = size.0.min(vf.w).max(1.0);
+    let h = size.1.min(vf.h).max(1.0);
+    let inboard_right = (rail.x + rail.w / 2.0) < vf.x + vf.w * 2.0 / 3.0;
+    let mut x = if inboard_right {
+        rail.x + rail.w + DRAWER_GAP
+    } else {
+        rail.x - DRAWER_GAP - w
+    };
+    let mut y = rail.y;
+    if x < vf.x {
+        x = vf.x;
+    }
+    if y < vf.y {
+        y = vf.y;
+    }
+    if x + w > vf.x + vf.w {
+        x = (vf.x + vf.w - w).max(vf.x);
+    }
+    if y + h > vf.y + vf.h {
+        y = (vf.y + vf.h - h).max(vf.y);
+    }
+    Some(state::CompanionBounds { x, y, w, h })
+}
+
+/// Show a drawer and force it beside the rail's current display.
+/// Does not honor a saved frame on another screen.
+pub(crate) fn show_drawer_beside_rail(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
+    let w = crate::panes::ensure_window(app, label)?;
+    let pvfs = points_frames(&screen_visible_frames());
+    let spec = crate::panes::pane_spec(label);
+    let size = live_points_rect(&w)
+        .map(|r| (r.w, r.h))
+        .or_else(|| spec.map(|(_, sw, sh, _)| (sw, sh)))
+        .unwrap_or((780.0, 640.0));
+    let st = state::load_state(app).unwrap_or_default();
+    let stale = saved_bounds(&st, label);
+    if let Some(rail) = rail_points_rect(app) {
+        if let Some(r) = place_beside_rail_display(&rail, size, &pvfs, stale.as_ref()) {
+            place_logical_rect(&w, label, &r);
+        }
+    }
+    let _ = w.unminimize();
+    w.show().map_err(|e| e.to_string())?;
+    w.set_focus().map_err(|e| e.to_string())?;
+    let _ = w.set_ignore_cursor_events(false);
+    crate::panes::emit_pane_vis(app, label, true);
+    schedule_drawer_mount_check(app, label);
+    drawer_order_front(app, &w, label);
+    Ok(())
+}
+
 /// This-show-only blossom: park `size` beside the live rail on the
 /// rail's display, then beside any already-shown drawer. No leash —
 /// next drag persists Law B as usual. Inboard of the rail (right unless
@@ -2056,6 +2125,59 @@ mod host_dock_tests {
         assert!((c.y + c.h - bottom).abs() < 1e-9);
         assert_eq!(c.w, 1080.0);
         assert_eq!(c.h, 620.0);
+    }
+
+    #[test]
+    fn beside_rail_ignores_foreign_display() {
+        let primary = VisibleFrame {
+            x: 0.0,
+            y: 0.0,
+            w: 1920.0,
+            h: 1080.0,
+        };
+        let portrait = VisibleFrame {
+            x: 1920.0,
+            y: 0.0,
+            w: 900.0,
+            h: 1600.0,
+        };
+        let frames = [primary, portrait];
+        let rail = rect(8.0, 80.0, 360.0, 700.0);
+        let stale = rect(2400.0, 200.0, 780.0, 640.0);
+        let placed = place_beside_rail_display(&rail, (640.0, 480.0), &frames, Some(&stale))
+            .expect("place");
+        assert!(
+            rect_mostly_on(&placed, &primary),
+            "placed on the rail display"
+        );
+        assert!(
+            !rect_mostly_on(&placed, &portrait),
+            "stale portrait display did not win"
+        );
+        let gap = placed.x - (rail.x + rail.w);
+        assert!(gap <= 48.0 && gap >= -placed.w, "adjacent, gap {gap}");
+
+        let rail_p = rect(1928.0, 40.0, 280.0, 700.0);
+        let stale_primary = rect(400.0, 120.0, 780.0, 640.0);
+        let on_portrait =
+            place_beside_rail_display(&rail_p, (500.0, 400.0), &frames, Some(&stale_primary))
+                .expect("portrait");
+        assert!(rect_mostly_on(&on_portrait, &portrait));
+        assert!(!rect_mostly_on(&on_portrait, &primary));
+        let gap_p = on_portrait.x - (rail_p.x + rail_p.w);
+        assert!(gap_p <= 48.0 && gap_p >= -on_portrait.w, "portrait gap {gap_p}");
+
+        let tight = VisibleFrame {
+            x: 0.0,
+            y: 0.0,
+            w: 900.0,
+            h: 1600.0,
+        };
+        let rail_left = rect(8.0, 40.0, 360.0, 700.0);
+        let crowded = place_beside_rail_display(&rail_left, (780.0, 640.0), &[tight], Some(&stale))
+            .expect("crowded");
+        assert!(rect_mostly_on(&crowded, &tight));
+        assert!(crowded.x + crowded.w <= tight.x + tight.w + 0.5);
     }
 
     #[test]
