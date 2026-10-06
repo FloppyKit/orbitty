@@ -1,28 +1,48 @@
 #!/bin/zsh
 # Behavioral tests for scripts/build-tester-dmg.sh.
-# Stubs on PATH. Fake bundle under $TMPDIR. No source grep.
+# Stubs on PATH. The real script runs in a temp git-init'd copy of the
+# repo (removed on exit). Nothing in the checkout is written or deleted.
+# No source grep.
 #
 # Mutation that must fail each case (apply to build-tester-dmg.sh, re-run):
 #   T1  skip resolve_sign_identity (accept ORBITTY_SIGN_IDENTITY=-)
 #   T2  move the security find-identity check to after cargo
 #   T3  drop the HEAD == main check
-#   T4  codesign before removing Contents/MacOS/orbitty_relay
+#   T4  re-add the orbitty_relay symlink (or remove it only after codesign)
 #   T5  add --deep to the Orbitty.app codesign --sign
 #   T6  skip require_exact_macos
 #   T7  skip codesign of the dmg
 #   T8  run the build from --dry-run
+#   T9  dry-run creates the relay symlink with /bin/ln
+#   T10 authority check always passes
+#   T11 remove codesign --verify --deep --strict
+#   T12 remove hdiutil verify
+#   T13 remove the --force overwrite guard
+#   T14 remove the helper-is-symlink guard
+#   T15 skip check_bundled_ctl.sh
+#   T16 drop the inside-repo --out refusal
 set -euo pipefail
 
 here=${0:A:h}
 root=${here:h}
-script="$here/build-tester-dmg.sh"
 
 fail=0
 pass() { print -r -- "PASS $1"; }
 bad() { print -r -- "FAIL $1"; fail=1; }
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/orbitty-test-dmg.XXXXXX")"
-trap 'rm -rf -- "$tmp" "$root/src-tauri/target/release/bundle/macos/Orbitty.app"' EXIT
+trap 'rm -rf -- "$tmp"' EXIT
+
+sandbox="$tmp/repo"
+mkdir -p -- "$sandbox/scripts" "$sandbox/docs" "$sandbox/src-tauri"
+cp -- "$root/scripts/build-tester-dmg.sh" "$sandbox/scripts/build-tester-dmg.sh"
+cp -- "$root/scripts/install_lib.sh" "$sandbox/scripts/install_lib.sh"
+cp -- "$root/scripts/check_bundled_ctl.sh" "$sandbox/scripts/check_bundled_ctl.sh"
+cp -- "$root/docs/TESTER_OPEN_ANYWAY.md" "$sandbox/docs/TESTER_OPEN_ANYWAY.md"
+cp -- "$root/src-tauri/tauri.conf.json" "$sandbox/src-tauri/tauri.conf.json"
+chmod 755 "$sandbox/scripts/build-tester-dmg.sh" "$sandbox/scripts/check_bundled_ctl.sh"
+git -C "$sandbox" init -q
+script="$sandbox/scripts/build-tester-dmg.sh"
 
 STUB_BIN="$tmp/bin"
 STUB_DIR="$tmp/state"
@@ -37,6 +57,7 @@ export STUB_PORCELAIN=""
 export STUB_SECURITY_OUT='  1) C0FFEE "Orbitty Local Codesign"'
 export STUB_AUTHORITY="Orbitty Local Codesign"
 export ORBITTY_TEST_EXTRA=""
+export PYTHONDONTWRITEBYTECODE=1
 
 cc -o "$tmp/ctl" -x c - <<'EOF'
 #include <stdio.h>
@@ -98,6 +119,15 @@ cp -R -- "$ORBITTY_TEST_FIXTURE" "$dest"
 if [[ -n ${ORBITTY_TEST_EXTRA:-} ]]; then
   : > "$dest/Contents/MacOS/$ORBITTY_TEST_EXTRA"
 fi
+if [[ -n ${ORBITTY_TEST_SYMLINK_HELPER:-} ]]; then
+  helper="$dest/Contents/MacOS/$ORBITTY_TEST_SYMLINK_HELPER"
+  rm -f -- "$helper"
+  ln -s orbitty "$helper"
+fi
+if [[ -n ${ORBITTY_TEST_BAD_CTL:-} ]]; then
+  printf '%s\n' '#!/bin/sh' 'exit 0' > "$dest/Contents/MacOS/orbittyctl"
+  chmod 755 "$dest/Contents/MacOS/orbittyctl"
+fi
 exit 0
 EOF
 
@@ -125,10 +155,18 @@ if [[ " $* " == *" --sign "* ]]; then
   exit 0
 fi
 if [[ $1 == --verify ]]; then
+  if [[ -n ${STUB_VERIFY_FAIL:-} ]]; then
+    exit 1
+  fi
   exit 0
 fi
 if [[ $1 == -dvv ]]; then
-  print -r -- "Authority=${STUB_AUTHORITY}"
+  base=${target:t}
+  if [[ -n ${STUB_BAD_AUTHORITY_FOR:-} && $base == "$STUB_BAD_AUTHORITY_FOR" ]]; then
+    print -r -- "Authority=Other Signer"
+  else
+    print -r -- "Authority=${STUB_AUTHORITY}"
+  fi
   exit 0
 fi
 exit 0
@@ -180,6 +218,9 @@ open(out, "w", encoding="utf-8").write(json.dumps(snap))
   exit 0
 fi
 if [[ $1 == verify ]]; then
+  if [[ -n ${STUB_HDIUTIL_VERIFY_FAIL:-} ]]; then
+    exit 1
+  fi
   exit 0
 fi
 exit 0
@@ -196,7 +237,7 @@ chmod 755 "$STUB_BIN"/*(N)
 reset_state() {
   rm -f -- "$STUB_LOG" "$STUB_DIR/saw_sign" "$STUB_DIR/stage.json"
   : > "$STUB_LOG"
-  rm -rf -- "$root/src-tauri/target/release/bundle/macos/Orbitty.app"
+  rm -rf -- "$sandbox/src-tauri/target"
 }
 
 run_build() {
@@ -219,8 +260,56 @@ cargo_logged() {
   log_has "cargo "
 }
 
+success_setup() {
+  export STUB_PORCELAIN=""
+  export STUB_HEAD="$HEAD_OK"
+  export STUB_MAIN="$HEAD_OK"
+  export STUB_SECURITY_OUT='  1) C0FFEE "Orbitty Local Codesign"'
+  export STUB_AUTHORITY="Orbitty Local Codesign"
+  export ORBITTY_TEST_EXTRA=""
+  unset ORBITTY_SIGN_IDENTITY
+  unset ORBITTY_DMG_OUT
+  unset STUB_VERIFY_FAIL
+  unset STUB_HDIUTIL_VERIFY_FAIL
+  unset STUB_BAD_AUTHORITY_FOR
+  unset ORBITTY_TEST_SYMLINK_HELPER
+  unset ORBITTY_TEST_BAD_CTL
+}
+
+sign_lines() {
+  grep -E '^codesign .*--sign ' "$STUB_LOG" || true
+}
+
+tree_fingerprint() {
+  python3 -c 'import hashlib, os, sys
+root = sys.argv[1]
+lines = []
+for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+    dirnames.sort()
+    filenames.sort()
+    for name in dirnames:
+        p = os.path.join(dirpath, name)
+        rel = os.path.relpath(p, root)
+        if os.path.islink(p):
+            lines.append("L\t%s\t%s" % (rel, os.readlink(p)))
+        else:
+            lines.append("D\t%s" % rel)
+    for name in filenames:
+        p = os.path.join(dirpath, name)
+        rel = os.path.relpath(p, root)
+        if os.path.islink(p):
+            lines.append("L\t%s\t%s" % (rel, os.readlink(p)))
+        elif os.path.isfile(p):
+            h = hashlib.sha256(open(p, "rb").read()).hexdigest()
+            lines.append("F\t%s\t%s" % (rel, h))
+        else:
+            lines.append("?\t%s" % rel)
+lines.sort()
+sys.stdout.write("\n".join(lines) + "\n")
+' "$1"
+}
+
 # --- T1 ad-hoc refused ---
-# Security lists "-" so the only thing that stops cargo is the refusal.
 export STUB_SECURITY_OUT='  1) ADHOC "-"'
 export ORBITTY_SIGN_IDENTITY="-"
 run_build --smoke --out "$tmp/t1-out"
@@ -280,32 +369,18 @@ else
   bad T3
 fi
 
-success_setup() {
-  export STUB_PORCELAIN=""
-  export STUB_HEAD="$HEAD_OK"
-  export STUB_MAIN="$HEAD_OK"
-  export STUB_SECURITY_OUT='  1) C0FFEE "Orbitty Local Codesign"'
-  export ORBITTY_TEST_EXTRA=""
-  unset ORBITTY_SIGN_IDENTITY
-}
-
-sign_lines() {
-  grep -E '^codesign .*--sign ' "$STUB_LOG" || true
-}
-
-# --- T4 bundled relay removed before first codesign ---
-# The target/release symlink is the bundler's copy source. A ln into
-# Contents/MacOS, or a sign that still sees orbitty_relay, fails this case.
+# --- T4 bundled relay removed before first codesign; no relay link in target ---
 success_setup
 run_build --out "$tmp/t4-out"
-ln_bad=0
-while IFS= read -r ln_line; do
-  [[ -z $ln_line ]] && continue
-  if [[ $ln_line == *Contents/MacOS* ]]; then
-    ln_bad=1
-  fi
-done < <(grep -E '^ln ' "$STUB_LOG" || true)
-if (( REPLY_EC == 0 )) && log_has "RELAY_ABSENT" && ! log_has "RELAY_PRESENT" && (( ln_bad == 0 )); then
+relay_ln=0
+if grep -E '^ln ' "$STUB_LOG" | grep -F -q 'orbitty_relay'; then
+  relay_ln=1
+fi
+relay_left=0
+if [[ -d $sandbox/src-tauri/target ]] && find "$sandbox/src-tauri/target" -name 'orbitty_relay' -print -quit | grep -q .; then
+  relay_left=1
+fi
+if (( REPLY_EC == 0 )) && log_has "RELAY_ABSENT" && ! log_has "RELAY_PRESENT" && (( relay_ln == 0 )) && (( relay_left == 0 )); then
   if [[ -f $STUB_DIR/stage.json ]]; then
     macos_has_relay=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("orbitty_relay" in d.get("macos", []))' "$STUB_DIR/stage.json")
     if [[ $macos_has_relay == False ]]; then
@@ -320,7 +395,7 @@ if (( REPLY_EC == 0 )) && log_has "RELAY_ABSENT" && ! log_has "RELAY_PRESENT" &&
   fi
 else
   bad T4
-  print -r -- "  exit=$REPLY_EC ln_bad=$ln_bad" >&2
+  print -r -- "  exit=$REPLY_EC relay_ln=$relay_ln relay_left=$relay_left" >&2
   cat "$STUB_LOG" >&2
 fi
 
@@ -395,9 +470,15 @@ ok=True
 ok = ok and names.get("Orbitty.app", {}).get("dir") is True
 ok = ok and names.get("Applications", {}).get("symlink") == "/Applications"
 ok = ok and "guide" in d and "Open Anyway" in d["guide"] and "xattr -dr com.apple.quarantine" in d["guide"]
+guide=d.get("guide","")
+xattr_at=guide.find("xattr -dr com.apple.quarantine")
+ax_at=guide.find("asks for Accessibility")
+ok = ok and xattr_at >= 0 and ax_at >= 0 and xattr_at < ax_at
+ok = ok and "Before ejecting" in guide and "quit Orbitty first" in guide
+ok = ok and "companion in spirit form only" in guide
 info=d.get("info","")
 ok = ok and "version: 0.1.0" in info and "abcdef1234567890abcdef1234567890abcdef12" in info
-ok = ok and "identity: Orbitty Local Codesign" in info and "alpha, no companion" in info
+ok = ok and "identity: Orbitty Local Codesign" in info and "alpha, companion in spirit form only (no faces)" in info
 ok = ok and d.get("macos") == ["orbitty", "orbitty-mcp", "orbitty-relay", "orbittyctl"]
 print("yes" if ok else "no")
 ' "$STUB_DIR/stage.json")
@@ -452,6 +533,172 @@ else
   print -r -- "  exit=$REPLY_EC others=$others called_build=$called_build called_pre=$called_pre" >&2
   print -r -- "$REPLY_OUT" >&2
   cat "$STUB_LOG" >&2
+fi
+
+# --- T9 dry-run leaves the sandbox repo byte-identical ---
+success_setup
+reset_state
+fp_before="$(tree_fingerprint "$sandbox")"
+run_build --dry-run --out "$tmp/t9-out"
+fp_after="$(tree_fingerprint "$sandbox")"
+if (( REPLY_EC == 0 )) && [[ $fp_before == "$fp_after" ]]; then
+  pass T9
+else
+  bad T9
+  print -r -- "  exit=$REPLY_EC" >&2
+  if [[ $fp_before != "$fp_after" ]]; then
+    print -r -- "  sandbox tree changed" >&2
+  fi
+fi
+
+# --- T10 wrong Authority on one helper fails ---
+success_setup
+export STUB_BAD_AUTHORITY_FOR="orbitty-relay"
+run_build --out "$tmp/t10-out"
+unset STUB_BAD_AUTHORITY_FOR
+if (( REPLY_EC != 0 )); then
+  pass T10
+else
+  bad T10
+  print -r -- "  exit=$REPLY_EC" >&2
+fi
+
+# --- T11 verify is logged; a failing verify fails the script ---
+success_setup
+run_build --out "$tmp/t11-ok"
+t11_ok=1
+if (( REPLY_EC != 0 )) || ! log_has "codesign --verify --deep --strict"; then
+  t11_ok=0
+  print -r -- "  verify call missing (exit=$REPLY_EC)" >&2
+fi
+export STUB_VERIFY_FAIL=1
+run_build --out "$tmp/t11-fail"
+unset STUB_VERIFY_FAIL
+if (( REPLY_EC == 0 )); then
+  t11_ok=0
+  print -r -- "  failing verify did not fail the script" >&2
+fi
+if (( t11_ok )); then
+  pass T11
+else
+  bad T11
+fi
+
+# --- T12 hdiutil verify is logged; a failing verify fails the script ---
+success_setup
+run_build --out "$tmp/t12-ok"
+t12_ok=1
+if (( REPLY_EC != 0 )) || ! log_has "hdiutil verify"; then
+  t12_ok=0
+  print -r -- "  hdiutil verify missing (exit=$REPLY_EC)" >&2
+fi
+export STUB_HDIUTIL_VERIFY_FAIL=1
+run_build --out "$tmp/t12-fail"
+unset STUB_HDIUTIL_VERIFY_FAIL
+if (( REPLY_EC == 0 )); then
+  t12_ok=0
+  print -r -- "  failing hdiutil verify did not fail the script" >&2
+fi
+if (( t12_ok )); then
+  pass T12
+else
+  bad T12
+fi
+
+# --- T13 --force guard ---
+success_setup
+t13_dir="$tmp/t13-out"
+mkdir -p "$t13_dir"
+t13_dmg="$t13_dir/Orbitty-0.1.0-alpha-abcdef1.dmg"
+print -r -- "ORIGINAL" > "$t13_dmg"
+t13_before=$(cksum "$t13_dmg")
+run_build --out "$t13_dir"
+t13_after=$(cksum "$t13_dmg")
+t13_ok=1
+if (( REPLY_EC == 0 )) || [[ $t13_before != "$t13_after" ]] || cargo_logged; then
+  t13_ok=0
+  print -r -- "  without --force exit=$REPLY_EC cargo=$(cargo_logged && print yes || print no)" >&2
+fi
+run_build --force --out "$t13_dir"
+t13_forced=$(<"$t13_dmg")
+if (( REPLY_EC != 0 )) || [[ $t13_forced != fake-dmg ]]; then
+  t13_ok=0
+  print -r -- "  with --force exit=$REPLY_EC body=[$t13_forced]" >&2
+fi
+if (( t13_ok )); then
+  pass T13
+else
+  bad T13
+fi
+
+# --- T14 a helper symlink fails and names it ---
+success_setup
+export ORBITTY_TEST_SYMLINK_HELPER="orbitty-mcp"
+run_build --out "$tmp/t14-out"
+unset ORBITTY_TEST_SYMLINK_HELPER
+if (( REPLY_EC != 0 )) && [[ $REPLY_OUT == *orbitty-mcp*is\ a\ symlink* ]]; then
+  pass T14
+else
+  bad T14
+  print -r -- "  exit=$REPLY_EC" >&2
+  print -r -- "$REPLY_OUT" >&2
+fi
+
+# --- T15 a failing bundled-ctl check fails before any signing ---
+success_setup
+export ORBITTY_TEST_BAD_CTL=1
+run_build --out "$tmp/t15-out"
+unset ORBITTY_TEST_BAD_CTL
+signed=0
+if grep -E -q '^codesign .*--sign ' "$STUB_LOG"; then
+  signed=1
+fi
+if (( REPLY_EC != 0 )) && (( signed == 0 )); then
+  pass T15
+else
+  bad T15
+  print -r -- "  exit=$REPLY_EC signed=$signed" >&2
+  print -r -- "$REPLY_OUT" >&2
+fi
+
+# --- T16 --out / ORBITTY_DMG_OUT inside the repo, including --dry-run ---
+success_setup
+t16_ok=1
+run_build --dry-run --smoke --out "$sandbox/inside-dry"
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t16_ok=0
+  print -r -- "  dry-run --out inside did not refuse (exit=$REPLY_EC)" >&2
+fi
+run_build --smoke --out "$sandbox/inside-real"
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t16_ok=0
+  print -r -- "  --out inside did not refuse before cargo (exit=$REPLY_EC)" >&2
+fi
+export ORBITTY_DMG_OUT="$sandbox/env-inside"
+run_build --dry-run --smoke
+unset ORBITTY_DMG_OUT
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t16_ok=0
+  print -r -- "  ORBITTY_DMG_OUT inside did not refuse (exit=$REPLY_EC)" >&2
+fi
+mkdir -p -- "$sandbox/through"
+ln -s "$sandbox/through" "$tmp/out-via-link"
+run_build --dry-run --smoke --out "$tmp/out-via-link"
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t16_ok=0
+  print -r -- "  symlink --out into the repo did not refuse (exit=$REPLY_EC)" >&2
+fi
+ln -s "$sandbox/missing-out" "$tmp/out-dangling"
+run_build --dry-run --smoke --out "$tmp/out-dangling"
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t16_ok=0
+  print -r -- "  dangling symlink --out into the repo did not refuse (exit=$REPLY_EC)" >&2
+fi
+if (( t16_ok )); then
+  pass T16
+else
+  bad T16
+  print -r -- "$REPLY_OUT" >&2
 fi
 
 exit $fail

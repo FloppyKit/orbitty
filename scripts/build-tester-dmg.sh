@@ -7,11 +7,10 @@
 # sign_macos_helpers_then_app). It is not moved into install_lib.sh, so
 # install-stable and install-nightly keep their own copies and behavior.
 #
-# Cargo's bin name is orbitty-relay (hyphen). Tauri's bundler also copies
-# target/release/orbitty_relay and exits 1 if that path is missing. This
-# script makes the symlink the bundler requires, then deletes
-# Contents/MacOS/orbitty_relay before any codesign so the DMG ships one
-# relay binary.
+# Cargo's bin name is orbitty-relay (hyphen). This script never creates
+# orbitty_relay: no symlink, copy, or hard link under src-tauri/target.
+# If the bundler still emits Contents/MacOS/orbitty_relay, delete it
+# before any codesign so the DMG ships one relay binary.
 set -euo pipefail
 
 unset CARGO_TARGET_DIR
@@ -102,6 +101,17 @@ else
   dest_dir="${ORBITTY_DMG_OUT:-$HOME/Orbitty Tester Builds}"
 fi
 
+# Resolve symlinks, including a final component that does not exist yet.
+# Output inside the repo is refused before any build, including --dry-run.
+root_phys="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$root")"
+dest_phys="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$dest_dir")"
+case "${dest_phys}/" in
+  "${root_phys}/"*)
+    print -r -- "error: refusing output inside the repo ($dest_phys)" >&2
+    exit 1
+    ;;
+esac
+
 if (( smoke )); then
   dmg_name="Orbitty-${version}-alpha-${sha7}-SMOKE.dmg"
 else
@@ -123,7 +133,6 @@ print_plan() {
   print -r -- "dry-run: would write: $out"
   print -r -- "dry-run: would run:"
   print -r -- "  (cd src-tauri && cargo build --offline --release --bin orbittyctl --bin orbitty-mcp --bin orbitty-relay)"
-  print -r -- "  ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay"
   print -r -- "  clean_build_bundle"
   print -r -- "  npm --offline run tauri build -- --bundles app"
   print -r -- "  rm Contents/MacOS/orbitty_relay before signing"
@@ -144,12 +153,6 @@ fi
 
 print -r -- "==> Building orbittyctl, orbitty-mcp, orbitty-relay"
 (cd "$root/src-tauri" && cargo build --offline --release --bin orbittyctl --bin orbitty-mcp --bin orbitty-relay)
-
-# The bundler copies this underscore path and fails if it is absent.
-# It is not a second cargo bin. The bundled copy is removed before signing.
-print -r -- "ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay"
-mkdir -p -- "$root/src-tauri/target/release"
-ln -sfn orbitty-relay "$root/src-tauri/target/release/orbitty_relay"
 
 print -r -- "==> Cleaning build-tree bundle"
 clean_build_bundle "$root"
@@ -281,7 +284,7 @@ sha: $head
 sha7: $sha7
 date: $today
 identity: $IDENTITY
-alpha, no companion
+alpha, companion in spirit form only (no faces)
 EOF
 
 mkdir -p -- "$dest_dir"
