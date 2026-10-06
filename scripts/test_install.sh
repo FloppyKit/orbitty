@@ -19,4 +19,5 @@ run_one() {
 run_one test_install_lib.sh
 run_one test_install_sidecar_config.sh
 run_one test_check_bundled_ctl.sh
+run_one test_build_tester_dmg.sh
 exit $fail
