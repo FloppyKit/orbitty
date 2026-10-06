@@ -17,6 +17,7 @@
   import "./rail/rail.css";
   import RailChrome from "./rail/Chrome.svelte";
   import RailList from "./rail/List.svelte";
+  import { coachDue, normalizeStory, type CoachStory } from "./rail/coach";
   import RailClaimUi from "./rail/ClaimUi.svelte";
   import {
     PIN_H,
@@ -158,6 +159,11 @@
   let nudgeFor = $state<string | null>(null);
   let nudgeNewName = $state("");
   let stateLoaded = $state(false);
+  let starterStory = $state<CoachStory>(normalizeStory(null));
+  let coachError = $state("");
+  let coachRevealed = false;
+  let bootParkDone = false;
+  let coachErrorTimer: ReturnType<typeof setTimeout> | undefined;
 
   // S4: local Kanban + points ledger (persisted), zombie ages.
   let kanbanCards = $state<KanbanCard[]>([]);
@@ -507,6 +513,51 @@
     void invoke("toggle_labeled", { label });
   }
 
+  function coachIsDue(): boolean {
+    return coachDue({
+      trusted: !!status?.trusted,
+      stateLoaded,
+      claimsCount: claims.length,
+      story: starterStory,
+      embedded,
+    });
+  }
+
+  function maybeRevealCoach() {
+    if (!bootParkDone || coachRevealed || embedded) return;
+    if (!coachIsDue()) return;
+    coachRevealed = true;
+    void showStage();
+  }
+
+  function noteAx(s: AxStatus) {
+    status = s;
+    maybeRevealCoach();
+  }
+
+  async function coachClaim() {
+    coachError = "";
+    try {
+      await invoke("claim_front_window");
+    } catch (e) {
+      const text = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+      if (text.includes("cancelled")) return;
+      coachError = text;
+      if (coachErrorTimer) clearTimeout(coachErrorTimer);
+      coachErrorTimer = setTimeout(() => {
+        coachError = "";
+      }, 6000);
+    }
+  }
+
+  async function coachSkip() {
+    try {
+      await invoke("set_starter_coach_done");
+    } catch {
+      /* the flag lands on the next state:changed */
+    }
+  }
+
   async function showStage() {
     if (embedded) return;
     stageRevealed = true;
@@ -743,6 +794,14 @@
       creatingProject = true;
       return;
     }
+    if (spin === "coachClaim") {
+      void coachClaim();
+      return;
+    }
+    if (spin === "coachSkip") {
+      void coachSkip();
+      return;
+    }
     if (spin === "centre") return;
     if (spin === "raise") {
       void raisePlanetWindows(id.slice("rhead-".length));
@@ -789,13 +848,14 @@
       return;
     }
     const items = spinItems(projects.map((p) => p.id), UNMAPPED_KEY);
-    const built = spinStops(items);
+    const due = coachIsDue();
+    const built = spinStops(items, due);
     const stops: RingStop[] = built.map((stop) => ({
       id: stop.id,
       group: stop.group,
       confirm: () => confirmHabitatStop(stop.id),
       arrow: (dir) => {
-        const next = spinArrow(items, stop.id, dir, railEdge);
+        const next = spinArrow(items, stop.id, dir, railEdge, due);
         if (next) menuRing.select(next);
         return true;
       },
@@ -1380,6 +1440,8 @@
       packs.map((pk) => pk.id),
       spriteScale,
       marbleDrift,
+      starterStory.commsBuilt,
+      starterStory.starsBuilt,
     ]);
     if (sig === lastHabitatSig) return;
     lastHabitatSig = sig;
@@ -2355,7 +2417,7 @@
     if (windowDragHot()) return;
     try {
       const s = await invoke<AxStatus>("accessibility_status");
-      status = s;
+      noteAx(s);
       // Don't swap the rows array mid-drag: mutating the dragged row's DOM
       // can cancel the HTML5 drag session in WKWebView.
       if (s.trusted && !dragWindowId) {
@@ -2676,6 +2738,13 @@
         creatingProject = false;
         return true;
       }
+      if (
+        menuRing.activeId === "rcoach-claim" ||
+        menuRing.activeId === "rcoach-skip"
+      ) {
+        void coachSkip();
+        return true;
+      }
       if (!embedded && previewStop(menuRing.activeId)) {
         const pid = openSectionId();
         if (pid) {
@@ -2754,12 +2823,16 @@
       starsState = s.stars ?? { promptsOptIn: false, checkins: {} };
       skyState = s.sky ?? { muted: [] };
       drawersState = s.drawers ?? {};
+      starterStory = normalizeStory(s.starterStory);
     } catch {
       themeId = defaultThemeId();
     }
     stateLoaded = true;
     if (!embedded) {
-      void parkStage();
+      void parkStage().finally(() => {
+        bootParkDone = true;
+        maybeRevealCoach();
+      });
       window.addEventListener("blur", onWinBlur);
     }
     // ORPHAN-CARDS: pre-heal saves may carry orphan window-cards. This
@@ -2987,6 +3060,7 @@
         // Rail-drawer leash writes (pluck / re-tether / dx/dy) land here;
         // round-trip only — the native side owns the slice.
         drawersState = s.drawers ?? drawersState;
+        starterStory = normalizeStory(s.starterStory);
         // Settings window writes theme / opacity / sprite / row chrome.
         const migrated = migrateThemeId(s.themeId ?? "");
         if (migrated) {
@@ -3048,7 +3122,7 @@
         void syncHabitatLastKnown();
         invoke<AxStatus>("accessibility_status")
           .then((s) => {
-            status = s;
+            noteAx(s);
           })
           .catch(() => {});
       }
@@ -3082,6 +3156,11 @@
   // DIET-RAIL-SPLIT: surface for rail/* modules (getters keep $state live).
   const rail: import("./rail/api").RailApi = {
     UNMAPPED_KEY,
+    coachClaim,
+    coachSkip,
+    get coachError() { return coachError; },
+    get starterStory() { return starterStory; },
+    get claims() { return claims; },
     addTodoTo,
     get addingTodoFor() { return addingTodoFor; },
     set addingTodoFor(v) { addingTodoFor = v; },

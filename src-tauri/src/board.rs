@@ -69,15 +69,64 @@ pub(crate) fn save_with_events(
     before: &PersistedState,
     after: &PersistedState,
 ) -> Result<(), String> {
-    let (claims_before, claims_after) = crate::state::update(app, |live| {
+    let (claims_before, claims_after, starter_view) = crate::state::update(app, |live| {
         let claims_before = live.claims.clone();
         crate::state::apply_writer_delta(live, before, after);
         crate::todo_trees::reconcile(live);
-        Ok((claims_before, live.claims.clone()))
+        let starter_view = crate::starter::view(live);
+        Ok((claims_before, live.claims.clone(), starter_view))
     })?;
     event_log::diff_claims(app, &claims_before, &claims_after);
+    crate::starter::after_save(app, starter_view);
     let _ = app.emit("state:changed", ());
     Ok(())
+}
+
+/// Shared todo card. `kanban_add_as` passes `new_id("c")`. The starter
+/// story passes its deterministic ids. `links` stay with the caller.
+pub(crate) fn todo_card(
+    id: String,
+    title: &str,
+    project_id: &str,
+    status: &str,
+    actor: &str,
+    notes: Option<&str>,
+    now: f64,
+) -> KanbanCard {
+    KanbanCard {
+        id,
+        title: title.to_string(),
+        project_id: project_id.to_string(),
+        window_id: None,
+        kind: Some("todo".into()),
+        status: status.into(),
+        created_at: now,
+        last_touched_at: now,
+        completed_at: None,
+        goal_aligned: true,
+        clinical_or_master: false,
+        points_awarded: 0,
+        starred: false,
+        notes: notes
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(str::to_string),
+        difficulty: None,
+        subtasks: None,
+        due_at: None,
+        tag_ids: None,
+        needed_state: None,
+        needed_why: None,
+        needed_answer: None,
+        actor: Some(actor.trim().to_string()),
+        assigned_agent_id: None,
+        parent_id: None,
+        rating: None,
+        trackers: None,
+        task_id: None,
+        task_reason: None,
+        links: None,
+    }
 }
 
 /// A non-empty projectId must name a real project — a typo would orphan
@@ -170,40 +219,16 @@ pub fn kanban_add_as(
     let before = crate::state::load_state(app)?;
     let project_id = resolve_project(&before, project_id, "kanban.add")?;
     let now = now_secs();
-    let card = KanbanCard {
-        id: new_id("c"),
-        title: title.to_string(),
-        project_id: project_id.clone(),
-        window_id: None,
-        kind: Some("todo".into()),
-        status: status.into(),
-        created_at: now,
-        last_touched_at: now,
-        completed_at: None,
-        goal_aligned: true,
-        clinical_or_master: false,
-        points_awarded: 0,
-        starred: false,
-        notes: notes
-            .map(str::trim)
-            .filter(|n| !n.is_empty())
-            .map(str::to_string),
-        difficulty: None,
-        subtasks: None,
-        due_at: None,
-        tag_ids: None,
-        needed_state: None,
-        needed_why: None,
-        needed_answer: None,
-        actor: Some(actor.trim().to_string()),
-        assigned_agent_id: None,
-        parent_id: None,
-        rating: None,
-        trackers: None,
-        task_id: None,
-        task_reason: None,
-        links,
-    };
+    let mut card = todo_card(
+        new_id("c"),
+        title,
+        &project_id,
+        status,
+        actor,
+        notes,
+        now,
+    );
+    card.links = links;
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
     save_with_events(app, &before, &after)?;

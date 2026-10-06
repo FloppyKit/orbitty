@@ -1,5 +1,15 @@
 <script lang="ts">
   import type { Project, WindowInfo } from "../persist";
+  import {
+    COACH_CLAIM_LABEL,
+    COACH_CLAIM_STOP,
+    COACH_LINE,
+    COACH_SKIP_STOP,
+    COACH_TIP,
+    coachDue,
+    emptyDeskShowsWheel,
+    normalizeStory,
+  } from "./coach";
   import KanbanPage from "../KanbanPage.svelte";
   import RailPlanetsSheet from "./PlanetsSheet.svelte";
   import type { RailApi } from "./api";
@@ -157,6 +167,24 @@
     else if (action === "newProject") rail.creatingProject = true;
     else if (action === "raise" && item.pid) void rail.raisePlanetWindows(item.pid);
   }
+
+  const coachStory = $derived(normalizeStory(rail.starterStory));
+  const coachLineDue = $derived(
+    coachDue({
+      trusted: !!rail.status?.trusted,
+      stateLoaded: !!rail.stateLoaded,
+      claimsCount: (rail.claims?.length ?? 0) as number,
+      story: coachStory,
+      embedded: !!rail.embedded,
+    }),
+  );
+  const freshWheel = $derived(
+    emptyDeskShowsWheel({
+      windows: rail.windows.length,
+      projects: rail.projects.length,
+      story: coachStory,
+    }),
+  );
 
   function boardTint(): string {
     if (paneItem?.kind === "planet" && paneItem.pid) return rail.planetCss(paneItem.pid);
@@ -389,7 +417,7 @@
             {/each}
           </ul>
         {/if}
-      {:else if rail.windows.length === 0 && rail.projects.length === 0}
+      {:else if rail.windows.length === 0 && rail.projects.length === 0 && !freshWheel}
         <p class="empty">No windows found.</p>
       {:else}
         {#if rail.nudgeWindow}
@@ -424,6 +452,30 @@
         <div class="stage-hit" aria-hidden="true"></div>
         <div class="stage-strip">
         <div class="wheel-col" bind:this={wheelCol}>
+          {#if coachLineDue}
+            <div class="coach-line">
+              <span class="coach-text">{COACH_LINE}</span>
+              <button
+                type="button"
+                class="mini"
+                data-mkey={COACH_CLAIM_STOP}
+                class:mkey-sel={rail.menuRing.activeId === COACH_CLAIM_STOP}
+                title={COACH_TIP}
+                onclick={() => rail.coachClaim()}
+              >{COACH_CLAIM_LABEL}</button>
+              <button
+                type="button"
+                class="mini ghost"
+                data-mkey={COACH_SKIP_STOP}
+                class:mkey-sel={rail.menuRing.activeId === COACH_SKIP_STOP}
+                aria-label="Dismiss"
+                onclick={() => rail.coachSkip()}
+              >×</button>
+              {#if rail.coachError}
+                <span class="coach-err">{rail.coachError}</span>
+              {/if}
+            </div>
+          {/if}
           <div class="wheel-band" aria-hidden="true"></div>
           <div class="wheel-notch" aria-hidden="true"></div>
         {#if rail.wakeNote}

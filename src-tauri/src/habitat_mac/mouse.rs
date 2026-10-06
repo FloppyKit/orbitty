@@ -10,7 +10,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use super::audio;
 use super::input::{
-    contains_interactive, hit_being, hit_decor, over_disc, planet_for_view, BOOMBOX_CLICK_SLOP,
+    contains_interactive, hit_being, hit_decor, hit_outpost_plot, over_disc, planet_for_view,
+    BOOMBOX_CLICK_SLOP,
 };
 use super::{
     app_handle, boombox_hud, building_cap, default_state, layout_beings, layout_decor, lock,
@@ -124,7 +125,7 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
             h.pending_board_open = Some(pid);
             return;
         }
-        if let Some(planet) = h.planets.get(&pid) {
+        if let Some(planet) = h.planets.get_mut(&pid) {
             if let Some(card_id) = super::todo_tree::hit(planet, local) {
                 let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
                 h.drag = Some(Drag::TodoTree {
@@ -133,6 +134,10 @@ unsafe fn mouse_down_inner(this: &Object, event: *mut Object) {
                     start: mouse,
                     moved: 0.0,
                 });
+                return;
+            }
+            if let Some(kind) = hit_outpost_plot(planet, local) {
+                super::todo_tree::enqueue_build(planet, &pid, kind);
                 return;
             }
         }

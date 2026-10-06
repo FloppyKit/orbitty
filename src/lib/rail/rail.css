@@ -1692,6 +1692,37 @@
     overflow: visible;
   }
 
+  .rail.stage-shell .coach-line {
+    position: absolute;
+    z-index: 30;
+    top: 0;
+    left: 8px;
+    right: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(20, 22, 26, 0.78);
+    color: #f4f5f7;
+    font-size: 13px;
+    line-height: 1.35;
+    pointer-events: auto;
+  }
+
+  .rail.stage-shell .coach-line .coach-text {
+    flex: 1 1 8em;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .rail.stage-shell .coach-line .coach-err {
+    flex: 1 0 100%;
+    color: #f0c2c2;
+    font-size: 12px;
+  }
+
   .rail.stage-shell[data-edge="left"] .wheel-col { left: 0; }
   .rail.stage-shell[data-edge="right"] .wheel-col { right: 0; left: auto; }
 

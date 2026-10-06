@@ -146,6 +146,11 @@ pub struct PersistedState {
     /// `autohide_row_chrome` (row-button chrome). Default on.
     #[serde(default = "rail_auto_hide_default")]
     pub rail_auto_hide_on_blur: bool,
+    /// Alpha mini story. Rust-owned: only `starter.rs` and
+    /// `set_starter_coach_done` write it, through `state::update`.
+    /// A window save copies this from disk (`merge_window_save`).
+    #[serde(default)]
+    pub starter_story: StarterStory,
     /// Cards a window or a Rust delete removed. A later save brings a
     /// card back only when that card's `lastTouchedAt` is newer than the
     /// stamp. Old builds ignore the key. Empty stays off disk.
@@ -412,6 +417,35 @@ impl Default for PersistedState {
             rail_board_cols: vec!["todo".into()],
             rail_edge: rail_edge_default(),
             rail_auto_hide_on_blur: true,
+            starter_story: StarterStory::default(),
+        }
+    }
+}
+
+/// Alpha mini story flags. `v` 0 means never evaluated (missing on disk).
+/// JSON key `starterStory`. Windows never write this slice.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StarterStory {
+    pub v: u8,
+    pub skipped: bool,
+    pub coach_done: bool,
+    pub seeded_project_id: Option<String>,
+    pub comms_built: bool,
+    pub stars_built: bool,
+    pub intro_done: bool,
+}
+
+impl Default for StarterStory {
+    fn default() -> Self {
+        Self {
+            v: 0,
+            skipped: false,
+            coach_done: false,
+            seeded_project_id: None,
+            comms_built: false,
+            stars_built: false,
+            intro_done: false,
         }
     }
 }
@@ -1333,6 +1367,7 @@ pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (P
     // not wipe a saved edge or auto-hide choice.
     out.rail_edge = disk.rail_edge.clone();
     out.rail_auto_hide_on_blur = disk.rail_auto_hide_on_blur;
+    out.starter_story = disk.starter_story.clone();
     if out.last_claim_project_id.is_none() {
         out.last_claim_project_id = disk.last_claim_project_id.clone();
     }
@@ -1487,6 +1522,14 @@ pub fn apply_writer_delta(live: &mut PersistedState, before: &PersistedState, af
         &mut live.rail_auto_hide_on_blur,
         &before.rail_auto_hide_on_blur,
         &after.rail_auto_hide_on_blur,
+    );
+    // Named so writer_delta_lists_cover_every_field stays green. A writer
+    // that did not change the slice leaves `live` alone. Window saves do
+    // not come through here; merge_window_save copies starter_story from disk.
+    take_changed(
+        &mut live.starter_story,
+        &before.starter_story,
+        &after.starter_story,
     );
 }
 
@@ -2419,5 +2462,25 @@ mod tests {
         assert_eq!(rail_wheel_size("nope", true, 1440.0, 875.0), (1040.0, 760.0));
         let (x, y, w, h) = rail_stage_frame("left", true, 0.0, 0.0, 1440.0, 875.0, 1040.0, 760.0);
         assert_eq!((x, y, w, h), (8.0, 57.5, 1040.0, 760.0));
+    }
+
+    #[test]
+    fn starter_story_is_rust_owned_and_survives_window_save() {
+        let mut disk = PersistedState::default();
+        disk.starter_story.v = 1;
+        disk.starter_story.seeded_project_id = Some("p1".into());
+        disk.starter_story.comms_built = true;
+        disk.starter_story.stars_built = true;
+        disk.starter_story.coach_done = true;
+        disk.starter_story.intro_done = false;
+        let incoming = PersistedState::default();
+        let (merged, _) = merge_window_save(&disk, &incoming);
+        assert_eq!(merged.starter_story.v, 1);
+        assert_eq!(merged.starter_story.seeded_project_id.as_deref(), Some("p1"));
+        assert!(merged.starter_story.comms_built);
+        assert!(merged.starter_story.stars_built);
+        assert!(merged.starter_story.coach_done);
+        assert!(!merged.starter_story.intro_done);
+        assert!(!merged.starter_story.skipped);
     }
 }

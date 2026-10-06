@@ -113,6 +113,9 @@ pub(crate) struct DrawData {
     pub(crate) town_ball: usize,
     pub(crate) town_sundial: usize,
     pub(crate) town_comstack: usize,
+    /// Dashed plot ring at the station foot. Veterans stay false (Built art).
+    pub(crate) plot_sundial: bool,
+    pub(crate) plot_comstack: bool,
     /// Dest-menu find: 0 just armed, 1 expired. None = no glow.
     pub(crate) locate_t: Option<f64>,
     /// the beach ball's view-local center

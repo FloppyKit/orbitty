@@ -64,6 +64,7 @@ mod shift;
 #[cfg(unix)]
 mod shift_continue;
 mod state;
+mod starter;
 mod talk;
 mod tilechords;
 mod windows;
@@ -333,6 +334,14 @@ fn set_rail_stage_prefs(
             "railAutoHideOnBlur": auto_hide_on_blur,
         }),
     );
+    Ok(())
+}
+
+/// × / Esc on the coach line. The story slice is Rust-owned.
+#[tauri::command]
+fn set_starter_coach_done(app: tauri::AppHandle) -> Result<(), String> {
+    starter::set_coach_done(&app)?;
+    let _ = app.emit("state:changed", ());
     Ok(())
 }
 
@@ -657,6 +666,7 @@ fn save_window_state(app: tauri::AppHandle, state: state::PersistedState) -> Res
         }),
     );
     event_log::diff_claims(&app, &before.claims, &after.claims);
+    starter::after_save(&app, starter::view(&after));
     // After the save returns so the
     // board column is not waiting on Needed mint + extra saves.
     #[cfg(unix)]
@@ -736,6 +746,7 @@ pub fn run() {
             panes::take_board_focus,
             show_rail,
             set_rail_stage_prefs,
+            set_starter_coach_done,
             rail_stage_set,
             set_planets_hidden,
             needed_answer,
@@ -829,6 +840,7 @@ pub fn run() {
             // one-time 0–4 → 1–5 checkin shift
             // (scaleV flag — never twice), before any window reads state.
             state::migrate_stars_scale(app.handle());
+            starter::boot(app.handle());
 
             // One-time backfill — exact-token
             // GO-ORBITTY-* todos with empty notes get the locked one-liner

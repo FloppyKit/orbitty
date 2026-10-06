@@ -20,8 +20,9 @@ use super::super::{
 #[path = "draw_data.rs"]
 mod draw_data;
 pub(crate) use draw_data::{DecorDraw, DrawData, WalkerDraw};
+pub(crate) use draw_data::{COMSTACK_W, SUNDIAL_W};
 use draw_data::{
-    draw_nsimage, shaded, COMSTACK_W, IGLOO_DOOR, IGLOO_IMG_H, IGLOO_IMG_W, IGLOO_W, SUNDIAL_W,
+    draw_nsimage, shaded, IGLOO_DOOR, IGLOO_IMG_H, IGLOO_IMG_W, IGLOO_W,
 };
 
 #[path = "draw_fx.rs"]
@@ -286,6 +287,18 @@ pub(crate) unsafe fn draw_world(this: &Object, d: &DrawData) {
                 1.0,
             );
         }
+        if d.plot_sundial {
+            let w = SUNDIAL_W * r;
+            let cx = center.x + STATION_SUNDIAL.0 * r;
+            let cy = center.y + STATION_SUNDIAL.1 * ry;
+            stroke_plot_ring(cx, cy, w);
+        }
+        if d.plot_comstack {
+            let w = COMSTACK_W * r;
+            let cx = center.x + STATION_COMSTACK.0 * r;
+            let cy = center.y + STATION_COMSTACK.1 * ry;
+            stroke_plot_ring(cx, cy, w);
+        }
     }
 
     for frame in &d.dots {
@@ -424,4 +437,17 @@ pub(crate) unsafe fn draw_world(this: &Object, d: &DrawData) {
     if let Some(hud) = &d.hud {
         boombox_hud::draw(hud);
     }
+}
+
+unsafe fn stroke_plot_ring(cx: f64, cy: f64, w: f64) {
+    let ew = w;
+    let eh = (w * 0.34).max(6.0);
+    let rect = NSRect::new(cx - ew / 2.0, cy - eh / 2.0, ew, eh);
+    let path: *mut Object = msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
+    let dashes = [4.0f64, 3.0f64];
+    let _: () = msg_send![path, setLineDash: dashes.as_ptr() count: 2usize phase: 0.0f64];
+    let _: () = msg_send![path, setLineWidth: 1.4f64];
+    let color = ns_color(0.93, 0.95, 0.88, 0.72);
+    let _: () = msg_send![color, setStroke];
+    let _: () = msg_send![path, stroke];
 }

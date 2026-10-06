@@ -17,6 +17,7 @@ pub(crate) use super::board_geom::{
 use super::decor_art::growth_t;
 #[path = "draw_world.rs"]
 mod draw_world;
+pub(crate) use draw_world::{COMSTACK_W, SUNDIAL_W};
 use draw_world::{DecorDraw, DrawData, WalkerDraw};
 use super::{
     ball_pos, boombox_hud, card_color, droid, droid_pack, ensure_town_art, lock, now_epoch,
@@ -84,8 +85,18 @@ fn draw_rect_guarded(this: &Object) {
         let town_sign = h.town_sign;
         let town_boombox = h.town_boombox;
         let town_ball = h.town_ball;
-        let town_sundial = h.town_sundial;
-        let town_comstack = h.town_comstack;
+        let sundial_vis = crate::starter::outpost_visual_now(crate::starter::Outpost::Stars);
+        let comms_vis = crate::starter::outpost_visual_now(crate::starter::Outpost::Comms);
+        let town_sundial = if sundial_vis == crate::starter::OutpostVisual::Built {
+            h.town_sundial
+        } else {
+            0
+        };
+        let town_comstack = if comms_vis == crate::starter::OutpostVisual::Built {
+            h.town_comstack
+        } else {
+            0
+        };
         let now = now_epoch();
         // per-pack still-frame
         // aspects for the keep-up head math (0.0 = generated person).
@@ -324,6 +335,8 @@ fn draw_rect_guarded(this: &Object) {
                 town_ball,
                 town_sundial,
                 town_comstack,
+                plot_sundial: sundial_vis == crate::starter::OutpostVisual::Plot && !p.is_marble,
+                plot_comstack: comms_vis == crate::starter::OutpostVisual::Plot && !p.is_marble,
                 locate_t: h.locate_planet.as_ref().and_then(|(id, at)| {
                     if id == pid && at.elapsed() < PLANET_LOCATE_TTL {
                         Some(

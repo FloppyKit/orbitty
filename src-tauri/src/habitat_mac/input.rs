@@ -37,9 +37,9 @@ use super::{
     max_radius, menu_target, now_epoch, ns_string, panel_set_frame, panic_msg, plant_cap,
     primary_screen_id, radius_y, sender_project_id, set_caption, view_to_disc, walker_hidden,
     world_entry, DecorItem,
-    draw::hit_board_column,
+    draw::{hit_board_column, COMSTACK_W, SUNDIAL_W},
     DecorKind, DecorPoint, DecorRef, Drag, Habitat, NSPoint, NSRect, PendingClick, Placement,
-    Planet, MIN_RADIUS, VIEW_PADDING,
+    Planet, STATION_COMSTACK, STATION_SUNDIAL, MIN_RADIUS, VIEW_PADDING,
 };
 
 /// press-release on the boombox
@@ -92,6 +92,43 @@ pub(crate) fn over_disc(planet: &Planet, local: NSPoint) -> bool {
         return false;
     }
     (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1.0
+}
+
+/// Empty outpost plot: the sprite's bottom-pinned square at the station,
+/// same rect as the draw, inset −4. Marbles and Built/Hidden outposts miss.
+pub(crate) fn hit_outpost_plot(planet: &Planet, local: NSPoint) -> Option<crate::starter::Outpost> {
+    if planet.is_marble {
+        return None;
+    }
+    let comms = crate::starter::Outpost::Comms;
+    let stars = crate::starter::Outpost::Stars;
+    if crate::starter::outpost_visual_now(comms) == crate::starter::OutpostVisual::Plot {
+        let rect = outpost_sprite_rect(planet, STATION_COMSTACK, COMSTACK_W);
+        if rect.inset(-4.0).contains(local) {
+            return Some(comms);
+        }
+    }
+    if crate::starter::outpost_visual_now(stars) == crate::starter::OutpostVisual::Plot {
+        let rect = outpost_sprite_rect(planet, STATION_SUNDIAL, SUNDIAL_W);
+        if rect.inset(-4.0).contains(local) {
+            return Some(stars);
+        }
+    }
+    None
+}
+
+fn outpost_sprite_rect(planet: &Planet, station: (f64, f64), w_scale: f64) -> NSRect {
+    let side = (planet.radius + VIEW_PADDING) * 2.0;
+    let center = NSPoint {
+        x: side / 2.0,
+        y: side / 2.0,
+    };
+    let r = planet.radius;
+    let ry = radius_y(r, planet.projection);
+    let w = w_scale * r;
+    let cx = center.x + station.0 * r;
+    let cy = center.y + station.1 * ry;
+    NSRect::new(cx - w / 2.0, cy - w, w, w)
 }
 
 pub(crate) fn hit_decor(planet: &Planet, local: NSPoint) -> Option<DecorRef> {

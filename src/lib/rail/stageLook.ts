@@ -228,7 +228,14 @@ export interface SpinAccumState {
   lastAt: number;
 }
 
-export type SpinConfirmAction = "stars" | "settings" | "newProject" | "centre" | "raise";
+export type SpinConfirmAction =
+  | "stars"
+  | "settings"
+  | "newProject"
+  | "centre"
+  | "raise"
+  | "coachClaim"
+  | "coachSkip";
 
 export type SpinPane =
   | { kind: "board"; selected: string }
@@ -329,8 +336,14 @@ export function spinCenterFor(
   return c;
 }
 
-export function spinStops(items: readonly SpinItem[]): SpinStop[] {
-  return items.map((it) => ({ id: it.stop, group: "wheel" }));
+export function spinStops(items: readonly SpinItem[], due = false): SpinStop[] {
+  const wheel: SpinStop[] = items.map((it) => ({ id: it.stop, group: "wheel" }));
+  if (!due) return wheel;
+  return [
+    { id: "rcoach-claim", group: "wheel" },
+    { id: "rcoach-skip", group: "wheel" },
+    ...wheel,
+  ];
 }
 
 function spinAxis(edge: string): {
@@ -357,12 +370,22 @@ export function spinArrow(
   activeId: string | null,
   dir: SpinDir | string,
   edge: string = "left",
+  due = false,
 ): string | null {
+  const ax = spinAxis(edge);
+  if (due && (activeId === "rcoach-claim" || activeId === "rcoach-skip")) {
+    if (activeId === "rcoach-claim" && dir === ax.forward) return "rcoach-skip";
+    if (activeId === "rcoach-skip" && dir === ax.back) return "rcoach-claim";
+    if (dir === ax.inward) return "rstars";
+    return null;
+  }
   if (!activeId || items.length === 0) return null;
   const i = items.findIndex((it) => it.stop === activeId);
   if (i < 0) return null;
-  const ax = spinAxis(edge);
-  if (dir === ax.inward || dir === ax.outward) return null;
+  if (dir === ax.inward || dir === ax.outward) {
+    if (due && dir === ax.outward) return "rcoach-claim";
+    return null;
+  }
   if (dir !== ax.back && dir !== ax.forward) return null;
   const delta = dir === ax.forward ? 1 : -1;
   return items[spinStep(i, delta, items.length)].stop;
@@ -372,6 +395,8 @@ export function spinConfirm(stop: string): SpinConfirmAction | null {
   if (stop === "rstars") return "stars";
   if (stop === "rsettings") return "settings";
   if (stop === "rnewproj") return "newProject";
+  if (stop === "rcoach-claim") return "coachClaim";
+  if (stop === "rcoach-skip") return "coachSkip";
   if (stop === "rhead-__unmapped__") return "centre";
   if (stop.startsWith("rhead-") && stop.length > "rhead-".length) return "raise";
   return null;

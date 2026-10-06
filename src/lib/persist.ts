@@ -443,6 +443,16 @@ export interface PersistedState {
   // ctl `shift on` ticker. Default off. Optional so older writers type-check.
   shiftOn?: boolean;
   companion: CompanionSlice;
+  /** Rust-owned alpha mini story. Optional so a window save can omit it. */
+  starterStory?: {
+    v?: number;
+    skipped?: boolean;
+    coachDone?: boolean;
+    seededProjectId?: string | null;
+    commsBuilt?: boolean;
+    starsBuilt?: boolean;
+    introDone?: boolean;
+  };
   stars: StarsSlice;
   sky: SkySlice;
   sharedPaneMode: SharedPaneMode;

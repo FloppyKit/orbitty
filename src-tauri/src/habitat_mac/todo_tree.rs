@@ -10,7 +10,7 @@ use tauri::{Emitter, Manager};
 
 use super::{
     app_handle, droid_pack, ns_color, ns_string, radius_y, set_fill, NSPoint, NSRect, Planet, Pose,
-    STATION_BOARD, VIEW_PADDING,
+    STATION_BOARD, STATION_COMSTACK, STATION_SUNDIAL, VIEW_PADDING,
 };
 use crate::habitat::TodoTreeTick;
 use crate::todo_trees::{growth_t, phase};
@@ -114,6 +114,7 @@ unsafe fn draw_nearest(img: *mut Object, dest: NSRect) {
 pub(crate) enum ChoreKind {
     Plant,
     Harvest,
+    Build(crate::starter::Outpost),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -278,6 +279,51 @@ pub(crate) fn sync_chores(planet: &mut Planet, project_id: &str, incoming: &[Tod
     }
 }
 
+/// Walk a builder to the outpost foot. Keyed `outpost:comms|stars`, never
+/// the card id, so the card's Plant chore does not swallow it. No awake
+/// walker → build at once on a thread (no walk, no panic).
+pub(crate) fn enqueue_build(planet: &mut Planet, project_id: &str, kind: crate::starter::Outpost) {
+    let key = crate::starter::build_chore_key(kind);
+    if planet
+        .tree_chores
+        .iter()
+        .any(|c| c.project_id == project_id && c.card_id == key)
+    {
+        return;
+    }
+    let (walker_id, house) = pick_walker(planet, &key);
+    if house {
+        std::thread::spawn(move || {
+            if let Some(app) = app_handle() {
+                crate::starter::outpost_built(app, kind);
+            }
+        });
+        return;
+    }
+    let (sx, sy) = match kind {
+        crate::starter::Outpost::Comms => STATION_COMSTACK,
+        crate::starter::Outpost::Stars => STATION_SUNDIAL,
+    };
+    planet.tree_chores.push(TreeChore {
+        project_id: project_id.into(),
+        card_id: key,
+        walker_id,
+        kind: ChoreKind::Build(kind),
+        stage: Stage::Spot,
+        spot: nudge_toward_center(sx, sy, 0.06),
+        house: false,
+    });
+}
+
+fn nudge_toward_center(x: f64, y: f64, dist: f64) -> (f64, f64) {
+    let len = (x * x + y * y).sqrt();
+    if len <= dist || len < 1e-9 {
+        return (0.0, 0.0);
+    }
+    let scale = (len - dist) / len;
+    (x * scale, y * scale)
+}
+
 fn enqueue(planet: &mut Planet, project_id: &str, t: &TodoTreeTick, kind: ChoreKind) {
     if planet
         .tree_chores
@@ -327,6 +373,7 @@ fn pick_walker(planet: &Planet, card_id: &str) -> (String, bool) {
 pub(crate) fn tick(planet: &mut Planet, dt: f64, project_id: &str) -> bool {
     let mut i = 0;
     let mut finished_harvest: Vec<String> = Vec::new();
+    let mut finished_build: Vec<crate::starter::Outpost> = Vec::new();
     let mut moved = false;
     while i < planet.tree_chores.len() {
         if planet.tree_chores[i].project_id != project_id {
@@ -351,6 +398,9 @@ pub(crate) fn tick(planet: &mut Planet, dt: f64, project_id: &str) -> bool {
                     if planet.tree_chores[i].kind == ChoreKind::Harvest {
                         finished_harvest.push(planet.tree_chores[i].card_id.clone());
                     }
+                    if let ChoreKind::Build(kind) = planet.tree_chores[i].kind {
+                        finished_build.push(kind);
+                    }
                     planet.tree_chores.remove(i);
                     continue;
                 }
@@ -372,6 +422,13 @@ pub(crate) fn tick(planet: &mut Planet, dt: f64, project_id: &str) -> bool {
     }
     for id in finished_harvest {
         emit_gone(&id);
+    }
+    for kind in finished_build {
+        std::thread::spawn(move || {
+            if let Some(app) = app_handle() {
+                crate::starter::outpost_built(app, kind);
+            }
+        });
     }
     moved
 }
