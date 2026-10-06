@@ -15,8 +15,8 @@ export const COLUMN_ICONS_PX = 72;
 export const COLUMN_AUTO_MIN_PX = 640;
 
 export type ColumnArrowDir = "up" | "down" | "left" | "right";
-export type ColumnPref = "auto" | "open" | "icons";
-export type ColumnMode = "open" | "icons";
+export type ColumnPref = "auto" | "open" | "icons" | "hidden";
+export type ColumnMode = "open" | "icons" | "hidden";
 
 export function columnArrow(
   ids: string[],
@@ -50,10 +50,12 @@ export function columnMode(
   pref: ColumnPref,
   minOpenPx: number = COLUMN_AUTO_MIN_PX,
 ): ColumnMode {
+  if (pref === "hidden") return "hidden";
   if (pref === "open" || pref === "icons") return pref;
   return availPx < minOpenPx ? "icons" : "open";
 }
 
 export function columnPx(mode: ColumnMode): number {
+  if (mode === "hidden") return 0;
   return mode === "icons" ? COLUMN_ICONS_PX : COLUMN_OPEN_PX;
 }

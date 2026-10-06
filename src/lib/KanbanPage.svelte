@@ -58,6 +58,7 @@
     onPopout,
     onNeededFocus,
     onNeededAnswer,
+    railPlanet = undefined,
   }: {
     embedded?: boolean;
     onClose?: () => void;
@@ -66,6 +67,8 @@
     // MENU-KEYS: Enter on a Needed row — the host lands the caret in the
     // composer so the next typed line answers it.
     onNeededAnswer?: () => void;
+    // Stage rail embed. Absent = the Lists window and the Launchpad well.
+    railPlanet?: string;
   } = $props();
 
   type Status = "todo" | "doing" | "done";
@@ -103,7 +106,7 @@
   let bodyEl: HTMLDivElement | null = $state(null);
   let kanbanEl: HTMLElement | null = $state(null);
   // Session-only. "auto" collapses under COLUMN_AUTO_MIN_PX; a click wins.
-  let planetColPref = $state<"auto" | "open" | "icons">("auto");
+  let planetColPref = $state<"auto" | "open" | "icons" | "hidden">("auto");
   let boardPx = $state(900);
   const planetColMode = $derived(columnMode(boardPx, planetColPref));
   let addingTodo = $state(false);
@@ -126,6 +129,12 @@
 
   // Sidebar selection: a smart filter, Inbox, or a project id. Session-only.
   let selected = $state("inbox");
+  // Rail embed: the wheel owns the planet. No raise, no focus-project apply.
+  $effect(() => {
+    if (railPlanet == null) return;
+    if (selected !== railPlanet) selected = railPlanet;
+    if (planetColPref !== "hidden") planetColPref = "hidden";
+  });
   /** BOARD-MARK: apply after loadState / pane show (projects may be empty on first emit). */
   let pendingFocusProject = $state<string | null>(null);
   // PLANETS-STRIP: rail-owned marble flag, read-only here — tab double-click
@@ -1891,6 +1900,8 @@
     document.documentElement.dataset.theme = themeId;
     applyHostTokens(themeId);
     // S4.4: re-assert the native transparency surgery post-load.
+    // The stage rail owns main's glass; embedding must not call ensure_glass.
+    if (railPlanet != null) return;
     invoke("ensure_glass").catch(() => {});
   });
 
@@ -1950,6 +1961,7 @@
     });
     // BOARD-MARK: full-page kanban → this planet (do not require projects[] yet).
     unlistenFocusProject = await listen<string>("orbitty:focus-project", (e) => {
+      if (railPlanet != null) return;
       applyFocusProject(e.payload);
       // Delivered event consumes the take-once slot so a remount cannot
       // re-apply it. The embedded Well does not own the slot.
@@ -1971,17 +1983,19 @@
     // hosted well falls through so CompanionPage's bubble Esc dismisses
     // it. The overlay has no bubble hide, so that last Esc hides the
     // window. Tab never reaches this callback.
-    detachMenuKeys = menuRing.attach(() => {
-      if (grabbedId) {
-        ungrab();
-        return true;
-      }
-      if (!embedded) {
-        invoke("hide_window", { label: "kanban" }).catch(() => {});
-        return true;
-      }
-      return false;
-    });
+    if (railPlanet == null) {
+      detachMenuKeys = menuRing.attach(() => {
+        if (grabbedId) {
+          ungrab();
+          return true;
+        }
+        if (!embedded) {
+          invoke("hide_window", { label: "kanban" }).catch(() => {});
+          return true;
+        }
+        return false;
+      });
+    }
     // HOST-SPLIT embedded: do not await load_state / AX on first well
     // mount — that IPC return was painting cards mid-rise and lagging
     // the sprite aside. Overlay Launchpad still hydrates in-line.
@@ -2053,22 +2067,21 @@
   {#if linkToast}
     <div class="k-toast" role="status">{linkToast}</div>
   {/if}
+  {#if railPlanet == null && planetColMode !== "hidden"}
   <BoardChrome
     {selected}
     bind:hermesNote
     {embedded}
     {invoke}
-    {listTitle}
     {onBannerMouseDown}
     {onClose}
     {onPopout}
-    {planetCss}
-    {planetIsLive}
-    {selectedProject}
     {doneActorChips}
   />
+  {/if}
 
   <div class="k-body" bind:this={bodyEl}>
+    {#if railPlanet == null && planetColMode !== "hidden"}
     <PlanetColumn
       bind:selected
       mode={planetColMode}
@@ -2090,6 +2103,7 @@
       {onColDragLeave}
       {onColDrop}
     />
+    {/if}
     <BoardColumns
       bind:addingTodo
       bind:detailId

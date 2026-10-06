@@ -257,16 +257,21 @@ pub fn rail_stage_frame(
     (x, y, w, h)
 }
 
-/// Revealed size fills the visible frame minus the 8px inset `rail_stage_frame`
-/// applies on the parked edge. Parked stays the compact 360×420 sliver so it
-/// cannot spill onto a neighboring display. Unknown edges are left.
+/// Revealed cap: wheel column plus the board beside it.
+/// `stageLook.ts` `WHEEL_COL` 320 + `PREVIEW_MARGIN` + ~690px board.
+const RAIL_SPIN_W: f64 = 1040.0;
+const RAIL_SPIN_H: f64 = 760.0;
+
+/// Revealed window hugs the wheel and the board. LEFT/RIGHT inset the width
+/// by the 8px `rail_stage_frame` uses on the parked edge; TOP/BOTTOM inset
+/// the height. Parked stays the compact 360×420 sliver. Unknown edges are left.
 pub fn rail_wheel_size(edge: &str, revealed: bool, vw: f64, vh: f64) -> (f64, f64) {
     if !revealed {
         return (360.0, 420.0);
     }
     match normalize_rail_edge(edge) {
-        "top" | "bottom" => (vw, (vh - 8.0).max(0.0)),
-        _ => ((vw - 8.0).max(0.0), vh),
+        "top" | "bottom" => (vw.min(RAIL_SPIN_W), (vh - 8.0).max(0.0).min(RAIL_SPIN_H)),
+        _ => ((vw - 8.0).max(0.0).min(RAIL_SPIN_W), vh.min(RAIL_SPIN_H)),
     }
 }
 
@@ -2400,17 +2405,19 @@ mod tests {
     }
 
     #[test]
-    fn rail_wheel_size_full_screen_revealed_compact_parked() {
-        assert_eq!(rail_wheel_size("left", true, 1440.0, 875.0), (1432.0, 875.0));
-        assert_eq!(rail_wheel_size("right", true, 1440.0, 875.0), (1432.0, 875.0));
-        assert_eq!(rail_wheel_size("top", true, 1440.0, 875.0), (1440.0, 867.0));
-        assert_eq!(rail_wheel_size("bottom", true, 1440.0, 875.0), (1440.0, 867.0));
+    fn rail_wheel_size_hugs_wheel_and_board() {
+        assert_eq!(rail_wheel_size("left", true, 1440.0, 875.0), (1040.0, 760.0));
+        assert_eq!(rail_wheel_size("right", true, 1440.0, 875.0), (1040.0, 760.0));
+        assert_eq!(rail_wheel_size("top", true, 1440.0, 875.0), (1040.0, 760.0));
+        assert_eq!(rail_wheel_size("bottom", true, 1440.0, 875.0), (1040.0, 760.0));
+        assert_eq!(rail_wheel_size("left", true, 1000.0, 700.0), (992.0, 700.0));
+        assert_eq!(rail_wheel_size("top", true, 1000.0, 700.0), (1000.0, 692.0));
         assert_eq!(rail_wheel_size("left", false, 1440.0, 875.0), (360.0, 420.0));
         assert_eq!(rail_wheel_size("right", false, 100.0, 100.0), (360.0, 420.0));
         assert_eq!(rail_wheel_size("top", false, 1440.0, 875.0), (360.0, 420.0));
         assert_eq!(rail_wheel_size("bottom", false, 8.0, 8.0), (360.0, 420.0));
-        assert_eq!(rail_wheel_size("nope", true, 1440.0, 875.0), (1432.0, 875.0));
-        let (x, y, w, h) = rail_stage_frame("left", true, 0.0, 0.0, 1440.0, 875.0, 1432.0, 875.0);
-        assert_eq!((x, y, w, h), (8.0, 0.0, 1432.0, 875.0));
+        assert_eq!(rail_wheel_size("nope", true, 1440.0, 875.0), (1040.0, 760.0));
+        let (x, y, w, h) = rail_stage_frame("left", true, 0.0, 0.0, 1440.0, 875.0, 1040.0, 760.0);
+        assert_eq!((x, y, w, h), (8.0, 57.5, 1040.0, 760.0));
     }
 }

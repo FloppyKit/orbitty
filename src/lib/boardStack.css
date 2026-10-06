@@ -1,23 +1,5 @@
 /* BOARD-STACK mail: column 1 = Needed / Todo / Done bin; column 2 = preview. */
 
-.k-heads {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 2px 16px 6px;
-  flex-shrink: 0;
-  cursor: grab;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.k-heads .k-titlerow {
-  flex: 1;
-  min-width: 0;
-}
-
-
-
 .k-preview-head {
   flex-shrink: 0;
   margin: 0 0 4px;

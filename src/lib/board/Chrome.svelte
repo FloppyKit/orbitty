@@ -1,19 +1,13 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
-  import type { Project } from "../persist";
   // doneActorChips: Snippet from parent (also used in Columns).
   let {
     embedded,
     hermesNote = $bindable(),
     invoke,
-    listTitle,
     onBannerMouseDown,
     onClose,
     onPopout,
-    planetCss,
-    planetIsLive,
     selected,
-    selectedProject,
     doneActorChips,
   } = $props();
 </script>
@@ -48,8 +42,9 @@
           <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
         </svg>
       </button>
-    {:else}
-      <h1><span class="mark"><span class="o">O</span><span class="rest">rb</span><span class="idot">i</span><span class="pop">tty</span></span> Lists</h1>
+    {/if}
+    {#if selected === "done"}
+      {@render doneActorChips()}
     {/if}
     <button
       class="winx"
@@ -65,23 +60,6 @@
     >
   </header>
 
-  <div class="k-heads" onmousedown={onBannerMouseDown}>
-    <div class="k-titlerow">
-      {#if selectedProject}
-        <span
-          class="planet-chip"
-          class:live={planetIsLive(selectedProject.id)}
-          style="background: {planetCss(selectedProject.id)}; --pglow: {planetCss(selectedProject.id)}"
-          title={selectedProject.name}
-          aria-hidden="true"
-        ></span>
-      {/if}
-      <h2 class="k-title">{listTitle}</h2>
-      {#if selected === "done"}
-        {@render doneActorChips()}
-      {/if}
-    </div>
-  </div>
   {#if hermesNote}
     <div class="k-hermesnote" class:err={hermesNote.kind === "err"}>
       <span class="k-hermestext">{hermesNote.text}</span>

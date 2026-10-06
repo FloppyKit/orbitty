@@ -301,26 +301,6 @@
     overflow: hidden;
   }
 
-  .k-title {
-    margin: 0;
-    font-size: 1.15rem;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-  }
-
-  /* S5: title row with the Hermes launcher (project lists only). */
-  .k-titlerow {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .k-titlerow .k-title {
-    flex: 1;
-    min-width: 0;
-  }
-
   .k-hermesnote {
     display: flex;
     align-items: center;

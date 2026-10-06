@@ -1,32 +1,120 @@
 <script lang="ts">
-  import PlanetHead from "../PlanetHead.svelte";
-  import type { AgentRun, KanbanCard, Project, WindowInfo } from "../persist";
-  import RailPlanetRm from "./PlanetRm.svelte";
+  import type { Project, WindowInfo } from "../persist";
+  import KanbanPage from "../KanbanPage.svelte";
   import RailPlanetsSheet from "./PlanetsSheet.svelte";
-  import BoardSnapshot from "./BoardSnapshot.svelte";
-  import WindowTiles from "./WindowTiles.svelte";
-  import { boardSnapshot } from "./habitat";
   import type { RailApi } from "./api";
-  import { wheelCenter, wheelSlot, type StageEdge } from "./stageLook";
+  import {
+    SPIN_SETTLE_MS,
+    spinAccumulate,
+    spinCenterFor,
+    spinConfirm,
+    spinInitial,
+    spinItems,
+    spinJump,
+    spinOffset,
+    spinPane,
+    spinStep,
+    wheelSlot,
+    type SpinAccumState,
+    type SpinItem,
+    type StageEdge,
+  } from "./stageLook";
 
   let { rail }: { rail: RailApi } = $props();
 
-  let prevCenter = $state(0);
-  let wheelStamp = 0;
+  const NEUTRAL = "#8a8f98";
 
-  const wheelIds = $derived([
-    ...rail.projects.map((p: { id: string }) => p.id),
-    rail.UNMAPPED_KEY,
-  ]);
-  const openPlanetId = $derived(
-    wheelIds.find((id: string) => rail.stageRole(id) === "open") ?? null,
+  let center = $state(0);
+  let paneCenter = $state(0);
+  let booted = false;
+  let wheelCol = $state<HTMLDivElement | null>(null);
+  let nameEl = $state<HTMLInputElement | null>(null);
+  let accum: SpinAccumState = { residual: 0, lastAt: 0 };
+  let prevOffsets: number[] = [];
+  let havePrev = false;
+  let jumpMask = $state<boolean[]>([]);
+
+  const items = $derived(
+    spinItems(
+      rail.projects.map((p: { id: string }) => p.id),
+      rail.UNMAPPED_KEY,
+    ),
   );
-  const centerIndex = $derived(
-    wheelCenter(wheelIds, openPlanetId, rail.menuRing.activeId, prevCenter),
-  );
+  const offsets = $derived(items.map((_, i) => spinOffset(i, center, items.length)));
+  const paneItem = $derived(items[paneCenter] ?? items[0]);
+  const pane = $derived(paneItem ? spinPane(paneItem) : { kind: "board" as const, selected: "inbox" });
+  const boardPlanet = $derived(pane.kind === "board" ? pane.selected : "inbox");
 
   $effect(() => {
-    if (prevCenter !== centerIndex) prevCenter = centerIndex;
+    const list = items;
+    const ready = !!rail.stateLoaded;
+    const openId = typeof rail.openSectionId === "function" ? rail.openSectionId() : null;
+    const active = (rail.menuRing?.activeId ?? null) as string | null;
+    if (!booted) {
+      if (!ready) return;
+      center = spinInitial(list, openId);
+      paneCenter = center;
+      booted = true;
+      return;
+    }
+    const onWheel = !!active && list.some((it) => it.stop === active);
+    const next = spinCenterFor(list, onWheel ? active : null, center);
+    if (next !== center) center = next;
+  });
+
+  $effect(() => {
+    const next = center;
+    const handle = setTimeout(() => {
+      paneCenter = next;
+    }, SPIN_SETTLE_MS);
+    return () => clearTimeout(handle);
+  });
+
+  $effect(() => {
+    const next = offsets;
+    if (!havePrev) {
+      prevOffsets = next.slice();
+      havePrev = true;
+      return;
+    }
+    const mask = next.map((k, i) => spinJump(prevOffsets[i] ?? k, k));
+    prevOffsets = next.slice();
+    if (mask.some(Boolean)) {
+      jumpMask = mask;
+      requestAnimationFrame(() => {
+        jumpMask = [];
+      });
+    }
+  });
+
+  $effect(() => {
+    if (!rail.creatingProject) return;
+    queueMicrotask(() => nameEl?.focus());
+  });
+
+  $effect(() => {
+    const el = wheelCol;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const n = items.length;
+      if (n === 0) return;
+      const out = spinAccumulate(
+        accum,
+        { deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode },
+        Date.now(),
+      );
+      accum = out.state;
+      if (out.steps === 0) return;
+      const next = spinStep(center, out.steps, n);
+      center = next;
+      const active = rail.menuRing.activeId as string | null;
+      if (active && items.some((it) => it.stop === active)) {
+        rail.menuRing.select(items[next].stop);
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
   });
 
   function stageEdge(): StageEdge {
@@ -34,25 +122,45 @@
     return edge === "right" || edge === "top" || edge === "bottom" ? edge : "left";
   }
 
-  function tileStyle(index: number, pid: string): string {
-    const slot = wheelSlot(index - centerIndex, stageEdge());
-    const tint = pid === rail.UNMAPPED_KEY ? "#8a8f98" : rail.planetCss(pid);
-    return `--wx:${slot.x};--wy:${slot.y};--wr:${slot.rotate};--ws:${slot.scale};--wo:${slot.opacity};--wz:${slot.z};--planet:${tint}`;
+  function tintFor(item: SpinItem): string {
+    if (item.kind === "planet" && item.pid) return rail.planetCss(item.pid);
+    return NEUTRAL;
+  }
+
+  function tileStyle(index: number, item: SpinItem): string {
+    const slot = wheelSlot(offsets[index] ?? 0, stageEdge());
+    return `--wx:${slot.x};--wy:${slot.y};--wr:${slot.rotate};--ws:${slot.scale};--wo:${slot.opacity};--wz:${slot.z};--planet:${tintFor(item)}`;
   }
 
   function tileHidden(index: number): boolean {
-    return wheelSlot(index - centerIndex, stageEdge()).hidden;
+    return wheelSlot(offsets[index] ?? 0, stageEdge()).hidden;
   }
 
-  function onWheelColumn(e: WheelEvent) {
-    const dy = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
-    if (dy === 0 || wheelIds.length === 0) return;
-    const now = Date.now();
-    if (now - wheelStamp < 120) return;
-    wheelStamp = now;
-    const dir = dy > 0 ? 1 : -1;
-    const next = Math.max(0, Math.min(wheelIds.length - 1, centerIndex + dir));
-    if (next !== prevCenter) prevCenter = next;
+  function itemLabel(item: SpinItem): string {
+    if (item.kind === "stars") return "Stars";
+    if (item.kind === "settings") return "Settings";
+    if (item.kind === "unmapped") return "Unmapped";
+    if (item.kind === "add") return "+ Project";
+    const project = rail.projects.find((p: { id: string }) => p.id === item.pid);
+    return project?.name ?? "Planet";
+  }
+
+  function onTileClick(item: SpinItem, index: number) {
+    if (index !== center) {
+      center = index;
+      rail.menuRing.select(item.stop);
+      return;
+    }
+    const action = spinConfirm(item.stop);
+    if (action === "stars") rail.openStageDest("stars");
+    else if (action === "settings") rail.openStageDest("settings");
+    else if (action === "newProject") rail.creatingProject = true;
+    else if (action === "raise" && item.pid) void rail.raisePlanetWindows(item.pid);
+  }
+
+  function boardTint(): string {
+    if (paneItem?.kind === "planet" && paneItem.pid) return rail.planetCss(paneItem.pid);
+    return NEUTRAL;
   }
 </script>
 
@@ -144,30 +252,6 @@
 
 {/snippet}
 
-{#snippet agentRow(run: AgentRun)}
-  {@const agent = rail.agentShortcuts.find((a) => a.id === run.agentShortcutId)}
-  {@const card = rail.kanbanCards.find((k) => k.id === run.cardId)}
-  {@const harness = (agent?.harness || run.herdr?.kind || "agent").toLowerCase()}
-  <li>
-    <div class="rowwrap" role="group" title="Live agent — click glows the droid and focuses Herdr">
-      <button
-        class="row"
-        class:locate-flash={rail.locateFlashIds.includes(`agent:${run.cardId}`)}
-        onclick={() => rail.locateAgent(run)}
-        ondblclick={() => rail.locateAgent(run)}
-      >
-        <span class="app-icon fallback" aria-hidden="true">{harness.charAt(0).toUpperCase()}</span>
-        <span class="wtitle">{agent?.name ?? harness}{card?.title ? ` — ${card.title}` : ""}</span>
-        <span class="tag wtag">{harness}</span>
-        {#if run.state === "blocked"}<span class="tag sleeptag">blocked</span>
-        {:else if run.state === "working" || run.state === "starting"}<span class="tag front-tag">{run.state}</span>
-        {/if}
-      </button>
-    </div>
-  </li>
-
-{/snippet}
-
 {#snippet planetGlyph()}
   <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
     <circle cx="16" cy="16" r="6.5" fill="none" stroke="#8a8f98" stroke-width="1.7" />
@@ -204,6 +288,18 @@
       fill="none"
       stroke="#8a8f98"
       stroke-width="1.7"
+      stroke-linecap="round"
+    />
+  </svg>
+{/snippet}
+
+{#snippet plusGlyph()}
+  <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
+    <path
+      d="M16 7v18M7 16h18"
+      fill="none"
+      stroke="#8a8f98"
+      stroke-width="1.8"
       stroke-linecap="round"
     />
   </svg>
@@ -321,48 +417,13 @@
         {/if}
         {#if rail.projects.length === 0}
           <p class="proj-hint">
-            No projects yet — create one with <b>+ Project</b> above, then drag
+            No projects yet — use the <b>+ Project</b> tile on the wheel, then drag
             a window onto it to claim.
           </p>
         {/if}
         <div class="stage-hit" aria-hidden="true"></div>
         <div class="stage-strip">
-        <div class="pinned-cluster">
-        <div class="stage-front" aria-label="Rail">
-          <button
-            type="button"
-            class="wheel-tile pinned-tile"
-            data-mkey="rstars"
-            class:mkey-sel={rail.menuRing.activeId === "rstars"}
-            title="Stars"
-            aria-label="Stars"
-            onclick={() => rail.openStageDest("stars")}
-          >{@render starGlyph()}<span class="wheel-name">Stars</span></button>
-          <button
-            type="button"
-            class="wheel-tile pinned-tile"
-            data-mkey="rsettings"
-            class:mkey-sel={rail.menuRing.activeId === "rsettings"}
-            title="Settings"
-            aria-label="Settings"
-            onclick={() => rail.openStageDest("settings")}
-          >{@render gearGlyph()}<span class="wheel-name">Settings</span></button>
-        </div>
-        <div class="col-toggles" role="group" aria-label="Board columns">
-          {#each [{ id: "todo", label: "Todo" }, { id: "doing", label: "Doing" }, { id: "done", label: "Done" }] as col (col.id)}
-            <button
-              type="button"
-              class="col-toggle"
-              class:on={rail.railBoardCols.includes(col.id)}
-              class:mkey-sel={rail.menuRing.activeId === `rcol-${col.id}`}
-              data-mkey={`rcol-${col.id}`}
-              aria-pressed={rail.railBoardCols.includes(col.id)}
-              onclick={() => rail.toggleBoardCol(col.id)}
-            >{col.label}</button>
-          {/each}
-        </div>
-        </div>
-        <div class="wheel-col" onwheel={onWheelColumn}>
+        <div class="wheel-col" bind:this={wheelCol}>
           <div class="wheel-band" aria-hidden="true"></div>
           <div class="wheel-notch" aria-hidden="true"></div>
         {#if rail.wakeNote}
@@ -372,172 +433,61 @@
           </div>
         {/if}
         <ul class="wins">
-          {#each rail.projects as p, i (p.id)}
-            {@const rows = rail.rowsFor(p.id)}
-            {@const shown = rail.visibleRows(rows)}
-            {@const agents = rail.agentRowsFor(p.id)}
-            {@const snap = boardSnapshot(rail.kanbanCards, p.id, rail.railBoardCols)}
-            {@const role = rail.stageRole(p.id)}
+          {#each items as item, i (item.stop)}
             <li
               class="section stage-planet"
-              class:receded={role === "receded"}
-              class:open={role === "open"}
-              class:drop-ok={rail.dropTarget === p.id}
-              ondragenter={(e) => rail.onSectionDragEnter(e, p.id)}
-              ondragover={(e) => rail.onSectionDragOver(e, p.id)}
-              ondragleave={(e) => rail.onSectionDragLeave(e, p.id)}
-              ondrop={(e) => rail.onSectionDrop(e, p.id)}
+              class:drop-ok={item.pid != null && rail.dropTarget === item.pid}
+              ondragenter={(e) => item.pid != null && rail.onSectionDragEnter(e, item.pid)}
+              ondragover={(e) => item.pid != null && rail.onSectionDragOver(e, item.pid)}
+              ondragleave={(e) => item.pid != null && rail.onSectionDragLeave(e, item.pid)}
+              ondrop={(e) => {
+                if (item.kind === "planet" && item.pid) rail.onSectionDrop(e, item.pid);
+                else if (item.kind === "unmapped") rail.onSectionDrop(e, null);
+              }}
             >
               <button
                 type="button"
                 class="wheel-tile"
-                class:is-selected={i === centerIndex}
+                class:is-selected={i === center}
                 class:is-hidden={tileHidden(i)}
-                style={tileStyle(i, p.id)}
-                data-mkey={`rhead-${p.id}`}
-                class:mkey-sel={rail.menuRing.activeId === `rhead-${p.id}`}
-                aria-expanded={role === "open"}
-                aria-label={role === "open" ? p.name : `Expand ${p.name}`}
-                title={p.name}
-                onclick={() => rail.ensureExpand(p.id)}
-              >{@render planetGlyph()}<span class="wheel-name">{p.name}</span></button>
-              {#if role === "open"}
-                <div class="stage-preview" style={`--planet:${rail.planetCss(p.id)}`}>
-                  <div class="name-pill">
-                    {@render planetGlyph()}
-                    <span class="wheel-name">{p.name}</span>
-                  </div>
-                  <div class="preview-body">
-                  <div class="head-row preview-head">
-                  <PlanetHead
-                    name={p.name}
-                    chip={rail.planetCss(p.id)}
-                    count={shown.length + agents.length + rail.planetCount(p.id)}
-                    pid={p.id}
-                    dropOk={rail.dropTarget === p.id}
-                    hint="This planet is open"
-                    onclick={() => rail.collapsePlanet(p.id)}
-                  />
-                  <button
-                    type="button"
-                    class="mini raise-btn"
-                    class:mkey-sel={rail.menuRing.activeId === `rraise-${p.id}`}
-                    data-mkey={`rraise-${p.id}`}
-                    title="Bring this planet's windows forward"
-                    aria-label={`Bring ${p.name} windows forward`}
-                    onclick={() => rail.raisePlanetWindows(p.id)}
-                  >Raise</button>
-                  <button
-                    type="button"
-                    class="mini ghost"
-                    title="Back — bring the other planets forward"
-                    aria-label={`Collapse ${p.name}`}
-                    onclick={() => rail.collapsePlanet(p.id)}
-                  >Back</button>
-                  <RailPlanetRm {rail} project={p} />
-                  </div>
-              {#if rail.rmErrorFor?.id === p.id}
-                <p class="rm-err" role="alert">{rail.rmErrorFor.msg}</p>
-              {/if}
-                {#if p.name.trim().toLowerCase() !== "void"}
+                class:spin-jump={jumpMask[i] === true}
+                style={tileStyle(i, item)}
+                data-mkey={item.stop}
+                class:mkey-sel={rail.menuRing.activeId === item.stop}
+                tabindex={tileHidden(i) ? -1 : 0}
+                aria-label={itemLabel(item)}
+                title={itemLabel(item)}
+                onclick={() => onTileClick(item, i)}
+              >
+                {#if item.kind === "stars"}{@render starGlyph()}
+                {:else if item.kind === "settings"}{@render gearGlyph()}
+                {:else if item.kind === "add"}{@render plusGlyph()}
+                {:else}{@render planetGlyph()}{/if}
+                <span class="wheel-name">{itemLabel(item)}</span>
+              </button>
+              {#if item.kind === "add" && rail.creatingProject && !tileHidden(i)}
+                <span class="newproj spin-newproj" style={tileStyle(i, item)}>
                   <input
-                    class="root-path"
-                    value={p.workspaceRoot ?? ""}
-                    placeholder="workspace root"
-                    title="Planet workspace root — task snapshots clone this path"
-                    onchange={(e) => rail.setWorkspaceRoot(p.id, e.currentTarget.value)}
+                    bind:this={nameEl}
+                    bind:value={rail.newProjectName}
+                    placeholder="Project name"
+                    aria-label="Project name"
+                    onkeydown={(e) => e.key === "Enter" && rail.createProjectOnly()}
                   />
-                {/if}
-                <WindowTiles {rail} project={p} rows={shown} />
-                <BoardSnapshot
-                  columns={snap}
-                  completingIds={rail.completingIds}
-                  activeId={rail.menuRing.activeId}
-                  onOpen={(id) => rail.openKanbanFocus(id)}
-                  onComplete={(id) => {
-                    const card = rail.kanbanCards.find((c: KanbanCard) => c.id === id);
-                    if (card) rail.circleComplete(card.id, () => rail.completeTodo(card));
-                  }}
-                />
-                <button
-                  type="button"
-                  class="todos-jump"
-                  class:mkey-sel={rail.menuRing.activeId === `rtodos-${p.id}`}
-                  data-mkey={`rtodos-${p.id}`}
-                  onclick={() => rail.openPlanetTodos(p.id)}
-                >Todos {rail.planetCount(p.id)} ›</button>
-                {#if agents.length > 0}
-                  <ul class="wins">
-                    {#each agents as r (r.cardId)}
-                      {@render agentRow(r)}
-                    {/each}
-                  </ul>
-                {/if}
-                {#if shown.length === 0 && agents.length === 0}
-                  <p class="section-empty">
-                    {rail.tagFilter
-                      ? "No windows with this tag"
-                      : "Drop a window here to claim it"}
-                  </p>
-                {/if}
-                <div class="todo-add">
-                    {#if rail.addingTodoFor === p.id}
-                      <span class="newproj">
-                        <input
-                          bind:value={rail.newTodoTitle}
-                          placeholder="New to-do…"
-                          onkeydown={(e) => e.key === "Enter" && rail.addTodoTo(p.id)}
-                        />
-                        <button class="mini" onclick={() => rail.addTodoTo(p.id)}>Add</button>
-                        <button class="mini ghost" onclick={() => (rail.addingTodoFor = null)}>×</button>
-                      </span>
-                    {:else}
-                      <button
-                        class="mini ghost"
-                        onclick={() => {
-                          rail.addingTodoFor = p.id;
-                          rail.newTodoTitle = "";
-                        }}>+ To-do</button
-                      >
-                    {/if}
-                </div>
-                  </div>
-                </div>
+                  <button class="mini" onclick={rail.createProjectOnly}>Add</button>
+                  <button class="mini ghost" onclick={() => (rail.creatingProject = false)}>×</button>
+                </span>
               {/if}
             </li>
           {/each}
-
-          <li
-            class="section stage-planet"
-            class:receded={rail.stageRole(rail.UNMAPPED_KEY) === "receded"}
-            class:open={rail.stageRole(rail.UNMAPPED_KEY) === "open"}
-            class:drop-ok={rail.dropTarget === rail.UNMAPPED_KEY}
-            ondragenter={(e) => rail.onSectionDragEnter(e, rail.UNMAPPED_KEY)}
-            ondragover={(e) => rail.onSectionDragOver(e, rail.UNMAPPED_KEY)}
-            ondragleave={(e) => rail.onSectionDragLeave(e, rail.UNMAPPED_KEY)}
-            ondrop={(e) => rail.onSectionDrop(e, null)}
-          >
-            <button
-              type="button"
-              class="wheel-tile"
-              class:is-selected={rail.projects.length === centerIndex}
-              class:is-hidden={tileHidden(rail.projects.length)}
-              style={tileStyle(rail.projects.length, rail.UNMAPPED_KEY)}
-              aria-expanded={rail.stageRole(rail.UNMAPPED_KEY) === "open"}
-              title="Unmapped"
-              aria-label="Unmapped"
-              onclick={() =>
-                rail.stageRole(rail.UNMAPPED_KEY) === "open"
-                  ? rail.collapsePlanet(rail.UNMAPPED_KEY)
-                  : rail.ensureExpand(rail.UNMAPPED_KEY)}
-            >{@render planetGlyph()}<span class="wheel-name">Unmapped</span></button>
-            {#if rail.stageRole(rail.UNMAPPED_KEY) === "open"}
-              <div class="stage-preview" style="--planet:#8a8f98">
-                <div class="name-pill">
-                  {@render planetGlyph()}
-                  <span class="wheel-name">Unmapped</span>
-                </div>
-                <div class="preview-body">
+        </ul>
+        </div>
+        <div class="spin-board" style={`--planet:${boardTint()}`}>
+          <div class="spin-kanban" class:is-off={pane.kind !== "board"}>
+            <KanbanPage embedded railPlanet={boardPlanet} />
+          </div>
+          {#if pane.kind === "unclaimed"}
+            <div class="spin-unclaimed">
               <ul class="wins">
                 {#each rail.visibleRows(rail.unmapped) as w (w.id)}
                   {@render winRow(w, null)}
@@ -548,11 +498,8 @@
                   </li>
                 {/if}
               </ul>
-                </div>
-              </div>
-            {/if}
-          </li>
-        </ul>
+            </div>
+          {/if}
         </div>
         </div>
       {/if}

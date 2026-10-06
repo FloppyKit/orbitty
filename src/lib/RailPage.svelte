@@ -24,15 +24,16 @@
     WHEEL_COL,
     WHEEL_ROW,
     paintedZoneHit,
+    spinArrow,
+    spinConfirm,
+    spinItems,
+    spinStops,
     wheelLayout,
   } from "./rail/stageLook";
   import {
     applyPlanetOpen,
     autoHideWanted,
-    boardSnapshot,
     habitatConfirm,
-    habitatStops,
-    wheelArrow,
     normalizeCols,
     planetCount,
     raisePlan,
@@ -40,10 +41,8 @@
     stageCollapsedIds,
     stagePrefs,
     stageRoles,
-    tiles,
     toggleCol,
     type BoardCol,
-    type HabitatSection,
     type RailEdge,
     type StageRole,
   } from "./rail/habitat";
@@ -565,7 +564,7 @@
     return paintedZoneHit(
       { x: e.clientX - rect.left, y: e.clientY - rect.top },
       layout,
-      openSectionId() != null,
+      stageRevealed,
     );
   }
 
@@ -731,6 +730,24 @@
   }
 
   function confirmHabitatStop(id: string) {
+    const spin = spinConfirm(id);
+    if (spin === "stars") {
+      openStageDest("stars");
+      return;
+    }
+    if (spin === "settings") {
+      openStageDest("settings");
+      return;
+    }
+    if (spin === "newProject") {
+      creatingProject = true;
+      return;
+    }
+    if (spin === "centre") return;
+    if (spin === "raise") {
+      void raisePlanetWindows(id.slice("rhead-".length));
+      return;
+    }
     const action = habitatConfirm(id);
     if (action === "toggleCol") {
       toggleBoardCol(id.slice("rcol-".length));
@@ -771,27 +788,14 @@
       menuRing.setStops([]);
       return;
     }
-    const sections: HabitatSection[] = projects.map((p) => {
-      const open = !isCollapsed(p.id);
-      const shown = tiles(visibleRows(rowsFor(p.id))).shown;
-      const snap = boardSnapshot(kanbanCards, p.id, railBoardCols);
-      return {
-        pid: p.id,
-        open,
-        tileIds: shown.map((t) => t.id),
-        snapCols: snap
-          .filter((c) => c.items.length > 0)
-          .map((c) => c.items.map((card) => card.id)),
-        hasTodos: true,
-      };
-    });
-    const built = habitatStops(sections);
+    const items = spinItems(projects.map((p) => p.id), UNMAPPED_KEY);
+    const built = spinStops(items);
     const stops: RingStop[] = built.map((stop) => ({
       id: stop.id,
       group: stop.group,
       confirm: () => confirmHabitatStop(stop.id),
       arrow: (dir) => {
-        const next = wheelArrow(sections, stop.id, dir, railEdge);
+        const next = spinArrow(items, stop.id, dir, railEdge);
         if (next) menuRing.select(next);
         return true;
       },
@@ -3238,6 +3242,7 @@
     collapsePlanet,
     openStageDest,
     stageRole,
+    openSectionId,
     get railEdge() { return railEdge; },
     get stageRevealed() { return stageRevealed; },
     openPlanetTodos,

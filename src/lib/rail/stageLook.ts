@@ -202,3 +202,184 @@ export function paintedZoneHit(
   if (open && inside(point, layout.preview)) return true;
   return false;
 }
+
+/** Pixel deltas (trackpad) emit one step per this many pixels. */
+export const SPIN_STEP_PX = 56;
+/** Quiet this long and the scroll residual drops so rest is a whole item. */
+export const SPIN_SETTLE_MS = 150;
+
+export type SpinKind = "stars" | "settings" | "planet" | "unmapped" | "add";
+
+export interface SpinItem {
+  stop: string;
+  kind: SpinKind;
+  pid?: string;
+}
+
+export type SpinDir = "up" | "down" | "left" | "right";
+
+export interface SpinStop {
+  id: string;
+  group: "wheel";
+}
+
+export interface SpinAccumState {
+  residual: number;
+  lastAt: number;
+}
+
+export type SpinConfirmAction = "stars" | "settings" | "newProject" | "centre" | "raise";
+
+export type SpinPane =
+  | { kind: "board"; selected: string }
+  | { kind: "unclaimed" };
+
+/** Stars, Settings, planets in input order, Unmapped, + Project. Never sorted. */
+export function spinItems(planetIds: readonly string[], unmappedKey: string): SpinItem[] {
+  return [
+    { stop: "rstars", kind: "stars" },
+    { stop: "rsettings", kind: "settings" },
+    ...planetIds.map((pid) => ({ stop: `rhead-${pid}`, kind: "planet" as const, pid })),
+    { stop: `rhead-${unmappedKey}`, kind: "unmapped", pid: unmappedKey },
+    { stop: "rnewproj", kind: "add" },
+  ];
+}
+
+/** Wrap both ways. n = 0 or a zero-width wheel returns 0. */
+export function spinStep(center: number, delta: number, n: number): number {
+  if (n <= 0) return 0;
+  return ((center + delta) % n + n) % n;
+}
+
+/** Shortest signed slot in (−n/2, n/2]. Integer when i, center, and n are. */
+export function spinOffset(i: number, center: number, n: number): number {
+  if (n <= 1) return 0;
+  let d = i - center;
+  d = ((d % n) + n) % n;
+  if (d > n / 2) d -= n;
+  return d;
+}
+
+/** True when a tile's slot jumps more than one step (wrap across the centre). */
+export function spinJump(prevK: number, nextK: number): boolean {
+  return Math.abs(nextK - prevK) > 1;
+}
+
+/**
+ * Dominant-axis wheel. Line/page (a mouse notch) is one step.
+ * Pixel mode accumulates and emits at most ±2 steps per event.
+ * A sign flip drops the residual. A gap longer than SPIN_SETTLE_MS
+ * drops it too, so the wheel always rests on a whole item.
+ */
+export function spinAccumulate(
+  state: SpinAccumState,
+  ev: { deltaX: number; deltaY: number; deltaMode: number },
+  now: number,
+): { state: SpinAccumState; steps: number } {
+  let residual = state.residual;
+  if (state.lastAt !== 0 && now - state.lastAt > SPIN_SETTLE_MS) residual = 0;
+  const dominant = Math.abs(ev.deltaY) >= Math.abs(ev.deltaX) ? ev.deltaY : ev.deltaX;
+  if (dominant === 0) return { state: { residual, lastAt: now }, steps: 0 };
+  const sign = Math.sign(dominant);
+  if (ev.deltaMode === 1 || ev.deltaMode === 2) {
+    return { state: { residual: 0, lastAt: now }, steps: sign };
+  }
+  if (residual !== 0 && Math.sign(residual) !== sign) residual = 0;
+  residual += dominant;
+  let steps = 0;
+  while (Math.abs(residual) >= SPIN_STEP_PX && Math.abs(steps) < 2) {
+    const stepSign = Math.sign(residual);
+    steps += stepSign;
+    residual -= stepSign * SPIN_STEP_PX;
+  }
+  if (Math.abs(steps) >= 2) residual = 0;
+  return { state: { residual, lastAt: now }, steps };
+}
+
+/** Open planet if it is on the wheel; else Unmapped when there are no planets; else the first planet. */
+export function spinInitial(items: readonly SpinItem[], openId: string | null): number {
+  if (items.length === 0) return 0;
+  if (openId) {
+    const openAt = items.findIndex((it) => it.kind === "planet" && it.pid === openId);
+    if (openAt >= 0) return openAt;
+  }
+  if (!items.some((it) => it.kind === "planet")) {
+    const unmapped = items.findIndex((it) => it.kind === "unmapped");
+    return unmapped >= 0 ? unmapped : 0;
+  }
+  const first = items.findIndex((it) => it.kind === "planet");
+  return first >= 0 ? first : 0;
+}
+
+/** A highlighted wheel stop wins. Anything else keeps the previous centre, clamped. */
+export function spinCenterFor(
+  items: readonly SpinItem[],
+  activeStopId: string | null,
+  prev: number,
+): number {
+  const n = items.length;
+  if (n === 0) return 0;
+  if (activeStopId) {
+    const at = items.findIndex((it) => it.stop === activeStopId);
+    if (at >= 0) return at;
+  }
+  const c = Number.isFinite(prev) ? Math.round(prev) : 0;
+  if (c < 0) return 0;
+  if (c >= n) return n - 1;
+  return c;
+}
+
+export function spinStops(items: readonly SpinItem[]): SpinStop[] {
+  return items.map((it) => ({ id: it.stop, group: "wheel" }));
+}
+
+function spinAxis(edge: string): {
+  back: SpinDir;
+  forward: SpinDir;
+  inward: SpinDir;
+  outward: SpinDir;
+} {
+  switch (normalizeStageEdge(edge)) {
+    case "right":
+      return { back: "up", forward: "down", inward: "left", outward: "right" };
+    case "top":
+      return { back: "left", forward: "right", inward: "down", outward: "up" };
+    case "bottom":
+      return { back: "left", forward: "right", inward: "up", outward: "down" };
+    default:
+      return { back: "up", forward: "down", inward: "right", outward: "left" };
+  }
+}
+
+/** One step along the wheel with wrap. Inward and outward stay on the wheel (null). */
+export function spinArrow(
+  items: readonly SpinItem[],
+  activeId: string | null,
+  dir: SpinDir | string,
+  edge: string = "left",
+): string | null {
+  if (!activeId || items.length === 0) return null;
+  const i = items.findIndex((it) => it.stop === activeId);
+  if (i < 0) return null;
+  const ax = spinAxis(edge);
+  if (dir === ax.inward || dir === ax.outward) return null;
+  if (dir !== ax.back && dir !== ax.forward) return null;
+  const delta = dir === ax.forward ? 1 : -1;
+  return items[spinStep(i, delta, items.length)].stop;
+}
+
+export function spinConfirm(stop: string): SpinConfirmAction | null {
+  if (stop === "rstars") return "stars";
+  if (stop === "rsettings") return "settings";
+  if (stop === "rnewproj") return "newProject";
+  if (stop === "rhead-__unmapped__") return "centre";
+  if (stop.startsWith("rhead-") && stop.length > "rhead-".length) return "raise";
+  return null;
+}
+
+/** Planet → its board. Stars, Settings, and + Project → Inbox. Unmapped → unclaimed rows. */
+export function spinPane(item: SpinItem): SpinPane {
+  if (item.kind === "planet" && item.pid) return { kind: "board", selected: item.pid };
+  if (item.kind === "unmapped") return { kind: "unclaimed" };
+  return { kind: "board", selected: "inbox" };
+}
