@@ -38,9 +38,13 @@
     archLayer2Items,
     archLayout,
     archOpenBoard,
+    archOrbitPath,
     archScroll2,
     archSlot,
     archZone,
+    STAGE_INK,
+    STAGE_INK_DIM,
+    STAGE_PLATTER_RGBA,
     type ArchCard,
     type ArchFront,
     type ArchState,
@@ -61,6 +65,10 @@
   let prevOffsets: number[] = [];
   let havePrev = false;
   let jumpMask = $state<boolean[]>([]);
+  let frameW = $state(1040);
+  let frameH = $state(760);
+
+  const stageVars = `--stage-platter:rgba(${STAGE_PLATTER_RGBA[0]},${STAGE_PLATTER_RGBA[1]},${STAGE_PLATTER_RGBA[2]},${STAGE_PLATTER_RGBA[3]});--stage-ink:${STAGE_INK};--stage-ink-dim:${STAGE_INK_DIM}`;
 
   const items = $derived(
     spinItems(
@@ -205,6 +213,22 @@
     return () => el.removeEventListener("wheel", onWheel);
   });
 
+  $effect(() => {
+    const el = stageEl;
+    const main = el?.closest("main");
+    const host = main instanceof HTMLElement ? main : el;
+    if (!host) return;
+    const apply = () => {
+      const rect = host.getBoundingClientRect();
+      if (rect.width > 0) frameW = rect.width;
+      if (rect.height > 0) frameH = rect.height;
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(host);
+    return () => ro.disconnect();
+  });
+
   function stageEdge(): StageEdge {
     const edge = rail.railEdge;
     return edge === "right" || edge === "top" || edge === "bottom" ? edge : "left";
@@ -215,18 +239,42 @@
     return NEUTRAL;
   }
 
+  function frameNow(): { w: number; h: number } {
+    return { w: frameW, h: frameH };
+  }
+
   function slotStyle(k: number, ring: 1 | 2, tint: string): string {
-    const slot = archSlot(k, stageEdge(), ring);
+    const slot = archSlot(k, stageEdge(), ring, frameNow());
     return `--wx:${slot.x};--wy:${slot.y};--ws:${slot.scale};--wo:${slot.opacity};--wz:${slot.z};--planet:${tint}`;
   }
 
   function archHidden(index: number): boolean {
-    return archSlot(offsets[index] ?? 0, stageEdge(), 1).hidden;
+    return archSlot(offsets[index] ?? 0, stageEdge(), 1, frameNow()).hidden;
   }
 
   function layerHidden(index: number): boolean {
     const k = index - (archState?.center2 ?? 0);
-    return archSlot(k, stageEdge(), 2).hidden;
+    return archSlot(k, stageEdge(), 2, frameNow()).hidden;
+  }
+
+  function platterStyle(which: "arch" | "layer2"): string {
+    const rect = archLayout(stageEdge(), frameW, frameH)[which];
+    return `left:${rect.x}px;top:${rect.y}px;width:${rect.w}px;height:${rect.h}px`;
+  }
+
+  function orbitOrigin(): string {
+    const edge = stageEdge();
+    let x = 0;
+    let y = frameH / 2;
+    if (edge === "right") x = frameW;
+    else if (edge === "top") {
+      x = frameW / 2;
+      y = 0;
+    } else if (edge === "bottom") {
+      x = frameW / 2;
+      y = frameH;
+    }
+    return `translate(${x} ${y})`;
   }
 
   function depthStyle(layer: 1 | 2): string {
@@ -251,9 +299,10 @@
   }
 
   function zoneAt(e: { clientX: number; clientY: number }): ArchZone {
-    const el = stageEl;
-    if (!el) return "none";
-    const rect = el.getBoundingClientRect();
+    const main = stageEl?.closest("main");
+    const host = main instanceof HTMLElement ? main : stageEl;
+    if (!host) return "none";
+    const rect = host.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return "none";
     return archZone(
       archLayout(stageEdge(), rect.width, rect.height),
@@ -277,9 +326,22 @@
       title: rail.titleFor(w) as string,
       sleeping: !!w.sleeping,
       isMinimized: !!w.isMinimized,
-      iconBase64: w.iconBase64 as string | null,
-      appName: w.appName as string,
-    }));
+        iconBase64: w.iconBase64 as string | null,
+        appName: w.appName as string,
+        isFrontmost: !!w.isFrontmost,
+      }));
+  }
+
+  function planetName(pid: string): string {
+    const project = rail.projects.find((p: { id: string; name?: string }) => p.id === pid);
+    return project?.name ?? "Planet";
+  }
+
+  function windowStateLabel(item: Layer2Item): string {
+    if (item.sleeping) return "asleep";
+    if (item.minimized) return "minimized";
+    if (item.frontmost) return "frontmost";
+    return "open";
   }
 
   function onTileClick(item: SpinItem, index: number) {
@@ -287,11 +349,9 @@
       bringArch();
       return;
     }
-    if (index !== center) {
-      center = index;
-      rail.menuRing.select(item.stop);
-      return;
-    }
+    if (archHidden(index)) return;
+    center = index;
+    rail.menuRing.select(item.stop);
     if (item.kind === "planet" && item.pid) {
       const l2 = archLayer2Items({
         pid: item.pid,
@@ -481,13 +541,10 @@
 
 {#snippet gearGlyph()}
   <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
-    <circle cx="16" cy="16" r="4" fill="none" stroke="#8a8f98" stroke-width="1.7" />
     <path
-      d="M16 4.5v3.2M16 24.3v3.2M4.5 16h3.2M24.3 16h3.2M7.4 7.4l2.3 2.3M22.3 22.3l2.3 2.3M24.6 7.4l-2.3 2.3M9.7 22.3l-2.3 2.3"
-      fill="none"
-      stroke="#8a8f98"
-      stroke-width="1.7"
-      stroke-linecap="round"
+      fill="#8a8f98"
+      fill-rule="evenodd"
+      d="M16.27 6.4 L17.86 2.93 L23.93 5.44 L22.64 9.07 L22.98 9.41 L26.56 8.07 L29.07 14.14 L25.6 15.8 L25.6 16.27 L29.07 17.86 L26.56 23.93 L22.93 22.64 L22.59 22.98 L23.93 26.56 L17.86 29.07 L16.2 25.6 L15.73 25.6 L14.14 29.07 L8.07 26.56 L9.36 22.93 L9.02 22.59 L5.44 23.93 L2.93 17.86 L6.4 16.2 L6.4 15.73 L2.93 14.14 L5.44 8.07 L9.07 9.36 L9.41 9.02 L8.07 5.44 L14.14 2.93 L15.8 6.4 Z M16 11.8 L18.1 12.36 L19.64 13.9 L20.2 16 L19.64 18.1 L18.1 19.64 L16 20.2 L13.9 19.64 L12.36 18.1 L11.8 16 L12.36 13.9 L13.9 12.36 Z"
     />
   </svg>
 {/snippet}
@@ -535,7 +592,9 @@
     {:else if rail.status && rail.stateLoaded}
       {#if rail.embedded}
         <RailPlanetsSheet {rail} />
-      {:else if rail.lane === "agents"}
+      {:else}
+        <div class="stage-hit" aria-hidden="true"></div>
+        {#if rail.lane === "agents"}
         <p class="lane-hint">
           Hermes opens your existing chat app. Soul is a note you Save —
           Orbitty doesn't write it for you.
@@ -628,17 +687,27 @@
             a window onto it to claim.
           </p>
         {/if}
-        <div class="stage-hit" aria-hidden="true"></div>
-        <div class="stage-strip" bind:this={stageEl}>
+        <div class="stage-strip" bind:this={stageEl} style={stageVars}>
         <div
           class="arch-ring"
           class:is-receded={archState.front !== "arch"}
           style={depthStyle(1)}
         >
+          <svg class="arch-orbit" aria-hidden="true">
+            <g transform={orbitOrigin()}>
+              <path d={archOrbitPath(stageEdge(), 1, frameNow())} />
+            </g>
+          </svg>
+          {#if rail.claimFlash}
+            <div class="claim-toast">
+              <span class="claim-dot" style={`background:${rail.planetCss(rail.claimFlash.pid)}`}></span>
+              <span>{rail.claimFlash.title} → {planetName(rail.claimFlash.pid)}</span>
+            </div>
+          {/if}
           {#if archState.front !== "arch"}
-            <button type="button" class="arch-platter" aria-label="Show planets" onclick={bringArch}></button>
+            <button type="button" class="arch-platter" aria-label="Show planets" style={platterStyle("arch")} onclick={bringArch}></button>
           {:else}
-            <div class="arch-platter" aria-hidden="true"></div>
+            <div class="arch-platter" aria-hidden="true" style={platterStyle("arch")}></div>
           {/if}
           {#if coachLineDue}
             <div class="coach-line">
@@ -679,6 +748,7 @@
               class:spin-jump={jumpMask[i] === true}
               class:drop-ok={item.pid != null && rail.dropTarget === item.pid}
               class:is-neutral={item.kind !== "planet"}
+              class:is-claim-pulse={item.kind === "planet" && rail.claimFlash?.pid === item.pid}
               style={slotStyle(offsets[i] ?? 0, 1, tintFor(item))}
               ondragenter={(e) => item.pid != null && rail.onSectionDragEnter(e, item.pid)}
               ondragover={(e) => item.pid != null && rail.onSectionDragOver(e, item.pid)}
@@ -698,13 +768,25 @@
                 title={itemLabel(item)}
                 onclick={() => onTileClick(item, i)}
               >
-                <span class="arch-glyph">
-                  {#if item.kind === "stars"}{@render starGlyph()}
-                  {:else if item.kind === "settings"}{@render gearGlyph()}
-                  {:else if item.kind === "add"}{@render plusGlyph()}
-                  {:else}{@render planetGlyph()}{/if}
+                <span class="arch-vis">
+                  {#if item.kind === "planet"}
+                    <span class="arch-marble-wrap">
+                      <span class="arch-ringlet" aria-hidden="true"></span>
+                      <span class="arch-marble"></span>
+                      {#if item.pid && rail.planetCount(item.pid) > 0}
+                        <span class="arch-count">{rail.planetCount(item.pid)}</span>
+                      {/if}
+                    </span>
+                  {:else}
+                    <span class="arch-glyph">
+                      {#if item.kind === "stars"}{@render starGlyph()}
+                      {:else if item.kind === "settings"}{@render gearGlyph()}
+                      {:else if item.kind === "add"}{@render plusGlyph()}
+                      {:else}{@render planetGlyph()}{/if}
+                    </span>
+                  {/if}
+                  <span class="arch-name">{itemLabel(item)}</span>
                 </span>
-                <span class="arch-name">{itemLabel(item)}</span>
               </button>
               {#if item.kind === "add" && rail.creatingProject && !archHidden(i)}
                 <span class="newproj spin-newproj">
@@ -729,8 +811,13 @@
             class:is-receded={archState.front !== "layer2"}
             style={depthStyle(2)}
           >
+            <svg class="arch-orbit" aria-hidden="true">
+              <g transform={orbitOrigin()}>
+                <path d={archOrbitPath(stageEdge(), 2, frameNow())} />
+              </g>
+            </svg>
             {#if archState.pid === rail.UNMAPPED_KEY}
-              <div class="layer2-unmapped">
+              <div class="layer2-unmapped" style={platterStyle("layer2")}>
                 <ul class="wins">
                   {#each rail.visibleRows(rail.unmapped) as w (w.id)}
                     {@render winRow(w, null)}
@@ -743,15 +830,16 @@
                 </ul>
               </div>
             {:else}
-              {#if archState.front !== "layer2"}
+            {#if archState.front !== "layer2"}
                 <button
                   type="button"
                   class="arch-platter layer2-platter"
                   aria-label="Show this planet"
+                  style={platterStyle("layer2")}
                   onclick={() => rail.archDo(archState.front === "board" ? archBack(rail.arch) : archForward(rail.arch))}
                 ></button>
               {:else}
-                <div class="arch-platter layer2-platter" aria-hidden="true"></div>
+                <div class="arch-platter layer2-platter" aria-hidden="true" style={platterStyle("layer2")}></div>
               {/if}
               <ul class="arch-list">
                 {#each layer2 as item, i (item.stop)}
@@ -771,13 +859,17 @@
                       title={l2Label(item)}
                       onclick={() => onLayerClick(item)}
                     >
+                      <span class="l2-vis">
                       {#if item.kind === "window"}
                         {#if item.iconBase64}
                           <img class="app-icon" src="data:image/png;base64,{item.iconBase64}" alt="" />
                         {:else}
                           <span class="app-icon fallback" aria-hidden="true">{(item.appName || "?").charAt(0)}</span>
                         {/if}
-                        <span class="l2-title">{l2Label(item)}</span>
+                        <span class="l2-copy">
+                          <span class="l2-title">{l2Label(item)}</span>
+                          {#if item.appName}<span class="l2-app">{item.appName}</span>{/if}
+                        </span>
                         {#if item.sleeping}<span class="l2-moon" aria-hidden="true">☾</span>{/if}
                         {#if item.minimized && !item.sleeping}<span class="l2-dock" aria-hidden="true"></span>{/if}
                       {:else if item.kind === "needed"}
@@ -792,7 +884,22 @@
                         <span class="arch-glyph l2-glyph">{@render boardGlyph()}</span>
                         <span class="l2-title">Open board</span>
                       {/if}
+                      </span>
                     </button>
+                    {#if item.kind === "window"}
+                      <span class="l2-preview">
+                        {#if item.iconBase64}
+                          <img class="l2-preview-icon" src="data:image/png;base64,{item.iconBase64}" alt="" />
+                        {:else}
+                          <span class="l2-preview-icon fallback" aria-hidden="true">{(item.appName || "?").charAt(0)}</span>
+                        {/if}
+                        <span class="l2-preview-copy">
+                          <span class="l2-preview-title">{item.title || "Untitled"}</span>
+                          {#if item.appName}<span class="l2-preview-app">{item.appName}</span>{/if}
+                          <span class="l2-preview-state">{windowStateLabel(item)}</span>
+                        </span>
+                      </span>
+                    {/if}
                   </li>
                 {/each}
               </ul>
@@ -805,6 +912,7 @@
           </div>
         </div>
         </div>
+        {/if}
       {/if}
     {/if}
 

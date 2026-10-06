@@ -1577,6 +1577,7 @@
     position: absolute;
     z-index: 30;
     pointer-events: auto;
+    background: rgb(0 0 0 / 0.01);
   }
 
   .rail.stage-shell[data-edge="left"] .stage-hit {
@@ -1785,80 +1786,33 @@
     pointer-events: auto;
     border: 0;
     border-radius: 22px;
-    background: light-dark(
-      color-mix(in srgb, white 62%, transparent),
-      color-mix(in srgb, var(--surface, #1e1e1e) 58%, transparent)
-    );
+    background: var(--stage-platter, rgba(28, 28, 32, 0.78));
     -webkit-backdrop-filter: blur(28px) saturate(180%);
     backdrop-filter: blur(28px) saturate(180%);
-    border: 0.5px solid light-dark(rgb(0 0 0 / 0.10), rgb(255 255 255 / 0.16));
+    border: 0.5px solid rgb(255 255 255 / 0.16);
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.28),
       0 18px 48px rgb(0 0 0 / 0.32);
   }
 
-  .rail.stage-shell[data-edge="left"] .arch-ring > .arch-platter {
-    left: 360px;
-    top: 36px;
-    bottom: 36px;
-    width: 250px;
+  .rail.stage-shell .arch-orbit {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+    z-index: 0;
   }
 
-  .rail.stage-shell[data-edge="right"] .arch-ring > .arch-platter {
-    right: 360px;
-    left: auto;
-    top: 36px;
-    bottom: 36px;
-    width: 250px;
+  .rail.stage-shell .arch-orbit path {
+    fill: none;
+    stroke: rgb(255 255 255 / 0.32);
+    stroke-width: 1;
+    filter: drop-shadow(0 0 3px rgb(255 255 255 / 0.28));
   }
 
-  .rail.stage-shell[data-edge="top"] .arch-ring > .arch-platter {
-    top: 360px;
-    left: 48px;
-    right: 48px;
-    height: 210px;
-  }
-
-  .rail.stage-shell[data-edge="bottom"] .arch-ring > .arch-platter {
-    bottom: 360px;
-    top: auto;
-    left: 48px;
-    right: 48px;
-    height: 210px;
-  }
-
-  .rail.stage-shell[data-edge="left"] .layer2-platter,
-  .rail.stage-shell[data-edge="left"] .layer2-unmapped {
-    left: 600px;
-    top: 72px;
-    bottom: 72px;
-    width: 240px;
-  }
-
-  .rail.stage-shell[data-edge="right"] .layer2-platter,
-  .rail.stage-shell[data-edge="right"] .layer2-unmapped {
-    right: 600px;
-    left: auto;
-    top: 72px;
-    bottom: 72px;
-    width: 240px;
-  }
-
-  .rail.stage-shell[data-edge="top"] .layer2-platter,
-  .rail.stage-shell[data-edge="top"] .layer2-unmapped {
-    top: 560px;
-    left: 80px;
-    right: 80px;
-    height: 140px;
-  }
-
-  .rail.stage-shell[data-edge="bottom"] .layer2-platter,
-  .rail.stage-shell[data-edge="bottom"] .layer2-unmapped {
-    bottom: 560px;
-    top: auto;
-    left: 80px;
-    right: 80px;
-    height: 140px;
+  :root[data-theme="systemLight"] .rail.stage-shell .arch-orbit path {
+    stroke: rgb(0 0 0 / 0.22);
+    filter: drop-shadow(0 0 2px rgb(0 0 0 / 0.12));
   }
 
   .rail.stage-shell .layer2-unmapped {
@@ -1884,13 +1838,23 @@
     padding: 0;
     list-style: none;
     pointer-events: auto;
-    --lift: 0px;
-    --wh: 1;
-    transform: translate(-50%, -50%) translateY(var(--lift)) scale(calc(var(--ws) * var(--wh)));
+    transform: translate(-50%, -50%) scale(var(--ws));
     opacity: var(--wo);
-    transition:
-      transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1),
-      opacity 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: opacity 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .rail.stage-shell .arch-vis,
+  .rail.stage-shell .l2-vis {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: center center;
+    transition: transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .rail.stage-shell .arch-vis {
+    flex-direction: column;
+    gap: 6px;
   }
 
   .rail.stage-shell[data-edge="left"] .arch-slot,
@@ -1923,18 +1887,16 @@
     pointer-events: none;
   }
 
-  .rail.stage-shell .arch-slot:hover,
-  .rail.stage-shell .arch-slot:focus-within,
-  .rail.stage-shell .l2-slot:hover,
-  .rail.stage-shell .l2-slot:focus-within {
-    --lift: -4px;
-    --wh: 1.06;
+  .rail.stage-shell .arch-slot:hover .arch-vis,
+  .rail.stage-shell .arch-slot:focus-within .arch-vis,
+  .rail.stage-shell .l2-slot:hover .l2-vis,
+  .rail.stage-shell .l2-slot:focus-within .l2-vis {
+    transform: translateY(-4px) scale(1.06);
   }
 
-  .rail.stage-shell .arch-slot:has(.arch-hit:active),
-  .rail.stage-shell .l2-slot:has(.l2-hit:active) {
-    --wh: 0.97;
-    --lift: 0px;
+  .rail.stage-shell .arch-slot:has(.arch-hit:active) .arch-vis,
+  .rail.stage-shell .l2-slot:has(.l2-hit:active) .l2-vis {
+    transform: scale(0.97);
   }
 
   .rail.stage-shell .arch-slot.spin-jump,
@@ -1960,7 +1922,11 @@
 
   .rail.stage-shell .arch-hit {
     flex-direction: column;
-    gap: 6px;
+    gap: 0;
+    min-width: 88px;
+    min-height: 88px;
+    padding: 6px;
+    box-sizing: border-box;
   }
 
   .rail.stage-shell .arch-glyph {
@@ -1985,6 +1951,112 @@
   .rail.stage-shell .arch-slot.is-selected .arch-glyph {
     width: 64px;
     height: 64px;
+  }
+
+  .rail.stage-shell .arch-marble-wrap {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 66px;
+    height: 66px;
+  }
+
+  .rail.stage-shell .arch-ringlet {
+    position: absolute;
+    width: 66px;
+    height: 22px;
+    border: 1px solid color-mix(in srgb, var(--planet, #8a8f98) 50%, transparent);
+    border-radius: 50%;
+    transform: rotate(-18deg);
+    pointer-events: none;
+  }
+
+  .rail.stage-shell .arch-marble {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    overflow: hidden;
+    background:
+      linear-gradient(to bottom right, transparent 40%, rgb(0 0 0 / 0.28)),
+      var(--planet, #8a8f98);
+    box-shadow: 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--planet, #8a8f98) 60%, black) 80%, transparent);
+    filter: drop-shadow(0 3px 4px rgb(0 0 0 / 0.35));
+  }
+
+  .rail.stage-shell .arch-marble::before {
+    content: "";
+    position: absolute;
+    width: 60%;
+    height: 34%;
+    left: calc(50% - 62%);
+    top: calc(50% - 66%);
+    border-radius: 50%;
+    background: rgb(255 255 255 / 0.25);
+    pointer-events: none;
+  }
+
+  .rail.stage-shell .arch-slot.is-selected .arch-marble {
+    width: 56px;
+    height: 56px;
+  }
+
+  .rail.stage-shell .arch-slot.is-selected .arch-marble-wrap {
+    width: 84px;
+    height: 84px;
+    transform: scale(calc(1 / var(--ws)));
+  }
+
+  .rail.stage-shell .arch-slot.is-selected .arch-ringlet {
+    width: 84px;
+    height: 28px;
+  }
+
+  .rail.stage-shell .arch-count {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.72);
+    color: var(--stage-ink, #f5f5f7);
+    font: 700 10px/16px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    text-align: center;
+  }
+
+  .rail.stage-shell .arch-slot.is-claim-pulse .arch-marble {
+    animation: arch-claim-pulse 0.8s ease-in-out 2;
+  }
+
+  @keyframes arch-claim-pulse {
+    0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--planet, #fff) 60%, black); }
+    50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--planet, #fff) 45%, transparent); }
+  }
+
+  .rail.stage-shell .claim-toast {
+    position: absolute;
+    z-index: 40;
+    top: 12px;
+    left: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 280px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--stage-platter, rgba(28, 28, 32, 0.78));
+    color: var(--stage-ink, #f5f5f7);
+    font: 600 13px/1.3 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    pointer-events: none;
+  }
+
+  .rail.stage-shell .claim-dot {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    border-radius: 50%;
   }
 
   .rail.stage-shell .arch-hit:focus-visible {
@@ -2034,14 +2106,11 @@
     border-radius: 12px;
     justify-content: flex-start;
     text-align: left;
-    color: light-dark(#1d1d1f, #f5f5f7);
-    background: light-dark(
-      color-mix(in srgb, white 70%, transparent),
-      color-mix(in srgb, var(--surface, #1e1e1e) 72%, transparent)
-    );
+    color: var(--stage-ink, #f5f5f7);
+    background: var(--stage-platter, rgba(28, 28, 32, 0.78));
     -webkit-backdrop-filter: blur(18px) saturate(160%);
     backdrop-filter: blur(18px) saturate(160%);
-    border: 0.5px solid light-dark(rgb(0 0 0 / 0.10), rgb(255 255 255 / 0.16));
+    border: 0.5px solid rgb(255 255 255 / 0.16);
     box-shadow: 0 8px 18px rgb(0 0 0 / 0.22);
     font: 500 12px/1.25 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   }
@@ -2062,8 +2131,84 @@
     text-align: left;
   }
 
-  .rail.stage-shell .l2-moon { opacity: 0.6; }
-  .rail.stage-shell .l2-slot:has(.l2-moon) .l2-hit { opacity: 0.6; }
+  .rail.stage-shell .l2-moon { opacity: 0.85; color: var(--stage-ink-dim, #c7c7cc); }
+  .rail.stage-shell .l2-slot:has(.l2-moon) .l2-hit { opacity: 0.85; }
+  .rail.stage-shell .l2-app,
+  .rail.stage-shell .l2-title {
+    color: var(--stage-ink, #f5f5f7);
+  }
+  .rail.stage-shell .l2-app {
+    display: block;
+    color: var(--stage-ink-dim, #c7c7cc);
+    font: 500 10px/1.2 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  }
+  .rail.stage-shell .l2-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .rail.stage-shell .l2-preview {
+    display: none;
+    position: absolute;
+    z-index: 50;
+    left: calc(100% + 8px);
+    top: 0;
+    width: 220px;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: var(--stage-platter, rgba(28, 28, 32, 0.92));
+    color: var(--stage-ink, #f5f5f7);
+    box-shadow: 0 12px 28px rgb(0 0 0 / 0.35);
+    pointer-events: none;
+  }
+  .rail.stage-shell .l2-slot:hover .l2-preview,
+  .rail.stage-shell .l2-slot:focus-within .l2-preview {
+    display: flex;
+  }
+  .rail.stage-shell .l2-preview-icon {
+    width: 48px;
+    height: 48px;
+    flex: none;
+    border-radius: 10px;
+    object-fit: contain;
+  }
+  .rail.stage-shell .l2-preview-icon.fallback {
+    display: grid;
+    place-items: center;
+    background: rgb(255 255 255 / 0.08);
+    font: 700 18px/1 system-ui, sans-serif;
+  }
+  .rail.stage-shell .l2-preview-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .rail.stage-shell .l2-preview-title {
+    font: 600 13px/1.3 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    color: var(--stage-ink, #f5f5f7);
+  }
+  .rail.stage-shell .l2-preview-app,
+  .rail.stage-shell .l2-preview-state {
+    color: var(--stage-ink-dim, #c7c7cc);
+    font: 500 11px/1.3 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  }
+  .rail.stage-shell .layer2-unmapped,
+  .rail.stage-shell .layer2-unmapped .row,
+  .rail.stage-shell .layer2-unmapped .wtitle {
+    color: var(--stage-ink, #f5f5f7);
+  }
+  .rail.stage-shell .layer2-unmapped .rowwrap.zfade .row,
+  .rail.stage-shell .layer2-unmapped .rowwrap.zpark .row,
+  .rail.stage-shell .layer2-unmapped .rowwrap.zgone .row,
+  .rail.stage-shell .layer2-unmapped .row.sleeping,
+  .rail.stage-shell .layer2-unmapped .row.min {
+    opacity: 0.85;
+    color: var(--stage-ink-dim, #c7c7cc);
+  }
   .rail.stage-shell .l2-dock {
     width: 8px;
     height: 8px;
@@ -2222,11 +2367,22 @@
     .rail.stage-shell .layer2-ring,
     .rail.stage-shell .arch-slot,
     .rail.stage-shell .l2-slot,
+    .rail.stage-shell .arch-vis,
+    .rail.stage-shell .l2-vis,
     .rail.stage-shell .chrome {
-      --wh: 1 !important;
-      --lift: 0px !important;
       animation: none !important;
       transition: none !important;
+    }
+    .rail.stage-shell .arch-slot:hover .arch-vis,
+    .rail.stage-shell .arch-slot:focus-within .arch-vis,
+    .rail.stage-shell .l2-slot:hover .l2-vis,
+    .rail.stage-shell .l2-slot:focus-within .l2-vis,
+    .rail.stage-shell .arch-slot.is-claim-pulse .arch-marble {
+      transform: none;
+      animation: none !important;
+    }
+    .rail.stage-shell .arch-slot.is-claim-pulse .arch-marble {
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--planet, #fff) 55%, transparent);
     }
     .rail.stage-shell .arch-ring,
     .rail.stage-shell .layer2-ring {
@@ -2238,11 +2394,22 @@
   .rail.stage-shell.reduce-motion .layer2-ring,
   .rail.stage-shell.reduce-motion .arch-slot,
   .rail.stage-shell.reduce-motion .l2-slot,
+  .rail.stage-shell.reduce-motion .arch-vis,
+  .rail.stage-shell.reduce-motion .l2-vis,
   .rail.stage-shell.reduce-motion .chrome {
-    --wh: 1 !important;
-    --lift: 0px !important;
     animation: none !important;
     transition: none !important;
+  }
+
+  .rail.stage-shell.reduce-motion .arch-slot:hover .arch-vis,
+  .rail.stage-shell.reduce-motion .l2-slot:hover .l2-vis,
+  .rail.stage-shell.reduce-motion .arch-slot.is-claim-pulse .arch-marble {
+    transform: none;
+    animation: none !important;
+  }
+
+  .rail.stage-shell.reduce-motion .arch-slot.is-claim-pulse .arch-marble {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--planet, #fff) 55%, transparent);
   }
 
   .rail.stage-shell.reduce-motion .arch-ring,
@@ -2250,9 +2417,9 @@
     filter: none !important;
   }
 
-  .rail.stage-shell.reduce-motion .arch-slot:hover .arch-glyph,
-  .rail.stage-shell.reduce-motion .arch-slot:focus-within .arch-glyph,
-  .rail.stage-shell.reduce-motion .l2-slot:hover .l2-hit,
-  .rail.stage-shell.reduce-motion .l2-slot:focus-within .l2-hit {
+  .rail.stage-shell.reduce-motion .arch-slot:hover .arch-vis,
+  .rail.stage-shell.reduce-motion .arch-slot:focus-within .arch-vis,
+  .rail.stage-shell.reduce-motion .l2-slot:hover .l2-vis,
+  .rail.stage-shell.reduce-motion .l2-slot:focus-within .l2-vis {
     filter: brightness(1.12);
   }

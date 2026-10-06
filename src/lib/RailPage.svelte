@@ -24,11 +24,9 @@
     PREVIEW_MARGIN,
     WHEEL_COL,
     WHEEL_ROW,
-    paintedZoneHit,
     spinConfirm,
     spinItems,
     spinStops,
-    wheelLayout,
   } from "./rail/stageLook";
   import {
     ARCH_IDLE,
@@ -40,10 +38,20 @@
     archLayer2Items,
     archLayout,
     archOpenBoard,
+    archPainted,
     archPointer,
     archZone,
+    CLAIM_FLASH_MS,
+    claimLanded,
+    EDGE_GRACE_MS,
+    EDGE_HIDE_MS,
+    edgeHover,
+    edgeLeaveSide,
     type ArchState,
     type ArchZone,
+    type ClaimSnap,
+    type EdgeHoverEvent,
+    type EdgeHoverState,
     type Layer2Item,
   } from "./rail/stageArch";
   import {
@@ -53,7 +61,6 @@
     normalizeCols,
     planetCount,
     raisePlan,
-    revealWanted,
     stageCollapsedIds,
     stagePrefs,
     stageRoles,
@@ -210,6 +217,9 @@
   let railEdge = $state<RailEdge>("left");
   let railAutoHideOnBlur = $state(true);
   let stageRevealed = $state(false);
+  let claimFlash = $state<{ pid: string; title: string; until: number } | null>(null);
+  let lastClaimsSeen: ClaimSnap[] | null = null;
+  let edgeHoverState: EdgeHoverState = { revealed: false, revealedAt: 0, outsideSince: null };
   let reduceMotion = $state(false);
   let arch = $state<ArchState>({ ...ARCH_IDLE });
   let spinCenter = $state(0);
@@ -527,7 +537,7 @@
   }
 
   function openStageDest(label: "stars" | "settings") {
-    void invoke("toggle_labeled", { label });
+    void invoke("dest_show", { dest: label });
   }
 
   function coachIsDue(): boolean {
@@ -601,13 +611,6 @@
     void parkStage();
   }
 
-  function stagePointer(inside: boolean) {
-    if (embedded) return;
-    pointerInside = inside;
-    if (inside && revealWanted(true, false)) void showStage();
-    else maybeAutoHide();
-  }
-
   function stageFocus(inside: boolean) {
     if (embedded) return;
     focusInside = inside;
@@ -628,15 +631,62 @@
     const host = e.currentTarget;
     if (!(host instanceof HTMLElement)) return false;
     const rect = host.getBoundingClientRect();
-    const layout = wheelLayout(railEdge, rect.width, rect.height);
-    return paintedZoneHit(
+    return archPainted(
+      archLayout(railEdge, rect.width, rect.height),
       { x: e.clientX - rect.left, y: e.clientY - rect.top },
-      layout,
-      stageRevealed,
+      { front: arch.front, pid: arch.pid, revealed: stageRevealed },
     );
   }
 
   let dwellTimer: ReturnType<typeof setTimeout> | null = null;
+  let edgeTimer: ReturnType<typeof setTimeout> | null = null;
+  let claimFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function armEdgeTimer() {
+    if (edgeTimer) clearTimeout(edgeTimer);
+    edgeTimer = null;
+    if (!edgeHoverState.revealed || edgeHoverState.outsideSince == null) return;
+    const due = Math.max(
+      edgeHoverState.outsideSince + EDGE_HIDE_MS,
+      edgeHoverState.revealedAt + EDGE_GRACE_MS,
+    );
+    const wait = Math.max(16, due - Date.now() + 8);
+    edgeTimer = setTimeout(() => {
+      edgeTimer = null;
+      applyEdge({ kind: "tick" });
+    }, wait);
+  }
+
+  function applyEdge(ev: EdgeHoverEvent, now = Date.now()) {
+    const out = edgeHover(edgeHoverState, ev, now);
+    edgeHoverState = out.state;
+    if (out.act === "reveal") void showStage();
+    else if (out.act === "park") maybeAutoHide();
+    armEdgeTimer();
+  }
+
+  function noteClaims(next: Claim[]) {
+    const snap = next.map((c) => ({
+      windowId: c.windowId,
+      projectId: c.projectId,
+      lastTouchedAt: c.lastTouchedAt,
+    }));
+    const prev = lastClaimsSeen;
+    lastClaimsSeen = snap;
+    if (prev === null) return;
+    const hit = claimLanded(prev, snap);
+    if (!hit) return;
+    const w = windows.find((x) => x.id === hit.windowId);
+    const stored = next.find((c) => c.windowId === hit.windowId);
+    const title = w ? titleFor(w) : stored?.titleAtClaim || "Window";
+    claimFlash = { pid: hit.projectId, title, until: Date.now() + CLAIM_FLASH_MS };
+    if (claimFlashTimer) clearTimeout(claimFlashTimer);
+    claimFlashTimer = setTimeout(() => {
+      claimFlash = null;
+      claimFlashTimer = null;
+    }, CLAIM_FLASH_MS);
+    void invoke("locate_planet", { id: hit.projectId }).catch(() => {});
+  }
 
   function archZoneAt(e: PointerEvent): ArchZone {
     const host = e.currentTarget;
@@ -675,20 +725,37 @@
 
   function onStagePointerMove(e: PointerEvent) {
     if (embedded) return;
-    if (!stageRevealed) {
-      if (!pointerInside) stagePointer(true);
-      return;
-    }
-    pokeArch(archZoneAt(e));
-    const hit = overPainted(e);
-    if (hit !== pointerInside) stagePointer(hit);
+    const painted = overPainted(e);
+    pointerInside = painted;
+    if (stageRevealed) pokeArch(archZoneAt(e));
+    applyEdge({ kind: "move", painted });
   }
 
   function onStagePointerDown(e: PointerEvent) {
     if (embedded || !stageRevealed) return;
-    if (overPainted(e)) return;
+    if (overPainted(e)) {
+      pointerInside = true;
+      return;
+    }
     pointerInside = false;
     stageFocus(false);
+  }
+
+  function onStageMouseLeave(e: MouseEvent) {
+    if (embedded) return;
+    pokeArch("none");
+    const host = e.currentTarget;
+    if (!(host instanceof HTMLElement)) return;
+    const rect = host.getBoundingClientRect();
+    const side = edgeLeaveSide(
+      railEdge,
+      e.clientX - rect.left,
+      e.clientY - rect.top,
+      rect.width,
+      rect.height,
+    );
+    if (side === "away") pointerInside = false;
+    applyEdge({ kind: "leave", side });
   }
 
   function onWinBlur() {
@@ -1992,6 +2059,7 @@
           : {}),
       },
     ];
+    noteClaims(claims);
     revealPlanet(projectId);
     // Bare claim = grass only. A board card is born only when a todo is
     // assigned to this window. If a non-done card already names it, keep
@@ -2987,8 +3055,10 @@
       skyState = s.sky ?? { muted: [] };
       drawersState = s.drawers ?? {};
       starterStory = normalizeStory(s.starterStory);
+      noteClaims(claims);
     } catch {
       themeId = defaultThemeId();
+      noteClaims(claims);
     }
     stateLoaded = true;
     if (!embedded) {
@@ -3012,7 +3082,9 @@
       void showStage();
     });
     unlistenStage = await listen<{ revealed?: boolean }>("orbitty:rail-stage", (e) => {
-      stageRevealed = !!e.payload?.revealed;
+      const revealed = !!e.payload?.revealed;
+      stageRevealed = revealed;
+      applyEdge({ kind: revealed ? "revealed" : "parked" });
     });
     unlistenStagePrefs = await listen<{
       railEdge?: string;
@@ -3263,6 +3335,7 @@
             ),
         );
         claims = [...fromDisk, ...localOrphans];
+        noteClaims(claims);
         // Adopting disk can reveal (or create) orphans — run the same
         // heal. Main rail only: the embedded sheet never writes claims.
         if (!embedded && healOrphanWindowCards()) persist();
@@ -3295,6 +3368,8 @@
   });
   onDestroy(() => {
     if (dwellTimer) clearTimeout(dwellTimer);
+    if (edgeTimer) clearTimeout(edgeTimer);
+    if (claimFlashTimer) clearTimeout(claimFlashTimer);
     motionMedia.removeEventListener("change", onMotionChange);
     window.removeEventListener("keydown", onNoteKey);
     window.removeEventListener("wheel", onNoteWheel);
@@ -3323,6 +3398,7 @@
   const rail: import("./rail/api").RailApi = {
     UNMAPPED_KEY,
     get arch() { return arch; },
+    get claimFlash() { return claimFlash; },
     archDo,
     planetCards,
     get spinCenter() { return spinCenter; },
@@ -3538,10 +3614,7 @@
     noteRailAct();
     onStagePointerDown(e);
   }}
-  onmouseleave={() => {
-    pokeArch("none");
-    stagePointer(false);
-  }}
+  onmouseleave={(e) => onStageMouseLeave(e)}
   onfocusin={() => stageFocus(true)}
   onfocusout={(e) => {
     const next = e.relatedTarget;

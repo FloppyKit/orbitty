@@ -5,17 +5,35 @@
 import { normalizeStageEdge, spinArrow, wheelLayout, type SpinDir, type SpinItem, type StageEdge, type ZoneRect } from "./stageLook.ts";
 
 export const ARCH_DWELL_MS = 160;
-export const ARCH_RADIUS = 560;
-export const ARCH_RADIUS_2 = 750;
 export const ARCH_SPAN_DEG = 56;
+/** Ellipse centre sits past the screen edge. Ring-1 centre lands ~170px in. */
+export const ARCH_X0 = 100;
+export const ARCH_RX = 158.79962131089377;
+export const ARCH_RY_MAX = 330;
+export const ARCH_RING_GAP = 220;
+export const ARCH_ITEM_BOX = 88;
+export const EDGE_SLOP = 24;
+export const EDGE_HIDE_MS = 600;
+export const EDGE_GRACE_MS = 900;
+export const CLAIM_FLASH_MS = 2500;
+export const STAGE_PLATTER_RGBA: readonly [number, number, number, number] = [28, 28, 32, 0.78];
+export const STAGE_INK = "#f5f5f7";
+export const STAGE_INK_DIM = "#c7c7cc";
+
+export interface ArchFrame {
+  w: number;
+  h: number;
+}
+
+export const ARCH_FRAME: ArchFrame = { w: 1040, h: 760 };
+const STEP_RAD = (ARCH_SPAN_DEG / 4) * (Math.PI / 180);
+const THETA_MAX = 4 * STEP_RAD;
 export const ARCH_DEPTH_SCALE = 0.86;
 export const ARCH_DEPTH_OPACITY = 0.5;
 export const ARCH_DEPTH_BLUR = 3;
 export const ARCH_DEPTH_SHIFT = 24;
 export const ARCH_DEPTH_MS = 360;
 export const ARCH_EASING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
-
-const STEP_DEG = ARCH_SPAN_DEG / 4;
 
 export type ArchFront = "arch" | "layer2" | "board";
 export type ArchZone = "arch" | "layer2" | "board" | "none";
@@ -58,6 +76,7 @@ export interface ArchRow {
   minimized?: boolean;
   iconBase64?: string | null;
   appName?: string;
+  isFrontmost?: boolean;
 }
 
 export type Layer2Kind = "board" | "needed" | "window" | "doing" | "todo" | "more";
@@ -72,6 +91,7 @@ export interface Layer2Item {
   count?: number;
   iconBase64?: string | null;
   appName?: string;
+  frontmost?: boolean;
 }
 
 export type ArchConfirmAction = "board" | "wake" | "restore" | "focus";
@@ -100,6 +120,7 @@ export interface ArchLayout {
   arch: ZoneRect;
   layer2: ZoneRect;
   board: ZoneRect;
+  pinned: ZoneRect;
 }
 
 export interface ArchArrowResult {
@@ -143,34 +164,86 @@ function falloff(k: number): { scale: number; opacity: number; z: number; hidden
   return { scale, opacity, z: 50 - a * 8, hidden: false };
 }
 
-/** Upright arch slot. k = 0 is the centre. Ring 2 is concentric, toward screen centre. */
-export function archSlot(k: number, edge: StageEdge | string = "left", ring: 1 | 2 = 1): ArchSlot {
+function ryFor(edge: StageEdge, frame: ArchFrame): number {
+  const span = edge === "top" || edge === "bottom" ? frame.w : frame.h;
+  const sinMax = Math.sin(THETA_MAX);
+  if (sinMax <= 0) return 0;
+  const fit = (span / 2 - 56) / sinMax;
+  return Math.min(ARCH_RY_MAX, Math.max(0, fit));
+}
+
+function bulge(theta: number, ring: 1 | 2): number {
+  const base = ARCH_X0 + ARCH_RX * (Math.cos(theta) - Math.cos(THETA_MAX));
+  return ring === 2 ? base + ARCH_RING_GAP : base;
+}
+
+/** Point on the edge ellipse. theta is radians; k·STEP is `k * STEP_RAD`. */
+export function archPoint(
+  theta: number,
+  edge: StageEdge | string = "left",
+  ring: 1 | 2 = 1,
+  frame: ArchFrame = ARCH_FRAME,
+): { x: number; y: number } {
   const e = normalizeStageEdge(edge);
-  const radius = ring === 2 ? ARCH_RADIUS_2 : ARCH_RADIUS;
-  const theta = k * STEP_DEG * (Math.PI / 180);
-  const bulge = radius * Math.cos(theta);
-  const along = radius * Math.sin(theta);
+  const along = ryFor(e, frame) * Math.sin(theta);
+  const from = bulge(theta, ring);
+  if (e === "right") return { x: -from, y: along };
+  if (e === "top") return { x: along, y: from };
+  if (e === "bottom") return { x: along, y: -from };
+  return { x: from, y: along };
+}
+
+/** Upright arch slot. k = 0 is the centre. Ring 2 is the same ellipse, further in. */
+export function archSlot(
+  k: number,
+  edge: StageEdge | string = "left",
+  ring: 1 | 2 = 1,
+  frame?: ArchFrame,
+): ArchSlot {
+  const pt = archPoint(k * STEP_RAD, edge, ring, frame ?? ARCH_FRAME);
   const vis = falloff(k);
-  let x = bulge;
-  let y = along;
-  if (e === "right") x = -bulge;
-  else if (e === "top") {
-    x = along;
-    y = bulge;
-  } else if (e === "bottom") {
-    x = along;
-    y = -bulge;
-  }
   return {
     k,
-    x,
-    y,
+    x: pt.x,
+    y: pt.y,
     rotate: 0,
     scale: vis.scale,
     opacity: vis.opacity,
     z: vis.z + (ring === 2 ? 20 : 0),
     hidden: vis.hidden,
   };
+}
+
+/** SVG `d` for the orbit the slots sit on. Samples past |k| = 4 to the frame edge. */
+export function archOrbitPath(
+  edge: StageEdge | string = "left",
+  ring: 1 | 2 = 1,
+  frame: ArchFrame = ARCH_FRAME,
+): string {
+  const e = normalizeStageEdge(edge);
+  const limit = (e === "top" || e === "bottom" ? frame.w : frame.h) / 2;
+  const ry = ryFor(e, frame);
+  let thetaEdge = Math.PI / 2;
+  if (ry > 1e-6) thetaEdge = Math.asin(Math.min(1, limit / ry));
+  if (thetaEdge < THETA_MAX + 1e-4) {
+    thetaEdge = Math.min(Math.PI / 2, THETA_MAX + STEP_RAD * 0.5);
+  }
+  const step = 0.35 / Math.max(ry, ARCH_RX, 1);
+  const thetas: number[] = [];
+  for (let th = -thetaEdge; th < thetaEdge; th += step) thetas.push(th);
+  thetas.push(thetaEdge);
+  for (let k = -4; k <= 4; k++) thetas.push(k * STEP_RAD);
+  thetas.sort((a, b) => a - b);
+  let d = "";
+  let prev = Number.NaN;
+  for (const th of thetas) {
+    if (th < -thetaEdge - 1e-9 || th > thetaEdge + 1e-9) continue;
+    if (Number.isFinite(prev) && Math.abs(th - prev) < 1e-8) continue;
+    prev = th;
+    const p = archPoint(th, e, ring, frame);
+    d += `${d ? "L" : "M"}${p.x.toFixed(3)} ${p.y.toFixed(3)}`;
+  }
+  return d;
 }
 
 export function archEnter(s: ArchState, item: SpinItem, layer2: readonly Layer2Item[] = []): ArchState {
@@ -358,6 +431,7 @@ export function archLayer2Items(opts: {
       minimized: !!(w.minimized || w.isMinimized),
       iconBase64: w.iconBase64,
       appName: w.appName,
+      frontmost: !!w.isFrontmost,
     });
   }
   for (const c of doingTake) {
@@ -420,27 +494,45 @@ function place(rect: ZoneRect): ZoneRect {
   return { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
 }
 
+function reach(ring: 1 | 2): number {
+  const half = ring === 1 ? ARCH_ITEM_BOX / 2 : 148 / 2;
+  return bulge(0, ring) + half + EDGE_SLOP;
+}
+
 export function archLayout(edge: string, frameW: number, frameH: number): ArchLayout {
   const base = wheelLayout(edge, frameW, frameH);
   const e = normalizeStageEdge(edge);
-  const arch = place(base.wheel);
+  const archReach = Math.max(0, reach(1));
+  const l2Reach = Math.max(archReach, reach(2));
+  let arch: ZoneRect;
   let layer2: ZoneRect;
   if (e === "right") {
-    const w = Math.min(240, Math.max(0, arch.x));
-    layer2 = { x: arch.x - w, y: arch.y, w, h: arch.h };
+    const aw = Math.min(archReach, frameW);
+    const lw = Math.min(l2Reach, frameW);
+    arch = { x: frameW - aw, y: 0, w: aw, h: frameH };
+    layer2 = { x: frameW - lw, y: 0, w: Math.max(0, lw - aw), h: frameH };
   } else if (e === "top") {
-    const y = arch.y + arch.h;
-    const h = Math.min(180, Math.max(0, frameH - y));
-    layer2 = { x: 0, y, w: Math.max(0, frameW), h };
+    const ah = Math.min(archReach, frameH);
+    const lh = Math.min(l2Reach, frameH);
+    arch = { x: 0, y: 0, w: frameW, h: ah };
+    layer2 = { x: 0, y: ah, w: frameW, h: Math.max(0, lh - ah) };
   } else if (e === "bottom") {
-    const h = Math.min(180, Math.max(0, arch.y));
-    layer2 = { x: 0, y: arch.y - h, w: Math.max(0, frameW), h };
+    const ah = Math.min(archReach, frameH);
+    const lh = Math.min(l2Reach, frameH);
+    arch = { x: 0, y: frameH - ah, w: frameW, h: ah };
+    layer2 = { x: 0, y: frameH - lh, w: frameW, h: Math.max(0, lh - ah) };
   } else {
-    const x = arch.x + arch.w;
-    const w = Math.min(240, Math.max(0, frameW - x));
-    layer2 = { x, y: arch.y, w, h: arch.h };
+    const aw = Math.min(archReach, frameW);
+    const lw = Math.min(l2Reach, frameW);
+    arch = { x: 0, y: 0, w: aw, h: frameH };
+    layer2 = { x: aw, y: 0, w: Math.max(0, lw - aw), h: frameH };
   }
-  return { arch, layer2, board: place(base.preview) };
+  return {
+    arch,
+    layer2,
+    board: place(base.preview),
+    pinned: place(base.pinned),
+  };
 }
 
 function inside(point: { x: number; y: number }, zone: ZoneRect): boolean {
@@ -485,4 +577,164 @@ export function archInitial(
     return { front: "layer2", pid: item.pid ?? null, center2: 0, pending: null };
   }
   return copy(ARCH_IDLE);
+}
+
+function grow(zone: ZoneRect, slop: number): ZoneRect {
+  return {
+    x: zone.x - slop,
+    y: zone.y - slop,
+    w: zone.w + slop * 2,
+    h: zone.h + slop * 2,
+  };
+}
+
+/** Painted if the point is inside the arch, the open layer 2, the board, or the pinned strip. */
+export function archPainted(
+  layout: ArchLayout,
+  point: { x: number; y: number },
+  opts: { front: ArchFront; pid: string | null; revealed: boolean; slop?: number },
+): boolean {
+  const slop = opts.slop ?? EDGE_SLOP;
+  const zones: ZoneRect[] = [layout.arch, layout.pinned];
+  if (opts.pid) zones.push(layout.layer2);
+  if (opts.front === "board") zones.push(layout.board);
+  // Revealed is the stage flag the caller already has. Hysteresis, not this
+  // test, decides whether a miss parks the drawer.
+  void opts.revealed;
+  return zones.some((zone) => inside(point, grow(zone, slop)));
+}
+
+export interface EdgeHoverState {
+  revealed: boolean;
+  revealedAt: number;
+  outsideSince: number | null;
+}
+
+export type EdgeHoverEvent =
+  | { kind: "move"; painted: boolean }
+  | { kind: "leave"; side: "edge" | "away" }
+  | { kind: "tick" }
+  | { kind: "revealed" }
+  | { kind: "parked" };
+
+function copyEdge(s: EdgeHoverState): EdgeHoverState {
+  return { revealed: s.revealed, revealedAt: s.revealedAt, outsideSince: s.outsideSince };
+}
+
+/** Park only after a real exit, past the grace window. An edge-side leave is still "at the edge". */
+export function edgeHover(
+  s: EdgeHoverState,
+  ev: EdgeHoverEvent,
+  now: number,
+): { state: EdgeHoverState; act: "reveal" | "park" | null } {
+  if (ev.kind === "revealed") {
+    if (s.revealed) return { state: copyEdge(s), act: null };
+    return { state: { revealed: true, revealedAt: now, outsideSince: null }, act: null };
+  }
+  if (ev.kind === "parked") {
+    return { state: { revealed: false, revealedAt: s.revealedAt, outsideSince: null }, act: null };
+  }
+  if (!s.revealed) {
+    if (ev.kind === "move") {
+      return { state: { revealed: true, revealedAt: now, outsideSince: null }, act: "reveal" };
+    }
+    return { state: copyEdge(s), act: null };
+  }
+  if (ev.kind === "move") {
+    if (ev.painted) return { state: { ...copyEdge(s), outsideSince: null }, act: null };
+    if (s.outsideSince == null) return { state: { ...copyEdge(s), outsideSince: now }, act: null };
+    return { state: copyEdge(s), act: null };
+  }
+  if (ev.kind === "leave") {
+    if (ev.side === "edge") return { state: copyEdge(s), act: null };
+    if (s.outsideSince == null) return { state: { ...copyEdge(s), outsideSince: now }, act: null };
+    return { state: copyEdge(s), act: null };
+  }
+  if (s.outsideSince == null) return { state: copyEdge(s), act: null };
+  const hiddenLong = now - s.outsideSince >= EDGE_HIDE_MS;
+  const graced = now - s.revealedAt >= EDGE_GRACE_MS;
+  if (hiddenLong && graced) {
+    return { state: { revealed: false, revealedAt: s.revealedAt, outsideSince: null }, act: "park" };
+  }
+  return { state: copyEdge(s), act: null };
+}
+
+/** Which border the pointer crossed. The screen-edge side is not an exit. */
+export function edgeLeaveSide(
+  edge: string,
+  clientX: number,
+  clientY: number,
+  w: number,
+  h: number,
+): "edge" | "away" {
+  const e = normalizeStageEdge(edge);
+  if (e === "right") return clientX >= w ? "edge" : "away";
+  if (e === "top") return clientY <= 0 ? "edge" : "away";
+  if (e === "bottom") return clientY >= h ? "edge" : "away";
+  return clientX <= 0 ? "edge" : "away";
+}
+
+export interface ClaimSnap {
+  windowId: string;
+  projectId: string;
+  lastTouchedAt?: number;
+}
+
+/** The claim that appeared or moved. First load and unclaims are quiet. */
+export function claimLanded(
+  prev: readonly ClaimSnap[] | null,
+  next: readonly ClaimSnap[],
+): { windowId: string; projectId: string } | null {
+  if (prev === null) return null;
+  const before = new Map(prev.map((c) => [c.windowId, c.projectId]));
+  let best: ClaimSnap | null = null;
+  for (const c of next) {
+    const old = before.get(c.windowId);
+    if (old === c.projectId) continue;
+    if (!best || (c.lastTouchedAt ?? 0) >= (best.lastTouchedAt ?? 0)) best = c;
+  }
+  if (!best) return null;
+  return { windowId: best.windowId, projectId: best.projectId };
+}
+
+function hexRgb(hex: string): [number, number, number] {
+  const h = hex.trim().replace("#", "");
+  const n = h.length === 3
+    ? h.split("").map((c) => parseInt(c + c, 16))
+    : [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  return [n[0] || 0, n[1] || 0, n[2] || 0];
+}
+
+function wallRgb(wallpaper: string): [number, number, number] {
+  const name = wallpaper.trim().toLowerCase();
+  if (name === "white" || name === "#fff" || name === "#ffffff") return [255, 255, 255];
+  if (name === "black" || name === "#000" || name === "#000000") return [0, 0, 0];
+  return hexRgb(wallpaper);
+}
+
+function channel(c: number): number {
+  const s = c / 255;
+  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+}
+
+function luminance(rgb: [number, number, number]): number {
+  return 0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2]);
+}
+
+/** WCAG contrast of `fg` over a platter composited onto `wallpaper`. */
+export function stageContrast(
+  fg: string,
+  rgba: readonly [number, number, number, number],
+  wallpaper: string,
+): number {
+  const wall = wallRgb(wallpaper);
+  const a = rgba[3];
+  const bg: [number, number, number] = [
+    rgba[0] * a + wall[0] * (1 - a),
+    rgba[1] * a + wall[1] * (1 - a),
+    rgba[2] * a + wall[2] * (1 - a),
+  ];
+  const lighter = Math.max(luminance(hexRgb(fg)), luminance(bg));
+  const darker = Math.min(luminance(hexRgb(fg)), luminance(bg));
+  return (lighter + 0.05) / (darker + 0.05);
 }

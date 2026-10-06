@@ -1,6 +1,12 @@
 import type { KanbanCard, WindowInfo } from "../persist";
 import type { ArchState } from "./stageArch";
 
+export interface ClaimFlash {
+  pid: string;
+  title: string;
+  until: number;
+}
+
 /** Inspector habitat members on the rail brain. */
 export interface RailHabitatApi {
   railBoardCols: string[];
@@ -19,6 +25,7 @@ export interface RailStageArchApi {
   planetCards: (pid: string) => KanbanCard[];
   spinCenter: number;
   reduceMotion: boolean;
+  claimFlash: ClaimFlash | null;
 }
 
 /** RailPage brain surface for DIET-RAIL-SPLIT modules.

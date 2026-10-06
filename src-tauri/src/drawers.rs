@@ -1330,6 +1330,17 @@ fn blossom_beside_rail(
     None
 }
 
+const EDGE_CORNER_GAP: f64 = 48.0;
+
+/// Parked strip along the edge, with the hot corners left clear.
+/// Unknown edges use the left size.
+pub(crate) fn stage_parked_size(edge: &str, vw: f64, vh: f64) -> (f64, f64) {
+    match state::normalize_rail_edge(edge) {
+        "top" | "bottom" => ((vw - 2.0 * EDGE_CORNER_GAP).max(360.0), 420.0),
+        _ => (360.0, (vh - 2.0 * EDGE_CORNER_GAP).max(420.0)),
+    }
+}
+
 static RAIL_STAGE_REVEALED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
@@ -1352,7 +1363,11 @@ pub(crate) fn rail_stage_apply(app: &tauri::AppHandle, revealed: bool) {
         }
         let pvfs = points_frames(&screen_visible_frames());
         if let Some(vf) = pvfs.first().copied() {
-            let (ww, hh) = state::rail_wheel_size(&edge, revealed, vf.w, vf.h);
+            let (ww, hh) = if revealed {
+                state::rail_wheel_size(&edge, true, vf.w, vf.h)
+            } else {
+                stage_parked_size(&edge, vf.w, vf.h)
+            };
             let (x, y, fw, fh) =
                 state::rail_stage_frame(&edge, revealed, vf.x, vf.y, vf.w, vf.h, ww, hh);
             appkit_place_points(
@@ -2041,5 +2056,16 @@ mod host_dock_tests {
         assert!((c.y + c.h - bottom).abs() < 1e-9);
         assert_eq!(c.w, 1080.0);
         assert_eq!(c.h, 620.0);
+    }
+
+    #[test]
+    fn stage_parked_strip_spans_edge() {
+        assert_eq!(stage_parked_size("left", 1440.0, 875.0), (360.0, 779.0));
+        assert_eq!(stage_parked_size("right", 1440.0, 875.0), (360.0, 779.0));
+        assert_eq!(stage_parked_size("top", 1440.0, 875.0), (1344.0, 420.0));
+        assert_eq!(stage_parked_size("bottom", 1440.0, 875.0), (1344.0, 420.0));
+        assert_eq!(stage_parked_size("left", 200.0, 100.0), (360.0, 420.0));
+        assert_eq!(stage_parked_size("top", 100.0, 200.0), (360.0, 420.0));
+        assert_eq!(stage_parked_size("nope", 1440.0, 875.0), (360.0, 779.0));
     }
 }
