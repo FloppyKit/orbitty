@@ -87,6 +87,8 @@ fn draw_rect_guarded(this: &Object) {
         let town_ball = h.town_ball;
         let sundial_vis = crate::starter::outpost_visual_now(crate::starter::Outpost::Stars);
         let comms_vis = crate::starter::outpost_visual_now(crate::starter::Outpost::Comms);
+        let glow = crate::starter::glow_now();
+        let glow_alpha = crate::starter::glow_alpha(crate::starter::glow_clock_ms(), h.reduce_motion);
         let town_sundial = if sundial_vis == crate::starter::OutpostVisual::Built {
             h.town_sundial
         } else {
@@ -337,6 +339,13 @@ fn draw_rect_guarded(this: &Object) {
                 town_comstack,
                 plot_sundial: sundial_vis == crate::starter::OutpostVisual::Plot && !p.is_marble,
                 plot_comstack: comms_vis == crate::starter::OutpostVisual::Plot && !p.is_marble,
+                glow_sundial: glow == Some(crate::starter::Outpost::Stars)
+                    && sundial_vis == crate::starter::OutpostVisual::Plot
+                    && !p.is_marble,
+                glow_comstack: glow == Some(crate::starter::Outpost::Comms)
+                    && comms_vis == crate::starter::OutpostVisual::Plot
+                    && !p.is_marble,
+                glow_alpha,
                 locate_t: h.locate_planet.as_ref().and_then(|(id, at)| {
                     if id == pid && at.elapsed() < PLANET_LOCATE_TTL {
                         Some(

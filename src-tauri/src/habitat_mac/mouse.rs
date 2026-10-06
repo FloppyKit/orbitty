@@ -22,6 +22,7 @@ use super::{
 };
 
 pub(crate) extern "C" fn mouse_down(this: &Object, _cmd: Sel, event: *mut Object) {
+    crate::starter::note_act();
     // Same rule as drawRect: never let a panic cross the AppKit boundary.
     if let Err(p) = catch_unwind(AssertUnwindSafe(|| unsafe { mouse_down_inner(this, event) })) {
         eprintln!("habitat: mouseDown panicked: {}", panic_msg(&*p));

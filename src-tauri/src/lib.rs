@@ -337,6 +337,12 @@ fn set_rail_stage_prefs(
     Ok(())
 }
 
+/// Rail pointer, key, or wheel. Memory only — resets the starter glow idle clock.
+#[tauri::command]
+fn starter_note_act() {
+    starter::note_act();
+}
+
 /// × / Esc on the coach line. The story slice is Rust-owned.
 #[tauri::command]
 fn set_starter_coach_done(app: tauri::AppHandle) -> Result<(), String> {
@@ -747,6 +753,7 @@ pub fn run() {
             show_rail,
             set_rail_stage_prefs,
             set_starter_coach_done,
+            starter_note_act,
             rail_stage_set,
             set_planets_hidden,
             needed_answer,

@@ -291,13 +291,13 @@ pub(crate) unsafe fn draw_world(this: &Object, d: &DrawData) {
             let w = SUNDIAL_W * r;
             let cx = center.x + STATION_SUNDIAL.0 * r;
             let cy = center.y + STATION_SUNDIAL.1 * ry;
-            stroke_plot_ring(cx, cy, w);
+            stroke_plot_ring(cx, cy, w, if d.glow_sundial { Some(d.glow_alpha) } else { None });
         }
         if d.plot_comstack {
             let w = COMSTACK_W * r;
             let cx = center.x + STATION_COMSTACK.0 * r;
             let cy = center.y + STATION_COMSTACK.1 * ry;
-            stroke_plot_ring(cx, cy, w);
+            stroke_plot_ring(cx, cy, w, if d.glow_comstack { Some(d.glow_alpha) } else { None });
         }
     }
 
@@ -439,15 +439,32 @@ pub(crate) unsafe fn draw_world(this: &Object, d: &DrawData) {
     }
 }
 
-unsafe fn stroke_plot_ring(cx: f64, cy: f64, w: f64) {
+unsafe fn stroke_plot_ring(cx: f64, cy: f64, w: f64, glow: Option<f64>) {
     let ew = w;
     let eh = (w * 0.34).max(6.0);
     let rect = NSRect::new(cx - ew / 2.0, cy - eh / 2.0, ew, eh);
+    if let Some(alpha) = glow {
+        let halo: *mut Object = msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
+        let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+        let shadow: *mut Object = msg_send![class!(NSShadow), alloc];
+        let shadow: *mut Object = msg_send![shadow, init];
+        let _: () = msg_send![shadow, setShadowOffset: CGSize { width: 0.0, height: 0.0 }];
+        let _: () = msg_send![shadow, setShadowBlurRadius: 10.0];
+        let warm = ns_color(1.0, 0.92, 0.70, alpha * 0.45);
+        let _: () = msg_send![shadow, setShadowColor: warm];
+        let _: () = msg_send![shadow, set];
+        let _: () = msg_send![halo, setLineWidth: 6.0];
+        let _: () = msg_send![warm, setStroke];
+        let _: () = msg_send![halo, stroke];
+        let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
+    }
     let path: *mut Object = msg_send![class!(NSBezierPath), bezierPathWithOvalInRect: rect];
     let dashes = [4.0f64, 3.0f64];
     let _: () = msg_send![path, setLineDash: dashes.as_ptr() count: 2usize phase: 0.0f64];
-    let _: () = msg_send![path, setLineWidth: 1.4f64];
-    let color = ns_color(0.93, 0.95, 0.88, 0.72);
+    let width = if glow.is_some() { 2.0 } else { 1.4 };
+    let alpha = glow.unwrap_or(0.72);
+    let _: () = msg_send![path, setLineWidth: width];
+    let color = ns_color(0.93, 0.95, 0.88, alpha);
     let _: () = msg_send![color, setStroke];
     let _: () = msg_send![path, stroke];
 }

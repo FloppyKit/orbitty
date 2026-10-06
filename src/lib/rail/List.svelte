@@ -22,22 +22,40 @@
     spinItems,
     spinJump,
     spinOffset,
-    spinPane,
     spinStep,
-    wheelSlot,
     type SpinAccumState,
     type SpinItem,
     type StageEdge,
   } from "./stageLook";
+  import {
+    archBack,
+    archCentreChanged,
+    archConfirm,
+    archDepth,
+    archEnter,
+    archForward,
+    archInitial,
+    archLayer2Items,
+    archLayout,
+    archOpenBoard,
+    archScroll2,
+    archSlot,
+    archZone,
+    type ArchCard,
+    type ArchFront,
+    type ArchState,
+    type ArchZone,
+    type Layer2Item,
+  } from "./stageArch";
 
   let { rail }: { rail: RailApi } = $props();
 
   const NEUTRAL = "#8a8f98";
 
   let center = $state(0);
-  let paneCenter = $state(0);
   let booted = false;
-  let wheelCol = $state<HTMLDivElement | null>(null);
+  let stageEl = $state<HTMLDivElement | null>(null);
+  let boardPlanet = $state("inbox");
   let nameEl = $state<HTMLInputElement | null>(null);
   let accum: SpinAccumState = { residual: 0, lastAt: 0 };
   let prevOffsets: number[] = [];
@@ -51,9 +69,25 @@
     ),
   );
   const offsets = $derived(items.map((_, i) => spinOffset(i, center, items.length)));
-  const paneItem = $derived(items[paneCenter] ?? items[0]);
-  const pane = $derived(paneItem ? spinPane(paneItem) : { kind: "board" as const, selected: "inbox" });
-  const boardPlanet = $derived(pane.kind === "board" ? pane.selected : "inbox");
+  const archState = $derived(rail.arch as ArchState);
+  const layer2 = $derived.by(() => {
+    const pid = archState?.pid as string | null;
+    if (!pid || pid === rail.UNMAPPED_KEY) return [] as Layer2Item[];
+    const cards = (rail.planetCards(pid) ?? []) as ArchCard[];
+    const rows = rail.rowsFor(pid) as WindowInfo[];
+    return archLayer2Items({
+      pid,
+      cards,
+      rows: rows.map((w) => ({
+        id: w.id,
+        title: rail.titleFor(w),
+        sleeping: !!w.sleeping,
+        isMinimized: !!w.isMinimized,
+        iconBase64: w.iconBase64,
+        appName: w.appName,
+      })),
+    });
+  });
 
   $effect(() => {
     const list = items;
@@ -63,19 +97,31 @@
     if (!booted) {
       if (!ready) return;
       center = spinInitial(list, openId);
-      paneCenter = center;
+      rail.spinCenter = center;
+      const planetCount = list.filter((it) => it.kind === "planet").length;
+      rail.archDo(archInitial(list, center, planetCount));
       booted = true;
       return;
     }
     const onWheel = !!active && list.some((it) => it.stop === active);
     const next = spinCenterFor(list, onWheel ? active : null, center);
     if (next !== center) center = next;
+    if (rail.spinCenter !== center) rail.spinCenter = center;
+  });
+
+  $effect(() => {
+    const pid = archState?.pid as string | null;
+    const front = archState?.front as ArchFront | undefined;
+    if (front !== "board" || !pid || pid === rail.UNMAPPED_KEY) return;
+    boardPlanet = pid;
   });
 
   $effect(() => {
     const next = center;
+    const item = items[next];
+    if (!booted) return;
     const handle = setTimeout(() => {
-      paneCenter = next;
+      rail.archDo(archCentreChanged(rail.arch, item));
     }, SPIN_SETTLE_MS);
     return () => clearTimeout(handle);
   });
@@ -103,24 +149,56 @@
   });
 
   $effect(() => {
-    const el = wheelCol;
+    const el = stageEl;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      const zone = zoneAt(e);
+      const front = (rail.arch?.front ?? "arch") as ArchFront;
+      if (zone === "none" || zone === "board") return;
+      if (zone === "layer2" && front === "layer2" && rail.arch?.pid === rail.UNMAPPED_KEY) return;
       e.preventDefault();
-      const n = items.length;
-      if (n === 0) return;
-      const out = spinAccumulate(
-        accum,
-        { deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode },
-        Date.now(),
-      );
-      accum = out.state;
-      if (out.steps === 0) return;
-      const next = spinStep(center, out.steps, n);
-      center = next;
-      const active = rail.menuRing.activeId as string | null;
-      if (active && items.some((it) => it.stop === active)) {
-        rail.menuRing.select(items[next].stop);
+      if (zone === "arch") {
+        if (front !== "arch") {
+          bringArch();
+          return;
+        }
+        const n = items.length;
+        if (n === 0) return;
+        const out = spinAccumulate(
+          accum,
+          { deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode },
+          Date.now(),
+        );
+        accum = out.state;
+        if (out.steps === 0) return;
+        const next = spinStep(center, out.steps, n);
+        center = next;
+        const active = rail.menuRing.activeId as string | null;
+        if (active && items.some((it) => it.stop === active)) {
+          rail.menuRing.select(items[next].stop);
+        }
+        return;
+      }
+      if (zone === "layer2") {
+        if (front !== "layer2") {
+          if (front === "board") rail.archDo(archBack(rail.arch));
+          else rail.archDo(archForward(rail.arch));
+          return;
+        }
+        const out = spinAccumulate(
+          accum,
+          { deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode },
+          Date.now(),
+        );
+        accum = out.state;
+        if (out.steps === 0) return;
+        const next = archScroll2(rail.arch, out.steps, layer2.length);
+        rail.archDo(next);
+        const active = rail.menuRing.activeId as string | null;
+        if (next.front === "layer2" && active && layer2.some((it) => it.stop === active)) {
+          const hit = layer2[next.center2];
+          if (hit) rail.menuRing.select(hit.stop);
+        }
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -137,13 +215,51 @@
     return NEUTRAL;
   }
 
-  function tileStyle(index: number, item: SpinItem): string {
-    const slot = wheelSlot(offsets[index] ?? 0, stageEdge());
-    return `--wx:${slot.x};--wy:${slot.y};--wr:${slot.rotate};--ws:${slot.scale};--wo:${slot.opacity};--wz:${slot.z};--planet:${tintFor(item)}`;
+  function slotStyle(k: number, ring: 1 | 2, tint: string): string {
+    const slot = archSlot(k, stageEdge(), ring);
+    return `--wx:${slot.x};--wy:${slot.y};--ws:${slot.scale};--wo:${slot.opacity};--wz:${slot.z};--planet:${tint}`;
   }
 
-  function tileHidden(index: number): boolean {
-    return wheelSlot(offsets[index] ?? 0, stageEdge()).hidden;
+  function archHidden(index: number): boolean {
+    return archSlot(offsets[index] ?? 0, stageEdge(), 1).hidden;
+  }
+
+  function layerHidden(index: number): boolean {
+    const k = index - (archState?.center2 ?? 0);
+    return archSlot(k, stageEdge(), 2).hidden;
+  }
+
+  function depthStyle(layer: 1 | 2): string {
+    const front = (archState?.front ?? "arch") as ArchFront;
+    const d = archDepth(front, layer, !!rail.reduceMotion);
+    const edge = stageEdge();
+    let x = 0;
+    let y = 0;
+    if (edge === "left") x = -d.shift;
+    else if (edge === "right") x = d.shift;
+    else if (edge === "top") y = -d.shift;
+    else y = d.shift;
+    const blur = d.blur > 0 ? `blur(${d.blur}px)` : "none";
+    return `--ad-scale:${d.scale};--ad-opacity:${d.opacity};--ad-x:${x}px;--ad-y:${y}px;--ad-ms:${d.durationMs}ms;filter:${blur}`;
+  }
+
+  function bringArch() {
+    let s = rail.arch as ArchState;
+    if (s.front === "board") s = archBack(s);
+    if (s.front === "layer2") s = archBack(s);
+    rail.archDo(s);
+  }
+
+  function zoneAt(e: { clientX: number; clientY: number }): ArchZone {
+    const el = stageEl;
+    if (!el) return "none";
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return "none";
+    return archZone(
+      archLayout(stageEdge(), rect.width, rect.height),
+      { x: e.clientX - rect.left, y: e.clientY - rect.top },
+      (rail.arch?.front ?? "arch") as ArchFront,
+    );
   }
 
   function itemLabel(item: SpinItem): string {
@@ -155,17 +271,71 @@
     return project?.name ?? "Planet";
   }
 
+  function rowsAsArch(pid: string) {
+    return (rail.rowsFor(pid) as WindowInfo[]).map((w) => ({
+      id: w.id,
+      title: rail.titleFor(w) as string,
+      sleeping: !!w.sleeping,
+      isMinimized: !!w.isMinimized,
+      iconBase64: w.iconBase64 as string | null,
+      appName: w.appName as string,
+    }));
+  }
+
   function onTileClick(item: SpinItem, index: number) {
+    if ((rail.arch?.front ?? "arch") !== "arch") {
+      bringArch();
+      return;
+    }
     if (index !== center) {
       center = index;
       rail.menuRing.select(item.stop);
+      return;
+    }
+    if (item.kind === "planet" && item.pid) {
+      const l2 = archLayer2Items({
+        pid: item.pid,
+        cards: rail.planetCards(item.pid) as ArchCard[],
+        rows: rowsAsArch(item.pid),
+      });
+      rail.archDo(archEnter(rail.arch, item, l2));
+      return;
+    }
+    if (item.kind === "unmapped") {
+      rail.archDo(archEnter(rail.arch, item, []));
       return;
     }
     const action = spinConfirm(item.stop);
     if (action === "stars") rail.openStageDest("stars");
     else if (action === "settings") rail.openStageDest("settings");
     else if (action === "newProject") rail.creatingProject = true;
-    else if (action === "raise" && item.pid) void rail.raisePlanetWindows(item.pid);
+  }
+
+  function onLayerClick(item: Layer2Item) {
+    const front = (rail.arch?.front ?? "arch") as ArchFront;
+    if (front !== "layer2") {
+      if (front === "board") rail.archDo(archBack(rail.arch));
+      else rail.archDo(archForward(rail.arch));
+      return;
+    }
+    const action = archConfirm(item);
+    if (action === "board") {
+      rail.archDo(archOpenBoard(rail.arch, rail.UNMAPPED_KEY));
+      return;
+    }
+    const pid = rail.arch?.pid as string | null;
+    if (!pid || !item.id) return;
+    const w = (rail.rowsFor(pid) as WindowInfo[]).find((row) => row.id === item.id);
+    if (!w) return;
+    if (action === "wake") void rail.wakeSleeper(w);
+    else if (action === "restore") void rail.restore(w).then(() => rail.focusRow(w));
+    else void rail.focusRow(w);
+  }
+
+  function l2Label(item: Layer2Item): string {
+    if (item.kind === "board") return "Open board";
+    if (item.kind === "more") return `+${item.count ?? 0} more`;
+    return item.title || "Untitled";
   }
 
   const coachStory = $derived(normalizeStory(rail.starterStory));
@@ -187,7 +357,8 @@
   );
 
   function boardTint(): string {
-    if (paneItem?.kind === "planet" && paneItem.pid) return rail.planetCss(paneItem.pid);
+    const pid = archState?.pid as string | null;
+    if (pid && pid !== rail.UNMAPPED_KEY) return rail.planetCss(pid);
     return NEUTRAL;
   }
 </script>
@@ -333,6 +504,14 @@
   </svg>
 {/snippet}
 
+{#snippet boardGlyph()}
+  <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
+    <rect x="6" y="7" width="6" height="18" rx="1.4" fill="none" stroke="#8a8f98" stroke-width="1.6" />
+    <rect x="13" y="7" width="6" height="12" rx="1.4" fill="none" stroke="#8a8f98" stroke-width="1.6" />
+    <rect x="20" y="7" width="6" height="15" rx="1.4" fill="none" stroke="#8a8f98" stroke-width="1.6" />
+  </svg>
+{/snippet}
+
 <div class="scroll">
     {#if rail.status && !rail.status.trusted}
       <section class="card">
@@ -445,13 +624,22 @@
         {/if}
         {#if rail.projects.length === 0}
           <p class="proj-hint">
-            No projects yet — use the <b>+ Project</b> tile on the wheel, then drag
+            No projects yet — use the <b>+ Project</b> item on the arch, then drag
             a window onto it to claim.
           </p>
         {/if}
         <div class="stage-hit" aria-hidden="true"></div>
-        <div class="stage-strip">
-        <div class="wheel-col" bind:this={wheelCol}>
+        <div class="stage-strip" bind:this={stageEl}>
+        <div
+          class="arch-ring"
+          class:is-receded={archState.front !== "arch"}
+          style={depthStyle(1)}
+        >
+          {#if archState.front !== "arch"}
+            <button type="button" class="arch-platter" aria-label="Show planets" onclick={bringArch}></button>
+          {:else}
+            <div class="arch-platter" aria-hidden="true"></div>
+          {/if}
           {#if coachLineDue}
             <div class="coach-line">
               <span class="coach-text">{COACH_LINE}</span>
@@ -476,19 +664,22 @@
               {/if}
             </div>
           {/if}
-          <div class="wheel-band" aria-hidden="true"></div>
-          <div class="wheel-notch" aria-hidden="true"></div>
         {#if rail.wakeNote}
           <div class="hermes-note" class:err={rail.wakeNote.kind === "err"}>
             <span class="hermes-text">{rail.wakeNote.text}</span>
             <button class="mini ghost" onclick={() => (rail.wakeNote = null)} aria-label="Dismiss">×</button>
           </div>
         {/if}
-        <ul class="wins">
+        <ul class="arch-list">
           {#each items as item, i (item.stop)}
             <li
-              class="section stage-planet"
+              class="arch-slot"
+              class:is-selected={i === center}
+              class:is-hidden={archHidden(i)}
+              class:spin-jump={jumpMask[i] === true}
               class:drop-ok={item.pid != null && rail.dropTarget === item.pid}
+              class:is-neutral={item.kind !== "planet"}
+              style={slotStyle(offsets[i] ?? 0, 1, tintFor(item))}
               ondragenter={(e) => item.pid != null && rail.onSectionDragEnter(e, item.pid)}
               ondragover={(e) => item.pid != null && rail.onSectionDragOver(e, item.pid)}
               ondragleave={(e) => item.pid != null && rail.onSectionDragLeave(e, item.pid)}
@@ -499,26 +690,24 @@
             >
               <button
                 type="button"
-                class="wheel-tile"
-                class:is-selected={i === center}
-                class:is-hidden={tileHidden(i)}
-                class:spin-jump={jumpMask[i] === true}
-                style={tileStyle(i, item)}
+                class="arch-hit"
                 data-mkey={item.stop}
                 class:mkey-sel={rail.menuRing.activeId === item.stop}
-                tabindex={tileHidden(i) ? -1 : 0}
+                tabindex={archHidden(i) ? -1 : 0}
                 aria-label={itemLabel(item)}
                 title={itemLabel(item)}
                 onclick={() => onTileClick(item, i)}
               >
-                {#if item.kind === "stars"}{@render starGlyph()}
-                {:else if item.kind === "settings"}{@render gearGlyph()}
-                {:else if item.kind === "add"}{@render plusGlyph()}
-                {:else}{@render planetGlyph()}{/if}
-                <span class="wheel-name">{itemLabel(item)}</span>
+                <span class="arch-glyph">
+                  {#if item.kind === "stars"}{@render starGlyph()}
+                  {:else if item.kind === "settings"}{@render gearGlyph()}
+                  {:else if item.kind === "add"}{@render plusGlyph()}
+                  {:else}{@render planetGlyph()}{/if}
+                </span>
+                <span class="arch-name">{itemLabel(item)}</span>
               </button>
-              {#if item.kind === "add" && rail.creatingProject && !tileHidden(i)}
-                <span class="newproj spin-newproj" style={tileStyle(i, item)}>
+              {#if item.kind === "add" && rail.creatingProject && !archHidden(i)}
+                <span class="newproj spin-newproj">
                   <input
                     bind:this={nameEl}
                     bind:value={rail.newProjectName}
@@ -534,24 +723,86 @@
           {/each}
         </ul>
         </div>
-        <div class="spin-board" style={`--planet:${boardTint()}`}>
-          <div class="spin-kanban" class:is-off={pane.kind !== "board"}>
+        {#if archState.pid}
+          <div
+            class="layer2-ring"
+            class:is-receded={archState.front !== "layer2"}
+            style={depthStyle(2)}
+          >
+            {#if archState.pid === rail.UNMAPPED_KEY}
+              <div class="layer2-unmapped">
+                <ul class="wins">
+                  {#each rail.visibleRows(rail.unmapped) as w (w.id)}
+                    {@render winRow(w, null)}
+                  {/each}
+                  {#if rail.visibleRows(rail.unmapped).length === 0}
+                    <li class="section-empty">
+                      {rail.tagFilter ? "No windows with this tag" : "Drop here to unclaim"}
+                    </li>
+                  {/if}
+                </ul>
+              </div>
+            {:else}
+              {#if archState.front !== "layer2"}
+                <button
+                  type="button"
+                  class="arch-platter layer2-platter"
+                  aria-label="Show this planet"
+                  onclick={() => rail.archDo(archState.front === "board" ? archBack(rail.arch) : archForward(rail.arch))}
+                ></button>
+              {:else}
+                <div class="arch-platter layer2-platter" aria-hidden="true"></div>
+              {/if}
+              <ul class="arch-list">
+                {#each layer2 as item, i (item.stop)}
+                  <li
+                    class="l2-slot"
+                    class:is-hidden={layerHidden(i)}
+                    class:is-selected={i === archState.center2 && archState.front === "layer2"}
+                    style={slotStyle(i - archState.center2, 2, boardTint())}
+                  >
+                    <button
+                      type="button"
+                      class="l2-hit"
+                      data-mkey={item.stop}
+                      class:mkey-sel={rail.menuRing.activeId === item.stop}
+                      tabindex={layerHidden(i) ? -1 : 0}
+                      aria-label={l2Label(item)}
+                      title={l2Label(item)}
+                      onclick={() => onLayerClick(item)}
+                    >
+                      {#if item.kind === "window"}
+                        {#if item.iconBase64}
+                          <img class="app-icon" src="data:image/png;base64,{item.iconBase64}" alt="" />
+                        {:else}
+                          <span class="app-icon fallback" aria-hidden="true">{(item.appName || "?").charAt(0)}</span>
+                        {/if}
+                        <span class="l2-title">{l2Label(item)}</span>
+                        {#if item.sleeping}<span class="l2-moon" aria-hidden="true">☾</span>{/if}
+                        {#if item.minimized && !item.sleeping}<span class="l2-dock" aria-hidden="true"></span>{/if}
+                      {:else if item.kind === "needed"}
+                        <span class="l2-bang" aria-hidden="true">!</span>
+                        <span class="l2-title">{l2Label(item)}</span>
+                      {:else if item.kind === "doing" || item.kind === "todo"}
+                        <span class="l2-dot" class:is-doing={item.kind === "doing"} aria-hidden="true"></span>
+                        <span class="l2-title">{l2Label(item)}</span>
+                      {:else if item.kind === "more"}
+                        <span class="l2-title">{l2Label(item)}</span>
+                      {:else}
+                        <span class="arch-glyph l2-glyph">{@render boardGlyph()}</span>
+                        <span class="l2-title">Open board</span>
+                      {/if}
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        {/if}
+        <div class="spin-board" class:is-off={archState.front !== "board"} style={`--planet:${boardTint()}`}>
+          <div class="spin-kanban">
             <KanbanPage embedded railPlanet={boardPlanet} />
           </div>
-          {#if pane.kind === "unclaimed"}
-            <div class="spin-unclaimed">
-              <ul class="wins">
-                {#each rail.visibleRows(rail.unmapped) as w (w.id)}
-                  {@render winRow(w, null)}
-                {/each}
-                {#if rail.visibleRows(rail.unmapped).length === 0}
-                  <li class="section-empty">
-                    {rail.tagFilter ? "No windows with this tag" : "Drop here to unclaim"}
-                  </li>
-                {/if}
-              </ul>
-            </div>
-          {/if}
         </div>
         </div>
       {/if}

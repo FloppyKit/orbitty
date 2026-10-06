@@ -1,4 +1,5 @@
-import type { WindowInfo } from "../persist";
+import type { KanbanCard, WindowInfo } from "../persist";
+import type { ArchState } from "./stageArch";
 
 /** Inspector habitat members on the rail brain. */
 export interface RailHabitatApi {
@@ -11,6 +12,15 @@ export interface RailHabitatApi {
   planetCount: (pid: string) => number;
 }
 
+/** View-only arch. Nothing here is written to disk. */
+export interface RailStageArchApi {
+  arch: ArchState;
+  archDo: (next: ArchState) => void;
+  planetCards: (pid: string) => KanbanCard[];
+  spinCenter: number;
+  reduceMotion: boolean;
+}
+
 /** RailPage brain surface for DIET-RAIL-SPLIT modules.
  *  Habitat members are required; the rest of the brain stays open. */
-export type RailApi = RailHabitatApi & Record<string, any>;
+export type RailApi = RailHabitatApi & RailStageArchApi & Record<string, any>;

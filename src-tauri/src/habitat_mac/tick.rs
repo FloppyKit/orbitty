@@ -6,10 +6,13 @@
 
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
+
+use objc::runtime::Object;
+use objc::{msg_send, sel, sel_impl};
 
 use super::audio;
 use super::{app_handle_cell, lock, panic_msg, save_worlds};
@@ -259,6 +262,7 @@ fn tick(n: u64) {
     if n % 3 == 0 {
         anim_tick();
     }
+    glow_repaint(n);
     drift_tick(n);
     super::planet_idle::maybe_pass();
     if n % 6 == 0 {
@@ -268,6 +272,35 @@ fn tick(n: u64) {
         // / drift_motion.
         if !MOTION_HOP_PENDING.load(Ordering::SeqCst) {
             cursor_tick();
+        }
+    }
+}
+
+/// While a plot should pulse, dirty expanded planets at ~20fps (every third
+/// 16ms tick). Reduce motion repaints only when the glow starts or stops.
+fn glow_repaint(n: u64) {
+    let reduce = lock().reduce_motion;
+    let glow = crate::starter::glow_now();
+    static LAST: AtomicU8 = AtomicU8::new(0);
+    let code = match glow {
+        Some(crate::starter::Outpost::Comms) => 1,
+        Some(crate::starter::Outpost::Stars) => 2,
+        None => 0,
+    };
+    let prev = LAST.swap(code, Ordering::Relaxed);
+    let edge = prev != code;
+    let pulse = glow.is_some() && !reduce && n % 3 == 0;
+    if !pulse && !edge {
+        return;
+    }
+    let h = lock();
+    for planet in h.planets.values() {
+        if planet.is_marble || planet.view == 0 {
+            continue;
+        }
+        unsafe {
+            let view = planet.view as *mut Object;
+            let _: () = msg_send![view, setNeedsDisplay: true];
         }
     }
 }

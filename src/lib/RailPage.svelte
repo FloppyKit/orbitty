@@ -25,12 +25,26 @@
     WHEEL_COL,
     WHEEL_ROW,
     paintedZoneHit,
-    spinArrow,
     spinConfirm,
     spinItems,
     spinStops,
     wheelLayout,
   } from "./rail/stageLook";
+  import {
+    ARCH_IDLE,
+    archArrow,
+    archBack,
+    archConfirm,
+    ARCH_DWELL_MS,
+    archLayer2Items,
+    archLayout,
+    archOpenBoard,
+    archPointer,
+    archZone,
+    type ArchState,
+    type ArchZone,
+    type Layer2Item,
+  } from "./rail/stageArch";
   import {
     applyPlanetOpen,
     autoHideWanted,
@@ -196,6 +210,8 @@
   let railAutoHideOnBlur = $state(true);
   let stageRevealed = $state(false);
   let reduceMotion = $state(false);
+  let arch = $state<ArchState>({ ...ARCH_IDLE });
+  let spinCenter = $state(0);
   let pointerInside = false;
   let focusInside = false;
   let hideTitles = $state(false);
@@ -619,12 +635,50 @@
     );
   }
 
+  let dwellTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function archZoneAt(e: PointerEvent): ArchZone {
+    const host = e.currentTarget;
+    if (!(host instanceof HTMLElement)) return "none";
+    const rect = host.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return "none";
+    return archZone(
+      archLayout(railEdge, rect.width, rect.height),
+      { x: e.clientX - rect.left, y: e.clientY - rect.top },
+      arch.front,
+    );
+  }
+
+  function pokeArch(zone: ArchZone) {
+    const now = Date.now();
+    const prev = arch;
+    const next = archPointer(prev, zone, now);
+    const armed =
+      !!next.pending &&
+      (prev.pending?.zone !== next.pending.zone || prev.pending?.since !== next.pending.since);
+    archDo(next);
+    if (!next.pending) {
+      if (dwellTimer) clearTimeout(dwellTimer);
+      dwellTimer = null;
+      return;
+    }
+    if (!armed) return;
+    if (dwellTimer) clearTimeout(dwellTimer);
+    const wait = Math.max(0, ARCH_DWELL_MS - (now - next.pending.since));
+    const z = next.pending.zone;
+    dwellTimer = setTimeout(() => {
+      dwellTimer = null;
+      archDo(archPointer(arch, z, Date.now()));
+    }, wait);
+  }
+
   function onStagePointerMove(e: PointerEvent) {
     if (embedded) return;
     if (!stageRevealed) {
       if (!pointerInside) stagePointer(true);
       return;
     }
+    pokeArch(archZoneAt(e));
     const hit = overPainted(e);
     if (hit !== pointerInside) stagePointer(hit);
   }
@@ -780,6 +834,68 @@
     return windows.find((w) => w.id === id);
   }
 
+  function archDo(next: ArchState) {
+    const pendingSame =
+      (next.pending == null && arch.pending == null) ||
+      (!!next.pending &&
+        !!arch.pending &&
+        next.pending.zone === arch.pending.zone &&
+        next.pending.since === arch.pending.since);
+    if (
+      next.front === arch.front &&
+      next.pid === arch.pid &&
+      next.center2 === arch.center2 &&
+      pendingSame
+    ) {
+      return;
+    }
+    arch = next;
+  }
+
+  function planetCards(pid: string): KanbanCard[] {
+    return kanbanCards.filter((c) => c.projectId === pid);
+  }
+
+  function layer2For(pid: string | null): Layer2Item[] {
+    if (!pid || pid === UNMAPPED_KEY) return [];
+    return archLayer2Items({
+      pid,
+      cards: planetCards(pid),
+      rows: rowsFor(pid).map((w) => ({
+        id: w.id,
+        title: titleFor(w),
+        sleeping: !!w.sleeping,
+        isMinimized: !!w.isMinimized,
+        iconBase64: w.iconBase64,
+        appName: w.appName,
+      })),
+    });
+  }
+
+  function confirmLayer2Stop(id: string) {
+    const item = layer2For(arch.pid).find((it) => it.stop === id);
+    if (!item || !arch.pid) return;
+    const action = archConfirm(item);
+    if (action === "board") {
+      archDo(archOpenBoard(arch, UNMAPPED_KEY));
+      return;
+    }
+    const w = rowsFor(arch.pid).find((row) => row.id === item.id);
+    if (!w) return;
+    if (action === "wake") void wakeSleeper(w);
+    else if (action === "restore") void restore(w).then(() => focusRow(w));
+    else void focusRow(w);
+  }
+
+  let lastNoteAct = 0;
+  function noteRailAct() {
+    if (embedded) return;
+    const now = Date.now();
+    if (now - lastNoteAct < 1000) return;
+    lastNoteAct = now;
+    invoke("starter_note_act").catch(() => {});
+  }
+
   function confirmHabitatStop(id: string) {
     const spin = spinConfirm(id);
     if (spin === "stars") {
@@ -849,18 +965,55 @@
     }
     const items = spinItems(projects.map((p) => p.id), UNMAPPED_KEY);
     const due = coachIsDue();
-    const built = spinStops(items, due);
-    const stops: RingStop[] = built.map((stop) => ({
-      id: stop.id,
-      group: stop.group,
-      confirm: () => confirmHabitatStop(stop.id),
-      arrow: (dir) => {
-        const next = spinArrow(items, stop.id, dir, railEdge, due);
-        if (next) menuRing.select(next);
-        return true;
-      },
-    }));
+    const l2 = layer2For(arch.pid);
+    const nested = (arch.front === "layer2" || arch.front === "board") && l2.length > 0;
+    const applyArrow = (activeId: string, dir: string) => {
+      const result = archArrow(arch, items, spinCenter, dir, railEdge, l2, activeId, due);
+      if (!result) return;
+      archDo(result.state);
+      if (result.stop) menuRing.select(result.stop);
+    };
+    const stops: RingStop[] = nested
+      ? l2.map((item) => ({
+          id: item.stop,
+          group: "layer2",
+          confirm: () => confirmLayer2Stop(item.stop),
+          arrow: (dir) => {
+            applyArrow(item.stop, dir);
+            return true;
+          },
+        }))
+      : spinStops(items, due).map((stop) => ({
+          id: stop.id,
+          group: stop.group,
+          confirm: () => confirmHabitatStop(stop.id),
+          arrow: (dir) => {
+            applyArrow(stop.id, dir);
+            return true;
+          },
+        }));
     menuRing.setStops(stops);
+    if (nested) {
+      const active = menuRing.activeId;
+      const onL2 = !!active && l2.some((it) => it.stop === active);
+      if (!onL2) {
+        const want = l2[Math.min(Math.max(arch.center2, 0), l2.length - 1)];
+        if (want) menuRing.select(want.stop);
+      }
+    } else if (arch.front === "arch") {
+      const active = menuRing.activeId;
+      const onWheel =
+        !!active &&
+        (items.some((it) => it.stop === active) ||
+          active === "rcoach-claim" ||
+          active === "rcoach-skip");
+      if (active && !onWheel) {
+        const back =
+          items.find((it) => it.pid != null && it.pid === arch.pid) ??
+          items[Math.min(Math.max(spinCenter, 0), Math.max(items.length - 1, 0))];
+        if (back) menuRing.select(back.stop);
+      }
+    }
   }
 
   function confirmRingTab(id: string) {
@@ -2722,6 +2875,8 @@
   const onOsThemeChange = () => {
     if (!themeChosen) themeId = osThemeId();
   };
+  const onNoteKey = () => noteRailAct();
+  const onNoteWheel = () => noteRailAct();
   const motionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
   const onMotionChange = () => {
     reduceMotion = motionMedia.matches;
@@ -2729,6 +2884,8 @@
   onMount(async () => {
     reduceMotion = motionMedia.matches;
     motionMedia.addEventListener("change", onMotionChange);
+    window.addEventListener("keydown", onNoteKey);
+    window.addEventListener("wheel", onNoteWheel, { passive: true });
     detachMenuKeys = menuRing.attach(() => {
       if (claimPickerFor) {
         claimPickerFor = null;
@@ -2736,6 +2893,10 @@
       }
       if (creatingProject) {
         creatingProject = false;
+        return true;
+      }
+      if (!embedded && arch.front !== "arch") {
+        archDo(archBack(arch));
         return true;
       }
       if (
@@ -3132,6 +3293,8 @@
   });
   onDestroy(() => {
     motionMedia.removeEventListener("change", onMotionChange);
+    window.removeEventListener("keydown", onNoteKey);
+    window.removeEventListener("wheel", onNoteWheel);
     clearInterval(timer);
     detachMenuKeys?.();
     unlistenExpand?.();
@@ -3156,6 +3319,12 @@
   // DIET-RAIL-SPLIT: surface for rail/* modules (getters keep $state live).
   const rail: import("./rail/api").RailApi = {
     UNMAPPED_KEY,
+    get arch() { return arch; },
+    archDo,
+    planetCards,
+    get spinCenter() { return spinCenter; },
+    set spinCenter(v: number) { spinCenter = v; },
+    get reduceMotion() { return reduceMotion; },
     coachClaim,
     coachSkip,
     get coachError() { return coachError; },
@@ -3362,8 +3531,14 @@
   class:hide-titles={hideTitles}
   class:hide-icons={hideAppIcons}
   onpointermove={onStagePointerMove}
-  onpointerdown={onStagePointerDown}
-  onmouseleave={() => stagePointer(false)}
+  onpointerdown={(e) => {
+    noteRailAct();
+    onStagePointerDown(e);
+  }}
+  onmouseleave={() => {
+    pokeArch("none");
+    stagePointer(false);
+  }}
   onfocusin={() => stageFocus(true)}
   onfocusout={(e) => {
     const next = e.relatedTarget;

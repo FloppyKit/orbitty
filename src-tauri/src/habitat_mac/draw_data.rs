@@ -116,6 +116,10 @@ pub(crate) struct DrawData {
     /// Dashed plot ring at the station foot. Veterans stay false (Built art).
     pub(crate) plot_sundial: bool,
     pub(crate) plot_comstack: bool,
+    /// Soft pulse on the matching plot. False on marbles and when nothing is due.
+    pub(crate) glow_sundial: bool,
+    pub(crate) glow_comstack: bool,
+    pub(crate) glow_alpha: f64,
     /// Dest-menu find: 0 just armed, 1 expired. None = no glow.
     pub(crate) locate_t: Option<f64>,
     /// the beach ball's view-local center

@@ -4,7 +4,9 @@
 //! not reentrant, so they never run on the save path or the AppKit thread).
 //! Habitat reads outpost bits from an atomic; it does no state I/O.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use tauri::Emitter;
 
@@ -35,6 +37,18 @@ const INTRO_LINES: [&str; 3] = [
 
 /// Low 2 bits = Comms, next 2 bits = Stars. 0 Hidden, 1 Plot, 2 Built.
 static OUTPOSTS: AtomicU8 = AtomicU8::new(0);
+
+/// Ms since process start of the last act. Memory only — never state.json.
+static LAST_ACT_MS: AtomicU64 = AtomicU64::new(0);
+
+pub fn boot(app: &tauri::AppHandle) {
+    note_act();
+    let _ = crate::state::update(app, |st| {
+        arm(st);
+        let _ = view(st);
+        Ok(())
+    });
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outpost {
@@ -86,14 +100,6 @@ pub fn arm(state: &mut PersistedState) {
     } else {
         state.companion.visible = false;
     }
-}
-
-pub fn boot(app: &tauri::AppHandle) {
-    let _ = crate::state::update(app, |st| {
-        arm(st);
-        let _ = view(st);
-        Ok(())
-    });
 }
 
 pub fn view(state: &PersistedState) -> StarterView {
@@ -160,6 +166,7 @@ fn push_build_act(
 }
 
 pub fn after_save(app: &tauri::AppHandle, view: StarterView) {
+    note_act();
     let acts = plan(&view);
     if acts.is_empty() {
         return;
@@ -444,6 +451,55 @@ fn now_secs() -> f64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
+}
+
+/// Arbitrary pick, Matt 2026-10-06. Committed value stays 45s.
+pub const NUDGE_DELAY_MS: u64 = 45_000;
+
+fn mono_start() -> &'static Instant {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now)
+}
+
+pub fn glow_clock_ms() -> u64 {
+    mono_start().elapsed().as_millis() as u64
+}
+
+pub fn note_act() {
+    LAST_ACT_MS.store(glow_clock_ms(), Ordering::Relaxed);
+}
+
+pub fn idle_ms(now_ms: u64, last_act_ms: u64) -> u64 {
+    now_ms.saturating_sub(last_act_ms)
+}
+
+pub fn nudge_target(comms: OutpostVisual, stars: OutpostVisual, idle_ms: u64) -> Option<Outpost> {
+    if idle_ms < NUDGE_DELAY_MS {
+        return None;
+    }
+    if comms == OutpostVisual::Plot {
+        return Some(Outpost::Comms);
+    }
+    if stars == OutpostVisual::Plot {
+        return Some(Outpost::Stars);
+    }
+    None
+}
+
+pub fn glow_now() -> Option<Outpost> {
+    nudge_target(
+        outpost_visual_now(Outpost::Comms),
+        outpost_visual_now(Outpost::Stars),
+        idle_ms(glow_clock_ms(), LAST_ACT_MS.load(Ordering::Relaxed)),
+    )
+}
+
+pub fn glow_alpha(t_ms: u64, reduce: bool) -> f64 {
+    if reduce {
+        return 0.9;
+    }
+    let t = t_ms as f64;
+    0.55 + 0.35 * (0.5 - 0.5 * (std::f64::consts::TAU * t / 1600.0).cos())
 }
 
 #[cfg(test)]
@@ -757,5 +813,69 @@ mod tests {
         arm(&mut s);
         assert!(!s.starter_story.skipped);
         assert_eq!(serde_json::to_value(&s.starter_story).unwrap(), before);
+    }
+
+    #[test]
+    fn glow_s12_nudge_waits_then_targets_comms_then_stars() {
+        assert_eq!(NUDGE_DELAY_MS, 45_000);
+        assert_eq!(
+            nudge_target(OutpostVisual::Plot, OutpostVisual::Plot, 44_999),
+            None
+        );
+        assert_eq!(
+            nudge_target(OutpostVisual::Plot, OutpostVisual::Plot, 45_000),
+            Some(Outpost::Comms)
+        );
+        assert_eq!(
+            nudge_target(OutpostVisual::Built, OutpostVisual::Plot, 45_000),
+            Some(Outpost::Stars)
+        );
+        assert_eq!(
+            nudge_target(OutpostVisual::Plot, OutpostVisual::Plot, 90_000),
+            Some(Outpost::Comms)
+        );
+        assert_eq!(
+            nudge_target(OutpostVisual::Built, OutpostVisual::Built, 45_000),
+            None
+        );
+        assert_eq!(
+            nudge_target(OutpostVisual::Hidden, OutpostVisual::Hidden, 45_000),
+            None
+        );
+        assert_eq!(
+            nudge_target(OutpostVisual::Hidden, OutpostVisual::Hidden, 45_000),
+            None
+        );
+    }
+
+    #[test]
+    fn glow_s13_act_resets_idle() {
+        assert_eq!(idle_ms(100_000, 100_000), 0);
+        assert_eq!(
+            nudge_target(OutpostVisual::Plot, OutpostVisual::Plot, idle_ms(100_000, 100_000)),
+            None
+        );
+        assert_eq!(idle_ms(145_000, 100_000), 45_000);
+        assert_eq!(
+            nudge_target(OutpostVisual::Plot, OutpostVisual::Plot, idle_ms(145_000, 100_000)),
+            Some(Outpost::Comms)
+        );
+        assert_eq!(idle_ms(5, 10), 0);
+    }
+
+    #[test]
+    fn glow_s14_alpha_pulse_and_reduce() {
+        for t in [0_u64, 1, 800, 1599, 1600, 3200, 10_000] {
+            assert!((glow_alpha(t, true) - 0.9).abs() < 1e-9);
+        }
+        let mut t = 0_u64;
+        while t <= 3200 {
+            let a = glow_alpha(t, false);
+            assert!(a >= 0.55 - 1e-9 && a <= 0.90 + 1e-9, "{a} at {t}");
+            t += 50;
+        }
+        assert!(glow_alpha(800, false) > glow_alpha(0, false));
+        assert!((glow_alpha(0, false) - glow_alpha(1600, false)).abs() < 1e-9);
+        assert!((glow_alpha(800, false) - glow_alpha(2400, false)).abs() < 1e-9);
     }
 }

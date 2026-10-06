@@ -1679,7 +1679,7 @@
     box-shadow: none;
   }
 
-  .rail.stage-shell .section.drop-ok .wheel-tile {
+  .rail.stage-shell .arch-slot.drop-ok .arch-glyph {
     box-shadow: 0 0 0 2px var(--accent, #6e4db0);
   }
 
@@ -1749,178 +1749,356 @@
     left: 8px;
   }
 
-  .rail.stage-shell .wheel-band {
+  .rail.stage-shell .stage-strip {
     position: absolute;
+    inset: 0;
+    z-index: 4;
+  }
+
+  .rail.stage-shell .arch-ring,
+  .rail.stage-shell .layer2-ring {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
     pointer-events: none;
-    width: 780px;
-    height: 780px;
-    border-radius: 50%;
-    left: -620px;
-    top: 50%;
-    margin-top: -390px;
-    background:
-      radial-gradient(circle at 50% 50%,
-        transparent 0 61%,
-        rgba(255, 255, 255, 0.45) 62.2%,
-        transparent 63.4%,
-        #6a4ad4 64.5%,
-        #4a33a8 73%,
-        #2c1a6e 78%,
-        transparent 79.5%);
-    filter: drop-shadow(16px 0 28px rgba(90, 50, 200, 0.55));
+    transform: translate(var(--ad-x, 0px), var(--ad-y, 0px)) scale(var(--ad-scale, 1));
+    opacity: var(--ad-opacity, 1);
+    transform-origin: left center;
+    transition:
+      transform var(--ad-ms, 360ms) cubic-bezier(0.34, 1.56, 0.64, 1),
+      opacity var(--ad-ms, 360ms) cubic-bezier(0.34, 1.56, 0.64, 1),
+      filter var(--ad-ms, 360ms) ease;
   }
 
-  .rail.stage-shell[data-edge="right"] .wheel-band {
-    left: auto;
-    right: -620px;
-    filter: drop-shadow(-16px 0 28px rgba(90, 50, 200, 0.55));
-  }
+  .rail.stage-shell .layer2-ring { z-index: 3; }
 
-  .rail.stage-shell[data-edge="top"] .wheel-band {
-    left: 50%;
-    right: auto;
-    top: -620px;
-    margin: 0 0 0 -390px;
-    filter: drop-shadow(0 16px 28px rgba(90, 50, 200, 0.55));
-  }
+  .rail.stage-shell[data-edge="right"] .arch-ring,
+  .rail.stage-shell[data-edge="right"] .layer2-ring { transform-origin: right center; }
+  .rail.stage-shell[data-edge="top"] .arch-ring,
+  .rail.stage-shell[data-edge="top"] .layer2-ring { transform-origin: center top; }
+  .rail.stage-shell[data-edge="bottom"] .arch-ring,
+  .rail.stage-shell[data-edge="bottom"] .layer2-ring { transform-origin: center bottom; }
 
-  .rail.stage-shell[data-edge="bottom"] .wheel-band {
-    left: 50%;
-    right: auto;
-    top: auto;
-    bottom: -620px;
-    margin: 0 0 0 -390px;
-    filter: drop-shadow(0 -16px 28px rgba(90, 50, 200, 0.55));
-  }
-
-  .rail.stage-shell .wheel-notch {
+  .rail.stage-shell .arch-platter,
+  .rail.stage-shell .layer2-unmapped {
     position: absolute;
-    z-index: 6;
-    pointer-events: none;
-    width: 18px;
-    height: 18px;
-    left: 168px;
-    top: 50%;
-    margin-top: -9px;
-    border-radius: 4px;
-    background: linear-gradient(135deg, #9fd4ff, #3aa0ff);
-    clip-path: polygon(0 0, 100% 50%, 0 100%);
-    filter: drop-shadow(0 0 8px rgba(80, 180, 255, 0.85));
+    pointer-events: auto;
+    border: 0;
+    border-radius: 22px;
+    background: light-dark(
+      color-mix(in srgb, white 62%, transparent),
+      color-mix(in srgb, var(--surface, #1e1e1e) 58%, transparent)
+    );
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    backdrop-filter: blur(28px) saturate(180%);
+    border: 0.5px solid light-dark(rgb(0 0 0 / 0.10), rgb(255 255 255 / 0.16));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.28),
+      0 18px 48px rgb(0 0 0 / 0.32);
   }
 
-  .rail.stage-shell[data-edge="right"] .wheel-notch {
+  .rail.stage-shell[data-edge="left"] .arch-ring > .arch-platter {
+    left: 360px;
+    top: 36px;
+    bottom: 36px;
+    width: 250px;
+  }
+
+  .rail.stage-shell[data-edge="right"] .arch-ring > .arch-platter {
+    right: 360px;
     left: auto;
-    right: 168px;
-    transform: scaleX(-1);
+    top: 36px;
+    bottom: 36px;
+    width: 250px;
   }
 
-  .rail.stage-shell[data-edge="top"] .wheel-notch {
-    left: 50%;
-    top: 168px;
-    margin: 0 0 0 -9px;
-    transform: rotate(90deg);
+  .rail.stage-shell[data-edge="top"] .arch-ring > .arch-platter {
+    top: 360px;
+    left: 48px;
+    right: 48px;
+    height: 210px;
   }
 
-  .rail.stage-shell[data-edge="bottom"] .wheel-notch {
-    left: 50%;
+  .rail.stage-shell[data-edge="bottom"] .arch-ring > .arch-platter {
+    bottom: 360px;
     top: auto;
-    bottom: 168px;
-    margin: 0 0 0 -9px;
-    transform: rotate(-90deg);
+    left: 48px;
+    right: 48px;
+    height: 210px;
   }
 
-  .rail.stage-shell .wheel-tile {
+  .rail.stage-shell[data-edge="left"] .layer2-platter,
+  .rail.stage-shell[data-edge="left"] .layer2-unmapped {
+    left: 600px;
+    top: 72px;
+    bottom: 72px;
+    width: 240px;
+  }
+
+  .rail.stage-shell[data-edge="right"] .layer2-platter,
+  .rail.stage-shell[data-edge="right"] .layer2-unmapped {
+    right: 600px;
+    left: auto;
+    top: 72px;
+    bottom: 72px;
+    width: 240px;
+  }
+
+  .rail.stage-shell[data-edge="top"] .layer2-platter,
+  .rail.stage-shell[data-edge="top"] .layer2-unmapped {
+    top: 560px;
+    left: 80px;
+    right: 80px;
+    height: 140px;
+  }
+
+  .rail.stage-shell[data-edge="bottom"] .layer2-platter,
+  .rail.stage-shell[data-edge="bottom"] .layer2-unmapped {
+    bottom: 560px;
+    top: auto;
+    left: 80px;
+    right: 80px;
+    height: 140px;
+  }
+
+  .rail.stage-shell .layer2-unmapped {
+    overflow: auto;
+    padding: 12px 14px;
+    pointer-events: auto;
+  }
+
+  .rail.stage-shell .arch-list {
     position: absolute;
-    left: calc(var(--wx) * 1px - 100px);
-    top: calc(50% + var(--wy) * 1px);
-    z-index: var(--wz);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 180px;
-    height: 60px;
+    inset: 0;
     margin: 0;
-    padding: 0 12px;
-    border-radius: 18px;
-    border: 1px solid #d5d8e0;
-    background: linear-gradient(#ffffff, #eceef2);
-    color: #222;
-    font: inherit;
-    cursor: pointer;
+    padding: 0;
+    list-style: none;
+    pointer-events: none;
+  }
+
+  .rail.stage-shell .arch-slot,
+  .rail.stage-shell .l2-slot {
+    position: absolute;
+    z-index: var(--wz);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    pointer-events: auto;
+    --lift: 0px;
     --wh: 1;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.18);
-    transform: translate(-50%, -50%) rotate(calc(var(--wr) * 1deg)) scale(calc(var(--ws) * var(--wh, 1)));
+    transform: translate(-50%, -50%) translateY(var(--lift)) scale(calc(var(--ws) * var(--wh)));
     opacity: var(--wo);
     transition:
-      transform 240ms cubic-bezier(0.2, 0.8, 0.25, 1.08),
-      opacity 240ms cubic-bezier(0.2, 0.8, 0.25, 1.08),
-      filter 100ms ease,
-      box-shadow 100ms ease;
+      transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1),
+      opacity 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
-  .rail.stage-shell[data-edge="right"] .wheel-tile {
-    left: calc(100% + var(--wx) * 1px + 100px);
+  .rail.stage-shell[data-edge="left"] .arch-slot,
+  .rail.stage-shell[data-edge="left"] .l2-slot {
+    left: calc(var(--wx) * 1px);
+    top: calc(50% + var(--wy) * 1px);
   }
 
-  .rail.stage-shell[data-edge="top"] .wheel-tile {
+  .rail.stage-shell[data-edge="right"] .arch-slot,
+  .rail.stage-shell[data-edge="right"] .l2-slot {
+    left: calc(100% + var(--wx) * 1px);
+    top: calc(50% + var(--wy) * 1px);
+  }
+
+  .rail.stage-shell[data-edge="top"] .arch-slot,
+  .rail.stage-shell[data-edge="top"] .l2-slot {
     left: calc(50% + var(--wx) * 1px);
-    top: calc(var(--wy) * 1px - 80px);
+    top: calc(var(--wy) * 1px);
   }
 
-  .rail.stage-shell[data-edge="bottom"] .wheel-tile {
+  .rail.stage-shell[data-edge="bottom"] .arch-slot,
+  .rail.stage-shell[data-edge="bottom"] .l2-slot {
     left: calc(50% + var(--wx) * 1px);
-    top: calc(100% + var(--wy) * 1px + 80px);
+    top: calc(100% + var(--wy) * 1px);
   }
 
-  .rail.stage-shell .wheel-tile.is-hidden {
+  .rail.stage-shell .arch-slot.is-hidden,
+  .rail.stage-shell .l2-slot.is-hidden {
     visibility: hidden;
     pointer-events: none;
   }
 
-  .rail.stage-shell .wheel-tile.is-selected {
-    border: 2px solid #fff;
-    box-shadow:
-      0 0 0 2px var(--planet, #4a33a8),
-      0 0 28px color-mix(in srgb, var(--planet, #4a33a8) 72%, transparent),
-      0 10px 18px rgba(0, 0, 0, 0.22);
-  }
-
-  .rail.stage-shell .wheel-tile:not(.is-hidden):hover,
-  .rail.stage-shell .wheel-tile:not(.is-hidden):focus-visible {
+  .rail.stage-shell .arch-slot:hover,
+  .rail.stage-shell .arch-slot:focus-within,
+  .rail.stage-shell .l2-slot:hover,
+  .rail.stage-shell .l2-slot:focus-within {
+    --lift: -4px;
     --wh: 1.06;
-    filter: brightness(1.15);
-    outline: none;
-    box-shadow:
-      0 0 0 2px var(--planet, #8a8f98),
-      0 12px 18px rgba(0, 0, 0, 0.2);
-    transition-duration: 100ms;
   }
 
-  .rail.stage-shell .wheel-tile:not(.is-hidden):active {
+  .rail.stage-shell .arch-slot:has(.arch-hit:active),
+  .rail.stage-shell .l2-slot:has(.l2-hit:active) {
     --wh: 0.97;
-    filter: brightness(0.98);
-    transition-duration: 100ms;
+    --lift: 0px;
   }
 
-  .rail.stage-shell .wheel-tile.spin-jump {
+  .rail.stage-shell .arch-slot.spin-jump,
+  .rail.stage-shell .l2-slot.spin-jump {
     transition: none !important;
     animation: none !important;
   }
 
+  .rail.stage-shell .arch-hit,
+  .rail.stage-shell .l2-hit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #f5f5f7;
+    cursor: default;
+    font: inherit;
+  }
+
+  .rail.stage-shell .arch-hit {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .rail.stage-shell .arch-glyph {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #f7f7f8, #d5d5dc 58%, #b4b4be);
+    filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.28));
+  }
+
+  .rail.stage-shell .arch-slot:not(.is-neutral) .arch-glyph {
+    background: radial-gradient(
+      circle at 35% 30%,
+      color-mix(in srgb, white 58%, var(--planet, #8a8f98)),
+      var(--planet, #8a8f98) 62%,
+      color-mix(in srgb, black 22%, var(--planet, #8a8f98))
+    );
+  }
+
+  .rail.stage-shell .arch-slot.is-selected .arch-glyph {
+    width: 64px;
+    height: 64px;
+  }
+
+  .rail.stage-shell .arch-hit:focus-visible {
+    outline: none;
+  }
+
+  .rail.stage-shell .arch-hit:focus-visible .arch-glyph,
+  .rail.stage-shell .l2-hit:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px #0a84ff;
+    box-shadow: 0 0 0 3px color-mix(in srgb, AccentColor 55%, transparent);
+  }
+
   .rail.stage-shell .line-icon {
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
     flex: none;
   }
 
-  .rail.stage-shell .wheel-name {
-    min-width: 0;
+  .rail.stage-shell .arch-name {
+    max-width: 96px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: #222;
+    text-align: center;
+    color: #f5f5f7;
+    font: 500 12px/1.25 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
+  }
+
+  .rail.stage-shell .arch-slot.is-selected .arch-name {
+    max-width: 120px;
+    font-size: 13px;
     font-weight: 600;
-    font-size: 0.82rem;
+  }
+
+  .rail.stage-shell .l2-slot {
+    width: 148px;
+    height: 64px;
+  }
+
+  .rail.stage-shell .l2-hit {
+    width: 148px;
+    height: 64px;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border-radius: 12px;
+    justify-content: flex-start;
+    text-align: left;
+    color: light-dark(#1d1d1f, #f5f5f7);
+    background: light-dark(
+      color-mix(in srgb, white 70%, transparent),
+      color-mix(in srgb, var(--surface, #1e1e1e) 72%, transparent)
+    );
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    border: 0.5px solid light-dark(rgb(0 0 0 / 0.10), rgb(255 255 255 / 0.16));
+    box-shadow: 0 8px 18px rgb(0 0 0 / 0.22);
+    font: 500 12px/1.25 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  }
+
+  .rail.stage-shell .l2-hit .app-icon {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    border-radius: 6px;
+  }
+
+  .rail.stage-shell .l2-title {
+    min-width: 0;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    text-align: left;
+  }
+
+  .rail.stage-shell .l2-moon { opacity: 0.6; }
+  .rail.stage-shell .l2-slot:has(.l2-moon) .l2-hit { opacity: 0.6; }
+  .rail.stage-shell .l2-dock {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: #0a84ff;
+  }
+  .rail.stage-shell .l2-bang {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
+    border-radius: 50%;
+    background: #e0a100;
+    color: #1d1d1f;
+    font-weight: 700;
+  }
+  .rail.stage-shell .l2-dot {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    border-radius: 50%;
+    box-sizing: border-box;
+    border: 1.5px solid color-mix(in srgb, AccentColor 80%, #0a84ff);
+  }
+  .rail.stage-shell .l2-dot.is-doing {
+    background: #0a84ff;
+    background: AccentColor;
+    border-color: transparent;
+  }
+  .rail.stage-shell .l2-glyph {
+    width: 28px;
+    height: 28px;
+    flex: none;
   }
 
   .rail.stage-shell .spin-board {
@@ -1975,8 +2153,9 @@
     flex-direction: column;
   }
 
-  .rail.stage-shell .spin-board .spin-kanban.is-off {
-    display: none;
+  .rail.stage-shell .spin-board.is-off {
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .rail.stage-shell .spin-board .kanban {
@@ -1997,12 +2176,12 @@
     width: 100%;
   }
 
-  .rail.stage-shell .spin-newproj {
+  .rail.stage-shell .arch-slot .spin-newproj {
     position: absolute;
     z-index: 80;
-    left: calc(var(--wx) * 1px - 100px);
-    top: calc(50% + var(--wy) * 1px);
-    transform: translate(-50%, 42px);
+    left: 50%;
+    top: 100%;
+    transform: translate(-50%, 8px);
     display: flex;
     align-items: center;
     gap: 4px;
@@ -2011,20 +2190,6 @@
     background: rgba(248, 246, 252, 0.98);
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.18);
     pointer-events: auto;
-  }
-
-  .rail.stage-shell[data-edge="right"] .spin-newproj {
-    left: calc(100% + var(--wx) * 1px + 100px);
-  }
-
-  .rail.stage-shell[data-edge="top"] .spin-newproj {
-    left: calc(50% + var(--wx) * 1px);
-    top: calc(var(--wy) * 1px - 80px);
-  }
-
-  .rail.stage-shell[data-edge="bottom"] .spin-newproj {
-    left: calc(50% + var(--wx) * 1px);
-    top: calc(100% + var(--wy) * 1px + 80px);
   }
 
   .rail.stage-shell .spin-newproj .mini {
@@ -2041,31 +2206,6 @@
     margin-left: auto;
   }
 
-  .rail.stage-shell.stage-revealed[data-edge="left"] .wheel-tile:not(.is-hidden) {
-    animation: tile-swing-left 240ms cubic-bezier(0.2, 0.8, 0.25, 1.08) backwards;
-  }
-
-  .rail.stage-shell.stage-revealed[data-edge="right"] .wheel-tile:not(.is-hidden) {
-    animation: tile-swing-right 240ms cubic-bezier(0.2, 0.8, 0.25, 1.08) backwards;
-  }
-
-  .rail.stage-shell.stage-revealed[data-edge="top"] .wheel-tile:not(.is-hidden) {
-    animation: tile-swing-top 240ms cubic-bezier(0.2, 0.8, 0.25, 1.08) backwards;
-  }
-
-  .rail.stage-shell.stage-revealed[data-edge="bottom"] .wheel-tile:not(.is-hidden) {
-    animation: tile-swing-bottom 240ms cubic-bezier(0.2, 0.8, 0.25, 1.08) backwards;
-  }
-
-  .rail.stage-shell.stage-revealed .wheel-band {
-    animation: band-swing 240ms cubic-bezier(0.2, 0.8, 0.25, 1.08) backwards;
-  }
-
-  .rail.stage-shell.stage-revealed[data-edge="right"] .wheel-band,
-  .rail.stage-shell.stage-revealed[data-edge="bottom"] .wheel-band {
-    animation-name: band-swing-mirror;
-  }
-
   .rail.stage-shell .chrome {
     transition: opacity 160ms ease;
   }
@@ -2077,82 +2217,42 @@
     pointer-events: none;
   }
 
-  @keyframes tile-swing-left {
-    from {
-      opacity: 0;
-      transform: translate(-50%, -50%) translateX(-36px) rotate(calc(var(--wr) * 1deg - 24deg)) scale(calc(var(--ws) * var(--wh, 1)));
-    }
-    to {
-      opacity: var(--wo);
-      transform: translate(-50%, -50%) rotate(calc(var(--wr) * 1deg)) scale(calc(var(--ws) * var(--wh, 1)));
-    }
-  }
-
-  @keyframes tile-swing-right {
-    from {
-      opacity: 0;
-      transform: translate(-50%, -50%) translateX(36px) rotate(calc(var(--wr) * 1deg + 24deg)) scale(calc(var(--ws) * var(--wh, 1)));
-    }
-    to {
-      opacity: var(--wo);
-      transform: translate(-50%, -50%) rotate(calc(var(--wr) * 1deg)) scale(calc(var(--ws) * var(--wh, 1)));
-    }
-  }
-
-  @keyframes tile-swing-top {
-    from {
-      opacity: 0;
-      transform: translate(-50%, -50%) translateY(-28px) rotate(calc(var(--wr) * 1deg - 24deg)) scale(calc(var(--ws) * var(--wh, 1)));
-    }
-    to {
-      opacity: var(--wo);
-      transform: translate(-50%, -50%) rotate(calc(var(--wr) * 1deg)) scale(calc(var(--ws) * var(--wh, 1)));
-    }
-  }
-
-  @keyframes tile-swing-bottom {
-    from {
-      opacity: 0;
-      transform: translate(-50%, -50%) translateY(28px) rotate(calc(var(--wr) * 1deg + 24deg)) scale(calc(var(--ws) * var(--wh, 1)));
-    }
-    to {
-      opacity: var(--wo);
-      transform: translate(-50%, -50%) rotate(calc(var(--wr) * 1deg)) scale(calc(var(--ws) * var(--wh, 1)));
-    }
-  }
-
-  @keyframes band-swing {
-    from { opacity: 0; transform: rotate(-24deg); }
-    to { opacity: 1; transform: none; }
-  }
-
-  @keyframes band-swing-mirror {
-    from { opacity: 0; transform: rotate(24deg); }
-    to { opacity: 1; transform: none; }
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .rail.stage-shell .wheel-tile,
-    .rail.stage-shell .wheel-band,
-    .rail.stage-shell .wheel-notch,
+    .rail.stage-shell .arch-ring,
+    .rail.stage-shell .layer2-ring,
+    .rail.stage-shell .arch-slot,
+    .rail.stage-shell .l2-slot,
     .rail.stage-shell .chrome {
       --wh: 1 !important;
+      --lift: 0px !important;
       animation: none !important;
-      transition: opacity 80ms linear, filter 80ms linear, box-shadow 80ms linear !important;
+      transition: none !important;
+    }
+    .rail.stage-shell .arch-ring,
+    .rail.stage-shell .layer2-ring {
+      filter: none !important;
     }
   }
 
-  .rail.stage-shell.reduce-motion .wheel-tile,
-  .rail.stage-shell.reduce-motion .wheel-band,
-  .rail.stage-shell.reduce-motion .wheel-notch,
+  .rail.stage-shell.reduce-motion .arch-ring,
+  .rail.stage-shell.reduce-motion .layer2-ring,
+  .rail.stage-shell.reduce-motion .arch-slot,
+  .rail.stage-shell.reduce-motion .l2-slot,
   .rail.stage-shell.reduce-motion .chrome {
     --wh: 1 !important;
+    --lift: 0px !important;
     animation: none !important;
-    transition: opacity 80ms linear, filter 80ms linear, box-shadow 80ms linear !important;
+    transition: none !important;
   }
 
-  .rail.stage-shell.reduce-motion .wheel-tile:hover,
-  .rail.stage-shell.reduce-motion .wheel-tile:focus-visible,
-  .rail.stage-shell.reduce-motion .wheel-tile:active {
-    --wh: 1 !important;
+  .rail.stage-shell.reduce-motion .arch-ring,
+  .rail.stage-shell.reduce-motion .layer2-ring {
+    filter: none !important;
+  }
+
+  .rail.stage-shell.reduce-motion .arch-slot:hover .arch-glyph,
+  .rail.stage-shell.reduce-motion .arch-slot:focus-within .arch-glyph,
+  .rail.stage-shell.reduce-motion .l2-slot:hover .l2-hit,
+  .rail.stage-shell.reduce-motion .l2-slot:focus-within .l2-hit {
+    filter: brightness(1.12);
   }
