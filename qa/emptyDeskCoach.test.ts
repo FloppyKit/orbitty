@@ -5,6 +5,7 @@ import {
   coachDue,
   coachStops,
   emptyDeskShowsWheel,
+  normalizeStory,
   type CoachStory,
 } from "../src/lib/rail/coach.ts";
 import {
@@ -135,4 +136,37 @@ test("K9 zero windows and zero projects on an armed story shows the wheel", () =
   const stops = spinStops(items, true).map((s) => s.id);
   assert.equal(stops.includes("rnewproj"), true);
   assert.equal(due(), true);
+});
+
+const STARTER_STORY_KEYS = [
+  "v",
+  "skipped",
+  "coachDone",
+  "seededProjectId",
+  "commsBuilt",
+  "starsBuilt",
+  "introDone",
+];
+
+test("K10 normalizeStory keeps the starterStory key list", () => {
+  const raw = {
+    v: 3,
+    skipped: true,
+    coachDone: true,
+    seededProjectId: "planet-a",
+    commsBuilt: true,
+    starsBuilt: false,
+    introDone: true,
+  };
+  const out = normalizeStory(raw);
+  assert.deepEqual(Object.keys(out), STARTER_STORY_KEYS);
+  assert.deepEqual(out, {
+    v: 3,
+    skipped: true,
+    coachDone: true,
+    seededProjectId: "planet-a",
+    commsBuilt: true,
+    starsBuilt: false,
+    introDone: true,
+  });
 });

@@ -279,16 +279,20 @@ pub(crate) fn sync_chores(planet: &mut Planet, project_id: &str, incoming: &[Tod
     }
 }
 
+/// True when this planet already has a chore for `key`.
+/// Plant passes the card id. Build passes `outpost:comms` or `outpost:stars`.
+pub(crate) fn chore_exists(chores: &[TreeChore], project_id: &str, key: &str) -> bool {
+    chores
+        .iter()
+        .any(|c| c.project_id == project_id && c.card_id == key)
+}
+
 /// Walk a builder to the outpost foot. Keyed `outpost:comms|stars`, never
 /// the card id, so the card's Plant chore does not swallow it. No awake
 /// walker → build at once on a thread (no walk, no panic).
 pub(crate) fn enqueue_build(planet: &mut Planet, project_id: &str, kind: crate::starter::Outpost) {
     let key = crate::starter::build_chore_key(kind);
-    if planet
-        .tree_chores
-        .iter()
-        .any(|c| c.project_id == project_id && c.card_id == key)
-    {
+    if chore_exists(&planet.tree_chores, project_id, &key) {
         return;
     }
     let (walker_id, house) = pick_walker(planet, &key);
@@ -325,11 +329,7 @@ fn nudge_toward_center(x: f64, y: f64, dist: f64) -> (f64, f64) {
 }
 
 fn enqueue(planet: &mut Planet, project_id: &str, t: &TodoTreeTick, kind: ChoreKind) {
-    if planet
-        .tree_chores
-        .iter()
-        .any(|c| c.project_id == project_id && c.card_id == t.card_id)
-    {
+    if chore_exists(&planet.tree_chores, project_id, &t.card_id) {
         return;
     }
     let (walker_id, house) = pick_walker(planet, &t.card_id);
@@ -431,6 +431,96 @@ pub(crate) fn tick(planet: &mut Planet, dt: f64, project_id: &str) -> bool {
         });
     }
     moved
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Being, Projection};
+    use super::{enqueue, enqueue_build, ChoreKind, Planet, Pose};
+    use crate::chars::CharLook;
+    use crate::habitat::TodoTreeTick;
+    use crate::starter::{Outpost, ID_COMMS};
+
+    fn awake_planet() -> Planet {
+        let walker = Being {
+            entry_id: "w".into(),
+            label: "w".into(),
+            frame: super::NSRect::default(),
+            bob: 0.0,
+            icon: 0,
+            look: CharLook::default(),
+            user_scale: 1.0,
+            pack: None,
+            dim: 1.0,
+            asleep: false,
+            sprite_pack_id: String::new(),
+            pose: Pose::Stand,
+            droid: None,
+            droid_glance: 0,
+        };
+        Planet {
+            panel: 0,
+            view: 0,
+            name: "p".into(),
+            radius: 80.0,
+            sprite_scale: 1.0,
+            is_marble: false,
+            color: (0.2, 0.5, 0.3),
+            rotation: 0.0,
+            projection: Projection::default(),
+            walkers: vec![walker],
+            dots: Vec::new(),
+            caption: None,
+            hover_name: false,
+            orbit: None,
+            marble_scale: 1.0,
+            pin_until: None,
+            plants: Vec::new(),
+            mushrooms: Vec::new(),
+            buildings: Vec::new(),
+            boombox_pos: None,
+            boombox: false,
+            beach_ball: false,
+            ball: None,
+            audio: None,
+            audio_volume: 1.0,
+            decor_frames: Vec::new(),
+            roam: std::collections::HashMap::new(),
+            walker_entries: Vec::new(),
+            dot_entries: Vec::new(),
+            board_cards: Vec::new(),
+            todo_trees: Vec::new(),
+            todo_tree_frames: Vec::new(),
+            tree_grow_days: 14.0,
+            tree_chores: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn s9_enqueue_build_keeps_plant_and_build_and_dedups() {
+        let mut planet = awake_planet();
+        let plant = TodoTreeTick {
+            card_id: ID_COMMS.into(),
+            x: 0.2,
+            y: 0.1,
+            planted_at: 1.0,
+            due_at: None,
+            status: "todo".into(),
+        };
+        enqueue(&mut planet, "p", &plant, ChoreKind::Plant);
+        enqueue_build(&mut planet, "p", Outpost::Comms);
+        assert_eq!(planet.tree_chores.len(), 2);
+        assert!(planet.tree_chores.iter().any(|c| {
+            c.card_id == ID_COMMS && c.kind == ChoreKind::Plant && c.walker_id == "w"
+        }));
+        assert!(planet.tree_chores.iter().any(|c| {
+            c.card_id == "outpost:comms"
+                && c.kind == ChoreKind::Build(Outpost::Comms)
+                && c.walker_id == "w"
+        }));
+        enqueue_build(&mut planet, "p", Outpost::Comms);
+        assert_eq!(planet.tree_chores.len(), 2);
+    }
 }
 
 pub(crate) fn emit_moved(card_id: &str, x: f64, y: f64) {

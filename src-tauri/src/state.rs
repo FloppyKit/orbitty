@@ -2483,4 +2483,43 @@ mod tests {
         assert!(!merged.starter_story.intro_done);
         assert!(!merged.starter_story.skipped);
     }
+
+    #[test]
+    fn starter_story_serializes_to_the_camel_case_key_contract() {
+        let story = StarterStory {
+            v: 1,
+            skipped: true,
+            coach_done: true,
+            seeded_project_id: Some("p".into()),
+            comms_built: true,
+            stars_built: true,
+            intro_done: true,
+        };
+        let value = serde_json::to_value(&story).unwrap();
+        let obj = value.as_object().unwrap();
+        let keys: std::collections::BTreeSet<_> = obj.keys().cloned().collect();
+        let expect: std::collections::BTreeSet<_> = [
+            "v",
+            "skipped",
+            "coachDone",
+            "seededProjectId",
+            "commsBuilt",
+            "starsBuilt",
+            "introDone",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+        assert_eq!(keys, expect);
+        assert_eq!(obj.get("v").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(obj.get("skipped").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(obj.get("coachDone").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            obj.get("seededProjectId").and_then(|v| v.as_str()),
+            Some("p")
+        );
+        assert_eq!(obj.get("commsBuilt").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(obj.get("starsBuilt").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(obj.get("introDone").and_then(|v| v.as_bool()), Some(true));
+    }
 }

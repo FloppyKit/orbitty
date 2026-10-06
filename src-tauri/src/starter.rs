@@ -333,6 +333,7 @@ fn exec_intro(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(test)]
 pub fn apply_complete(state: &mut PersistedState, id: &str) {
     let Some(card) = state.kanban_cards.iter_mut().find(|c| c.id == id) else {
         return;
@@ -343,6 +344,7 @@ pub fn apply_complete(state: &mut PersistedState, id: &str) {
     card.status = "done".into();
 }
 
+#[cfg(test)]
 pub fn apply_act(state: &mut PersistedState, act: &Act) {
     match act {
         Act::Seed(pid) => {
@@ -545,6 +547,49 @@ mod tests {
     }
 
     #[test]
+    fn s2a_seeded_flag_alone_blocks_seed() {
+        let mut s = fresh_claimed("planet-a");
+        s.starter_story.seeded_project_id = Some("planet-a".into());
+        assert!(s.kanban_cards.is_empty());
+        assert!(s.card_tombstones.is_empty());
+        let n = s.kanban_cards.len();
+        assert!(!apply_seed(&mut s, "planet-a"));
+        assert_eq!(s.kanban_cards.len(), n);
+        assert!(plan(&view(&s))
+            .iter()
+            .all(|a| !matches!(a, Act::Seed(_))));
+    }
+
+    #[test]
+    fn s2b_id_or_tombstone_alone_blocks_apply_seed() {
+        let mut tomb = fresh_claimed("p");
+        assert!(tomb.starter_story.seeded_project_id.is_none());
+        tomb.card_tombstones.push(CardTombstone {
+            id: ID_BOARD.into(),
+            last_touched_at: 1.0,
+        });
+        assert!(!apply_seed(&mut tomb, "p"));
+        assert!(tomb.kanban_cards.is_empty());
+        assert!(tomb.starter_story.seeded_project_id.is_none());
+
+        let mut card = fresh_claimed("p");
+        assert!(card.starter_story.seeded_project_id.is_none());
+        card.kanban_cards.push(crate::board::todo_card(
+            ID_COMMS.into(),
+            "x",
+            "p",
+            "todo",
+            "user",
+            None,
+            1.0,
+        ));
+        assert!(!apply_seed(&mut card, "p"));
+        assert_eq!(card.kanban_cards.len(), 1);
+        assert_eq!(card.kanban_cards[0].id, ID_COMMS);
+        assert!(card.starter_story.seeded_project_id.is_none());
+    }
+
+    #[test]
     fn s3_seed_is_idempotent() {
         let mut s = fresh_claimed("p");
         assert!(apply_seed(&mut s, "p"));
@@ -700,20 +745,17 @@ mod tests {
     }
 
     #[test]
-    fn s9_build_chore_key_is_not_the_card_id() {
-        assert_eq!(build_chore_key(Outpost::Comms), "outpost:comms");
-        assert_eq!(build_chore_key(Outpost::Stars), "outpost:stars");
-        let mut keys = Vec::new();
-        let plant = ID_COMMS;
-        if !keys.iter().any(|k| k == plant) {
-            keys.push(plant.to_string());
-        }
-        let build = build_chore_key(Outpost::Comms);
-        if !keys.iter().any(|k| k == &build) {
-            keys.push(build);
-        }
-        assert_eq!(keys.len(), 2, "plant and build both live");
-        assert!(keys.contains(&"c-starter-comms".to_string()));
-        assert!(keys.contains(&"outpost:comms".to_string()));
+    fn s10_arm_once_guard_leaves_mid_story_unskipped() {
+        let mut s = fresh_claimed("p");
+        assert!(apply_seed(&mut s, "p"));
+        assert_eq!(s.starter_story.v, 1);
+        assert!(s.starter_story.seeded_project_id.is_some());
+        assert_eq!(s.claims.len(), 1);
+        assert_eq!(s.kanban_cards.len(), 4);
+        assert!(!s.starter_story.skipped);
+        let before = serde_json::to_value(&s.starter_story).unwrap();
+        arm(&mut s);
+        assert!(!s.starter_story.skipped);
+        assert_eq!(serde_json::to_value(&s.starter_story).unwrap(), before);
     }
 }
