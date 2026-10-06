@@ -7,8 +7,53 @@
   import WindowTiles from "./WindowTiles.svelte";
   import { boardSnapshot } from "./habitat";
   import type { RailApi } from "./api";
+  import { wheelCenter, wheelSlot, type StageEdge } from "./stageLook";
 
   let { rail }: { rail: RailApi } = $props();
+
+  let prevCenter = $state(0);
+  let wheelStamp = 0;
+
+  const wheelIds = $derived([
+    ...rail.projects.map((p: { id: string }) => p.id),
+    rail.UNMAPPED_KEY,
+  ]);
+  const openPlanetId = $derived(
+    wheelIds.find((id: string) => rail.stageRole(id) === "open") ?? null,
+  );
+  const centerIndex = $derived(
+    wheelCenter(wheelIds, openPlanetId, rail.menuRing.activeId, prevCenter),
+  );
+
+  $effect(() => {
+    if (prevCenter !== centerIndex) prevCenter = centerIndex;
+  });
+
+  function stageEdge(): StageEdge {
+    const edge = rail.railEdge;
+    return edge === "right" || edge === "top" || edge === "bottom" ? edge : "left";
+  }
+
+  function tileStyle(index: number, pid: string): string {
+    const slot = wheelSlot(index - centerIndex, stageEdge());
+    const tint = pid === rail.UNMAPPED_KEY ? "#8a8f98" : rail.planetCss(pid);
+    return `--wx:${slot.x};--wy:${slot.y};--wr:${slot.rotate};--ws:${slot.scale};--wo:${slot.opacity};--wz:${slot.z};--planet:${tint}`;
+  }
+
+  function tileHidden(index: number): boolean {
+    return wheelSlot(index - centerIndex, stageEdge()).hidden;
+  }
+
+  function onWheelColumn(e: WheelEvent) {
+    const dy = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    if (dy === 0 || wheelIds.length === 0) return;
+    const now = Date.now();
+    if (now - wheelStamp < 120) return;
+    wheelStamp = now;
+    const dir = dy > 0 ? 1 : -1;
+    const next = Math.max(0, Math.min(wheelIds.length - 1, centerIndex + dir));
+    if (next !== prevCenter) prevCenter = next;
+  }
 </script>
 
 {#snippet winRow(w: WindowInfo, project: Project | null)}
@@ -121,6 +166,47 @@
     </div>
   </li>
 
+{/snippet}
+
+{#snippet planetGlyph()}
+  <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
+    <circle cx="16" cy="16" r="6.5" fill="none" stroke="#8a8f98" stroke-width="1.7" />
+    <ellipse
+      cx="16"
+      cy="16"
+      rx="12"
+      ry="4.5"
+      fill="none"
+      stroke="var(--planet, #8a8f98)"
+      stroke-width="1.7"
+      transform="rotate(-18 16 16)"
+    />
+  </svg>
+{/snippet}
+
+{#snippet starGlyph()}
+  <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
+    <path
+      d="M16 5.5 18.7 12h6.8l-5.5 4.2 2.1 6.8L16 18.8 10 23l2.1-6.8L6.5 12h6.8Z"
+      fill="none"
+      stroke="#8a8f98"
+      stroke-width="1.6"
+      stroke-linejoin="round"
+    />
+  </svg>
+{/snippet}
+
+{#snippet gearGlyph()}
+  <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
+    <circle cx="16" cy="16" r="4" fill="none" stroke="#8a8f98" stroke-width="1.7" />
+    <path
+      d="M16 4.5v3.2M16 24.3v3.2M4.5 16h3.2M24.3 16h3.2M7.4 7.4l2.3 2.3M22.3 22.3l2.3 2.3M24.6 7.4l-2.3 2.3M9.7 22.3l-2.3 2.3"
+      fill="none"
+      stroke="#8a8f98"
+      stroke-width="1.7"
+      stroke-linecap="round"
+    />
+  </svg>
 {/snippet}
 
 <div class="scroll">
@@ -241,25 +327,26 @@
         {/if}
         <div class="stage-hit" aria-hidden="true"></div>
         <div class="stage-strip">
+        <div class="pinned-cluster">
         <div class="stage-front" aria-label="Rail">
           <button
             type="button"
-            class="stage-icon front"
+            class="wheel-tile pinned-tile"
             data-mkey="rstars"
             class:mkey-sel={rail.menuRing.activeId === "rstars"}
             title="Stars"
             aria-label="Stars"
             onclick={() => rail.openStageDest("stars")}
-          >Stars</button>
+          >{@render starGlyph()}<span class="wheel-name">Stars</span></button>
           <button
             type="button"
-            class="stage-icon front"
+            class="wheel-tile pinned-tile"
             data-mkey="rsettings"
             class:mkey-sel={rail.menuRing.activeId === "rsettings"}
             title="Settings"
             aria-label="Settings"
             onclick={() => rail.openStageDest("settings")}
-          >Settings</button>
+          >{@render gearGlyph()}<span class="wheel-name">Settings</span></button>
         </div>
         <div class="col-toggles" role="group" aria-label="Board columns">
           {#each [{ id: "todo", label: "Todo" }, { id: "doing", label: "Doing" }, { id: "done", label: "Done" }] as col (col.id)}
@@ -274,6 +361,10 @@
             >{col.label}</button>
           {/each}
         </div>
+        </div>
+        <div class="wheel-col" onwheel={onWheelColumn}>
+          <div class="wheel-band" aria-hidden="true"></div>
+          <div class="wheel-notch" aria-hidden="true"></div>
         {#if rail.wakeNote}
           <div class="hermes-note" class:err={rail.wakeNote.kind === "err"}>
             <span class="hermes-text">{rail.wakeNote.text}</span>
@@ -281,7 +372,7 @@
           </div>
         {/if}
         <ul class="wins">
-          {#each rail.projects as p (p.id)}
+          {#each rail.projects as p, i (p.id)}
             {@const rows = rail.rowsFor(p.id)}
             {@const shown = rail.visibleRows(rows)}
             {@const agents = rail.agentRowsFor(p.id)}
@@ -297,18 +388,27 @@
               ondragleave={(e) => rail.onSectionDragLeave(e, p.id)}
               ondrop={(e) => rail.onSectionDrop(e, p.id)}
             >
-              <div class="head-row">
-                <button
-                  type="button"
-                  class="stage-icon"
-                  data-mkey={`rhead-${p.id}`}
-                  class:mkey-sel={rail.menuRing.activeId === `rhead-${p.id}`}
-                  aria-expanded={role === "open"}
-                  aria-label={role === "open" ? p.name : `Expand ${p.name}`}
-                  title={p.name}
-                  onclick={() => rail.ensureExpand(p.id)}
-                >{p.name.trim().charAt(0).toUpperCase() || "?"}</button>
-                {#if role === "open"}
+              <button
+                type="button"
+                class="wheel-tile"
+                class:is-selected={i === centerIndex}
+                class:is-hidden={tileHidden(i)}
+                style={tileStyle(i, p.id)}
+                data-mkey={`rhead-${p.id}`}
+                class:mkey-sel={rail.menuRing.activeId === `rhead-${p.id}`}
+                aria-expanded={role === "open"}
+                aria-label={role === "open" ? p.name : `Expand ${p.name}`}
+                title={p.name}
+                onclick={() => rail.ensureExpand(p.id)}
+              >{@render planetGlyph()}<span class="wheel-name">{p.name}</span></button>
+              {#if role === "open"}
+                <div class="stage-preview" style={`--planet:${rail.planetCss(p.id)}`}>
+                  <div class="name-pill">
+                    {@render planetGlyph()}
+                    <span class="wheel-name">{p.name}</span>
+                  </div>
+                  <div class="preview-body">
+                  <div class="head-row preview-head">
                   <PlanetHead
                     name={p.name}
                     chip={rail.planetCss(p.id)}
@@ -335,12 +435,10 @@
                     onclick={() => rail.collapsePlanet(p.id)}
                   >Back</button>
                   <RailPlanetRm {rail} project={p} />
-                {/if}
-              </div>
+                  </div>
               {#if rail.rmErrorFor?.id === p.id}
                 <p class="rm-err" role="alert">{rail.rmErrorFor.msg}</p>
               {/if}
-              {#if role === "open"}
                 {#if p.name.trim().toLowerCase() !== "void"}
                   <input
                     class="root-path"
@@ -403,6 +501,8 @@
                       >
                     {/if}
                 </div>
+                  </div>
+                </div>
               {/if}
             </li>
           {/each}
@@ -419,7 +519,10 @@
           >
             <button
               type="button"
-              class="stage-icon"
+              class="wheel-tile"
+              class:is-selected={rail.projects.length === centerIndex}
+              class:is-hidden={tileHidden(rail.projects.length)}
+              style={tileStyle(rail.projects.length, rail.UNMAPPED_KEY)}
               aria-expanded={rail.stageRole(rail.UNMAPPED_KEY) === "open"}
               title="Unmapped"
               aria-label="Unmapped"
@@ -427,8 +530,14 @@
                 rail.stageRole(rail.UNMAPPED_KEY) === "open"
                   ? rail.collapsePlanet(rail.UNMAPPED_KEY)
                   : rail.ensureExpand(rail.UNMAPPED_KEY)}
-            >U</button>
+            >{@render planetGlyph()}<span class="wheel-name">Unmapped</span></button>
             {#if rail.stageRole(rail.UNMAPPED_KEY) === "open"}
+              <div class="stage-preview" style="--planet:#8a8f98">
+                <div class="name-pill">
+                  {@render planetGlyph()}
+                  <span class="wheel-name">Unmapped</span>
+                </div>
+                <div class="preview-body">
               <ul class="wins">
                 {#each rail.visibleRows(rail.unmapped) as w (w.id)}
                   {@render winRow(w, null)}
@@ -439,9 +548,12 @@
                   </li>
                 {/if}
               </ul>
+                </div>
+              </div>
             {/if}
           </li>
         </ul>
+        </div>
         </div>
       {/if}
     {/if}

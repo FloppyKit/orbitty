@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   boardSnapshot,
-  habitatArrow,
   habitatConfirm,
   habitatStops,
+  wheelArrow,
   normalizeCols,
   planetCount,
   raisePlan,
@@ -292,16 +292,18 @@ test("H9 ring order", () => {
 });
 
 test("H10 arrows", () => {
-  assert.equal(habitatArrow(ring, "rhead-A", "down"), "rraise-A");
-  assert.equal(habitatArrow(ring, "rraise-A", "down"), "rtile-a1");
-  assert.equal(habitatArrow(ring, "rtile-a1", "up"), "rraise-A");
-  assert.equal(habitatArrow(ring, "rtodos-A", "down"), "rhead-B");
-  assert.equal(habitatArrow(ring, "rhead-B", "up"), "rtodos-A");
-  assert.equal(habitatArrow(ring, "rtile-a1", "right"), "rtile-a2");
-  assert.equal(habitatArrow(ring, "rtile-a2", "right"), null);
-  assert.equal(habitatArrow(ring, "rhead-B", "down"), null);
-  assert.equal(habitatArrow(ring, "rsnap-n1", "right"), "rsnap-t1");
-  assert.equal(habitatArrow(ring, "rsnap-t1", "right"), null);
+  assert.equal(wheelArrow(ring, "rhead-A", "right", "left"), "rraise-A");
+  assert.equal(wheelArrow(ring, "rhead-A", "down", "left"), "rhead-B");
+  assert.equal(wheelArrow(ring, "rraise-A", "down", "left"), "rtile-a1");
+  assert.equal(wheelArrow(ring, "rtile-a1", "up", "left"), "rraise-A");
+  assert.equal(wheelArrow(ring, "rraise-A", "left", "left"), "rhead-A");
+  assert.equal(wheelArrow(ring, "rhead-B", "up", "left"), "rhead-A");
+  assert.equal(wheelArrow(ring, "rtile-a1", "right", "left"), "rtile-a2");
+  assert.equal(wheelArrow(ring, "rtile-a2", "right", "left"), null);
+  assert.equal(wheelArrow(ring, "rhead-B", "down", "left"), null);
+  assert.equal(wheelArrow(ring, "rsnap-n1", "right", "left"), "rsnap-t1");
+  assert.equal(wheelArrow(ring, "rsnap-t1", "right", "left"), null);
+  assert.equal(wheelArrow(ring, "rtodos-A", "left", "left"), "rhead-A");
 });
 
 test("E1 head confirm is expand", () => {
@@ -324,10 +326,11 @@ test("E2 raise confirm is raise", () => {
 test("E3 raise stop only when open", () => {
   const stops = habitatStops(ring);
   const ids = stops.map((s) => s.id);
-  const head = ids.indexOf("rhead-A");
-  assert.ok(head >= 0);
-  assert.equal(ids[head + 1], "rraise-A");
-  assert.equal(ids[head + 2], "rtile-a1");
+  assert.equal(ids.includes("rhead-A"), true);
+  assert.equal(ids.includes("rraise-A"), true);
+  assert.equal(ids.includes("rtile-a1"), true);
+  assert.equal(wheelArrow(ring, "rhead-A", "right", "left"), "rraise-A");
+  assert.equal(wheelArrow(ring, "rraise-A", "down", "left"), "rtile-a1");
   assert.deepEqual(
     stops.filter((s) => s.group === "B").map((s) => s.id),
     ["rhead-B"],
@@ -335,19 +338,20 @@ test("E3 raise stop only when open", () => {
 });
 
 test("E4 arrows through raise", () => {
-  assert.equal(habitatArrow(ring, "rhead-A", "down"), "rraise-A");
-  assert.equal(habitatArrow(ring, "rraise-A", "down"), "rtile-a1");
-  assert.equal(habitatArrow(ring, "rtile-a1", "up"), "rraise-A");
+  assert.equal(wheelArrow(ring, "rhead-A", "right", "left"), "rraise-A");
+  assert.equal(wheelArrow(ring, "rraise-A", "down", "left"), "rtile-a1");
+  assert.equal(wheelArrow(ring, "rtile-a1", "up", "left"), "rraise-A");
+  assert.equal(wheelArrow(ring, "rraise-A", "left", "left"), "rhead-A");
 
   const snapOnly: HabitatSection[] = [
     { pid: "A", open: true, tileIds: [], snapCols: [["n1"]], hasTodos: false },
   ];
-  assert.equal(habitatArrow(snapOnly, "rraise-A", "down"), "rsnap-n1");
-  assert.equal(habitatArrow(snapOnly, "rsnap-n1", "up"), "rraise-A");
+  assert.equal(wheelArrow(snapOnly, "rraise-A", "down", "left"), "rsnap-n1");
+  assert.equal(wheelArrow(snapOnly, "rsnap-n1", "up", "left"), "rraise-A");
 
   const todosOnly: HabitatSection[] = [
     { pid: "A", open: true, tileIds: [], snapCols: [], hasTodos: true },
   ];
-  assert.equal(habitatArrow(todosOnly, "rraise-A", "down"), "rtodos-A");
-  assert.equal(habitatArrow(todosOnly, "rtodos-A", "up"), "rraise-A");
+  assert.equal(wheelArrow(todosOnly, "rraise-A", "down", "left"), "rtodos-A");
+  assert.equal(wheelArrow(todosOnly, "rtodos-A", "up", "left"), "rraise-A");
 });

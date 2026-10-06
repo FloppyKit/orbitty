@@ -25,7 +25,7 @@
 </script>
 
 {#if columns.length > 0}
-  <div class="snap" aria-label="Board snapshot">
+  <div class="snap preview-snap" aria-label="Board snapshot">
     {#each columns as col (col.id)}
       <div class="snap-col">
         <span class="snap-h">{label[col.id] ?? col.id}</span>

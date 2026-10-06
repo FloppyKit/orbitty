@@ -213,52 +213,181 @@ export function habitatStops(sections: readonly HabitatSection[]): HabitatStop[]
   return stops;
 }
 
-function step(ids: string[], id: string, delta: number): string | null {
-  const i = ids.indexOf(id);
-  if (i < 0) return null;
-  return ids[i + delta] ?? null;
+const COL_STOPS = ["rcol-todo", "rcol-doing", "rcol-done"] as const;
+
+interface WheelAxis {
+  back: HabitatDir;
+  forward: HabitatDir;
+  inward: HabitatDir;
+  outward: HabitatDir;
 }
 
-function tileArrow(
-  section: HabitatSection,
-  wid: string,
-  dir: HabitatDir,
-): string | null {
-  const ti = section.tileIds.indexOf(wid);
-  if (ti < 0) return null;
-  const col = ti % TILE_COLS;
-  if (dir === "right") {
-    if (col + 1 >= TILE_COLS) return null;
-    const next = section.tileIds[ti + 1];
-    return next ? `rtile-${next}` : null;
+/** Wheel axis follows the arc. Inward points at screen centre. No wrap. */
+function wheelAxis(edge: RailEdge): WheelAxis {
+  switch (edge) {
+    case "right":
+      return { back: "up", forward: "down", inward: "left", outward: "right" };
+    case "top":
+      return { back: "left", forward: "right", inward: "down", outward: "up" };
+    case "bottom":
+      return { back: "left", forward: "right", inward: "up", outward: "down" };
+    default:
+      return { back: "up", forward: "down", inward: "right", outward: "left" };
   }
-  if (dir === "left") {
-    if (col === 0) return null;
-    const prev = section.tileIds[ti - 1];
-    return prev ? `rtile-${prev}` : null;
+}
+
+function centreHead(sections: readonly HabitatSection[]): string | null {
+  if (sections.length === 0) return null;
+  const open = sections.find((s) => s.open);
+  const pid = open?.pid ?? sections[0].pid;
+  return `rhead-${pid}`;
+}
+
+function pinnedArrow(
+  id: string,
+  dir: HabitatDir,
+  ax: WheelAxis,
+  sections: readonly HabitatSection[],
+): string | null {
+  const planet = centreHead(sections);
+  if (id.startsWith("rcol-") && (dir === "left" || dir === "right")) {
+    const i = COL_STOPS.indexOf(id as (typeof COL_STOPS)[number]);
+    if (i < 0) return null;
+    const next = COL_STOPS[i + (dir === "right" ? 1 : -1)];
+    if (next) return next;
+    if (dir === ax.forward) return planet;
+    if (dir === ax.back) return "rsettings";
+    return null;
+  }
+  if (id === "rstars") {
+    if (dir === ax.forward || dir === ax.inward) return "rsettings";
+    return null;
+  }
+  if (id === "rsettings") {
+    if (dir === ax.back || dir === ax.outward) return "rstars";
+    if (dir === ax.forward || dir === ax.inward) return "rcol-todo";
+    return null;
+  }
+  if (id.startsWith("rcol-")) {
+    if (dir === ax.back || dir === ax.outward) return "rsettings";
+    if (dir === ax.forward || dir === ax.inward) return planet;
+    return null;
   }
   return null;
 }
 
-function snapArrow(
-  section: HabitatSection,
-  cardId: string,
+function headArrow(
+  sections: readonly HabitatSection[],
+  id: string,
   dir: HabitatDir,
+  ax: WheelAxis,
 ): string | null {
-  let ci = -1;
-  let ri = -1;
-  section.snapCols.forEach((col, i) => {
-    const r = col.indexOf(cardId);
-    if (r >= 0) {
-      ci = i;
-      ri = r;
+  const pid = id.slice("rhead-".length);
+  const i = sections.findIndex((s) => s.pid === pid);
+  if (i < 0) return null;
+  if (dir === ax.forward) {
+    return i + 1 < sections.length ? `rhead-${sections[i + 1].pid}` : null;
+  }
+  if (dir === ax.back) {
+    if (i > 0) return `rhead-${sections[i - 1].pid}`;
+    return "rsettings";
+  }
+  if (dir === ax.inward && sections[i].open) return `rraise-${pid}`;
+  return null;
+}
+
+interface PreviewCell {
+  id: string;
+  u: number;
+  v: number;
+}
+
+/** u grows inward (away from the wheel). v grows along the preview. */
+function previewCells(section: HabitatSection): PreviewCell[] {
+  const cells: PreviewCell[] = [{ id: `rraise-${section.pid}`, u: 0, v: 0 }];
+  let v = 1;
+  for (let i = 0; i < section.tileIds.length; i += TILE_COLS) {
+    section.tileIds.slice(i, i + TILE_COLS).forEach((id, u) => {
+      cells.push({ id: `rtile-${id}`, u, v });
+    });
+    v += 1;
+  }
+  const height = section.snapCols.reduce((n, col) => Math.max(n, col.length), 0);
+  for (let r = 0; r < height; r++) {
+    let u = 0;
+    let any = false;
+    for (const col of section.snapCols) {
+      const id = col[r];
+      if (!id) continue;
+      cells.push({ id: `rsnap-${id}`, u, v });
+      u += 1;
+      any = true;
     }
-  });
-  if (ci < 0) return null;
-  if (dir !== "left" && dir !== "right") return null;
-  const dest = section.snapCols[ci + (dir === "right" ? 1 : -1)];
-  if (!dest || dest.length === 0) return null;
-  return `rsnap-${dest[Math.min(ri, dest.length - 1)]}`;
+    if (any) v += 1;
+  }
+  if (section.hasTodos) cells.push({ id: `rtodos-${section.pid}`, u: 0, v });
+  return cells;
+}
+
+function sectionForStop(
+  sections: readonly HabitatSection[],
+  id: string,
+): HabitatSection | null {
+  if (id.startsWith("rraise-")) {
+    const pid = id.slice("rraise-".length);
+    return sections.find((s) => s.open && s.pid === pid) ?? null;
+  }
+  if (id.startsWith("rtodos-")) {
+    const pid = id.slice("rtodos-".length);
+    return sections.find((s) => s.open && s.pid === pid) ?? null;
+  }
+  if (id.startsWith("rtile-")) {
+    const wid = id.slice("rtile-".length);
+    return sections.find((s) => s.open && s.tileIds.includes(wid)) ?? null;
+  }
+  if (id.startsWith("rsnap-")) {
+    const cardId = id.slice("rsnap-".length);
+    return (
+      sections.find((s) => s.open && s.snapCols.some((col) => col.includes(cardId))) ?? null
+    );
+  }
+  return null;
+}
+
+function previewArrow(
+  section: HabitatSection,
+  id: string,
+  dir: HabitatDir,
+  ax: WheelAxis,
+): string | null {
+  const cells = previewCells(section);
+  const here = cells.find((c) => c.id === id);
+  if (!here) return null;
+  const du = dir === ax.inward ? 1 : dir === ax.outward ? -1 : 0;
+  const dv = dir === ax.forward ? 1 : dir === ax.back ? -1 : 0;
+  if (du === 0 && dv === 0) return null;
+  let best: PreviewCell | null = null;
+  let bestD = Infinity;
+  for (const cell of cells) {
+    if (cell.id === here.id) continue;
+    if (du !== 0 && dv === 0) {
+      if (cell.v !== here.v) continue;
+      if (Math.sign(cell.u - here.u) !== Math.sign(du)) continue;
+    } else if (dv !== 0 && du === 0) {
+      if (cell.u !== here.u) continue;
+      if (Math.sign(cell.v - here.v) !== Math.sign(dv)) continue;
+    } else {
+      continue;
+    }
+    const dist = Math.abs(cell.u - here.u) + Math.abs(cell.v - here.v);
+    if (dist < bestD) {
+      best = cell;
+      bestD = dist;
+    }
+  }
+  if (best) return best.id;
+  if (du < 0 && here.u === 0) return `rhead-${section.pid}`;
+  return null;
 }
 
 export type HabitatConfirm =
@@ -285,43 +414,45 @@ export function habitatConfirm(id: string): HabitatConfirm | null {
   return null;
 }
 
-/** ↑/↓ walk the painted stop list. ←/→ stay inside a tile row or hop
- *  snapshot columns. A move that would leave that row returns null. */
-export function habitatArrow(
+/**
+ * Arc nav. On the wheel, the axis steps planet → planet (open content is
+ * skipped, no wrap). Inward on an open head enters the preview at raise.
+ * Inside the preview, arrows move on a grid (u inward, v along the panel);
+ * outward from the wheel-side edge returns to that planet's head.
+ * Stars / Settings / column chips stay a pinned cluster off the wheel.
+ * `edge` defaults to left. Unknown edges normalize to left.
+ */
+export function wheelArrow(
   sections: readonly HabitatSection[],
   activeId: string | null,
   dir: HabitatDir,
+  edge: RailEdge | string = "left",
 ): string | null {
   if (!activeId) return null;
   const ids = habitatStops(sections).map((s) => s.id);
   if (!ids.includes(activeId)) return null;
-
-  if (activeId.startsWith("rtile-")) {
-    const wid = activeId.slice("rtile-".length);
-    const section = sections.find((s) => s.open && s.tileIds.includes(wid));
-    if (!section) return null;
-    if (dir === "left" || dir === "right") return tileArrow(section, wid, dir);
-  } else if (activeId.startsWith("rsnap-")) {
-    const cardId = activeId.slice("rsnap-".length);
-    const section = sections.find(
-      (s) => s.open && s.snapCols.some((col) => col.includes(cardId)),
-    );
-    if (!section) return null;
-    if (dir === "left" || dir === "right") return snapArrow(section, cardId, dir);
-  } else if (
-    (dir === "left" || dir === "right") &&
+  const ax = wheelAxis(normalizeRailEdge(edge));
+  if (
+    activeId === "rstars" ||
+    activeId === "rsettings" ||
     activeId.startsWith("rcol-")
   ) {
-    const cols = BOARD_COLS.map((c) => `rcol-${c}`);
-    const i = cols.indexOf(activeId);
-    if (i < 0) return null;
-    return cols[i + (dir === "right" ? 1 : -1)] ?? null;
-  } else if (dir === "left" || dir === "right") {
-    return null;
+    return pinnedArrow(activeId, dir, ax, sections);
   }
+  if (activeId.startsWith("rhead-")) return headArrow(sections, activeId, dir, ax);
+  const section = sectionForStop(sections, activeId);
+  if (!section) return null;
+  return previewArrow(section, activeId, dir, ax);
+}
 
-  if (dir === "up" || dir === "down") return step(ids, activeId, dir === "down" ? 1 : -1);
-  return null;
+/** Same walk as `wheelArrow`. The stage rail passes its edge. */
+export function habitatArrow(
+  sections: readonly HabitatSection[],
+  activeId: string | null,
+  dir: HabitatDir,
+  edge: RailEdge | string = "left",
+): string | null {
+  return wheelArrow(sections, activeId, dir, edge);
 }
 
 /** Screen edge the stage strip parks against. Missing or unknown → left. */

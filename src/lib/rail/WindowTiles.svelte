@@ -20,7 +20,7 @@
 
 {#if view.shown.length > 0 || view.more > 0}
   <div
-    class="tile-grid"
+    class="tile-grid preview-tiles"
     style={`grid-template-columns: repeat(${TILE_COLS}, minmax(0, 1fr))`}
   >
     {#each view.shown as tile (tile.id)}

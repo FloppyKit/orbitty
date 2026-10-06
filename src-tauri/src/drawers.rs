@@ -1352,9 +1352,7 @@ pub(crate) fn rail_stage_apply(app: &tauri::AppHandle, revealed: bool) {
         }
         let pvfs = points_frames(&screen_visible_frames());
         if let Some(vf) = pvfs.first().copied() {
-            let (ww, hh) = live_points_rect(&w)
-                .map(|r| (r.w.max(160.0), r.h.max(200.0)))
-                .unwrap_or((360.0, 420.0));
+            let (ww, hh) = state::rail_wheel_size(&edge, revealed, vf.w, vf.h);
             let (x, y, fw, fh) =
                 state::rail_stage_frame(&edge, revealed, vf.x, vf.y, vf.w, vf.h, ww, hh);
             appkit_place_points(

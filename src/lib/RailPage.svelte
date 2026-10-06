@@ -19,12 +19,20 @@
   import RailList from "./rail/List.svelte";
   import RailClaimUi from "./rail/ClaimUi.svelte";
   import {
+    PIN_H,
+    PREVIEW_MARGIN,
+    WHEEL_COL,
+    WHEEL_ROW,
+    paintedZoneHit,
+    wheelLayout,
+  } from "./rail/stageLook";
+  import {
     applyPlanetOpen,
     autoHideWanted,
     boardSnapshot,
-    habitatArrow,
     habitatConfirm,
     habitatStops,
+    wheelArrow,
     normalizeCols,
     planetCount,
     raisePlan,
@@ -182,6 +190,7 @@
   let railEdge = $state<RailEdge>("left");
   let railAutoHideOnBlur = $state(true);
   let stageRevealed = $state(false);
+  let reduceMotion = $state(false);
   let pointerInside = false;
   let focusInside = false;
   let hideTitles = $state(false);
@@ -538,6 +547,45 @@
     if (!inside) maybeAutoHide();
   }
 
+  function previewStop(id: string | null): boolean {
+    if (!id) return false;
+    return (
+      id.startsWith("rraise-") ||
+      id.startsWith("rtile-") ||
+      id.startsWith("rsnap-") ||
+      id.startsWith("rtodos-")
+    );
+  }
+
+  function overPainted(e: PointerEvent): boolean {
+    const host = e.currentTarget;
+    if (!(host instanceof HTMLElement)) return false;
+    const rect = host.getBoundingClientRect();
+    const layout = wheelLayout(railEdge, rect.width, rect.height);
+    return paintedZoneHit(
+      { x: e.clientX - rect.left, y: e.clientY - rect.top },
+      layout,
+      openSectionId() != null,
+    );
+  }
+
+  function onStagePointerMove(e: PointerEvent) {
+    if (embedded) return;
+    if (!stageRevealed) {
+      if (!pointerInside) stagePointer(true);
+      return;
+    }
+    const hit = overPainted(e);
+    if (hit !== pointerInside) stagePointer(hit);
+  }
+
+  function onStagePointerDown(e: PointerEvent) {
+    if (embedded || !stageRevealed) return;
+    if (overPainted(e)) return;
+    pointerInside = false;
+    stageFocus(false);
+  }
+
   function onWinBlur() {
     stageFocus(false);
   }
@@ -743,7 +791,7 @@
       group: stop.group,
       confirm: () => confirmHabitatStop(stop.id),
       arrow: (dir) => {
-        const next = habitatArrow(sections, stop.id, dir);
+        const next = wheelArrow(sections, stop.id, dir, railEdge);
         if (next) menuRing.select(next);
         return true;
       },
@@ -2608,7 +2656,13 @@
   const onOsThemeChange = () => {
     if (!themeChosen) themeId = osThemeId();
   };
+  const motionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const onMotionChange = () => {
+    reduceMotion = motionMedia.matches;
+  };
   onMount(async () => {
+    reduceMotion = motionMedia.matches;
+    motionMedia.addEventListener("change", onMotionChange);
     detachMenuKeys = menuRing.attach(() => {
       if (claimPickerFor) {
         claimPickerFor = null;
@@ -2617,6 +2671,13 @@
       if (creatingProject) {
         creatingProject = false;
         return true;
+      }
+      if (!embedded && previewStop(menuRing.activeId)) {
+        const pid = openSectionId();
+        if (pid) {
+          menuRing.select(`rhead-${pid}`);
+          return true;
+        }
       }
       return false;
     });
@@ -2992,6 +3053,7 @@
     timer = setInterval(tick, 800);
   });
   onDestroy(() => {
+    motionMedia.removeEventListener("change", onMotionChange);
     clearInterval(timer);
     detachMenuKeys?.();
     unlistenExpand?.();
@@ -3209,11 +3271,14 @@
   class:stage-shell={!embedded}
   class:stage-revealed={!embedded && stageRevealed}
   class:stage-parked={!embedded && !stageRevealed}
+  class:reduce-motion={reduceMotion}
   data-edge={railEdge}
+  style={`--wheel-col:${WHEEL_COL}px;--wheel-row:${WHEEL_ROW}px;--pin-h:${PIN_H}px;--preview-m:${PREVIEW_MARGIN}px`}
   class:autohide={autohideRowChrome}
   class:hide-titles={hideTitles}
   class:hide-icons={hideAppIcons}
-  onmouseenter={() => stagePointer(true)}
+  onpointermove={onStagePointerMove}
+  onpointerdown={onStagePointerDown}
   onmouseleave={() => stagePointer(false)}
   onfocusin={() => stageFocus(true)}
   onfocusout={(e) => {

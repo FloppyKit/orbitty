@@ -16,6 +16,7 @@ import {
   stagePrefs,
   stageRoles,
   stageStripIds,
+  wheelArrow,
   type HabitatSection,
 } from "../src/lib/rail/habitat.ts";
 
@@ -50,8 +51,9 @@ test("S2 strip order", () => {
     (id) => id === "rstars" || id === "rsettings" || id.startsWith("rhead-"),
   );
   assert.deepEqual(icons, ["rstars", "rsettings", "rhead-A", "rhead-B"]);
-  assert.ok(ids.indexOf("rstars") < ids.indexOf("rhead-A"));
-  assert.ok(ids.indexOf("rsettings") < ids.indexOf("rhead-A"));
+  assert.equal(wheelArrow(collapsed, "rhead-A", "up", "left"), "rsettings");
+  assert.equal(wheelArrow(collapsed, "rsettings", "up", "left"), "rstars");
+  assert.equal(wheelArrow(collapsed, "rhead-A", "down", "left"), "rhead-B");
 });
 
 test("S3 one open planet", () => {
@@ -91,10 +93,11 @@ test("S4 Stars+Settings front", () => {
   );
   assert.ok(stack.front.every((f) => f.z > stack.openZ));
   const stops = habitatStops(openA).map((s) => s.id);
-  assert.ok(stops.indexOf("rstars") < stops.indexOf("rhead-A"));
-  assert.ok(stops.indexOf("rsettings") < stops.indexOf("rhead-A"));
-  assert.equal(stops[0], "rstars");
-  assert.equal(stops[1], "rsettings");
+  assert.ok(stops.includes("rstars"));
+  assert.ok(stops.includes("rsettings"));
+  assert.equal(wheelArrow(openA, "rhead-A", "up", "left"), "rsettings");
+  assert.equal(wheelArrow(openA, "rsettings", "up", "left"), "rstars");
+  assert.equal(wheelArrow(openA, "rstars", "down", "left"), "rsettings");
 });
 
 test("S5 raise only when expanded", () => {
@@ -102,8 +105,9 @@ test("S5 raise only when expanded", () => {
   assert.equal(shut.includes("rraise-A"), false);
   assert.equal(shut.includes("rraise-B"), false);
   const open = habitatStops(openA).map((s) => s.id);
-  const head = open.indexOf("rhead-A");
-  assert.equal(open[head + 1], "rraise-A");
+  assert.equal(open.includes("rraise-A"), true);
+  assert.equal(wheelArrow(openA, "rhead-A", "right", "left"), "rraise-A");
+  assert.equal(wheelArrow(openA, "rhead-A", "down", "left"), "rhead-B");
   assert.equal(habitatConfirm("rraise-A"), "raise");
   assert.notEqual(habitatConfirm("rhead-A"), "raise");
   assert.equal(habitatConfirm("rhead-A"), "expand");
