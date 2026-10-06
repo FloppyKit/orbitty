@@ -10,6 +10,7 @@ import {
   archConfirm,
   archDepth,
   archEnter,
+  archFocusPid,
   archForward,
   archInitial,
   archLayer2Items,
@@ -55,12 +56,22 @@ function card(partial: ArchCard): ArchCard {
 test("S1 arch slots", () => {
   const centre = archSlot(0, "left", 1);
   assert.ok(centre.scale >= 1.1 && centre.scale <= 1.25);
-  assert.ok(!("rotate" in centre) || centre.rotate === 0);
+  assert.ok(archSlot(1).opacity < archSlot(0).opacity);
+  assert.ok(archSlot(3).opacity <= 0.6);
+  assert.ok(archSlot(1).scale < archSlot(0).scale);
   let prevScale = Infinity;
   let prevOpacity = Infinity;
   for (const k of [0, 1, 2, 3, 4, 5]) {
     const slot = archSlot(k, "left", 1);
     const mirror = archSlot(-k, "left", 1);
+    for (const edge of edges) {
+      for (const ring of [1, 2] as const) {
+        for (const kk of [k, -k]) {
+          const turned = archSlot(kk, edge, ring);
+          assert.ok(!("rotate" in turned) || turned.rotate === 0, `${edge} r${ring} k=${kk}`);
+        }
+      }
+    }
     assert.ok(slot.scale <= prevScale, `scale |k|=${k}`);
     assert.ok(slot.opacity <= prevOpacity, `opacity |k|=${k}`);
     assert.equal(mirror.scale, slot.scale);
@@ -105,6 +116,15 @@ test("S2 enter", () => {
     assert.deepEqual(next, held);
     assert.notEqual(next, held);
   }
+  const startList: Layer2Item[] = [
+    { kind: "board", stop: "rl2-board" },
+    { kind: "needed", stop: "rl2-n", id: "n" },
+    { kind: "window", stop: "rl2-w", id: "w" },
+  ];
+  assert.equal(archStart2(startList), 1);
+  assert.equal(archStart2([{ kind: "board", stop: "rl2-board" }]), 0);
+  assert.equal(archStart2([]), 0);
+  assert.equal(archEnter(ARCH_IDLE, planet("a"), startList).center2, 1);
 });
 
 test("S3 back + forward", () => {
@@ -409,6 +429,28 @@ test("S10 keyboard", () => {
   const clamped = archScroll2({ front: "layer2", pid: "a", center2: 1, pending: null }, 9, 4);
   assert.equal(clamped.front, "layer2");
   assert.equal(clamped.center2, 3);
+
+  const stale: ArchState = { front: "arch", pid: "a", center2: 0, pending: null };
+  assert.equal(archFocusPid(stale, planet("b")), "b");
+  const pidNull: ArchState = { front: "arch", pid: null, center2: 0, pending: null };
+  assert.equal(archFocusPid(pidNull, planet("b")), "b");
+  assert.equal(archFocusPid(pidNull, { stop: `rhead-${U}`, kind: "unmapped", pid: U }), U);
+  assert.equal(archFocusPid(pidNull, { stop: "rstars", kind: "stars" }), null);
+  const onLayer: ArchState = { front: "layer2", pid: "a", center2: 1, pending: null };
+  assert.equal(archFocusPid(onLayer, planet("b")), "a");
+  const onBoardFront: ArchState = { front: "board", pid: "a", center2: 1, pending: null };
+  assert.equal(archFocusPid(onBoardFront, planet("b")), "a");
+  const centredList = archLayer2Items({
+    pid: "b",
+    cards: [card({ id: "nb", projectId: "b", kind: "needed", neededState: "open", createdAt: 1, title: "n" })],
+    rows: [],
+  });
+  const centreB = items.findIndex((it) => it.kind === "planet" && it.pid === "b");
+  const inwardB = archArrow(stale, items, centreB, "right", "left", centredList);
+  assert.ok(inwardB);
+  assert.equal(inwardB.state.front, "layer2");
+  assert.equal(inwardB.state.pid, "b");
+  assert.equal(inwardB.state.center2, 1);
 });
 
 test("S11 pointer dwell + fresh", () => {

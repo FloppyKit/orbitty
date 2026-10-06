@@ -279,7 +279,6 @@ fn tick(n: u64) {
 /// While a plot should pulse, dirty expanded planets at ~20fps (every third
 /// 16ms tick). Reduce motion repaints only when the glow starts or stops.
 fn glow_repaint(n: u64) {
-    let reduce = lock().reduce_motion;
     let glow = crate::starter::glow_now();
     static LAST: AtomicU8 = AtomicU8::new(0);
     let code = match glow {
@@ -289,11 +288,15 @@ fn glow_repaint(n: u64) {
     };
     let prev = LAST.swap(code, Ordering::Relaxed);
     let edge = prev != code;
+    if glow.is_none() && !edge {
+        return;
+    }
+    let h = lock();
+    let reduce = h.reduce_motion;
     let pulse = glow.is_some() && !reduce && n % 3 == 0;
     if !pulse && !edge {
         return;
     }
-    let h = lock();
     for planet in h.planets.values() {
         if planet.is_marble || planet.view == 0 {
             continue;

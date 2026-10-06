@@ -77,7 +77,7 @@ pub(crate) fn save_with_events(
         Ok((claims_before, live.claims.clone(), starter_view))
     })?;
     event_log::diff_claims(app, &claims_before, &claims_after);
-    crate::starter::after_save(app, starter_view);
+    crate::starter::after_save(app, starter_view, crate::starter::SaveOrigin::Background);
     let _ = app.emit("state:changed", ());
     Ok(())
 }

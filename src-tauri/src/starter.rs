@@ -165,8 +165,39 @@ fn push_build_act(
     }
 }
 
-pub fn after_save(app: &tauri::AppHandle, view: StarterView) {
-    note_act();
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveOrigin {
+    User,
+    Background,
+}
+
+/// Rail persists tag themselves `"rail"` (the 30s touch save included).
+/// A missing tag, or any other tag, is a user save.
+pub fn save_origin(tag: Option<&str>) -> SaveOrigin {
+    if matches!(tag, Some("rail")) {
+        SaveOrigin::Background
+    } else {
+        SaveOrigin::User
+    }
+}
+
+/// User saves move the idle clock to `now_ms`. Background saves leave it.
+pub fn last_act_after_save(prev_ms: u64, now_ms: u64, origin: SaveOrigin) -> u64 {
+    match origin {
+        SaveOrigin::User => now_ms,
+        SaveOrigin::Background => prev_ms,
+    }
+}
+
+pub fn after_save(app: &tauri::AppHandle, view: StarterView, origin: SaveOrigin) {
+    LAST_ACT_MS.store(
+        last_act_after_save(
+            LAST_ACT_MS.load(Ordering::Relaxed),
+            glow_clock_ms(),
+            origin,
+        ),
+        Ordering::Relaxed,
+    );
     let acts = plan(&view);
     if acts.is_empty() {
         return;
@@ -842,10 +873,35 @@ mod tests {
             nudge_target(OutpostVisual::Hidden, OutpostVisual::Hidden, 45_000),
             None
         );
+    }
+
+    #[test]
+    fn glow_s15_only_user_saves_reset_idle() {
+        let mut last = 0_u64;
+        last = last_act_after_save(last, 30_000, save_origin(Some("rail")));
+        last = last_act_after_save(last, 60_000, save_origin(Some("rail")));
+        last = last_act_after_save(last, 60_000, SaveOrigin::Background);
+        assert_eq!(last, 0);
         assert_eq!(
-            nudge_target(OutpostVisual::Hidden, OutpostVisual::Hidden, 45_000),
+            nudge_target(
+                OutpostVisual::Plot,
+                OutpostVisual::Plot,
+                idle_ms(60_000, last)
+            ),
+            Some(Outpost::Comms)
+        );
+        last = last_act_after_save(last, 60_000, save_origin(None));
+        assert_eq!(last, 60_000);
+        assert_eq!(
+            nudge_target(
+                OutpostVisual::Plot,
+                OutpostVisual::Plot,
+                idle_ms(60_000, last)
+            ),
             None
         );
+        assert_eq!(save_origin(Some("rail")), SaveOrigin::Background);
+        assert_eq!(save_origin(None), SaveOrigin::User);
     }
 
     #[test]

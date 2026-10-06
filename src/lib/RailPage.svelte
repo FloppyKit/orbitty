@@ -36,6 +36,7 @@
     archBack,
     archConfirm,
     ARCH_DWELL_MS,
+    archFocusPid,
     archLayer2Items,
     archLayout,
     archOpenBoard,
@@ -965,7 +966,8 @@
     }
     const items = spinItems(projects.map((p) => p.id), UNMAPPED_KEY);
     const due = coachIsDue();
-    const l2 = layer2For(arch.pid);
+    const cIdx = Math.min(Math.max(spinCenter, 0), Math.max(items.length - 1, 0));
+    const l2 = layer2For(archFocusPid(arch, items[cIdx]));
     const nested = (arch.front === "layer2" || arch.front === "board") && l2.length > 0;
     const applyArrow = (activeId: string, dir: string) => {
       const result = archArrow(arch, items, spinCenter, dir, railEdge, l2, activeId, due);
@@ -1283,7 +1285,7 @@
       drawers: drawersState,
     };
     try {
-      await invoke("save_state", { state });
+      await invoke("save_state", { state, origin: "rail" });
     } catch {
       // next mutation retries; rail stays usable without persistence
     }
@@ -3292,6 +3294,7 @@
     timer = setInterval(tick, 800);
   });
   onDestroy(() => {
+    if (dwellTimer) clearTimeout(dwellTimer);
     motionMedia.removeEventListener("change", onMotionChange);
     window.removeEventListener("keydown", onNoteKey);
     window.removeEventListener("wheel", onNoteWheel);

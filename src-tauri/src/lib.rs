@@ -645,7 +645,11 @@ fn load_state(app: tauri::AppHandle) -> Result<state::PersistedState, String> {
 }
 
 #[tauri::command(rename = "save_state")]
-fn save_window_state(app: tauri::AppHandle, state: state::PersistedState) -> Result<(), String> {
+fn save_window_state(
+    app: tauri::AppHandle,
+    state: state::PersistedState,
+    origin: Option<String>,
+) -> Result<(), String> {
     // Window writers merge under the lock. Rust-owned slices
     // (agentRuns, companion.hack*, the carry-list fields) stay on disk.
     // Cards merge by lastTouchedAt; a newer tombstone is the only delete.
@@ -672,7 +676,11 @@ fn save_window_state(app: tauri::AppHandle, state: state::PersistedState) -> Res
         }),
     );
     event_log::diff_claims(&app, &before.claims, &after.claims);
-    starter::after_save(&app, starter::view(&after));
+    starter::after_save(
+        &app,
+        starter::view(&after),
+        starter::save_origin(origin.as_deref()),
+    );
     // After the save returns so the
     // board column is not waiting on Needed mint + extra saves.
     #[cfg(unix)]

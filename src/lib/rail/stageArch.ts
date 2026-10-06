@@ -387,6 +387,14 @@ export function archStart2(items: readonly Layer2Item[]): number {
   return 0;
 }
 
+/** On the arch, the centred item's own pid. Layer 2 and the board keep `s.pid`. */
+export function archFocusPid(s: ArchState, centred: SpinItem | null | undefined): string | null {
+  if (s.front !== "arch") return s.pid;
+  if (!centred) return null;
+  if (centred.kind === "planet" || centred.kind === "unmapped") return centred.pid ?? null;
+  return null;
+}
+
 export function archConfirm(item: Layer2Item): ArchConfirmAction {
   if (item.kind === "window") {
     if (item.sleeping) return "wake";
