@@ -15,6 +15,10 @@ export const ARCH_ITEM_BOX = 88;
 export const EDGE_SLOP = 24;
 export const EDGE_HIDE_MS = 600;
 export const EDGE_GRACE_MS = 900;
+/** Inboard gap between the arch and the expanded mirror panel. */
+export const MIRROR_GAP = 12;
+/** Layer 1 slides toward the screen edge by this many pixels when layer 2 is front. */
+export const MIRROR_RECEDE = 110;
 export const CLAIM_FLASH_MS = 2500;
 export const STAGE_PLATTER_RGBA: readonly [number, number, number, number] = [28, 28, 32, 0.78];
 export const STAGE_INK = "#f5f5f7";
@@ -66,6 +70,7 @@ export interface ArchCard {
   status?: string;
   createdAt?: number;
   neededState?: string | null;
+  neededWhy?: string | null;
 }
 
 export interface ArchRow {
@@ -94,6 +99,7 @@ export interface Layer2Item {
   frontmost?: boolean;
   /** Stage Manager board tile. Cards live in the embed, not as doing/todo rows. */
   preview?: boolean;
+  why?: string;
 }
 
 export type ArchConfirmAction = "board" | "wake" | "restore" | "focus";
@@ -250,7 +256,7 @@ export function archOrbitPath(
 
 export function archEnter(s: ArchState, item: SpinItem, layer2: readonly Layer2Item[] = []): ArchState {
   if (item.kind === "planet" && item.pid) {
-    return { front: "layer2", pid: item.pid, center2: archStart2(layer2), pending: null };
+    return { front: "layer2", pid: item.pid, center2: mirrorStart(layer2), pending: null };
   }
   if (item.kind === "unmapped") {
     return { front: "layer2", pid: item.pid ?? null, center2: 0, pending: null };
@@ -357,8 +363,6 @@ export function archArrow(
 
   if (dir === ax.outward) return { state: archBack(s), stop: null, step: null };
   if (dir === ax.inward) {
-    const cur = layer2[s.center2];
-    if (cur?.kind === "board") return { state: archOpenBoard(s), stop: null, step: null };
     return null;
   }
   if (dir !== ax.back && dir !== ax.forward) return null;
@@ -636,6 +640,149 @@ export function archStart2(items: readonly Layer2Item[]): number {
   return 0;
 }
 
+export interface MirrorLayout {
+  arch: ZoneRect;
+  expanded: ZoneRect;
+  back: ZoneRect;
+}
+
+/** Board, then Needed, then every claimed window (asleep included). No cap, no doing/todo rows. */
+export function mirrorItems(opts: {
+  pid: string;
+  cards: readonly ArchCard[];
+  rows: readonly ArchRow[];
+}): Layer2Item[] {
+  const model = stagePreviewModel({
+    pid: opts.pid,
+    cards: opts.cards,
+    rows: opts.rows,
+    maxWindows: opts.rows.length,
+  });
+  return model.slots.map((it) => {
+    if (it.kind !== "needed" || !it.id) return it;
+    const card = opts.cards.find((c) => c.id === it.id);
+    const why = card?.neededWhy?.trim();
+    return why ? { ...it, why } : it;
+  });
+}
+
+/** Layer 2 opens centred on Board. */
+export function mirrorStart(items: readonly Layer2Item[]): number {
+  const i = items.findIndex((it) => it.kind === "board");
+  return i >= 0 ? i : 0;
+}
+
+/** Layer-2 icon `index` while `center` is the centred stop. Same ellipse as ring 1. */
+export function mirrorSlot(
+  index: number,
+  center: number,
+  edge: StageEdge | string = "left",
+  frame?: ArchFrame,
+): ArchSlot {
+  return archSlot(index - center, edge, 1, frame);
+}
+
+function slotFramePoint(
+  edge: string,
+  slot: { x: number; y: number },
+  frame: ArchFrame,
+): { x: number; y: number } {
+  const e = normalizeStageEdge(edge);
+  if (e === "right") return { x: frame.w + slot.x, y: frame.h / 2 + slot.y };
+  if (e === "top") return { x: frame.w / 2 + slot.x, y: slot.y };
+  if (e === "bottom") return { x: frame.w / 2 + slot.x, y: frame.h + slot.y };
+  return { x: slot.x, y: frame.h / 2 + slot.y };
+}
+
+/** Visible icon box. `hover` applies the 1.06 hover scale on top of the slot scale (1.18 at centre). */
+export function mirrorSlotBox(
+  k: number,
+  edge: string,
+  frame: ArchFrame,
+  hover = 1.06,
+): ZoneRect {
+  const slot = archSlot(k, edge, 1, frame);
+  const size = ARCH_ITEM_BOX * slot.scale * hover;
+  const c = slotFramePoint(edge, slot, frame);
+  return { x: c.x - size / 2, y: c.y - size / 2, w: size, h: size };
+}
+
+function visibleSlotBoxes(edge: string, frame: ArchFrame): ZoneRect[] {
+  const boxes: ZoneRect[] = [];
+  for (let k = -4; k <= 4; k++) {
+    const slot = archSlot(k, edge, 1, frame);
+    if (slot.hidden) continue;
+    boxes.push(mirrorSlotBox(k, edge, frame, 1.06));
+  }
+  return boxes;
+}
+
+/** Inboard of the arch, clear of every visible slot box (selected ×1.18 and hover ×1.06). */
+export function mirrorLayout(edge: string, frameW: number, frameH: number): MirrorLayout {
+  const frame: ArchFrame = { w: frameW, h: frameH };
+  const lay = archLayout(edge, frameW, frameH);
+  const e = normalizeStageEdge(edge);
+  const boxes = visibleSlotBoxes(e, frame);
+  const gap = MIRROR_GAP;
+  let expanded: ZoneRect;
+  let back: ZoneRect;
+  if (e === "right") {
+    const slotLeft = boxes.reduce((m, b) => Math.min(m, b.x), lay.arch.x);
+    const x2 = Math.min(lay.arch.x, slotLeft) - gap;
+    expanded = { x: gap, y: gap, w: Math.max(0, x2 - gap), h: Math.max(0, frameH - gap * 2) };
+    const inset = boxes.reduce((m, b) => Math.min(m, frameW - (b.x + b.w)), frameW);
+    const bw = Math.max(0, inset - 8);
+    back = { x: frameW - bw, y: 0, w: bw, h: frameH };
+  } else if (e === "top") {
+    const slotBottom = boxes.reduce((m, b) => Math.max(m, b.y + b.h), 0);
+    const y = Math.max(lay.arch.y + lay.arch.h, slotBottom) + gap;
+    expanded = { x: gap, y, w: Math.max(0, frameW - gap * 2), h: Math.max(0, frameH - y - gap) };
+    const inset = boxes.reduce((m, b) => Math.min(m, b.y), frameH);
+    const bh = Math.max(0, inset - 8);
+    back = { x: 0, y: 0, w: frameW, h: bh };
+  } else if (e === "bottom") {
+    const slotTop = boxes.reduce((m, b) => Math.min(m, b.y), frameH);
+    const y2 = Math.min(lay.arch.y, slotTop) - gap;
+    expanded = { x: gap, y: gap, w: Math.max(0, frameW - gap * 2), h: Math.max(0, y2 - gap) };
+    const inset = boxes.reduce((m, b) => Math.min(m, frameH - (b.y + b.h)), frameH);
+    const bh = Math.max(0, inset - 8);
+    back = { x: 0, y: frameH - bh, w: frameW, h: bh };
+  } else {
+    const slotRight = boxes.reduce((m, b) => Math.max(m, b.x + b.w), 0);
+    const x = Math.max(lay.arch.x + lay.arch.w, slotRight) + gap;
+    expanded = { x, y: gap, w: Math.max(0, frameW - x - gap), h: Math.max(0, frameH - gap * 2) };
+    const inset = boxes.reduce((m, b) => Math.min(m, b.x), frameW);
+    const bw = Math.max(0, inset - 8);
+    back = { x: 0, y: 0, w: bw, h: frameH };
+  }
+  return { arch: lay.arch, expanded, back };
+}
+
+/** Layer 1 recedes toward the edge while layer 2 is front. `archDepth` stays the locked contract. */
+export function mirrorDepth(front: ArchFront, layer: 1 | 2, reduce: boolean): ArchDepth {
+  if (front === "layer2" && layer === 1) {
+    return {
+      scale: 0.72,
+      opacity: 0.3,
+      blur: reduce ? 0 : 3,
+      shift: MIRROR_RECEDE,
+      durationMs: reduce ? 0 : ARCH_DEPTH_MS,
+      easing: ARCH_EASING,
+    };
+  }
+  if (front === "layer2" && layer === 2) {
+    return {
+      scale: 1,
+      opacity: 1,
+      blur: 0,
+      shift: 0,
+      durationMs: reduce ? 0 : ARCH_DEPTH_MS,
+      easing: ARCH_EASING,
+    };
+  }
+  return archDepth(front, layer, reduce);
+}
+
 /** On the arch, the centred item's own pid. Layer 2 and the board keep `s.pid`. */
 export function archFocusPid(s: ArchState, centred: SpinItem | null | undefined): string | null {
   if (s.front !== "arch") return s.pid;
@@ -775,6 +922,8 @@ export function archPainted(
     revealed: boolean;
     slop?: number;
     embed?: "settings" | null;
+    edge?: string;
+    frame?: ArchFrame;
   },
 ): boolean {
   const slop = opts.slop ?? EDGE_SLOP;
@@ -782,6 +931,10 @@ export function archPainted(
   if (opts.pid) zones.push(layout.layer2);
   if (opts.front === "board") zones.push(layout.board);
   if (opts.front === "layer2" && opts.pid) zones.push(layout.board);
+  if (opts.front === "layer2" && opts.pid && opts.edge && opts.frame) {
+    const mirror = mirrorLayout(opts.edge, opts.frame.w, opts.frame.h);
+    zones.push(mirror.expanded, mirror.back);
+  }
   if (opts.embed === "settings") zones.push(layout.board);
   // Revealed is the stage flag the caller already has. Hysteresis, not this
   // test, decides whether a miss parks the drawer.

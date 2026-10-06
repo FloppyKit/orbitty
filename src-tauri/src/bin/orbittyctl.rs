@@ -109,6 +109,7 @@ commands:
   settings plans-dir [--set PATH]
   settings runner [--name N --harness H --model M]
   go status --file PATH | --go GO-ID [--card ID]
+  rail state                          revealed, edge, watcher (read-only)
   go seal --file PATH --by NAME --confirm
   plans migrate [--dry-run | --apply]
 
@@ -621,6 +622,7 @@ fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
     let w: Vec<&str> = o.words.iter().map(String::as_str).collect();
     match w.as_slice() {
         ["status"] => Ok(("app.status", json!({}))),
+        ["rail", "state"] => Ok(("rail.state", json!({}))),
         ["windows", "list"] => Ok(("windows.list", json!({}))),
         ["windows", "focus"] => Ok(("windows.focus", json!({ "id": need_id(o)? }))),
         ["windows", "minimize"] => Ok(("windows.minimize", json!({ "id": need_id(o)? }))),

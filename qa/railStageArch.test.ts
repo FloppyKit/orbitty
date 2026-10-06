@@ -20,6 +20,7 @@ import {
   archScroll2,
   archSlot,
   archStart2,
+  mirrorStart,
   type ArchCard,
   type ArchRow,
   type ArchState,
@@ -102,7 +103,9 @@ test("S2 enter", () => {
   const entered = archEnter(ARCH_IDLE, planet("a"), layer2);
   assert.equal(entered.front, "layer2");
   assert.equal(entered.pid, "a");
-  assert.equal(entered.center2, archStart2(layer2));
+  assert.equal(entered.center2, mirrorStart(layer2));
+  assert.equal(mirrorStart(layer2), layer2.findIndex((it) => it.kind === "board"));
+  assert.equal(archStart2(layer2), 1);
   const unmapped = archEnter(ARCH_IDLE, { stop: `rhead-${U}`, kind: "unmapped", pid: U });
   assert.equal(unmapped.front, "layer2");
   assert.equal(unmapped.pid, U);
@@ -124,7 +127,8 @@ test("S2 enter", () => {
   assert.equal(archStart2(startList), 1);
   assert.equal(archStart2([{ kind: "board", stop: "rl2-board" }]), 0);
   assert.equal(archStart2([]), 0);
-  assert.equal(archEnter(ARCH_IDLE, planet("a"), startList).center2, 1);
+  assert.equal(archEnter(ARCH_IDLE, planet("a"), startList).center2, 0);
+  assert.equal(startList[archEnter(ARCH_IDLE, planet("a"), startList).center2].kind, "board");
 });
 
 test("S3 back + forward", () => {
@@ -158,7 +162,8 @@ test("S4 one planet at a time", () => {
   s = archEnter(s, planet("b"), layerB);
   assert.equal(s.pid, "b");
   assert.equal(s.front, "layer2");
-  assert.equal(s.center2, archStart2(layerB));
+  assert.equal(s.center2, mirrorStart(layerB));
+  assert.equal(layerB[s.center2]?.kind, "board");
   const stars = spinItems(["a", "b", "c"], U).find((it) => it.kind === "stars");
   const away = archCentreChanged(s, stars);
   assert.equal(away.pid, null);
@@ -371,9 +376,9 @@ test("S10 keyboard", () => {
     assert.equal(inward.state.pid, "a");
     const onBoard: ArchState = { front: "layer2", pid: "a", center2: 0, pending: null };
     const opened = archArrow(onBoard, items, centre, ax.inward, edge, layer2);
-    assert.ok(opened, edge);
-    assert.equal(opened.state.front, "board");
-    const back1 = archArrow(opened.state, items, centre, ax.outward, edge, layer2);
+    assert.equal(opened, null, edge);
+    const boardFront: ArchState = { front: "board", pid: "a", center2: 0, pending: null };
+    const back1 = archArrow(boardFront, items, centre, ax.outward, edge, layer2);
     assert.ok(back1);
     assert.equal(back1.state.front, "layer2");
     assert.equal(back1.state.pid, "a");
@@ -450,7 +455,8 @@ test("S10 keyboard", () => {
   assert.ok(inwardB);
   assert.equal(inwardB.state.front, "layer2");
   assert.equal(inwardB.state.pid, "b");
-  assert.equal(inwardB.state.center2, 1);
+  assert.equal(inwardB.state.center2, mirrorStart(centredList));
+  assert.equal(centredList[inwardB.state.center2]?.kind, "board");
 });
 
 test("S11 pointer dwell + fresh", () => {

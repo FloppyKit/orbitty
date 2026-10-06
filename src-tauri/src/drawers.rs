@@ -1399,7 +1399,7 @@ fn blossom_beside_rail(
     None
 }
 
-const EDGE_CORNER_GAP: f64 = 48.0;
+pub(crate) const EDGE_CORNER_GAP: f64 = 48.0;
 
 /// Parked strip along the edge, with the hot corners left clear.
 /// Unknown edges use the left size.
@@ -1418,17 +1418,33 @@ pub(crate) fn rail_stage_is_revealed() -> bool {
 }
 
 /// Park or reveal the inspector on the saved machine edge.
-/// Hidden keeps a 12px sliver so a hover can reveal it. The window stays
-/// visible either way — a fully hidden window cannot see the edge hover.
+/// Hidden keeps a 12px sliver. The sliver ignores cursor events; the native
+/// edge watcher is the reveal door. The window stays visible either way.
 pub(crate) fn rail_stage_apply(app: &tauri::AppHandle, revealed: bool) {
+    rail_stage_apply_inner(app, revealed, false);
+}
+
+/// Same as `rail_stage_apply(true)`, and the emit carries `source: "edge"`.
+pub(crate) fn rail_stage_apply_edge(app: &tauri::AppHandle) {
+    rail_stage_apply_inner(app, true, true);
+}
+
+fn rail_stage_apply_inner(app: &tauri::AppHandle, revealed: bool, from_edge: bool) {
     RAIL_STAGE_REVEALED.store(revealed, std::sync::atomic::Ordering::Relaxed);
+    crate::rail_edge::sync_watch(revealed);
     let edge = state::load_state(app)
         .map(|s| s.rail_edge)
         .unwrap_or_else(|_| "left".into());
+    if let Some((full, vis)) = crate::rail_edge::capture_primary() {
+        crate::rail_edge::note_display(
+            &edge, full.x, full.y, full.w, full.h, vis.x, vis.y, vis.w, vis.h,
+        );
+    }
     if let Some(w) = app.get_webview_window("main") {
         if revealed {
             let _ = w.unminimize();
             let _ = w.show();
+            let _ = w.set_ignore_cursor_events(false);
         }
         let pvfs = points_frames(&screen_visible_frames());
         if let Some(vf) = pvfs.first().copied() {
@@ -1452,13 +1468,16 @@ pub(crate) fn rail_stage_apply(app: &tauri::AppHandle, revealed: bool) {
         if revealed {
             appkit_order_front(app, &w);
             let _ = w.set_focus();
+        } else {
+            let _ = w.set_ignore_cursor_events(true);
         }
     }
-    let _ = app.emit_to(
-        "main",
-        "orbitty:rail-stage",
-        serde_json::json!({ "revealed": revealed }),
-    );
+    let payload = if from_edge && revealed {
+        serde_json::json!({ "revealed": true, "source": "edge" })
+    } else {
+        serde_json::json!({ "revealed": revealed })
+    };
+    let _ = app.emit_to("main", "orbitty:rail-stage", payload);
 }
 
 pub(crate) fn rail_stage_toggle(app: &tauri::AppHandle) {

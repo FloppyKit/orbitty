@@ -38,6 +38,22 @@ mod imp {
         }
     }
 
+    /// Stage rail: a shadow on the transparent window reads as a window outline.
+    pub fn no_shadow(window: &tauri::WebviewWindow) {
+        let Ok(raw) = window.ns_window() else {
+            return;
+        };
+        let ns_window = raw as *mut Object;
+        if ns_window.is_null() {
+            return;
+        }
+        unsafe {
+            let _: () = msg_send![ns_window, setHasShadow: false];
+            let _: () = msg_send![ns_window, invalidateShadow];
+        }
+        eprintln!("orbitty:main-hasShadow false");
+    }
+
     /// No traffic lights: hide red/yellow/green on the overlay titlebar. The
     /// only close affordance is the banner × (hide rail/Lists, never quit);
     /// Quit lives on the tray menu alone. Main thread only.
@@ -141,6 +157,13 @@ pub fn ensure_transparent(window: &tauri::WebviewWindow) {
 pub fn unpin_stay_visible(window: &tauri::WebviewWindow) {
     #[cfg(target_os = "macos")]
     imp::unpin_stay_visible(window);
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+}
+
+pub fn no_shadow(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    imp::no_shadow(window);
     #[cfg(not(target_os = "macos"))]
     let _ = window;
 }

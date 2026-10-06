@@ -346,6 +346,7 @@ const READ_TOOLS: &[&str] = &[
     "settings.runner",
     "go.status",
     "plans.migrate",
+    "rail.state",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -538,6 +539,7 @@ fn run_tool(
             "ax": crate::windows::accessibility_status(),
             "socket": true,
         })),
+        "rail.state" => Ok(crate::rail_edge::status_json(app)),
         "app.accessibility_status" => Ok(to_data(crate::windows::accessibility_status())),
         "windows.list" => crate::windows::list_windows().map(to_data).map_err(tool_err),
         "windows.focus" => {

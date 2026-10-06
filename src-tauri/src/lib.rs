@@ -31,6 +31,7 @@ mod thin;
 mod doing_fire;
 mod verify_close;
 mod drawers;
+mod rail_edge;
 mod event_keys;
 mod event_log;
 mod event_relay;
@@ -588,6 +589,7 @@ fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
                     // in case a previous recipe left them stationary.
                     if label == "main" {
                         glass::pin_stay_visible(&w);
+                        glass::no_shadow(&w);
                     } else {
                         glass::unpin_stay_visible(&w);
                     }
@@ -894,6 +896,7 @@ pub fn run() {
                     glass::hide_traffic_lights(&w);
                     if label == "main" {
                         glass::pin_stay_visible(&w);
+                        glass::no_shadow(&w);
                     } else {
                         glass::unpin_stay_visible(&w);
                     }
@@ -1179,6 +1182,7 @@ pub fn run() {
 
             // Stage shell starts parked off the preferred edge (default left).
             drawers::rail_stage_apply(app.handle(), false);
+            rail_edge::start(app.handle().clone());
 
             Ok(())
         })

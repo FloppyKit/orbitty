@@ -32,7 +32,6 @@
     archBack,
     archCentreChanged,
     archConfirm,
-    archDepth,
     archEnter,
     archForward,
     archInitial,
@@ -41,7 +40,9 @@
     archScroll2,
     archSlot,
     archZone,
-    stagePreviewModel,
+    mirrorDepth,
+    mirrorItems,
+    mirrorLayout,
     stageStackLayout,
     STAGE_INK,
     STAGE_INK_DIM,
@@ -79,27 +80,17 @@
   );
   const offsets = $derived(items.map((_, i) => spinOffset(i, center, items.length)));
   const archState = $derived(rail.arch as ArchState);
-  const previewModel = $derived.by(() => {
+  const layer2 = $derived.by(() => {
     const pid = archState?.pid as string | null;
-    if (!pid || pid === rail.UNMAPPED_KEY) return null;
-    return stagePreviewModel({
+    if (!pid || pid === rail.UNMAPPED_KEY) return [] as Layer2Item[];
+    return mirrorItems({
       pid,
       cards: (rail.planetCards(pid) ?? []) as ArchCard[],
       rows: rowsAsArch(pid),
     });
   });
-  const layer2 = $derived(previewModel?.slots ?? ([] as Layer2Item[]));
-  const stacks = $derived(
-    previewModel
-      ? stageStackLayout(
-          stageEdge(),
-          frameW,
-          frameH,
-          previewModel.windows.length,
-          previewModel.needed.length,
-        )
-      : null,
-  );
+  const mirror = $derived(mirrorLayout(stageEdge(), frameW, frameH));
+  const centred2 = $derived(layer2[archState?.center2 ?? 0] ?? null);
 
   $effect(() => {
     const list = items;
@@ -264,11 +255,6 @@
     return rectStyle(stageStackLayout(stageEdge(), frameW, frameH, 0, 0).settings);
   }
 
-  function platterStyle(which: "arch" | "layer2"): string {
-    const rect = archLayout(stageEdge(), frameW, frameH)[which];
-    return `left:${rect.x}px;top:${rect.y}px;width:${rect.w}px;height:${rect.h}px`;
-  }
-
   function orbitOrigin(): string {
     const edge = stageEdge();
     let x = 0;
@@ -284,9 +270,17 @@
     return `translate(${x} ${y})`;
   }
 
+  function l2Offset(index: number): number {
+    return index - (archState?.center2 ?? 0);
+  }
+
+  function l2Hidden(index: number): boolean {
+    return archSlot(l2Offset(index), stageEdge(), 1, frameNow()).hidden;
+  }
+
   function depthStyle(layer: 1 | 2): string {
     const front = (archState?.front ?? "arch") as ArchFront;
-    const d = archDepth(front, layer, !!rail.reduceMotion);
+    const d = mirrorDepth(front, layer, !!rail.reduceMotion);
     const edge = stageEdge();
     let x = 0;
     let y = 0;
@@ -360,12 +354,17 @@
     center = index;
     rail.menuRing.select(item.stop);
     if (item.kind === "planet" && item.pid) {
-      const model = stagePreviewModel({
-        pid: item.pid,
-        cards: rail.planetCards(item.pid) as ArchCard[],
-        rows: rowsAsArch(item.pid),
-      });
-      rail.archDo(archEnter(rail.arch, item, model.slots));
+      rail.archDo(
+        archEnter(
+          rail.arch,
+          item,
+          mirrorItems({
+            pid: item.pid,
+            cards: rail.planetCards(item.pid) as ArchCard[],
+            rows: rowsAsArch(item.pid),
+          }),
+        ),
+      );
       return;
     }
     if (item.kind === "unmapped") {
@@ -390,22 +389,11 @@
     rail.menuRing?.select(item.stop);
   }
 
-  function onLayerClick(item: Layer2Item) {
-    const front = (rail.arch?.front ?? "arch") as ArchFront;
-    if (front !== "layer2") {
-      if (front === "board") rail.archDo(archBack(rail.arch));
-      else rail.archDo(archForward(rail.arch));
-      return;
-    }
-    selectLayer(item);
-    if (item.kind === "board" && item.preview) {
-      rail.popOutBoard();
-      return;
-    }
-    if (item.kind !== "window") return;
+  function raiseWindow(item: Layer2Item) {
+    if (item.kind !== "window" || !item.id) return;
     const action = archConfirm(item);
     const pid = rail.arch?.pid as string | null;
-    if (!pid || !item.id) return;
+    if (!pid) return;
     const w = (rail.rowsFor(pid) as WindowInfo[]).find((row) => row.id === item.id);
     if (!w) return;
     if (action === "wake") void rail.wakeSleeper(w);
@@ -524,6 +512,14 @@
     </div>
   </li>
 
+{/snippet}
+
+{#snippet boardGlyph()}
+  <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
+    <rect x="5" y="6" width="6" height="20" rx="1.5" fill="none" stroke="#8a8f98" stroke-width="1.6" />
+    <rect x="13" y="6" width="6" height="14" rx="1.5" fill="none" stroke="#8a8f98" stroke-width="1.6" />
+    <rect x="21" y="6" width="6" height="9" rx="1.5" fill="none" stroke="#8a8f98" stroke-width="1.6" />
+  </svg>
 {/snippet}
 
 {#snippet planetGlyph()}
@@ -695,26 +691,31 @@
           </p>
         {/if}
         <div class="stage-strip" bind:this={stageEl} style={stageVars}>
+        <div class="stage-scrim" aria-hidden="true"></div>
+        <svg class="stage-orbit" width={frameW} height={frameH} aria-hidden="true">
+          <g transform={orbitOrigin()}>
+            <path d={archOrbitPath(stageEdge(), 1, frameNow())} />
+          </g>
+        </svg>
         <div
           class="arch-ring"
           class:is-receded={archState.front !== "arch"}
           style={depthStyle(1)}
         >
-          <svg class="arch-orbit" aria-hidden="true">
-            <g transform={orbitOrigin()}>
-              <path d={archOrbitPath(stageEdge(), 1, frameNow())} />
-            </g>
-          </svg>
+          {#if archState.front !== "arch"}
+            <button
+              type="button"
+              class="arch-back"
+              aria-label="Back to planets"
+              style={rectStyle(mirror.back)}
+              onclick={bringArch}
+            ></button>
+          {/if}
           {#if rail.claimFlash}
             <div class="claim-toast">
               <span class="claim-dot" style={`background:${rail.planetCss(rail.claimFlash.pid)}`}></span>
               <span>{rail.claimFlash.title} → {planetName(rail.claimFlash.pid)}</span>
             </div>
-          {/if}
-          {#if archState.front !== "arch"}
-            <button type="button" class="arch-platter" aria-label="Show planets" style={platterStyle("arch")} onclick={bringArch}></button>
-          {:else}
-            <div class="arch-platter" aria-hidden="true" style={platterStyle("arch")}></div>
           {/if}
           {#if coachLineDue}
             <div class="coach-line">
@@ -818,13 +819,8 @@
             class:is-receded={archState.front !== "layer2"}
             style={depthStyle(2)}
           >
-            <svg class="arch-orbit" aria-hidden="true">
-              <g transform={orbitOrigin()}>
-                <path d={archOrbitPath(stageEdge(), 2, frameNow())} />
-              </g>
-            </svg>
             {#if archState.pid === rail.UNMAPPED_KEY}
-              <div class="layer2-unmapped" style={platterStyle("layer2")}>
+              <div class="layer2-unmapped">
                 <ul class="wins">
                   {#each rail.visibleRows(rail.unmapped) as w (w.id)}
                     {@render winRow(w, null)}
@@ -837,90 +833,84 @@
                 </ul>
               </div>
             {:else}
-            {#if archState.front !== "layer2"}
-                <button
-                  type="button"
-                  class="arch-platter layer2-platter"
-                  aria-label="Show this planet"
-                  style={platterStyle("layer2")}
-                  onclick={() => rail.archDo(archState.front === "board" ? archBack(rail.arch) : archForward(rail.arch))}
-                ></button>
-              {:else if stacks && previewModel}
-                <div class="stage-stacks">
-                  {#if previewModel.needed.length > 0}
-                    <div class="stage-needed" data-stage-needed style={rectStyle(stacks.needed)}>
-                      {#each previewModel.needed as item (item.stop)}
-                        <button
-                          type="button"
-                          class="needed-chip"
-                          data-mkey={item.stop}
-                          class:mkey-sel={rail.menuRing.activeId === item.stop}
-                          class:is-selected={layer2[archState.center2]?.stop === item.stop}
-                          onclick={() => selectLayer(item)}
-                        >
-                          <span class="l2-bang" aria-hidden="true">!</span>
-                          <span>{item.title || "Needed"}</span>
-                        </button>
-                      {/each}
-                    </div>
-                  {/if}
-                  <div
-                    class="stage-board-tile"
-                    data-stage-board
-                    data-mkey={previewModel.board.stop}
-                    class:is-selected={layer2[archState.center2]?.stop === previewModel.board.stop}
-                    style={rectStyle(stacks.board)}
+              <ul class="arch-list l2-arch">
+                {#each layer2 as item, i (item.stop)}
+                  <li
+                    class="arch-slot"
+                    class:is-selected={i === archState.center2}
+                    class:is-hidden={l2Hidden(i)}
+                    style={slotStyle(l2Offset(i), 1, boardTint())}
                   >
-                    <div class="stage-board-bar">
-                      <span>Board</span>
-                      {#if previewModel.overflow > 0}
-                        <span class="stage-overflow">+{previewModel.overflow} more</span>
-                      {/if}
-                      <button
-                        type="button"
-                        class="mini"
-                        data-mkey={previewModel.popOut.stop}
-                        onclick={() => rail.popOutBoard()}
-                      >{previewModel.popOut.label}</button>
-                    </div>
-                    <div class="stage-board-body">
-                      <KanbanPage embedded railPlanet={boardPlanet} />
-                    </div>
-                  </div>
-                  {#each previewModel.windows as item, i (item.stop)}
                     <button
                       type="button"
-                      class="win-preview"
-                      data-win-preview={item.id}
+                      class="arch-hit"
                       data-mkey={item.stop}
                       class:mkey-sel={rail.menuRing.activeId === item.stop}
-                      class:is-selected={layer2[archState.center2]?.stop === item.stop}
-                      style={rectStyle(stacks.windows[i])}
-                      aria-label={item.title || "Window"}
-                      onclick={() => onLayerClick(item)}
+                      tabindex={l2Hidden(i) ? -1 : 0}
+                      aria-label={item.title || item.kind}
+                      title={item.title || item.kind}
+                      onclick={() => selectLayer(item)}
                     >
-                      {#if item.iconBase64}
-                        <img class="win-preview-icon" src="data:image/png;base64,{item.iconBase64}" alt="" />
-                      {:else}
-                        <span class="win-preview-icon fallback" aria-hidden="true">{(item.appName || "?").charAt(0)}</span>
-                      {/if}
-                      <span class="win-preview-copy">
-                        <span class="win-preview-title">{item.title || "Untitled"}</span>
-                        {#if item.appName}<span class="win-preview-app">{item.appName}</span>{/if}
-                        <span class="win-preview-state">{windowStateLabel(item)}</span>
+                      <span class="arch-vis">
+                        {#if item.kind === "window"}
+                          {#if item.iconBase64}
+                            <img class="l2-app-icon" src="data:image/png;base64,{item.iconBase64}" alt="" />
+                          {:else}
+                            <span class="l2-app-icon fallback" aria-hidden="true">{(item.appName || item.title || "?").charAt(0)}</span>
+                          {/if}
+                          {#if item.sleeping || item.minimized}
+                            <span class="l2-badge">{item.sleeping ? "asleep" : "min"}</span>
+                          {/if}
+                        {:else if item.kind === "needed"}
+                          <span class="arch-glyph l2-bang" aria-hidden="true">!</span>
+                        {:else}
+                          <span class="arch-glyph" aria-hidden="true">{@render boardGlyph()}</span>
+                        {/if}
+                        <span class="arch-name">{item.title || (item.kind === "board" ? "Board" : item.kind)}</span>
                       </span>
                     </button>
-                  {/each}
+                  </li>
+                {/each}
+              </ul>
+              {#if archState.front === "layer2" && centred2}
+                <div
+                  class="l2-expanded"
+                  style={rectStyle(mirror.expanded)}
+                >
+                  {#if centred2.kind === "board"}
+                    <div class="l2-board" data-stage-board tabindex="-1">
+                      <KanbanPage embedded railPlanet={boardPlanet} />
+                    </div>
+                    <button type="button" class="mini l2-pop" onclick={() => rail.popOutBoard()}>Pop out</button>
+                  {:else if centred2.kind === "window"}
+                    <button
+                      type="button"
+                      class="l2-window-card"
+                      data-win-preview={centred2.id}
+                      aria-label={centred2.title || "Window"}
+                      onclick={() => raiseWindow(centred2)}
+                    >
+                      {#if centred2.iconBase64}
+                        <img class="l2-card-icon" src="data:image/png;base64,{centred2.iconBase64}" alt="" />
+                      {:else}
+                        <span class="l2-card-icon fallback" aria-hidden="true">{(centred2.appName || "?").charAt(0)}</span>
+                      {/if}
+                      <span class="l2-card-copy">
+                        <span class="l2-card-title">{centred2.title || "Untitled"}</span>
+                        {#if centred2.appName}<span class="l2-card-app">{centred2.appName}</span>{/if}
+                        <span class="l2-card-state">{windowStateLabel(centred2)}</span>
+                      </span>
+                    </button>
+                  {:else if centred2.kind === "needed"}
+                    <div class="l2-needed-card">
+                      <span class="l2-card-title">{centred2.title || "Needed"}</span>
+                      {#if centred2.why}<span class="l2-card-why">{centred2.why}</span>{/if}
+                      <button type="button" class="mini" onclick={() => centred2.id && rail.openKanbanFocus(centred2.id)}>Open in board</button>
+                    </div>
+                  {/if}
                 </div>
               {/if}
             {/if}
-          </div>
-        {/if}
-        {#if archState.front === "board"}
-          <div class="spin-board" style={`--planet:${boardTint()}`}>
-            <div class="spin-kanban">
-              <KanbanPage embedded railPlanet={boardPlanet} />
-            </div>
           </div>
         {/if}
         {#if rail.stageEmbed === "settings"}

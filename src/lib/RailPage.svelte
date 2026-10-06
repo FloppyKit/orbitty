@@ -33,21 +33,17 @@
     archArrow,
     archBack,
     archConfirm,
-    ARCH_DWELL_MS,
     archFocusPid,
     archLayout,
     archPainted,
-    archPointer,
-    archZone,
     CLAIM_FLASH_MS,
     claimLanded,
     EDGE_GRACE_MS,
     EDGE_HIDE_MS,
     edgeHover,
     edgeLeaveSide,
-    stagePreviewModel,
+    mirrorItems,
     type ArchState,
-    type ArchZone,
     type ClaimSnap,
     type EdgeHoverEvent,
     type EdgeHoverState,
@@ -624,6 +620,7 @@
 
   function maybeAutoHide() {
     if (embedded || !stageRevealed) return;
+    if (Date.now() < revealGraceUntil) return;
     if (!autoHideWanted({ railAutoHideOnBlur, focusInside, pointerInside })) return;
     void parkStage();
   }
@@ -651,12 +648,20 @@
     return archPainted(
       archLayout(railEdge, rect.width, rect.height),
       { x: e.clientX - rect.left, y: e.clientY - rect.top },
-      { front: arch.front, pid: arch.pid, revealed: stageRevealed, embed: stageEmbed },
+      {
+        front: arch.front,
+        pid: arch.pid,
+        revealed: stageRevealed,
+        embed: stageEmbed,
+        edge: railEdge,
+        frame: { w: rect.width, h: rect.height },
+      },
     );
   }
 
-  let dwellTimer: ReturnType<typeof setTimeout> | null = null;
   let edgeTimer: ReturnType<typeof setTimeout> | null = null;
+  let revealGraceUntil = 0;
+  let edgePointerSeed = false;
   let claimFlashTimer: ReturnType<typeof setTimeout> | null = null;
 
   function armEdgeTimer() {
@@ -705,46 +710,12 @@
     void invoke("locate_planet", { id: hit.projectId }).catch(() => {});
   }
 
-  function archZoneAt(e: PointerEvent): ArchZone {
-    const host = e.currentTarget;
-    if (!(host instanceof HTMLElement)) return "none";
-    const rect = host.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return "none";
-    return archZone(
-      archLayout(railEdge, rect.width, rect.height),
-      { x: e.clientX - rect.left, y: e.clientY - rect.top },
-      arch.front,
-    );
-  }
-
-  function pokeArch(zone: ArchZone) {
-    const now = Date.now();
-    const prev = arch;
-    const next = archPointer(prev, zone, now);
-    const armed =
-      !!next.pending &&
-      (prev.pending?.zone !== next.pending.zone || prev.pending?.since !== next.pending.since);
-    archDo(next);
-    if (!next.pending) {
-      if (dwellTimer) clearTimeout(dwellTimer);
-      dwellTimer = null;
-      return;
-    }
-    if (!armed) return;
-    if (dwellTimer) clearTimeout(dwellTimer);
-    const wait = Math.max(0, ARCH_DWELL_MS - (now - next.pending.since));
-    const z = next.pending.zone;
-    dwellTimer = setTimeout(() => {
-      dwellTimer = null;
-      archDo(archPointer(arch, z, Date.now()));
-    }, wait);
-  }
-
   function onStagePointerMove(e: PointerEvent) {
     if (embedded) return;
+    if (edgePointerSeed) edgePointerSeed = false;
     const painted = overPainted(e);
     pointerInside = painted;
-    if (stageRevealed) pokeArch(archZoneAt(e));
+    if (!stageRevealed) return;
     applyEdge({ kind: "move", painted });
   }
 
@@ -760,7 +731,7 @@
 
   function onStageMouseLeave(e: MouseEvent) {
     if (embedded) return;
-    pokeArch("none");
+    if (edgePointerSeed) edgePointerSeed = false;
     const host = e.currentTarget;
     if (!(host instanceof HTMLElement)) return;
     const rect = host.getBoundingClientRect();
@@ -777,6 +748,22 @@
 
   function onWinBlur() {
     stageFocus(false);
+  }
+
+  // Esc inside a board field is not a ring key (the field owns it). Return
+  // focus to the centred layer-2 icon instead of letting the field swallow it.
+  function onExpandedFieldEscape(e: KeyboardEvent) {
+    if (e.key !== "Escape" || embedded || arch.front !== "layer2") return;
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !active.closest(".l2-expanded")) return;
+    const tag = active.tagName;
+    const field = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active.isContentEditable;
+    if (!field) return;
+    const stop = layer2For(arch.pid)[arch.center2]?.stop;
+    const icon = stop ? document.querySelector(`[data-mkey="${CSS.escape(stop)}"]`) : null;
+    if (icon instanceof HTMLElement) icon.focus();
+    e.preventDefault();
+    e.stopPropagation();
   }
 
   function applyStagePrefs(raw: {
@@ -943,7 +930,7 @@
 
   function layer2For(pid: string | null): Layer2Item[] {
     if (!pid || pid === UNMAPPED_KEY) return [];
-    return stagePreviewModel({
+    return mirrorItems({
       pid,
       cards: planetCards(pid),
       rows: rowsFor(pid).map((w) => ({
@@ -955,14 +942,25 @@
         appName: w.appName,
         isFrontmost: !!w.isFrontmost,
       })),
-    }).slots;
+    });
+  }
+
+  function focusMirrorBoard() {
+    requestAnimationFrame(() => {
+      const panel = document.querySelector(".l2-expanded .l2-board");
+      if (!(panel instanceof HTMLElement)) return;
+      const el = panel.querySelector<HTMLElement>(
+        "input, textarea, select, button, a[href], [tabindex]:not([tabindex='-1'])",
+      );
+      (el ?? panel).focus();
+    });
   }
 
   function confirmLayer2Stop(id: string) {
     const item = layer2For(arch.pid).find((it) => it.stop === id);
     if (!item || !arch.pid) return;
-    if (item.kind === "board" && item.preview) {
-      popOutBoard();
+    if (item.kind === "board") {
+      focusMirrorBoard();
       return;
     }
     if (item.kind !== "window") return;
@@ -1055,11 +1053,22 @@
     const cIdx = Math.min(Math.max(spinCenter, 0), Math.max(items.length - 1, 0));
     const l2 = layer2For(archFocusPid(arch, items[cIdx]));
     const nested = (arch.front === "layer2" || arch.front === "board") && l2.length > 0;
+    const inwardKey = (dir: string) => {
+      if (railEdge === "right") return dir === "left";
+      if (railEdge === "top") return dir === "down";
+      if (railEdge === "bottom") return dir === "up";
+      return dir === "right";
+    };
     const applyArrow = (activeId: string, dir: string) => {
-      const result = archArrow(arch, items, spinCenter, dir, railEdge, l2, activeId, due);
-      if (!result) return;
-      if (arch.front === "layer2" && result.state.front === "board") {
-        popOutBoard();
+      const before = arch;
+      const result = archArrow(before, items, spinCenter, dir, railEdge, l2, activeId, due);
+      if (!result) {
+        const cur = l2[before.center2];
+        if (before.front === "layer2" && cur?.kind === "board" && inwardKey(dir)) focusMirrorBoard();
+        return;
+      }
+      if (result.state.front === "board") {
+        focusMirrorBoard();
         return;
       }
       archDo(result.state);
@@ -2978,6 +2987,7 @@
     reduceMotion = motionMedia.matches;
     motionMedia.addEventListener("change", onMotionChange);
     window.addEventListener("keydown", onNoteKey);
+    window.addEventListener("keydown", onExpandedFieldEscape);
     window.addEventListener("wheel", onNoteWheel, { passive: true });
     detachMenuKeys = menuRing.attach(() => {
       if (claimPickerFor) {
@@ -2987,6 +2997,17 @@
       if (creatingProject) {
         creatingProject = false;
         return true;
+      }
+      if (!embedded && arch.front === "layer2") {
+        const active = document.activeElement;
+        if (active instanceof Element && active.closest(".l2-expanded")) {
+          const stop = layer2For(arch.pid)[arch.center2]?.stop;
+          const icon = stop
+            ? document.querySelector(`[data-mkey="${CSS.escape(stop)}"]`)
+            : null;
+          if (icon instanceof HTMLElement) icon.focus();
+          return true;
+        }
       }
       if (!embedded && arch.front !== "arch") {
         archDo(archBack(arch));
@@ -3104,9 +3125,18 @@
       persist();
       void showStage();
     });
-    unlistenStage = await listen<{ revealed?: boolean }>("orbitty:rail-stage", (e) => {
+    unlistenStage = await listen<{ revealed?: boolean; source?: string }>("orbitty:rail-stage", (e) => {
       const revealed = !!e.payload?.revealed;
       stageRevealed = revealed;
+      if (revealed) {
+        revealGraceUntil = Date.now() + EDGE_GRACE_MS;
+        if (e.payload?.source === "edge") {
+          pointerInside = true;
+          edgePointerSeed = true;
+        }
+      } else {
+        edgePointerSeed = false;
+      }
       applyEdge({ kind: revealed ? "revealed" : "parked" });
     });
     unlistenStagePrefs = await listen<{
@@ -3390,11 +3420,11 @@
     timer = setInterval(tick, 800);
   });
   onDestroy(() => {
-    if (dwellTimer) clearTimeout(dwellTimer);
     if (edgeTimer) clearTimeout(edgeTimer);
     if (claimFlashTimer) clearTimeout(claimFlashTimer);
     motionMedia.removeEventListener("change", onMotionChange);
     window.removeEventListener("keydown", onNoteKey);
+    window.removeEventListener("keydown", onExpandedFieldEscape);
     window.removeEventListener("wheel", onNoteWheel);
     clearInterval(timer);
     detachMenuKeys?.();
