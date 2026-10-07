@@ -109,7 +109,7 @@ commands:
   settings plans-dir [--set PATH]
   settings runner [--name N --harness H --model M]
   go status --file PATH | --go GO-ID [--card ID]
-  rail state                          revealed, edge, watcher (read-only)
+  rail state                          level, alpha, frame, appActive, occludedBy (read-only)
   go seal --file PATH --by NAME --confirm
   plans migrate [--dry-run | --apply]
 

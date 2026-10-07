@@ -12,6 +12,8 @@
   } from "./coach";
   import KanbanPage from "../KanbanPage.svelte";
   import SettingsPage from "../SettingsPage.svelte";
+  import StarsPage from "../StarsPage.svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import RailPlanetsSheet from "./PlanetsSheet.svelte";
   import type { RailApi } from "./api";
   import {
@@ -36,7 +38,11 @@
     archForward,
     archInitial,
     archLayout,
-    archOrbitPath,
+    archOrbitArc,
+    archOrbitFade,
+    archLabelBox,
+    archMarbleBox,
+    thumbShowsImage,
     archScroll2,
     archSlot,
     archZone,
@@ -91,6 +97,50 @@
   });
   const mirror = $derived(mirrorLayout(stageEdge(), frameW, frameH));
   const centred2 = $derived(layer2[archState?.center2 ?? 0] ?? null);
+  let thumb = $state<{ state: string; jpeg?: string | null; forId: string } | null>(null);
+  const thumbForCard = $derived(
+    thumb && centred2 && thumb.forId === centred2.id ? thumb : null,
+  );
+
+  $effect(() => {
+    const front = archState.front;
+    const item = centred2;
+    const shown = !!rail.stageRevealed;
+    if (!shown || front !== "layer2" || item?.kind !== "window" || !item.id) {
+      thumb = null;
+      return;
+    }
+    const id = item.id;
+    const title = item.title ?? "";
+    let dead = false;
+    void invoke<{ state: string; jpeg?: string | null }>("window_thumb", {
+      id,
+      title,
+      pid: 0,
+      focusEpoch: 0,
+    })
+      .then((res) => {
+        if (!dead) thumb = { state: res.state, jpeg: res.jpeg, forId: id };
+      })
+      .catch(() => {
+        if (!dead) thumb = { state: "error", forId: id };
+      });
+    const c = archState.center2 ?? 0;
+    for (const j of [c - 1, c + 1]) {
+      const n = layer2[j];
+      if (n?.kind === "window" && n.id) {
+        void invoke("window_thumb", {
+          id: n.id,
+          title: n.title ?? "",
+          pid: 0,
+          focusEpoch: 0,
+        }).catch(() => {});
+      }
+    }
+    return () => {
+      dead = true;
+    };
+  });
 
   $effect(() => {
     const list = items;
@@ -255,6 +305,22 @@
     return rectStyle(stageStackLayout(stageEdge(), frameW, frameH, 0, 0).settings);
   }
 
+  function labelStyle(k: number, ring: 1 | 2): string {
+    const frame = frameNow();
+    const edge = stageEdge();
+    const avoid = [mirror.expanded];
+    const box = archLabelBox(k, edge, ring, frame, { avoid });
+    const marble = archMarbleBox(k, edge, ring, frame, k === 0);
+    const cx = marble.x + marble.w / 2;
+    const cy = marble.y + marble.h / 2;
+    return `left:${box.x - cx}px;top:${box.y - cy}px;width:${box.w}px;max-width:${box.w}px`;
+  }
+
+  function labelSide(k: number, ring: 1 | 2): "below" | "inboard" {
+    const avoid = [mirror.expanded];
+    return archLabelBox(k, stageEdge(), ring, frameNow(), { avoid }).side;
+  }
+
   function orbitOrigin(): string {
     const edge = stageEdge();
     let x = 0;
@@ -396,9 +462,10 @@
     if (!pid) return;
     const w = (rail.rowsFor(pid) as WindowInfo[]).find((row) => row.id === item.id);
     if (!w) return;
-    if (action === "wake") void rail.wakeSleeper(w);
-    else if (action === "restore") void rail.restore(w).then(() => rail.focusRow(w));
-    else void rail.focusRow(w);
+    const parked = () => rail.parkAfterRaise();
+    if (action === "wake") void rail.wakeSleeper(w).then(parked);
+    else if (action === "restore") void rail.restore(w).then(() => rail.focusRow(w)).then(parked);
+    else void rail.focusRow(w).then(parked);
   }
 
   const coachStory = $derived(normalizeStory(rail.starterStory));
@@ -694,7 +761,24 @@
         <div class="stage-scrim" aria-hidden="true"></div>
         <svg class="stage-orbit" width={frameW} height={frameH} aria-hidden="true">
           <g transform={orbitOrigin()}>
-            <path d={archOrbitPath(stageEdge(), 1, frameNow())} />
+            <defs>
+              <linearGradient
+                id="stage-orbit-fade"
+                gradientUnits="userSpaceOnUse"
+                x1={archOrbitFade(archOrbitArc(stageEdge(), 1, frameNow())).x1}
+                y1={archOrbitFade(archOrbitArc(stageEdge(), 1, frameNow())).y1}
+                x2={archOrbitFade(archOrbitArc(stageEdge(), 1, frameNow())).x2}
+                y2={archOrbitFade(archOrbitArc(stageEdge(), 1, frameNow())).y2}
+              >
+                <stop offset="0%" stop-color="white" stop-opacity="0" />
+                <stop offset="15%" stop-color="white" stop-opacity="1" />
+                <stop offset="100%" stop-color="white" stop-opacity="1" />
+              </linearGradient>
+              <mask id="stage-orbit-mask">
+                <rect x="-4000" y="-4000" width="8000" height="8000" fill="url(#stage-orbit-fade)" />
+              </mask>
+            </defs>
+            <path d={archOrbitArc(stageEdge(), 1, frameNow()).d} mask="url(#stage-orbit-mask)" stroke-linecap="butt" />
           </g>
         </svg>
         <div
@@ -793,7 +877,12 @@
                       {:else}{@render planetGlyph()}{/if}
                     </span>
                   {/if}
-                  <span class="arch-name">{itemLabel(item)}</span>
+                  <span
+                    class="arch-name"
+                    class:label-below={labelSide(offsets[i] ?? 0, 1) === "below"}
+                    class:label-inboard={labelSide(offsets[i] ?? 0, 1) === "inboard"}
+                    style={labelStyle(offsets[i] ?? 0, 1)}
+                  >{itemLabel(item)}</span>
                 </span>
               </button>
               {#if item.kind === "add" && rail.creatingProject && !archHidden(i)}
@@ -820,7 +909,7 @@
             style={depthStyle(2)}
           >
             {#if archState.pid === rail.UNMAPPED_KEY}
-              <div class="layer2-unmapped">
+              <div class="layer2-unmapped" style={rectStyle(mirror.expanded)}>
                 <ul class="wins">
                   {#each rail.visibleRows(rail.unmapped) as w (w.id)}
                     {@render winRow(w, null)}
@@ -849,7 +938,10 @@
                       tabindex={l2Hidden(i) ? -1 : 0}
                       aria-label={item.title || item.kind}
                       title={item.title || item.kind}
-                      onclick={() => selectLayer(item)}
+                      onclick={() => {
+                        selectLayer(item);
+                        if (item.kind === "needed") rail.armNeededMouth(item);
+                      }}
                     >
                       <span class="arch-vis">
                         {#if item.kind === "window"}
@@ -866,7 +958,12 @@
                         {:else}
                           <span class="arch-glyph" aria-hidden="true">{@render boardGlyph()}</span>
                         {/if}
-                        <span class="arch-name">{item.title || (item.kind === "board" ? "Board" : item.kind)}</span>
+                        <span
+                          class="arch-name"
+                          class:label-below={labelSide(l2Offset(i), 2) === "below"}
+                          class:label-inboard={labelSide(l2Offset(i), 2) === "inboard"}
+                          style={labelStyle(l2Offset(i), 2)}
+                        >{item.title || (item.kind === "board" ? "Board" : item.kind)}</span>
                       </span>
                     </button>
                   </li>
@@ -890,7 +987,9 @@
                       aria-label={centred2.title || "Window"}
                       onclick={() => raiseWindow(centred2)}
                     >
-                      {#if centred2.iconBase64}
+                      {#if thumbForCard && thumbShowsImage(thumbForCard.state) && thumbForCard.jpeg}
+                        <img class="l2-thumb" alt="" src="data:image/jpeg;base64,{thumbForCard.jpeg}" />
+                      {:else if centred2.iconBase64}
                         <img class="l2-card-icon" src="data:image/png;base64,{centred2.iconBase64}" alt="" />
                       {:else}
                         <span class="l2-card-icon fallback" aria-hidden="true">{(centred2.appName || "?").charAt(0)}</span>
@@ -899,12 +998,16 @@
                         <span class="l2-card-title">{centred2.title || "Untitled"}</span>
                         {#if centred2.appName}<span class="l2-card-app">{centred2.appName}</span>{/if}
                         <span class="l2-card-state">{windowStateLabel(centred2)}</span>
+                        {#if thumbForCard?.state === "denied"}
+                          <span class="l2-thumb-need">Screen Recording needed for previews</span>
+                        {/if}
                       </span>
                     </button>
                   {:else if centred2.kind === "needed"}
                     <div class="l2-needed-card">
                       <span class="l2-card-title">{centred2.title || "Needed"}</span>
                       {#if centred2.why}<span class="l2-card-why">{centred2.why}</span>{/if}
+                      <button type="button" class="mini" onclick={() => rail.armNeededMouth(centred2)}>Answer</button>
                       <button type="button" class="mini" onclick={() => centred2.id && rail.openKanbanFocus(centred2.id)}>Open in board</button>
                     </div>
                   {/if}
@@ -920,6 +1023,11 @@
               onClose={() => rail.closeStageEmbed()}
               onPopOut={() => rail.popOutSettings()}
             />
+          </div>
+        {:else if rail.stageEmbed === "stars"}
+          <div class="stage-settings" data-stage-stars style={settingsBox()}>
+            <StarsPage embedded onClose={() => rail.closeStageEmbed()} />
+            <button type="button" class="mini l2-pop" onclick={() => rail.popOutStars()}>Pop out</button>
           </div>
         {/if}
         </div>

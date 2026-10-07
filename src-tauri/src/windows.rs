@@ -1,6 +1,9 @@
 //! Window corral — shared types + platform dispatch.
 //! S2: list/focus/AX unchanged; grouping + claims live in the frontend state.
 //! Titles only, never window contents.
+//! Exception: the rail's in-memory layer-2 preview (`window_thumb`) may hold
+//! a JPEG of the centred window. That buffer stays in the process: it is
+//! never written to state, disk, logs, companion, agents, relay, or MCP.
 
 use serde::Serialize;
 

@@ -32,6 +32,7 @@ mod doing_fire;
 mod verify_close;
 mod drawers;
 mod rail_edge;
+mod rail_stage;
 mod event_keys;
 mod event_log;
 mod event_relay;
@@ -69,6 +70,7 @@ mod starter;
 mod talk;
 mod tilechords;
 mod windows;
+mod window_thumb;
 mod yard;
 
 use tauri::{
@@ -327,6 +329,7 @@ fn set_rail_stage_prefs(
         st.rail_auto_hide_on_blur = auto_hide_on_blur;
         Ok(())
     })?;
+    rail_edge::note_edge_prefs(&edge, auto_hide_on_blur);
     drawers::rail_stage_apply(&app, drawers::rail_stage_is_revealed());
     let _ = app.emit(
         "orbitty:rail-stage-prefs",
@@ -355,9 +358,31 @@ fn set_starter_coach_done(app: tauri::AppHandle) -> Result<(), String> {
 /// Hover, hotkey, or auto-hide. `revealed` false parks the strip on the
 /// preferred edge and leaves the sliver.
 #[tauri::command]
-fn rail_stage_set(app: tauri::AppHandle, revealed: bool) -> Result<(), String> {
-    drawers::rail_stage_apply(&app, revealed);
+fn rail_stage_set(
+    app: tauri::AppHandle,
+    revealed: bool,
+    reason: Option<String>,
+) -> Result<(), String> {
+    drawers::rail_stage_set_reason(&app, revealed, reason.as_deref());
     Ok(())
+}
+
+#[tauri::command]
+async fn window_thumb(
+    id: String,
+    title: String,
+    pid: i32,
+    focus_epoch: Option<u64>,
+) -> Result<serde_json::Value, String> {
+    let epoch = focus_epoch.unwrap_or(0);
+    tauri::async_runtime::spawn_blocking(move || window_thumb::capture_thumb(&id, &title, pid, epoch))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn window_thumb_permission() -> serde_json::Value {
+    serde_json::json!({ "granted": window_thumb::permission_granted() })
 }
 
 /// Rail Home button: order every planet panel front (peer order among
@@ -590,6 +615,7 @@ fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
                     if label == "main" {
                         glass::pin_stay_visible(&w);
                         glass::no_shadow(&w);
+                        glass::stage_borderless(&w);
                     } else {
                         glass::unpin_stay_visible(&w);
                     }
@@ -765,6 +791,8 @@ pub fn run() {
             set_starter_coach_done,
             starter_note_act,
             rail_stage_set,
+            window_thumb,
+            window_thumb_permission,
             set_planets_hidden,
             needed_answer,
             needed_rule_add,
@@ -897,6 +925,7 @@ pub fn run() {
                     if label == "main" {
                         glass::pin_stay_visible(&w);
                         glass::no_shadow(&w);
+                        glass::stage_borderless(&w);
                     } else {
                         glass::unpin_stay_visible(&w);
                     }

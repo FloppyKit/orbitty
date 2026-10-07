@@ -40,6 +40,7 @@
     claimLanded,
     EDGE_GRACE_MS,
     EDGE_HIDE_MS,
+    neededAct,
     edgeHover,
     edgeLeaveSide,
     mirrorItems,
@@ -217,7 +218,7 @@
   let edgeHoverState: EdgeHoverState = { revealed: false, revealedAt: 0, outsideSince: null };
   let reduceMotion = $state(false);
   let arch = $state<ArchState>({ ...ARCH_IDLE });
-  let stageEmbed = $state<null | "settings">(null);
+  let stageEmbed = $state<null | "settings" | "stars">(null);
   let spinCenter = $state(0);
   let pointerInside = false;
   let focusInside = false;
@@ -533,11 +534,18 @@
   }
 
   function openStageDest(label: "stars" | "settings") {
-    if (label === "stars") {
-      void invoke("dest_show", { dest: "stars-beside" });
+    if (label === "settings") {
+      stageEmbed = "settings";
       return;
     }
-    stageEmbed = "settings";
+    stageEmbed = "stars";
+    requestAnimationFrame(() => reclaimRailRing());
+  }
+
+  function popOutStars() {
+    stageEmbed = null;
+    void invoke("rail_stage_set", { revealed: false });
+    void invoke("dest_show", { dest: "stars-beside" });
   }
 
   function closeStageEmbed() {
@@ -546,6 +554,7 @@
 
   function popOutSettings() {
     stageEmbed = null;
+    void invoke("rail_stage_set", { revealed: false });
     void invoke("dest_show", { dest: "settings-beside" });
   }
 
@@ -618,11 +627,35 @@
     }
   }
 
+  let graceRecheck: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleGraceRecheck() {
+    if (graceRecheck) return;
+    const wait = Math.max(16, revealGraceUntil + 16 - Date.now());
+    graceRecheck = setTimeout(() => {
+      graceRecheck = null;
+      maybeAutoHide();
+    }, wait);
+  }
+
   function maybeAutoHide() {
     if (embedded || !stageRevealed) return;
-    if (Date.now() < revealGraceUntil) return;
+    if (Date.now() < revealGraceUntil) {
+      scheduleGraceRecheck();
+      return;
+    }
     if (!autoHideWanted({ railAutoHideOnBlur, focusInside, pointerInside })) return;
     void parkStage();
+  }
+
+  function parkAfterRaise() {
+    void invoke("rail_stage_set", { revealed: false, reason: "raised" });
+  }
+
+  function armNeededMouth(item: { kind?: string; id?: string; title?: string }) {
+    const act = neededAct(item);
+    if (!act) return;
+    void invoke("arm_companion_mouth", { id: act.id, title: act.title });
   }
 
   function stageFocus(inside: boolean) {
@@ -887,6 +920,7 @@
     }
     raisePlanet(pid);
     await tick();
+    parkAfterRaise();
   }
 
   async function openPlanetTodos(pid: string) {
@@ -959,6 +993,10 @@
   function confirmLayer2Stop(id: string) {
     const item = layer2For(arch.pid).find((it) => it.stop === id);
     if (!item || !arch.pid) return;
+    if (item.kind === "needed") {
+      armNeededMouth(item);
+      return;
+    }
     if (item.kind === "board") {
       focusMirrorBoard();
       return;
@@ -967,9 +1005,9 @@
     const action = archConfirm(item);
     const w = rowsFor(arch.pid).find((row) => row.id === item.id);
     if (!w) return;
-    if (action === "wake") void wakeSleeper(w);
-    else if (action === "restore") void restore(w).then(() => focusRow(w));
-    else void focusRow(w);
+    if (action === "wake") void wakeSleeper(w).then(() => parkAfterRaise());
+    else if (action === "restore") void restore(w).then(() => focusRow(w)).then(() => parkAfterRaise());
+    else void focusRow(w).then(() => parkAfterRaise());
   }
 
   let lastNoteAct = 0;
@@ -1032,8 +1070,8 @@
     if (action === "focusTile") {
       const w = rowById(id.slice("rtile-".length));
       if (!w) return;
-      if (w.sleeping) void wakeSleeper(w);
-      else void focusRow(w);
+      if (w.sleeping) void wakeSleeper(w).then(() => parkAfterRaise());
+      else void focusRow(w).then(() => parkAfterRaise());
       return;
     }
     if (action === "openSnap") {
@@ -1065,6 +1103,7 @@
       if (!result) {
         const cur = l2[before.center2];
         if (before.front === "layer2" && cur?.kind === "board" && inwardKey(dir)) focusMirrorBoard();
+        if (before.front === "layer2" && cur?.kind === "needed" && inwardKey(dir)) armNeededMouth(cur);
         return;
       }
       if (result.state.front === "board") {
@@ -1199,6 +1238,62 @@
   });
 
   let detachMenuKeys: (() => void) | undefined;
+
+  function onRailEscape(): boolean {
+    if (claimPickerFor) {
+      claimPickerFor = null;
+      return true;
+    }
+    if (creatingProject) {
+      creatingProject = false;
+      return true;
+    }
+    if (stageEmbed) {
+      const which = stageEmbed;
+      closeStageEmbed();
+      const key = which === "stars" ? "rstars" : "rsettings";
+      queueMicrotask(() => {
+        const icon = document.querySelector(`[data-mkey="${key}"]`);
+        if (icon instanceof HTMLElement) icon.focus();
+      });
+      return true;
+    }
+    if (!embedded && arch.front === "layer2") {
+      const active = document.activeElement;
+      if (active instanceof Element && active.closest(".l2-expanded")) {
+        const stop = layer2For(arch.pid)[arch.center2]?.stop;
+        const icon = stop
+          ? document.querySelector(`[data-mkey="${CSS.escape(stop)}"]`)
+          : null;
+        if (icon instanceof HTMLElement) icon.focus();
+        return true;
+      }
+    }
+    if (!embedded && arch.front !== "arch") {
+      archDo(archBack(arch));
+      return true;
+    }
+    if (
+      menuRing.activeId === "rcoach-claim" ||
+      menuRing.activeId === "rcoach-skip"
+    ) {
+      void coachSkip();
+      return true;
+    }
+    if (!embedded && previewStop(menuRing.activeId)) {
+      const pid = openSectionId();
+      if (pid) {
+        menuRing.select(`rhead-${pid}`);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function reclaimRailRing() {
+    detachMenuKeys?.();
+    detachMenuKeys = menuRing.attach(onRailEscape);
+  }
 
   function toggleTag(windowId: string, tagId: string) {
     const cur =
@@ -2989,46 +3084,7 @@
     window.addEventListener("keydown", onNoteKey);
     window.addEventListener("keydown", onExpandedFieldEscape);
     window.addEventListener("wheel", onNoteWheel, { passive: true });
-    detachMenuKeys = menuRing.attach(() => {
-      if (claimPickerFor) {
-        claimPickerFor = null;
-        return true;
-      }
-      if (creatingProject) {
-        creatingProject = false;
-        return true;
-      }
-      if (!embedded && arch.front === "layer2") {
-        const active = document.activeElement;
-        if (active instanceof Element && active.closest(".l2-expanded")) {
-          const stop = layer2For(arch.pid)[arch.center2]?.stop;
-          const icon = stop
-            ? document.querySelector(`[data-mkey="${CSS.escape(stop)}"]`)
-            : null;
-          if (icon instanceof HTMLElement) icon.focus();
-          return true;
-        }
-      }
-      if (!embedded && arch.front !== "arch") {
-        archDo(archBack(arch));
-        return true;
-      }
-      if (
-        menuRing.activeId === "rcoach-claim" ||
-        menuRing.activeId === "rcoach-skip"
-      ) {
-        void coachSkip();
-        return true;
-      }
-      if (!embedded && previewStop(menuRing.activeId)) {
-        const pid = openSectionId();
-        if (pid) {
-          menuRing.select(`rhead-${pid}`);
-          return true;
-        }
-      }
-      return false;
-    });
+    detachMenuKeys = menuRing.attach(onRailEscape);
     try {
       const s = await invoke<PersistedState>("load_state");
       const migrated = migrateThemeId(s.themeId ?? "");
@@ -3133,6 +3189,12 @@
         if (e.payload?.source === "edge") {
           pointerInside = true;
           edgePointerSeed = true;
+          setTimeout(() => {
+            if (!edgePointerSeed) return;
+            edgePointerSeed = false;
+            pointerInside = false;
+            maybeAutoHide();
+          }, EDGE_GRACE_MS);
         }
       } else {
         edgePointerSeed = false;
@@ -3625,6 +3687,9 @@
     ensureExpand,
     collapsePlanet,
     openStageDest,
+    popOutStars,
+    parkAfterRaise,
+    armNeededMouth,
     stageRole,
     openSectionId,
     get railEdge() { return railEdge; },

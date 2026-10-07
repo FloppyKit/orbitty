@@ -83,15 +83,24 @@ pub fn dest_toggle(app: tauri::AppHandle, dest: String) -> Result<bool, String> 
 #[tauri::command]
 pub fn dest_show(app: tauri::AppHandle, dest: String) -> Result<(), String> {
     match dest.as_str() {
-        "launchpad" => crate::panes::show_shared_pane(&app, "board"),
+        "launchpad" => {
+            crate::drawers::rail_stage_apply(&app, false);
+            crate::panes::show_shared_pane(&app, "board")
+        }
         "stars" => crate::panes::show_shared_pane(&app, "stars"),
         "inspector" => {
             crate::show_rail_inner(&app);
             Ok(())
         }
         "settings" => crate::panes::show_labeled(&app, "settings"),
-        "settings-beside" => crate::drawers::show_drawer_beside_rail(&app, "settings"),
-        "stars-beside" => crate::drawers::show_drawer_beside_rail(&app, "stars"),
+        "settings-beside" => {
+            crate::drawers::rail_stage_apply(&app, false);
+            crate::drawers::show_drawer_beside_rail(&app, "settings")
+        }
+        "stars-beside" => {
+            crate::drawers::rail_stage_apply(&app, false);
+            crate::drawers::show_drawer_beside_rail(&app, "stars")
+        }
         _ => Err(format!("dest_show: unknown dest {dest}")),
     }
 }

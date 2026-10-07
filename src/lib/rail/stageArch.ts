@@ -222,36 +222,236 @@ export function archSlot(
   };
 }
 
-/** SVG `d` for the orbit the slots sit on. Samples past |k| = 4 to the frame edge. */
+function radialCentre(ring: 1 | 2): number {
+  const shift = ring === 2 ? ARCH_RING_GAP : 0;
+  return ARCH_X0 - ARCH_RX * Math.cos(THETA_MAX) + shift;
+}
+
+function fromAt(theta: number, ring: 1 | 2): number {
+  return radialCentre(ring) + ARCH_RX * Math.cos(theta);
+}
+
+/** Theta past ±90° where the ellipse meets the screen edge, or 90° when it cannot. */
+function tailTheta(ring: 1 | 2): number {
+  if (fromAt(Math.PI / 2, ring) <= 0) return Math.PI / 2;
+  if (fromAt(Math.PI, ring) > 0) return Math.PI / 2;
+  let lo = Math.PI / 2;
+  let hi = Math.PI;
+  for (let i = 0; i < 48; i++) {
+    const mid = (lo + hi) / 2;
+    if (fromAt(mid, ring) > 0) lo = mid;
+    else hi = mid;
+  }
+  return hi;
+}
+
+export interface ArchOrbitArc {
+  d: string;
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+  t0: number;
+  t1: number;
+  edge: StageEdge;
+  ring: 1 | 2;
+  frame: ArchFrame;
+}
+
+/** Elliptical arc of the slot ellipse, continued until it leaves through the screen edge. */
+export function archOrbitArc(
+  edge: StageEdge | string = "left",
+  ring: 1 | 2 = 1,
+  frame: ArchFrame = ARCH_FRAME,
+): ArchOrbitArc {
+  const e = normalizeStageEdge(edge);
+  const ry = ryFor(e, frame);
+  const radial = radialCentre(ring);
+  const tEdge = tailTheta(ring);
+  let cx = radial;
+  let cy = 0;
+  if (e === "right") cx = -radial;
+  else if (e === "top") {
+    cx = 0;
+    cy = radial;
+  } else if (e === "bottom") {
+    cx = 0;
+    cy = -radial;
+  }
+  const a = archPoint(-tEdge, e, ring, frame);
+  const b = archPoint(tEdge, e, ring, frame);
+  const d = `M${a.x.toFixed(3)} ${a.y.toFixed(3)}A${ARCH_RX.toFixed(3)} ${ry.toFixed(3)} 0 1 1 ${b.x.toFixed(3)} ${b.y.toFixed(3)}`;
+  return { d, cx, cy, rx: ARCH_RX, ry, t0: -tEdge, t1: tEdge, edge: e, ring, frame };
+}
+
+export function archOrbitPoint(arc: ArchOrbitArc, theta: number): { x: number; y: number } {
+  return archPoint(theta, arc.edge, arc.ring, arc.frame);
+}
+
+export function archOrbitSamples(arc: ArchOrbitArc, n = 64): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  const steps = Math.max(2, n);
+  for (let i = 0; i <= steps; i++) {
+    const t = arc.t0 + ((arc.t1 - arc.t0) * i) / steps;
+    pts.push(archOrbitPoint(arc, t));
+  }
+  return pts;
+}
+
+/** Fade axis: screen edge → bulge, so both tails (the low end) dissolve. */
+export function archOrbitFade(arc: ArchOrbitArc): { x1: number; y1: number; x2: number; y2: number } {
+  const mid = archOrbitPoint(arc, 0);
+  const tail = archOrbitPoint(arc, arc.t0);
+  if (arc.edge === "top" || arc.edge === "bottom") {
+    return { x1: 0, y1: tail.y, x2: 0, y2: mid.y };
+  }
+  return { x1: tail.x, y1: 0, x2: mid.x, y2: 0 };
+}
+
+/** SVG `d` for the orbit. Elliptical arc of the same ellipse, tails through the screen edge. */
 export function archOrbitPath(
   edge: StageEdge | string = "left",
   ring: 1 | 2 = 1,
   frame: ArchFrame = ARCH_FRAME,
 ): string {
+  return archOrbitArc(edge, ring, frame).d;
+}
+
+export interface ArchLabelBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  side: "below" | "inboard";
+}
+
+const LABEL_BELOW_GAP = 4;
+const LABEL_INBOARD_GAP = 4;
+
+export function archMarbleBox(
+  k: number,
+  edge: StageEdge | string,
+  ring: 1 | 2,
+  frame: ArchFrame,
+  selected = k === 0,
+): ZoneRect {
+  const slot = archSlot(k, edge, ring, frame);
+  const c = slotFramePoint(edge, slot, frame);
+  const size = selected ? 84 : 66 * slot.scale;
+  return { x: c.x - size / 2, y: c.y - size / 2, w: size, h: size };
+}
+
+function rectsHit(a: ZoneRect, b: ZoneRect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function edgeGap(a: ZoneRect, b: ZoneRect): number {
+  const dx = Math.max(a.x - (b.x + b.w), b.x - (a.x + a.w), 0);
+  const dy = Math.max(a.y - (b.y + b.h), b.y - (a.y + a.h), 0);
+  return Math.hypot(dx, dy);
+}
+
+function placeLabel(
+  marble: ZoneRect,
+  edge: string,
+  w: number,
+  h: number,
+  side: "below" | "inboard" | "outboard",
+): ZoneRect {
   const e = normalizeStageEdge(edge);
-  const limit = (e === "top" || e === "bottom" ? frame.w : frame.h) / 2;
-  const ry = ryFor(e, frame);
-  let thetaEdge = Math.PI / 2;
-  if (ry > 1e-6) thetaEdge = Math.asin(Math.min(1, limit / ry));
-  if (thetaEdge < THETA_MAX + 1e-4) {
-    thetaEdge = Math.min(Math.PI / 2, THETA_MAX + STEP_RAD * 0.5);
+  const gap = side === "below" ? LABEL_BELOW_GAP : LABEL_INBOARD_GAP;
+  const yMid = marble.y + marble.h / 2 - h / 2;
+  const xMid = marble.x + marble.w / 2 - w / 2;
+  if (side === "below") {
+    if (e === "bottom") return { x: xMid, y: marble.y - gap - h, w, h };
+    if (e === "top") return { x: xMid, y: marble.y + marble.h + gap, w, h };
+    return { x: xMid, y: marble.y + marble.h + gap, w, h };
   }
-  const step = 0.35 / Math.max(ry, ARCH_RX, 1);
-  const thetas: number[] = [];
-  for (let th = -thetaEdge; th < thetaEdge; th += step) thetas.push(th);
-  thetas.push(thetaEdge);
-  for (let k = -4; k <= 4; k++) thetas.push(k * STEP_RAD);
-  thetas.sort((a, b) => a - b);
-  let d = "";
-  let prev = Number.NaN;
-  for (const th of thetas) {
-    if (th < -thetaEdge - 1e-9 || th > thetaEdge + 1e-9) continue;
-    if (Number.isFinite(prev) && Math.abs(th - prev) < 1e-8) continue;
-    prev = th;
-    const p = archPoint(th, e, ring, frame);
-    d += `${d ? "L" : "M"}${p.x.toFixed(3)} ${p.y.toFixed(3)}`;
+  const inward = side === "inboard";
+  if (e === "right") {
+    return inward
+      ? { x: marble.x - gap - w, y: yMid, w, h }
+      : { x: marble.x + marble.w + gap, y: yMid, w, h };
   }
-  return d;
+  if (e === "top") {
+    return inward
+      ? { x: xMid, y: marble.y + marble.h + gap, w, h }
+      : { x: xMid, y: marble.y - gap - h, w, h };
+  }
+  if (e === "bottom") {
+    return inward
+      ? { x: xMid, y: marble.y - gap - h, w, h }
+      : { x: xMid, y: marble.y + marble.h + gap, w, h };
+  }
+  return inward
+    ? { x: marble.x + marble.w + gap, y: yMid, w, h }
+    : { x: marble.x - gap - w, y: yMid, w, h };
+}
+
+function layoutLabels(
+  edge: string,
+  ring: 1 | 2,
+  frame: ArchFrame,
+  avoid: readonly ZoneRect[],
+): Map<number, ArchLabelBox> {
+  const ks: number[] = [];
+  for (let k = -4; k <= 4; k++) {
+    if (!archSlot(k, edge, ring, frame).hidden) ks.push(k);
+  }
+  const marbles = new Map(ks.map((k) => [k, archMarbleBox(k, edge, ring, frame, k === 0)]));
+  const chosen = new Map<number, ArchLabelBox>();
+  const order = [...ks].sort((a, b) => Math.abs(a) - Math.abs(b) || a - b);
+  for (const k of order) {
+    const h = k === 0 ? 16 : 15;
+    const marble = marbles.get(k)!;
+    let best: ArchLabelBox | null = null;
+    let beside: ArchLabelBox | null = null;
+    for (const width of [k === 0 ? 120 : 96, 72, 56, 40]) {
+      for (const side of ["below", "inboard", "outboard"] as const) {
+        const box = placeLabel(marble, edge, width, h, side);
+        const hitM = [...marbles.entries()].some(([kk, m]) => kk !== k && rectsHit(box, m));
+        const hitL = [...chosen.values()].some((o) => rectsHit(box, o));
+        const hitA = avoid.some((a) => a.w > 0 && a.h > 0 && rectsHit(box, a));
+        const gap = edgeGap(marble, box);
+        const gapOk = side === "below" ? gap <= 4.01 : gap <= 6.01;
+        if (hitM || hitL || !gapOk || gap <= 0.5) continue;
+        const placed: ArchLabelBox = { ...box, side: side === "below" ? "below" : "inboard" };
+        if (!hitA) {
+          best = placed;
+          break;
+        }
+        beside ??= placed;
+      }
+      if (best) break;
+    }
+    chosen.set(k, best ?? beside ?? { ...placeLabel(marble, edge, 40, h, "outboard"), side: "inboard" });
+  }
+  return chosen;
+}
+
+/** Label rect in frame coordinates. Below the marble when it clears; otherwise inboard. */
+export function archLabelBox(
+  k: number,
+  edge: StageEdge | string = "left",
+  ring: 1 | 2 = 1,
+  frame: ArchFrame = ARCH_FRAME,
+  opts?: { avoid?: readonly ZoneRect[] },
+): ArchLabelBox {
+  const all = layoutLabels(edge, ring, frame, opts?.avoid ?? []);
+  return all.get(k) ?? { x: 0, y: 0, w: 96, h: 15, side: "below" };
+}
+
+export function neededAct(item: {
+  kind?: string;
+  id?: string;
+  title?: string;
+}): { kind: "mouth"; id: string; title: string } | null {
+  if (item.kind !== "needed" || !item.id) return null;
+  return { kind: "mouth", id: item.id, title: item.title ?? "" };
+}
+
+export function thumbShowsImage(state: string | null | undefined): boolean {
+  return state === "ok";
 }
 
 export function archEnter(s: ArchState, item: SpinItem, layer2: readonly Layer2Item[] = []): ArchState {
@@ -921,7 +1121,7 @@ export function archPainted(
     pid: string | null;
     revealed: boolean;
     slop?: number;
-    embed?: "settings" | null;
+    embed?: "settings" | "stars" | null;
     edge?: string;
     frame?: ArchFrame;
   },
@@ -935,7 +1135,7 @@ export function archPainted(
     const mirror = mirrorLayout(opts.edge, opts.frame.w, opts.frame.h);
     zones.push(mirror.expanded, mirror.back);
   }
-  if (opts.embed === "settings") zones.push(layout.board);
+  if (opts.embed === "settings" || opts.embed === "stars") zones.push(layout.board);
   // Revealed is the stage flag the caller already has. Hysteresis, not this
   // test, decides whether a miss parks the drawer.
   void opts.revealed;

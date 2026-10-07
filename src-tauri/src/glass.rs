@@ -32,7 +32,11 @@ mod imp {
             let _: () = msg_send![ns_window, setOpaque: false];
             let clear: *mut Object = msg_send![class!(NSColor), clearColor];
             let _: () = msg_send![ns_window, setBackgroundColor: clear];
-            let _: () = msg_send![ns_window, setHasShadow: true];
+            let main = window.label() == "main";
+            let _: () = msg_send![ns_window, setHasShadow: !main];
+            if main {
+                let _: () = msg_send![ns_window, invalidateShadow];
+            }
             let content: *mut Object = msg_send![ns_window, contentView];
             strip_webview_fill(content);
         }
@@ -144,6 +148,32 @@ mod imp {
             strip_webview_fill(sub);
         }
     }
+
+    /// Remove the titled/closable/miniaturizable bits. A titled window on
+    /// macOS 26 draws a rim even with a clear background and no shadow.
+    pub fn strip_titled(window: &tauri::WebviewWindow) {
+        let Ok(raw) = window.ns_window() else {
+            return;
+        };
+        let ns_window = raw as *mut Object;
+        if ns_window.is_null() {
+            return;
+        }
+        unsafe {
+            let mask: usize = msg_send![ns_window, styleMask];
+            const TITLED: usize = 1;
+            const CLOSABLE: usize = 2;
+            const MINI: usize = 4;
+            const RESIZABLE: usize = 8;
+            const FULL: usize = 1 << 15;
+            let mut next = mask & !(TITLED | CLOSABLE | MINI);
+            next |= FULL;
+            if mask & RESIZABLE != 0 {
+                next |= RESIZABLE;
+            }
+            let _: () = msg_send![ns_window, setStyleMask: next];
+        }
+    }
 }
 
 pub fn ensure_transparent(window: &tauri::WebviewWindow) {
@@ -166,6 +196,14 @@ pub fn no_shadow(window: &tauri::WebviewWindow) {
     imp::no_shadow(window);
     #[cfg(not(target_os = "macos"))]
     let _ = window;
+}
+
+/// Stage rail: drop the titled frame so the clear window has no rim.
+/// Keeps the full-size content view (and resizable, if it was on).
+pub fn stage_borderless(window: &tauri::WebviewWindow) {
+    let _ = window.set_decorations(false);
+    #[cfg(target_os = "macos")]
+    imp::strip_titled(window);
 }
 
 pub fn hide_traffic_lights(window: &tauri::WebviewWindow) {
