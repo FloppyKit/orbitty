@@ -44,6 +44,108 @@ function braceBody(text: string, from: number): string {
   throw new Error("unbalanced");
 }
 
+function effectCalls(text: string): string[] {
+  const out: string[] = [];
+  let from = 0;
+  while (from < text.length) {
+    const at = text.indexOf("$effect(", from);
+    if (at < 0) break;
+    const open = at + "$effect".length;
+    let depth = 0;
+    let i = open;
+    let closed = false;
+    for (; i < text.length; i++) {
+      if (text[i] === "(") depth++;
+      else if (text[i] === ")") {
+        depth--;
+        if (depth === 0) {
+          out.push(text.slice(open + 1, i));
+          closed = true;
+          i++;
+          break;
+        }
+      }
+    }
+    if (!closed) break;
+    from = i;
+  }
+  return out;
+}
+
+function styleText(file: string): string {
+  return [...file.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n");
+}
+
+function cssRules(css: string): { sel: string; body: string }[] {
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules: { sel: string; body: string }[] = [];
+  let i = 0;
+  while (i < clean.length) {
+    while (i < clean.length && /\s/.test(clean[i] ?? "")) i++;
+    if (i >= clean.length) break;
+    if (clean[i] === "@") {
+      const open = clean.indexOf("{", i);
+      const semi = clean.indexOf(";", i);
+      if (open < 0 || (semi >= 0 && semi < open)) {
+        i = semi < 0 ? clean.length : semi + 1;
+        continue;
+      }
+      const head = clean.slice(i, open);
+      const block = braceBody(clean, i);
+      if (/@media|@supports/.test(head)) rules.push(...cssRules(block.slice(1, -1)));
+      i = open + block.length;
+      continue;
+    }
+    const open = clean.indexOf("{", i);
+    if (open < 0) break;
+    const block = braceBody(clean, i);
+    rules.push({ sel: clean.slice(i, open).trim(), body: block.slice(1, -1) });
+    i = open + block.length;
+  }
+  return rules;
+}
+
+function relLuma(r: number, g: number, b: number, a = 1): number {
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return (0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)) * a;
+}
+
+function fillLuma(value: string): number | null {
+  const hex = /#([0-9a-fA-F]{3,8})\b/.exec(value);
+  if (hex) {
+    const h = hex[1];
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let a = 1;
+    if (h.length === 3 || h.length === 4) {
+      r = parseInt(h[0] + h[0], 16);
+      g = parseInt(h[1] + h[1], 16);
+      b = parseInt(h[2] + h[2], 16);
+      if (h.length === 4) a = parseInt(h[3] + h[3], 16) / 255;
+    } else if (h.length === 6 || h.length === 8) {
+      r = parseInt(h.slice(0, 2), 16);
+      g = parseInt(h.slice(2, 4), 16);
+      b = parseInt(h.slice(4, 6), 16);
+      if (h.length === 8) a = parseInt(h.slice(6, 8), 16) / 255;
+    } else {
+      return null;
+    }
+    return relLuma(r, g, b, a);
+  }
+  const rgb = /rgba?\(\s*([0-9.]+)\s*,?\s*([0-9.]+)\s*,?\s*([0-9.]+)\s*(?:[,/]\s*([0-9.]+)(%?)\s*)?\)/.exec(value);
+  if (!rgb) return null;
+  let a = 1;
+  if (rgb[4] != null) {
+    a = parseFloat(rgb[4]);
+    if (rgb[5] === "%") a /= 100;
+  }
+  return relLuma(parseFloat(rgb[1]), parseFloat(rgb[2]), parseFloat(rgb[3]), a);
+}
+
 test("S1 starsLayout boundaries and column px", () => {
   assert.equal(starsLayout(1200), "three");
   assert.equal(starsLayout(900), "three");
@@ -93,6 +195,10 @@ test("S15 dots columns fit 600 through 899", () => {
       "`${cols.planet}px ${cols.middle} clamp(${cols.rightMin}px, ${cols.right}px, ${cols.rightMax}px)`",
     ),
   );
+  const gridAt = page.indexOf("const gridCols = $derived(");
+  assert.ok(gridAt > 0);
+  const grid = page.slice(gridAt, page.indexOf(");", gridAt));
+  assert.equal(/\d+px/.test(grid), false, `hardcoded column px in gridCols: ${grid}`);
   const bodyAt = page.indexOf(".s-body {");
   const bodyCss = page.slice(bodyAt, page.indexOf("}", bodyAt));
   assert.match(bodyCss, /gap:\s*10px/);
@@ -122,9 +228,48 @@ test("S16 stars-save fill is mixed accent", () => {
   assert.ok(at > 0);
   const rule = page.slice(at, page.indexOf("}", at));
   assert.equal(/background:\s*var\(--accent\)\s*;/.test(rule), false);
+  assert.equal(/background-color:\s*var\(--accent\)\s*;/.test(rule), false);
   assert.match(rule, /background:\s*color-mix\(in srgb,\s*var\(--accent\)\s*24%,\s*transparent\)\s*;/);
   assert.match(rule, /color:\s*var\(--ink\)\s*;/);
   assert.match(rule, /border-color:\s*var\(--accent\)\s*;/);
+});
+
+test("S17 no bare accent fill and compact sky stays dark", () => {
+  const files = readdirSync(new URL("../src/lib/stars/", import.meta.url))
+    .filter((n) => n.endsWith(".svelte"))
+    .map((n) => src(`src/lib/stars/${n}`));
+  files.push(src("src/lib/StarsPage.svelte"));
+  const styles = files.map((file) => styleText(file)).join("\n");
+  const bare = styles.match(/background(?:-color)?\s*:\s*var\(--accent\)\s*[;}]/);
+  assert.equal(bare, null, bare?.[0] ?? "");
+
+  const skyRules = cssRules(styleText(src("src/lib/SkyField.svelte")));
+  const sel = (s: string) => s.replace(/\s+/g, " ").trim();
+  const picked = skyRules.find((r) => sel(r.sel) === ".sky-field.compact .word.picked");
+  const smash = skyRules.find((r) => sel(r.sel) === ".sky-field.compact .smash");
+  assert.ok(picked, "compact picked rule");
+  assert.ok(smash, "compact smash rule");
+  assert.match(picked.body, /background:\s*color-mix\(in srgb,\s*var\(--accent\)\s*24%,\s*transparent\)\s*;/);
+  assert.match(picked.body, /color:\s*var\(--ink\)\s*;/);
+  assert.match(smash.body, /background:\s*var\(--panel-fill\)\s*;/);
+  assert.match(smash.body, /color:\s*var\(--ink\)\s*;/);
+  const basePicked = skyRules.find((r) => sel(r.sel) === ".word.picked");
+  const baseSmash = skyRules.find((r) => sel(r.sel) === ".smash");
+  assert.ok(basePicked);
+  assert.ok(baseSmash);
+  assert.match(basePicked.body, /background:\s*var\(--accent\)\s*;/);
+  assert.match(baseSmash.body, /background:\s*rgb\(232 236 248 \/ 0\.92\)\s*;/);
+  const light: string[] = [];
+  for (const rule of skyRules) {
+    if (!sel(rule.sel).includes(".compact")) continue;
+    for (const part of rule.body.split(";")) {
+      const decl = /background(?:-color)?\s*:\s*([\s\S]+)/.exec(part);
+      if (!decl) continue;
+      const luma = fillLuma(decl[1]);
+      if (luma != null && luma > 0.5) light.push(`${sel(rule.sel)} ${decl[1].trim()} ${luma.toFixed(3)}`);
+    }
+  }
+  assert.deepEqual(light, []);
 });
 
 test("S2 planet scope reaches trackers only", () => {
@@ -188,6 +333,12 @@ test("S4 radarDraft does not fill the past and mount does not save", () => {
     for (const banned of ["saveStarsToday", "save_state", "setAverageWindow("]) {
       assert.equal(body.includes(banned), false, `${head} contains ${banned}`);
     }
+  }
+  const script = page.slice(page.indexOf("<script"), page.indexOf("</script>"));
+  const effects = effectCalls(script);
+  assert.ok(effects.length >= 4);
+  for (const body of effects) {
+    assert.equal(body.includes("saveStarsToday"), false, "top-level $effect calls saveStarsToday");
   }
 });
 

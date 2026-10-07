@@ -229,7 +229,7 @@
   }
 
   .mark.page {
-    background: var(--accent);
+    background: color-mix(in srgb, var(--accent) 60%, var(--bg));
     border-radius: 1px;
   }
 
@@ -247,7 +247,7 @@
     display: block;
     height: 3px;
     width: 100%;
-    background: var(--accent);
+    background: color-mix(in srgb, var(--accent) 60%, var(--bg));
   }
 
   .bar.start {

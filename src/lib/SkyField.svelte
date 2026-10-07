@@ -519,6 +519,17 @@
     pointer-events: auto;
   }
 
+  /* Stars folio (.compact) only. The Sky window keeps .word.picked and .smash above. */
+  .sky-field.compact .word.picked {
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    color: var(--ink);
+  }
+
+  .sky-field.compact .smash {
+    background: var(--panel-fill);
+    color: var(--ink);
+  }
+
   .hint {
     margin: 10px 0 0;
     font-size: 0.64rem;

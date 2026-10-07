@@ -229,9 +229,9 @@
     font: inherit;
     font-size: 0.72rem;
     font-weight: 700;
-    color: var(--on-accent, var(--bg));
-    background: var(--accent);
-    border: none;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    border: 1px solid var(--accent);
     border-radius: 8px;
     padding: 4px 12px;
     min-height: 24px;
