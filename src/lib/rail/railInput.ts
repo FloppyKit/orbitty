@@ -55,28 +55,16 @@ export function depthOut(front: ArchFrontName): { front: ArchFrontName; hide: bo
 
 export type CentreCause = "spin" | "depthOut";
 
+/** A depth-out centre change skips the beside panel once. The stored cause is always
+ *  spin, so the next centre change applies. */
+export function centreStep(cause: CentreCause): { apply: boolean; next: CentreCause } {
+  return { apply: cause !== "depthOut", next: "spin" };
+}
+
 /** Layer-1 wheel stop for the planet an out step came from. Null when there is no pid. */
 export function depthOutStop(pid: string | null): string | null {
   if (!pid) return null;
   return `rhead-${pid}`;
-}
-
-/** Wheel index after an out step: the planet you came from, never a fallback stop such as Stars. */
-export function depthOutCentre(
-  items: readonly { pid?: string | null }[],
-  pid: string | null,
-  prev: number,
-): number {
-  if (pid) {
-    const at = items.findIndex((it) => it.pid === pid);
-    if (at >= 0) return at;
-  }
-  const n = items.length;
-  if (n === 0) return 0;
-  const c = Number.isFinite(prev) ? Math.round(prev) : 0;
-  if (c < 0) return 0;
-  if (c >= n) return n - 1;
-  return c;
 }
 
 export interface CrumbPart {

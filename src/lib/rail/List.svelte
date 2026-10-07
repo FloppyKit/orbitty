@@ -58,7 +58,7 @@
     type Layer2Item,
   } from "./stageArch";
   import { archHalo, outwardDir, pickFromKind, selWrapBox } from "./stageFocus";
-  import { archGutter, depthOut, spinStepsCap, SPIN_CAP_IDLE, type SpinCapState } from "./railInput";
+  import { archGutter, centreStep, depthOut, spinStepsCap, SPIN_CAP_IDLE, type SpinCapState } from "./railInput";
 
   let { rail }: { rail: RailApi } = $props();
 
@@ -165,13 +165,12 @@
     }
     const onWheel = !!active && list.some((it) => it.stop === active);
     const next = spinCenterFor(list, onWheel ? active : null, center);
+    const step = centreStep(rail.centreCause);
     if (next !== center) {
       center = next;
-      if (rail.centreCause !== "depthOut") {
-        rail.applyBeside(pickFromKind(list[next]?.kind));
-      }
+      if (step.apply) rail.applyBeside(pickFromKind(list[next]?.kind));
     }
-    if (rail.centreCause === "depthOut") rail.centreCause = "spin";
+    rail.centreCause = step.next;
     if (rail.spinCenter !== center) rail.spinCenter = center;
   });
 

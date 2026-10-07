@@ -12,16 +12,17 @@ import {
   enterBoard,
   type ArchState,
 } from "../src/lib/rail/stageArch.ts";
-import { spinItems, type SpinItem } from "../src/lib/rail/stageLook.ts";
+import { spinCenterFor, spinItems, type SpinItem } from "../src/lib/rail/stageLook.ts";
 import { oneFocusOwner, selWrapBox } from "../src/lib/rail/stageFocus.ts";
 import { FOCUS_RING } from "../src/themes/host.ts";
 import {
   SPIN_CAP_IDLE,
   SPIN_FLICK_MAX,
   archGutter,
+  centreStep,
   depthOut,
-  depthOutCentre,
   depthOutStop,
+  type CentreCause,
   emptyDismiss,
   hitBox,
   inputIntent,
@@ -482,7 +483,7 @@ test("B4 mouse Back and Forward bind pointerup and auxclick", () => {
 
 test("B5 depth-out keeps the came-from planet and does not open beside", () => {
   const items = spinItems(["came-from"], "__unmapped__");
-  const at = depthOutCentre(items, "came-from", 0);
+  const at = spinCenterFor(items, depthOutStop("came-from"), 0);
   assert.equal(items[0].kind, "stars");
   assert.equal(items[at].pid, "came-from");
   assert.equal(items[at].kind, "planet");
@@ -499,10 +500,35 @@ test("B5 depth-out keeps the came-from planet and does not open beside", () => {
   assert.ok(branch.indexOf("reselectStop") < branch.indexOf("const step = depthOut"));
   assert.doesNotMatch(branch, /applyBeside\(/);
   assert.doesNotMatch(branch, /stageEmbed\s*=/);
+});
+
+test("B5 centreStep depthOut does not apply and the stored cause is spin", () => {
+  assert.deepEqual(centreStep("depthOut"), { apply: false, next: "spin" });
+  assert.deepEqual(centreStep("spin"), { apply: true, next: "spin" });
+});
+
+test("B5 sequence depthOut centre change then a later centre change applies", () => {
+  let cause: CentreCause = "depthOut";
+  const first = centreStep(cause);
+  assert.equal(first.apply, false);
+  cause = first.next;
+  const later = centreStep(cause);
+  assert.equal(later.apply, true);
+  assert.equal(later.next, "spin");
+});
+
+test("B5 List centre effect resets through centreStep after the guard", () => {
   const centre = list.slice(list.indexOf("const onWheel = !!active"), list.indexOf("if (rail.spinCenter"));
-  const beside = centre.indexOf("applyBeside(");
-  const guard = centre.indexOf('centreCause !== "depthOut"');
-  assert.ok(guard >= 0 && beside > guard);
+  const stepAt = centre.indexOf("const step = centreStep(rail.centreCause)");
+  const guardAt = centre.indexOf("if (step.apply)");
+  const besideAt = centre.indexOf("rail.applyBeside(");
+  const resetAt = centre.indexOf("rail.centreCause = step.next");
+  assert.ok(stepAt >= 0, "centreStep call");
+  assert.ok(guardAt > stepAt, "guard after centreStep");
+  assert.ok(besideAt > guardAt, "applyBeside inside the guard");
+  assert.ok(resetAt > besideAt, "reset after the guard");
+  assert.equal(centre.includes('centreCause = "depthOut"'), false);
+  assert.equal(centre.includes('centreCause = "spin"'), false);
 });
 
 test("N2 rail backgrounds are dark panel tints", () => {
