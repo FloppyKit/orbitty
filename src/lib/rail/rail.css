@@ -1986,8 +1986,8 @@
   .rail.stage-shell .arch-vis,
   .rail.stage-shell .l2-vis {
     position: absolute;
-    left: 0;
-    top: 0;
+    left: 50%;
+    top: 50%;
     width: 0;
     height: 0;
     display: block;

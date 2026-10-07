@@ -17,6 +17,7 @@ import {
   type ArchFrame,
 } from "../src/lib/rail/stageArch.ts";
 import type { ZoneRect } from "../src/lib/rail/stageLook.ts";
+import { archCssChain, stripComments } from "./cssChain.ts";
 import { svgPathPoints } from "./svgPath.ts";
 
 const edges = ["left", "right", "top", "bottom"] as const;
@@ -117,13 +118,134 @@ function braceBody(src: string, from: number): string {
   return "";
 }
 
+function splitArgs(inner: string): string[] {
+  const args: string[] = [];
+  let cur = "";
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (quote) {
+      cur += c;
+      if (c === "\\") {
+        cur += inner[++i] ?? "";
+        continue;
+      }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === "`") {
+      quote = c;
+      cur += c;
+      continue;
+    }
+    if (c === "(" || c === "{" || c === "[") {
+      depth++;
+      cur += c;
+      continue;
+    }
+    if (c === ")" || c === "}" || c === "]") {
+      depth--;
+      cur += c;
+      continue;
+    }
+    if (c === "," && depth === 0) {
+      args.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += c;
+  }
+  if (cur.trim()) args.push(cur.trim());
+  return args;
+}
+
+function callsTo(src: string, name: string): string[][] {
+  const out: string[][] = [];
+  const needle = `${name}(`;
+  let i = 0;
+  while (i < src.length) {
+    const at = src.indexOf(needle, i);
+    if (at < 0) break;
+    const prev = at > 0 ? src[at - 1] : "";
+    if (/[A-Za-z0-9_$]/.test(prev)) {
+      i = at + needle.length;
+      continue;
+    }
+    let depth = 1;
+    let j = at + needle.length;
+    let quote: string | null = null;
+    for (; j < src.length && depth > 0; j++) {
+      const c = src[j];
+      if (quote) {
+        if (c === "\\") {
+          j++;
+          continue;
+        }
+        if (c === quote) quote = null;
+        continue;
+      }
+      if (c === "'" || c === '"' || c === "`") {
+        quote = c;
+        continue;
+      }
+      if (c === "(") depth++;
+      else if (c === ")") depth--;
+    }
+    out.push(splitArgs(src.slice(at + needle.length, j - 1)));
+    i = j;
+  }
+  return out;
+}
+
+function fnBody(src: string, name: string): string {
+  const at = src.indexOf(`function ${name}`);
+  assert.ok(at >= 0, `function ${name}`);
+  return braceBody(src, at);
+}
+
+/** Ring is the identifier passed through. A literal 1 or 2 fails. */
+function assertRingPassed(body: string, fn: string, where: string) {
+  const calls = callsTo(body, fn);
+  assert.ok(calls.length >= 1, `${where} calls ${fn}`);
+  for (const args of calls) {
+    assert.equal(args[2], "ring", `${where} ${fn} ring arg ${args[2]}`);
+  }
+}
+
+function assertAvoidPassed(body: string, where: string) {
+  assert.match(body, /const avoid\s*=\s*\[\s*mirror\.expanded\s*\]/, `${where} keeps avoid`);
+  const calls = callsTo(body, "archLabelBox");
+  assert.ok(calls.length >= 1, `${where} calls archLabelBox`);
+  for (const args of calls) {
+    assert.ok(
+      args.some((a) => a.replace(/\s/g, "") === "{avoid}"),
+      `${where} passes { avoid }`,
+    );
+  }
+}
+
 test("P1 labels sit tight and do not overlap", () => {
-  const archHit = css.slice(css.indexOf(".rail.stage-shell .arch-hit {"), css.indexOf(".rail.stage-shell .arch-hit {") + 400);
+  const cssSrc = stripComments(css);
+  const listSrc = stripComments(list);
+  const chain = archCssChain(css);
+  assert.ok(Math.abs(chain.dx) <= 1 && Math.abs(chain.dy) <= 1, `arch chain net (${chain.dx}, ${chain.dy})`);
+  assert.equal(chain.visTranslate, false, "arch-vis positioning rule has no centring translate");
+  assert.equal(chain.icons.length, 3);
+  for (const icon of chain.icons) {
+    assert.equal(icon.left, 0, `${icon.subject} left`);
+    assert.equal(icon.top, 0, `${icon.subject} top`);
+    assert.equal(icon.centred, true, `${icon.subject} translate(-50%, -50%)`);
+    const off = Math.hypot(chain.dx + icon.left, chain.dy + icon.top);
+    assert.ok(off <= 1, `${icon.subject} centre ${off}px from slot`);
+  }
+  const archAt = cssSrc.indexOf(".rail.stage-shell .arch-hit {");
+  const archHit = cssSrc.slice(archAt, archAt + 400);
   assert.match(archHit, /position:\s*absolute/);
   assert.doesNotMatch(archHit, /flex-direction:\s*column/);
-  assert.match(css, /\.arch-name\s*\{[^}]*position:\s*absolute/);
-  const l2At = list.indexOf("{#each layer2");
-  const l2 = list.slice(l2At, list.indexOf("{/each}", l2At));
+  assert.match(cssSrc, /\.arch-name\s*\{[^}]*position:\s*absolute/);
+  const l2At = listSrc.indexOf("{#each layer2");
+  const l2 = listSrc.slice(l2At, listSrc.indexOf("{/each}", l2At));
   assert.match(l2, /slotStyle\(l2Offset\(i\), L2_RING,/);
   assert.equal((l2.match(/labelSide\(l2Offset\(i\), L2_RING\)/g) ?? []).length, 2);
   assert.match(l2, /labelStyle\(l2Offset\(i\), L2_RING\)/);
@@ -182,6 +304,42 @@ test("P1 labels sit tight and do not overlap", () => {
       }
     }
   }
+  for (const layer of [
+    { name: "layer1", ring: 1 as const },
+    { name: "layer2", ring: L2_RING },
+  ]) {
+    for (const edge of edges) {
+      for (const frame of frames) {
+        const expanded = mirrorLayout(edge, frame.w, frame.h).expanded;
+        for (let k = -4; k <= 4; k++) {
+          const slot = archSlot(k, edge, layer.ring, frame);
+          if (slot.hidden) continue;
+          const box = archLabelBox(k, edge, layer.ring, frame, { avoid: [expanded] });
+          const marble = archMarbleBox(k, edge, layer.ring, frame, k === 0);
+          const pt = framePoint(edge, slot, frame);
+          const lab = {
+            x: pt.x + chain.dx + (box.x - (marble.x + marble.w / 2)),
+            y: pt.y + chain.dy + (box.y - (marble.y + marble.h / 2)),
+            w: box.w,
+            h: box.h,
+          };
+          const where = `${layer.name} ${edge} ${frame.w}x${frame.h} k=${k}`;
+          assert.ok(lab.x >= -0.01, `${where} x ${lab.x}`);
+          assert.ok(lab.y >= -0.01, `${where} y ${lab.y}`);
+          assert.ok(lab.x + lab.w <= frame.w + 0.01, `${where} right ${lab.x + lab.w}`);
+          assert.ok(lab.y + lab.h <= frame.h + 0.01, `${where} bottom ${lab.y + lab.h}`);
+          assert.ok(!hit(lab, expanded), `${where} expanded`);
+        }
+      }
+    }
+  }
+  const styleBody = fnBody(listSrc, "labelStyle");
+  const sideBody = fnBody(listSrc, "labelSide");
+  assertRingPassed(styleBody, "archLabelBox", "labelStyle");
+  assertRingPassed(styleBody, "archMarbleBox", "labelStyle");
+  assertRingPassed(sideBody, "archLabelBox", "labelSide");
+  assertAvoidPassed(styleBody, "labelStyle");
+  assertAvoidPassed(sideBody, "labelSide");
 });
 
 test("P2 orbit is a smooth arc through the screen edge", () => {
@@ -275,15 +433,21 @@ test("P5 needed click opens the mouth", () => {
 });
 
 test("P6 a raise parks and grace is retried", () => {
-  assert.match(page, /reason:\s*"raised"/);
-  assert.match(page, /function scheduleGraceRecheck/);
-  const hide = braceBody(page, page.indexOf("function maybeAutoHide"));
+  const pageSrc = stripComments(page);
+  assert.match(pageSrc, /reason:\s*"raised"/);
+  assert.match(pageSrc, /function scheduleGraceRecheck/);
+  const hide = braceBody(pageSrc, pageSrc.indexOf("function maybeAutoHide"));
   const grace = braceBody(hide, hide.indexOf("revealGraceUntil"));
   const call = grace.indexOf("scheduleGraceRecheck()");
   const ret = grace.indexOf("return");
   assert.ok(call >= 0 && ret > call, "grace branch calls scheduleGraceRecheck() before return");
-  const listenAt = page.indexOf("orbitty:rail-stage");
-  const listen = braceBody(page, page.indexOf("=>", listenAt));
+  const recheck = fnBody(pageSrc, "scheduleGraceRecheck");
+  const recheckTimeout = recheck.indexOf("setTimeout(");
+  assert.ok(recheckTimeout >= 0, "scheduleGraceRecheck has setTimeout");
+  const recheckCb = braceBody(recheck, recheckTimeout);
+  assert.ok(recheckCb.includes("maybeAutoHide()"), "scheduleGraceRecheck callback calls maybeAutoHide()");
+  const listenAt = pageSrc.indexOf("orbitty:rail-stage");
+  const listen = braceBody(pageSrc, pageSrc.indexOf("=>", listenAt));
   const edge = braceBody(listen, listen.indexOf('source === "edge"'));
   const timeoutAt = edge.indexOf("setTimeout(");
   assert.ok(timeoutAt >= 0, "edge branch has setTimeout");
