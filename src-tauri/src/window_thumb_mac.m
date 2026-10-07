@@ -19,6 +19,13 @@ int orbitty_thumb_request(void) {
     return CGRequestScreenCaptureAccess() ? 1 : 0;
 }
 
+static BOOL orbitty_thumb_sck_ok(void) {
+    NSOperatingSystemVersion v14 = {14, 0, 0};
+    if (![[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:v14]) return NO;
+    return NSClassFromString(@"SCScreenshotManager") != nil
+        && NSClassFromString(@"SCShareableContent") != nil;
+}
+
 static BOOL orbitty_thumb_is_ours(SCWindow *window) API_AVAILABLE(macos(14.0)) {
     SCRunningApplication *app = window.owningApplication;
     if (!app) return NO;
@@ -30,7 +37,10 @@ static BOOL orbitty_thumb_is_ours(SCWindow *window) API_AVAILABLE(macos(14.0)) {
 }
 
 void orbitty_thumb_capture(uint32_t window_id, int32_t pid, const char *title, int max_px, void *ctx, OrbittyThumbCb cb) {
-    if (@available(macOS 14.0, *)) {
+    if (orbitty_thumb_sck_ok()) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+#pragma clang diagnostic ignored "-Wunguarded-availability"
         if (!CGPreflightScreenCaptureAccess()) {
             orbitty_thumb_finish(ctx, cb, 1, nil, 0, 0);
             return;
@@ -99,6 +109,7 @@ void orbitty_thumb_capture(uint32_t window_id, int32_t pid, const char *title, i
                 orbitty_thumb_finish(ctx, cb, 0, b64, (int)CGImageGetWidth(img), (int)CGImageGetHeight(img));
             }];
         }];
+#pragma clang diagnostic pop
     } else {
         orbitty_thumb_finish(ctx, cb, 3, nil, 0, 0);
     }
