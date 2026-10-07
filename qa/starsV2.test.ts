@@ -13,6 +13,8 @@ import {
   columnNext,
   focusOrigin,
   focusStep,
+  segmentNext,
+  zoneColumn,
   type FocusWorld,
   type StarsFocus,
 } from "../src/lib/stars/starsFocus.ts";
@@ -26,6 +28,7 @@ import {
 } from "../src/lib/stars/trackerHistory.ts";
 import type { Tracker } from "../src/lib/persist.ts";
 import { STARS_SPOKES, radarDraft, ratingFromKey } from "../src/lib/stars/radarGeom.ts";
+import { classifyKey, surfaceGroups, tabMove } from "../src/lib/ringKeys.ts";
 
 const root = new URL("..", import.meta.url);
 function src(rel: string): string {
@@ -487,13 +490,23 @@ test("T7 zones move one level and the embedded edge exits", () => {
   assert.equal(out.pos.zone, "Z2");
   assert.equal(out.rootEsc, null);
   const root = focusStep(out.pos, "Escape", w);
-  assert.equal(root.rootEsc, "hide");
+  assert.equal(root.pos.zone, "Z0");
+  assert.equal(root.rootEsc, null);
   const sheet = focusStep(at("Z2"), "Escape", world({ reflectOpen: true }));
   assert.equal(sheet.rootEsc, "reflect");
+  const sheetDeep = focusStep({ ...at("Z2"), depth: 1 }, "Escape", world({ reflectOpen: true }));
+  assert.equal(sheetDeep.rootEsc, "reflect");
+  assert.equal(sheetDeep.pos.depth, 1);
   const z0 = focusStep(at("Z0", 0), "Escape", w);
-  assert.equal(z0.pos.zone, "Z2");
-  const z1 = focusStep(at("Z1", 2), "Escape", w);
-  assert.equal(z1.pos.zone, "Z2");
+  assert.equal(z0.rootEsc, "hide");
+  assert.equal(z0.pos.zone, "Z0");
+  const z0sheet = focusStep(at("Z0", 0), "Escape", world({ reflectOpen: true }));
+  assert.equal(z0sheet.rootEsc, "reflect");
+  for (const zone of ["Z1", "Z2", "Z3", "Z4", "Z5", "Z6", "Z7"] as const) {
+    const stepped = focusStep(at(zone, zone === "Z1" ? 2 : 0), "Escape", w);
+    assert.equal(stepped.pos.zone, "Z0", `${zone} steps out to Z0`);
+    assert.equal(stepped.rootEsc, null, `${zone} does not hide`);
+  }
   const card = focusStep(at("Z4", 0), "Enter", w);
   assert.equal(card.pos.depth, 1);
   assert.equal(card.pos.ctl, 0);
@@ -663,4 +676,344 @@ test("T9b tracker card, bars and chip keep the D-T / D-C values; no glow under t
   for (const rel of ["src/lib/stars/TrackerCard.svelte", "src/lib/stars/StarsTrackers.svelte", "src/lib/stars/StarsPlanetColumn.svelte", "src/lib/stars/LedgerStack.svelte"]) {
     for (const m of src(rel).matchAll(/<PlanetChip\b[^>]*?size=\{(\d+)\}/g)) assert.ok(Number(m[1]) <= 12, `${rel} chip ${m[1]}px`);
   }
+});
+
+// FR2: run the real MenuRing capture listener and the real bubble
+// onStarsKey in source order, then dispatch DOM-like keydown events.
+type KeyListener = { type: string; fn: (e: KeyEvt) => void; capture: boolean };
+type KeyEvt = {
+  key: string;
+  shiftKey: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  target: { closest?: (sel: string) => unknown };
+  defaultPrevented: boolean;
+  preventDefault: () => void;
+  stopImmediatePropagation: () => void;
+};
+
+function loadMenuRing(win: { addEventListener: Function; removeEventListener: Function }, document: { querySelector: () => null }) {
+  let text = src("src/lib/menuKeys.svelte.ts");
+  text = text.replace(/^import[^\n]*\n/gm, "");
+  text = text.replace(/\$state<[^>]*>\(/g, "$state(");
+  text = stripTypeScriptTypes(text);
+  text = text.replace(/\bexport\s+/g, "");
+  text = text.replace(/\bprivate\s+/g, "");
+  const MenuRing = new Function(
+    "untrack",
+    "$state",
+    "classifyKey",
+    "surfaceGroups",
+    "tabMove",
+    "window",
+    "document",
+    "CSS",
+    `${text}\nreturn MenuRing;`,
+  )(
+    (fn: () => unknown) => fn(),
+    (v: unknown) => v,
+    classifyKey,
+    surfaceGroups,
+    tabMove,
+    win,
+    document,
+    { escape: (s: string) => s },
+  ) as new () => { setStops: (s: unknown[]) => void; attach: (cb?: () => boolean) => () => void; select: (id: string) => void; onEdge: ((dir: string) => boolean) | null; activeId: string | null };
+  return MenuRing;
+}
+
+function pageScript(): string {
+  const page = src("src/lib/StarsPage.svelte");
+  return page.slice(page.indexOf("<script"), page.indexOf("</script>"));
+}
+
+function blockBody(text: string, at: number, asyncFn = false): string {
+  const raw = braceBody(text, at);
+  const wrapped = stripTypeScriptTypes(`${asyncFn ? "async " : ""}function __b() ${raw}`);
+  const open = wrapped.indexOf("{");
+  return wrapped.slice(open);
+}
+
+async function bootStarsKeys(opts: { embedded: boolean; ringActive: boolean }) {
+  const listeners: KeyListener[] = [];
+  const win = {
+    listeners,
+    addEventListener(type: string, fn: (e: KeyEvt) => void, options?: boolean | { capture?: boolean }) {
+      const capture = options === true || (typeof options === "object" && !!options?.capture);
+      listeners.push({ type, fn, capture });
+    },
+    removeEventListener(type: string, fn: (e: KeyEvt) => void) {
+      const i = listeners.findIndex((l) => l.type === type && l.fn === fn);
+      if (i >= 0) listeners.splice(i, 1);
+    },
+  };
+  const document = {
+    hidden: false,
+    addEventListener() {},
+    removeEventListener() {},
+    querySelector: () => null,
+  };
+  const MenuRing = loadMenuRing(win, document);
+  const menuRing = new MenuRing();
+  const log: string[] = [];
+  const averages: unknown[] = [];
+  let exits = 0;
+  let closes = 0;
+  const resolvers: ((v: () => void) => void)[] = [];
+  const S: Record<string, unknown> = {
+    embedded: opts.embedded,
+    ringActive: opts.ringActive,
+    outwardDir: "left",
+    reflectOpen: false,
+    spokeLive: false,
+    focusCol: "planets",
+    focusPos: focusOrigin("Z1"),
+    layout: "three",
+    segment: "checkin",
+    navView: "day",
+    NAV_ORDER: ["day", "week", "month", "year", "custom"],
+    avgFrom: "",
+    avgTo: "",
+    cursorDay: "2026-10-07",
+    hideLabel: "stars",
+    draftDirty: false,
+    saveTimer: undefined,
+    detachMenuKeys: undefined,
+    unlisten: undefined,
+    unlistenVis: undefined,
+    menuRing,
+    window: win,
+    document,
+    Element: class Element {},
+    STARS_SPOKES,
+    focusStep,
+    columnNext,
+    segmentNext,
+    zoneColumn,
+    autosaveDue,
+    shiftDay: () => "2026-09-07",
+    setAverageWindow: (...args: unknown[]) => {
+      averages.push(args);
+    },
+    bumpSpoke: () => {},
+    saveFromRing: () => {},
+    focusStarsCol: () => {},
+    applyStarsFocus: () => {},
+    activateStarsFocus: () => {},
+    onRingExit: () => {
+      exits += 1;
+    },
+    onClose: () => {
+      closes += 1;
+    },
+    onVisibility: () => {},
+    syncStarsDraft: () => {},
+    loadState: async () => {},
+    listenPaneVis: async () => () => {},
+    listen: () => new Promise((res) => resolvers.push(res as (v: () => void) => void)),
+    invoke: (cmd: string) => {
+      log.push(cmd);
+      return Promise.resolve();
+    },
+    saveStarsToday: async () => {
+      log.push("save");
+    },
+    clearTimeout: () => {},
+    setTimeout: () => 1,
+    focusWorld: () =>
+      world({
+        embedded: !!S.embedded,
+        reflectOpen: !!S.reflectOpen,
+        outward: "left",
+        segment: S.segment as "checkin",
+        layout: S.layout as "three",
+      }),
+  };
+  const script = pageScript();
+  const heads = [
+    "function cycleView(",
+    "function flushAutosave(",
+    "function hideStars(",
+    "function applyStep(",
+    "function onStarsKey(",
+  ];
+  const code = stripTypeScriptTypes(
+    heads
+      .map((head) => {
+        const at = script.indexOf(head);
+        assert.ok(at >= 0, head);
+        const open = script.indexOf("{", at);
+        return script.slice(at, open) + braceBody(script, at) + "\n";
+      })
+      .join("\n"),
+  );
+  const fns = new Function(
+    "S",
+    `with (S) {\n${code}\nreturn { cycleView, flushAutosave, hideStars, applyStep, onStarsKey };\n}`,
+  )(S) as Record<string, (...a: unknown[]) => unknown>;
+  Object.assign(S, fns);
+
+  const page = src("src/lib/StarsPage.svelte");
+  const stopsAt = page.lastIndexOf("$effect(() =>", page.indexOf("const stops: RingStop[]"));
+  const mountAt = page.indexOf("onMount(async () =>");
+  const ringAt = page.lastIndexOf("$effect(() =>", page.indexOf("if (!embedded || !ringActive) return"));
+  const keyAt = page.lastIndexOf("onMount(", page.indexOf('window.addEventListener("keydown", onStarsKey)'));
+  const blocks = [
+    { at: stopsAt, kind: "stops" },
+    { at: mountAt, kind: "mount" },
+    { at: ringAt, kind: "ring" },
+    { at: keyAt, kind: "key" },
+  ].sort((a, b) => a.at - b.at);
+  let mountP: Promise<unknown> = Promise.resolve();
+  for (const block of blocks) {
+    const body = blockBody(page, block.at, block.kind === "mount");
+    if (block.kind === "mount") {
+      mountP = new Function("S", `with (S) { return (async () => ${body})(); }`)(S) as Promise<unknown>;
+    } else {
+      new Function("S", `with (S) { ${body} }`)(S);
+    }
+  }
+  for (const res of resolvers) res(() => {});
+  await mountP;
+
+  const starsKey = fns.onStarsKey as (e: KeyEvt) => void;
+  function owner(fn: (e: KeyEvt) => void): string {
+    return fn === starsKey ? "stars" : "ring";
+  }
+  function registration() {
+    return listeners
+      .filter((l) => l.type === "keydown")
+      .map((l) => ({ owner: owner(l.fn), capture: l.capture }));
+  }
+  function dispatch(key: string): string[] {
+    let stopped = false;
+    const event: KeyEvt = {
+      key,
+      shiftKey: false,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      target: {},
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      stopImmediatePropagation() {
+        stopped = true;
+      },
+    };
+    const caps = listeners.filter((l) => l.type === "keydown" && l.capture);
+    const bub = listeners.filter((l) => l.type === "keydown" && !l.capture);
+    const trace: string[] = [];
+    for (const group of [caps, bub]) {
+      for (const l of group) {
+        trace.push(`${owner(l.fn)}:${l.capture ? "capture" : "bubble"}`);
+        l.fn(event);
+        if (stopped) return trace;
+      }
+    }
+    return trace;
+  }
+  return {
+    S,
+    log,
+    averages,
+    exits: () => exits,
+    closes: () => closes,
+    registration,
+    dispatch,
+  };
+}
+
+test("FR2 standalone map owns arrows Return and Esc; embedded ring still exits", async () => {
+  const stand = await bootStarsKeys({ embedded: false, ringActive: false });
+  assert.deepEqual(stand.registration(), [{ owner: "stars", capture: false }], "standalone registers only the bubble map");
+  assert.deepEqual(stand.dispatch("a"), ["stars:bubble"], "standalone propagation is the bubble listener");
+  assert.equal((stand.S.focusPos as { index: number }).index, 0);
+  stand.dispatch("ArrowDown");
+  stand.dispatch("ArrowDown");
+  assert.equal((stand.S.focusPos as { zone: string; index: number }).zone, "Z1");
+  assert.equal((stand.S.focusPos as { index: number }).index, 2, "Down walks the zone");
+  assert.equal(stand.S.navView, "day", "Down does not cycle the stars-nav view");
+  assert.equal(stand.averages.length, 0);
+  stand.dispatch("ArrowUp");
+  stand.dispatch("ArrowUp");
+  stand.dispatch("ArrowUp");
+  assert.equal((stand.S.focusPos as { zone: string }).zone, "Z0", "Up leaves the zone for Z0");
+  assert.equal(stand.S.navView, "day");
+  stand.S.focusPos = focusOrigin("Z1");
+  stand.dispatch("ArrowRight");
+  assert.equal((stand.S.focusPos as { zone: string }).zone, "Z2", "Right moves to the next zone");
+  assert.equal(stand.S.navView, "day");
+  stand.dispatch("Enter");
+  assert.equal((stand.S.focusPos as { zone: string; depth: number }).zone, "Z2");
+  assert.equal((stand.S.focusPos as { depth: number }).depth, 1, "Return enters the zone");
+  assert.equal(stand.S.navView, "day", "Return does not cycle the stars-nav view");
+  stand.dispatch("Escape");
+  assert.equal((stand.S.focusPos as { zone: string; depth: number }).depth, 0, "Esc leaves the spoke");
+  assert.equal((stand.S.focusPos as { zone: string }).zone, "Z2");
+  assert.equal(stand.log.includes("hide_window"), false);
+  stand.dispatch("Escape");
+  assert.equal((stand.S.focusPos as { zone: string }).zone, "Z0");
+  assert.equal(stand.log.includes("hide_window"), false, "Esc at Z2 does not hide");
+  stand.S.focusPos = { ...focusOrigin("Z4"), depth: 1 };
+  stand.S.reflectOpen = true;
+  stand.dispatch("Escape");
+  assert.equal(stand.S.reflectOpen, false, "an open Reflect sheet closes first");
+  assert.equal((stand.S.focusPos as { depth: number }).depth, 1, "the live control stays until the sheet is gone");
+  assert.equal(stand.log.includes("hide_window"), false);
+  for (const zone of ["Z1", "Z2", "Z3", "Z4", "Z5", "Z6", "Z7"] as const) {
+    stand.S.focusPos = focusOrigin(zone);
+    stand.S.reflectOpen = false;
+    stand.S.spokeLive = false;
+    stand.dispatch("Escape");
+    assert.equal((stand.S.focusPos as { zone: string }).zone, "Z0", `${zone} steps out one level`);
+    assert.equal(stand.log.includes("hide_window"), false, `${zone} does not hide`);
+  }
+  stand.S.focusPos = focusOrigin("Z0");
+  stand.dispatch("Escape");
+  assert.equal(stand.log.at(-1), "hide_window", "hide only at Z0 depth 0");
+  assert.equal(stand.closes(), 0);
+
+  const forced = await bootStarsKeys({ embedded: false, ringActive: true });
+  assert.deepEqual(forced.registration(), [{ owner: "stars", capture: false }], "ringActive alone does not attach the standalone ring");
+  forced.dispatch("ArrowDown");
+  forced.dispatch("ArrowDown");
+  assert.equal(forced.S.navView, "day", "forced ringActive still does not cycle the view");
+  assert.equal((forced.S.focusPos as { index: number }).index, 2);
+  forced.S.focusPos = focusOrigin("Z5");
+  forced.dispatch("Escape");
+  assert.equal((forced.S.focusPos as { zone: string }).zone, "Z0");
+  assert.equal(forced.log.includes("hide_window"), false);
+
+  const host = await bootStarsKeys({ embedded: true, ringActive: true });
+  assert.deepEqual(
+    host.registration(),
+    [
+      { owner: "ring", capture: true },
+      { owner: "stars", capture: false },
+    ],
+    "registration order: capture ring, then bubble map",
+  );
+  assert.deepEqual(host.dispatch("a"), ["ring:capture", "stars:bubble"], "propagation runs capture before bubble");
+  const before = host.S.focusPos;
+  assert.deepEqual(host.dispatch("ArrowLeft"), ["ring:capture"], "the ring eats the outward arrow");
+  assert.equal(host.exits(), 1, "outer edge calls onRingExit");
+  assert.equal(host.S.focusPos, before, "the bubble map does not run");
+  assert.equal(host.closes(), 0);
+  assert.equal(host.log.includes("hide_window"), false);
+  host.S.reflectOpen = true;
+  assert.deepEqual(host.dispatch("Escape"), ["ring:capture"]);
+  assert.equal(host.S.reflectOpen, false, "embedded Reflect still closes first");
+  assert.equal(host.exits(), 1, "Reflect does not walk out");
+  host.S.spokeLive = true;
+  assert.deepEqual(host.dispatch("Escape"), ["ring:capture"]);
+  assert.equal(host.S.spokeLive, false, "a live spoke still exits before walk-out");
+  assert.equal(host.exits(), 1);
+  assert.deepEqual(host.dispatch("Escape"), ["ring:capture"]);
+  assert.equal(host.exits(), 2, "embedded Esc at rest calls onRingExit");
+  assert.equal(host.closes(), 0);
+  assert.equal(host.log.includes("hide_window"), false);
+  assert.equal(host.S.focusPos, before);
 });

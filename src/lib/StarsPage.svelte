@@ -423,7 +423,11 @@
         },
       });
     }
-    menuRing.setStops(stops);
+    // Stops only while a host has walked in. The standalone window
+    // (and a well that has not) leaves the ring empty so it cannot
+    // cycle the day / custom view.
+    if (embedded && ringActive) menuRing.setStops(stops);
+    else menuRing.setStops([]);
   });
 
   let detachMenuKeys: (() => void) | undefined;
@@ -651,28 +655,12 @@
   onMount(async () => {
     if (!embedded) invoke("ensure_glass").catch(() => {});
     unlisten = await listen("state:changed", loadState);
-    // Embedded: Esc is not eaten, so CompanionPage's bubble handler
-    // dismisses the well. Overlay: an open Reflect sheet closes first
-    // and the window stays up. The next Esc hides this window (same
-    // hide_window the × button uses).
-    if (!embedded) {
-      detachMenuKeys = menuRing.attach(() => {
-        if (reflectOpen) {
-          reflectOpen = false;
-          return true;
-        }
-        if (spokeLive) {
-          spokeLive = false;
-          focusCol = "middle";
-          focusPos = { ...focusPos, zone: "Z2", depth: 0, ctl: 0 };
-          focusStarsCol("middle");
-          return true;
-        }
-        flushAutosave();
-        invoke("hide_window", { label: hideLabel }).catch(() => {});
-        return true;
-      });
-    }
+    // Standalone: do not attach the menu ring. Arrows, Return and Esc
+    // belong to the Z0–Z7 map (the bubble listener below). The ring
+    // attaches only after a host walks in — embedded and ringActive —
+    // in the effect under this mount. ringActive is never set on the
+    // standalone window; the effect's `!embedded` guard still refuses
+    // it if a caller forces the prop.
     if (embedded) {
       void loadState().then(() => syncStarsDraft());
       document.addEventListener("visibilitychange", onVisibility);

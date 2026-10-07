@@ -123,8 +123,10 @@ test("F4 embedded rings attach on walk-in only", () => {
   const mountAt = stars.indexOf("onMount(async () =>");
   assert.ok(mountAt > 0);
   const mount = braceBody(stars, mountAt);
-  assert.match(mount, /if\s*\(\s*!embedded\s*\)\s*\{\s*detachMenuKeys\s*=\s*menuRing\.attach\(/);
-  assert.equal(mount.split("menuRing.attach").length - 1, 1);
+  assert.equal(mount.includes("menuRing.attach"), false);
+  assert.equal(stars.split("menuRing.attach").length - 1, 1);
+  const guardAt = stars.indexOf("if (!embedded || !ringActive) return");
+  assert.ok(stars.indexOf("menuRing.attach(", guardAt) > guardAt);
   assert.match(stars, /if\s*\(\s*!embedded\s*\|\|\s*!ringActive\s*\)\s*return/);
   assert.match(stars, /onRingExit\?\.\(\)/);
   assert.match(stars, /menuRing\.onEdge/);

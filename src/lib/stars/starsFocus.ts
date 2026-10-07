@@ -291,14 +291,19 @@ export function focusStep(pos: StarsFocus, key: FocusKey, world: FocusWorld): Fo
   }
 
   if (key === "Escape") {
+    // Reflect is a modal above the map, so it closes before a live spoke
+    // or a zone step. Then one level: depth > 0 → parent; Z1–Z7 → Z0.
+    // hide_window is only the root (Z0, depth 0).
+    if (world.reflectOpen) return { ...blank(pos), rootEsc: "reflect" };
     if (pos.depth > 0) {
       const depth = (pos.depth - 1) as 0 | 1;
       return blank({ ...pos, depth, ctl: depth === 0 ? 0 : pos.ctl });
     }
-    if (pos.zone === "Z0" || pos.zone === "Z1") {
-      return blank(land(pos, "Z2", world, "middle"));
+    if (pos.zone !== "Z0") {
+      const from = zoneColumn(pos.zone);
+      const titleFrom = from === "title" ? pos.titleFrom : from;
+      return blank(land(pos, "Z0", world, titleFrom));
     }
-    if (world.reflectOpen) return { ...blank(pos), rootEsc: "reflect" };
     return { ...blank(pos), rootEsc: "hide" };
   }
 
