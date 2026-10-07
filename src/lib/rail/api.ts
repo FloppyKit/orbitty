@@ -1,5 +1,6 @@
 import type { KanbanCard, WindowInfo } from "../persist";
 import type { ArchState } from "./stageArch";
+import type { BesidePick, KeyOwner, WalkTarget } from "./stageFocus";
 
 export interface ClaimFlash {
   pid: string;
@@ -24,6 +25,10 @@ export interface RailStageArchApi {
   archDo: (next: ArchState) => void;
   stageEmbed: "settings" | "stars" | null;
   closeStageEmbed: () => void;
+  applyBeside: (pick: BesidePick) => void;
+  keyOwner: KeyOwner;
+  walkInto: (target: WalkTarget) => void;
+  walkOut: () => void;
   popOutSettings: () => void;
   popOutStars: () => void;
   popOutBoard: () => void;

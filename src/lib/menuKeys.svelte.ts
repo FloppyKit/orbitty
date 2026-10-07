@@ -33,6 +33,12 @@ let live: MenuRing | null = null;
 export class MenuRing {
   /** The highlighted stop — pages paint class:mkey-sel off this. */
   activeId = $state<string | null>(null);
+  /**
+   * Optional. When an arrow is not eaten by the stop and there is no
+   * further stop in that direction, call this instead of wrapping.
+   * Return true to eat the key. Absent: the ring wraps, as before.
+   */
+  onEdge: ((dir: RingDir) => boolean) | null = null;
   private stops: RingStop[] = [];
   private onEscape: (() => boolean) | null = null;
   // The surface stack: each entry suspends the surface below (its stops,
@@ -169,7 +175,13 @@ export class MenuRing {
       const dir = verb.arrow;
       if (this.stops.length === 0) return false;
       if (this.current()?.arrow?.(dir)) return true;
-      this.move(dir === "left" || dir === "up" ? -1 : 1);
+      const i = this.stops.findIndex((s) => s.id === this.activeId);
+      const delta = dir === "left" || dir === "up" ? -1 : 1;
+      const atEnd =
+        i >= 0 &&
+        ((delta < 0 && i === 0) || (delta > 0 && i === this.stops.length - 1));
+      if (atEnd && this.onEdge?.(dir)) return true;
+      this.move(delta);
       return true;
     }
     if (verb === "confirm") {

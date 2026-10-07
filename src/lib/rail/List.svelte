@@ -60,6 +60,7 @@
     type ArchZone,
     type Layer2Item,
   } from "./stageArch";
+  import { archHalo, outwardDir, pickFromKind, selWrapBox } from "./stageFocus";
 
   let { rail }: { rail: RailApi } = $props();
 
@@ -74,6 +75,9 @@
   let prevOffsets: number[] = [];
   let havePrev = false;
   let jumpMask = $state<boolean[]>([]);
+  let l2JumpMask = $state<boolean[]>([]);
+  let prevL2: number[] = [];
+  let havePrevL2 = false;
   let frameW = $state(1040);
   let frameH = $state(760);
 
@@ -159,7 +163,10 @@
     }
     const onWheel = !!active && list.some((it) => it.stop === active);
     const next = spinCenterFor(list, onWheel ? active : null, center);
-    if (next !== center) center = next;
+    if (next !== center) {
+      center = next;
+      rail.applyBeside(pickFromKind(list[next]?.kind));
+    }
     if (rail.spinCenter !== center) rail.spinCenter = center;
   });
 
@@ -198,6 +205,25 @@
   });
 
   $effect(() => {
+    const n = layer2.length;
+    const c = archState?.center2 ?? 0;
+    const next = layer2.map((_, i) => spinOffset(i, c, n));
+    if (!havePrevL2) {
+      prevL2 = next.slice();
+      havePrevL2 = true;
+      return;
+    }
+    const mask = next.map((k, i) => spinJump(prevL2[i] ?? k, k));
+    prevL2 = next.slice();
+    if (mask.some(Boolean)) {
+      l2JumpMask = mask;
+      requestAnimationFrame(() => {
+        l2JumpMask = [];
+      });
+    }
+  });
+
+  $effect(() => {
     if (!rail.creatingProject) return;
     queueMicrotask(() => nameEl?.focus());
   });
@@ -231,6 +257,7 @@
         if (active && items.some((it) => it.stop === active)) {
           rail.menuRing.select(items[next].stop);
         }
+        rail.applyBeside(pickFromKind(items[next]?.kind));
         return;
       }
       if (zone === "layer2") {
@@ -253,6 +280,7 @@
           const hit = layer2[next.center2];
           if (hit) rail.menuRing.select(hit.stop);
         }
+        rail.applyBeside("planet");
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -338,7 +366,19 @@
   }
 
   function l2Offset(index: number): number {
-    return index - (archState?.center2 ?? 0);
+    return spinOffset(index, archState?.center2 ?? 0, layer2.length);
+  }
+
+  function selStyle(k: number, ring: 1 | 2): string {
+    const frame = frameNow();
+    const edge = stageEdge();
+    const avoid = [mirror.expanded];
+    const marble = archMarbleBox(k, edge, ring, frame, k === 0);
+    const label = archLabelBox(k, edge, ring, frame, { avoid });
+    const wrap = selWrapBox(marble, label);
+    const cx = marble.x + marble.w / 2;
+    const cy = marble.y + marble.h / 2;
+    return `left:${wrap.x - cx}px;top:${wrap.y - cy}px;width:${wrap.w}px;height:${wrap.h}px`;
   }
 
   function l2Hidden(index: number): boolean {
@@ -421,6 +461,7 @@
     center = index;
     rail.menuRing.select(item.stop);
     if (item.kind === "planet" && item.pid) {
+      rail.applyBeside("planet");
       rail.archDo(
         archEnter(
           rail.arch,
@@ -435,18 +476,24 @@
       return;
     }
     if (item.kind === "unmapped") {
+      rail.applyBeside("unmapped");
       rail.archDo(archEnter(rail.arch, item, []));
       return;
     }
     const action = spinConfirm(item.stop);
-    if (action === "stars") rail.openStageDest("stars");
-    else if (action === "settings") rail.openStageDest("settings");
-    else if (action === "newProject") rail.creatingProject = true;
+    if (action === "stars") {
+      rail.applyBeside("stars");
+      rail.openStageDest("stars");
+    } else if (action === "settings") {
+      rail.applyBeside("settings");
+      rail.openStageDest("settings");
+    } else if (action === "newProject") rail.creatingProject = true;
   }
 
   function selectLayer(item: Layer2Item) {
     const i = layer2.findIndex((it) => it.stop === item.stop);
     if (i < 0) return;
+    rail.applyBeside(item.kind === "board" ? "board" : "planet");
     rail.archDo({
       front: rail.arch.front,
       pid: rail.arch.pid,
@@ -542,6 +589,8 @@
       {:else}
         <button
           class="row"
+          data-mkey={project == null ? `umap-${w.id}` : undefined}
+          class:mkey-sel={project == null && rail.keyOwner === "unmapped" && rail.menuRing.activeId === `umap-${w.id}`}
           class:front={w.isFrontmost}
           class:min={w.isMinimized}
           class:sleeping
@@ -794,7 +843,7 @@
               aria-label="Back to planets"
               style={rectStyle(mirror.back)}
               onclick={bringArch}
-            ></button>
+            ><span class="arch-sel" aria-hidden="true"></span></button>
           {/if}
           {#if rail.claimFlash}
             <div class="claim-toast">
@@ -834,8 +883,10 @@
         {/if}
         <ul class="arch-list">
           {#each items as item, i (item.stop)}
+            {@const halo = archHalo(item.kind, { center: i === center, active: rail.menuRing.activeId === item.stop })}
             <li
               class="arch-slot"
+              data-halo={halo}
               class:is-selected={i === center}
               class:is-hidden={archHidden(i)}
               class:spin-jump={jumpMask[i] === true}
@@ -851,12 +902,15 @@
                 else if (item.kind === "unmapped") rail.onSectionDrop(e, null);
               }}
             >
+              {#if halo !== "none"}
+                <span class="arch-sel" aria-hidden="true" style={selStyle(offsets[i] ?? 0, 1)}></span>
+              {/if}
               <button
                 type="button"
                 class="arch-hit"
                 data-mkey={item.stop}
-                class:mkey-sel={rail.menuRing.activeId === item.stop}
                 tabindex={archHidden(i) ? -1 : 0}
+                aria-current={i === center ? "true" : undefined}
                 aria-label={itemLabel(item)}
                 title={itemLabel(item)}
                 onclick={() => onTileClick(item, i)}
@@ -925,18 +979,24 @@
             {:else}
               <ul class="arch-list l2-arch">
                 {#each layer2 as item, i (item.stop)}
+                  {@const halo2 = archHalo(item.kind, { center: i === archState.center2, active: rail.menuRing.activeId === item.stop })}
                   <li
                     class="arch-slot"
+                    data-halo={halo2}
                     class:is-selected={i === archState.center2}
                     class:is-hidden={l2Hidden(i)}
+                    class:spin-jump={l2JumpMask[i] === true}
                     style={slotStyle(l2Offset(i), L2_RING, boardTint())}
                   >
+                    {#if halo2 !== "none"}
+                      <span class="arch-sel" aria-hidden="true" style={selStyle(l2Offset(i), L2_RING)}></span>
+                    {/if}
                     <button
                       type="button"
                       class="arch-hit"
                       data-mkey={item.stop}
-                      class:mkey-sel={rail.menuRing.activeId === item.stop}
                       tabindex={l2Hidden(i) ? -1 : 0}
+                      aria-current={i === archState.center2 ? "true" : undefined}
                       aria-label={item.title || item.kind}
                       title={item.title || item.kind}
                       onclick={() => {
@@ -970,14 +1030,22 @@
                   </li>
                 {/each}
               </ul>
-              {#if archState.front === "layer2" && centred2}
+            {/if}
+          </div>
+          {#if archState.pid !== rail.UNMAPPED_KEY && (archState.front === "layer2" || archState.front === "board") && centred2}
                 <div
                   class="l2-expanded"
                   style={rectStyle(mirror.expanded)}
                 >
                   {#if centred2.kind === "board"}
                     <div class="l2-board" data-stage-board tabindex="-1">
-                      <KanbanPage embedded railPlanet={boardPlanet} />
+                      <KanbanPage
+                        embedded
+                        railPlanet={boardPlanet}
+                        ringActive={rail.keyOwner === "board"}
+                        outwardDir={outwardDir(stageEdge())}
+                        onRingExit={() => rail.walkOut()}
+                      />
                     </div>
                     <button type="button" class="mini l2-pop" onclick={() => rail.popOutBoard()}>Pop out</button>
                   {:else if centred2.kind === "window"}
@@ -1013,21 +1081,28 @@
                     </div>
                   {/if}
                 </div>
-              {/if}
-            {/if}
-          </div>
+          {/if}
         {/if}
         {#if rail.stageEmbed === "settings"}
           <div class="stage-settings" data-stage-settings style={settingsBox()}>
             <SettingsPage
               embedded
+              ringActive={rail.keyOwner === "settings"}
+              outwardDir={outwardDir(stageEdge())}
+              onRingExit={() => rail.walkOut()}
               onClose={() => rail.closeStageEmbed()}
               onPopOut={() => rail.popOutSettings()}
             />
           </div>
         {:else if rail.stageEmbed === "stars"}
           <div class="stage-settings" data-stage-stars style={settingsBox()}>
-            <StarsPage embedded onClose={() => rail.closeStageEmbed()} />
+            <StarsPage
+              embedded
+              ringActive={rail.keyOwner === "stars"}
+              outwardDir={outwardDir(stageEdge())}
+              onRingExit={() => rail.walkOut()}
+              onClose={() => rail.closeStageEmbed()}
+            />
             <button type="button" class="mini l2-pop" onclick={() => rail.popOutStars()}>Pop out</button>
           </div>
         {/if}

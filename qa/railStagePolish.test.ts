@@ -340,6 +340,9 @@ test("P1 labels sit tight and do not overlap", () => {
   assertRingPassed(sideBody, "archLabelBox", "labelSide");
   assertAvoidPassed(styleBody, "labelStyle");
   assertAvoidPassed(sideBody, "labelSide");
+  const beforeLabel = styleBody.slice(0, styleBody.indexOf("archLabelBox(k, edge, ring,"));
+  assert.equal(beforeLabel.includes("ring ="), false, "ring is not reassigned before archLabelBox");
+  assert.match(styleBody, /const avoid = \[mirror\.expanded\];/);
 });
 
 test("P2 orbit is a smooth arc through the screen edge", () => {
@@ -410,13 +413,15 @@ test("P3 unmapped uses the expanded rect", () => {
 
 test("P4 stars embed beside the strip", () => {
   const start = page.indexOf("function openStageDest");
-  const body = page.slice(start, start + 700);
-  assert.match(body, /stageEmbed = "settings"/);
-  assert.match(body, /stageEmbed = "stars"/);
-  assert.match(body, /dest_show/);
-  assert.match(body, /stars-beside/);
   const own = page.slice(start, page.indexOf("function popOutStars"));
+  assert.match(own, /applyBeside\(label\)/);
+  assert.doesNotMatch(own, /stageEmbed\s*=/);
   assert.doesNotMatch(own, /dest_show/);
+  const beside = page.slice(page.indexOf("function applyBeside"), page.indexOf("function walkInto"));
+  assert.match(beside, /besideNext\(/);
+  assert.match(beside, /stageEmbed = "settings"/);
+  assert.match(beside, /stageEmbed = "stars"/);
+  assert.match(beside, /clearArchToFront\(\)/);
   assert.match(list, /<StarsPage[\s\S]*embedded/);
   assert.match(list, /data-stage-stars/);
   assert.match(page, /function popOutStars\(\) \{[\s\S]*rail_stage_set[\s\S]*stars-beside/);
@@ -444,6 +449,10 @@ test("P6 a raise parks and grace is retried", () => {
   const recheck = fnBody(pageSrc, "scheduleGraceRecheck");
   const recheckTimeout = recheck.indexOf("setTimeout(");
   assert.ok(recheckTimeout >= 0, "scheduleGraceRecheck has setTimeout");
+  const recheckHead = recheck.slice(0, recheckTimeout);
+  const earlyReturns = recheckHead.match(/\breturn\b/g) ?? [];
+  assert.equal(earlyReturns.length, 1, "only the in-flight guard returns before setTimeout");
+  assert.match(recheckHead, /if\s*\(\s*graceRecheck\s*\)\s*return/);
   const recheckCb = braceBody(recheck, recheckTimeout);
   assert.ok(recheckCb.includes("maybeAutoHide()"), "scheduleGraceRecheck callback calls maybeAutoHide()");
   const listenAt = pageSrc.indexOf("orbitty:rail-stage");

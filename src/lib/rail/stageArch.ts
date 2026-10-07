@@ -2,7 +2,7 @@
  *  Imports geometry helpers only. Nothing here is written to disk. */
 
 // @ts-expect-error Node's test runner needs the .ts suffix; the bundler flag for it is off.
-import { normalizeStageEdge, spinArrow, wheelLayout, type SpinDir, type SpinItem, type StageEdge, type ZoneRect } from "./stageLook.ts";
+import { normalizeStageEdge, spinArrow, spinStep, wheelLayout, type SpinDir, type SpinItem, type StageEdge, type ZoneRect } from "./stageLook.ts";
 
 export const ARCH_DWELL_MS = 160;
 export const ARCH_SPAN_DEG = 56;
@@ -133,10 +133,14 @@ export interface ArchLayout {
   pinned: ZoneRect;
 }
 
+export type ArchWalkIn = "stars" | "settings" | "unmapped" | "board";
+
 export interface ArchArrowResult {
   state: ArchState;
   stop: string | null;
   step: number | null;
+  /** Set when the inward arrow walks into a beside panel. Absent otherwise. */
+  walkIn?: ArchWalkIn | null;
 }
 
 function copy(s: ArchState): ArchState {
@@ -498,10 +502,8 @@ export function archOpenBoard(s: ArchState, unmappedKey = "__unmapped__"): ArchS
 
 export function archScroll2(s: ArchState, steps: number, n2: number): ArchState {
   if (s.front !== "layer2" || steps === 0) return copy(s);
-  const next = s.center2 + steps;
-  if (next < 0) return archBack(s);
-  const max = Math.max(0, n2 - 1);
-  return { ...copy(s), center2: Math.min(next, max), pending: null };
+  if (n2 <= 0) return copy(s);
+  return { ...copy(s), center2: spinStep(s.center2, steps, n2), pending: null };
 }
 
 function zoneBrings(s: ArchState, zone: ArchZone): ArchFront | null {
@@ -548,13 +550,23 @@ export function archArrow(
       return { state: copy(s), stop: next, step: null };
     }
     if (dir === ax.inward) {
+      const activeItem = activeId ? items.find((it) => it.stop === activeId) : undefined;
+      const subject = activeItem ?? centred;
+      if (subject?.kind === "stars" || subject?.kind === "settings") {
+        return { state: copy(s), stop: subject.stop, step: null, walkIn: subject.kind };
+      }
       const activeIsCentre = !activeId || activeId === centred?.stop;
       if (
         activeIsCentre &&
         centred &&
         (centred.kind === "planet" || centred.kind === "unmapped")
       ) {
-        return { state: archEnter(s, centred, layer2), stop: null, step: null };
+        return {
+          state: archEnter(s, centred, layer2),
+          stop: null,
+          step: null,
+          walkIn: centred.kind === "unmapped" ? "unmapped" : null,
+        };
       }
       return null;
     }
@@ -571,19 +583,23 @@ export function archArrow(
 
   if (dir === ax.outward) return { state: archBack(s), stop: null, step: null };
   if (dir === ax.inward) {
+    const cur =
+      (activeId && layer2.find((it) => it.stop === activeId)) || layer2[s.center2];
+    if (cur?.kind === "board") {
+      return { state: archOpenBoard(s), stop: cur.stop, step: null, walkIn: "board" };
+    }
     return null;
   }
   if (dir !== ax.back && dir !== ax.forward) return null;
   const n = layer2.length;
+  if (n <= 0) return { state: copy(s), stop: null, step: null, walkIn: null };
   const delta = dir === ax.forward ? 1 : -1;
-  const nextIndex = s.center2 + delta;
-  if (nextIndex < 0) return { state: archBack(s), stop: null, step: null };
-  if (n <= 0) return { state: copy(s), stop: null, step: null };
-  const clamped = Math.min(nextIndex, n - 1);
+  const nextIndex = spinStep(s.center2, delta, n);
   return {
-    state: { ...copy(s), center2: clamped, pending: null },
-    stop: layer2[clamped]?.stop ?? null,
+    state: { ...copy(s), center2: nextIndex, pending: null },
+    stop: layer2[nextIndex]?.stop ?? null,
     step: null,
+    walkIn: null,
   };
 }
 

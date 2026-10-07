@@ -8,6 +8,7 @@
   import { open as shellOpen } from "@tauri-apps/plugin-shell";
   import { startPaneDrag } from "./dragPane";
   import { onMount, onDestroy } from "svelte";
+  import { MenuRing, type RingDir } from "./menuKeys.svelte";
   import {
     applyHostTokens,
     applyWindowOpacity,
@@ -61,11 +62,21 @@
     embedded = false,
     onClose,
     onPopOut,
+    ringActive = false,
+    onRingExit,
+    outwardDir = "left" as RingDir,
   }: {
     embedded?: boolean;
     onClose?: () => void;
     onPopOut?: () => void;
+    ringActive?: boolean;
+    onRingExit?: () => void;
+    outwardDir?: RingDir;
   } = $props();
+
+  const menuRing = new MenuRing();
+  let settingsRoot = $state<HTMLElement | null>(null);
+  let detachRing: (() => void) | undefined;
 
   let themeId = $state(osThemeId());
   let themeChosen = $state(false);
@@ -526,6 +537,50 @@
       invoke("hide_window", { label: "settings" }).catch(() => {});
     }
   }
+  $effect(() => {
+    if (!embedded || !ringActive) return;
+    const root = settingsRoot;
+    if (!root) return;
+    const outward = outwardDir;
+    const els = [...root.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea")].filter(
+      (el) => !el.closest(".s-banner") && el.tabIndex !== -1 && !(el as HTMLButtonElement).disabled,
+    );
+    els.forEach((el, i) => {
+      el.dataset.mkey = `set-stop-${i}`;
+    });
+    menuRing.setStops(
+      els.map((el, i) => ({
+        id: `set-stop-${i}`,
+        confirm: () => el.click(),
+      })),
+    );
+    menuRing.onEdge = (dir) => {
+      if (dir !== outward) return false;
+      onRingExit?.();
+      return true;
+    };
+    if (els[0]) menuRing.select("set-stop-0");
+    detachRing?.();
+    detachRing = menuRing.attach(() => {
+      onRingExit?.();
+      return true;
+    });
+    return () => {
+      detachRing?.();
+      detachRing = undefined;
+      menuRing.onEdge = null;
+    };
+  });
+
+  $effect(() => {
+    if (!embedded || !ringActive) return;
+    const id = menuRing.activeId;
+    const root = settingsRoot;
+    if (!id || !root) return;
+    const el = root.querySelector(`[data-mkey="${CSS.escape(id)}"]`);
+    if (el instanceof HTMLElement && document.activeElement !== el) el.focus();
+  });
+
   onDestroy(() => {
     if (hideTimer) clearTimeout(hideTimer);
     unlisten?.();
@@ -572,7 +627,7 @@
   }
 </script>
 
-<main class="settings" class:embedded>
+<main class="settings" class:embedded bind:this={settingsRoot}>
   <!-- One drag source: JS startDragging on this banner. Drawers are
        borderless — no native Overlay strip competing with the click.
        Embedded in the rail, this banner does not drag the stage window. -->

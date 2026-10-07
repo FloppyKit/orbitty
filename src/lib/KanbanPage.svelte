@@ -60,6 +60,9 @@
     onNeededFocus,
     onNeededAnswer,
     railPlanet = undefined,
+    ringActive = false,
+    onRingExit,
+    outwardDir = "left" as RingDir,
   }: {
     embedded?: boolean;
     onClose?: () => void;
@@ -70,6 +73,9 @@
     onNeededAnswer?: () => void;
     // Stage rail embed. Absent = the Lists window and the Launchpad well.
     railPlanet?: string;
+    ringActive?: boolean;
+    onRingExit?: () => void;
+    outwardDir?: RingDir;
   } = $props();
 
   type Status = "todo" | "doing" | "done";
@@ -161,6 +167,30 @@
   let drawerOnRing = false;
 
   $effect(() => {
+    if (!ringActive) return;
+    const outward = outwardDir;
+    menuRing.onEdge = (dir) => {
+      if (dir !== outward) return false;
+      onRingExit?.();
+      return true;
+    };
+    detachMenuKeys?.();
+    detachMenuKeys = menuRing.attach(() => {
+      if (grabbedId) {
+        ungrab();
+        return true;
+      }
+      onRingExit?.();
+      return true;
+    });
+    return () => {
+      detachMenuKeys?.();
+      detachMenuKeys = undefined;
+      menuRing.onEdge = null;
+    };
+  });
+
+  $effect(() => {
     const drawer = detailId
       ? kanbanCards.find((c) => c.id === detailId)
       : undefined;
@@ -179,6 +209,9 @@
     ) {
       ungrab();
     }
+    const exitActive = ringActive;
+    const exitDir = outwardDir;
+    const exit = onRingExit;
     const stops: RingStop[] = [];
     // Planet column is one surface, and the first one, so Tab walks
     // planets → Needed → Todo → Doing → Done. Up/down walk the rows
@@ -202,6 +235,10 @@
             firstCardId: firstCard?.id ?? null,
             firstNeededId,
           });
+          if (exitActive && dir === exitDir && next == null) {
+            exit?.();
+            return true;
+          }
           if (next == null) return true;
           if (dir === "right") {
             if (firstCard) menuRing.select(`card-${firstCard.id}`);
@@ -249,6 +286,13 @@
             if (grabbedId) {
               if (card.id === grabbedId) grabArrow(dir);
               return true;
+            }
+            if (exitActive && dir === exitDir && (dir === "left" || dir === "right")) {
+              const step = dir === "left" ? -1 : 1;
+              if (ci + step < 0 || ci + step >= cols.length) {
+                exit?.();
+                return true;
+              }
             }
             if (dir !== "left" && dir !== "right") return false;
             const step = dir === "left" ? -1 : 1;

@@ -33,6 +33,7 @@
     archArrow,
     archBack,
     archConfirm,
+    archEnter,
     archFocusPid,
     archLayout,
     archPainted,
@@ -50,6 +51,17 @@
     type EdgeHoverState,
     type Layer2Item,
   } from "./rail/stageArch";
+  import {
+    besideFront,
+    besideNext,
+    keyOwnerNext,
+    outwardDir,
+    pickFromKind,
+    type Beside,
+    type BesidePick,
+    type KeyOwner,
+    type WalkTarget,
+  } from "./rail/stageFocus";
   import {
     applyPlanetOpen,
     autoHideWanted,
@@ -219,6 +231,8 @@
   let reduceMotion = $state(false);
   let arch = $state<ArchState>({ ...ARCH_IDLE });
   let stageEmbed = $state<null | "settings" | "stars">(null);
+  let keyOwner = $state<KeyOwner>("rail");
+  let reselectStop: string | null = null;
   let spinCenter = $state(0);
   let pointerInside = false;
   let focusInside = false;
@@ -533,26 +547,103 @@
     persist();
   }
 
+  function currentBeside(): Beside {
+    if (stageEmbed === "stars" || stageEmbed === "settings") return stageEmbed;
+    if (arch.front === "board") return "board";
+    if (arch.pid === UNMAPPED_KEY && arch.front !== "arch") return "unmapped";
+    return null;
+  }
+
+  function hideBesidePopouts() {
+    void invoke("hide_window", { label: "stars-beside" }).catch(() => {});
+    void invoke("hide_window", { label: "settings-beside" }).catch(() => {});
+  }
+
+  function clearArchToFront() {
+    if (arch.front === "arch") return;
+    let s = arch;
+    if (s.front === "board") s = archBack(s);
+    if (s.front === "layer2") s = archBack(s);
+    arch = s;
+  }
+
+  function ownerStop(owner: KeyOwner): string | null {
+    if (owner === "stars") return "rstars";
+    if (owner === "settings") return "rsettings";
+    if (owner === "unmapped") return `rhead-${UNMAPPED_KEY}`;
+    if (owner === "board") return "rl2-board";
+    return null;
+  }
+
+  function focusMkey(id: string) {
+    queueMicrotask(() => {
+      const icon = document.querySelector(`[data-mkey="${CSS.escape(id)}"]`);
+      if (icon instanceof HTMLElement) icon.focus();
+    });
+  }
+
+  function releaseKeysToRail() {
+    if (keyOwner === "rail") return;
+    keyOwner = keyOwnerNext(keyOwner, { type: "select", other: "rail" });
+    reclaimRailRing();
+  }
+
   function openStageDest(label: "stars" | "settings") {
-    if (label === "settings") {
-      stageEmbed = "settings";
-      return;
-    }
-    stageEmbed = "stars";
-    requestAnimationFrame(() => reclaimRailRing());
+    applyBeside(label);
   }
 
   function popOutStars() {
+    if (keyOwner === "stars") walkOut();
     stageEmbed = null;
     void invoke("rail_stage_set", { revealed: false });
     void invoke("dest_show", { dest: "stars-beside" });
   }
 
+  /** One applier for every selection that can change the beside owner. */
+  function applyBeside(pick: BesidePick) {
+    const open = currentBeside();
+    const next = besideNext(open, pick);
+    if (next === open) return;
+    hideBesidePopouts();
+    releaseKeysToRail();
+    if (besideFront(pick) === "arch") clearArchToFront();
+    if (next === "settings") stageEmbed = "settings";
+    else if (next === "stars") stageEmbed = "stars";
+    else stageEmbed = null;
+  }
+
+  function walkInto(target: WalkTarget) {
+    applyBeside(target);
+    reselectStop = null;
+    keyOwner = keyOwnerNext(keyOwner, { type: "walkIn", target });
+  }
+
+  function walkOut() {
+    reselectStop = ownerStop(keyOwner);
+    keyOwner = keyOwnerNext(keyOwner, { type: "walkOut" });
+    reclaimRailRing();
+  }
+
   function closeStageEmbed() {
+    const which = stageEmbed;
     stageEmbed = null;
+    if (which && keyOwner === which) {
+      keyOwner = keyOwnerNext(keyOwner, { type: "panelClosed" });
+      reselectStop = which === "stars" ? "rstars" : "rsettings";
+      reclaimRailRing();
+      return;
+    }
+    if (which) {
+      const id = which === "stars" ? "rstars" : "rsettings";
+      queueMicrotask(() => {
+        menuRing.select(id);
+        focusMkey(id);
+      });
+    }
   }
 
   function popOutSettings() {
+    if (keyOwner === "settings") walkOut();
     stageEmbed = null;
     void invoke("rail_stage_set", { revealed: false });
     void invoke("dest_show", { dest: "settings-beside" });
@@ -955,7 +1046,11 @@
     ) {
       return;
     }
+    const prevPid = arch.pid;
     arch = next;
+    if (next.pid !== prevPid) {
+      applyBeside(next.pid === UNMAPPED_KEY ? "unmapped" : "planet");
+    }
   }
 
   function planetCards(pid: string): KanbanCard[] {
@@ -1041,8 +1136,14 @@
       void coachSkip();
       return;
     }
-    if (spin === "centre") return;
+    if (spin === "centre") {
+      applyBeside("unmapped");
+      const item = spinItems(projects.map((p) => p.id), UNMAPPED_KEY).find((it) => it.stop === id);
+      if (item) archDo(archEnter(arch, item, layer2For(item.pid ?? null)));
+      return;
+    }
     if (spin === "raise") {
+      applyBeside("planet");
       void raisePlanetWindows(id.slice("rhead-".length));
       return;
     }
@@ -1081,11 +1182,50 @@
     if (action === "todos") void openPlanetTodos(id.slice("rtodos-".length));
   }
 
+  function takeReselect() {
+    if (!reselectStop) return;
+    const id = reselectStop;
+    reselectStop = null;
+    menuRing.select(id);
+    focusMkey(id);
+  }
+
   function syncInspectorRing() {
     if (lane !== "projects") {
       menuRing.setStops([]);
+      menuRing.onEdge = null;
       return;
     }
+    if (
+      !embedded &&
+      keyOwner === "unmapped" &&
+      arch.front !== "arch" &&
+      arch.pid === UNMAPPED_KEY
+    ) {
+      const rows = visibleRows(unmapped);
+      const outward = outwardDir(railEdge);
+      menuRing.onEdge = (dir) => {
+        if (dir !== outward) return false;
+        walkOut();
+        return true;
+      };
+      const stops: RingStop[] = rows.map((w) => ({
+        id: `umap-${w.id}`,
+        group: "unmapped",
+        confirm: () => {
+          if (w.sleeping) void wakeSleeper(w);
+          else void locateRow(w);
+        },
+      }));
+      menuRing.setStops(stops);
+      const active = menuRing.activeId;
+      if (stops.length && (!active || !stops.some((s) => s.id === active))) {
+        menuRing.select(stops[0].id);
+        focusMkey(stops[0].id);
+      }
+      return;
+    }
+    menuRing.onEdge = null;
     const items = spinItems(projects.map((p) => p.id), UNMAPPED_KEY);
     const due = coachIsDue();
     const cIdx = Math.min(Math.max(spinCenter, 0), Math.max(items.length - 1, 0));
@@ -1102,16 +1242,20 @@
       const result = archArrow(before, items, spinCenter, dir, railEdge, l2, activeId, due);
       if (!result) {
         const cur = l2[before.center2];
-        if (before.front === "layer2" && cur?.kind === "board" && inwardKey(dir)) focusMirrorBoard();
         if (before.front === "layer2" && cur?.kind === "needed" && inwardKey(dir)) armNeededMouth(cur);
         return;
       }
-      if (result.state.front === "board") {
-        focusMirrorBoard();
+      if (result.walkIn) {
+        archDo(result.state);
+        walkInto(result.walkIn);
         return;
       }
       archDo(result.state);
-      if (result.stop) menuRing.select(result.stop);
+      if (result.stop) {
+        menuRing.select(result.stop);
+        const landed = items.find((it) => it.stop === result.stop);
+        applyBeside(landed ? pickFromKind(landed.kind) : "planet");
+      }
     };
     const stops: RingStop[] = nested
       ? l2.map((item) => ({
@@ -1154,6 +1298,7 @@
         if (back) menuRing.select(back.stop);
       }
     }
+    takeReselect();
   }
 
   function confirmRingTab(id: string) {
@@ -1248,14 +1393,12 @@
       creatingProject = false;
       return true;
     }
+    if (keyOwner === "unmapped") {
+      walkOut();
+      return true;
+    }
     if (stageEmbed) {
-      const which = stageEmbed;
       closeStageEmbed();
-      const key = which === "stars" ? "rstars" : "rsettings";
-      queueMicrotask(() => {
-        const icon = document.querySelector(`[data-mkey="${key}"]`);
-        if (icon instanceof HTMLElement) icon.focus();
-      });
       return true;
     }
     if (!embedded && arch.front === "layer2") {
@@ -3515,6 +3658,10 @@
     get arch() { return arch; },
     get stageEmbed() { return stageEmbed; },
     closeStageEmbed,
+    applyBeside,
+    get keyOwner() { return keyOwner; },
+    walkInto,
+    walkOut,
     popOutSettings,
     popOutBoard,
     get claimFlash() { return claimFlash; },

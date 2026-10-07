@@ -177,17 +177,27 @@ test("M4 enter centres Board; arrows spin layer 2; none reach front board", () =
   state = forward.state;
   const back = archArrow({ ...state, center2: 0 }, planets, centre, "up", "left", items);
   assert.ok(back);
-  assert.equal(back.state.front, "arch");
+  assert.equal(back.state.front, "layer2");
+  assert.equal(back.state.center2, items.length - 1);
   const end: ArchState = { front: "layer2", pid: "p", center2: items.length - 1, pending: null };
-  const stuck = archArrow(end, planets, centre, "down", "left", items);
-  assert.ok(stuck);
-  assert.equal(stuck.state.center2, items.length - 1);
-  assert.equal(stuck.state.front, "layer2");
+  const wrapped = archArrow(end, planets, centre, "down", "left", items);
+  assert.ok(wrapped);
+  assert.equal(wrapped.state.center2, 0);
+  assert.equal(wrapped.state.front, "layer2");
+  const outward = archArrow(end, planets, centre, "left", "left", items);
+  assert.ok(outward);
+  assert.equal(outward.state.front, "arch");
   for (const dir of ["up", "down", "left", "right"]) {
     for (let i = 0; i < items.length; i++) {
       const s: ArchState = { front: "layer2", pid: "p", center2: i, pending: null };
       const next = archArrow(s, planets, centre, dir, "left", items);
-      if (next) assert.notEqual(next.state.front, "board");
+      if (!next) continue;
+      if (dir === "right" && items[i].kind === "board") {
+        assert.equal(next.state.front, "board");
+        assert.equal(next.walkIn, "board");
+      } else {
+        assert.notEqual(next.state.front, "board");
+      }
     }
   }
   assert.equal(archConfirm(items[2]), "wake");

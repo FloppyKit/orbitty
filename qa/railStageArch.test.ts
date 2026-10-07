@@ -376,7 +376,10 @@ test("S10 keyboard", () => {
     assert.equal(inward.state.pid, "a");
     const onBoard: ArchState = { front: "layer2", pid: "a", center2: 0, pending: null };
     const opened = archArrow(onBoard, items, centre, ax.inward, edge, layer2);
-    assert.equal(opened, null, edge);
+    assert.ok(opened, edge);
+    assert.equal(opened.state.front, "board", edge);
+    assert.equal(opened.walkIn, "board", edge);
+    assert.equal(opened.state.pid, "a", edge);
     const boardFront: ArchState = { front: "board", pid: "a", center2: 0, pending: null };
     const back1 = archArrow(boardFront, items, centre, ax.outward, edge, layer2);
     assert.ok(back1);
@@ -401,11 +404,15 @@ test("S10 keyboard", () => {
     const fwd = archArrow(end, items, centre, ax.forward, edge, layer2);
     assert.ok(fwd);
     assert.equal(fwd.state.front, "layer2");
-    assert.equal(fwd.state.center2, layer2.length - 1);
+    assert.equal(fwd.state.center2, 0, edge);
     const start: ArchState = { front: "layer2", pid: "a", center2: 0, pending: null };
     const backed = archArrow(start, items, centre, ax.back, edge, layer2);
     assert.ok(backed);
-    assert.equal(backed.state.front, "arch");
+    assert.equal(backed.state.front, "layer2", edge);
+    assert.equal(backed.state.center2, layer2.length - 1, edge);
+    const out = archArrow(start, items, centre, ax.outward, edge, layer2);
+    assert.ok(out);
+    assert.equal(out.state.front, "arch", edge);
 
     const seen = new Set<number>();
     const queue = [0];
@@ -429,11 +436,15 @@ test("S10 keyboard", () => {
     assert.equal(reachedArch, true, edge);
   }
   const scrolled = archScroll2({ front: "layer2", pid: "a", center2: 0, pending: null }, -1, 5);
-  assert.equal(scrolled.front, "arch");
+  assert.equal(scrolled.front, "layer2");
   assert.equal(scrolled.pid, "a");
-  const clamped = archScroll2({ front: "layer2", pid: "a", center2: 1, pending: null }, 9, 4);
-  assert.equal(clamped.front, "layer2");
-  assert.equal(clamped.center2, 3);
+  assert.equal(scrolled.center2, 4);
+  const wrapped = archScroll2({ front: "layer2", pid: "a", center2: 4, pending: null }, 1, 5);
+  assert.equal(wrapped.front, "layer2");
+  assert.equal(wrapped.center2, 0);
+  const spun = archScroll2({ front: "layer2", pid: "a", center2: 1, pending: null }, 9, 4);
+  assert.equal(spun.front, "layer2");
+  assert.equal(spun.center2, 2);
 
   const stale: ArchState = { front: "arch", pid: "a", center2: 0, pending: null };
   assert.equal(archFocusPid(stale, planet("b")), "b");

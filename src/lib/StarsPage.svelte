@@ -34,7 +34,7 @@
   import { startPaneDrag } from "./dragPane";
   import WindowTitleRow from "./WindowTitleRow.svelte";
   import { chromeMode, navPlatform, navUa } from "./windowChrome";
-  import { MenuRing, type RingStop } from "./menuKeys.svelte";
+  import { MenuRing, type RingDir, type RingStop } from "./menuKeys.svelte";
   import {
     applyHostTokens,
     applyWindowOpacity,
@@ -65,10 +65,16 @@
     hideLabel = "stars",
     embedded = false,
     onClose,
+    ringActive = false,
+    onRingExit,
+    outwardDir = "left" as RingDir,
   }: {
     hideLabel?: string;
     embedded?: boolean;
     onClose?: () => void;
+    ringActive?: boolean;
+    onRingExit?: () => void;
+    outwardDir?: RingDir;
   } = $props();
 
 
@@ -770,18 +776,16 @@
     // dismisses the well. Overlay: an open Reflect sheet closes first
     // and the window stays up. The next Esc hides this window (same
     // hide_window the × button uses).
-    detachMenuKeys = menuRing.attach(
-      embedded
-        ? undefined
-        : () => {
-            if (reflectOpen) {
-              reflectOpen = false;
-              return true;
-            }
-            invoke("hide_window", { label: hideLabel }).catch(() => {});
-            return true;
-          },
-    );
+    if (!embedded) {
+      detachMenuKeys = menuRing.attach(() => {
+        if (reflectOpen) {
+          reflectOpen = false;
+          return true;
+        }
+        invoke("hide_window", { label: hideLabel }).catch(() => {});
+        return true;
+      });
+    }
     if (embedded) {
       void loadState().then(() => syncStarsDraft());
       document.addEventListener("visibilitychange", onVisibility);
@@ -794,6 +798,31 @@
     });
     document.addEventListener("visibilitychange", onVisibility);
   });
+  $effect(() => {
+    if (!embedded || !ringActive) return;
+    const outward = outwardDir;
+    menuRing.onEdge = (dir) => {
+      if (dir !== outward) return false;
+      onRingExit?.();
+      return true;
+    };
+    detachMenuKeys?.();
+    detachMenuKeys = menuRing.attach(() => {
+      if (reflectOpen) {
+        reflectOpen = false;
+        return true;
+      }
+      onRingExit?.();
+      return true;
+    });
+    menuRing.select("stars-nav");
+    return () => {
+      detachMenuKeys?.();
+      detachMenuKeys = undefined;
+      menuRing.onEdge = null;
+    };
+  });
+
   onDestroy(() => {
     unlisten?.();
     unlistenVis?.();
