@@ -6,18 +6,18 @@ import {
   archMarbleBox,
   archOrbitArc,
   archOrbitPath,
-  archOrbitPoint,
-  archOrbitSamples,
   archPainted,
   archLayout,
   archSlot,
   ARCH_IDLE,
+  L2_RING,
   mirrorLayout,
   neededAct,
   thumbShowsImage,
   type ArchFrame,
 } from "../src/lib/rail/stageArch.ts";
 import type { ZoneRect } from "../src/lib/rail/stageLook.ts";
+import { svgPathPoints } from "./svgPath.ts";
 
 const edges = ["left", "right", "top", "bottom"] as const;
 const frames: ArchFrame[] = [
@@ -50,15 +50,89 @@ function framePoint(edge: string, slot: { x: number; y: number }, frame: ArchFra
   return { x: slot.x, y: frame.h / 2 + slot.y };
 }
 
+function segDist(
+  p: { x: number; y: number },
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 1e-12) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+function distToPath(p: { x: number; y: number }, pts: { x: number; y: number }[]): number {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) best = Math.min(best, segDist(p, pts[i - 1], pts[i]));
+  return best;
+}
+
+function maxTurnDeg(pts: { x: number; y: number }[]): number {
+  let prev: number | null = null;
+  let worst = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].x - pts[i - 1].x;
+    const dy = pts[i].y - pts[i - 1].y;
+    if (dx * dx + dy * dy < 0.25 * 0.25) continue;
+    const h = Math.atan2(dy, dx);
+    if (prev != null) {
+      let turn = Math.abs(h - prev);
+      if (turn > Math.PI) turn = 2 * Math.PI - turn;
+      if (turn > worst) worst = turn;
+    }
+    prev = h;
+  }
+  return (worst * 180) / Math.PI;
+}
+
+/** Brace-matched body starting at the first `{` at or after `from`. */
+function braceBody(src: string, from: number): string {
+  const open = src.indexOf("{", from);
+  if (open < 0) return "";
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (quote) {
+      if (c === "\\") {
+        i++;
+        continue;
+      }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === "`") {
+      quote = c;
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  return "";
+}
+
 test("P1 labels sit tight and do not overlap", () => {
   const archHit = css.slice(css.indexOf(".rail.stage-shell .arch-hit {"), css.indexOf(".rail.stage-shell .arch-hit {") + 400);
   assert.match(archHit, /position:\s*absolute/);
   assert.doesNotMatch(archHit, /flex-direction:\s*column/);
   assert.match(css, /\.arch-name\s*\{[^}]*position:\s*absolute/);
+  const l2At = list.indexOf("{#each layer2");
+  const l2 = list.slice(l2At, list.indexOf("{/each}", l2At));
+  assert.match(l2, /slotStyle\(l2Offset\(i\), L2_RING,/);
+  assert.equal((l2.match(/labelSide\(l2Offset\(i\), L2_RING\)/g) ?? []).length, 2);
+  assert.match(l2, /labelStyle\(l2Offset\(i\), L2_RING\)/);
+  assert.doesNotMatch(l2, /(?:slotStyle|labelSide|labelStyle)\(l2Offset\(i\),\s*2\b/);
+  assert.equal(L2_RING, 1);
   for (const edge of edges) {
     for (const frame of frames) {
+      const expanded = mirrorLayout(edge, frame.w, frame.h).expanded;
       for (const ring of [1, 2] as const) {
-        const expanded = mirrorLayout(edge, frame.w, frame.h).expanded;
         const avoid = [expanded];
         const labels = new Map<number, ZoneRect>();
         const marbles = new Map<number, ZoneRect>();
@@ -83,9 +157,27 @@ test("P1 labels sit tight and do not overlap", () => {
           for (const [kk, other] of labels) {
             if (k !== kk) assert.ok(!hit(label, other), `${edge} r${ring} labels ${k}/${kk}`);
           }
-          if (ring === 1) {
+          if (ring === L2_RING) {
             assert.ok(!hit(label, expanded), `${edge} ${frame.w} label ${k} expanded`);
           }
+        }
+      }
+      const l2Labels = new Map<number, ZoneRect>();
+      const l2Marbles = new Map<number, ZoneRect>();
+      for (let k = -4; k <= 4; k++) {
+        if (archSlot(k, edge, L2_RING, frame).hidden) continue;
+        const marble = archMarbleBox(k, edge, L2_RING, frame, k === 0);
+        const label = archLabelBox(k, edge, L2_RING, frame, { avoid: [expanded] });
+        assert.ok(!hit(label, expanded), `${edge} ${frame.w}x${frame.h} l2 k=${k} expanded`);
+        l2Labels.set(k, label);
+        l2Marbles.set(k, marble);
+      }
+      for (const [k, label] of l2Labels) {
+        for (const [kk, marble] of l2Marbles) {
+          if (k !== kk) assert.ok(!hit(label, marble), `${edge} l2 label ${k} marble ${kk}`);
+        }
+        for (const [kk, other] of l2Labels) {
+          if (k !== kk) assert.ok(!hit(label, other), `${edge} l2 labels ${k}/${kk}`);
         }
       }
     }
@@ -93,42 +185,41 @@ test("P1 labels sit tight and do not overlap", () => {
 });
 
 test("P2 orbit is a smooth arc through the screen edge", () => {
+  const sampler = readFileSync(new URL("./svgPath.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(sampler, /stageArch/);
+  assert.match(sampler, /perArc = 256/);
   for (const edge of edges) {
     for (const frame of frames) {
-      const arc = archOrbitArc(edge, 1, frame);
-      assert.equal(archOrbitPath(edge, 1, frame), arc.d);
-      assert.match(arc.d, /A[\d.]+ [\d.]+ 0 1 1 /);
-      const pts = archOrbitSamples(arc, 160);
-      let prev = 0;
-      for (let i = 1; i < pts.length - 1; i++) {
-        const a = Math.atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x);
-        const b = Math.atan2(pts[i + 1].y - pts[i].y, pts[i + 1].x - pts[i].x);
-        let turn = Math.abs(b - a);
-        if (turn > Math.PI) turn = 2 * Math.PI - turn;
-        assert.ok(turn <= (4 * Math.PI) / 180 + 1e-6, `${edge} turn ${turn}`);
-        prev = turn;
-      }
-      assert.ok(prev >= 0);
-      for (let k = -4; k <= 4; k++) {
-        const slot = archSlot(k, edge, 1, frame);
-        let best = Infinity;
-        for (let i = 0; i <= 720; i++) {
-          const t = arc.t0 + ((arc.t1 - arc.t0) * i) / 720;
-          const p = archOrbitPoint(arc, t);
-          best = Math.min(best, Math.hypot(p.x - slot.x, p.y - slot.y));
+      for (const ring of [1, 2] as const) {
+        const arc = archOrbitArc(edge, ring, frame);
+        assert.equal(archOrbitPath(edge, ring, frame), arc.d);
+        assert.match(arc.d, /A/);
+        const drawn = /A([\d.]+) ([\d.]+) /.exec(arc.d);
+        assert.ok(drawn);
+        assert.ok(Math.abs(Number(drawn[1]) - arc.rx) < 1e-3, `${edge} rx field`);
+        assert.ok(Math.abs(Number(drawn[2]) - arc.ry) < 1e-3, `${edge} ry field`);
+        const pts = svgPathPoints(arc.d);
+        assert.ok(pts.length >= 16, `${edge} r${ring} points`);
+        const turn = maxTurnDeg(pts);
+        assert.ok(turn <= 4, `${edge} r${ring} turn ${turn}`);
+        for (let k = -4; k <= 4; k++) {
+          const slot = archSlot(k, edge, ring, frame);
+          const best = distToPath({ x: slot.x, y: slot.y }, pts);
+          assert.ok(best <= 1, `${edge} ${frame.w}x${frame.h} r${ring} k=${k} ${best}`);
         }
-        assert.ok(best <= 1, `${edge} k=${k} ${best}`);
-      }
-      const tail = archOrbitPoint(arc, arc.t0);
-      const tailB = archOrbitPoint(arc, arc.t1);
-      if (edge === "left") {
-        assert.ok(tail.x <= 0.5 && tailB.x <= 0.5, `left tails ${tail.x} ${tailB.x}`);
-      } else if (edge === "right") {
-        assert.ok(tail.x >= -0.5 && tailB.x >= -0.5, `right tails ${tail.x}`);
-      } else if (edge === "top") {
-        assert.ok(tail.y <= 0.5 && tailB.y <= 0.5, `top tails ${tail.y}`);
-      } else {
-        assert.ok(tail.y >= -0.5 && tailB.y >= -0.5, `bottom tails ${tail.y}`);
+        const tail = pts[0];
+        const tailB = pts[pts.length - 1];
+        if (ring === 1) {
+          if (edge === "left") {
+            assert.ok(tail.x <= 0.5 && tailB.x <= 0.5, `left tails ${tail.x} ${tailB.x}`);
+          } else if (edge === "right") {
+            assert.ok(tail.x >= -0.5 && tailB.x >= -0.5, `right tails ${tail.x} ${tailB.x}`);
+          } else if (edge === "top") {
+            assert.ok(tail.y <= 0.5 && tailB.y <= 0.5, `top tails ${tail.y} ${tailB.y}`);
+          } else {
+            assert.ok(tail.y >= -0.5 && tailB.y >= -0.5, `bottom tails ${tail.y} ${tailB.y}`);
+          }
+        }
       }
     }
   }
@@ -186,12 +277,23 @@ test("P5 needed click opens the mouth", () => {
 test("P6 a raise parks and grace is retried", () => {
   assert.match(page, /reason:\s*"raised"/);
   assert.match(page, /function scheduleGraceRecheck/);
-  assert.match(page, /revealGraceUntil/);
-  const listen = page.slice(page.indexOf("orbitty:rail-stage"));
-  assert.match(listen.slice(0, 900), /source === "edge"/);
-  assert.match(listen.slice(0, 900), /pointerInside = true/);
-  assert.match(listen.slice(0, 900), /EDGE_GRACE_MS/);
-  assert.match(page, /edgePointerSeed = false/);
+  const hide = braceBody(page, page.indexOf("function maybeAutoHide"));
+  const grace = braceBody(hide, hide.indexOf("revealGraceUntil"));
+  const call = grace.indexOf("scheduleGraceRecheck()");
+  const ret = grace.indexOf("return");
+  assert.ok(call >= 0 && ret > call, "grace branch calls scheduleGraceRecheck() before return");
+  const listenAt = page.indexOf("orbitty:rail-stage");
+  const listen = braceBody(page, page.indexOf("=>", listenAt));
+  const edge = braceBody(listen, listen.indexOf('source === "edge"'));
+  const timeoutAt = edge.indexOf("setTimeout(");
+  assert.ok(timeoutAt >= 0, "edge branch has setTimeout");
+  const cb = braceBody(edge, timeoutAt);
+  const seed = cb.indexOf("edgePointerSeed = false");
+  const inside = cb.indexOf("pointerInside = false");
+  const hideCall = cb.indexOf("maybeAutoHide()");
+  assert.ok(seed >= 0 && inside > seed && hideCall > inside, "seed expiry clears and rechecks");
+  const cbAt = edge.indexOf(cb, timeoutAt);
+  assert.match(edge.slice(cbAt + cb.length, cbAt + cb.length + 40), /^\s*,\s*EDGE_GRACE_MS\s*\)/);
 });
 
 test("P7 thumbnails only for a centred layer-2 window", () => {

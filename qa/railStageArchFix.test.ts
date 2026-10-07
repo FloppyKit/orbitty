@@ -15,10 +15,7 @@ import {
   archCentreChanged,
   archEnter,
   archLayout,
-  archOrbitArc,
   archOrbitPath,
-  archOrbitPoint,
-  archOrbitSamples,
   archPainted,
   archPoint,
   archSlot,
@@ -33,6 +30,7 @@ import {
   type Layer2Item,
 } from "../src/lib/rail/stageArch.ts";
 import { wheelLayout, type ZoneRect } from "../src/lib/rail/stageLook.ts";
+import { svgPathPoints } from "./svgPath.ts";
 
 const STEP = (ARCH_SPAN_DEG / 4) * (Math.PI / 180);
 const edges = ["left", "right", "top", "bottom"] as const;
@@ -137,11 +135,9 @@ test("F3 on the line", () => {
   for (const edge of edges) {
     for (const frame of frames) {
       for (const ring of [1, 2] as const) {
-        const arc = archOrbitArc(edge, ring, frame);
         const d = archOrbitPath(edge, ring, frame);
-        assert.equal(d, arc.d);
-        assert.match(d, /A/);
-        const pts = archOrbitSamples(arc, 48);
+        const pts = svgPathPoints(d);
+        assert.ok(d.length > 0);
         assert.ok(pts.length >= 16, `${edge} points ${pts.length}`);
         const edgeSlot = archSlot(4, edge, ring, frame);
         const along = edge === "top" || edge === "bottom" ? "x" : "y";
@@ -151,13 +147,12 @@ test("F3 on the line", () => {
           const slot = archSlot(k, edge, ring, frame);
           const pt = archPoint(k * STEP, edge, ring, frame);
           assert.ok(Math.hypot(slot.x - pt.x, slot.y - pt.y) <= 0.5);
-          const on = archOrbitPoint(arc, k * STEP);
-          assert.ok(Math.hypot(on.x - pt.x, on.y - pt.y) <= 1, `${edge} r${ring} k=${k}`);
+          assert.ok(nearest(pts, { x: slot.x, y: slot.y }) <= 1, `${edge} r${ring} k=${k}`);
         }
       }
     }
   }
-  assert.ok(archOrbitSamples(archOrbitArc("left", 1, ARCH_FRAME), 48).length >= 16);
+  assert.ok(svgPathPoints(archOrbitPath("left", 1, ARCH_FRAME)).length >= 16);
 });
 
 test("F4 zones match drawn items", () => {

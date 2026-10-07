@@ -11,6 +11,8 @@ export const ARCH_X0 = 100;
 export const ARCH_RX = 158.79962131089377;
 export const ARCH_RY_MAX = 330;
 export const ARCH_RING_GAP = 220;
+/** Layer-2 slots and their labels share this ring. */
+export const L2_RING = 1 as const;
 export const ARCH_ITEM_BOX = 88;
 export const EDGE_SLOP = 24;
 export const EDGE_HIDE_MS = 600;
@@ -280,8 +282,14 @@ export function archOrbitArc(
   }
   const a = archPoint(-tEdge, e, ring, frame);
   const b = archPoint(tEdge, e, ring, frame);
-  const d = `M${a.x.toFixed(3)} ${a.y.toFixed(3)}A${ARCH_RX.toFixed(3)} ${ry.toFixed(3)} 0 1 1 ${b.x.toFixed(3)} ${b.y.toFixed(3)}`;
-  return { d, cx, cy, rx: ARCH_RX, ry, t0: -tEdge, t1: tEdge, edge: e, ring, frame };
+  const vertical = e === "top" || e === "bottom";
+  const drawnRx = vertical ? ry : ARCH_RX;
+  const drawnRy = vertical ? ARCH_RX : ry;
+  const sweep = e === "right" || e === "top" ? 0 : 1;
+  const span = tEdge - -tEdge;
+  const large = span > Math.PI ? 1 : 0;
+  const d = `M${a.x.toFixed(3)} ${a.y.toFixed(3)}A${drawnRx.toFixed(3)} ${drawnRy.toFixed(3)} 0 ${large} ${sweep} ${b.x.toFixed(3)} ${b.y.toFixed(3)}`;
+  return { d, cx, cy, rx: drawnRx, ry: drawnRy, t0: -tEdge, t1: tEdge, edge: e, ring, frame };
 }
 
 export function archOrbitPoint(arc: ArchOrbitArc, theta: number): { x: number; y: number } {

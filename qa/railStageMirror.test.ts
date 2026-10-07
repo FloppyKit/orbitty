@@ -5,15 +5,11 @@ import {
   archArrow,
   archConfirm,
   archEnter,
-  archOrbitArc,
   archOrbitPath,
-  archOrbitPoint,
-  archOrbitSamples,
   archPainted,
   archLayout,
   archSlot,
   ARCH_IDLE,
-  ARCH_SPAN_DEG,
   mirrorDepth,
   mirrorItems,
   mirrorLayout,
@@ -26,6 +22,7 @@ import {
   type Layer2Item,
 } from "../src/lib/rail/stageArch.ts";
 import { spinItems, type SpinItem, type ZoneRect } from "../src/lib/rail/stageLook.ts";
+import { svgPathPoints } from "./svgPath.ts";
 
 function card(partial: ArchCard): ArchCard {
   return partial;
@@ -101,12 +98,9 @@ test("M2 layer-2 slots sit on ring 1 and on the orbit", () => {
   ];
   for (const edge of edges) {
     for (const frame of frames) {
-      const arc = archOrbitArc(edge, 1, frame);
       const d = archOrbitPath(edge, 1, frame);
-      assert.match(d, /A/);
-      const pts = archOrbitSamples(arc, 64);
+      const pts = svgPathPoints(d);
       assert.ok(pts.length > 4, edge);
-      const step = (ARCH_SPAN_DEG / 4) * (Math.PI / 180);
       for (let i = 0; i < 9; i++) {
         const center = 3;
         const slot = mirrorSlot(i, center, edge, frame);
@@ -115,8 +109,7 @@ test("M2 layer-2 slots sit on ring 1 and on the orbit", () => {
         const ring2 = archSlot(i - center, edge, 2, frame);
         assert.ok(Math.hypot(slot.x - ring2.x, slot.y - ring2.y) > 1, "not ring 2");
         if (!slot.hidden) {
-          const on = archOrbitPoint(arc, (i - center) * step);
-          assert.ok(Math.hypot(slot.x - on.x, slot.y - on.y) <= 1, `${edge} line`);
+          assert.ok(distToPath({ x: slot.x, y: slot.y }, pts) <= 1, `${edge} line`);
         }
       }
     }

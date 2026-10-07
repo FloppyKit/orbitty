@@ -42,6 +42,7 @@
     archOrbitFade,
     archLabelBox,
     archMarbleBox,
+    L2_RING,
     thumbShowsImage,
     archScroll2,
     archSlot,
@@ -928,7 +929,7 @@
                     class="arch-slot"
                     class:is-selected={i === archState.center2}
                     class:is-hidden={l2Hidden(i)}
-                    style={slotStyle(l2Offset(i), 1, boardTint())}
+                    style={slotStyle(l2Offset(i), L2_RING, boardTint())}
                   >
                     <button
                       type="button"
@@ -960,9 +961,9 @@
                         {/if}
                         <span
                           class="arch-name"
-                          class:label-below={labelSide(l2Offset(i), 2) === "below"}
-                          class:label-inboard={labelSide(l2Offset(i), 2) === "inboard"}
-                          style={labelStyle(l2Offset(i), 2)}
+                          class:label-below={labelSide(l2Offset(i), L2_RING) === "below"}
+                          class:label-inboard={labelSide(l2Offset(i), L2_RING) === "inboard"}
+                          style={labelStyle(l2Offset(i), L2_RING)}
                         >{item.title || (item.kind === "board" ? "Board" : item.kind)}</span>
                       </span>
                     </button>
