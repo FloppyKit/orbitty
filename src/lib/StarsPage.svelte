@@ -670,7 +670,6 @@
     return () => ro.disconnect();
   });
 
-
   onDestroy(() => {
     unlisten?.();
     unlistenVis?.();
@@ -1046,9 +1045,9 @@
 
   .stars-save:not(:disabled) {
     font-weight: 700;
-    background: var(--accent);
-    border-color: transparent;
-    color: var(--on-accent, var(--bg));
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    color: var(--ink);
+    border-color: var(--accent);
   }
 
   .chron-prompts {

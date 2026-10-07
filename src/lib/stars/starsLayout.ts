@@ -30,10 +30,10 @@ export function starsColumns(layout: StarsLayout): StarsColumnSpec {
   if (layout === "dots") {
     return {
       planet: 72,
-      right: 300,
-      rightMin: 260,
-      rightMax: 340,
-      middle: "minmax(360px, 1fr)",
+      right: 240,
+      rightMin: 220,
+      rightMax: 260,
+      middle: "minmax(0, 1fr)",
     };
   }
   return {

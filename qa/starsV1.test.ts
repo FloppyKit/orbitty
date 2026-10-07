@@ -60,9 +60,71 @@ test("S1 starsLayout boundaries and column px", () => {
   assert.equal(three.rightMax, 340);
   assert.equal(three.middle, "minmax(420px, 1fr)");
   assert.equal(dots.planet, 72);
-  assert.equal(dots.middle, "minmax(360px, 1fr)");
+  assert.equal(dots.right, 240);
+  assert.equal(dots.rightMin, 220);
+  assert.equal(dots.rightMax, 260);
+  assert.equal(dots.middle, "minmax(0, 1fr)");
   assert.equal(single.planet, 0);
   assert.equal(single.right, 0);
+});
+
+test("S15 dots columns fit 600 through 899", () => {
+  const dots = starsColumns("dots");
+  assert.deepEqual(dots, {
+    planet: 72,
+    right: 240,
+    rightMin: 220,
+    rightMax: 260,
+    middle: "minmax(0, 1fr)",
+  });
+  const template = `${dots.planet}px ${dots.middle} clamp(${dots.rightMin}px, ${dots.right}px, ${dots.rightMax}px)`;
+  assert.equal(template, "72px minmax(0, 1fr) clamp(220px, 240px, 260px)");
+  const three = starsColumns("three");
+  assert.deepEqual(three, {
+    planet: 168,
+    right: 300,
+    rightMin: 260,
+    rightMax: 340,
+    middle: "minmax(420px, 1fr)",
+  });
+  const page = src("src/lib/StarsPage.svelte");
+  assert.ok(
+    page.includes(
+      "`${cols.planet}px ${cols.middle} clamp(${cols.rightMin}px, ${cols.right}px, ${cols.rightMax}px)`",
+    ),
+  );
+  const bodyAt = page.indexOf(".s-body {");
+  const bodyCss = page.slice(bodyAt, page.indexOf("}", bodyAt));
+  assert.match(bodyCss, /gap:\s*10px/);
+  assert.match(bodyCss, /padding:\s*10px 12px 12px/);
+  assert.match(bodyCss, /overflow:\s*hidden/);
+  const middleMin = dots.middle === "minmax(0, 1fr)" ? 0 : Number(/^minmax\((\d+)px/.exec(dots.middle)?.[1]);
+  assert.equal(middleMin, 0);
+  const gaps = 10 * 2;
+  const padding = 12 + 12;
+  const need = dots.planet + middleMin + dots.rightMin + gaps + padding;
+  const marked = [600, 640, 775, 899];
+  for (const w of marked) {
+    assert.equal(starsLayout(w), "dots", String(w));
+    assert.ok(72 + 220 + gaps + padding <= w, `marked ${w}`);
+  }
+  for (let w = 600; w <= 899; w++) {
+    assert.equal(starsLayout(w), "dots", String(w));
+    assert.ok(need <= w, `${need} <= ${w}`);
+  }
+  assert.equal(starsLayout(599), "single");
+  assert.equal(starsLayout(900), "three");
+});
+
+test("S16 stars-save fill is mixed accent", () => {
+  const page = src("src/lib/StarsPage.svelte");
+  const at = page.indexOf(".stars-save:not(:disabled)");
+  assert.ok(at > 0);
+  const rule = page.slice(at, page.indexOf("}", at));
+  assert.equal(/background:\s*var\(--accent\)\s*;/.test(rule), false);
+  assert.match(rule, /background:\s*color-mix\(in srgb,\s*var\(--accent\)\s*24%,\s*transparent\)\s*;/);
+  assert.match(rule, /color:\s*var\(--ink\)\s*;/);
+  assert.match(rule, /border-color:\s*var\(--accent\)\s*;/);
 });
 
 test("S2 planet scope reaches trackers only", () => {
@@ -114,9 +176,19 @@ test("S4 radarDraft does not fill the past and mount does not save", () => {
   assert.equal(past.values, null);
   assert.equal(past.draft, false);
   const page = src("src/lib/StarsPage.svelte");
-  const mount = braceBody(page, page.indexOf("onMount(async () =>"));
-  assert.equal(mount.includes("persist("), false);
-  assert.equal(mount.includes("saveCheckin"), false);
+  const heads = ["onMount(async", "function loadState", "function syncStarsDraft"] as const;
+  for (const head of heads) {
+    const at = page.indexOf(head);
+    assert.ok(at >= 0, head);
+    const body = braceBody(page, at);
+    if (head === "onMount(async") {
+      assert.equal(body.includes("persist("), false);
+      assert.equal(body.includes("saveCheckin"), false);
+    }
+    for (const banned of ["saveStarsToday", "save_state", "setAverageWindow("]) {
+      assert.equal(body.includes(banned), false, `${head} contains ${banned}`);
+    }
+  }
 });
 
 test("S5 slider handles and hit radius", () => {
