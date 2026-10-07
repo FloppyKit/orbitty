@@ -7,6 +7,8 @@ import {
   besideFront,
   besideNext,
   keyOwnerNext,
+  outwardDir,
+  pickFromKind,
   selWrapBox,
   type KeyOwner,
 } from "../src/lib/rail/stageFocus.ts";
@@ -28,6 +30,7 @@ const stars = readFileSync(new URL("../src/lib/StarsPage.svelte", import.meta.ur
 const settings = readFileSync(new URL("../src/lib/SettingsPage.svelte", import.meta.url), "utf8");
 const kanban = readFileSync(new URL("../src/lib/KanbanPage.svelte", import.meta.url), "utf8");
 const polish = readFileSync(new URL("./railStagePolish.test.ts", import.meta.url), "utf8");
+const menuKeys = readFileSync(new URL("../src/lib/menuKeys.svelte.ts", import.meta.url), "utf8");
 
 function braceBody(src: string, from: number): string {
   const open = src.indexOf("{", from);
@@ -120,13 +123,12 @@ test("F4 embedded rings attach on walk-in only", () => {
   const mountAt = stars.indexOf("onMount(async () =>");
   assert.ok(mountAt > 0);
   const mount = braceBody(stars, mountAt);
-  const attachAt = mount.indexOf("menuRing.attach");
-  assert.ok(attachAt > 0);
-  assert.match(mount.slice(0, attachAt), /if\s*\(\s*!embedded\s*\)/);
+  assert.match(mount, /if\s*\(\s*!embedded\s*\)\s*\{\s*detachMenuKeys\s*=\s*menuRing\.attach\(/);
+  assert.equal(mount.split("menuRing.attach").length - 1, 1);
   assert.match(stars, /if\s*\(\s*!embedded\s*\|\|\s*!ringActive\s*\)\s*return/);
   assert.match(stars, /onRingExit\?\.\(\)/);
   assert.match(stars, /menuRing\.onEdge/);
-  assert.match(settings, /if\s*\(\s*!embedded\s*\|\|\s*!ringActive\s*\)\s*return/);
+  assert.match(settings, /if\s*\(\s*!embedded\s*\|\|\s*!ringActive\s*\)\s*return;\s*const root = settingsRoot;[\s\S]*?menuRing\.attach\(/);
   assert.match(settings, /onRingExit\?\.\(\)/);
   assert.equal(settings.includes("menuRing.attach"), true);
   assert.match(kanban, /if\s*\(\s*railPlanet\s*==\s*null\s*\)/);
@@ -338,7 +340,7 @@ test("F11 geometry subjects stay on the known list", () => {
         }
         assert.doesNotMatch(block.body, /transform\s*:/);
       } else if (interesting.includes("transform")) {
-        assert.match(block.body, /transform:\s*(?:none|scale\(1\.06\)|scale\(0\.97\))/);
+        assert.match(block.body, /transform:\s*(?:none|scale\(1\.06\)|scale\(0\.97\))\s*;/);
       } else {
         assert.ok(block.selector.includes(".arch-vis") && block.selector.includes(".l2-vis"), block.selector);
         assert.doesNotMatch(block.selector, /:hover|:active|reduce-motion/);
@@ -387,4 +389,50 @@ test("F13 preview card shrinks onto stage tokens", () => {
   assert.match(card.body, /var\(\s*--stage-ink/);
   assert.doesNotMatch(card.body, /rgba\(\s*248\s*,\s*246\s*,\s*252/);
   assert.match(list, /Screen Recording needed for previews/);
+});
+
+test("S5 outwardDir is the walk-out arrow for every edge", () => {
+  assert.equal(outwardDir("right"), "right");
+  assert.equal(outwardDir("left"), "left");
+  assert.equal(outwardDir("top"), "up");
+  assert.equal(outwardDir("bottom"), "down");
+});
+
+test("S8 pickFromKind keeps add and the other kinds", () => {
+  for (const kind of ["planet", "stars", "settings", "unmapped", "board", "add"] as const) {
+    assert.equal(pickFromKind(kind), kind);
+  }
+  assert.equal(pickFromKind("nope"), "other");
+  assert.equal(pickFromKind(undefined), "other");
+});
+
+test("W3 MenuRing onEdge eats the key at the end of the ring", () => {
+  const handleAt = menuKeys.indexOf("private handleKey(e: KeyboardEvent)");
+  assert.ok(handleAt > 0);
+  const handle = braceBody(menuKeys, handleAt);
+  const edgeAt = handle.indexOf("this.onEdge?.(dir)");
+  assert.ok(edgeAt > 0);
+  assert.match(handle, /if\s*\(\s*atEnd\s*&&\s*this\.onEdge\?\.\(\s*dir\s*\)\s*\)\s*return true;/);
+  assert.ok(edgeAt < handle.indexOf("this.move(delta)"));
+});
+
+test("W4 board outer column calls onRingExit", () => {
+  assert.match(
+    kanban,
+    /if\s*\(\s*exitActive\s*&&\s*dir\s*===\s*exitDir\s*&&\s*\(\s*dir\s*===\s*"left"\s*\|\|\s*dir\s*===\s*"right"\s*\)\s*\)\s*\{[\s\S]*?if\s*\(\s*ci\s*\+\s*step\s*<\s*0\s*\|\|\s*ci\s*\+\s*step\s*>=\s*cols\.length\s*\)\s*\{\s*exit\?\.\(\);\s*return true;/,
+  );
+});
+
+test("W5 rail Esc walks out of Unmapped", () => {
+  const esc = fnBody(page, "onRailEscape");
+  assert.match(esc, /if\s*\(\s*keyOwner\s*===\s*"unmapped"\s*\)\s*\{\s*walkOut\(\);\s*return true;\s*\}/);
+  const walk = fnBody(page, "walkOut");
+  assert.match(walk, /reselectStop\s*=\s*ownerStop\(keyOwner\)/);
+  assert.match(walk, /keyOwnerNext\(\s*keyOwner\s*,\s*\{\s*type:\s*"walkOut"\s*\}\s*\)/);
+  assert.match(fnBody(page, "ownerStop"), /owner === "unmapped"\) return `rhead-\$\{UNMAPPED_KEY\}`/);
+});
+
+test("FR2 Enter on a planet stop calls applyBeside", () => {
+  const confirm = fnBody(page, "confirmHabitatStop");
+  assert.match(confirm, /if\s*\(\s*spin\s*===\s*"raise"\s*\)\s*\{\s*applyBeside\(\s*"planet"\s*\)/);
 });
