@@ -532,8 +532,8 @@ function braceBody(src: string, from: number): string {
   assert.fail("unclosed brace");
 }
 
-/** Spaces out comments and string literals (templates included). Newlines are kept. */
-function stripCommentsAndStrings(src: string): string {
+/** Spaces out comments. String literals are blanked too unless `blankStrings` is false, so a bracket key stays visible. Newlines are kept. */
+function stripCommentsAndStrings(src: string, blankStrings = true): string {
   const out: string[] = [];
   const blank = (from: number, to: number) => {
     for (let k = from; k < to; k++) out.push(src[k] === "\n" ? "\n" : " ");
@@ -583,7 +583,7 @@ function stripCommentsAndStrings(src: string): string {
       i = stop;
       continue;
     }
-    if (c === "'" || c === '"' || c === "`") {
+    if (blankStrings && (c === "'" || c === '"' || c === "`")) {
       const stop = skipString(i);
       blank(i, stop);
       i = stop;
@@ -593,6 +593,11 @@ function stripCommentsAndStrings(src: string): string {
     i++;
   }
   return out.join("");
+}
+
+/** Comments blanked, string keys kept. */
+function stripComments(src: string): string {
+  return stripCommentsAndStrings(src, false);
 }
 
 /** Brace, paren, and ternary depth of `src[from, to)`. `?.` and `??` are not ternaries. */
@@ -620,23 +625,25 @@ function scanDepths(src: string, from: number, to: number): { brace: number; par
 
 test("B5 List centre effect resets through centreStep after the guard", () => {
   const centre = list.slice(list.indexOf("const onWheel = !!active"), list.indexOf("if (rail.spinCenter"));
-  const stepAt = centre.indexOf("const step = centreStep(rail.centreCause)");
-  const guardAt = centre.indexOf("if (step.apply)");
-  const besideAt = centre.indexOf("rail.applyBeside(");
-  const resetAt = centre.indexOf("rail.centreCause = step.next");
+  // Blanking keeps indexes aligned. A write inside a comment is not a write; strings stay, so a write between regex quotes still counts.
+  const centreText = stripComments(centre);
+  const stepAt = centreText.indexOf("const step = centreStep(rail.centreCause)");
+  const guardAt = centreText.indexOf("if (step.apply)");
+  const besideAt = centreText.indexOf("rail.applyBeside(");
+  const resetAt = centreText.indexOf("rail.centreCause = step.next");
   assert.ok(stepAt >= 0, "centreStep call");
   assert.ok(guardAt > stepAt, "guard after centreStep");
   assert.ok(besideAt > guardAt, "applyBeside inside the guard");
   assert.ok(resetAt > besideAt, "reset after the guard");
-  assert.equal(centre.includes('centreCause = "depthOut"'), false);
-  assert.equal(centre.includes('centreCause = "spin"'), false);
+  assert.equal(centreText.includes('centreCause = "depthOut"'), false);
+  assert.equal(centreText.includes('centreCause = "spin"'), false);
 
   // Verify probe floor (repro/probe_test.ts): one `centreCause =` write, after the centre-change block.
-  assert.equal((centre.match(/centreCause\s*=/g) ?? []).length, 1);
-  const br = centre.indexOf("if (next !== center) {");
-  const close = centre.indexOf("\n    }\n", br);
+  assert.equal((centreText.match(/centreCause\s*=/g) ?? []).length, 1);
+  const br = centreText.indexOf("if (next !== center) {");
+  const close = centreText.indexOf("\n    }\n", br);
   assert.ok(br >= 0 && close > br);
-  assert.ok(centre.indexOf("rail.centreCause = step.next") > close);
+  assert.ok(centreText.indexOf("rail.centreCause = step.next") > close);
 
   const stripped = stripCommentsAndStrings(list);
   const marker = stripped.indexOf("const step = centreStep(rail.centreCause)");
@@ -677,6 +684,16 @@ test("B5 List centre effect resets through centreStep after the guard", () => {
     boundary >= 0 && (body[boundary] === ";" || body[boundary] === "{" || body[boundary] === "}"),
     "write is its own statement at depth 0",
   );
+  assert.doesNotMatch(body.slice(stepRel, rel), /\b(return|throw|break|continue)\b/, "no exit before the reset");
+  assert.doesNotMatch(body, /\bstep\s*\.\s*\w+\s*(=|\|\|=|\?\?=|&&=)(?!=)/, "step is not mutated");
+  assert.equal([...stripped.matchAll(writeRe)].length, 1, "one centreCause write in List.svelte");
+  {
+    const commented = stripComments(list);
+    const stepInComments = commented.indexOf("const step = centreStep(rail.centreCause)");
+    assert.ok(stepInComments >= 0, "centreStep call with string keys kept");
+    const body = braceBody(commented, commented.lastIndexOf("$effect", stepInComments));
+    assert.doesNotMatch(body, /Object\.assign\(\s*rail\b|\brail\s*\[/, "no indirect rail writes");
+  }
 });
 
 test("N2 rail backgrounds are dark panel tints", () => {
