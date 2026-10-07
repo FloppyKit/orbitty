@@ -4,6 +4,18 @@
 
 export const RADAR_R = 72;
 export const SPOKE_COUNT = 5;
+/** Visible knob radius in SVG units. Diameter is 14 at scale 1. */
+export const HANDLE_R = 7;
+
+export const STARS_SPOKES = [
+  { key: "sleep", label: "Sleep" },
+  { key: "terroir", label: "Terroir" },
+  { key: "athleticism", label: "Athleticism" },
+  { key: "relationships", label: "Relationships" },
+  { key: "self", label: "Self practice" },
+] as const;
+
+export type SpokeKey = (typeof STARS_SPOKES)[number]["key"];
 // View box clears the larger cage plus a name and its score mark.
 export const RADAR_VB = { x: -176, y: -120, w: 360, h: 224 };
 
@@ -129,4 +141,123 @@ export function stepSpoke(current: number, delta: number): number {
   const next = Math.round(current) + Math.sign(delta || 0);
   if (!Number.isFinite(next)) return Math.round(current);
   return Math.max(1, Math.min(5, next));
+}
+
+/** SVG hit radius whose CSS radius stays ≥ 14px. `scale` is CSS px per SVG unit. */
+export function handleHitRadius(scale: number): number {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  return 14 / s;
+}
+
+/** SVG visible radius whose CSS radius stays ≥ 7px. */
+export function handleVisibleRadius(scale: number): number {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  return Math.max(HANDLE_R, HANDLE_R / s);
+}
+
+/**
+ * Center radius for a handle. At value 1 the ring is already past the
+ * chord needed for a 7px knob; a larger visible radius (small embeds)
+ * pushes the center out so neighbors do not overlap.
+ */
+export function handleCenterRadius(value: number, visibleR: number): number {
+  const base = ringRadius(value >= 1 ? value : 1);
+  const r = visibleR > 0 ? visibleR : HANDLE_R;
+  const minR = r / Math.sin(Math.PI / SPOKE_COUNT);
+  return Math.max(base, minR);
+}
+
+/** Distance along the spoke, in SVG units, snapped to 1–5. */
+export function snapOnSpoke(distance: number, radius = RADAR_R): number {
+  if (!Number.isFinite(distance) || !(radius > 0)) return 1;
+  const t = Math.max(0, Math.min(1, distance / radius));
+  const v = Math.round(t * 5);
+  return Math.max(1, Math.min(5, v === 0 ? 1 : v));
+}
+
+export function spokeDistance(i: number, x: number, y: number): number {
+  const a = spokeAngle(i);
+  return x * Math.cos(a) + y * Math.sin(a);
+}
+
+/** " 4 " → 4. Anything that is not an integer 1–5 is null. */
+export function parseRating(text: string): number | null {
+  const t = text.trim();
+  if (!/^[1-5]$/.test(t)) return null;
+  return Number(t);
+}
+
+/**
+ * Slider keys. Returns the next 1–5, 0 to clear, or null when ignored.
+ * ← ↓ −1 (floor 1), → ↑ +1 (cap 5), Home 1, End 5, digits 1–5 set.
+ */
+export function ratingFromKey(current: number, key: string): number | null {
+  const cur = current >= 1 && current <= 5 ? Math.round(current) : 1;
+  switch (key) {
+    case "ArrowLeft":
+    case "ArrowDown":
+      return Math.max(1, cur - 1);
+    case "ArrowRight":
+    case "ArrowUp":
+      return Math.min(5, cur + 1);
+    case "Home":
+      return 1;
+    case "End":
+      return 5;
+    case "1":
+    case "2":
+    case "3":
+    case "4":
+    case "5":
+      return Number(key);
+    case "Backspace":
+    case "Delete":
+      return 0;
+    default:
+      return null;
+  }
+}
+
+export interface RadarDraftValues {
+  sleep: number;
+  terroir: number;
+  athleticism: number;
+  relationships: number;
+  self: number;
+}
+
+export interface RadarDraft {
+  values: RadarDraftValues | null;
+  draft: boolean;
+}
+
+const DRAFT_THREES: RadarDraftValues = {
+  sleep: 3,
+  terroir: 3,
+  athleticism: 3,
+  relationships: 3,
+  self: 3,
+};
+
+/** Saved check-in wins. Today with none is a draft at 3. Any other empty day stays empty. */
+export function radarDraft(
+  dayKey: string,
+  today: string,
+  checkins: Record<string, Partial<RadarDraftValues> | undefined>,
+): RadarDraft {
+  const saved = checkins[dayKey];
+  if (saved) {
+    return {
+      values: {
+        sleep: saved.sleep ?? 0,
+        terroir: saved.terroir ?? 0,
+        athleticism: saved.athleticism ?? 0,
+        relationships: saved.relationships ?? 0,
+        self: saved.self ?? 0,
+      },
+      draft: false,
+    };
+  }
+  if (dayKey === today) return { values: { ...DRAFT_THREES }, draft: true };
+  return { values: null, draft: false };
 }

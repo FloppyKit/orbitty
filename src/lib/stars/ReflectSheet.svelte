@@ -7,7 +7,7 @@
     onWrite,
   }: {
     onClose: () => void;
-    onWrite: (flags: MetricFlags) => void;
+    onWrite: (flags: MetricFlags, notes: string) => void;
   } = $props();
 
   let spokes = $state(true);
@@ -15,6 +15,7 @@
   let grateful = $state(true);
   let trackers = $state(true);
   let cloud = $state(true);
+  let notes = $state("");
   let closeBtn: HTMLButtonElement | null = $state(null);
 
   function flags(): MetricFlags {
@@ -61,13 +62,21 @@
     <label><input type="checkbox" bind:checked={grateful} /> Grateful</label>
     <label><input type="checkbox" bind:checked={trackers} /> Trackers</label>
     <label><input type="checkbox" bind:checked={cloud} /> Cloud</label>
+    <label class="notes">Notes
+      <textarea
+        bind:value={notes}
+        rows="3"
+        placeholder="Optional"
+        aria-label="Notes"
+      ></textarea>
+    </label>
     <div class="row">
       <button type="button" class="btn" onclick={onClose}>Close</button>
       <button
         type="button"
         class="btn strong"
-        disabled={!spokes && !wins && !grateful && !trackers && !cloud}
-        onclick={() => onWrite(flags())}
+        disabled={!spokes && !wins && !grateful && !trackers && !cloud && !notes.trim()}
+        onclick={() => onWrite(flags(), notes)}
       >Write page</button>
     </div>
   </div>
@@ -157,5 +166,21 @@
 
   .strong {
     font-weight: 700;
+  }
+
+  .notes {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  textarea {
+    font: inherit;
+    font-size: 0.75rem;
+    color: var(--ink);
+    background: var(--bg-fill, var(--bg));
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 4px 6px;
+    resize: vertical;
   }
 </style>

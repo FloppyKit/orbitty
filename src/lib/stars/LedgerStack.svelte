@@ -75,7 +75,7 @@
       <article class="page">
         {#if page}
           {@const planet = planetFor(page.scope)}
-          <h3>{page.dayKey ?? "Undated"}</h3>
+          <h3>{page.dayKeyEnd && page.dayKey ? `${page.dayKey} – ${page.dayKeyEnd}` : (page.dayKey ?? "Undated")}</h3>
           <p class="meta">
             {#if planet}
               <span class="chip" style="background: {planetCss(planet.id)}"></span>
@@ -229,8 +229,8 @@
     font: inherit;
     font-size: 0.72rem;
     font-weight: 700;
-    color: #f4f1fb;
-    background: #1b1730;
+    color: var(--on-accent, var(--bg));
+    background: var(--accent);
     border: none;
     border-radius: 8px;
     padding: 4px 12px;

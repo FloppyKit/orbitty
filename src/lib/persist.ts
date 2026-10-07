@@ -329,6 +329,8 @@ export interface LedgerPage {
   // Epoch milliseconds.
   createdAt: number;
   dayKey?: string;
+  // Inclusive end of a span page. Absent = that dayKey is one day.
+  dayKeyEnd?: string;
   // "overall" or a planet id.
   scope?: string;
   body?: string;

@@ -13,60 +13,26 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
   import "./orbit-field.css";
-  import type {
-    CompanionSlice,
-    KanbanCard,
-    PersistedState,
-    Project,
-    SkySlice,
-    Tag,
-  } from "./persist";
+  import type { PersistedState } from "./persist";
+  import { buildDocs, pageCloudDocs, type SkyDoc, type SkyRange } from "./skyBag";
 
-
-
-  // Tiny English stopword set — good enough, no NLP crate. Contractions
-  // self-clean: "don't" splits to "don"+"t", so the fragments are listed.
-  const STOPWORDS = new Set([
-    "the", "and", "for", "with", "this", "that", "you", "your", "yours",
-    "are", "was", "were", "will", "would", "can", "could", "should", "have",
-    "has", "had", "not", "but", "all", "any", "out", "off", "from", "into",
-    "over", "under", "about", "after", "before", "when", "while", "what",
-    "how", "why", "who", "which", "there", "here", "then", "than", "too",
-    "very", "just", "like", "get", "got", "its", "our", "ours", "their",
-    "them", "they", "she", "him", "his", "her", "hers", "mine", "let",
-    "lets", "now", "today", "tomorrow", "yesterday", "also", "still",
-    "back", "again", "maybe", "really", "need", "needs", "want", "wants",
-    "going", "gonna", "yeah", "yes", "okay", "say", "said", "says", "tell",
-    "told", "make", "made", "take", "took", "thing", "things", "stuff",
-    "way", "lot", "lots", "bit", "one", "two", "new", "old", "see", "seen",
-    "know", "think", "feel", "much", "many", "some", "more", "most",
-    "other", "another", "same", "own", "only", "even", "well", "good",
-    "right", "been", "being", "because", "until", "though", "where",
-    "whom", "whose", "each", "every", "both", "few", "per", "via", "etc",
-    "else", "must", "might", "shall", "nor", "yet", "either", "neither",
-    "through", "during", "without", "within", "don", "didn", "doesn",
-    "isn", "aren", "won", "cant", "couldn", "shouldn", "wouldn", "hasn",
-    "haven", "hadn", "ain",
-  ]);
-
-  function tokenize(text: string): string[] {
-    return text
-      .toLowerCase()
-      .split(/[^\p{L}]+/u)
-      .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
-  }
+  let {
+    from = undefined,
+    to = undefined,
+    compact = false,
+    filter = undefined,
+    pageBody = undefined,
+  }: {
+    from?: string;
+    to?: string;
+    compact?: boolean;
+    filter?: (doc: SkyDoc) => boolean;
+    pageBody?: string;
+  } = $props();
 
   // One document = one done card (title + notes + tag names + weak planet
   // name) or one user companion line. Presence is per-document: a word
   // counts once per doc (planet-name tokens at half weight).
-  interface DocEntry {
-    token: string;
-    weight: number;
-  }
-  interface Doc {
-    entries: DocEntry[];
-    at: number;
-  }
   interface WordInfo {
     word: string;
     count: number;
@@ -226,50 +192,17 @@
     placed = next;
   });
 
+  let loaded = $state<PersistedState | null>(null);
+
   function buildSky(s: PersistedState) {
-    const docs: Doc[] = [];
-    const now = Date.now() / 1000;
-    const tagById = new Map((s.tags ?? []).map((t) => [t.id, t.name]));
-    const projById = new Map((s.projects ?? []).map((p) => [p.id, p.name]));
-
-    for (const c of s.kanbanCards ?? []) {
-      if (c.status !== "done") continue;
-      const entries: DocEntry[] = [];
-      const pushAll = (text: string, weight: number) => {
-        for (const t of tokenize(text)) entries.push({ token: t, weight });
-      };
-      pushAll(c.title ?? "", 1);
-      pushAll(c.notes ?? "", 1);
-      for (const tid of c.tagIds ?? []) {
-        const name = tagById.get(tid);
-        if (name) pushAll(name, 1);
-      }
-      // Planet/project name rides along weakly — half weight, same doc, so
-      // it still co-occurs with the card's own words.
-      const planet = c.projectId ? projById.get(c.projectId) : undefined;
-      if (planet) pushAll(planet, 0.5);
-      if (entries.length > 0) {
-        docs.push({ entries, at: c.completedAt ?? c.lastTouchedAt ?? 0 });
-      }
-    }
-
-    // User companion lines only — role "you". Bot replies ("them") never
-    // enter the bag. Turns carry no timestamp; the transcript is capped at
-    // the last 40, so presence there reads as recent (lastAt = now).
-    const turns = s.companion?.turns ?? [];
-    const userLines = turns.filter((t) => t.role === "you").map((t) => t.text);
-    const lastUser = (s.companion?.lastUserLine ?? "").trim();
-    if (lastUser && (userLines[userLines.length - 1] ?? "").trim() !== lastUser) {
-      userLines.push(lastUser);
-    }
-    for (const line of userLines) {
-      const toks = tokenize(line);
-      if (toks.length > 0) {
-        docs.push({
-          entries: toks.map((t) => ({ token: t, weight: 1 })),
-          at: now,
-        });
-      }
+    const ranged = !!(from || to);
+    const range: SkyRange | null = ranged
+      ? { from: from || to || "", to: to || from || "" }
+      : null;
+    // No range: one-argument buildDocs, same bag the Sky window has always shown.
+    let docs = ranged ? buildDocs(s, range, filter) : buildDocs(s);
+    if (pageBody && pageBody.trim()) {
+      docs = docs.concat(pageCloudDocs({ body: pageBody, dayKey: from }));
     }
 
     const byWord = new Map<string, WordInfo>();
@@ -312,11 +245,21 @@
     try {
       const s = await invoke<PersistedState>("load_state");
       muted = s.sky?.muted ?? [];
-      buildSky(s);
+      loaded = s;
     } catch {
       // next state:changed / visibility refresh retries
     }
   }
+
+  $effect(() => {
+    const s = loaded;
+    if (!s) return;
+    from;
+    to;
+    pageBody;
+    filter;
+    buildSky(s);
+  });
 
   // Mute is the only write: load fresh, touch only state.sky.muted, save
   // the whole object back — every other slice survives byte-for-byte.
@@ -369,7 +312,7 @@
   });
 </script>
 
-<div class="sky-field">
+<div class="sky-field" class:compact>
   {#if visible.length > 0}
     <div class="field orbit-field" bind:this={fieldEl} role="list" aria-label="Your words">
       {#each visible.slice(0, 80) as w (w.word)}
@@ -449,6 +392,10 @@
     display: flex;
     flex-direction: column;
     position: relative;
+  }
+
+  .sky-field.compact {
+    min-height: 120px;
   }
 
   /* One dark space field: greedy spiral pack, scale-to-fit, no wrap, no

@@ -79,3 +79,12 @@ export function ledgerBody(bits: LedgerBits): string {
 
   return lines.join("\n").trim();
 }
+
+/** Optional plain notes, appended under a blank line. Empty notes leave the body. */
+export function withNotes(body: string, notes: string): string {
+  const n = notes.trim();
+  if (!n) return body;
+  const base = body.trim();
+  if (!base) return n;
+  return `${base}\n\n${n}`;
+}

@@ -613,6 +613,9 @@ pub struct LedgerPage {
     pub created_at: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub day_key: Option<String>,
+    /// Inclusive end of a span page. Absent on old saves = one day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day_key_end: Option<String>,
     /// "overall" or a planet id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -2521,5 +2524,35 @@ mod tests {
         assert_eq!(obj.get("commsBuilt").and_then(|v| v.as_bool()), Some(true));
         assert_eq!(obj.get("starsBuilt").and_then(|v| v.as_bool()), Some(true));
         assert_eq!(obj.get("introDone").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[test]
+    fn ledger_page_day_key_end_round_trip() {
+        let page = LedgerPage {
+            id: "led-span".into(),
+            created_at: 1_700_000_000_000.0,
+            day_key: Some("2026-09-28".into()),
+            day_key_end: Some("2026-10-04".into()),
+            scope: Some("overall".into()),
+            body: Some("a week".into()),
+            metric_flags: None,
+        };
+        let json = serde_json::to_string(&page).unwrap();
+        assert!(json.contains("dayKeyEnd"), "{json}");
+        let back: LedgerPage = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.day_key.as_deref(), Some("2026-09-28"));
+        assert_eq!(back.day_key_end.as_deref(), Some("2026-10-04"));
+        assert_eq!(back.scope.as_deref(), Some("overall"));
+    }
+
+    #[test]
+    fn ledger_page_without_end_loads() {
+        let json = r#"{"id":"led-old","createdAt":10,"dayKey":"2026-09-01","scope":"overall","body":"old"}"#;
+        let page: LedgerPage = serde_json::from_str(json).unwrap();
+        assert!(page.day_key_end.is_none());
+        assert_eq!(page.day_key.as_deref(), Some("2026-09-01"));
+        assert_eq!(page.body.as_deref(), Some("old"));
+        let out = serde_json::to_string(&page).unwrap();
+        assert!(!out.contains("dayKeyEnd"), "{out}");
     }
 }

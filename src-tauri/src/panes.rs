@@ -65,7 +65,7 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
 pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(f64, f64)>)> {
     match label {
         "kanban" => Some(("", 780.0, 520.0, None)),
-        "stars" => Some(("", 780.0, 520.0, None)),
+        "stars" => Some(("", 1040.0, 700.0, Some((600.0, 480.0)))),
         "companion" => Some(("", 619.0, 647.0, Some((280.0, 360.0)))),
         "settings" | "sky" => Some(("", 420.0, 760.0, None)),
         // The Herding Cats confirm is its own small

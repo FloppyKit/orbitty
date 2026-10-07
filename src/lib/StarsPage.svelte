@@ -1,23 +1,9 @@
 <script lang="ts">
-  // The check-in radar lives in its own window (like Lists),
-  // never stuffed into the rail. Five spokes 1–5 keyed by local YYYY-MM-DD;
-  // explicit check-in only. GO-ORBITTY-STARS-FIVE: the scale is 1–5 (was
-  // 0–4) — legacy saves migrate n→n+1 once native-side at setup (scaleV
-  // flag); an unsaved day is still empty (draft 0 = unset, lights nothing).
-  // An in-session day
-  // cursor pages the saved map — past days are read-only, Save only ever
-  // writes today, and the cursor itself is never persisted.
-  // Rolling 7/14/30-day window ending at the
-  // day cursor, mean of saved days only (a saved 1 counts; blanks shrink
-  // the denominator, never a zero-fill). Persists as stars.averageWindow.
-  // Left: one check-in card (radar, wins, save) and a trackers card.
-  // Right: one folio — cloud cover, journal over it. Center of the radar is unset.
-  // Average pills sit under the day chips. No Check-in | Review.
-  // Same state.json discipline as Lists: every
-  // write is load → mutate → save of the WHOLE loaded object, so rail-owned
-  // slices round-trip untouched. This window writes the stars slice and
-  // planet trackers. The companion's Prompts strip reads the same stars
-  // slice via native commands; its toggles land here on state:changed.
+  // Stars: planet column, five-spoke radar, trackers, journal / sky folio.
+  // Check-ins are explicit. Today with nothing saved is a draft at 3 and
+  // is not written until a touch or Save. Past empty days stay empty.
+  // The day cursor is session-only. Writes are load → mutate → save of the
+  // whole state object.
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
@@ -26,10 +12,18 @@
   import DayPositives from "./stars/DayPositives.svelte";
   import StarsTrackers from "./stars/StarsTrackers.svelte";
   import ReflectSheet from "./stars/ReflectSheet.svelte";
-  import NudgeStrip from "./stars/NudgeStrip.svelte";
-  import { ledgerBody } from "./stars/ledgerBody";
+  import StarsPlanetColumn from "./stars/StarsPlanetColumn.svelte";
+  import { ledgerBody, withNotes } from "./stars/ledgerBody";
   import { reorderProjects } from "./planetOrder";
-  import { stepSpoke } from "./stars/radarGeom";
+  import {
+    STARS_SPOKES,
+    radarDraft,
+    stepSpoke,
+    type SpokeKey,
+  } from "./stars/radarGeom";
+  import { starsColumns, starsLayout, starsScopeTargets } from "./stars/starsLayout";
+  import { folioFace, reflectTarget, type StarsView } from "./stars/folioDay";
+  import { buildDocs, epochSecToDayKey } from "./skyBag";
   import { listenPaneVis } from "./paneVis";
   import { startPaneDrag } from "./dragPane";
   import WindowTitleRow from "./WindowTitleRow.svelte";
@@ -54,13 +48,6 @@
   } from "./persist";
   import { elapsedSec, formatElapsed, isTimer } from "./stars/timer";
 
-  // This page now mounts inside the one shared
-  // 780×520 `kanban` overlay (stars mode) — hideLabel is the HOST window's
-  // label, so the × and the re-show reset talk to the pane we're in. The
-  // legacy 420×560 `stars` window passes nothing and keeps "stars".
-  // Embedded mounts this page in the companion's
-  // STARS well — × calls onClose (never hide_window) and there is NO
-  // pop-out. hideLabel stays the overlay's affair.
   let {
     hideLabel = "stars",
     embedded = false,
@@ -77,10 +64,6 @@
     outwardDir?: RingDir;
   } = $props();
 
-
-
-  // The seven palette skins are retired; a
-  // dead saved id falls back to the OS pair. Terminal stays valid.
   const KNOWN_THEMES = new Set(["systemLight", "systemDark", "terminal"]);
 
   function osThemeId(): string {
@@ -91,74 +74,44 @@
 
   let themeId = $state("");
   let windowOpacity = $state(1.0);
-
-  const STARS_SPOKES = [
-    { key: "sleep", label: "Sleep" },
-    { key: "terroir", label: "Terroir" },
-    { key: "athleticism", label: "Athleticism" },
-    { key: "relationships", label: "Relationships" },
-    { key: "self", label: "Self" },
-  ] as const;
-  type SpokeKey = (typeof STARS_SPOKES)[number]["key"];
-  // Draft sentinel 0 = unset (below the 1–5 floor): an unsaved today
-  // lights no button and draws an empty radar. Saved check-ins are 1–5.
-  const emptyCheckin = (): StarsCheckin => ({
-    sleep: 0,
-    terroir: 0,
-    athleticism: 0,
-    relationships: 0,
-    self: 0,
-  });
-
   let starsState = $state<StarsSlice>({ promptsOptIn: false, checkins: {} });
   let projects = $state<Project[]>([]);
-  // Check-in fraction of the left column, and left-column fraction of the body.
-  const ACT_SPLIT = 0.62;
-  const EAST_SPLIT = 0.52;
-  let starsActSplit = $state(ACT_SPLIT);
-  let starsEastSplit = $state(EAST_SPLIT);
-  let splitDragging = false;
+  let bagState = $state<PersistedState | null>(null);
   let planetDragging = false;
   let orderDirty = false;
-  let bodyEl: HTMLDivElement | null = $state(null);
-  let actEl: HTMLDivElement | null = $state(null);
-  let nudgeScope = $state("overall");
-
-  function clampSplit(
-    v: number | undefined,
-    fallback: number,
-    lo: number,
-    hi: number,
-  ): number {
-    if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
-    return Math.min(hi, Math.max(lo, v));
-  }
+  let trackerScope = $state("overall");
+  let mainEl: HTMLElement | null = $state(null);
+  let mainW = $state(1040);
+  let segment = $state<"checkin" | "trackers" | "journal">("checkin");
   let reflectOpen = $state(false);
+  let reflectHint = $state("");
+  let reflectPlan = $state<{ dayKey: string; dayKeyEnd?: string } | null>(null);
   let starsLoaded = $state(false);
-  // The draft is the working copy — it only becomes state via Save today.
   let starsDraft = $state<StarsCheckin>(emptyCheckin());
   let starsSavedDay = $state("");
-  // Mid-edit guard: a state:changed echo (companion Prompts toggle / strip
-  // ack) must not wipe spoke clicks that were never saved.
   let draftDirty = $state(false);
+
+  const layout = $derived(starsLayout(mainW));
+  const cols = $derived(starsColumns(layout));
+  const gridCols = $derived(
+    layout === "single"
+      ? "minmax(0, 1fr)"
+      : `${cols.planet}px ${cols.middle} clamp(${cols.rightMin}px, ${cols.right}px, ${cols.rightMax}px)`,
+  );
+
+  function emptyCheckin(): StarsCheckin {
+    return { sleep: 0, terroir: 0, athleticism: 0, relationships: 0, self: 0 };
+  }
 
   function todayKey(): string {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
-  // Day cursor: which saved day the radar + spoke rows are showing.
   let cursorDay = $state(todayKey());
   const isToday = $derived(cursorDay === todayKey());
   const cursorSaved = $derived(starsState.checkins[cursorDay]);
-  // Today shows the live draft; a past day shows its save, or null for an
-  // empty day (cage only, no fill — never a warning).
-  const shown = $derived<StarsCheckin | null>(
-    isToday ? starsDraft : (cursorSaved ?? null),
-  );
-  // Banner nav: Day (‹ › dates) or an average window. Average windows
-  // persist as stars.averageWindow; Day is session-only.
-  type StarsNav = "day" | "week" | "month" | "year" | "custom";
+  type StarsNav = StarsView;
   let navView = $state<StarsNav>("day");
   let editingToday = $state(false);
   const WINDOWS: Record<Exclude<StarsNav, "day" | "custom">, number> = {
@@ -168,21 +121,22 @@
   };
   const avgFrom = $derived(starsState.averageFrom || "");
   const avgTo = $derived(starsState.averageTo || "");
-  const windowSaves = $derived.by(() => {
-    let start: string;
-    let end: string;
+  const bounds = $derived.by(() => {
+    if (navView === "day") return { from: cursorDay, to: cursorDay };
     if (navView === "custom") {
-      start = avgFrom || shiftDay(cursorDay, -29);
-      end = avgTo || cursorDay;
+      let start = avgFrom || shiftDay(cursorDay, -29);
+      let end = avgTo || cursorDay;
       if (start > end) [start, end] = [end, start];
-    } else {
-      const key: Exclude<StarsNav, "day" | "custom"> =
-        navView === "year" || navView === "month" ? navView : "week";
-      start = shiftDay(cursorDay, -(WINDOWS[key] - 1));
-      end = cursorDay;
+      return { from: start, to: end };
     }
+    const key: Exclude<StarsNav, "day" | "custom"> =
+      navView === "year" || navView === "month" ? navView : "week";
+    return { from: shiftDay(cursorDay, -(WINDOWS[key] - 1)), to: cursorDay };
+  });
+  const windowSaves = $derived.by(() => {
+    const { from, to } = bounds;
     return Object.keys(starsState.checkins)
-      .filter((d) => d >= start && d <= end)
+      .filter((d) => d >= from && d <= to)
       .map((d) => starsState.checkins[d]);
   });
   const avgMode = $derived(navView !== "day");
@@ -195,18 +149,39 @@
     const mean = emptyCheckin();
     for (const { key } of STARS_SPOKES) {
       const vals = saves.map((c) => c[key] ?? 0).filter((n) => n >= 1);
-      mean[key] = vals.length
-        ? vals.reduce((acc, n) => acc + n, 0) / vals.length
-        : 0;
+      mean[key] = vals.length ? vals.reduce((acc, n) => acc + n, 0) / vals.length : 0;
     }
     return mean;
   });
-  // Gold edge tracks a saved shape. A dirty today stays plain until Save.
-  const plated = $derived.by(() => {
-    const src = avgMode ? windowMean : shown;
-    if (!src || !STARS_SPOKES.some(({ key }) => (src[key] ?? 0) >= 1)) return false;
-    if (avgMode || !isToday) return true;
-    return !draftDirty && cursorSaved != null;
+  const radarShown = $derived<StarsCheckin | null>(
+    avgMode ? windowMean : isToday ? starsDraft : (cursorSaved ?? null),
+  );
+  const radarIsDraft = $derived(isToday && !avgMode && !draftDirty && !cursorSaved);
+  const shown = $derived<StarsCheckin | null>(isToday ? starsDraft : (cursorSaved ?? null));
+
+  const dayFace = $derived(
+    folioFace(
+      cursorDay,
+      starsState.ledgerPages ?? [],
+      // MICROTAGS: planet-aware journals plug in here
+      () => true,
+    ),
+  );
+  const wordDays = $derived.by(() => {
+    const set = new Set<string>();
+    const s = bagState;
+    if (!s) return set;
+    const docs = buildDocs(
+      s,
+      undefined,
+      // MICROTAGS: planet-aware journals plug in here
+      () => true,
+    );
+    for (const d of docs) {
+      if (!d.stamped || !d.entries.length) continue;
+      set.add(epochSecToDayKey(d.at));
+    }
+    return set;
   });
 
   function shiftDay(key: string, delta: number): string {
@@ -220,41 +195,29 @@
   }
   function nextDay() {
     const n = shiftDay(cursorDay, 1);
-    if (n <= todayKey()) cursorDay = n; // never invent tomorrow
+    if (n <= todayKey()) cursorDay = n;
   }
 
   function syncStarsDraft() {
-    starsDraft = { ...emptyCheckin(), ...starsState.checkins[todayKey()] };
+    const today = todayKey();
+    const saved = starsState.checkins[today];
+    const d = radarDraft(today, today, starsState.checkins);
+    if (saved) starsDraft = { ...emptyCheckin(), ...saved };
+    else if (d.values) starsDraft = { ...emptyCheckin(), ...d.values };
+    else starsDraft = emptyCheckin();
     draftDirty = false;
   }
 
   async function loadState() {
     try {
       const s = await invoke<PersistedState>("load_state");
-      // "" means the rail follows the OS; retired ids resolve the same way.
       themeId = KNOWN_THEMES.has(s.themeId) ? s.themeId : osThemeId();
       windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
       starsState = s.stars ?? { promptsOptIn: false, checkins: {} };
+      bagState = s;
       if (!planetDragging) projects = s.projects ?? [];
-      if (!splitDragging) {
-        starsActSplit = clampSplit(
-          starsState.starsActSplit,
-          ACT_SPLIT,
-          0.34,
-          0.82,
-        );
-        starsEastSplit = clampSplit(
-          starsState.starsEastSplit,
-          EAST_SPLIT,
-          0.3,
-          0.74,
-        );
-      }
-      if (
-        nudgeScope !== "overall" &&
-        !projects.some((p) => p.id === nudgeScope)
-      ) {
-        nudgeScope = "overall";
+      if (trackerScope !== "overall" && !projects.some((p) => p.id === trackerScope)) {
+        trackerScope = "overall";
       }
       if (!draftDirty) syncStarsDraft();
       starsLoaded = true;
@@ -264,7 +227,7 @@
   }
 
   function setSpoke(key: SpokeKey, v: number) {
-    if (!dayEditable) return; // past days and a locked today stay read-only
+    if (!dayEditable) return;
     const n = v <= 0 ? 0 : Math.max(1, Math.min(5, Math.round(v)));
     starsDraft = { ...starsDraft, [key]: n };
     starsSavedDay = "";
@@ -283,11 +246,8 @@
     return t ? t : undefined;
   }
 
-  // Save today: load fresh, replace only today's check-in inside the stars
-  // slice, save the whole object back — every other slice survives byte-for-
-  // byte (no defaults are ever invented here).
   async function saveStarsToday() {
-    if (!isToday) return; // Save only ever writes today
+    if (!isToday) return;
     const day = todayKey();
     const clean = emptyCheckin();
     for (const { key } of STARS_SPOKES) {
@@ -307,6 +267,7 @@
       s.stars = stars;
       await invoke("save_state", { state: s });
       starsState = stars;
+      bagState = s;
       starsSavedDay = day;
       draftDirty = false;
       editingToday = false;
@@ -315,8 +276,6 @@
     }
   }
 
-  // Window switcher: same load → mutate → save-whole discipline as Save
-  // today, but it only ever sets stars.averageWindow — checkins untouched.
   async function setAverageWindow(w: AverageWindow, from?: string, to?: string) {
     starsState = {
       ...starsState,
@@ -333,6 +292,7 @@
       s.stars = stars;
       await invoke("save_state", { state: s });
       starsState = stars;
+      bagState = s;
     } catch {
       // state:changed / next load restores the truth
     }
@@ -357,45 +317,32 @@
     void setAverageWindow("custom", from, to);
   }
 
-  // The STARS ring — view switcher + five spokes,
-  // per the pad lock: left/right picks a stop, up/down adjusts what's
-  // highlighted (spoke value 1–5, or the view), Enter saves today under
-  // the Save button's own gate, Esc backs out of the well (CompanionPage
-  // owns it — nothing inner to close here). Past days and averages stay
-  // read-only; a first bump on a saved today unlocks editing, same as
-  // clicking the number. STARS-FIVE stays a scale change, not this.
   const menuRing = new MenuRing();
   const NAV_ORDER: StarsNav[] = ["day", "week", "month", "year", "custom"];
 
   function cycleView(delta: number) {
     const i = NAV_ORDER.indexOf(navView);
-    const next =
-      NAV_ORDER[(i + delta + NAV_ORDER.length) % NAV_ORDER.length];
+    const next = NAV_ORDER[(i + delta + NAV_ORDER.length) % NAV_ORDER.length];
     navView = next;
     if (next === "day") return;
     if (next === "custom") {
-      void setAverageWindow(
-        "custom",
-        avgFrom || shiftDay(cursorDay, -29),
-        avgTo || cursorDay,
-      );
+      void setAverageWindow("custom", avgFrom || shiftDay(cursorDay, -29), avgTo || cursorDay);
       return;
     }
     void setAverageWindow(next);
   }
 
   function bumpSpoke(key: SpokeKey, delta: number) {
-    if (!isToday || avgMode) return; // past days / averages are read-only
+    if (!isToday || avgMode) return;
     const cur = starsDraft[key] ?? 0;
     if (!dayEditable) {
       editingToday = true;
-      if (cur >= 1) return; // a saved spoke unlocks first; the next arrow steps
+      if (cur >= 1) return;
     }
     setSpoke(key, stepSpoke(cur, delta));
   }
 
   function saveFromRing() {
-    // The Save today button's enabled gate, mirrored.
     if (!isToday || avgMode || (!dayEditable && !!cursorSaved)) return;
     void saveStarsToday();
   }
@@ -414,7 +361,7 @@
             cycleView(1);
             return true;
           }
-          return false; // left/right walk onto the spokes
+          return false;
         },
       },
     ];
@@ -440,8 +387,6 @@
 
   let detachMenuKeys: (() => void) | undefined;
 
-  // Prompts opt-in rides the native load-modify-save command (same one the
-  // companion uses) — never a wholesale state write from here.
   async function toggleStarsPrompts() {
     const next = !starsState.promptsOptIn;
     starsState = { ...starsState, promptsOptIn: next };
@@ -456,23 +401,14 @@
     if (!themeId) return;
     document.documentElement.dataset.theme = themeId;
     applyHostTokens(themeId);
-    // Re-assert the native transparency surgery post-load.
     invoke("ensure_glass").catch(() => {});
   });
 
-  // Reads themeId too so a theme flip re-derives the rgba fills (the theme
-  // effect above runs first and sets the tokens).
   $effect(() => {
     if (!themeId) return;
     applyWindowOpacity(windowOpacity);
   });
 
-  // The host window is created hidden and hidden again on close — a
-  // re-show reloads from disk, resets the draft to the saved day, and
-  // returns the lookback cursor to today (lookback is in-session only).
-  // Hide-not-destroy panes never flip document.hidden, so the native
-  // pane-vis event is the real re-show signal; visibilitychange stays as a
-  // belt-and-suspenders for genuine occlusion flips.
   const onReshow = () => {
     starsSavedDay = "";
     draftDirty = false;
@@ -486,53 +422,57 @@
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
-  function scopeLabel(): string {
-    if (nudgeScope === "overall") return "All";
-    return projects.find((p) => p.id === nudgeScope)?.name ?? "All";
-  }
-
   function trackerLines(): { planet: string; label: string; value: string }[] {
     const now = Date.now();
-    const list =
-      nudgeScope === "overall"
-        ? projects
-        : projects.filter((p) => p.id === nudgeScope);
     const out: { planet: string; label: string; value: string }[] = [];
-    for (const p of list) {
+    for (const p of projects) {
       for (const tr of p.trackers ?? []) {
-        const value = isTimer(tr)
-          ? formatElapsed(elapsedSec(tr, now))
-          : String(tr.value ?? 0);
+        const value = isTimer(tr) ? formatElapsed(elapsedSec(tr, now)) : String(tr.value ?? 0);
         out.push({ planet: p.name, label: tr.label, value });
       }
     }
     return out;
   }
 
-  async function writeLedgerPage(flags: MetricFlags) {
-    const body = ledgerBody({
-      dayKey: todayKey(),
-      scopeLabel: scopeLabel(),
-      flags,
-      spokes: STARS_SPOKES.map((s) => ({
-        label: s.label,
-        value: starsDraft[s.key] ?? 0,
-      })),
-      wins: [starsDraft.win1, starsDraft.win2]
-        .map((w) => (w ?? "").trim())
-        .filter(Boolean),
-      grateful: (starsDraft.grateful ?? "").trim(),
-      trackers: trackerLines(),
-    });
+  function openReflect() {
+    const plan = reflectTarget(navView, cursorDay, bounds.from, bounds.to, todayKey());
+    if (!plan.ok) {
+      reflectHint = plan.hint;
+      reflectOpen = false;
+      return;
+    }
+    reflectHint = "";
+    reflectPlan = { dayKey: plan.dayKey, dayKeyEnd: plan.dayKeyEnd };
+    reflectOpen = true;
+  }
+
+  async function writeLedgerPage(flags: MetricFlags, notes = "") {
+    const plan = reflectPlan ?? reflectTarget(navView, cursorDay, bounds.from, bounds.to, todayKey());
+    if (!("dayKey" in plan)) return;
+    const day = plan.dayKey;
+    const checkin = day === todayKey() ? starsDraft : (starsState.checkins[day] ?? emptyCheckin());
+    const body = withNotes(
+      ledgerBody({
+        dayKey: plan.dayKeyEnd ? `${day}..${plan.dayKeyEnd}` : day,
+        scopeLabel: "All",
+        flags,
+        spokes: STARS_SPOKES.map((s) => ({ label: s.label, value: checkin[s.key] ?? 0 })),
+        wins: [checkin.win1, checkin.win2].map((w) => (w ?? "").trim()).filter(Boolean),
+        grateful: (checkin.grateful ?? "").trim(),
+        trackers: trackerLines(),
+      }),
+      notes,
+    );
     if (!body.trim()) return;
     const page: LedgerPage = {
       id: newId("led"),
       createdAt: Date.now(),
-      dayKey: todayKey(),
-      scope: nudgeScope,
+      dayKey: day,
+      scope: "overall",
       body,
       metricFlags: flags,
     };
+    if (plan.dayKeyEnd) page.dayKeyEnd = plan.dayKeyEnd;
     try {
       const s = await invoke<PersistedState>("load_state");
       const stars = s.stars ?? { promptsOptIn: false, checkins: {} };
@@ -540,96 +480,11 @@
       s.stars = stars;
       await invoke("save_state", { state: s });
       starsState = stars;
+      bagState = s;
       reflectOpen = false;
     } catch {
       // next write retries; flags stay on the sheet
     }
-  }
-
-  function onActSplitDown(e: PointerEvent) {
-    const el = actEl;
-    if (!el) return;
-    e.preventDefault();
-    splitDragging = true;
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    const startY = e.clientY;
-    const start = starsActSplit;
-    const h = Math.max(el.clientHeight, 1);
-    const move = (ev: PointerEvent) => {
-      starsActSplit = clampSplit(
-        start + (ev.clientY - startY) / h,
-        ACT_SPLIT,
-        0.34,
-        0.82,
-      );
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      splitDragging = false;
-      void persistLayout();
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-
-  function resetActSplit() {
-    starsActSplit = ACT_SPLIT;
-    void persistLayout();
-  }
-
-  function onEastSplitDown(e: PointerEvent) {
-    const el = bodyEl;
-    if (!el) return;
-    e.preventDefault();
-    splitDragging = true;
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    const startX = e.clientX;
-    const start = starsEastSplit;
-    const w = Math.max(el.clientWidth, 1);
-    const move = (ev: PointerEvent) => {
-      starsEastSplit = clampSplit(
-        start + (ev.clientX - startX) / w,
-        EAST_SPLIT,
-        0.3,
-        0.74,
-      );
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      splitDragging = false;
-      void persistLayout();
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-
-  function resetEastSplit() {
-    starsEastSplit = EAST_SPLIT;
-    void persistLayout();
-  }
-
-  let layoutQueue: Promise<void> = Promise.resolve();
-
-  function persistLayout() {
-    const act = starsActSplit;
-    const east = starsEastSplit;
-    layoutQueue = layoutQueue
-      .then(async () => {
-        const s = await invoke<PersistedState>("load_state");
-        const stars = s.stars ?? { promptsOptIn: false, checkins: {} };
-        stars.starsActSplit = act;
-        stars.starsEastSplit = east;
-        s.stars = stars;
-        await invoke("save_state", { state: s });
-        if (starsActSplit === act && starsEastSplit === east) {
-          starsState = { ...starsState, starsActSplit: act, starsEastSplit: east };
-        }
-      })
-      .catch(() => {
-        // next drag retries
-      });
   }
 
   function reorderPlanetsLive(fromId: string, beforeId: string | null) {
@@ -650,9 +505,7 @@
     }
     void patchProjects((list) => {
       const byId = new Map(list.map((p) => [p.id, p]));
-      const next = order
-        .map((id) => byId.get(id))
-        .filter((p): p is Project => !!p);
+      const next = order.map((id) => byId.get(id)).filter((p): p is Project => !!p);
       const seen = new Set(next.map((p) => p.id));
       for (const p of list) {
         if (!seen.has(p.id)) next.push(p);
@@ -669,6 +522,7 @@
       s.projects = fn(s.projects ?? []);
       await invoke("save_state", { state: s });
       projects = s.projects;
+      bagState = s;
     } catch {
       // next edit retries
     }
@@ -684,9 +538,7 @@
       if (p.id !== projectId) return p;
       return {
         ...p,
-        trackers: (p.trackers ?? []).map((t) =>
-          t.id === trackerId ? fn(t) : t,
-        ),
+        trackers: (p.trackers ?? []).map((t) => (t.id === trackerId ? fn(t) : t)),
       };
     });
   }
@@ -694,27 +546,15 @@
   function addTracker(projectId: string, raw: string, kind: "number" | "timer") {
     const label = raw.trim().slice(0, 7);
     if (!label || !projectId) return;
-    const tr: Tracker = {
-      id: newId("tr"),
-      label,
-      value: 0,
-      kind,
-    };
+    const tr: Tracker = { id: newId("tr"), label, value: 0, kind };
     void patchProjects((list) =>
-      list.map((p) =>
-        p.id === projectId
-          ? { ...p, trackers: [...(p.trackers ?? []), tr] }
-          : p,
-      ),
+      list.map((p) => (p.id === projectId ? { ...p, trackers: [...(p.trackers ?? []), tr] } : p)),
     );
   }
 
   function bumpTracker(projectId: string, trackerId: string, delta: number) {
     void patchProjects((list) =>
-      mapTracker(list, projectId, trackerId, (t) => ({
-        ...t,
-        value: t.value + delta,
-      })),
+      mapTracker(list, projectId, trackerId, (t) => ({ ...t, value: t.value + delta })),
     );
   }
 
@@ -722,9 +562,7 @@
     const n = parseInt(raw.trim(), 10);
     if (!Number.isFinite(n)) return;
     void patchProjects((list) =>
-      mapTracker(list, projectId, trackerId, (t) =>
-        t.value === n ? t : { ...t, value: n },
-      ),
+      mapTracker(list, projectId, trackerId, (t) => (t.value === n ? t : { ...t, value: n })),
     );
   }
 
@@ -753,16 +591,13 @@
     const stamp = Date.now();
     void patchProjects((list) =>
       mapTracker(list, projectId, trackerId, (t) => {
-        const next: Tracker = {
-          ...t,
-          kind: "timer",
-          value: Math.round(elapsedSec(t, stamp)),
-        };
+        const next: Tracker = { ...t, kind: "timer", value: Math.round(elapsedSec(t, stamp)) };
         delete next.runningSince;
         return next;
       }),
     );
   }
+
   const onVisibility = () => {
     if (!document.hidden) onReshow();
   };
@@ -823,6 +658,19 @@
     };
   });
 
+  onMount(() => {
+    const el = mainEl;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? el.clientWidth;
+      if (w > 0) mainW = w;
+    });
+    ro.observe(el);
+    if (el.clientWidth > 0) mainW = el.clientWidth;
+    return () => ro.disconnect();
+  });
+
+
   onDestroy(() => {
     unlisten?.();
     unlistenVis?.();
@@ -833,6 +681,10 @@
   function onBannerMouseDown(e: MouseEvent) {
     startPaneDrag(e);
   }
+
+  const showCheckin = $derived(layout !== "single" || segment === "checkin");
+  const showTrackers = $derived(layout !== "single" || segment === "trackers");
+  const showJournal = $derived(layout !== "single" || segment === "journal");
 </script>
 
 {#snippet dayNav()}
@@ -890,7 +742,7 @@
   </div>
 {/snippet}
 
-<main class="stars orbit-field" class:embedded>
+<main class="stars orbit-field" class:embedded bind:this={mainEl} data-layout={layout} data-ready={starsLoaded ? "1" : "0"}>
   {#if embedded}
   <!-- Embedded STARS well keeps today's banner and ×. -->
   <header class="s-banner" onmousedown={onBannerMouseDown}>
@@ -915,81 +767,97 @@
   />
   {/if}
 
-  <NudgeStrip
-    {projects}
-    scope={nudgeScope}
-    onScope={(id) => (nudgeScope = id)}
-    onReorder={reorderPlanetsLive}
-    onReorderCommit={commitPlanetOrder}
-  />
+  {#if layout === "single"}
+    <div class="segments" role="tablist" aria-label="Stars sections">
+      <button type="button" role="tab" aria-selected={segment === "checkin"} onclick={() => (segment = "checkin")}>Check-in</button>
+      <button type="button" role="tab" aria-selected={segment === "trackers"} onclick={() => (segment = "trackers")}>Trackers</button>
+      <button type="button" role="tab" aria-selected={segment === "journal"} onclick={() => (segment = "journal")}>Journal</button>
+    </div>
+  {/if}
 
-  <div class="s-body" bind:this={bodyEl}>
-    <div class="act-col" bind:this={actEl} style="flex: {starsEastSplit} 1 0%">
-      <section
-        class="act-tile checkin"
-        style="flex: {starsActSplit} 1 0%"
-        aria-label="Check-in"
-      >
-        <h2>Check-in</h2>
-        <RadarDial
-          spokes={STARS_SPOKES}
-          shown={avgMode ? windowMean : shown}
-          editable={dayEditable}
-          {avgMode}
-          {plated}
-          activeId={menuRing.activeId}
-          onSet={(key, v) => setSpoke(key as SpokeKey, v)}
-        />
-        <DayPositives
-          win1={shown?.win1 ?? ""}
-          win2={shown?.win2 ?? ""}
-          grateful={shown?.grateful ?? ""}
-          editable={dayEditable}
-          onChange={setWin}
-        />
-        <div class="stars-foot">
-          <button
-            class="mini stars-save"
-            class:dirty={draftDirty}
-            disabled={!isToday || avgMode || (!dayEditable && !!cursorSaved)}
-            onclick={saveStarsToday}
-          >
-            Save today
-          </button>
-          <button
-            type="button"
-            class="mini quiet"
-            disabled={!isToday || avgMode || !cursorSaved || dayEditable}
-            onclick={() => (editingToday = true)}
-          >Edit</button>
-          {#if isToday}
-            {#if starsSavedDay}
-              <span class="stars-note">Saved for {starsSavedDay}</span>
-            {/if}
-          {:else if cursorSaved}
-            <span class="stars-note">Saved for {cursorDay}</span>
-          {:else}
-            <span class="stars-note">No save</span>
-          {/if}
-        </div>
-      </section>
-      <div
-        class="act-split"
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize Check-in and Trackers"
-        title="Drag to resize · double-click resets"
-        onpointerdown={onActSplitDown}
-        ondblclick={resetActSplit}
-      ></div>
-      <section
-        class="act-tile trackers"
-        style="flex: {1 - starsActSplit} 1 0%"
-        aria-label="Trackers"
-      >
+  <div class="s-body" style="grid-template-columns: {gridCols}">
+    {#if layout !== "single"}
+      <StarsPlanetColumn
+        {projects}
+        scope={trackerScope}
+        dots={layout === "dots"}
+        onScope={(id) => (trackerScope = id)}
+        onReorder={reorderPlanetsLive}
+        onReorderCommit={commitPlanetOrder}
+      />
+    {/if}
+    {#if showCheckin || showJournal}
+      <div class="mid-col">
+        {#if showCheckin}
+          <section class="checkin" aria-label="Check-in">
+            <RadarDial
+              spokes={STARS_SPOKES}
+              shown={radarShown}
+              editable={dayEditable}
+              {avgMode}
+              draft={radarIsDraft}
+              activeId={menuRing.activeId}
+              onSet={(key, v) => setSpoke(key as SpokeKey, v)}
+            />
+            <DayPositives
+              win1={shown?.win1 ?? ""}
+              win2={shown?.win2 ?? ""}
+              grateful={shown?.grateful ?? ""}
+              editable={dayEditable}
+              onChange={setWin}
+            />
+            <div class="stars-foot">
+              <button
+                class="mini stars-save"
+                class:dirty={draftDirty || radarIsDraft}
+                disabled={!isToday || avgMode || (!dayEditable && !!cursorSaved)}
+                onclick={saveStarsToday}
+              >Save today</button>
+              <button
+                type="button"
+                class="mini quiet"
+                disabled={!isToday || avgMode || !cursorSaved || dayEditable}
+                onclick={() => (editingToday = true)}
+              >Edit</button>
+              {#if isToday}
+                {#if starsSavedDay}
+                  <span class="stars-note">Saved for {starsSavedDay}</span>
+                {:else if radarIsDraft}
+                  <span class="stars-note">Draft</span>
+                {/if}
+              {:else if cursorSaved}
+                <span class="stars-note">Saved for {cursorDay}</span>
+              {:else}
+                <span class="stars-note">No save</span>
+              {/if}
+            </div>
+          </section>
+        {/if}
+        {#if showJournal}
+          <AlmanacFolio
+            pages={starsState.ledgerPages ?? []}
+            {projects}
+            dayKey={cursorDay}
+            rangeFrom={bounds.from}
+            rangeTo={bounds.to}
+            view={navView}
+            today={todayKey()}
+            face={dayFace}
+            hint={reflectHint}
+            hasWords={(day) => wordDays.has(day)}
+            onReflect={openReflect}
+            onSelectDay={(day) => (cursorDay = day)}
+          />
+        {/if}
+      </div>
+    {/if}
+    {#if showTrackers}
+      <div class="tracker-col">
         <StarsTrackers
           {projects}
-          scope={nudgeScope}
+          scope={starsScopeTargets(trackerScope).trackers}
+          showPlanetMenu={layout === "single"}
+          onScope={(id) => (trackerScope = id)}
           onAdd={addTracker}
           onBump={bumpTracker}
           onSetValue={setTrackerValue}
@@ -997,26 +865,8 @@
           onPlay={playTimer}
           onStop={stopTimer}
         />
-      </section>
-    </div>
-    <div
-      class="east-split"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize check-in column and folio"
-      title="Drag to resize · double-click resets"
-      onpointerdown={onEastSplitDown}
-      ondblclick={resetEastSplit}
-    ></div>
-    <div class="folio-col" style="flex: {1 - starsEastSplit} 1 0%">
-      <AlmanacFolio
-        pages={starsState.ledgerPages ?? []}
-        {projects}
-        loaded={starsLoaded}
-        dayKey={todayKey()}
-        onReflect={() => (reflectOpen = true)}
-      />
-    </div>
+      </div>
+    {/if}
   </div>
   {#if reflectOpen}
     <ReflectSheet onClose={() => (reflectOpen = false)} onWrite={writeLedgerPage} />
@@ -1025,21 +875,6 @@
 
 <style>
   .stars {
-    --depth-0: #0b1020;
-    --depth-1-fill: rgba(232, 236, 248, 0.1);
-    --depth-1-line: rgba(232, 236, 248, 0.22);
-    --depth-1-shadow: 0 1px 0 rgba(232, 236, 248, 0.06), 0 8px 20px rgba(0, 0, 0, 0.28);
-    --depth-2-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
-    --depth-2-shadow-hover: 0 18px 36px rgba(0, 0, 0, 0.55);
-    --gold: #c8a45c;
-    --paper: #e7e3f4;
-    --ink: #e8ecf8;
-    --dim: #b7c0d8;
-    --edge: rgba(232, 236, 248, 0.2);
-    --bg: #0b1020;
-    --panel: #14162c;
-    --bg-fill: transparent;
-    --panel-fill: rgba(232, 236, 248, 0.1);
     position: relative;
     height: 100vh;
     overflow: hidden;
@@ -1047,23 +882,16 @@
     flex-direction: column;
     box-sizing: border-box;
     color: var(--ink);
-    background-color: var(--depth-0);
-    border-radius: 0;
-    color-scheme: dark;
+    background: var(--bg);
     font-family:
       "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
       BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-  }
-
-  :global(.low-fill) .stars {
-    text-shadow: 0 1px 2px var(--bg-solid, transparent);
   }
 
   .stars.embedded {
     height: 100%;
     flex: 1;
     min-height: 0;
-    border-radius: 0;
     overflow: hidden;
   }
 
@@ -1099,147 +927,79 @@
     min-width: 0;
   }
 
-  .nav-view {
+  .nav-view,
+  .nav-date,
+  .segments button,
+  .mini,
+  .chron-prompts {
     font: inherit;
-    font-size: 0.72rem;
     color: var(--ink);
     background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
     border-radius: 7px;
+  }
+
+  .nav-view {
+    font-size: 0.72rem;
     padding: 2px 6px;
     margin-left: 6px;
   }
 
   .nav-date {
-    font: inherit;
     font-size: 0.68rem;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
     padding: 1px 4px;
     max-width: 9.2rem;
+    background: var(--panel-fill, var(--panel));
   }
 
   .s-banner .winx {
     margin-left: 4px;
   }
 
+  .segments {
+    display: flex;
+    gap: 4px;
+    padding: 8px 12px 0;
+    flex: none;
+  }
+
+  .segments button {
+    font-size: 0.72rem;
+    min-height: 28px;
+    padding: 2px 10px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .segments button[aria-selected="true"] {
+    background: var(--panel-fill);
+  }
+
   .s-body {
     flex: 1;
     min-height: 0;
     overflow: hidden;
-    display: flex;
-    flex-direction: row;
+    display: grid;
     align-items: stretch;
-    gap: 0;
+    gap: 10px;
     padding: 10px 12px 12px;
   }
 
-  .stars.embedded .s-body {
-    flex: 1;
-  }
-
-  .act-col {
+  .mid-col,
+  .tracker-col {
     min-width: 0;
-    min-height: 0;
-    height: 100%;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .act-split,
-  .east-split {
-    flex: 0 0 6px;
-    position: relative;
-    background: transparent;
-    touch-action: none;
-  }
-
-  .act-split {
-    cursor: ns-resize;
-  }
-
-  .east-split {
-    cursor: col-resize;
-    align-self: stretch;
-  }
-
-  .act-split::after,
-  .east-split::after {
-    content: "";
-    position: absolute;
-    border-radius: 1px;
-    background: var(--dim);
-    opacity: 0;
-  }
-
-  .act-split::after {
-    left: 18%;
-    right: 18%;
-    top: 2px;
-    height: 2px;
-  }
-
-  .east-split::after {
-    top: 18%;
-    bottom: 18%;
-    left: 2px;
-    width: 2px;
-  }
-
-  .act-split:hover::after,
-  .act-split:active::after,
-  .east-split:hover::after,
-  .east-split:active::after {
-    opacity: 0.45;
-  }
-
-  .folio-col {
-    min-width: 0;
-    min-height: 0;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .folio-col :global(.folio) {
-    flex: 1 1 auto;
-    height: 100%;
-    min-height: 0;
-  }
-
-  .act-tile {
     min-height: 0;
     overflow: auto;
-    box-sizing: border-box;
-    background: var(--depth-1-fill);
-    border: 1px solid var(--depth-1-line);
-    border-radius: 10px;
-    box-shadow: var(--depth-1-shadow);
-    padding: 8px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
-  .act-tile.checkin {
+  .checkin {
     display: flex;
     flex-direction: column;
     gap: 4px;
-  }
-
-  .act-tile.trackers {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .act-tile h2 {
-    margin: 0;
-    flex: none;
-    font-size: 0.66rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--dim);
+    min-height: 0;
   }
 
   .day-nav {
@@ -1263,17 +1023,12 @@
     align-items: center;
     gap: 6px;
     margin-top: 8px;
-    flex: 0 0 auto;
     flex-wrap: wrap;
   }
 
   .mini {
-    font: inherit;
     font-size: 0.68rem;
-    color: var(--ink);
     background: transparent;
-    border: 1px solid var(--edge);
-    border-radius: 7px;
     padding: 3px 8px;
     min-height: 24px;
     cursor: pointer;
@@ -1282,11 +1037,6 @@
   .mini.quiet {
     border-color: transparent;
     color: var(--dim);
-    font-weight: 500;
-  }
-
-  .mini:hover {
-    border-color: var(--focus, #6e4db0);
   }
 
   .mini:disabled {
@@ -1294,30 +1044,19 @@
     cursor: default;
   }
 
-  .mini:disabled:hover {
-    border-color: var(--edge);
-  }
-
   .stars-save:not(:disabled) {
     font-weight: 700;
     background: var(--accent);
     border-color: transparent;
-    color: var(--bg);
-    box-shadow: var(--depth-2-shadow);
-  }
-
-  .stars-save.dirty:not(:disabled) {
-    box-shadow: 0 0 0 1px var(--gold), var(--depth-2-shadow);
+    color: var(--on-accent, var(--bg));
   }
 
   .chron-prompts {
     flex: none;
-    font: inherit;
     font-size: 0.68rem;
     font-weight: 650;
     color: var(--dim);
     background: transparent;
-    border: 1px solid var(--edge);
     border-radius: 999px;
     padding: 1px 8px;
     cursor: pointer;
@@ -1326,7 +1065,6 @@
   .chron-prompts.on {
     color: var(--ink);
     font-weight: 700;
-    border-color: color-mix(in srgb, var(--ink) 45%, var(--edge));
     background: var(--panel-fill, var(--panel));
   }
 

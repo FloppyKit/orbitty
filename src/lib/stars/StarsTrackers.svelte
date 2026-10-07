@@ -14,6 +14,8 @@
     onRemove,
     onPlay,
     onStop,
+    onScope,
+    showPlanetMenu = false,
   }: {
     projects: Project[];
     scope: string;
@@ -23,6 +25,8 @@
     onRemove: (projectId: string, trackerId: string) => void;
     onPlay: (projectId: string, trackerId: string) => void;
     onStop: (projectId: string, trackerId: string) => void;
+    onScope?: (id: string) => void;
+    showPlanetMenu?: boolean;
   } = $props();
 
   let adding = $state(false);
@@ -121,15 +125,26 @@
       aria-label={adding ? "Cancel add tracker" : "Add a tracker"}
     >{adding ? "×" : "+"}</button>
   </header>
+  {#if showPlanetMenu}
+    <select
+      class="planet-menu"
+      aria-label="Planet filter"
+      value={scope}
+      onchange={(e) => onScope?.((e.currentTarget as HTMLSelectElement).value)}
+    >
+      <option value="overall">All planets</option>
+      {#each projects as p (p.id)}
+        <option value={p.id}>{p.name}</option>
+      {/each}
+    </select>
+  {/if}
   {#if adding}
     <div class="add">
-      {#if scope === "overall"}
-        <select bind:value={planetId} aria-label="Planet for this tracker">
-          {#each projects as p (p.id)}
-            <option value={p.id}>{p.name}</option>
-          {/each}
-        </select>
-      {/if}
+      <select bind:value={planetId} aria-label="Planet for this tracker">
+        {#each projects as p (p.id)}
+          <option value={p.id}>{p.name}</option>
+        {/each}
+      </select>
       <input
         bind:value={label}
         maxlength="7"
@@ -149,14 +164,26 @@
   {/if}
   {#if rows.length}
     <ul class="faces">
-      {#each rows as row (row.tr.id)}
+      {#each rows as row, i (row.tr.id)}
         {@const timer = isTimer(row.tr)}
         {@const live = timer && row.tr.runningSince != null}
+        {#if scope === "overall" && (i === 0 || rows[i - 1].projectId !== row.projectId)}
+          <li class="group">{row.projectName}</li>
+        {/if}
         <li
-          class="face"
+          class="face row"
           class:timer
           class:running={live}
+          tabindex="0"
           aria-label="{row.projectName} {row.tr.label}"
+          onkeydown={(e) => {
+            if (e.key !== "Enter" || e.target !== e.currentTarget) return;
+            e.preventDefault();
+            if (timer) {
+              if (live) onStop(row.projectId, row.tr.id);
+              else onPlay(row.projectId, row.tr.id);
+            } else onBump(row.projectId, row.tr.id, 1);
+          }}
         >
           <span
             class="chip"
@@ -275,7 +302,7 @@
   .menu {
     font: inherit;
     color: var(--ink);
-    background: rgba(11, 16, 32, 0.72);
+    background: var(--panel-fill);
     border: 1px solid var(--edge);
     border-radius: 8px;
     cursor: pointer;
@@ -302,7 +329,7 @@
     font: inherit;
     font-size: 0.7rem;
     color: var(--ink);
-    background: rgba(11, 16, 32, 0.45);
+    background: var(--bg-fill, var(--bg));
     border: 1px solid var(--edge);
     border-radius: 6px;
     padding: 3px 6px;
@@ -327,52 +354,52 @@
     flex: 1;
     min-height: 0;
     overflow: auto;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-    grid-auto-rows: minmax(96px, 1fr);
-    gap: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     align-content: stretch;
+  }
+
+  .group {
+    list-style: none;
+    font-size: 0.62rem;
+    color: var(--dim);
+    padding: 6px 4px 0;
   }
 
   .face {
     position: relative;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
-    gap: 3px;
-    min-height: 96px;
-    padding: 10px 8px 32px;
+    justify-content: flex-start;
+    gap: 8px;
+    min-height: 36px;
+    padding: 6px 8px;
     border-radius: 18px;
-    background: #16182e;
-    border: 1px solid rgba(232, 236, 248, 0.16);
-    box-shadow:
-      inset 0 1px 0 rgba(232, 236, 248, 0.12),
-      var(--depth-2-shadow, 0 12px 28px rgba(0, 0, 0, 0.45));
+    background: var(--panel-fill);
+    border: 1px solid var(--edge);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
     transition: transform 180ms ease, box-shadow 180ms ease;
   }
 
   .face:hover,
   .face:focus-within {
     transform: translateY(-2px);
-    box-shadow:
-      inset 0 1px 0 rgba(232, 236, 248, 0.16),
-      var(--depth-2-shadow-hover, 0 18px 36px rgba(0, 0, 0, 0.55));
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.55);
   }
 
   .face.running {
     box-shadow:
-      inset 0 1px 0 rgba(232, 236, 248, 0.12),
-      0 0 0 1.5px var(--gold, #c8a45c),
-      var(--depth-2-shadow, 0 12px 28px rgba(0, 0, 0, 0.45));
+      0 0 0 1.5px var(--accent),
+      0 12px 28px rgba(0, 0, 0, 0.45);
   }
 
   .face.running:hover,
   .face.running:focus-within {
     box-shadow:
-      inset 0 1px 0 rgba(232, 236, 248, 0.16),
-      0 0 0 1.5px var(--gold, #c8a45c),
-      var(--depth-2-shadow-hover, 0 18px 36px rgba(0, 0, 0, 0.55));
+      0 0 0 1.5px var(--accent),
+      0 18px 36px rgba(0, 0, 0, 0.55);
   }
 
   .chip {
@@ -420,15 +447,16 @@
 
   .num-in {
     width: 4.2rem;
-    border-bottom: 1px solid var(--gold, #c8a45c);
+    border-bottom: 1px solid var(--accent);
     border-radius: 0;
   }
 
   .overlay {
     position: absolute;
-    left: 6px;
-    right: 6px;
-    bottom: 6px;
+    right: 28px;
+    top: 4px;
+    bottom: 4px;
+    left: auto;
     display: flex;
     align-items: center;
     justify-content: center;

@@ -59,7 +59,7 @@
     color: var(--ink);
     background: transparent;
     border: none;
-    border-bottom: 1px solid rgba(232, 236, 248, 0.28);
+    border-bottom: 1px solid var(--edge);
     border-radius: 0;
     padding: 5px 2px 4px;
     min-height: 24px;
@@ -73,7 +73,7 @@
   .field:focus,
   .field:focus-visible {
     outline: none;
-    border-bottom-color: var(--gold, #c8a45c);
+    border-bottom-color: var(--accent);
   }
 
   .field:read-only {
