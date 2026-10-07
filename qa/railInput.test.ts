@@ -686,6 +686,11 @@ test("B5 List centre effect resets through centreStep after the guard", () => {
   );
   assert.doesNotMatch(body.slice(stepRel, rel), /\b(return|throw|break|continue)\b/, "no exit before the reset");
   assert.doesNotMatch(body, /\bstep\s*\.\s*\w+\s*(=|\|\|=|\?\?=|&&=)(?!=)/, "step is not mutated");
+  const bootedRel = body.indexOf("if (!booted)");
+  assert.ok(bootedRel >= 0 && bootedRel < stepRel, "boot block before centreStep");
+  const bootedEnd = body.indexOf("{", bootedRel) + braceBody(body, bootedRel).length;
+  assert.doesNotMatch(body.slice(bootedEnd, rel), /\b(return|throw|break|continue)\b/, "no exit between boot and the reset");
+  assert.equal((body.match(/\bapplyBeside\s*\(/g) ?? []).length, 1, "one applyBeside call in the centre effect, under the step guard");
   assert.equal([...stripped.matchAll(writeRe)].length, 1, "one centreCause write in List.svelte");
   {
     const commented = stripComments(list);
