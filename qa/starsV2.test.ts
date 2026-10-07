@@ -14,6 +14,7 @@ import {
   focusOrigin,
   focusStep,
   segmentNext,
+  starsFieldGate,
   zoneColumn,
   type FocusWorld,
   type StarsFocus,
@@ -769,6 +770,8 @@ async function bootStarsKeys(opts: { embedded: boolean; ringActive: boolean }) {
     spokeLive: false,
     focusCol: "planets",
     focusPos: focusOrigin("Z1"),
+    mainEl: null,
+    starsFieldGate,
     layout: "three",
     segment: "checkin",
     navView: "day",
@@ -836,6 +839,8 @@ async function bootStarsKeys(opts: { embedded: boolean; ringActive: boolean }) {
     "function flushAutosave(",
     "function hideStars(",
     "function applyStep(",
+    "function focusElement(",
+    "function fieldKind(",
     "function onStarsKey(",
   ];
   const code = stripTypeScriptTypes(
@@ -1016,4 +1021,598 @@ test("FR2 standalone map owns arrows Return and Esc; embedded ring still exits",
   assert.equal(host.closes(), 0);
   assert.equal(host.log.includes("hide_window"), false);
   assert.equal(host.S.focusPos, before);
+});
+
+// FR3: real onStarsKey / add-form handlers against a DOM built from the
+// component markup. Svelte's scope class is one extra class on a non-:global rule.
+class DomEl {
+  tagName: string;
+  parent: DomEl | null = null;
+  children: DomEl[] = [];
+  attrs: Record<string, string> = {};
+  classes = new Set<string>();
+  classList: { contains: (c: string) => boolean; add: (c: string) => void };
+  listeners: Record<string, Array<(e: Record<string, unknown>) => void>> = {};
+  value = "";
+  options: { value: string; text: string }[] = [];
+  selectedIndex = 0;
+  text = "";
+  doc: { body: DomEl; activeElement: DomEl } | null = null;
+  constructor(tag: string) {
+    this.tagName = tag.toUpperCase();
+    this.classList = {
+      contains: (c) => this.classes.has(c),
+      add: (c) => this.classes.add(c),
+    };
+  }
+  setAttribute(name: string, value: string) {
+    this.attrs[name] = value;
+    if (name === "class") {
+      this.classes = new Set(value.split(/\s+/).filter(Boolean));
+    }
+  }
+  getAttribute(name: string) {
+    return this.attrs[name] ?? null;
+  }
+  hasAttribute(name: string) {
+    return Object.prototype.hasOwnProperty.call(this.attrs, name);
+  }
+  removeAttribute(name: string) {
+    delete this.attrs[name];
+  }
+  append(child: DomEl) {
+    child.parent = this;
+    this.children.push(child);
+  }
+  closest(sel: string): DomEl | null {
+    let node: DomEl | null = this;
+    while (node) {
+      if (node.matches(sel)) return node;
+      node = node.parent;
+    }
+    return null;
+  }
+  matches(sel: string) {
+    return sel.split(",").some((part) => matchCompound(this, part.trim()));
+  }
+  querySelector(sel: string) {
+    return this.querySelectorAll(sel)[0] ?? null;
+  }
+  querySelectorAll(sel: string): DomEl[] {
+    const out: DomEl[] = [];
+    const walk = (node: DomEl) => {
+      for (const child of node.children) {
+        if (child.matches(sel)) out.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return out;
+  }
+  getBoundingClientRect() {
+    return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+  }
+  focus() {
+    if (this.doc) this.doc.activeElement = this;
+  }
+  click() {
+    for (const fn of this.listeners.click ?? []) fn({ currentTarget: this, target: this });
+  }
+}
+
+function matchCompound(el: DomEl, sel: string) {
+  if (!sel) return false;
+  let i = 0;
+  let saw = false;
+  while (i < sel.length) {
+    if (sel[i] === " ") {
+      i += 1;
+      continue;
+    }
+    saw = true;
+    if (sel[i] === ".") {
+      let j = i + 1;
+      while (j < sel.length && /[\w-]/.test(sel[j])) j += 1;
+      if (!el.classes.has(sel.slice(i + 1, j))) return false;
+      i = j;
+      continue;
+    }
+    if (sel[i] === "[") {
+      const end = sel.indexOf("]", i);
+      const body = sel.slice(i + 1, end);
+      const eq = body.indexOf("=");
+      if (eq < 0) {
+        if (!el.hasAttribute(body)) return false;
+      } else {
+        const name = body.slice(0, eq);
+        let raw = body.slice(eq + 1).trim();
+        if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) raw = raw.slice(1, -1);
+        if (el.getAttribute(name) !== raw) return false;
+      }
+      i = end + 1;
+      continue;
+    }
+    if (/[A-Za-z*]/.test(sel[i])) {
+      let j = i + 1;
+      while (j < sel.length && /[\w-]/.test(sel[j])) j += 1;
+      const tag = sel.slice(i, j);
+      if (tag !== "*" && el.tagName !== tag.toUpperCase()) return false;
+      i = j;
+      continue;
+    }
+    return false;
+  }
+  return saw;
+}
+
+type DomDoc = { body: DomEl; activeElement: DomEl };
+
+function adopt(el: DomEl, doc: DomDoc) {
+  el.doc = doc;
+  return el;
+}
+
+function attrsFrom(raw: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const re = /([:@A-Za-z_][\w:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|(\{[^}]*\})))?/g;
+  for (const m of raw.matchAll(re)) {
+    attrs[m[1]] = m[2] ?? m[3] ?? m[4] ?? "";
+  }
+  return attrs;
+}
+
+function tagNodes(chunk: string, doc: DomDoc): DomEl[] {
+  const nodes: DomEl[] = [];
+  const re = /<([A-Za-z][\w-]*)([^>]*?)>/g;
+  for (const m of chunk.matchAll(re)) {
+    const tag = m[1] ?? "";
+    if (tag[0] !== tag[0].toLowerCase()) continue;
+    if (tag === "option") continue;
+    const node = adopt(new DomEl(tag), doc);
+    const attrs = attrsFrom(m[2] ?? "");
+    for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+    const rest = chunk.slice((m.index ?? 0) + m[0].length);
+    const cut = rest.indexOf("<");
+    node.text = (cut < 0 ? rest : rest.slice(0, cut)).replace(/\s+/g, " ").trim();
+    nodes.push(node);
+  }
+  return nodes;
+}
+
+function specOf(selector: string): [number, number, number] {
+  const srcSel = selector.trim().startsWith(":global(")
+    ? selector.trim().replace(/^:global\(/, "").replace(/\)\s*$/, "")
+    : selector.trim();
+  let ids = 0;
+  let cls = 0;
+  let elem = 0;
+  let i = 0;
+  while (i < srcSel.length) {
+    if (srcSel.startsWith(":not(", i)) {
+      let depth = 0;
+      let j = i + 4;
+      for (; j < srcSel.length; j += 1) {
+        if (srcSel[j] === "(") depth += 1;
+        else if (srcSel[j] === ")") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      const inner = specOf(srcSel.slice(i + 5, j));
+      ids += inner[0];
+      cls += inner[1];
+      elem += inner[2];
+      i = j + 1;
+      continue;
+    }
+    if (srcSel.startsWith(":root", i)) {
+      cls += 1;
+      i += 5;
+      continue;
+    }
+    if (srcSel[i] === "#") {
+      ids += 1;
+      i += 1;
+      while (i < srcSel.length && /[\w-]/.test(srcSel[i])) i += 1;
+      continue;
+    }
+    if (srcSel[i] === ".") {
+      cls += 1;
+      i += 1;
+      while (i < srcSel.length && /[\w-]/.test(srcSel[i])) i += 1;
+      continue;
+    }
+    if (srcSel[i] === "[") {
+      cls += 1;
+      i = srcSel.indexOf("]", i) + 1;
+      continue;
+    }
+    if (/[a-zA-Z*]/.test(srcSel[i] ?? "")) {
+      if (srcSel[i] !== "*") elem += 1;
+      i += 1;
+      while (i < srcSel.length && /[\w-]/.test(srcSel[i])) i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return [ids, cls, elem];
+}
+
+function beats(a: [number, number, number], b: [number, number, number]) {
+  for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] > b[i];
+  return false;
+}
+
+function sliceBetween(text: string, start: string, end: string) {
+  const i = text.indexOf(start);
+  assert.ok(i >= 0, start);
+  const j = text.indexOf(end, i + start.length);
+  assert.ok(j > i, end);
+  return text.slice(i + start.length, j);
+}
+
+function loadBodies(file: string, heads: string[]) {
+  const text = file.endsWith(".svelte") ? pageScriptFrom(file) : src(file);
+  return stripTypeScriptTypes(
+    heads
+      .map((head) => {
+        const at = text.indexOf(head);
+        assert.ok(at >= 0, `${file} ${head}`);
+        let paren = text.indexOf("(", at);
+        let depth = 0;
+        for (; paren < text.length; paren += 1) {
+          if (text[paren] === "(") depth += 1;
+          else if (text[paren] === ")") {
+            depth -= 1;
+            if (depth === 0) break;
+          }
+        }
+        return text.slice(at, paren + 1) + " " + braceBody(text, paren) + "\n";
+      })
+      .join("\n"),
+  );
+}
+
+function pageScriptFrom(rel: string) {
+  const file = src(rel);
+  return file.slice(file.indexOf("<script"), file.indexOf("</script>"));
+}
+
+function bootAddForm() {
+  const added: { id: string; name: string; kind: string }[] = [];
+  const doc: DomDoc = { body: new DomEl("body"), activeElement: new DomEl("body") };
+  adopt(doc.body, doc);
+  doc.activeElement = doc.body;
+  const main = adopt(new DomEl("div"), doc);
+  main.classList.add("stars");
+  main.setAttribute("class", "stars");
+  doc.body.append(main);
+  const projects = [
+    { id: "p1", name: "Alpha" },
+    { id: "p2", name: "Beta" },
+  ];
+  const S: Record<string, unknown> = {
+    Element: DomEl,
+    document: doc,
+    mainEl: main,
+    layout: "three",
+    segment: "checkin",
+    embedded: false,
+    reflectOpen: false,
+    spokeLive: false,
+    focusCol: "middle",
+    outwardDir: "left",
+    focusPos: { ...focusOrigin("Z4"), index: 0, depth: 0, ctl: 0 },
+    starsFieldGate,
+    focusStep,
+    columnNext,
+    segmentNext,
+    zoneColumn,
+    closeAddForm: null,
+    adding: false,
+    label: "",
+    kind: "number",
+    planetId: "p1",
+    scope: "overall",
+    projects,
+    onAdd: (id: string, name: string, kind: string) => added.push({ id, name, kind }),
+    onRingExit: () => {},
+    focusStarsCol: () => {},
+    hideStars: () => {},
+    tick: () => {
+      render();
+      return Promise.resolve();
+    },
+  };
+
+  const pageCode = loadBodies("src/lib/StarsPage.svelte", [
+    "function focusWorld(",
+    "function focusElement(",
+    "function applyStarsFocus(",
+    "function activateStarsFocus(",
+    "function applyStep(",
+    "function fieldKind(",
+    "function onRegisterAdd(",
+    "async function landAddForm(",
+    "async function onAddFocus(",
+    "function onStarsKey(",
+  ]);
+  const trackerCode = loadBodies("src/lib/stars/StarsTrackers.svelte", [
+    "function openAdd(",
+    "function closeAdd(",
+    "function commitAdd(",
+    "function onAddFormKey(",
+    "function publishAddForm(",
+  ]);
+  const fns = new Function(
+    "S",
+    `with (S) {\n${pageCode}\n${trackerCode}\nreturn { focusWorld, focusElement, applyStarsFocus, activateStarsFocus, applyStep, fieldKind, onRegisterAdd, landAddForm, onAddFocus, onStarsKey, openAdd, closeAdd, commitAdd, onAddFormKey, publishAddForm };\n}`,
+  )(S) as Record<string, (...a: unknown[]) => unknown>;
+  Object.assign(S, fns);
+  S.onRegister = fns.onRegisterAdd;
+  (fns.publishAddForm as () => void)();
+
+  const trackers = src("src/lib/stars/StarsTrackers.svelte");
+  const formChunk = sliceBetween(trackers, "{#if adding}", "{:else}");
+  const elseChunk = sliceBetween(trackers, "{:else}", "{/if}");
+
+  function wire(node: DomEl) {
+    const click = node.getAttribute("onclick") ?? "";
+    if (click.includes("openAdd")) node.listeners.click = [() => (fns.openAdd as () => void)()];
+    if (click.includes("commitAdd")) node.listeners.click = [() => (fns.commitAdd as () => boolean)()];
+    if (node.tagName === "SELECT" && (node.getAttribute("aria-label") ?? "").includes("Planet")) {
+      node.options = projects.map((p) => ({ value: p.id, text: p.name }));
+      node.selectedIndex = Math.max(0, node.options.findIndex((o) => o.value === S.planetId));
+      node.value = node.options[node.selectedIndex]?.value ?? "";
+    }
+    if (node.tagName === "SELECT" && (node.getAttribute("aria-label") ?? "").includes("kind")) {
+      node.options = [
+        { value: "number", text: "Number" },
+        { value: "timer", text: "Timer" },
+      ];
+      node.selectedIndex = node.options.findIndex((o) => o.value === S.kind);
+      if (node.selectedIndex < 0) node.selectedIndex = 0;
+      node.value = node.options[node.selectedIndex]?.value ?? "";
+    }
+  }
+
+  function render() {
+    const prev = doc.activeElement;
+    main.children = [];
+    if (!S.adding) {
+      const btn = tagNodes(elseChunk, doc).find((n) => n.tagName === "BUTTON");
+      assert.ok(btn, "add button markup");
+      btn.text = "+ Add";
+      wire(btn);
+      main.append(btn);
+    } else {
+      const nodes = tagNodes(formChunk, doc);
+      const form = nodes[0];
+      assert.ok(form && form.tagName === "DIV", "add form markup");
+      for (const child of nodes.slice(1)) {
+        wire(child);
+        form.append(child);
+      }
+      main.append(form);
+    }
+    if (!prev || !contains(main, prev)) doc.activeElement = doc.body;
+  }
+
+  function controls(): DomEl[] {
+    return [...main.querySelectorAll("[data-focus-ctl]")];
+  }
+
+  async function press(node: DomEl, key: string) {
+    const event = {
+      key,
+      shiftKey: false,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      target: node,
+      defaultPrevented: false,
+      stopped: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      stopPropagation() {
+        this.stopped = true;
+      },
+    };
+    const form = node.closest("[data-add-form]");
+    const wired =
+      (node.getAttribute("onkeydown") ?? "").includes("onAddFormKey") ||
+      (form?.getAttribute("onkeydown") ?? "").includes("onAddFormKey");
+    if (wired) (fns.onAddFormKey as (e: typeof event) => void)(event);
+    if (!event.stopped) (fns.onStarsKey as (e: typeof event) => void)(event);
+    if (!event.defaultPrevented && node.tagName === "SELECT" && key.startsWith("Arrow") && node.options.length) {
+      const dir = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
+      node.selectedIndex = Math.max(0, Math.min(node.options.length - 1, node.selectedIndex + dir));
+      node.value = node.options[node.selectedIndex]?.value ?? node.value;
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    return event;
+  }
+
+  render();
+  return { S, fns, main, doc, added, render, controls, press, formChunk };
+}
+
+function contains(root: DomEl, node: DomEl) {
+  let cur: DomEl | null = node;
+  while (cur) {
+    if (cur === root) return true;
+    cur = cur.parent;
+  }
+  return false;
+}
+
+function pos(S: Record<string, unknown>) {
+  return S.focusPos as { zone: string; depth: number; ctl: number; index: number };
+}
+
+test("FR3 Return on + Add focuses the first field", async () => {
+  const boot = bootAddForm();
+  const add = boot.main.querySelector("button.add") as DomEl;
+  assert.ok(add, "+ Add is in the markup");
+  add.focus();
+  boot.S.focusPos = { ...focusOrigin("Z4"), index: 0, depth: 0, ctl: 0 };
+  await boot.press(add, "Enter");
+  const active = boot.doc.activeElement;
+  assert.notEqual(active, boot.doc.body, "focus never lands on BODY");
+  assert.equal(active.tagName, "SELECT");
+  assert.match(active.getAttribute("aria-label") ?? "", /Planet/);
+  assert.equal(pos(boot.S).depth, 1);
+  assert.equal(pos(boot.S).ctl, 0);
+  assert.equal(boot.S.adding, true);
+});
+
+test("FR3 Esc from each add-form field closes and restores + Add", async () => {
+  const labels = ["Planet for this tracker", "New tracker name", "Tracker kind", "Add"];
+  for (const label of labels) {
+    const boot = bootAddForm();
+    boot.S.adding = true;
+    boot.render();
+    const fields = boot.controls();
+    assert.equal(fields.length, 4, "planet, name, kind, Add");
+    const field = fields.find((el) => (el.getAttribute("aria-label") ?? "") === label || el.text === label);
+    assert.ok(field, label);
+    const ctl = fields.indexOf(field);
+    field.focus();
+    boot.S.focusPos = { ...focusOrigin("Z4"), index: 0, depth: 1, ctl };
+    await boot.press(field, "Escape");
+    assert.equal(boot.S.adding, false, `${label} Esc closes the form`);
+    const active = boot.doc.activeElement;
+    assert.notEqual(active, boot.doc.body, `${label} Esc does not leave BODY`);
+    assert.equal(active.tagName, "BUTTON");
+    assert.equal(active.classList.contains("add"), true, `${label} Esc returns to + Add`);
+    assert.equal(active.text, "+ Add");
+    assert.equal(pos(boot.S).depth, 0);
+  }
+});
+
+test("FR3 planet select arrows change the value and are not prevented", async () => {
+  const boot = bootAddForm();
+  boot.S.adding = true;
+  boot.render();
+  const planet = boot.controls()[0];
+  assert.equal(planet.tagName, "SELECT");
+  planet.focus();
+  boot.S.focusPos = { ...focusOrigin("Z4"), depth: 1, ctl: 0 };
+  const down = await boot.press(planet, "ArrowDown");
+  assert.equal(down.defaultPrevented, false, "the guard does not prevent the select arrow");
+  assert.equal(planet.value, "p2", "ArrowDown changes the planet");
+  assert.equal(boot.doc.activeElement, planet, "Up/Down stay on the select");
+  const right = await boot.press(planet, "ArrowRight");
+  assert.equal(right.defaultPrevented, false, "Left/Right are not prevented on the select");
+  assert.notEqual(boot.doc.activeElement, boot.doc.body);
+  assert.equal(boot.doc.activeElement.tagName, "INPUT", "ArrowRight still reaches the name");
+});
+
+test("FR3 Tab and arrows reach planet, name, kind and Add", async () => {
+  const boot = bootAddForm();
+  boot.S.adding = true;
+  boot.render();
+  const [planet, name, kind, add] = boot.controls();
+  planet.focus();
+  boot.S.focusPos = { ...focusOrigin("Z4"), depth: 1, ctl: 0 };
+  await boot.press(planet, "Tab");
+  assert.equal(boot.doc.activeElement, name, "Tab reaches the name");
+  await boot.press(name, "Tab");
+  assert.equal(boot.doc.activeElement, kind, "Tab reaches the kind");
+  await boot.press(kind, "Tab");
+  assert.equal(boot.doc.activeElement, add, "Tab reaches Add");
+  assert.notEqual(boot.doc.activeElement, boot.doc.body);
+
+  boot.S.focusPos = { ...focusOrigin("Z4"), depth: 1, ctl: 0 };
+  planet.focus();
+  await boot.press(planet, "ArrowRight");
+  assert.equal(boot.doc.activeElement, name, "ArrowRight reaches the name");
+  await boot.press(name, "ArrowRight");
+  assert.equal(boot.doc.activeElement, kind, "ArrowRight reaches the kind");
+  await boot.press(kind, "ArrowRight");
+  assert.equal(boot.doc.activeElement, add, "ArrowRight reaches Add");
+  await boot.press(add, "ArrowLeft");
+  assert.equal(boot.doc.activeElement, kind, "ArrowLeft reaches back to kind");
+  assert.notEqual(boot.doc.activeElement, boot.doc.body);
+
+  const outside = adopt(new DomEl("input"), boot.doc);
+  outside.setAttribute("type", "text");
+  boot.main.append(outside);
+  outside.focus();
+  const held = { ...focusOrigin("Z3"), depth: 1 as const, ctl: 0 };
+  boot.S.focusPos = held;
+  const eaten = await boot.press(outside, "ArrowRight");
+  assert.equal(eaten.defaultPrevented, false, "a text field outside the add form keeps its arrow");
+  assert.equal(pos(boot.S).zone, "Z3");
+  assert.equal(pos(boot.S).depth, 1);
+});
+
+test("FR3 Enter in the name submits or moves to Add and never leaves focus on BODY", async () => {
+  const empty = bootAddForm();
+  empty.S.adding = true;
+  empty.S.label = " ";
+  empty.render();
+  const name = empty.controls()[1];
+  name.focus();
+  empty.S.focusPos = { ...focusOrigin("Z4"), depth: 1, ctl: 1 };
+  await empty.press(name, "Enter");
+  assert.equal(empty.S.adding, true, "an empty name does not submit");
+  assert.equal(empty.added.length, 0);
+  assert.notEqual(empty.doc.activeElement, empty.doc.body);
+  assert.equal(empty.doc.activeElement.tagName, "BUTTON");
+  assert.equal(empty.doc.activeElement.text, "Add");
+  assert.equal(pos(empty.S).depth, 1);
+
+  const filled = bootAddForm();
+  filled.S.adding = true;
+  filled.S.label = "Steps";
+  filled.render();
+  const named = filled.controls()[1];
+  named.focus();
+  filled.S.focusPos = { ...focusOrigin("Z4"), depth: 1, ctl: 1 };
+  await filled.press(named, "Enter");
+  assert.equal(filled.added.length, 1);
+  assert.equal(filled.added[0]?.name, "Steps");
+  assert.equal(filled.S.adding, false, "Enter submits and closes");
+  assert.notEqual(filled.doc.activeElement, filled.doc.body, "submit does not leave focus on BODY");
+  assert.equal(filled.doc.activeElement.tagName, "BUTTON");
+  assert.equal(filled.doc.activeElement.text, "+ Add");
+});
+
+test("FR3 focus ring specificity beats the hum and selected rings with no new colour", () => {
+  const pageCss = styleOf("src/lib/StarsPage.svelte");
+  const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => ({ sel: (m[1] ?? "").trim(), body: (m[2] ?? "").replace(/\s+/g, " ").trim() }))
+    .filter((rule) => rule.sel.includes("data-stars-focus"));
+  assert.equal(rules.length, 2);
+  const base = rules.find((rule) => !rule.sel.includes("terminal"));
+  const term = rules.find((rule) => rule.sel.includes("terminal"));
+  assert.ok(base && term);
+  const humCss = styleOf("src/lib/stars/TrackerCard.svelte");
+  const cellCss = styleOf("src/lib/stars/AlmanacFolio.svelte");
+  const humAt = humCss.indexOf(".round.hum {");
+  const cellAt = cellCss.indexOf(".cell.selected {");
+  assert.ok(humAt >= 0 && cellAt >= 0);
+  const humSel = humCss.slice(humCss.lastIndexOf("\n", humAt) + 1, humCss.indexOf("{", humAt)).trim();
+  const cellSel = cellCss.slice(cellCss.lastIndexOf("\n", cellAt) + 1, cellCss.indexOf("{", cellAt)).trim();
+  const hum = specOf(humSel);
+  const cell = specOf(cellSel);
+  hum[1] += 1;
+  cell[1] += 1;
+  const baseSpec = specOf(base.sel);
+  const termSpec = specOf(term.sel);
+  assert.deepEqual(hum, [0, 3, 0]);
+  assert.deepEqual(cell, [0, 3, 0]);
+  assert.ok(beats(baseSpec, hum), `base ${baseSpec} beats .round.hum ${hum}`);
+  assert.ok(beats(baseSpec, cell), `base ${baseSpec} beats .cell.selected ${cell}`);
+  assert.ok(beats(termSpec, hum), `terminal ${termSpec} beats .round.hum`);
+  assert.ok(beats(termSpec, cell), `terminal ${termSpec} beats .cell.selected`);
+  assert.ok(baseSpec[0] >= 1 && termSpec[0] >= 1, "both rules carry the id-level bump");
+  assert.equal(base.body, "outline: none; box-shadow: var(--focus-ring);");
+  assert.equal(term.body, "box-shadow: none; outline: 1px solid var(--ink); background: transparent;");
+  for (const body of [base.body, term.body]) {
+    assert.equal(/#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|\bwhite\b/i.test(body), false, body);
+  }
 });

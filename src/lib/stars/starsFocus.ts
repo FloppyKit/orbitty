@@ -274,6 +274,27 @@ function moveVerticalZone(pos: StarsFocus, dir: VDir, world: FocusWorld): FocusS
   return blank(pos);
 }
 
+const FIELD_ARROW = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+
+/** Keys a focused form control still owns.
+ *  Esc always leaves. Tab leaves so the add form can move.
+ *  A select's Up/Down stay native ("select-native"): the page must not
+ *  preventDefault, so the select value still changes.
+ *  A select's Left/Right and the add form's other arrows pass to the map. */
+export function starsFieldGate(
+  kind: "select" | "text" | "other" | "none",
+  key: string,
+  depth: number,
+  inAddForm: boolean,
+): "swallow" | "select-native" | "pass" {
+  if (depth <= 0 || kind === "none") return "pass";
+  if (key === "Escape" || key === "Tab") return "pass";
+  if (kind === "select" && (key === "ArrowUp" || key === "ArrowDown")) return "select-native";
+  if (kind === "select" && (key === "ArrowLeft" || key === "ArrowRight")) return "pass";
+  if (inAddForm && (kind === "text" || kind === "other") && FIELD_ARROW.includes(key)) return "pass";
+  return "swallow";
+}
+
 function textOwnsArrows(pos: StarsFocus): boolean {
   if (pos.zone === "Z2" && pos.depth > 0) return true;
   if (pos.zone === "Z3" && pos.depth > 0) return true;

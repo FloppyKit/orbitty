@@ -7,7 +7,7 @@
   // whole state object.
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import RadarDial from "./stars/RadarDial.svelte";
   import AlmanacFolio from "./stars/AlmanacFolio.svelte";
   import DayPositives from "./stars/DayPositives.svelte";
@@ -30,6 +30,7 @@
     focusOrigin,
     focusStep,
     segmentNext,
+    starsFieldGate,
     zoneColumn,
     type FocusWorld,
     type StarsCol,
@@ -100,6 +101,7 @@
   let segment = $state<"checkin" | "trackers" | "journal">("checkin");
   let focusCol = $state<StarsCol>("planets");
   let focusPos = $state<StarsFocus>(focusOrigin("Z1"));
+  let closeAddForm: (() => void) | null = null;
   let dayPicking = $state(false);
   let spokeLive = $state(false);
   let reflectOpen = $state(false);
@@ -876,13 +878,76 @@
     }
   });
 
+  function fieldKind(target: EventTarget | null): "select" | "text" | "other" | "none" {
+    if (!(target instanceof Element)) return "none";
+    const el = target.closest("input, textarea, select, [contenteditable='true']");
+    if (!el) return "none";
+    const tag = el.tagName;
+    if (tag === "SELECT") return "select";
+    if (tag === "INPUT" || tag === "TEXTAREA" || el.getAttribute("contenteditable") === "true") return "text";
+    return "other";
+  }
+
+  function onRegisterAdd(api: { close: () => void } | null) {
+    closeAddForm = api?.close ?? null;
+  }
+
+  async function landAddForm() {
+    await tick();
+    const n = focusWorld().counts.Z4 ?? 1;
+    const index = focusPos.zone === "Z4" ? focusPos.index : Math.max(0, n - 1);
+    focusPos = { ...focusPos, zone: "Z4", index, depth: 1, ctl: 0 };
+    applyStarsFocus();
+  }
+
+  async function onAddFocus(where: "add" | "commit") {
+    await tick();
+    if (where === "commit") {
+      const ctls = focusWorld().cardControls[focusPos.index] ?? 1;
+      focusPos = { ...focusPos, zone: "Z4", depth: 1, ctl: Math.max(0, ctls - 1) };
+    } else {
+      const n = focusWorld().counts.Z4 ?? 1;
+      const index = focusPos.zone === "Z4" ? focusPos.index : Math.max(0, n - 1);
+      focusPos = { ...focusPos, zone: "Z4", index, depth: 0, ctl: 0 };
+    }
+    applyStarsFocus();
+  }
+
   function onStarsKey(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     const t = e.target;
-    const field = t instanceof Element && !!t.closest("input, textarea, select, [contenteditable='true']");
-    if (field && focusPos.depth > 0) return;
-    if (layout === "single" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-      e.preventDefault();
+    const kind = fieldKind(t);
+    const inAddForm = t instanceof Element && !!t.closest("[data-add-form]");
+    const gate = starsFieldGate(kind, e.key, focusPos.depth, inAddForm);
+    if (gate === "swallow") return;
+    if (gate === "select-native") return;
+    const selectArrow =
+      kind === "select" &&
+      (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown");
+    const eat = () => {
+      if (!selectArrow) e.preventDefault();
+    };
+    if (e.key === "Tab" && inAddForm && focusPos.zone === "Z4" && focusPos.depth >= 1) {
+      eat();
+      const ctls = focusWorld().cardControls[focusPos.index] ?? 0;
+      if (ctls > 0) focusPos = { ...focusPos, depth: 1, ctl: Math.min(ctls - 1, focusPos.ctl + 1) };
+      applyStarsFocus();
+      return;
+    }
+    if (e.key === "Escape" && inAddForm && !reflectOpen) {
+      eat();
+      closeAddForm?.();
+      const n = focusWorld().counts.Z4 ?? 1;
+      const index = focusPos.zone === "Z4" ? focusPos.index : Math.max(0, n - 1);
+      focusPos = { ...focusPos, zone: "Z4", index, depth: 0, ctl: 0 };
+      void (async () => {
+        await tick();
+        applyStarsFocus();
+      })();
+      return;
+    }
+    if (layout === "single" && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !(inAddForm && focusPos.depth > 0)) {
+      eat();
       const stepped = focusStep(focusPos, e.key, focusWorld());
       segment = stepped.segment ?? segmentNext(segment, e.key === "ArrowRight" ? "right" : "left");
       focusPos = stepped.pos;
@@ -890,9 +955,17 @@
       return;
     }
     if (e.key === "Enter" || e.key === "Escape" || e.key === "Home" || e.key === "End") {
-      e.preventDefault();
+      eat();
+      const el = focusElement();
+      const openingAdd =
+        e.key === "Enter" &&
+        !!el &&
+        !el.closest("[data-add-form]") &&
+        el.tagName === "BUTTON" &&
+        el.classList.contains("add");
       const stepped = focusStep(focusPos, e.key, focusWorld());
       applyStep(stepped, true);
+      if (openingAdd) void landAddForm();
       return;
     }
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "ArrowUp" && e.key !== "ArrowDown") {
@@ -907,12 +980,12 @@
         const col = from === "title" ? focusPos.titleFrom : from;
         const next = columnNext(layout, col, dir, { embedded, outward: outwardDir });
         if (next.exit) {
-          e.preventDefault();
+          eat();
           onRingExit?.();
           return;
         }
         if (next.col !== focusCol) {
-          e.preventDefault();
+          eat();
           spokeLive = false;
           focusCol = next.col;
           focusPos = stepped.pos;
@@ -921,12 +994,12 @@
         }
         return;
       }
-      e.preventDefault();
+      eat();
       focusPos = stepped.pos;
       applyStarsFocus();
       return;
     }
-    e.preventDefault();
+    eat();
     const stepped = focusStep(focusPos, e.key, focusWorld());
     focusPos = stepped.pos;
     const col = zoneColumn(stepped.pos.zone);
@@ -1127,6 +1200,8 @@
             onPlay={playTimer}
             onStop={stopTimer}
             onTyping={onTrackerTyping}
+            onAddFocus={onAddFocus}
+            onRegister={onRegisterAdd}
           />
         {/if}
       </div>
@@ -1277,12 +1352,12 @@
     gap: 8px;
   }
 
-  :global(.stars [data-stars-focus="1"]) {
+  :global(.stars [data-focus-zone][data-stars-focus="1"]:not(#_)) {
     outline: none;
     box-shadow: var(--focus-ring);
   }
 
-  :global(:root[data-theme="terminal"] .stars [data-stars-focus="1"]) {
+  :global(:root[data-theme="terminal"] .stars [data-focus-zone][data-stars-focus="1"]:not(#_)) {
     box-shadow: none;
     outline: 1px solid var(--ink);
     background: transparent;

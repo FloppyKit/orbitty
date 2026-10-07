@@ -18,6 +18,8 @@
     onStop,
     onScope,
     onTyping,
+    onAddFocus,
+    onRegister,
     showPlanetMenu = false,
   }: {
     projects: Project[];
@@ -31,6 +33,8 @@
     onStop: (projectId: string, trackerId: string) => void;
     onScope?: (id: string) => void;
     onTyping?: (open: boolean) => void;
+    onAddFocus?: (where: "add" | "commit") => void | Promise<void>;
+    onRegister?: (api: { close: () => void } | null) => void;
     showPlanetMenu?: boolean;
   } = $props();
 
@@ -96,14 +100,38 @@
     planetId = scope !== "overall" && projects.some((p) => p.id === scope) ? scope : (projects[0]?.id ?? "");
   }
 
+  function closeAdd() {
+    adding = false;
+    label = "";
+  }
+
   function commitAdd() {
     const name = label.trim().slice(0, 7);
     const id = planetId || projects[0]?.id || "";
-    if (!name || !id) return;
+    if (!name || !id) return false;
     onAdd(id, name, kind);
     label = "";
     adding = false;
+    onAddFocus?.("add");
+    return true;
   }
+
+  function onAddFormKey(e: KeyboardEvent) {
+    if (e.key !== "Enter") return;
+    const target = e.target;
+    if (!(target instanceof Element) || target.tagName !== "INPUT") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!commitAdd()) onAddFocus?.("commit");
+  }
+
+  function publishAddForm() {
+    onRegister?.({ close: closeAdd });
+  }
+
+  $effect(() => {
+    publishAddForm();
+  });
 
   function openEdit(row: Row) {
     menuId = null;
@@ -177,7 +205,7 @@
       />
     {/each}
     {#if adding}
-      <div class="add card" data-focus-zone="Z4" data-focus-item>
+      <div class="add card" data-add-form data-focus-zone="Z4" data-focus-item>
         <PlanetChip id={planetId || projects[0]?.id || "overall"} size={10} />
         <select bind:value={planetId} aria-label="Planet for this tracker" data-focus-zone="Z4" data-focus-ctl>
           {#each projects as p (p.id)}
@@ -191,17 +219,7 @@
           aria-label="New tracker name"
           data-focus-zone="Z4"
           data-focus-ctl
-          onkeydown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              e.stopPropagation();
-              commitAdd();
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              e.stopPropagation();
-              adding = false;
-            }
-          }}
+          onkeydown={onAddFormKey}
         />
         <select bind:value={kind} aria-label="Tracker kind" data-focus-zone="Z4" data-focus-ctl>
           <option value="number">Number</option>
