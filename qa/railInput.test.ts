@@ -517,6 +517,107 @@ test("B5 sequence depthOut centre change then a later centre change applies", ()
   assert.equal(later.next, "spin");
 });
 
+/** Brace-matched body starting at the first `{` at or after `from`. Comments and strings are stripped first. */
+function braceBody(src: string, from: number): string {
+  const open = src.indexOf("{", from);
+  assert.ok(open >= 0);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  assert.fail("unclosed brace");
+}
+
+/** Spaces out comments and string literals (templates included). Newlines are kept. */
+function stripCommentsAndStrings(src: string): string {
+  const out: string[] = [];
+  const blank = (from: number, to: number) => {
+    for (let k = from; k < to; k++) out.push(src[k] === "\n" ? "\n" : " ");
+  };
+  const skipString = (i: number): number => {
+    const q = src[i];
+    let j = i + 1;
+    while (j < src.length) {
+      if (src[j] === "\\") {
+        j += 2;
+        continue;
+      }
+      if (q === "`" && src[j] === "$" && src[j + 1] === "{") {
+        j += 2;
+        let nest = 1;
+        while (j < src.length && nest > 0) {
+          if (src[j] === "'" || src[j] === '"' || src[j] === "`") {
+            j = skipString(j);
+            continue;
+          }
+          if (src[j] === "{") nest++;
+          else if (src[j] === "}") nest--;
+          if (nest > 0) j++;
+        }
+        continue;
+      }
+      if (src[j] === q) return j + 1;
+      j++;
+    }
+    return j;
+  };
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    const n = src[i + 1];
+    if (c === "/" && n === "/") {
+      const end = src.indexOf("\n", i);
+      const stop = end < 0 ? src.length : end;
+      blank(i, stop);
+      i = stop;
+      continue;
+    }
+    if (c === "/" && n === "*") {
+      const end = src.indexOf("*/", i + 2);
+      const stop = end < 0 ? src.length : end + 2;
+      blank(i, stop);
+      i = stop;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === "`") {
+      const stop = skipString(i);
+      blank(i, stop);
+      i = stop;
+      continue;
+    }
+    out.push(c);
+    i++;
+  }
+  return out.join("");
+}
+
+/** Brace, paren, and ternary depth of `src[from, to)`. `?.` and `??` are not ternaries. */
+function scanDepths(src: string, from: number, to: number): { brace: number; paren: number; tern: number } {
+  let brace = 0;
+  let paren = 0;
+  let tern = 0;
+  for (let i = from; i < to; i++) {
+    const c = src[i];
+    const n = src[i + 1];
+    if (c === "{") brace++;
+    else if (c === "}") brace--;
+    else if (c === "(") paren++;
+    else if (c === ")") paren--;
+    else if (c === "?") {
+      if (n === "?" || n === ".") {
+        i++;
+        continue;
+      }
+      tern++;
+    } else if (c === ":" && tern > 0 && n !== ":" && src[i - 1] !== ":") tern--;
+  }
+  return { brace, paren, tern };
+}
+
 test("B5 List centre effect resets through centreStep after the guard", () => {
   const centre = list.slice(list.indexOf("const onWheel = !!active"), list.indexOf("if (rail.spinCenter"));
   const stepAt = centre.indexOf("const step = centreStep(rail.centreCause)");
@@ -529,6 +630,53 @@ test("B5 List centre effect resets through centreStep after the guard", () => {
   assert.ok(resetAt > besideAt, "reset after the guard");
   assert.equal(centre.includes('centreCause = "depthOut"'), false);
   assert.equal(centre.includes('centreCause = "spin"'), false);
+
+  // Verify probe floor (repro/probe_test.ts): one `centreCause =` write, after the centre-change block.
+  assert.equal((centre.match(/centreCause\s*=/g) ?? []).length, 1);
+  const br = centre.indexOf("if (next !== center) {");
+  const close = centre.indexOf("\n    }\n", br);
+  assert.ok(br >= 0 && close > br);
+  assert.ok(centre.indexOf("rail.centreCause = step.next") > close);
+
+  const stripped = stripCommentsAndStrings(list);
+  const marker = stripped.indexOf("const step = centreStep(rail.centreCause)");
+  assert.ok(marker >= 0, "centreStep call in stripped source");
+  const effectAt = stripped.lastIndexOf("$effect", marker);
+  assert.ok(effectAt >= 0 && effectAt < marker);
+  const body = braceBody(stripped, effectAt);
+  assert.equal(body.includes("if (!booted)"), true);
+  assert.equal(body.includes("const pid = archState"), false);
+  const writeRe = /centreCause\s*(=|\|\|=|\?\?=|&&=)(?!=)/g;
+  const writes = [...body.matchAll(writeRe)];
+  assert.equal(writes.length, 1, "exactly one centreCause write");
+  const found = writes[0];
+  assert.ok(found.index !== undefined);
+  assert.equal(found[1], "=");
+  const exact = "rail.centreCause = step.next";
+  const rel = found.index - "rail.".length;
+  assert.ok(rel >= 0);
+  assert.equal(/[A-Za-z0-9_$]/.test(body[rel - 1] ?? ""), false);
+  assert.equal(body.slice(rel, rel + exact.length), exact);
+  const after = body[rel + exact.length] ?? "";
+  assert.equal(/[A-Za-z0-9_$.]/.test(after), false);
+  const stepRel = body.indexOf("const step = centreStep(rail.centreCause)");
+  assert.ok(stepRel >= 0 && rel > stepRel, "write after centreStep");
+  const ifRel = body.indexOf("if (next !== center)");
+  assert.ok(ifRel >= 0 && ifRel > stepRel);
+  const ifBlock = braceBody(body, ifRel);
+  const ifOpen = body.indexOf("{", ifRel);
+  const ifEnd = ifOpen + ifBlock.length;
+  assert.ok(rel >= ifEnd, "write after the centre-change block");
+  const depths = scanDepths(body, 1, rel);
+  assert.equal(depths.brace, 0, "write at brace depth 0");
+  assert.equal(depths.paren, 0, "write not inside a call or callback");
+  assert.equal(depths.tern, 0, "write not inside a ternary");
+  let boundary = rel - 1;
+  while (boundary >= 0 && /\s/.test(body[boundary])) boundary--;
+  assert.ok(
+    boundary >= 0 && (body[boundary] === ";" || body[boundary] === "{" || body[boundary] === "}"),
+    "write is its own statement at depth 0",
+  );
 });
 
 test("N2 rail backgrounds are dark panel tints", () => {
