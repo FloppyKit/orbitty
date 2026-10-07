@@ -40,6 +40,7 @@ mod event_relay;
 mod gate_caps;
 mod interrupt_gate;
 mod glass;
+mod window_chrome;
 mod mouth_ack;
 mod mouth_blip;
 mod mouth_gist;
@@ -605,10 +606,11 @@ fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
         // AppKit view surgery must happen on the main thread.
         let handle = app.clone();
         app.run_on_main_thread(move || {
+            let ctx = window_chrome::lights_ctx(&handle);
             for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"] {
                 if let Some(w) = handle.get_webview_window(label) {
                     glass::ensure_transparent(&w);
-                    glass::hide_traffic_lights(&w);
+                    window_chrome::apply_lights(&w, label, ctx);
                     // Rail only: planet-panel pin so Show Desktop cannot
                     // tuck it. Chrome drawers are normal windows — unpin
                     // in case a previous recipe left them stationary.
@@ -804,6 +806,8 @@ pub fn run() {
             bring_all_front,
             bring_planet_front,
             ensure_glass,
+            window_chrome::window_appearance,
+            window_chrome::window_title_dblclick,
             packs::list_packs,
             packs::list_companion_packs,
             packs::import_pack_folder,
@@ -913,7 +917,7 @@ pub fn run() {
             // decide what the wallpaper shows through.
             // S4.4: plus explicit surgery on the live NSWindow/WKWebView —
             // the config-level chain alone still washed white/grey.
-            #[cfg(target_os = "macos")]
+            let boot_ctx = window_chrome::lights_ctx(app.handle());
             for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"] {
                 if let Some(w) = app.get_webview_window(label) {
                     // One recipe for every pane —
@@ -921,7 +925,7 @@ pub fn run() {
                     // recipe); drawers never get an opaque slab.
                     let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
                     glass::ensure_transparent(&w);
-                    glass::hide_traffic_lights(&w);
+                    window_chrome::apply_lights(&w, label, boot_ctx);
                     if label == "main" {
                         glass::pin_stay_visible(&w);
                         glass::no_shadow(&w);

@@ -1026,6 +1026,9 @@ pub fn set_companion_talk_source(app: tauri::AppHandle, source: String) -> Resul
 /// Persist expand/collapse so the window reopens the way it was left.
 #[tauri::command]
 pub fn set_companion_expanded(app: tauri::AppHandle, expanded: bool) -> Result<(), String> {
+    if !expanded {
+        crate::window_chrome::unzoom_companion(&app);
+    }
     crate::state::update(&app, |st| {
         st.companion.expanded = expanded;
         Ok(())

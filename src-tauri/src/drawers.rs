@@ -1337,6 +1337,7 @@ fn place_beside_rail_display(
 /// Does not honor a saved frame on another screen.
 pub(crate) fn show_drawer_beside_rail(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     let w = crate::panes::ensure_window(app, label)?;
+    let _ = crate::panes::restore_if_minimized(&w);
     let pvfs = points_frames(&screen_visible_frames());
     let spec = crate::panes::pane_spec(label);
     let size = live_points_rect(&w)
@@ -2133,6 +2134,7 @@ pub(crate) fn wire_drawer_events(app: &tauri::AppHandle, window: &tauri::Webview
 /// Show means stay shown. Chrome is not pinned.
 pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     let w = crate::panes::ensure_window(app, label)?;
+    let was_minimized = crate::panes::restore_if_minimized(&w);
     let st = state::load_state(app).unwrap_or_default();
     drawer_cache_refresh(&st);
     let visible = w.is_visible().unwrap_or(false);
@@ -2155,7 +2157,7 @@ pub(crate) fn show_drawer(app: &tauri::AppHandle, label: &str) -> Result<(), Str
     // 24px handle on ANY display is lost, not "already visible" — fall
     // through to the place path so the summon actually recovers it (for
     // the companion, raise_now then clamps the dock back on-screen).
-    if visible && !ghosted && pane_appkit_visible(&w) && !drawer_live_off(&w) {
+    if was_minimized || (visible && !ghosted && pane_appkit_visible(&w) && !drawer_live_off(&w)) {
         let _ = w.unminimize();
         let _ = w.show();
         w.set_focus().map_err(|e| e.to_string())?;

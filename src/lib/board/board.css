@@ -11,7 +11,7 @@
     box-sizing: border-box;
     color: var(--ink);
     background: var(--bg-fill, var(--bg));
-    border-radius: 12px;
+    border-radius: 0;
     font-family:
       "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
       BlinkMacSystemFont, "Helvetica Neue", sans-serif;

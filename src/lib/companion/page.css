@@ -49,37 +49,15 @@
     text-shadow: 0 1px 2px var(--bg-solid, transparent);
   }
 
-  /* The only window chrome: one ×, top-LEFT (traffic lights are hidden
-     native-side, so the left corner is free). Hides the window, never
-     quits (tray → Quit). */
-  .winx {
-    position: absolute;
-    top: 8px;
-    left: 10px;
-    z-index: 2;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    font: inherit;
-    font-size: 0.82rem;
-    line-height: 1;
-    color: var(--dim);
-    background: transparent;
-    border: none;
-    border-radius: 999px;
-    cursor: pointer;
+  /* Expanded companion: native lights + "Orbitty" row. The corner
+     portrait is positioned against the window, so it clears the row.
+     The transcript lives in the flex well under the row. */
+  .companion.chrome {
+    border-radius: 0;
   }
 
-  .winx:hover {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-  }
-
-  .winx.hosted-hide {
-    display: none;
+  .companion.chrome .exphead {
+    top: calc(var(--wtr-h, 38px) + 8px);
   }
 
   /* The wrap is the overlay's positioning context —

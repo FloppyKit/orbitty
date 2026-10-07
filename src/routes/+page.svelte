@@ -145,6 +145,7 @@
     --dim: #5f8a6d;
     --accent: #3ddc84;
     --on-accent: #ffffff;
+    color-scheme: dark;
   }
   /* S4.4: html paints nothing either — the only fills anywhere are the
      JS-computed --bg-fill/--panel-fill alpha vars. */

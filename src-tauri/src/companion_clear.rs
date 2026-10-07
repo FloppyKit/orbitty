@@ -120,7 +120,10 @@ pub(crate) fn raise_now(app: &tauri::AppHandle) {
             let _ = w.show();
             let _ = w.set_ignore_cursor_events(false);
         }
-        crate::drawers::ensure_companion_dock_onscreen(&w);
+        if !crate::window_chrome::skip_companion_frame(w.is_minimized().unwrap_or(false), "raise-dock")
+        {
+            crate::drawers::ensure_companion_dock_onscreen(&w);
+        }
         let Ok(raw) = w.ns_window() else {
             return;
         };
@@ -157,7 +160,12 @@ pub(crate) fn raise_now(app: &tauri::AppHandle) {
                 let _ = w.show();
                 let _ = w.set_ignore_cursor_events(false);
             }
-            crate::drawers::ensure_companion_dock_onscreen(&w);
+            if !crate::window_chrome::skip_companion_frame(
+                w.is_minimized().unwrap_or(false),
+                "raise-dock",
+            ) {
+                crate::drawers::ensure_companion_dock_onscreen(&w);
+            }
             crate::drawers::appkit_order_front(&handle, &w);
         }
     }
@@ -219,6 +227,7 @@ pub(crate) fn apply_mode(app: &tauri::AppHandle) {
     }
     set_front_level(app, true);
     force_mouse_on(app);
+    crate::window_chrome::sync_companion_chrome(app);
 }
 
 fn force_mouse_on(app: &tauri::AppHandle) {

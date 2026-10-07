@@ -73,6 +73,7 @@
     onSplitDown,
     projects,
     viewCols,
+    chipsInTitle = false,
   } = $props();
 </script>
 
@@ -268,7 +269,9 @@
               <header class="b-head">
                 <span class="b-name">Done</span>
                 <span class="b-count">{viewCols.done.length}</span>
-                {@render doneActorChips()}
+                {#if !chipsInTitle}
+                  {@render doneActorChips()}
+                {/if}
               </header>
               {#each viewCols.done as card (card.id)}
                 {@render stackCard(card)}

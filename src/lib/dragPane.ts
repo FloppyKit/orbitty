@@ -6,7 +6,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const SLOP = 8;
 const IGNORE =
-  "button, input, a, select, textarea, option, .field, .volpop, .agentbubble, .agentopt, .b-card, .kn-item, .k-doing";
+  "button, input, a, select, textarea, option, .field, .volpop, .agentbubble, .agentopt, .b-card, .kn-item, .k-doing, [data-no-drag], .wtr-chips *";
+
+/** True when the event target is a chip, control, or other non-drag hit. */
+export function dragTargetIgnored(el: { closest: (sel: string) => unknown } | null): boolean {
+  return !!el?.closest(IGNORE);
+}
 
 /** Clicking a button's text node is a Text target — closest() is not on it. */
 export function eventElement(e: Event): Element | null {
@@ -19,7 +24,7 @@ export function eventElement(e: Event): Element | null {
 export function startPaneDrag(e: MouseEvent | PointerEvent): void {
   if (e.button !== 0) return;
   const t = eventElement(e);
-  if (t?.closest(IGNORE)) return;
+  if (dragTargetIgnored(t)) return;
   const x0 = e.screenX;
   const y0 = e.screenY;
   const label = getCurrentWindow().label;

@@ -20,6 +20,8 @@
   import CompSpirit from "./companion/Spirit.svelte";
   import CompWell from "./companion/Well.svelte";
   import { eventElement } from "./dragPane";
+  import WindowTitleRow from "./WindowTitleRow.svelte";
+  import { chromeMode, navPlatform, navUa } from "./windowChrome";
 
   import type {
     CompanionSlice,
@@ -1635,8 +1637,18 @@
   class:tile-leave={tileLeave}
   class:spirit-hold={spiritHold}
   class:cc-off={!captions}
+  class:chrome={expanded}
   bind:this={mainEl}
 >
+  {#if expanded}
+    <WindowTitleRow
+      title="Orbitty"
+      mode={chromeMode(navUa(), navPlatform())}
+      label="companion"
+      closeLabel="Hide Orbitty"
+      onClose={() => invoke("hide_window", { label: "companion" }).catch(() => {})}
+    />
+  {/if}
   {#if expanded && sprite}
     <CompSpirit
       corner

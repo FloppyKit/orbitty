@@ -146,25 +146,33 @@ test("G1 Chrome has no title-row classes", () => {
   });
 });
 
-test("G2 no painted list title or Orbitty Lists wordmark; bare banner remains", () => {
+test("G2b list title once via WindowTitleRow; no Orbitty Lists; embedded banner remains", () => {
   const chrome = src("src/lib/board/Chrome.svelte");
   const kanban = src("src/lib/KanbanPage.svelte");
-  assert.equal(paintedListTitle(chrome), 0);
-  assert.equal(paintedListTitle(kanban), 0);
+  const row = src("src/lib/WindowTitleRow.svelte");
+  assert.equal(chrome.includes("Orbitty Lists"), false);
+  assert.equal(kanban.includes("Orbitty Lists"), false);
+  assert.equal(chrome.includes("data-tauri-drag-region"), false);
+  const titles = chrome.match(/title=\{listTitle\}/g) ?? [];
+  assert.equal(titles.length, 1);
+  assert.match(chrome, /<WindowTitleRow[\s\S]*title=\{listTitle\}/);
   const bar = banner(chrome);
   assert.ok(bar, "k-banner");
+  assert.equal(textUnder(bar).includes("Launchpad"), true);
   assert.equal(textUnder(bar).includes("Orbitty Lists"), false);
   assert.equal(
     hasDescendant(bar, (n) => n.type === "RegularElement" && hasClass(n, "winx")),
     true,
-    "winx",
+    "embedded winx",
   );
   const drag = (bar.attributes ?? []).some(
-    (attr) =>
-      attr.type === "Attribute" &&
-      (attr.name === "onmousedown" || attr.name === "data-tauri-drag-region"),
+    (attr) => attr.type === "Attribute" && attr.name === "onmousedown",
   );
   assert.equal(drag, true);
+  assert.match(row, /onmousedown=\{onRowMouseDown\}/);
+  assert.match(row, /startPaneDrag/);
+  assert.equal(row.includes("data-tauri-drag-region"), false);
+  assert.match(row, /\{#if mode === "custom"\}/);
 });
 
 test("G3 Done actor chips survive", () => {

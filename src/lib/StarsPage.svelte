@@ -32,6 +32,8 @@
   import { stepSpoke } from "./stars/radarGeom";
   import { listenPaneVis } from "./paneVis";
   import { startPaneDrag } from "./dragPane";
+  import WindowTitleRow from "./WindowTitleRow.svelte";
+  import { chromeMode, navPlatform, navUa } from "./windowChrome";
   import { MenuRing, type RingStop } from "./menuKeys.svelte";
   import {
     applyHostTokens,
@@ -804,77 +806,85 @@
   }
 </script>
 
+{#snippet dayNav()}
+  <div class="day-nav">
+    <button class="mini" onclick={prevDay} title="Previous day" aria-label="Previous day">‹</button>
+    <span class="day-label">{isToday ? `Today · ${cursorDay}` : cursorDay}</span>
+    <button
+      class="mini"
+      onclick={nextDay}
+      disabled={isToday}
+      title="Next day"
+      aria-label="Next day">›</button>
+    <select
+      class="nav-view"
+      class:mkey-sel={menuRing.activeId === "stars-nav"}
+      data-mkey="stars-nav"
+      value={navView}
+      onchange={onNavChange}
+      aria-label="STARS view"
+    >
+      <option value="day">Day</option>
+      <option value="week">7 days</option>
+      <option value="month">30 days</option>
+      <option value="year">1 year</option>
+      <option value="custom">Custom…</option>
+    </select>
+    <button
+      type="button"
+      class="chron-prompts"
+      class:on={starsState.promptsOptIn}
+      aria-pressed={starsState.promptsOptIn}
+      onmousedown={(e) => e.stopPropagation()}
+      onclick={toggleStarsPrompts}
+      title="Companion prompts, for every planet. Off by default."
+    >{starsState.promptsOptIn ? "Prompts on" : "Prompts"}</button>
+    {#if navView === "custom"}
+      <input
+        class="nav-date"
+        type="date"
+        value={avgFrom || shiftDay(cursorDay, -29)}
+        max={avgTo || cursorDay}
+        onchange={(e) => onCustomDate("from", (e.currentTarget as HTMLInputElement).value)}
+        aria-label="Average from"
+      />
+      <input
+        class="nav-date"
+        type="date"
+        value={avgTo || cursorDay}
+        min={avgFrom || ""}
+        max={todayKey()}
+        onchange={(e) => onCustomDate("to", (e.currentTarget as HTMLInputElement).value)}
+        aria-label="Average to"
+      />
+    {/if}
+  </div>
+{/snippet}
+
 <main class="stars orbit-field" class:embedded>
-  <!-- One drag source: JS startDragging on this banner. Drawers are
-       borderless — no native Overlay strip competing with the click.
-       HOST-SPLIT: embedded, this drags the host companion window. -->
+  {#if embedded}
+  <!-- Embedded STARS well keeps today's banner and ×. -->
   <header class="s-banner" onmousedown={onBannerMouseDown}>
     <h1>STARS</h1>
-    <div class="day-nav">
-      <button class="mini" onclick={prevDay} title="Previous day" aria-label="Previous day">‹</button>
-      <span class="day-label">{isToday ? `Today · ${cursorDay}` : cursorDay}</span>
-      <button
-        class="mini"
-        onclick={nextDay}
-        disabled={isToday}
-        title="Next day"
-        aria-label="Next day">›</button>
-      <select
-        class="nav-view"
-        class:mkey-sel={menuRing.activeId === "stars-nav"}
-        data-mkey="stars-nav"
-        value={navView}
-        onchange={onNavChange}
-        aria-label="STARS view"
-      >
-        <option value="day">Day</option>
-        <option value="week">7 days</option>
-        <option value="month">30 days</option>
-        <option value="year">1 year</option>
-        <option value="custom">Custom…</option>
-      </select>
-      <button
-        type="button"
-        class="chron-prompts"
-        class:on={starsState.promptsOptIn}
-        aria-pressed={starsState.promptsOptIn}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={toggleStarsPrompts}
-        title="Companion prompts, for every planet. Off by default."
-      >{starsState.promptsOptIn ? "Prompts on" : "Prompts"}</button>
-      {#if navView === "custom"}
-        <input
-          class="nav-date"
-          type="date"
-          value={avgFrom || shiftDay(cursorDay, -29)}
-          max={avgTo || cursorDay}
-          onchange={(e) => onCustomDate("from", (e.currentTarget as HTMLInputElement).value)}
-          aria-label="Average from"
-        />
-        <input
-          class="nav-date"
-          type="date"
-          value={avgTo || cursorDay}
-          min={avgFrom || ""}
-          max={todayKey()}
-          onchange={(e) => onCustomDate("to", (e.currentTarget as HTMLInputElement).value)}
-          aria-label="Average to"
-        />
-      {/if}
-    </div>
+    {@render dayNav()}
     <button
       class="winx"
       onmousedown={(e) => e.stopPropagation()}
-      onclick={() =>
-        embedded
-          ? onClose?.()
-          : invoke("hide_window", { label: hideLabel }).catch(() => {})}
-      title={embedded
-        ? "Dismiss the STARS well — the companion stays"
-        : "Hide STARS — reopen from the rail"}
-      aria-label={embedded ? "Dismiss STARS" : "Hide STARS"}>×</button
+      onclick={() => onClose?.()}
+      title="Dismiss the STARS well — the companion stays"
+      aria-label="Dismiss STARS">×</button
     >
   </header>
+  {:else}
+  <WindowTitleRow
+    title="Stars"
+    mode={chromeMode(navUa(), navPlatform())}
+    label="stars"
+    closeLabel="Hide STARS"
+    onClose={() => invoke("hide_window", { label: hideLabel }).catch(() => {})}
+    chips={dayNav}
+  />
+  {/if}
 
   <NudgeStrip
     {projects}
@@ -1009,7 +1019,7 @@
     box-sizing: border-box;
     color: var(--ink);
     background-color: var(--depth-0);
-    border-radius: 12px;
+    border-radius: 0;
     color-scheme: dark;
     font-family:
       "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
@@ -1051,7 +1061,8 @@
     letter-spacing: 0.02em;
   }
 
-  .s-banner .day-nav {
+  .s-banner .day-nav,
+  :global(.wtr-chips) .day-nav {
     flex: 1;
     margin: 0;
     justify-content: flex-start;

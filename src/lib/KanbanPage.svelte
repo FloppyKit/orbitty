@@ -12,6 +12,7 @@
   import { applyHostTokens, applyWindowOpacity, clampWindowOpacity } from "../themes/apply";
   import { listenPaneVis } from "./paneVis";
   import { planetCss } from "./planetColor";
+  import { boardTitleDot, boardWindowTitle } from "./windowChrome";
   import { reorderProjects } from "./planetOrder";
   import { startPaneDrag } from "./dragPane";
   import NeededInbox, { neededFor } from "./NeededInbox.svelte";
@@ -686,15 +687,8 @@
     return openCards.filter((c) => listOf(c) === list).length;
   }
 
-  let listTitle = $derived(
-    selected === "today"
-      ? "Today"
-      : selected === "done"
-        ? "Done"
-        : selected === "inbox"
-          ? "Inbox"
-          : (projects.find((p) => p.id === selected)?.name ?? "Inbox"),
-  );
+  let listTitle = $derived(boardWindowTitle(selected, projects));
+  let titleDot = $derived(boardTitleDot(selected, projects));
 
   function projectName(id: string): string {
     return projects.find((p) => p.id === id)?.name ?? "";
@@ -2070,6 +2064,8 @@
   {#if railPlanet == null && planetColMode !== "hidden"}
   <BoardChrome
     {selected}
+    {listTitle}
+    {titleDot}
     bind:hermesNote
     {embedded}
     {invoke}
@@ -2160,6 +2156,7 @@
       {onNeededAnswer}
       {onSplitDown}
       {projects}
+      chipsInTitle={railPlanet == null && planetColMode !== "hidden"}
     />
 
     <BoardPreview

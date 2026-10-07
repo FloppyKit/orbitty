@@ -25,9 +25,15 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
     // persist the tall idle, never the bar. And never a
     // composer-grown frame.
     if label == "companion" {
+        eprintln!(
+            "orbitty:companion-hide path=hide_window miniaturized={}",
+            crate::glass::is_miniaturized(&w)
+        );
+        crate::window_chrome::unzoom_companion(&app);
         unhost_before_persist(&app);
         unhug_before_persist(&app);
         ungrow_companion_composer(&app);
+        crate::window_chrome::companion_chrome(&app, false);
     }
     if crate::state::DRAWER_LABELS.contains(&label.as_str()) {
         crate::drawers::persist_shown_place(&app, &label);
@@ -37,6 +43,10 @@ pub fn hide_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
         let _ = w.set_always_on_top(false);
     }
     w.hide().map_err(|e| e.to_string())?;
+    // orderOut of a miniaturized window leaves isMiniaturized and the Dock
+    // tile (measured on macOS 26). Deminiaturize only after orderOut, then
+    // order out again, so the tile goes and the window stays offscreen.
+    clear_miniaturized_after_hide(&w);
     emit_pane_vis(&app, &label, false);
     if label == "companion" {
         crate::talk::stop_if_any();
@@ -84,6 +94,7 @@ pub(crate) fn companion_pin(app: &tauri::AppHandle, w: &tauri::WebviewWindow, pi
         crate::main_thread_sync(move || {
             if pinned {
                 crate::glass::pin_stay_visible(&w);
+                crate::glass::apply_fullscreen_none(&w);
             } else {
                 crate::glass::unpin_stay_visible(&w);
             }
@@ -144,25 +155,35 @@ pub(crate) fn ensure_window(
     // Dest chips close in one click while Launchpad/STARS hold key-window
     // — without this, the first click only activates companion.
     config.accept_first_mouse = label == "companion";
-    // Chrome panes: no native Overlay title strip. That invisible ~28px
-    // bar plus the in-SPA banner was two drag sources — grab failed
-    // or the window ran ahead of the cursor. Borderless; JS
-    // startDragging on the banner is the one handle. Rail stays Overlay.
-    // the companion joins them — its
-    // Overlay strip flashed on the host grow / sprite-hug resize (a
-    // titlebar blink that moved the screen). The JS dock grip + spirit
-    // drag stay the one handle; the grow itself stays instant
-    // keep-bottom, never an animated NSWindow bounds.
-    if crate::state::DRAWER_LABELS.contains(&label)
-        || label == "sky"
-        || label == "companion"
-        || label == "yard-warn"
-        || label == "next-card"
-        || label == "cheatsheet"
+    // Board and Stars on macOS stay titled Overlay windows so the
+    // native traffic lights can sit on the title row. Every other pane
+    // stays borderless: the Overlay strip plus the in-SPA banner was
+    // two drag sources, and the companion strip blinked on host-grow.
+    // The companion flips its mask at expand time instead.
+    let mac_titled = cfg!(target_os = "macos") && matches!(label, "kanban" | "stars");
+    if !mac_titled
+        && (crate::state::DRAWER_LABELS.contains(&label)
+            || label == "sky"
+            || label == "companion"
+            || label == "yard-warn"
+            || label == "next-card"
+            || label == "cheatsheet")
     {
         config.decorations = false;
         config.maximizable = false;
         config.minimizable = false;
+    }
+    if mac_titled {
+        config.decorations = true;
+        config.minimizable = true;
+        config.maximizable = true;
+        config.closable = true;
+        config.hidden_title = true;
+        config.title_bar_style = tauri::TitleBarStyle::Overlay;
+        config.traffic_light_position = Some(tauri::utils::config::LogicalPosition {
+            x: crate::window_chrome::TL_X,
+            y: crate::window_chrome::TL_Y,
+        });
     }
     // The URL is ALWAYS the bare `index.html` — never
     // a `?mode=` query. WKWebView looks up the query-bearing name as a
@@ -229,10 +250,24 @@ pub(crate) fn ensure_window(
     // and stay where the user put them.
     let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
     let surgery = w.clone();
+    let surgery_app = app.clone();
+    let surgery_label = label.to_string();
     let _ = app.run_on_main_thread(move || {
         crate::glass::ensure_transparent(&surgery);
-        crate::glass::hide_traffic_lights(&surgery);
+        let ctx = crate::window_chrome::lights_ctx(&surgery_app);
+        crate::window_chrome::apply_lights(&surgery, &surgery_label, ctx);
     });
+    if cfg!(target_os = "macos")
+        && matches!(label, "kanban" | "stars" | "companion")
+    {
+        let rw = w.clone();
+        let rl = label.to_string();
+        w.on_window_event(move |event| {
+            if let tauri::WindowEvent::Resized(_) = event {
+                crate::window_chrome::on_resized(&rw, &rl);
+            }
+        });
+    }
     Ok(w)
 }
 
@@ -252,16 +287,23 @@ pub(crate) fn wire_pane_events(
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
             if pane_label == "companion" {
+                eprintln!(
+                    "orbitty:companion-hide path=close miniaturized={}",
+                    crate::glass::is_miniaturized(&keeper)
+                );
+                crate::window_chrome::unzoom_companion(&handle);
                 unhost_before_persist(&handle);
                 unhug_before_persist(&handle);
                 // COLLAPSE-CC: persist the idle rect, never a
                 // composer-grown one.
                 ungrow_companion_composer(&handle);
+                crate::window_chrome::companion_chrome(&handle, false);
             }
             if crate::state::DRAWER_LABELS.contains(&pane_label.as_str()) {
                 crate::drawers::persist_shown_place(&handle, &pane_label);
             }
             let _ = keeper.hide();
+            clear_miniaturized_after_hide(&keeper);
             emit_pane_vis(&handle, &pane_label, false);
             if is_companion {
                 crate::talk::stop_if_any();
@@ -285,6 +327,43 @@ pub(crate) fn toggle_cheatsheet(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
+/// Dock tile left behind by orderOut of a miniaturized window.
+/// Deminiaturize completes on a later run-loop turn; hiding in this turn
+/// runs too early and the window comes back on screen. A second orderOut
+/// is scheduled after that turn (and once more at 50ms).
+fn clear_miniaturized_after_hide(w: &tauri::WebviewWindow) {
+    let still = w.is_minimized().unwrap_or(false) || crate::glass::is_miniaturized(w);
+    if !still {
+        return;
+    }
+    eprintln!(
+        "orbitty:hide-while-miniaturized label={} orderOut left miniaturized; deminiaturize then orderOut",
+        w.label()
+    );
+    let _ = w.unminimize();
+    crate::glass::order_out_after(w, 0.0);
+    crate::glass::order_out_after(w, 0.05);
+}
+
+/// Deminiaturize when the pane is in the Dock. Returns whether it was
+/// minimized. Minimized is not "lost" — callers must not re-place it.
+
+pub(crate) fn restore_if_minimized(w: &tauri::WebviewWindow) -> bool {
+    let minimized = w.is_minimized().unwrap_or(false) || crate::glass::is_miniaturized(w);
+    let visible = w.is_visible().unwrap_or(false);
+    let state = crate::window_chrome::pane_vis_state(visible, minimized);
+    if state != crate::window_chrome::PaneVis::Minimized {
+        return false;
+    }
+    let _ = w.unminimize();
+    eprintln!(
+        "orbitty:restore-minimized label={} lost={}",
+        w.label(),
+        crate::window_chrome::pane_is_lost(state)
+    );
+    true
+}
+
 pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     // The three chrome drawers show through the
     // leash (docked slot / plucked bounds). `sky` and the rail stay plain.
@@ -292,6 +371,7 @@ pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), St
         return crate::drawers::show_drawer(app, label);
     }
     let w = ensure_window(app, label)?;
+    let _ = restore_if_minimized(&w);
     w.show().map_err(|e| e.to_string())?;
     if label == "next-card" || label == "cheatsheet" {
         let _ = w.set_always_on_top(true);
@@ -490,6 +570,9 @@ pub(crate) fn hug_companion(app: &tauri::AppHandle, hug_height: Option<f64>) {
     if !w.is_visible().unwrap_or(false) {
         return;
     }
+    if crate::window_chrome::skip_companion_frame(w.is_minimized().unwrap_or(false), "hug") {
+        return;
+    }
     // never hug from a rect
     // whose dock already hangs below every display — the keep-bottom bar
     // would inherit the sunk bottom and strand the dock unclickable.
@@ -529,6 +612,13 @@ pub(crate) fn hug_companion(app: &tauri::AppHandle, hug_height: Option<f64>) {
 /// keep-bottom (y' = y - (tall_h - hug_h) — the dock stays). No-op when
 /// not hugged.
 pub(crate) fn unhug_companion(app: &tauri::AppHandle) {
+    let minimized = app
+        .get_webview_window("companion")
+        .and_then(|w| w.is_minimized().ok())
+        .unwrap_or(false);
+    if crate::window_chrome::skip_companion_frame(minimized, "unhug") {
+        return;
+    }
     let tall = hug_stash().lock().ok().and_then(|mut s| s.take());
     let Some(tall) = tall else { return };
     if let Some(w) = app.get_webview_window("companion") {
@@ -584,6 +674,13 @@ pub(crate) fn composer_grow_take() -> f64 {
 
 /// Remove an outstanding composer grow (keep top). No-op at 0.
 pub(crate) fn ungrow_companion_composer(app: &tauri::AppHandle) {
+    let minimized = app
+        .get_webview_window("companion")
+        .and_then(|w| w.is_minimized().ok())
+        .unwrap_or(false);
+    if crate::window_chrome::skip_companion_frame(minimized, "ungrow") {
+        return;
+    }
     let extra = composer_grow_take();
     if extra <= 0.0 {
         return;
@@ -630,6 +727,9 @@ pub fn set_companion_composer_grow(app: tauri::AppHandle, extra: f64) -> Result<
     if !w.is_visible().unwrap_or(false) {
         return Ok(());
     }
+    if crate::window_chrome::skip_companion_frame(w.is_minimized().unwrap_or(false), "grow") {
+        return Ok(());
+    }
     let Some(live) = crate::drawers::live_points_rect(&w) else {
         return Ok(());
     };
@@ -662,6 +762,9 @@ pub fn set_companion_host_hug(app: tauri::AppHandle, height: f64) -> Result<(), 
         return Ok(());
     };
     if !w.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
+    if crate::window_chrome::skip_companion_frame(w.is_minimized().unwrap_or(false), "host-hug") {
         return Ok(());
     }
     let Some(live) = crate::drawers::live_points_rect(&w) else {
@@ -704,6 +807,13 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
     let Some(w) = app.get_webview_window("companion") else {
         return Err("no window labeled companion".to_string());
     };
+    let minimized = w.is_minimized().unwrap_or(false);
+    if !minimized {
+        crate::window_chrome::unzoom_companion(&app);
+    }
+    if crate::window_chrome::skip_companion_frame(minimized, "host") {
+        return Ok(());
+    }
     if on {
         let stashed = host_stash().lock().map(|s| s.is_some()).unwrap_or(false);
         // Already hosted (Launchpad ↔ STARS
