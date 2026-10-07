@@ -161,3 +161,153 @@ test("W8 theme vars and terminal color-scheme", () => {
   assert.match(terminal, /color-scheme:\s*dark/);
   assert.match(row, /window_appearance/);
 });
+
+const SETUP_LABELS =
+  'for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"]';
+
+/** Brace-balanced slice starting at `{`, skipping comments and strings. */
+function balanced(text: string, open: number): { text: string; end: number } {
+  if (text[open] !== "{") throw new Error(`expected { at ${open}`);
+  let i = open;
+  let depth = 0;
+  while (i < text.length) {
+    const c = text[i];
+    const n = text[i + 1];
+    if (c === "/" && n === "/") {
+      const nl = text.indexOf("\n", i);
+      i = nl < 0 ? text.length : nl + 1;
+      continue;
+    }
+    if (c === "/" && n === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end < 0 ? text.length : end + 2;
+      continue;
+    }
+    if (c === '"') {
+      i++;
+      while (i < text.length && text[i] !== '"') {
+        if (text[i] === "\\") i += 2;
+        else i++;
+      }
+      i++;
+      continue;
+    }
+    if (c === "'" && text[i + 1] === "\\" && text[i + 3] === "'") {
+      i += 4;
+      continue;
+    }
+    if (c === "'" && text[i + 1] !== "'" && text[i + 2] === "'") {
+      i += 3;
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return { text: text.slice(open, i + 1), end: i + 1 };
+    }
+    i++;
+  }
+  throw new Error("unbalanced brace");
+}
+
+function macosCfgBlockContaining(text: string, needle: string): string | null {
+  const attr = '#[cfg(target_os = "macos")]';
+  let from = 0;
+  while (from < text.length) {
+    const at = text.indexOf(attr, from);
+    if (at < 0) return null;
+    let i = at + attr.length;
+    while (i < text.length && /\s/.test(text[i])) i++;
+    if (text[i] === "{") {
+      const block = balanced(text, i);
+      if (block.text.includes(needle)) return block.text;
+      from = block.end;
+      continue;
+    }
+    from = at + attr.length;
+  }
+  return null;
+}
+
+test("W10 setup loop and ensure_glass stay macos-gated", () => {
+  const lib = src("src-tauri/src/lib.rs");
+  const bootAt = lib.indexOf("let boot_ctx");
+  assert.ok(bootAt > 0, "let boot_ctx");
+  let i = bootAt;
+  while (i > 0 && /\s/.test(lib[i - 1])) i--;
+  assert.equal(lib[i - 1], "{", "boot_ctx sits in a block");
+  const open = i - 1;
+  const attr = '#[cfg(target_os = "macos")]';
+  let j = open;
+  while (j > 0 && /\s/.test(lib[j - 1])) j--;
+  assert.equal(lib.slice(j - attr.length, j), attr, "block directly preceded by macos cfg");
+  const boot = balanced(lib, open);
+  assert.ok(boot.text.includes("let boot_ctx"));
+  assert.ok(boot.text.includes(SETUP_LABELS), "setup loop inside the cfg block");
+  assert.ok(boot.text.includes("apply_lights(&w, label, boot_ctx)"));
+  const forAt = boot.text.indexOf(SETUP_LABELS);
+  const forOpen = boot.text.indexOf("{", forAt);
+  const loop = balanced(boot.text, forOpen);
+  assert.ok(loop.end < boot.text.length, "whole setup loop inside the cfg block");
+  assert.ok(boot.text.indexOf("let boot_ctx") < forAt);
+
+  const g0 = lib.indexOf("fn ensure_glass(");
+  const g1 = lib.indexOf("\nfn ", g0 + 10);
+  assert.ok(g0 > 0 && g1 > g0, "ensure_glass fn");
+  const glass = lib.slice(g0, g1);
+  const glassBlock = macosCfgBlockContaining(glass, SETUP_LABELS);
+  assert.ok(glassBlock, "ensure_glass keeps its macos cfg around the loop");
+  assert.match(glass, /#\[cfg\(target_os = "macos"\)\]/);
+});
+
+test("W11 window_chrome eprintln stays inside chrome_log", () => {
+  const rs = src("src-tauri/src/window_chrome.rs");
+  const uses: number[] = [];
+  const needle = "eprintln!";
+  let from = 0;
+  while (from < rs.length) {
+    const at = rs.indexOf(needle, from);
+    if (at < 0) break;
+    uses.push(at);
+    from = at + needle.length;
+  }
+  if (uses.length === 0) return;
+  const macros = [...rs.matchAll(/macro_rules!\s+chrome_log\b/g)];
+  assert.equal(macros.length, 1, "single chrome_log macro");
+  const macroAt = macros[0].index ?? -1;
+  const bodyOpen = rs.indexOf("{", macroAt);
+  const body = balanced(rs, bodyOpen);
+  assert.match(body.text, /cfg!\(debug_assertions\)/);
+  assert.match(body.text, /eprintln!/);
+  for (const at of uses) {
+    assert.ok(
+      at >= bodyOpen && at < body.end,
+      `eprintln outside chrome_log at ${at}`,
+    );
+  }
+});
+
+test("W12 title text is bound inside the h1", () => {
+  const row = src("src/lib/WindowTitleRow.svelte");
+  const h1 = row.match(/<h1\s+class="wtr-title"\s*>([\s\S]*?)<\/h1>/);
+  assert.ok(h1, "h1.wtr-title");
+  const inner = h1[1].trim();
+  assert.equal(inner, "{title}", `title text inside h1, got ${JSON.stringify(inner)}`);
+  assert.equal(inner.length > 0, true);
+  assert.equal(/^\{["']/.test(inner), false, "not a literal");
+
+  const kanban = src("src/lib/KanbanPage.svelte");
+  assert.match(
+    kanban,
+    /listTitle\s*=\s*\$derived\(\s*boardWindowTitle\(\s*selected\s*,\s*projects\s*\)\s*\)/,
+  );
+  assert.match(kanban, /<BoardChrome[\s\S]*?\{listTitle\}/);
+  const chrome = src("src/lib/board/Chrome.svelte");
+  const windowed = chrome.slice(chrome.indexOf("{:else}"));
+  assert.match(windowed, /title=\{listTitle\}/);
+
+  const stars = src("src/lib/StarsPage.svelte");
+  const banner = stars.slice(stars.indexOf("{#if embedded}"));
+  const starWindowed = banner.slice(banner.indexOf("{:else}"), banner.indexOf("{/if}"));
+  assert.match(starWindowed, /<WindowTitleRow[\s\S]*title="Stars"/);
+});

@@ -7,6 +7,14 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 
+macro_rules! chrome_log {
+    ($($arg:tt)*) => {
+        if cfg!(debug_assertions) {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 pub const STYLE_TITLED: usize = 1;
 pub const STYLE_CLOSABLE: usize = 2;
 pub const STYLE_MINI: usize = 4;
@@ -154,7 +162,7 @@ pub fn apply_lights(window: &tauri::WebviewWindow, label: &str, ctx: LightsCtx) 
         let minimized =
             window.is_minimized().unwrap_or(false) || crate::glass::is_miniaturized(window);
         if minimized {
-            eprintln!("orbitty:companion-chrome deferred minimized=true");
+            chrome_log!("orbitty:companion-chrome deferred minimized=true");
             return;
         }
     }
@@ -173,7 +181,7 @@ pub fn apply_lights(window: &tauri::WebviewWindow, label: &str, ctx: LightsCtx) 
             let next = companion_mask_on(cur);
             if cur != next {
                 let (dx, dy, dw, dh) = crate::glass::apply_companion_mask(window, true);
-                eprintln!(
+                chrome_log!(
                     "orbitty:companion-chrome on=true dx={dx:.2} dy={dy:.2} dw={dw:.2} dh={dh:.2} mask={next}"
                 );
             }
@@ -187,7 +195,7 @@ pub fn apply_lights(window: &tauri::WebviewWindow, label: &str, ctx: LightsCtx) 
         if label == "companion" && COMPANION_CHROME.load(Ordering::SeqCst) {
             let (dx, dy, dw, dh) = crate::glass::apply_companion_mask(window, false);
             COMPANION_CHROME.store(false, Ordering::SeqCst);
-            eprintln!(
+            chrome_log!(
                 "orbitty:companion-chrome on=false dx={dx:.2} dy={dy:.2} dw={dw:.2} dh={dh:.2}"
             );
         }
@@ -239,7 +247,7 @@ pub fn skip_companion_frame(minimized: bool, reason: &str) -> bool {
     let zoomed = companion_zoomed();
     let locked = companion_frame_locked(minimized, zoomed);
     if locked {
-        eprintln!(
+        chrome_log!(
             "orbitty:companion-frame-skip {reason} minimized={minimized} zoomed={zoomed}"
         );
     }
@@ -294,7 +302,7 @@ pub fn unzoom_companion(app: &tauri::AppHandle) {
             z.last_normal = Some(chosen);
         }
         ZOOM_SUPPRESS.store(false, Ordering::SeqCst);
-        eprintln!(
+        chrome_log!(
             "orbitty:companion-unzoom x={:.1} y={:.1} w={:.1} h={:.1}",
             chosen.x, chosen.y, chosen.w, chosen.h
         );
@@ -312,7 +320,7 @@ pub fn companion_chrome(app: &tauri::AppHandle, on: bool) {
     let minimized = window.is_minimized().unwrap_or(false)
         || crate::glass::is_miniaturized(&window);
     if on && minimized {
-        eprintln!("orbitty:companion-chrome deferred minimized=true");
+        chrome_log!("orbitty:companion-chrome deferred minimized=true");
         return;
     }
     let ctx = LightsCtx {
@@ -323,7 +331,7 @@ pub fn companion_chrome(app: &tauri::AppHandle, on: bool) {
     let run = move || {
         apply_lights(&window, "companion", ctx);
         let behavior = crate::glass::collection_behavior(&window);
-        eprintln!("orbitty:companion-chrome-behavior {behavior}");
+        chrome_log!("orbitty:companion-chrome-behavior {behavior}");
     };
     #[cfg(target_os = "macos")]
     crate::main_thread_sync(run);
@@ -339,7 +347,7 @@ pub fn sync_companion_chrome(app: &tauri::AppHandle) {
     let minimized = window.is_minimized().unwrap_or(false)
         || crate::glass::is_miniaturized(&window);
     if ctx.companion_expanded && minimized {
-        eprintln!("orbitty:companion-chrome deferred minimized=true");
+        chrome_log!("orbitty:companion-chrome deferred minimized=true");
         return;
     }
     let run = move || apply_lights(&window, "companion", ctx);
@@ -418,7 +426,7 @@ pub fn on_resized(window: &tauri::WebviewWindow, label: &str) {
     if entering {
         if let Ok(z) = zoom_mem().lock() {
             if let Some(s) = z.stash {
-                eprintln!(
+                chrome_log!(
                     "orbitty:companion-zoom stash x={:.1} y={:.1} w={:.1} h={:.1}",
                     s.x, s.y, s.w, s.h
                 );
@@ -439,7 +447,7 @@ pub fn on_resized(window: &tauri::WebviewWindow, label: &str) {
                 z.last_normal = Some(if stash_zoomed { now } else { stash });
             }
         }
-        eprintln!(
+        chrome_log!(
             "orbitty:companion-unzoom-edge x={:.1} y={:.1} w={:.1} h={:.1}",
             stash.x, stash.y, stash.w, stash.h
         );
@@ -449,7 +457,7 @@ pub fn on_resized(window: &tauri::WebviewWindow, label: &str) {
         let want = companion_mask_on(mask);
         if mask & STYLE_TITLED == 0 || mask & STYLE_FULLSIZE == 0 {
             let (dx, dy, dw, dh) = crate::glass::apply_companion_mask(window, true);
-            eprintln!(
+            chrome_log!(
                 "orbitty:companion-mask-reassert dx={dx:.2} dy={dy:.2} dw={dw:.2} dh={dh:.2} want={want}"
             );
         }
@@ -482,7 +490,7 @@ pub fn window_title_dblclick(app: tauri::AppHandle, label: String) -> Result<(),
     };
     let pref = crate::glass::apple_action_on_double_click();
     let action = dblclick_pref_parse(pref.as_deref());
-    eprintln!(
+    chrome_log!(
         "orbitty:title-dblclick label={label} pref={} action={action:?}",
         pref.as_deref().unwrap_or("<missing>")
     );

@@ -917,21 +917,24 @@ pub fn run() {
             // decide what the wallpaper shows through.
             // S4.4: plus explicit surgery on the live NSWindow/WKWebView —
             // the config-level chain alone still washed white/grey.
-            let boot_ctx = window_chrome::lights_ctx(app.handle());
-            for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"] {
-                if let Some(w) = app.get_webview_window(label) {
-                    // One recipe for every pane —
-                    // clear background + transparency surgery (the rail
-                    // recipe); drawers never get an opaque slab.
-                    let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
-                    glass::ensure_transparent(&w);
-                    window_chrome::apply_lights(&w, label, boot_ctx);
-                    if label == "main" {
-                        glass::pin_stay_visible(&w);
-                        glass::no_shadow(&w);
-                        glass::stage_borderless(&w);
-                    } else {
-                        glass::unpin_stay_visible(&w);
+            #[cfg(target_os = "macos")]
+            {
+                let boot_ctx = window_chrome::lights_ctx(app.handle());
+                for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"] {
+                    if let Some(w) = app.get_webview_window(label) {
+                        // One recipe for every pane —
+                        // clear background + transparency surgery (the rail
+                        // recipe); drawers never get an opaque slab.
+                        let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+                        glass::ensure_transparent(&w);
+                        window_chrome::apply_lights(&w, label, boot_ctx);
+                        if label == "main" {
+                            glass::pin_stay_visible(&w);
+                            glass::no_shadow(&w);
+                            glass::stage_borderless(&w);
+                        } else {
+                            glass::unpin_stay_visible(&w);
+                        }
                     }
                 }
             }
