@@ -20,6 +20,8 @@ import {
   SPIN_FLICK_MAX,
   archGutter,
   depthOut,
+  depthOutCentre,
+  depthOutStop,
   emptyDismiss,
   hitBox,
   inputIntent,
@@ -260,11 +262,103 @@ test("R11 breadcrumb strings", () => {
   assert.match(css, /var\(--dim\)/);
 });
 
+function parseCssColor(raw: string): { r: number; g: number; b: number; a: number } {
+  const s = raw.trim();
+  const hex = s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3) h = [...h].map((c) => c + c).join("");
+    return {
+      r: Number.parseInt(h.slice(0, 2), 16),
+      g: Number.parseInt(h.slice(2, 4), 16),
+      b: Number.parseInt(h.slice(4, 6), 16),
+      a: 1,
+    };
+  }
+  const rgb = s.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+))?\s*\)$/i);
+  assert.ok(rgb, s);
+  return {
+    r: Number(rgb[1]),
+    g: Number(rgb[2]),
+    b: Number(rgb[3]),
+    a: rgb[4] === undefined ? 1 : Number(rgb[4]),
+  };
+}
+
+/** Premultiplied `color-mix(in srgb, ink p%, other)`. */
+function mixSrgb(
+  ink: { r: number; g: number; b: number; a: number },
+  other: { r: number; g: number; b: number; a: number },
+  pInk: number,
+): { r: number; g: number; b: number; a: number } {
+  const p2 = 1 - pInk;
+  const a = pInk * ink.a + p2 * other.a;
+  const ch = (c1: number, a1: number, c2: number, a2: number) =>
+    a <= 0 ? 0 : (pInk * c1 * a1 + p2 * c2 * a2) / a;
+  return {
+    r: ch(ink.r, ink.a, other.r, other.a),
+    g: ch(ink.g, ink.a, other.g, other.a),
+    b: ch(ink.b, ink.a, other.b, other.a),
+    a,
+  };
+}
+
+function compositeOver(
+  fg: { r: number; g: number; b: number; a: number },
+  bg: { r: number; g: number; b: number; a: number },
+): { r: number; g: number; b: number; a: number } {
+  const a = fg.a + bg.a * (1 - fg.a);
+  const ch = (f: number, b: number) => (a <= 0 ? 0 : (f * fg.a + b * bg.a * (1 - fg.a)) / a);
+  return { r: ch(fg.r, bg.r), g: ch(fg.g, bg.g), b: ch(fg.b, bg.b), a };
+}
+
+function relLuminance(c: { r: number; g: number; b: number }): number {
+  const lin = (u: number) => {
+    const x = u / 255;
+    return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+}
+
+function quotedField(block: string, name: string): string {
+  const m = block.match(new RegExp(`${name}:\\s*"([^"]+)"`));
+  assert.ok(m, name);
+  return m[1];
+}
+
+/** Opaque knob: mix ink into panel, then composite any leftover alpha onto the panel. */
+function knobLuminance(inkRaw: string, panelRaw: string, pInk: number): number {
+  const ink = parseCssColor(inkRaw);
+  const panel = parseCssColor(panelRaw);
+  return relLuminance(compositeOver(mixSrgb(ink, panel, pInk), panel));
+}
+
 test("R12 knobs use the ink mix and stars has no light fills", () => {
   const knob = ruleBody(dial, ".knob {");
-  assert.match(knob, /fill:\s*color-mix\(in srgb,\s*var\(--ink\)\s*78%,\s*transparent\)/);
+  assert.match(knob, /fill:\s*color-mix\(in srgb,\s*var\(--ink\)\s*40%,\s*var\(--panel\)\)/);
   assert.match(knob, /stroke:\s*var\(--accent\)/);
   assert.doesNotMatch(knob, /var\(--on-accent\)/);
+  assert.doesNotMatch(knob, /78%/);
+  const darkAt = host.indexOf("systemDark:");
+  const darkBlock = host.slice(darkAt, host.indexOf("colorScheme:", darkAt));
+  const darkInk = quotedField(darkBlock, "ink");
+  const darkPanel = quotedField(darkBlock, "panel");
+  const term = root.slice(root.indexOf('data-theme="terminal"'), root.indexOf("color-scheme:", root.indexOf('data-theme="terminal"')));
+  const termInk = term.match(/--ink:\s*([^;]+);/)?.[1]?.trim() ?? "";
+  const termPanel = term.match(/--panel:\s*([^;]+);/)?.[1]?.trim() ?? "";
+  assert.equal(darkInk, "rgba(255, 255, 255, 0.85)");
+  assert.equal(darkPanel, "#2C2C2E");
+  assert.equal(termInk, "#c8f0d0");
+  assert.equal(termPanel, "#12201a");
+  const darkL = knobLuminance(darkInk, darkPanel, 0.4);
+  const termL = knobLuminance(termInk, termPanel, 0.4);
+  assert.ok(darkL < 0.3, `systemDark knob L ${darkL}`);
+  assert.ok(termL < 0.3, `terminal knob L ${termL}`);
+  const oldDark = relLuminance(
+    compositeOver(mixSrgb(parseCssColor(darkInk), { r: 0, g: 0, b: 0, a: 0 }, 0.78), parseCssColor(darkPanel)),
+  );
+  assert.ok(oldDark >= 0.3, `78% formula must stay above the guard, got ${oldDark}`);
+  assert.ok(relLuminance(parseCssColor("#ffffff")) >= 0.3);
   const dir = new URL("../src/lib/stars/", import.meta.url);
   const files = readdirSync(dir).filter((n) => n.endsWith(".svelte") || n.endsWith(".css"));
   const light: string[] = [];
@@ -278,6 +372,152 @@ test("R12 knobs use the ink mix and stars has no light fills", () => {
     if (/fill:\s*rgb\(\s*255[\s,]+255[\s,]+255/.test(body)) light.push(`${name} rgb`);
   }
   assert.deepEqual(light, []);
+});
+
+function fnBody(src: string, name: string, nextName: string): string {
+  const at = src.indexOf(`function ${name}`);
+  const end = src.indexOf(`function ${nextName}`, at);
+  assert.ok(at >= 0 && end > at, name);
+  return src.slice(at, end);
+}
+
+/** background / background-color values that are light slabs. Gradients at alpha ≤ 0.55 that fade to transparent stay. */
+function lightBackgrounds(cssSrc: string): string[] {
+  const src = cssSrc.replace(/\/\*[\s\S]*?\*\//g, "");
+  const hits: string[] = [];
+  const re = /(^|[\s;}])(background(?:-color)?)\s*:\s*([^;]*);/g;
+  for (const m of src.matchAll(re)) {
+    let value = m[3].replace(/var\(--planet,\s*#fff(?:fff)?\)/gi, "var(--planet)");
+    const where = `${m[2]}: ${value.trim()}`;
+    const bare = value.replace(/color-mix\((?:[^)(]+|\([^)]*\))*\)/gi, "");
+    const lightRgb = (body: string): boolean => {
+      const rgbRe = /rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+(\d*\.?\d+))?\s*\)/gi;
+      for (const c of body.matchAll(rgbRe)) {
+        const ch = [Number(c[1]), Number(c[2]), Number(c[3])];
+        const alpha = c[4] === undefined ? 1 : Number(c[4]);
+        if (ch.every((n) => n >= 230) && alpha >= 0.5) return true;
+      }
+      if (/(^|[^#\w])#fff\b/i.test(body) || /#ffffff\b/i.test(body)) return true;
+      if (/(^|[^\w-])white\b/i.test(body)) return true;
+      return false;
+    };
+    if (/gradient\s*\(/i.test(value)) {
+      if (!/transparent/i.test(value)) {
+        if (lightRgb(bare)) hits.push(where);
+        continue;
+      }
+      const rgbRe = /rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+(\d*\.?\d+))?\s*\)/gi;
+      for (const c of value.matchAll(rgbRe)) {
+        const ch = [Number(c[1]), Number(c[2]), Number(c[3])];
+        const alpha = c[4] === undefined ? 1 : Number(c[4]);
+        if (ch.every((n) => n >= 230) && alpha > 0.55) hits.push(where);
+      }
+      const stripped = bare.replace(/rgba?\([^)]*\)/gi, "");
+      if (/(^|[^#\w])#fff\b/i.test(stripped) || /#ffffff\b/i.test(stripped) || /(^|[^\w-])white\b/i.test(stripped)) {
+        hits.push(where);
+      }
+      continue;
+    }
+    if (lightRgb(bare)) hits.push(where);
+  }
+  return hits;
+}
+
+const PANEL_TINT = /background:\s*color-mix\(in srgb,\s*var\(--panel\)\s*92%,\s*transparent\)/;
+
+test("B1 Esc and walkOut call sites step one level", () => {
+  const esc = fnBody(page, "onRailEscape", "reclaimRailRing");
+  const at = esc.indexOf('arch.front !== "arch"');
+  const branch = esc.slice(at, esc.indexOf("return true;", at));
+  assert.match(branch, /const step = depthOut\(arch\.front\)/);
+  assert.match(branch, /front:\s*step\.front/);
+  assert.doesNotMatch(branch, /front:\s*"arch"/);
+  const walk = fnBody(page, "walkOut", "closeStageEmbed");
+  assert.match(walk, /if \(fromBoard\) archDo\(\{ \.\.\.arch, front: "layer2", pending: null \}\)/);
+  assert.doesNotMatch(walk, /front:\s*"arch"/);
+});
+
+test("B2 empty dismiss is pointerup and overPanel is its own hit", () => {
+  const down = fnBody(page, "onStagePointerDown", "onStagePointerUp");
+  assert.equal(down.includes("onRailEscape"), false);
+  assert.equal(down.includes("emptyDismiss"), false);
+  const up = fnBody(page, "onStagePointerUp", "onStageAux");
+  assert.match(up, /phase:\s*"pointerup"/);
+  assert.match(up, /dragPx:\s*drag,/);
+  assert.doesNotMatch(up, /dragPx:\s*0/);
+  assert.match(up, /const animating = wheelAnimating\(\)/);
+  assert.match(up, /\n\s*animating,\n/);
+  assert.doesNotMatch(up, /animating:\s*false/);
+  assert.match(up, /closest\("\.stage-settings, \.l2-expanded, \.l2-board, \.chrome"\)/);
+  assert.match(up, /overPanel,/);
+  assert.doesNotMatch(up, /overPanel:\s*hit\b/);
+});
+
+test("B3 Stars arrows call columnNext and spoke Esc returns to the column", () => {
+  const key = starsPage.slice(starsPage.indexOf("function onStarsKey"), starsPage.indexOf("const showCheckin"));
+  const arrow = key.indexOf('if (e.key === "ArrowLeft" || e.key === "ArrowRight")');
+  assert.ok(arrow >= 0);
+  const before = key.slice(arrow, key.indexOf("columnNext(", arrow));
+  assert.doesNotMatch(before, /(^|\n)\s*return\s*;/);
+  assert.match(key, /const next = columnNext\(/);
+  assert.match(key, /focusCol = next\.col/);
+  assert.match(key, /focusStarsCol\(next\.col\)/);
+  const exit = key.slice(key.indexOf("if (next.exit)"), key.indexOf("if (next.col"));
+  assert.match(exit, /onRingExit\?\.\(\)/);
+  const cb = starsPage.slice(
+    starsPage.indexOf("detachMenuKeys = menuRing.attach"),
+    starsPage.indexOf('invoke("hide_window"'),
+  );
+  assert.match(cb, /spokeLive = false/);
+  assert.ok(cb.indexOf("spokeLive = false") < cb.length);
+});
+
+test("B4 mouse Back and Forward bind pointerup and auxclick", () => {
+  const mouse = fnBody(page, "takeMouseButton", "onStagePointerDown");
+  assert.match(mouse, /button !== 3 && button !== 4/);
+  assert.match(mouse, /inputIntent\(\{\s*kind:\s*"pointer",\s*button\s*\}\)/);
+  assert.match(page, /onpointerup=\{onStagePointerUp\}/);
+  assert.match(page, /onauxclick=\{onStageAux\}/);
+});
+
+test("B5 depth-out keeps the came-from planet and does not open beside", () => {
+  const items = spinItems(["came-from"], "__unmapped__");
+  const at = depthOutCentre(items, "came-from", 0);
+  assert.equal(items[0].kind, "stars");
+  assert.equal(items[at].pid, "came-from");
+  assert.equal(items[at].kind, "planet");
+  assert.notEqual(at, 0);
+  assert.equal(depthOutStop("came-from"), items[at].stop);
+  assert.equal(depthOutStop(null), null);
+  assert.equal(depthOut("layer2").front, "arch");
+  const esc = fnBody(page, "onRailEscape", "reclaimRailRing");
+  const branchAt = esc.indexOf('arch.front !== "arch"');
+  const branch = esc.slice(branchAt, esc.indexOf("return true;", branchAt));
+  assert.match(branch, /reselectStop = backStop/);
+  assert.match(branch, /depthOutStop\(arch\.pid\)/);
+  assert.match(branch, /centreCause = "depthOut"/);
+  assert.ok(branch.indexOf("reselectStop") < branch.indexOf("const step = depthOut"));
+  assert.doesNotMatch(branch, /applyBeside\(/);
+  assert.doesNotMatch(branch, /stageEmbed\s*=/);
+  const centre = list.slice(list.indexOf("const onWheel = !!active"), list.indexOf("if (rail.spinCenter"));
+  const beside = centre.indexOf("applyBeside(");
+  const guard = centre.indexOf('centreCause !== "depthOut"');
+  assert.ok(guard >= 0 && beside > guard);
+});
+
+test("N2 rail backgrounds are dark panel tints", () => {
+  assert.match(ruleBody(css, ".rail.stage-shell .spin-board {"), PANEL_TINT);
+  assert.match(ruleBody(css, ".rail.stage-shell .spin-board {"), /color:\s*var\(--ink\)/);
+  assert.match(ruleBody(css, ".rail.stage-shell .arch-slot .spin-newproj {"), PANEL_TINT);
+  assert.match(ruleBody(css, ".rail.stage-shell .spin-newproj .mini {"), PANEL_TINT);
+  assert.match(ruleBody(css, ".rail.stage-shell .spin-newproj .mini {"), /color:\s*var\(--ink\)/);
+  assert.match(ruleBody(css, ".rail.stage-shell .stage-board-tile {"), PANEL_TINT);
+  assert.match(ruleBody(css, ".rail.stage-shell .stage-board-tile {"), /color:\s*var\(--ink\)/);
+  const light = ruleBody(css, ':root[data-theme="systemLight"] .rail.stage-shell .l2-expanded {');
+  assert.match(light, /background:\s*rgb\(28\s+28\s+32\s*\/\s*0\.94\)/);
+  assert.match(light, /color:\s*#f5f5f7/);
+  assert.doesNotMatch(light, /255\s+255\s+255/);
+  assert.deepEqual(lightBackgrounds(css), []);
 });
 
 test("R6b inward on a non-board layer-2 item does not require a second press to focus", () => {

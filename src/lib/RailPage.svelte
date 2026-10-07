@@ -63,7 +63,7 @@
     type KeyOwner,
     type WalkTarget,
   } from "./rail/stageFocus";
-  import { depthOut, emptyDismiss, inputIntent, spinClickTarget } from "./rail/railInput";
+  import { depthOut, depthOutStop, emptyDismiss, inputIntent, spinClickTarget, type CentreCause } from "./rail/railInput";
   import type { BoardFocus } from "./rail/stageArch";
   import {
     applyPlanetOpen,
@@ -236,6 +236,8 @@
   let stageEmbed = $state<null | "settings" | "stars">(null);
   let keyOwner = $state<KeyOwner>("rail");
   let reselectStop: string | null = null;
+  /** Wheel-centre changes from a spin may open the beside panel. A depth-out must not. */
+  let centreCause: CentreCause = "spin";
   let spinCenter = $state(0);
   let pointerInside = false;
   let focusInside = false;
@@ -964,11 +966,15 @@
       else if (id) confirmHabitatStop(id);
       return;
     }
+    const panelTarget = e.target;
+    const overPanel =
+      panelTarget instanceof Element &&
+      !!panelTarget.closest(".stage-settings, .l2-expanded, .l2-board, .chrome");
     const dismiss = emptyDismiss({
       phase: "pointerup",
       dragPx: drag,
       overHit: hit,
-      overPanel: hit,
+      overPanel,
       animating,
     });
     if (dismiss) onRailEscape();
@@ -1558,6 +1564,11 @@
       }
     }
     if (!embedded && arch.front !== "arch") {
+      if (arch.front === "layer2") {
+        const backStop = depthOutStop(arch.pid);
+        if (backStop) reselectStop = backStop;
+        centreCause = "depthOut";
+      }
       const step = depthOut(arch.front);
       archDo({ ...arch, front: step.front, pending: null });
       return true;
@@ -3823,6 +3834,8 @@
     wheelAnimating,
     get spinCenter() { return spinCenter; },
     set spinCenter(v: number) { spinCenter = v; },
+    get centreCause() { return centreCause; },
+    set centreCause(v: CentreCause) { centreCause = v; },
     get reduceMotion() { return reduceMotion; },
     coachClaim,
     coachSkip,

@@ -1832,8 +1832,8 @@
   }
 
   :root[data-theme="systemLight"] .rail.stage-shell .l2-expanded {
-    background: rgb(255 255 255 / 0.94);
-    color: #1c1c1c;
+    background: rgb(28 28 32 / 0.94);
+    color: #f5f5f7;
     box-shadow: var(--stage-shadow);
   }
 
@@ -2496,8 +2496,8 @@
     min-width: 0;
     min-height: 0;
     border-radius: 20px;
-    background: rgba(248, 246, 252, 0.97);
-    color: #1c1c1c;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    color: var(--ink);
     box-shadow:
       0 0 0 2px color-mix(in srgb, var(--planet, #8a8f98) 55%, transparent),
       0 4px 14px rgb(0 0 0 / 0.12);
@@ -2572,7 +2572,8 @@
     gap: 4px;
     padding: 6px;
     border-radius: 12px;
-    background: rgba(248, 246, 252, 0.98);
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    color: var(--ink);
     box-shadow: none;
     pointer-events: auto;
   }
@@ -2580,9 +2581,9 @@
   .rail.stage-shell .spin-newproj .mini {
     font: inherit;
     font-size: 0.68rem;
-    color: #222;
-    background: #fff;
-    border: 1px solid #d5d8e0;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border: 1px solid var(--edge);
     border-radius: 6px;
     padding: 3px 8px;
   }
@@ -2643,8 +2644,8 @@
     flex-direction: column;
     overflow: hidden;
     border-radius: 18px;
-    background: rgba(248, 246, 252, 0.97);
-    color: #1c1c1c;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    color: var(--ink);
     box-shadow:
       0 0 0 2px color-mix(in srgb, var(--planet, #8a8f98) 45%, transparent),
       0 4px 14px rgb(0 0 0 / 0.12);

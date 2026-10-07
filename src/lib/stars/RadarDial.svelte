@@ -361,7 +361,7 @@
   }
 
   .knob {
-    fill: color-mix(in srgb, var(--ink) 78%, transparent);
+    fill: color-mix(in srgb, var(--ink) 40%, var(--panel));
     stroke: var(--accent);
     stroke-width: 1.5;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));

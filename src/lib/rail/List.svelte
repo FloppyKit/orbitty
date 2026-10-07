@@ -167,8 +167,11 @@
     const next = spinCenterFor(list, onWheel ? active : null, center);
     if (next !== center) {
       center = next;
-      rail.applyBeside(pickFromKind(list[next]?.kind));
+      if (rail.centreCause !== "depthOut") {
+        rail.applyBeside(pickFromKind(list[next]?.kind));
+      }
     }
+    if (rail.centreCause === "depthOut") rail.centreCause = "spin";
     if (rail.spinCenter !== center) rail.spinCenter = center;
   });
 
