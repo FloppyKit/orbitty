@@ -81,9 +81,14 @@ export function archHalo(
   kind: string,
   opts: { center: boolean; active: boolean },
 ): Halo {
+  void kind;
   if (!opts.center && !opts.active) return "none";
-  if (kind === "planet") return "ring";
-  return "glow";
+  return "ring";
+}
+
+/** At most one focus ring is on at a time. */
+export function oneFocusOwner(marked: readonly boolean[]): boolean {
+  return marked.reduce((n, on) => n + (on ? 1 : 0), 0) <= 1;
 }
 
 /** Union of the marble (or glyph) box and the label box, outset by pad. */

@@ -19,6 +19,9 @@ export interface HostTokens {
 
 export type SystemThemeId = "systemLight" | "systemDark";
 
+/** 2px accent ring with a 2px outset. Published as `--focus-ring`. */
+export const FOCUS_RING = "0 0 0 2px var(--bg), 0 0 0 4px var(--accent)";
+
 // macOS Tahoe semantic colors:
 //   windowBackground · controlBackground · label · secondaryLabel ·
 //   separator — accent/mark/focus are the Orbitty brand triad (lock

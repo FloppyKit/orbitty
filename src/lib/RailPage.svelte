@@ -34,6 +34,7 @@
     archBack,
     archConfirm,
     archEnter,
+    enterBoard,
     archFocusPid,
     archLayout,
     archPainted,
@@ -62,6 +63,8 @@
     type KeyOwner,
     type WalkTarget,
   } from "./rail/stageFocus";
+  import { depthOut, emptyDismiss, inputIntent, spinClickTarget } from "./rail/railInput";
+  import type { BoardFocus } from "./rail/stageArch";
   import {
     applyPlanetOpen,
     autoHideWanted,
@@ -619,8 +622,10 @@
   }
 
   function walkOut() {
+    const fromBoard = keyOwner === "board" && arch.front === "board";
     reselectStop = ownerStop(keyOwner);
     keyOwner = keyOwnerNext(keyOwner, { type: "walkOut" });
+    if (fromBoard) archDo({ ...arch, front: "layer2", pending: null });
     reclaimRailRing();
   }
 
@@ -843,14 +848,136 @@
     applyEdge({ kind: "move", painted });
   }
 
-  function onStagePointerDown(e: PointerEvent) {
-    if (embedded || !stageRevealed) return;
-    if (overPainted(e)) {
-      pointerInside = true;
+  let pointerDownAt: { x: number; y: number } | null = null;
+  let wheelSpinUntil = 0;
+  let mouseButtonAt = 0;
+
+  function noteWheelSpin() {
+    wheelSpinUntil = Date.now() + 360;
+  }
+
+  function wheelAnimating(): boolean {
+    return Date.now() < wheelSpinUntil;
+  }
+
+  function nearHit(e: { clientX: number; clientY: number; target: EventTarget | null }): boolean {
+    const t = e.target;
+    if (t instanceof Element) {
+      if (
+        t.closest(
+          ".arch-hit, .arch-name, .arch-dot, .l2-hit, .l2-expanded, .l2-window-card, .l2-board, .l2-needed-card, .stage-settings, .chrome, .arch-back, button, a, input, textarea, select",
+        )
+      ) {
+        return true;
+      }
+    }
+    const pad = 8;
+    const nodes = document.querySelectorAll(".arch-hit, .arch-name, .l2-hit");
+    for (const n of nodes) {
+      const r = n.getBoundingClientRect();
+      if (
+        e.clientX >= r.left - pad &&
+        e.clientX <= r.right + pad &&
+        e.clientY >= r.top - pad &&
+        e.clientY <= r.bottom + pad
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function focusBoardLanding(focus: BoardFocus) {
+    const id = focus.kind === "card" && focus.id ? `card-${focus.id}` : null;
+    requestAnimationFrame(() => {
+      const panel = document.querySelector(".l2-expanded .l2-board");
+      if (!(panel instanceof HTMLElement)) return;
+      if (id) {
+        menuRing.select(id);
+        const el = panel.querySelector<HTMLElement>(`[data-mkey="${CSS.escape(id)}"]`);
+        if (el) {
+          el.focus();
+          return;
+        }
+      }
+      const add = panel.querySelector<HTMLElement>("[aria-label='Add a to-do'], .ka-plus");
+      if (add) {
+        add.focus();
+        return;
+      }
+      const el = panel.querySelector<HTMLElement>(
+        "input, textarea, select, button, a[href], [tabindex]:not([tabindex='-1'])",
+      );
+      (el ?? panel).focus();
+    });
+  }
+
+  function goInFromPointer() {
+    if (arch.front === "board") return;
+    if (arch.front === "layer2") {
+      const cards = arch.pid ? planetCards(arch.pid) : [];
+      const land = enterBoard(arch, cards);
+      if (!land) return;
+      archDo(land.state);
+      walkInto("board");
+      focusBoardLanding(land.focus);
       return;
     }
-    pointerInside = false;
-    stageFocus(false);
+    const id = menuRing.activeId;
+    if (id) confirmHabitatStop(id);
+  }
+
+  function takeMouseButton(button: number): boolean {
+    if (button !== 3 && button !== 4) return false;
+    const now = Date.now();
+    if (now - mouseButtonAt < 50) return true;
+    mouseButtonAt = now;
+    const intent = inputIntent({ kind: "pointer", button });
+    if (intent === "out") onRailEscape();
+    else if (intent === "in") goInFromPointer();
+    return true;
+  }
+
+  function onStagePointerDown(e: PointerEvent) {
+    if (embedded || !stageRevealed) return;
+    pointerDownAt = { x: e.clientX, y: e.clientY };
+    pointerInside = nearHit(e) || overPainted(e);
+  }
+
+  function onStagePointerUp(e: PointerEvent) {
+    if (embedded || !stageRevealed) return;
+    if (takeMouseButton(e.button)) {
+      e.preventDefault();
+      pointerDownAt = null;
+      return;
+    }
+    if (e.button !== 0) return;
+    const drag = pointerDownAt
+      ? Math.hypot(e.clientX - pointerDownAt.x, e.clientY - pointerDownAt.y)
+      : 0;
+    pointerDownAt = null;
+    const hit = nearHit(e);
+    const animating = wheelAnimating();
+    if (spinClickTarget(animating, hit) === "landing") {
+      const id = menuRing.activeId;
+      if (arch.front === "layer2" && id) confirmLayer2Stop(id);
+      else if (id) confirmHabitatStop(id);
+      return;
+    }
+    const dismiss = emptyDismiss({
+      phase: "pointerup",
+      dragPx: drag,
+      overHit: hit,
+      overPanel: hit,
+      animating,
+    });
+    if (dismiss) onRailEscape();
+  }
+
+  function onStageAux(e: MouseEvent) {
+    if (embedded || !stageRevealed) return;
+    if (!takeMouseButton(e.button)) return;
+    e.preventDefault();
   }
 
   function onStageMouseLeave(e: MouseEvent) {
@@ -1093,6 +1220,13 @@
       return;
     }
     if (item.kind === "board") {
+      const land = enterBoard(arch, planetCards(arch.pid));
+      if (land) {
+        archDo(land.state);
+        walkInto("board");
+        focusBoardLanding(land.focus);
+        return;
+      }
       focusMirrorBoard();
       return;
     }
@@ -1239,7 +1373,17 @@
     };
     const applyArrow = (activeId: string, dir: string) => {
       const before = arch;
-      const result = archArrow(before, items, spinCenter, dir, railEdge, l2, activeId, due);
+      const result = archArrow(
+        before,
+        items,
+        spinCenter,
+        dir,
+        railEdge,
+        l2,
+        activeId,
+        due,
+        before.pid ? planetCards(before.pid) : [],
+      );
       if (!result) {
         const cur = l2[before.center2];
         if (before.front === "layer2" && cur?.kind === "needed" && inwardKey(dir)) armNeededMouth(cur);
@@ -1248,6 +1392,7 @@
       if (result.walkIn) {
         archDo(result.state);
         walkInto(result.walkIn);
+        if (result.walkIn === "board" && result.focus) focusBoardLanding(result.focus);
         return;
       }
       archDo(result.state);
@@ -1413,7 +1558,8 @@
       }
     }
     if (!embedded && arch.front !== "arch") {
-      archDo(archBack(arch));
+      const step = depthOut(arch.front);
+      archDo({ ...arch, front: step.front, pending: null });
       return true;
     }
     if (
@@ -1429,6 +1575,10 @@
         menuRing.select(`rhead-${pid}`);
         return true;
       }
+    }
+    if (!embedded && stageRevealed && depthOut(arch.front).hide) {
+      void parkStage();
+      return true;
     }
     return false;
   }
@@ -3221,6 +3371,7 @@
   const onMotionChange = () => {
     reduceMotion = motionMedia.matches;
   };
+
   onMount(async () => {
     reduceMotion = motionMedia.matches;
     motionMedia.addEventListener("change", onMotionChange);
@@ -3667,6 +3818,9 @@
     get claimFlash() { return claimFlash; },
     archDo,
     planetCards,
+    focusBoardLanding,
+    noteWheelSpin,
+    wheelAnimating,
     get spinCenter() { return spinCenter; },
     set spinCenter(v: number) { spinCenter = v; },
     get reduceMotion() { return reduceMotion; },
@@ -3883,6 +4037,8 @@
     noteRailAct();
     onStagePointerDown(e);
   }}
+  onpointerup={onStagePointerUp}
+  onauxclick={onStageAux}
   onmouseleave={(e) => onStageMouseLeave(e)}
   onfocusin={() => stageFocus(true)}
   onfocusout={(e) => {

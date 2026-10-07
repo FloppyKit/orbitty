@@ -35,7 +35,7 @@ export const ARCH_FRAME: ArchFrame = { w: 1040, h: 760 };
 const STEP_RAD = (ARCH_SPAN_DEG / 4) * (Math.PI / 180);
 const THETA_MAX = 4 * STEP_RAD;
 export const ARCH_DEPTH_SCALE = 0.86;
-export const ARCH_DEPTH_OPACITY = 0.5;
+export const ARCH_DEPTH_OPACITY = 0.45;
 export const ARCH_DEPTH_BLUR = 3;
 export const ARCH_DEPTH_SHIFT = 24;
 export const ARCH_DEPTH_MS = 360;
@@ -141,6 +141,8 @@ export interface ArchArrowResult {
   step: number | null;
   /** Set when the inward arrow walks into a beside panel. Absent otherwise. */
   walkIn?: ArchWalkIn | null;
+  /** Set in the same transition as walkIn "board". */
+  focus?: BoardFocus | null;
 }
 
 function copy(s: ArchState): ArchState {
@@ -414,7 +416,7 @@ function layoutLabels(
   const chosen = new Map<number, ArchLabelBox>();
   const order = [...ks].sort((a, b) => Math.abs(a) - Math.abs(b) || a - b);
   for (const k of order) {
-    const h = k === 0 ? 16 : 15;
+    const h = k === 0 ? 23 : 22;
     const marble = marbles.get(k)!;
     let best: ArchLabelBox | null = null;
     let beside: ArchLabelBox | null = null;
@@ -500,6 +502,35 @@ export function archOpenBoard(s: ArchState, unmappedKey = "__unmapped__"): ArchS
   return { ...copy(s), front: "board", pending: null };
 }
 
+export interface BoardFocus {
+  kind: "card" | "add";
+  id: string | null;
+}
+
+function statusRank(status: string | undefined): number {
+  if (status === "todo") return 0;
+  if (status === "doing") return 1;
+  if (status === "done") return 2;
+  return 3;
+}
+
+/** One inward step from layer 2: the board is front and a card (or the add
+ *  field, when the planet has no cards) is the focus target. No limbo. */
+export function enterBoard(
+  s: ArchState,
+  cards: readonly { id: string; status?: string }[] = [],
+  unmappedKey = "__unmapped__",
+): { state: ArchState; focus: BoardFocus } | null {
+  if (s.front !== "layer2") return null;
+  const state = archOpenBoard(s, unmappedKey);
+  if (state.front !== "board") return null;
+  const ranked = cards.filter((c) => !!c.id).slice().sort((a, b) => statusRank(a.status) - statusRank(b.status));
+  const focus: BoardFocus = ranked.length
+    ? { kind: "card", id: ranked[0].id }
+    : { kind: "add", id: null };
+  return { state, focus };
+}
+
 export function archScroll2(s: ArchState, steps: number, n2: number): ArchState {
   if (s.front !== "layer2" || steps === 0) return copy(s);
   if (n2 <= 0) return copy(s);
@@ -521,8 +552,10 @@ export function archPointer(s: ArchState, zone: ArchZone, now: number): ArchStat
   if (!s.pending || s.pending.zone !== zone) {
     return { ...copy(s), pending: { zone, since: now } };
   }
-  if (now - s.pending.since < ARCH_DWELL_MS) return copy(s);
-  return { ...copy(s), front: dest, pending: null };
+  // Hover dwell may keep `pending` as the highlight. It never changes depth.
+  void dest;
+  void ARCH_DWELL_MS;
+  return copy(s);
 }
 
 export function archArrow(
@@ -534,6 +567,7 @@ export function archArrow(
   layer2: readonly Layer2Item[] = [],
   activeId: string | null = null,
   due = false,
+  cards: readonly { id: string; status?: string }[] = [],
 ): ArchArrowResult | null {
   const ax = axis(edge);
   const centred = items[centre];
@@ -586,7 +620,9 @@ export function archArrow(
     const cur =
       (activeId && layer2.find((it) => it.stop === activeId)) || layer2[s.center2];
     if (cur?.kind === "board") {
-      return { state: archOpenBoard(s), stop: cur.stop, step: null, walkIn: "board" };
+      const land = enterBoard(s, cards);
+      if (!land) return null;
+      return { state: land.state, stop: cur.stop, step: null, walkIn: "board", focus: land.focus };
     }
     return null;
   }
@@ -987,7 +1023,7 @@ export function mirrorDepth(front: ArchFront, layer: 1 | 2, reduce: boolean): Ar
   if (front === "layer2" && layer === 1) {
     return {
       scale: 0.72,
-      opacity: 0.3,
+      opacity: 0.45,
       blur: reduce ? 0 : 3,
       shift: MIRROR_RECEDE,
       durationMs: reduce ? 0 : ARCH_DEPTH_MS,

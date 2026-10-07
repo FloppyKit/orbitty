@@ -175,6 +175,7 @@
           class:timer
           class:running={live}
           tabindex="0"
+          data-stars-row={i}
           aria-label="{row.projectName} {row.tr.label}"
           onkeydown={(e) => {
             if (e.key !== "Enter" || e.target !== e.currentTarget) return;
@@ -381,6 +382,11 @@
     border: 1px solid var(--edge);
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
     transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+
+  .face:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring), 0 12px 28px rgba(0, 0, 0, 0.45);
   }
 
   .face:hover,

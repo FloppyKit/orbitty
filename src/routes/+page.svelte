@@ -154,6 +154,7 @@
     height: 100%;
     overflow: hidden;
     background: transparent;
+    --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
   }
 
   /* Window label not yet resolved (IPC lagged module

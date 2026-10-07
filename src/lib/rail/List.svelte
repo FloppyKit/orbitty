@@ -18,7 +18,6 @@
   import type { RailApi } from "./api";
   import {
     SPIN_SETTLE_MS,
-    spinAccumulate,
     spinCenterFor,
     spinConfirm,
     spinInitial,
@@ -26,16 +25,14 @@
     spinJump,
     spinOffset,
     spinStep,
-    type SpinAccumState,
     type SpinItem,
     type StageEdge,
   } from "./stageLook";
   import {
-    archBack,
     archCentreChanged,
     archConfirm,
     archEnter,
-    archForward,
+    enterBoard,
     archInitial,
     archLayout,
     archOrbitArc,
@@ -61,6 +58,7 @@
     type Layer2Item,
   } from "./stageArch";
   import { archHalo, outwardDir, pickFromKind, selWrapBox } from "./stageFocus";
+  import { archGutter, depthOut, spinStepsCap, SPIN_CAP_IDLE, type SpinCapState } from "./railInput";
 
   let { rail }: { rail: RailApi } = $props();
 
@@ -71,7 +69,11 @@
   let stageEl = $state<HTMLDivElement | null>(null);
   let boardPlanet = $state("inbox");
   let nameEl = $state<HTMLInputElement | null>(null);
-  let accum: SpinAccumState = { residual: 0, lastAt: 0 };
+  let cap: SpinCapState = {
+    spin: { ...SPIN_CAP_IDLE.spin },
+    windowStart: 0,
+    windowSteps: 0,
+  };
   let prevOffsets: number[] = [];
   let havePrev = false;
   let jumpMask = $state<boolean[]>([]);
@@ -236,21 +238,21 @@
       const front = (rail.arch?.front ?? "arch") as ArchFront;
       if (zone === "none" || zone === "board") return;
       if (zone === "layer2" && front === "layer2" && rail.arch?.pid === rail.UNMAPPED_KEY) return;
+      // Scroll never changes depth. A wheel over a layer that is not front does nothing.
+      if (zone === "arch" && front !== "arch") return;
+      if (zone === "layer2" && front !== "layer2") return;
       e.preventDefault();
+      const out = spinStepsCap(
+        cap,
+        { deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode },
+        Date.now(),
+      );
+      cap = out.state;
+      if (out.steps === 0) return;
+      if (typeof rail.noteWheelSpin === "function") rail.noteWheelSpin();
       if (zone === "arch") {
-        if (front !== "arch") {
-          bringArch();
-          return;
-        }
         const n = items.length;
         if (n === 0) return;
-        const out = spinAccumulate(
-          accum,
-          { deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode },
-          Date.now(),
-        );
-        accum = out.state;
-        if (out.steps === 0) return;
         const next = spinStep(center, out.steps, n);
         center = next;
         const active = rail.menuRing.activeId as string | null;
@@ -260,28 +262,14 @@
         rail.applyBeside(pickFromKind(items[next]?.kind));
         return;
       }
-      if (zone === "layer2") {
-        if (front !== "layer2") {
-          if (front === "board") rail.archDo(archBack(rail.arch));
-          else rail.archDo(archForward(rail.arch));
-          return;
-        }
-        const out = spinAccumulate(
-          accum,
-          { deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode },
-          Date.now(),
-        );
-        accum = out.state;
-        if (out.steps === 0) return;
-        const next = archScroll2(rail.arch, out.steps, layer2.length);
-        rail.archDo(next);
-        const active = rail.menuRing.activeId as string | null;
-        if (next.front === "layer2" && active && layer2.some((it) => it.stop === active)) {
-          const hit = layer2[next.center2];
-          if (hit) rail.menuRing.select(hit.stop);
-        }
-        rail.applyBeside("planet");
+      const next = archScroll2(rail.arch, out.steps, layer2.length);
+      rail.archDo(next);
+      const active = rail.menuRing.activeId as string | null;
+      if (next.front === "layer2" && active && layer2.some((it) => it.stop === active)) {
+        const hit = layer2[next.center2];
+        if (hit) rail.menuRing.select(hit.stop);
       }
+      rail.applyBeside("planet");
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -400,10 +388,10 @@
   }
 
   function bringArch() {
-    let s = rail.arch as ArchState;
-    if (s.front === "board") s = archBack(s);
-    if (s.front === "layer2") s = archBack(s);
-    rail.archDo(s);
+    const front = (rail.arch?.front ?? "arch") as ArchFront;
+    const step = depthOut(front);
+    if (step.hide) return;
+    rail.archDo({ ...rail.arch, front: step.front, pending: null });
   }
 
   function zoneAt(e: { clientX: number; clientY: number }): ArchZone {
@@ -453,9 +441,10 @@
   }
 
   function onTileClick(item: SpinItem, index: number) {
-    if ((rail.arch?.front ?? "arch") !== "arch") {
-      bringArch();
-      return;
+    const spinning = typeof rail.wheelAnimating === "function" && rail.wheelAnimating();
+    if (spinning) {
+      item = items[center] ?? item;
+      index = center;
     }
     if (archHidden(index)) return;
     center = index;
@@ -493,7 +482,26 @@
   function selectLayer(item: Layer2Item) {
     const i = layer2.findIndex((it) => it.stop === item.stop);
     if (i < 0) return;
-    rail.applyBeside(item.kind === "board" ? "board" : "planet");
+    if (item.kind === "board") {
+      const base = {
+        ...rail.arch,
+        front: "layer2" as const,
+        center2: i,
+        pending: null,
+      };
+      const pid = rail.arch.pid as string | null;
+      const cards = pid
+        ? ((rail.planetCards(pid) ?? []) as { id: string; status?: string }[])
+        : [];
+      const land = enterBoard(base, cards);
+      if (land) {
+        rail.archDo(land.state);
+        rail.walkInto("board");
+        rail.focusBoardLanding?.(land.focus);
+      }
+      return;
+    }
+    rail.applyBeside("planet");
     rail.archDo({
       front: rail.arch.front,
       pid: rail.arch.pid,
@@ -840,7 +848,7 @@
             <button
               type="button"
               class="arch-back"
-              aria-label="Back to planets"
+              aria-label="Back"
               style={rectStyle(mirror.back)}
               onclick={bringArch}
             ><span class="arch-sel" aria-hidden="true"></span></button>
@@ -937,7 +945,7 @@
                     class:label-below={labelSide(offsets[i] ?? 0, 1) === "below"}
                     class:label-inboard={labelSide(offsets[i] ?? 0, 1) === "inboard"}
                     style={labelStyle(offsets[i] ?? 0, 1)}
-                  >{itemLabel(item)}</span>
+                  >{#if item.kind === "planet" && item.pid}<span class="arch-dot" style={`background:${rail.planetCss(item.pid)}`}></span>{:else}<span class="arch-dot"></span>{/if}{itemLabel(item)}</span>
                 </span>
               </button>
               {#if item.kind === "add" && rail.creatingProject && !archHidden(i)}
@@ -961,7 +969,7 @@
           <div
             class="layer2-ring"
             class:is-receded={archState.front !== "layer2"}
-            style={depthStyle(2)}
+            style={`${depthStyle(2)};--preview-gutter:${archGutter(220)}px`}
           >
             {#if archState.pid === rail.UNMAPPED_KEY}
               <div class="layer2-unmapped" style={rectStyle(mirror.expanded)}>
@@ -1024,7 +1032,7 @@
                           class:label-below={labelSide(l2Offset(i), L2_RING) === "below"}
                           class:label-inboard={labelSide(l2Offset(i), L2_RING) === "inboard"}
                           style={labelStyle(l2Offset(i), L2_RING)}
-                        >{item.title || (item.kind === "board" ? "Board" : item.kind)}</span>
+                        ><span class="arch-dot" style={`background:${rail.planetCss(archState.pid)}`}></span>{item.title || (item.kind === "board" ? "Board" : item.kind)}</span>
                       </span>
                     </button>
                   </li>

@@ -481,9 +481,9 @@ test("S11 pointer dwell + fresh", () => {
   const mid = archPointer(early, "arch", t + ARCH_DWELL_MS - 1);
   assert.equal(mid.front, "layer2");
   const fired = archPointer(early, "arch", t + ARCH_DWELL_MS);
-  assert.equal(fired.front, "arch");
+  assert.equal(fired.front, "layer2");
   assert.equal(fired.pid, "a");
-  assert.equal(fired.pending, null);
+  assert.equal(fired.pending?.zone, "arch");
   const left = archPointer(early, "layer2", t + ARCH_DWELL_MS);
   assert.equal(left.front, "layer2");
   assert.equal(left.pending, null);
@@ -495,7 +495,7 @@ test("S11 pointer dwell + fresh", () => {
   const withPid: ArchState = { front: "arch", pid: "a", center2: 2, pending: null };
   const arm = archPointer(withPid, "layer2", 100);
   const back = archPointer(arm, "layer2", 100 + ARCH_DWELL_MS);
-  assert.equal(back.front, "layer2");
+  assert.equal(back.front, "arch");
   assert.equal(back.pid, "a");
   const bare: ArchState = { front: "arch", pid: null, center2: 0, pending: null };
   const armBare = archPointer(bare, "layer2", 100);

@@ -361,10 +361,15 @@
   }
 
   .knob {
-    fill: var(--on-accent);
+    fill: color-mix(in srgb, var(--ink) 78%, transparent);
     stroke: var(--accent);
     stroke-width: 1.5;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+  }
+
+  .handle:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
   }
 
   .handle:focus .knob,

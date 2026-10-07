@@ -208,13 +208,8 @@ test("F7 archHalo ignores hover and lights only the centre or active item", () =
     assert.equal(archHalo(kind, { center: false, active: false }), "none", kind);
     const on = archHalo(kind, { center: true, active: false });
     const active = archHalo(kind, { center: false, active: true });
-    if (kind === "planet") {
-      assert.equal(on, "ring");
-      assert.equal(active, "ring");
-    } else {
-      assert.equal(on, "glow");
-      assert.equal(active, "glow");
-    }
+    assert.equal(on, "ring", kind);
+    assert.equal(active, "ring", kind);
   }
   const src = readFileSync(new URL("../src/lib/rail/stageFocus.ts", import.meta.url), "utf8");
   const halo = fnBody(src, "archHalo");
@@ -304,7 +299,9 @@ test("F10 ringlet is hidden unless halo or focus; glow is round", () => {
   const show = blocks.find(
     (b) => /data-halo="ring"/.test(b.selector) && /focus-visible/.test(b.selector) && /display:\s*block/.test(b.body),
   );
-  assert.ok(show);
+  assert.equal(show, undefined);
+  const ring = blocks.find((b) => /\.arch-sel\b/.test(b.selector) && /var\(\s*--focus-ring\s*\)/.test(b.body));
+  assert.ok(ring);
   const glow = blocks.find((b) => b.selector.includes(".arch-vis::before") && /width\s*:/.test(b.body));
   assert.ok(glow);
   const width = /width:\s*(\d+)px/.exec(glow.body);

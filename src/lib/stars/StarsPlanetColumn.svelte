@@ -10,6 +10,7 @@
     onScope,
     onReorder,
     onReorderCommit,
+    active = false,
   }: {
     projects: Project[];
     scope: string;
@@ -17,6 +18,7 @@
     onScope: (id: string) => void;
     onReorder: (fromId: string, beforeId: string | null) => void;
     onReorderCommit: () => void;
+    active?: boolean;
   } = $props();
 
   let listEl: HTMLDivElement | null = $state(null);
@@ -115,10 +117,12 @@
 <div
   class="planet-col"
   class:dots
+  class:col-on={active}
   role="listbox"
   aria-label="Planets"
   aria-activedescendant={focusId === "overall" ? "stars-planet-all" : `stars-planet-${focusId}`}
   tabindex="0"
+  data-stars-col="planets"
   onkeydown={onKey}
 >
   <div class="rows" bind:this={listEl}>
@@ -129,6 +133,7 @@
       class:on={scope === "overall"}
       role="option"
       aria-selected={scope === "overall"}
+      data-stars-row="0"
       tabindex="-1"
       title="All planets"
       onclick={() => {
@@ -139,7 +144,7 @@
       <span class="glyph" aria-hidden="true">✦</span>
       {#if !dots}<span class="name">All planets</span>{/if}
     </button>
-    {#each projects as p (p.id)}
+    {#each projects as p, i (p.id)}
       <button
         type="button"
         id="stars-planet-{p.id}"
@@ -149,6 +154,7 @@
         role="option"
         aria-selected={scope === p.id}
         data-pid={p.id}
+        data-stars-row={i + 1}
         tabindex="-1"
         title={p.name}
         aria-label={p.name}
@@ -174,8 +180,8 @@
   }
 
   .planet-col:focus-visible {
-    outline: 1px solid var(--accent);
-    outline-offset: -1px;
+    outline: none;
+    box-shadow: var(--focus-ring);
   }
 
   .rows {

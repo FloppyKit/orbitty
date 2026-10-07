@@ -22,6 +22,7 @@
     type SpokeKey,
   } from "./stars/radarGeom";
   import { starsColumns, starsLayout, starsScopeTargets } from "./stars/starsLayout";
+  import { columnNext, segmentNext, withinNext, type StarsCol } from "./stars/starsFocus";
   import { folioFace, reflectTarget, type StarsView } from "./stars/folioDay";
   import { buildDocs, epochSecToDayKey } from "./skyBag";
   import { listenPaneVis } from "./paneVis";
@@ -83,6 +84,9 @@
   let mainEl: HTMLElement | null = $state(null);
   let mainW = $state(1040);
   let segment = $state<"checkin" | "trackers" | "journal">("checkin");
+  let focusCol = $state<StarsCol>("planets");
+  let focusIdx = $state(0);
+  let spokeLive = $state(false);
   let reflectOpen = $state(false);
   let reflectHint = $state("");
   let reflectPlan = $state<{ dayKey: string; dayKeyEnd?: string } | null>(null);
@@ -617,6 +621,12 @@
           reflectOpen = false;
           return true;
         }
+        if (spokeLive) {
+          spokeLive = false;
+          focusCol = "middle";
+          focusStarsCol("middle");
+          return true;
+        }
         invoke("hide_window", { label: hideLabel }).catch(() => {});
         return true;
       });
@@ -647,6 +657,12 @@
         reflectOpen = false;
         return true;
       }
+      if (spokeLive) {
+        spokeLive = false;
+        focusCol = "middle";
+        focusStarsCol("middle");
+        return true;
+      }
       onRingExit?.();
       return true;
     });
@@ -670,6 +686,11 @@
     return () => ro.disconnect();
   });
 
+  onMount(() => {
+    window.addEventListener("keydown", onStarsKey);
+    return () => window.removeEventListener("keydown", onStarsKey);
+  });
+
   onDestroy(() => {
     unlisten?.();
     unlistenVis?.();
@@ -679,6 +700,73 @@
 
   function onBannerMouseDown(e: MouseEvent) {
     startPaneDrag(e);
+  }
+
+  function starsRows(col: StarsCol): HTMLElement[] {
+    const root = mainEl;
+    if (!root) return [];
+    const sel =
+      col === "planets"
+        ? ".planet-col [data-stars-row]"
+        : col === "trackers"
+          ? ".tracker-col [data-stars-row]"
+          : ".mid-col [data-stars-row]";
+    return [...root.querySelectorAll<HTMLElement>(sel)];
+  }
+
+  function focusStarsCol(col: StarsCol) {
+    const root = mainEl;
+    if (!root) return;
+    const sel =
+      col === "planets" ? ".planet-col" : col === "middle" ? ".mid-col" : ".tracker-col";
+    root.querySelector<HTMLElement>(sel)?.focus();
+  }
+
+  function onStarsKey(e: KeyboardEvent) {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    const t = e.target;
+    if (t instanceof Element && t.closest("input, textarea, select, [contenteditable='true']")) return;
+    if (layout === "single" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      e.preventDefault();
+      segment = segmentNext(segment, e.key === "ArrowRight" ? "right" : "left");
+      mainEl?.querySelector<HTMLElement>(`[data-seg="${segment}"]`)?.focus();
+      return;
+    }
+    if (e.key === "Enter" && focusCol === "middle" && !spokeLive) {
+      if (t instanceof Element && t.closest("button, a")) return;
+      e.preventDefault();
+      spokeLive = true;
+      mainEl?.querySelector<HTMLElement>(".handle")?.focus();
+      return;
+    }
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "ArrowUp" && e.key !== "ArrowDown") {
+      return;
+    }
+    if (spokeLive && (e.key === "ArrowUp" || e.key === "ArrowDown")) return;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      if (layout === "single") return;
+      const dir = e.key === "ArrowRight" ? "right" : "left";
+      const next = columnNext(layout, focusCol, dir, { embedded, outward: outwardDir });
+      if (next.exit) {
+        e.preventDefault();
+        onRingExit?.();
+        return;
+      }
+      if (next.col !== focusCol) {
+        e.preventDefault();
+        spokeLive = false;
+        focusCol = next.col;
+        focusIdx = 0;
+        focusStarsCol(next.col);
+      }
+      return;
+    }
+    if (focusCol === "planets") return;
+    const rows = starsRows(focusCol);
+    if (rows.length === 0) return;
+    e.preventDefault();
+    focusIdx = withinNext(focusCol, focusIdx, e.key === "ArrowDown" ? "down" : "up", rows.length);
+    rows[focusIdx]?.focus();
   }
 
   const showCheckin = $derived(layout !== "single" || segment === "checkin");
@@ -768,9 +856,9 @@
 
   {#if layout === "single"}
     <div class="segments" role="tablist" aria-label="Stars sections">
-      <button type="button" role="tab" aria-selected={segment === "checkin"} onclick={() => (segment = "checkin")}>Check-in</button>
-      <button type="button" role="tab" aria-selected={segment === "trackers"} onclick={() => (segment = "trackers")}>Trackers</button>
-      <button type="button" role="tab" aria-selected={segment === "journal"} onclick={() => (segment = "journal")}>Journal</button>
+      <button type="button" role="tab" data-seg="checkin" aria-selected={segment === "checkin"} onclick={() => (segment = "checkin")}>Check-in</button>
+      <button type="button" role="tab" data-seg="trackers" aria-selected={segment === "trackers"} onclick={() => (segment = "trackers")}>Trackers</button>
+      <button type="button" role="tab" data-seg="journal" aria-selected={segment === "journal"} onclick={() => (segment = "journal")}>Journal</button>
     </div>
   {/if}
 
@@ -780,15 +868,16 @@
         {projects}
         scope={trackerScope}
         dots={layout === "dots"}
+        active={focusCol === "planets" && !spokeLive}
         onScope={(id) => (trackerScope = id)}
         onReorder={reorderPlanetsLive}
         onReorderCommit={commitPlanetOrder}
       />
     {/if}
     {#if showCheckin || showJournal}
-      <div class="mid-col">
+      <div class="mid-col" role="listbox" aria-label="Radar and folio" tabindex="0" data-stars-col="middle">
         {#if showCheckin}
-          <section class="checkin" aria-label="Check-in">
+          <section class="checkin" aria-label="Check-in" data-stars-row="0" tabindex="-1">
             <RadarDial
               spokes={STARS_SPOKES}
               shown={radarShown}
@@ -833,6 +922,7 @@
           </section>
         {/if}
         {#if showJournal}
+          <div class="folio-wrap" data-stars-row="1" tabindex="-1">
           <AlmanacFolio
             pages={starsState.ledgerPages ?? []}
             {projects}
@@ -847,11 +937,12 @@
             onReflect={openReflect}
             onSelectDay={(day) => (cursorDay = day)}
           />
+          </div>
         {/if}
       </div>
     {/if}
     {#if showTrackers}
-      <div class="tracker-col">
+      <div class="tracker-col" role="listbox" aria-label="Trackers" tabindex="0" data-stars-col="trackers">
         <StarsTrackers
           {projects}
           scope={starsScopeTargets(trackerScope).trackers}
@@ -992,6 +1083,13 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+
+  .mid-col:focus-visible,
+  .tracker-col:focus-visible,
+  .segments button:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
   }
 
   .checkin {
