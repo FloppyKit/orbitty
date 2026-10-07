@@ -5,13 +5,23 @@
     grateful = "",
     editable = false,
     onChange,
+    onFieldKey,
   }: {
     win1?: string;
     win2?: string;
     grateful?: string;
     editable?: boolean;
     onChange: (field: "win1" | "win2" | "grateful", value: string) => void;
+    onFieldKey?: (key: "Enter" | "Escape") => void;
   } = $props();
+
+  function onKey(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      onFieldKey?.(e.key);
+    }
+  }
 </script>
 
 <div class="positives">
@@ -19,28 +29,37 @@
     class="field"
     placeholder="Win 1"
     aria-label="Win 1"
+    data-focus-zone="Z3"
+    data-focus-item
     maxlength="80"
     value={win1}
     readonly={!editable}
     oninput={(e) => onChange("win1", e.currentTarget.value)}
+    onkeydown={onKey}
   />
   <input
     class="field"
     placeholder="Win 2"
     aria-label="Win 2"
+    data-focus-zone="Z3"
+    data-focus-item
     maxlength="80"
     value={win2}
     readonly={!editable}
     oninput={(e) => onChange("win2", e.currentTarget.value)}
+    onkeydown={onKey}
   />
   <input
     class="field"
     placeholder="Grateful"
     aria-label="Grateful"
+    data-focus-zone="Z3"
+    data-focus-item
     maxlength="80"
     value={grateful}
     readonly={!editable}
     oninput={(e) => onChange("grateful", e.currentTarget.value)}
+    onkeydown={onKey}
   />
 </div>
 

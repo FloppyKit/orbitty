@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { LedgerPage, Project } from "../persist";
-  import { planetCss } from "../planetColor";
+  import PlanetChip from "./PlanetChip.svelte";
 
   let {
     pages,
@@ -64,8 +64,8 @@
   {#if pages.length}
     <header>
       <span class="count">{safe + 1} / {pages.length}</span>
-      <button type="button" class="nav" onclick={() => flip(-1)} aria-label="Previous page">‹</button>
-      <button type="button" class="nav" onclick={() => flip(1)} aria-label="Next page">›</button>
+      <button type="button" class="nav" data-focus-zone="Z6" data-focus-item onclick={() => flip(-1)} aria-label="Previous page">‹</button>
+      <button type="button" class="nav" data-focus-zone="Z6" data-focus-item onclick={() => flip(1)} aria-label="Next page">›</button>
     </header>
   {/if}
   <div class="stack" class:deep={depth > 0}>
@@ -78,7 +78,7 @@
           <h3>{page.dayKeyEnd && page.dayKey ? `${page.dayKey} – ${page.dayKeyEnd}` : (page.dayKey ?? "Undated")}</h3>
           <p class="meta">
             {#if planet}
-              <span class="chip" style="background: {planetCss(planet.id)}"></span>
+              <PlanetChip id={planet.id} size={8} label={planet.name} />
               {planet.name}
             {:else}
               All
@@ -90,7 +90,7 @@
           <p class="body">{page.body?.trim() ? page.body : ""}</p>
         {:else}
           <h3>{blankHeading(dayKey)}</h3>
-          <button type="button" class="cta" aria-label="Reflect" onclick={onReflect}>Reflect</button>
+          <button type="button" class="cta" data-focus-zone="Z6" data-focus-item aria-label="Reflect" onclick={onReflect}>Reflect</button>
         {/if}
       </article>
     {/key}
@@ -200,14 +200,6 @@
     margin-top: 3px;
     font-size: 0.66rem;
     color: var(--dim);
-  }
-
-  .chip {
-    width: 8px;
-    height: 8px;
-    border-radius: 99px;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
-    flex: none;
   }
 
   .flags {

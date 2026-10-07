@@ -130,6 +130,8 @@
         data-strip-day={cell.day}
         data-mark={cell.mark}
         data-span={cell.spanRole ?? ""}
+        data-focus-zone="Z5"
+        data-focus-item
         onclick={() => onSelectDay(cell.day)}
       >
         <span class="dow">{cell.day.slice(8)}</span>
@@ -152,11 +154,13 @@
       <button
         type="button"
         class="cloud-chip"
+        data-focus-zone="Z6"
+        data-focus-item
         aria-pressed={showCloud}
         onclick={() => (showCloud = !showCloud)}
       >Cloud</button>
     {/if}
-    <button type="button" class="reflect" onclick={onReflect}>Reflect</button>
+    <button type="button" class="reflect" data-focus-zone="Z6" data-focus-item onclick={onReflect}>Reflect</button>
   </header>
   {#if hint}<p class="hint">{hint}</p>{/if}
 
@@ -173,7 +177,7 @@
     {:else if view === "day" && !hasWords(dayKey) && !cloudBody.trim()}
       <div class="quiet">
         <p>No words for {formatDayLabel(dayKey)} yet</p>
-        <button type="button" onclick={onReflect}>Write a page</button>
+        <button type="button" data-focus-zone="Z6" data-focus-item onclick={onReflect}>Write a page</button>
       </div>
     {:else}
       <SkyField from={cloudFrom} to={cloudTo} compact pageBody={cloudBody || undefined} />

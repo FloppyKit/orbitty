@@ -1,13 +1,17 @@
 // Layout of the Stars surface from its own width. No window measure.
+// Three and dots: planets | radar column (radar, DayPositives, trackers) | journal.
+// The journal never shares a column with the radar or the trackers.
 
 export type StarsLayout = "three" | "dots" | "single";
 
 export interface StarsColumnSpec {
   planet: number;
-  right: number;
-  rightMin: number;
-  rightMax: number;
+  /** Radar column: radar, DayPositives, then the trackers grid. */
   middle: string;
+  middleMin: number;
+  /** Journal / sky folio. Its own column. */
+  journal: string;
+  journalMin: number;
 }
 
 /** ≥ 900 three columns, 600–899 dots, under 600 one column. */
@@ -21,28 +25,34 @@ export function starsColumns(layout: StarsLayout): StarsColumnSpec {
   if (layout === "three") {
     return {
       planet: 168,
-      right: 300,
-      rightMin: 260,
-      rightMax: 340,
-      middle: "minmax(420px, 1fr)",
+      middle: "minmax(360px, 1fr)",
+      middleMin: 360,
+      journal: "minmax(320px, 0.9fr)",
+      journalMin: 320,
     };
   }
   if (layout === "dots") {
     return {
       planet: 72,
-      right: 240,
-      rightMin: 220,
-      rightMax: 260,
       middle: "minmax(0, 1fr)",
+      middleMin: 0,
+      journal: "minmax(260px, 1fr)",
+      journalMin: 260,
     };
   }
   return {
     planet: 0,
-    right: 0,
-    rightMin: 260,
-    rightMax: 340,
     middle: "minmax(0, 1fr)",
+    middleMin: 0,
+    journal: "minmax(0, 1fr)",
+    journalMin: 0,
   };
+}
+
+/** CSS grid template. Single is one column; the segments pick the body. */
+export function starsGridTemplate(layout: StarsLayout, cols: StarsColumnSpec = starsColumns(layout)): string {
+  if (layout === "single") return "minmax(0, 1fr)";
+  return `${cols.planet}px ${cols.middle} ${cols.journal}`;
 }
 
 export interface StarsScopeTargets {

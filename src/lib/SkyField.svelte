@@ -325,6 +325,8 @@
         >
           <button
             class="word"
+            data-focus-zone={compact ? "Z7" : undefined}
+            data-focus-item={compact ? "" : undefined}
             class:dim={!isFresh(w)}
             class:picked={selected === w.word}
             class:near={nearSet !== null && selected !== w.word && nearSet.has(w.word)}
@@ -340,6 +342,8 @@
           >
           <button
             class="smash"
+            data-focus-zone={compact ? "Z7" : undefined}
+            data-focus-item={compact ? "" : undefined}
             title="Mute “{w.word}”"
             aria-label="Mute {w.word}"
             onclick={(e) => {
@@ -377,6 +381,8 @@
       {#each muted as m (m)}
         <button
           class="muted-chip"
+          data-focus-zone={compact ? "Z7" : undefined}
+          data-focus-item={compact ? "" : undefined}
           title="Bring “{m}” back"
           onclick={() => unmuteWord(m)}>{m}</button
         >

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Project } from "../persist";
-  import { planetCss } from "../planetColor";
   import { beforeIdAt, columnArrow } from "../board/planetColumn";
+  import PlanetChip from "./PlanetChip.svelte";
 
   let {
     projects,
@@ -49,6 +49,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (e.target !== e.currentTarget) return;
     if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Home" || e.key === "End") {
       e.preventDefault();
       move(e.key);
@@ -134,6 +135,8 @@
       role="option"
       aria-selected={scope === "overall"}
       data-stars-row="0"
+      data-focus-zone="Z1"
+      data-focus-item
       tabindex="-1"
       title="All planets"
       onclick={() => {
@@ -155,6 +158,8 @@
         aria-selected={scope === p.id}
         data-pid={p.id}
         data-stars-row={i + 1}
+        data-focus-zone="Z1"
+        data-focus-item
         tabindex="-1"
         title={p.name}
         aria-label={p.name}
@@ -164,7 +169,7 @@
           onScope(p.id);
         }}
       >
-        <span class="dot" style="background: {planetCss(p.id)}"></span>
+        <PlanetChip id={p.id} size={10} label={p.name} />
         {#if !dots}<span class="name">{p.name}</span>{/if}
       </button>
     {/each}
@@ -173,6 +178,7 @@
 
 <style>
   .planet-col {
+    --stars-ring: var(--focus-ring);
     min-height: 0;
     overflow: auto;
     padding: 4px;
@@ -181,7 +187,6 @@
 
   .planet-col:focus-visible {
     outline: none;
-    box-shadow: var(--focus-ring);
   }
 
   .rows {
@@ -220,14 +225,6 @@
     text-align: center;
     color: var(--dim);
     flex: none;
-  }
-
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 99px;
-    flex: none;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
   }
 
   .name {

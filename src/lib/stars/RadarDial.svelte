@@ -26,7 +26,9 @@
     avgMode = false,
     draft = false,
     activeId = null,
+    live = false,
     onSet,
+    onRadarEdit,
   }: {
     spokes: readonly Spoke[];
     shown?: StarsCheckin | null;
@@ -34,7 +36,9 @@
     avgMode?: boolean;
     draft?: boolean;
     activeId?: string | null;
+    live?: boolean;
     onSet: (key: string, value: number) => void;
+    onRadarEdit?: (open: boolean) => void;
   } = $props();
 
   let dialEl: HTMLDivElement | null = $state(null);
@@ -112,7 +116,7 @@
   }
 
   function onHandleKey(e: KeyboardEvent, key: string) {
-    if (!editable || avgMode) return;
+    if (!editable || avgMode || !live) return;
     const next = ratingFromKey(spokeValue(key), e.key);
     if (next == null) return;
     e.preventDefault();
@@ -135,6 +139,7 @@
     editKey = key;
     const v = spokeValue(key);
     draftNum = v >= 1 ? String(Math.round(v)) : "";
+    onRadarEdit?.(true);
   }
 
   function commitNum() {
@@ -143,10 +148,12 @@
     const n = parseRating(draftNum);
     editKey = null;
     if (n != null) onSet(key, n);
+    onRadarEdit?.(false);
   }
 
   function cancelNum() {
     editKey = null;
+    onRadarEdit?.(false);
   }
 
   $effect(() => {
@@ -223,6 +230,9 @@
           class:on={activeId === `spoke-${spoke.key}`}
           role="slider"
           tabindex="0"
+          data-focus-zone="Z2"
+          data-focus-item
+          data-spoke="1"
           aria-label={spoke.label}
           aria-valuemin="1"
           aria-valuemax="5"
@@ -253,12 +263,16 @@
         style={badgeStyle(i)}
         bind:value={draftNum}
         aria-label={spoke.label}
+        data-focus-zone="Z2"
+        data-focus-item
         onkeydown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
+            e.stopPropagation();
             commitNum();
           } else if (e.key === "Escape") {
             e.preventDefault();
+            e.stopPropagation();
             cancelNum();
           }
         }}
@@ -269,6 +283,8 @@
         type="button"
         class="badge"
         style={badgeStyle(i)}
+        data-focus-zone="Z2"
+        data-focus-item={editable && !avgMode ? "" : undefined}
         disabled={!editable || avgMode}
         onclick={() => openNum(spoke.key)}
       >
@@ -367,9 +383,12 @@
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
   }
 
+  .handle {
+    --stars-ring: var(--focus-ring);
+  }
+
   .handle:focus-visible {
     outline: none;
-    box-shadow: var(--focus-ring);
   }
 
   .handle:focus .knob,

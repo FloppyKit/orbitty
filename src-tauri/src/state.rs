@@ -1170,6 +1170,22 @@ pub struct CardLink {
     pub label: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackerHistory {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub days: Option<std::collections::BTreeMap<String, i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions: Option<TrackerSessions>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackerSessions {
+    pub day: String,
+    pub spans: Vec<(i64, i64)>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Tracker {
@@ -1183,6 +1199,9 @@ pub struct Tracker {
     /// Epoch ms while a timer is running. Stop folds the delta into `value` and clears this.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub running_since: Option<f64>,
+    /// Optional day totals and today's timer spans. Old saves omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<TrackerHistory>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -2554,5 +2573,48 @@ mod tests {
         assert_eq!(page.body.as_deref(), Some("old"));
         let out = serde_json::to_string(&page).unwrap();
         assert!(!out.contains("dayKeyEnd"), "{out}");
+    }
+
+    #[test]
+    fn tracker_history_round_trip() {
+        let mut days = std::collections::BTreeMap::new();
+        days.insert("2026-10-07".to_string(), 12);
+        let tracker = Tracker {
+            id: "tr1".into(),
+            label: "Steps".into(),
+            value: 12,
+            kind: Some("number".into()),
+            running_since: None,
+            history: Some(TrackerHistory {
+                days: Some(days),
+                sessions: Some(TrackerSessions {
+                    day: "2026-10-07".into(),
+                    spans: vec![(1_700_000_000_000, 1_700_000_060_000)],
+                }),
+            }),
+        };
+        let json = serde_json::to_string(&tracker).unwrap();
+        assert!(json.contains("history"), "{json}");
+        assert!(json.contains("2026-10-07"), "{json}");
+        assert!(json.contains("spans"), "{json}");
+        let back: Tracker = serde_json::from_str(&json).unwrap();
+        let hist = back.history.expect("history");
+        assert_eq!(hist.days.expect("days").get("2026-10-07"), Some(&12));
+        let sessions = hist.sessions.expect("sessions");
+        assert_eq!(sessions.day, "2026-10-07");
+        assert_eq!(sessions.spans, vec![(1_700_000_000_000, 1_700_000_060_000)]);
+        assert!(back.running_since.is_none());
+    }
+
+    #[test]
+    fn tracker_without_history_loads() {
+        let json = r#"{"id":"tr-old","label":"Old","value":3}"#;
+        let tracker: Tracker = serde_json::from_str(json).unwrap();
+        assert!(tracker.history.is_none());
+        assert_eq!(tracker.value, 3);
+        assert_eq!(tracker.label, "Old");
+        let out = serde_json::to_string(&tracker).unwrap();
+        assert!(!out.contains("history"), "{out}");
+        assert!(!out.contains("runningSince"), "{out}");
     }
 }

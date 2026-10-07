@@ -157,44 +157,40 @@ test("S1 starsLayout boundaries and column px", () => {
   const dots = starsColumns("dots");
   const single = starsColumns("single");
   assert.equal(three.planet, 168);
-  assert.equal(three.right, 300);
-  assert.equal(three.rightMin, 260);
-  assert.equal(three.rightMax, 340);
-  assert.equal(three.middle, "minmax(420px, 1fr)");
+  assert.equal(three.middle, "minmax(360px, 1fr)");
+  assert.equal(three.middleMin, 360);
+  assert.equal(three.journal, "minmax(320px, 0.9fr)");
+  assert.equal(three.journalMin, 320);
   assert.equal(dots.planet, 72);
-  assert.equal(dots.right, 240);
-  assert.equal(dots.rightMin, 220);
-  assert.equal(dots.rightMax, 260);
   assert.equal(dots.middle, "minmax(0, 1fr)");
+  assert.equal(dots.middleMin, 0);
+  assert.equal(dots.journal, "minmax(260px, 1fr)");
+  assert.equal(dots.journalMin, 260);
   assert.equal(single.planet, 0);
-  assert.equal(single.right, 0);
+  assert.equal(single.journalMin, 0);
 });
 
 test("S15 dots columns fit 600 through 899", () => {
   const dots = starsColumns("dots");
   assert.deepEqual(dots, {
     planet: 72,
-    right: 240,
-    rightMin: 220,
-    rightMax: 260,
     middle: "minmax(0, 1fr)",
+    middleMin: 0,
+    journal: "minmax(260px, 1fr)",
+    journalMin: 260,
   });
-  const template = `${dots.planet}px ${dots.middle} clamp(${dots.rightMin}px, ${dots.right}px, ${dots.rightMax}px)`;
-  assert.equal(template, "72px minmax(0, 1fr) clamp(220px, 240px, 260px)");
+  const template = `${dots.planet}px ${dots.middle} ${dots.journal}`;
+  assert.equal(template, "72px minmax(0, 1fr) minmax(260px, 1fr)");
   const three = starsColumns("three");
   assert.deepEqual(three, {
     planet: 168,
-    right: 300,
-    rightMin: 260,
-    rightMax: 340,
-    middle: "minmax(420px, 1fr)",
+    middle: "minmax(360px, 1fr)",
+    middleMin: 360,
+    journal: "minmax(320px, 0.9fr)",
+    journalMin: 320,
   });
   const page = src("src/lib/StarsPage.svelte");
-  assert.ok(
-    page.includes(
-      "`${cols.planet}px ${cols.middle} clamp(${cols.rightMin}px, ${cols.right}px, ${cols.rightMax}px)`",
-    ),
-  );
+  assert.match(page, /starsGridTemplate\(layout, cols\)/);
   const gridAt = page.indexOf("const gridCols = $derived(");
   assert.ok(gridAt > 0);
   const grid = page.slice(gridAt, page.indexOf(");", gridAt));
@@ -204,15 +200,13 @@ test("S15 dots columns fit 600 through 899", () => {
   assert.match(bodyCss, /gap:\s*10px/);
   assert.match(bodyCss, /padding:\s*10px 12px 12px/);
   assert.match(bodyCss, /overflow:\s*hidden/);
-  const middleMin = dots.middle === "minmax(0, 1fr)" ? 0 : Number(/^minmax\((\d+)px/.exec(dots.middle)?.[1]);
-  assert.equal(middleMin, 0);
   const gaps = 10 * 2;
   const padding = 12 + 12;
-  const need = dots.planet + middleMin + dots.rightMin + gaps + padding;
+  const need = dots.planet + dots.middleMin + dots.journalMin + gaps + padding;
   const marked = [600, 640, 775, 899];
   for (const w of marked) {
     assert.equal(starsLayout(w), "dots", String(w));
-    assert.ok(72 + 220 + gaps + padding <= w, `marked ${w}`);
+    assert.ok(need <= w, `marked ${w}`);
   }
   for (let w = 600; w <= 899; w++) {
     assert.equal(starsLayout(w), "dots", String(w));
@@ -224,14 +218,15 @@ test("S15 dots columns fit 600 through 899", () => {
 
 test("S16 stars-save fill is mixed accent", () => {
   const page = src("src/lib/StarsPage.svelte");
-  const at = page.indexOf(".stars-save:not(:disabled)");
+  assert.equal(page.includes("stars-save"), false);
+  assert.equal(page.includes("Save today"), false);
+  assert.equal(page.includes(">Edit</button>"), false);
+  const at = page.indexOf(".stars-note {");
   assert.ok(at > 0);
   const rule = page.slice(at, page.indexOf("}", at));
+  assert.match(rule, /color:\s*var\(--dim\)\s*;/);
   assert.equal(/background:\s*var\(--accent\)\s*;/.test(rule), false);
   assert.equal(/background-color:\s*var\(--accent\)\s*;/.test(rule), false);
-  assert.match(rule, /background:\s*color-mix\(in srgb,\s*var\(--accent\)\s*24%,\s*transparent\)\s*;/);
-  assert.match(rule, /color:\s*var\(--ink\)\s*;/);
-  assert.match(rule, /border-color:\s*var\(--accent\)\s*;/);
 });
 
 test("S17 no bare accent fill and compact sky stays dark", () => {
@@ -538,13 +533,14 @@ test("S12 embed banner and own-width layout", () => {
 });
 
 test("S13 tracker controls show on hover and focus", () => {
-  const css = [...src("src/lib/stars/StarsTrackers.svelte").matchAll(/<style>([\s\S]*?)<\/style>/g)]
+  const css = [...src("src/lib/stars/TrackerCard.svelte").matchAll(/<style>([\s\S]*?)<\/style>/g)]
     .map((m) => m[1])
     .join("\n");
-  assert.match(css, /\.face:hover\s+\.overlay/);
-  assert.match(css, /\.face:focus-within\s+\.overlay/);
-  const overlay = css.slice(css.indexOf(".overlay {"), css.indexOf("}", css.indexOf(".overlay {")));
-  assert.equal(/display\s*:\s*none/.test(overlay), false);
+  assert.match(css, /\.card:hover\s+\.foot/);
+  assert.match(css, /\.card:focus-within\s+\.foot/);
+  const foot = css.slice(css.indexOf(".foot {"), css.indexOf("}", css.indexOf(".foot {")));
+  assert.equal(/display\s*:\s*none/.test(foot), false);
+  assert.match(foot, /opacity:\s*0/);
   assert.match(src("src/lib/stars/StarsTrackers.svelte"), /scope === "overall"/);
 });
 

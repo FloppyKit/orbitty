@@ -1,7 +1,8 @@
 <script lang="ts">
   // Stars: planet column, five-spoke radar, trackers, journal / sky folio.
   // Check-ins are explicit. Today with nothing saved is a draft at 3 and
-  // is not written until a touch or Save. Past empty days stay empty.
+  // is not written until a touch. The first real edit autosaves. Past empty
+  // days stay empty.
   // The day cursor is session-only. Writes are load → mutate → save of the
   // whole state object.
   import { invoke } from "@tauri-apps/api/core";
@@ -21,8 +22,21 @@
     stepSpoke,
     type SpokeKey,
   } from "./stars/radarGeom";
-  import { starsColumns, starsLayout, starsScopeTargets } from "./stars/starsLayout";
-  import { columnNext, segmentNext, withinNext, type StarsCol } from "./stars/starsFocus";
+  import { starsColumns, starsGridTemplate, starsLayout, starsScopeTargets } from "./stars/starsLayout";
+  import {
+    AUTOSAVE_MS,
+    autosaveDue,
+    columnNext,
+    focusOrigin,
+    focusStep,
+    segmentNext,
+    zoneColumn,
+    type FocusWorld,
+    type StarsCol,
+    type StarsFocus,
+    type StarsZone,
+  } from "./stars/starsFocus";
+  import { withCounterHistory, withTimerStop } from "./stars/trackerHistory";
   import { folioFace, reflectTarget, type StarsView } from "./stars/folioDay";
   import { buildDocs, epochSecToDayKey } from "./skyBag";
   import { listenPaneVis } from "./paneVis";
@@ -85,7 +99,8 @@
   let mainW = $state(1040);
   let segment = $state<"checkin" | "trackers" | "journal">("checkin");
   let focusCol = $state<StarsCol>("planets");
-  let focusIdx = $state(0);
+  let focusPos = $state<StarsFocus>(focusOrigin("Z1"));
+  let dayPicking = $state(false);
   let spokeLive = $state(false);
   let reflectOpen = $state(false);
   let reflectHint = $state("");
@@ -93,15 +108,13 @@
   let starsLoaded = $state(false);
   let starsDraft = $state<StarsCheckin>(emptyCheckin());
   let starsSavedDay = $state("");
+  let savedLabel = $state("");
   let draftDirty = $state(false);
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
   const layout = $derived(starsLayout(mainW));
   const cols = $derived(starsColumns(layout));
-  const gridCols = $derived(
-    layout === "single"
-      ? "minmax(0, 1fr)"
-      : `${cols.planet}px ${cols.middle} clamp(${cols.rightMin}px, ${cols.right}px, ${cols.rightMax}px)`,
-  );
+  const gridCols = $derived(starsGridTemplate(layout, cols));
 
   function emptyCheckin(): StarsCheckin {
     return { sleep: 0, terroir: 0, athleticism: 0, relationships: 0, self: 0 };
@@ -117,7 +130,6 @@
   const cursorSaved = $derived(starsState.checkins[cursorDay]);
   type StarsNav = StarsView;
   let navView = $state<StarsNav>("day");
-  let editingToday = $state(false);
   const WINDOWS: Record<Exclude<StarsNav, "day" | "custom">, number> = {
     week: 7,
     month: 30,
@@ -144,9 +156,7 @@
       .map((d) => starsState.checkins[d]);
   });
   const avgMode = $derived(navView !== "day");
-  const dayEditable = $derived(
-    isToday && !avgMode && (!cursorSaved || editingToday || draftDirty),
-  );
+  const dayEditable = $derived(isToday && !avgMode);
   const windowMean = $derived.by<StarsCheckin | null>(() => {
     const saves = windowSaves;
     if (!saves.length) return null;
@@ -195,11 +205,43 @@
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
   }
   function prevDay() {
-    cursorDay = shiftDay(cursorDay, -1);
+    moveDay(shiftDay(cursorDay, -1));
   }
   function nextDay() {
     const n = shiftDay(cursorDay, 1);
-    if (n <= todayKey()) cursorDay = n;
+    if (n <= todayKey()) moveDay(n);
+  }
+  function moveDay(next: string) {
+    if (next === cursorDay) return;
+    flushAutosave();
+    cursorDay = next;
+  }
+
+  function clockLabel(d = new Date()): string {
+    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
+  function scheduleAutosave() {
+    if (!autosaveDue(draftDirty)) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = undefined;
+      if (autosaveDue(draftDirty)) void saveStarsToday();
+    }, AUTOSAVE_MS);
+  }
+
+  function flushAutosave() {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = undefined;
+    }
+    if (autosaveDue(draftDirty)) void saveStarsToday();
+  }
+
+  function noteEdit() {
+    starsSavedDay = "";
+    draftDirty = true;
+    scheduleAutosave();
   }
 
   function syncStarsDraft() {
@@ -234,15 +276,13 @@
     if (!dayEditable) return;
     const n = v <= 0 ? 0 : Math.max(1, Math.min(5, Math.round(v)));
     starsDraft = { ...starsDraft, [key]: n };
-    starsSavedDay = "";
-    draftDirty = true;
+    noteEdit();
   }
 
   function setWin(field: "win1" | "win2" | "grateful", raw: string) {
     if (!dayEditable) return;
     starsDraft = { ...starsDraft, [field]: raw };
-    starsSavedDay = "";
-    draftDirty = true;
+    noteEdit();
   }
 
   function filled(raw: string | undefined): string | undefined {
@@ -251,6 +291,7 @@
   }
 
   async function saveStarsToday() {
+    if (!autosaveDue(draftDirty)) return;
     if (!isToday) return;
     const day = todayKey();
     const clean = emptyCheckin();
@@ -273,8 +314,8 @@
       starsState = stars;
       bagState = s;
       starsSavedDay = day;
+      savedLabel = clockLabel();
       draftDirty = false;
-      editingToday = false;
     } catch {
       // next Save retries; the draft stays put
     }
@@ -339,16 +380,12 @@
   function bumpSpoke(key: SpokeKey, delta: number) {
     if (!isToday || avgMode) return;
     const cur = starsDraft[key] ?? 0;
-    if (!dayEditable) {
-      editingToday = true;
-      if (cur >= 1) return;
-    }
     setSpoke(key, stepSpoke(cur, delta));
   }
 
   function saveFromRing() {
-    if (!isToday || avgMode || (!dayEditable && !!cursorSaved)) return;
-    void saveStarsToday();
+    if (!isToday || avgMode) return;
+    flushAutosave();
   }
 
   $effect(() => {
@@ -415,8 +452,8 @@
 
   const onReshow = () => {
     starsSavedDay = "";
+    savedLabel = "";
     draftDirty = false;
-    editingToday = false;
     reflectOpen = false;
     cursorDay = todayKey();
     loadState();
@@ -557,16 +594,18 @@
   }
 
   function bumpTracker(projectId: string, trackerId: string, delta: number) {
+    const day = todayKey();
     void patchProjects((list) =>
-      mapTracker(list, projectId, trackerId, (t) => ({ ...t, value: t.value + delta })),
+      mapTracker(list, projectId, trackerId, (t) => withCounterHistory(t, day, t.value + delta)),
     );
   }
 
   function setTrackerValue(projectId: string, trackerId: string, raw: string) {
     const n = parseInt(raw.trim(), 10);
     if (!Number.isFinite(n)) return;
+    const day = todayKey();
     void patchProjects((list) =>
-      mapTracker(list, projectId, trackerId, (t) => (t.value === n ? t : { ...t, value: n })),
+      mapTracker(list, projectId, trackerId, (t) => (t.value === n ? t : withCounterHistory(t, day, n))),
     );
   }
 
@@ -593,17 +632,18 @@
 
   function stopTimer(projectId: string, trackerId: string) {
     const stamp = Date.now();
+    const day = todayKey();
     void patchProjects((list) =>
-      mapTracker(list, projectId, trackerId, (t) => {
-        const next: Tracker = { ...t, kind: "timer", value: Math.round(elapsedSec(t, stamp)) };
-        delete next.runningSince;
-        return next;
-      }),
+      mapTracker(list, projectId, trackerId, (t) => withTimerStop(t, day, stamp)),
     );
   }
 
   const onVisibility = () => {
-    if (!document.hidden) onReshow();
+    if (document.hidden) {
+      flushAutosave();
+      return;
+    }
+    onReshow();
   };
 
   let unlisten: (() => void) | undefined;
@@ -624,9 +664,11 @@
         if (spokeLive) {
           spokeLive = false;
           focusCol = "middle";
+          focusPos = { ...focusPos, zone: "Z2", depth: 0, ctl: 0 };
           focusStarsCol("middle");
           return true;
         }
+        flushAutosave();
         invoke("hide_window", { label: hideLabel }).catch(() => {});
         return true;
       });
@@ -640,6 +682,7 @@
     syncStarsDraft();
     unlistenVis = await listenPaneVis(hideLabel, (visible) => {
       if (visible) onReshow();
+      else flushAutosave();
     });
     document.addEventListener("visibilitychange", onVisibility);
   });
@@ -692,6 +735,7 @@
   });
 
   onDestroy(() => {
+    flushAutosave();
     unlisten?.();
     unlistenVis?.();
     detachMenuKeys?.();
@@ -702,71 +746,204 @@
     startPaneDrag(e);
   }
 
-  function starsRows(col: StarsCol): HTMLElement[] {
-    const root = mainEl;
-    if (!root) return [];
-    const sel =
-      col === "planets"
-        ? ".planet-col [data-stars-row]"
-        : col === "trackers"
-          ? ".tracker-col [data-stars-row]"
-          : ".mid-col [data-stars-row]";
-    return [...root.querySelectorAll<HTMLElement>(sel)];
-  }
-
   function focusStarsCol(col: StarsCol) {
     const root = mainEl;
     if (!root) return;
     const sel =
-      col === "planets" ? ".planet-col" : col === "middle" ? ".mid-col" : ".tracker-col";
+      col === "planets" ? ".planet-col" : col === "middle" ? ".mid-col" : ".journal-col";
     root.querySelector<HTMLElement>(sel)?.focus();
   }
+
+  function focusWorld(): FocusWorld {
+    const root = mainEl;
+    const count = (zone: StarsZone) =>
+      root?.querySelectorAll(`[data-focus-zone="${zone}"][data-focus-item]`).length ?? 0;
+    const items = root
+      ? [...root.querySelectorAll<HTMLElement>('[data-focus-zone="Z4"][data-focus-item]')]
+      : [];
+    const words = root
+      ? [...root.querySelectorAll<HTMLElement>('[data-focus-zone="Z7"][data-focus-item]')]
+      : [];
+    const colsAttr = Number(root?.querySelector("[data-tracker-cols]")?.getAttribute("data-tracker-cols") ?? "1");
+    return {
+      layout,
+      counts: {
+        Z0: count("Z0"),
+        Z1: count("Z1"),
+        Z2: count("Z2"),
+        Z3: count("Z3"),
+        Z4: count("Z4"),
+        Z5: count("Z5"),
+        Z6: count("Z6"),
+        Z7: count("Z7"),
+      },
+      trackerCols: Number.isFinite(colsAttr) && colsAttr > 0 ? colsAttr : 1,
+      cardControls: items.map((el) => el.querySelectorAll("[data-focus-ctl]").length),
+      cardNumberCtl: items.map((el) => {
+        const ctls = [...el.querySelectorAll<HTMLElement>("[data-focus-ctl]")];
+        return ctls.findIndex((node) => node.hasAttribute("data-focus-num"));
+      }),
+      spokeItems: root?.querySelectorAll('[data-focus-zone="Z2"][data-spoke]').length ?? 0,
+      wordPoints: words.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }),
+      embedded,
+      outward: outwardDir,
+      reflectOpen,
+      segment,
+    };
+  }
+
+  function focusElement(): HTMLElement | null {
+    const root = mainEl;
+    if (!root) return null;
+    if (focusPos.zone === "Z4" && focusPos.depth >= 1) {
+      const cards = [...root.querySelectorAll<HTMLElement>('[data-focus-zone="Z4"][data-focus-item]')];
+      const card = cards[focusPos.index];
+      if (!card) return null;
+      if (focusPos.depth === 2) {
+        return card.querySelector<HTMLElement>("input.num-in") ?? card.querySelector<HTMLElement>("[data-focus-num]");
+      }
+      const ctls = [...card.querySelectorAll<HTMLElement>("[data-focus-ctl]")];
+      return ctls[focusPos.ctl] ?? card;
+    }
+    const items = [...root.querySelectorAll<HTMLElement>(`[data-focus-zone="${focusPos.zone}"][data-focus-item]`)];
+    return items[focusPos.index] ?? null;
+  }
+
+  function applyStarsFocus() {
+    const root = mainEl;
+    if (!root) return;
+    for (const el of root.querySelectorAll<HTMLElement>("[data-stars-focus]")) {
+      el.removeAttribute("data-stars-focus");
+    }
+    const el = focusElement();
+    if (!el) return;
+    el.setAttribute("data-stars-focus", "1");
+    const col = zoneColumn(focusPos.zone);
+    if (col !== "title") focusCol = col;
+    spokeLive = focusPos.zone === "Z2" && focusPos.depth > 0;
+    if (document.activeElement !== el) el.focus();
+  }
+
+  function activateStarsFocus() {
+    focusElement()?.click();
+  }
+
+  function hideStars() {
+    flushAutosave();
+    if (embedded) onClose?.();
+    else invoke("hide_window", { label: hideLabel }).catch(() => {});
+  }
+
+  function applyStep(stepped: ReturnType<typeof focusStep>, activate: boolean) {
+    if (stepped.exit) {
+      onRingExit?.();
+      return;
+    }
+    if (stepped.rootEsc === "reflect") {
+      reflectOpen = false;
+      return;
+    }
+    if (stepped.rootEsc === "hide") {
+      hideStars();
+      return;
+    }
+    if (stepped.segment) segment = stepped.segment;
+    focusPos = stepped.pos;
+    spokeLive = stepped.pos.zone === "Z2" && stepped.pos.depth > 0;
+    const col = zoneColumn(stepped.pos.zone);
+    if (col !== "title") focusCol = col;
+    if (activate && stepped.activate) activateStarsFocus();
+    applyStarsFocus();
+  }
+
+  function onFieldKey(key: "Enter" | "Escape") {
+    applyStep(focusStep(focusPos, key, focusWorld()), false);
+  }
+
+  function onRadarEdit(open: boolean) {
+    if (open) {
+      focusPos = { ...focusPos, zone: "Z2", depth: 1 };
+      spokeLive = true;
+      return;
+    }
+    if (focusPos.zone === "Z2") focusPos = { ...focusPos, depth: 0 };
+    spokeLive = false;
+  }
+
+  function onTrackerTyping(open: boolean) {
+    focusPos = { ...focusPos, zone: "Z4", depth: open ? 2 : 1 };
+  }
+
+  $effect(() => {
+    const root = mainEl;
+    if (!root) return;
+    for (const el of root.querySelectorAll<HTMLElement>(".winx")) {
+      if (!el.hasAttribute("data-focus-zone")) {
+        el.setAttribute("data-focus-zone", "Z0");
+        el.setAttribute("data-focus-item", "");
+      }
+    }
+  });
 
   function onStarsKey(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     const t = e.target;
-    if (t instanceof Element && t.closest("input, textarea, select, [contenteditable='true']")) return;
+    const field = t instanceof Element && !!t.closest("input, textarea, select, [contenteditable='true']");
+    if (field && focusPos.depth > 0) return;
     if (layout === "single" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
       e.preventDefault();
-      segment = segmentNext(segment, e.key === "ArrowRight" ? "right" : "left");
-      mainEl?.querySelector<HTMLElement>(`[data-seg="${segment}"]`)?.focus();
+      const stepped = focusStep(focusPos, e.key, focusWorld());
+      segment = stepped.segment ?? segmentNext(segment, e.key === "ArrowRight" ? "right" : "left");
+      focusPos = stepped.pos;
+      applyStarsFocus();
       return;
     }
-    if (e.key === "Enter" && focusCol === "middle" && !spokeLive) {
-      if (t instanceof Element && t.closest("button, a")) return;
+    if (e.key === "Enter" || e.key === "Escape" || e.key === "Home" || e.key === "End") {
       e.preventDefault();
-      spokeLive = true;
-      mainEl?.querySelector<HTMLElement>(".handle")?.focus();
+      const stepped = focusStep(focusPos, e.key, focusWorld());
+      applyStep(stepped, true);
       return;
     }
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "ArrowUp" && e.key !== "ArrowDown") {
       return;
     }
-    if (spokeLive && (e.key === "ArrowUp" || e.key === "ArrowDown")) return;
+    if (spokeLive && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      if (layout === "single") return;
       const dir = e.key === "ArrowRight" ? "right" : "left";
-      const next = columnNext(layout, focusCol, dir, { embedded, outward: outwardDir });
-      if (next.exit) {
-        e.preventDefault();
-        onRingExit?.();
+      const stepped = focusStep(focusPos, e.key, focusWorld());
+      if (layout !== "single" && stepped.column) {
+        const from = zoneColumn(focusPos.zone);
+        const col = from === "title" ? focusPos.titleFrom : from;
+        const next = columnNext(layout, col, dir, { embedded, outward: outwardDir });
+        if (next.exit) {
+          e.preventDefault();
+          onRingExit?.();
+          return;
+        }
+        if (next.col !== focusCol) {
+          e.preventDefault();
+          spokeLive = false;
+          focusCol = next.col;
+          focusPos = stepped.pos;
+          focusStarsCol(next.col);
+          applyStarsFocus();
+        }
         return;
       }
-      if (next.col !== focusCol) {
-        e.preventDefault();
-        spokeLive = false;
-        focusCol = next.col;
-        focusIdx = 0;
-        focusStarsCol(next.col);
-      }
+      e.preventDefault();
+      focusPos = stepped.pos;
+      applyStarsFocus();
       return;
     }
-    if (focusCol === "planets") return;
-    const rows = starsRows(focusCol);
-    if (rows.length === 0) return;
     e.preventDefault();
-    focusIdx = withinNext(focusCol, focusIdx, e.key === "ArrowDown" ? "down" : "up", rows.length);
-    rows[focusIdx]?.focus();
+    const stepped = focusStep(focusPos, e.key, focusWorld());
+    focusPos = stepped.pos;
+    const col = zoneColumn(stepped.pos.zone);
+    if (col !== "title") focusCol = col;
+    applyStarsFocus();
   }
 
   const showCheckin = $derived(layout !== "single" || segment === "checkin");
@@ -776,10 +953,19 @@
 
 {#snippet dayNav()}
   <div class="day-nav">
-    <button class="mini" onclick={prevDay} title="Previous day" aria-label="Previous day">‹</button>
-    <span class="day-label">{isToday ? `Today · ${cursorDay}` : cursorDay}</span>
+    <button class="mini" data-focus-zone="Z0" data-focus-item onclick={prevDay} title="Previous day" aria-label="Previous day">‹</button>
+    <button
+      type="button"
+      class="day-label"
+      data-focus-zone="Z0"
+      data-focus-item
+      onclick={() => (dayPicking = !dayPicking)}
+      aria-label="Choose day"
+    >{isToday ? `Today · ${cursorDay}` : cursorDay}</button>
     <button
       class="mini"
+      data-focus-zone="Z0"
+      data-focus-item={isToday ? undefined : ""}
       onclick={nextDay}
       disabled={isToday}
       title="Next day"
@@ -788,6 +974,8 @@
       class="nav-view"
       class:mkey-sel={menuRing.activeId === "stars-nav"}
       data-mkey="stars-nav"
+      data-focus-zone="Z0"
+      data-focus-item
       value={navView}
       onchange={onNavChange}
       aria-label="STARS view"
@@ -802,15 +990,35 @@
       type="button"
       class="chron-prompts"
       class:on={starsState.promptsOptIn}
+      data-focus-zone="Z0"
+      data-focus-item
       aria-pressed={starsState.promptsOptIn}
       onmousedown={(e) => e.stopPropagation()}
       onclick={toggleStarsPrompts}
       title="Companion prompts, for every planet. Off by default."
     >{starsState.promptsOptIn ? "Prompts on" : "Prompts"}</button>
+    {#if dayPicking}
+      <input
+        class="nav-date"
+        type="date"
+        data-focus-zone="Z0"
+        data-focus-item
+        value={cursorDay}
+        max={todayKey()}
+        onchange={(e) => {
+          const raw = (e.currentTarget as HTMLInputElement).value;
+          if (raw && raw <= todayKey()) moveDay(raw);
+          dayPicking = false;
+        }}
+        aria-label="Jump to day"
+      />
+    {/if}
     {#if navView === "custom"}
       <input
         class="nav-date"
         type="date"
+        data-focus-zone="Z0"
+        data-focus-item
         value={avgFrom || shiftDay(cursorDay, -29)}
         max={avgTo || cursorDay}
         onchange={(e) => onCustomDate("from", (e.currentTarget as HTMLInputElement).value)}
@@ -819,6 +1027,8 @@
       <input
         class="nav-date"
         type="date"
+        data-focus-zone="Z0"
+        data-focus-item
         value={avgTo || cursorDay}
         min={avgFrom || ""}
         max={todayKey()}
@@ -837,8 +1047,13 @@
     {@render dayNav()}
     <button
       class="winx"
+      data-focus-zone="Z0"
+      data-focus-item
       onmousedown={(e) => e.stopPropagation()}
-      onclick={() => onClose?.()}
+      onclick={() => {
+        flushAutosave();
+        onClose?.();
+      }}
       title="Dismiss the STARS well — the companion stays"
       aria-label="Dismiss STARS">×</button
     >
@@ -849,16 +1064,16 @@
     mode={chromeMode(navUa(), navPlatform())}
     label="stars"
     closeLabel="Hide STARS"
-    onClose={() => invoke("hide_window", { label: hideLabel }).catch(() => {})}
+    onClose={() => hideStars()}
     chips={dayNav}
   />
   {/if}
 
   {#if layout === "single"}
     <div class="segments" role="tablist" aria-label="Stars sections">
-      <button type="button" role="tab" data-seg="checkin" aria-selected={segment === "checkin"} onclick={() => (segment = "checkin")}>Check-in</button>
-      <button type="button" role="tab" data-seg="trackers" aria-selected={segment === "trackers"} onclick={() => (segment = "trackers")}>Trackers</button>
-      <button type="button" role="tab" data-seg="journal" aria-selected={segment === "journal"} onclick={() => (segment = "journal")}>Journal</button>
+      <button type="button" role="tab" data-seg="checkin" data-focus-zone="Z0" data-focus-item aria-selected={segment === "checkin"} onclick={() => (segment = "checkin")}>Check-in</button>
+      <button type="button" role="tab" data-seg="trackers" data-focus-zone="Z0" data-focus-item aria-selected={segment === "trackers"} onclick={() => (segment = "trackers")}>Trackers</button>
+      <button type="button" role="tab" data-seg="journal" data-focus-zone="Z0" data-focus-item aria-selected={segment === "journal"} onclick={() => (segment = "journal")}>Journal</button>
     </div>
   {/if}
 
@@ -874,18 +1089,20 @@
         onReorderCommit={commitPlanetOrder}
       />
     {/if}
-    {#if showCheckin || showJournal}
-      <div class="mid-col" role="listbox" aria-label="Radar and folio" tabindex="0" data-stars-col="middle">
+    {#if showCheckin || showTrackers}
+      <div class="mid-col" role="listbox" aria-label="Radar and trackers" tabindex="0" data-stars-col="middle">
         {#if showCheckin}
-          <section class="checkin" aria-label="Check-in" data-stars-row="0" tabindex="-1">
+          <section class="checkin" aria-label="Check-in">
             <RadarDial
               spokes={STARS_SPOKES}
               shown={radarShown}
               editable={dayEditable}
               {avgMode}
               draft={radarIsDraft}
+              live={spokeLive}
               activeId={menuRing.activeId}
               onSet={(key, v) => setSpoke(key as SpokeKey, v)}
+              onRadarEdit={onRadarEdit}
             />
             <DayPositives
               win1={shown?.win1 ?? ""}
@@ -893,67 +1110,54 @@
               grateful={shown?.grateful ?? ""}
               editable={dayEditable}
               onChange={setWin}
+              onFieldKey={onFieldKey}
             />
-            <div class="stars-foot">
-              <button
-                class="mini stars-save"
-                class:dirty={draftDirty || radarIsDraft}
-                disabled={!isToday || avgMode || (!dayEditable && !!cursorSaved)}
-                onclick={saveStarsToday}
-              >Save today</button>
-              <button
-                type="button"
-                class="mini quiet"
-                disabled={!isToday || avgMode || !cursorSaved || dayEditable}
-                onclick={() => (editingToday = true)}
-              >Edit</button>
-              {#if isToday}
-                {#if starsSavedDay}
-                  <span class="stars-note">Saved for {starsSavedDay}</span>
-                {:else if radarIsDraft}
-                  <span class="stars-note">Draft</span>
-                {/if}
-              {:else if cursorSaved}
-                <span class="stars-note">Saved for {cursorDay}</span>
+            <p class="stars-note">
+              {#if !isToday}
+                {cursorSaved ? `Saved for ${cursorDay}` : "No save"}
+              {:else if draftDirty || radarIsDraft}
+                Draft
+              {:else if starsSavedDay}
+                Saved {savedLabel}
               {:else}
-                <span class="stars-note">No save</span>
+                Saved
               {/if}
-            </div>
+            </p>
           </section>
         {/if}
-        {#if showJournal}
-          <div class="folio-wrap" data-stars-row="1" tabindex="-1">
-          <AlmanacFolio
-            pages={starsState.ledgerPages ?? []}
+        {#if showTrackers}
+          <StarsTrackers
             {projects}
-            dayKey={cursorDay}
-            rangeFrom={bounds.from}
-            rangeTo={bounds.to}
-            view={navView}
+            scope={starsScopeTargets(trackerScope).trackers}
             today={todayKey()}
-            face={dayFace}
-            hint={reflectHint}
-            hasWords={(day) => wordDays.has(day)}
-            onReflect={openReflect}
-            onSelectDay={(day) => (cursorDay = day)}
+            showPlanetMenu={layout === "single"}
+            onScope={(id) => (trackerScope = id)}
+            onAdd={addTracker}
+            onBump={bumpTracker}
+            onSetValue={setTrackerValue}
+            onRemove={removeTracker}
+            onPlay={playTimer}
+            onStop={stopTimer}
+            onTyping={onTrackerTyping}
           />
-          </div>
         {/if}
       </div>
     {/if}
-    {#if showTrackers}
-      <div class="tracker-col" role="listbox" aria-label="Trackers" tabindex="0" data-stars-col="trackers">
-        <StarsTrackers
+    {#if showJournal}
+      <div class="journal-col" role="region" aria-label="Journal" tabindex="-1" data-stars-col="trackers">
+        <AlmanacFolio
+          pages={starsState.ledgerPages ?? []}
           {projects}
-          scope={starsScopeTargets(trackerScope).trackers}
-          showPlanetMenu={layout === "single"}
-          onScope={(id) => (trackerScope = id)}
-          onAdd={addTracker}
-          onBump={bumpTracker}
-          onSetValue={setTrackerValue}
-          onRemove={removeTracker}
-          onPlay={playTimer}
-          onStop={stopTimer}
+          dayKey={cursorDay}
+          rangeFrom={bounds.from}
+          rangeTo={bounds.to}
+          view={navView}
+          today={todayKey()}
+          face={dayFace}
+          hint={reflectHint}
+          hasWords={(day) => wordDays.has(day)}
+          onReflect={openReflect}
+          onSelectDay={(day) => moveDay(day)}
         />
       </div>
     {/if}
@@ -1076,7 +1280,7 @@
   }
 
   .mid-col,
-  .tracker-col {
+  .journal-col {
     min-width: 0;
     min-height: 0;
     overflow: auto;
@@ -1085,11 +1289,15 @@
     gap: 8px;
   }
 
-  .mid-col:focus-visible,
-  .tracker-col:focus-visible,
-  .segments button:focus-visible {
+  :global(.stars [data-stars-focus="1"]) {
     outline: none;
     box-shadow: var(--focus-ring);
+  }
+
+  :global(:root[data-theme="terminal"] .stars [data-stars-focus="1"]) {
+    box-shadow: none;
+    outline: 1px solid var(--ink);
+    background: transparent;
   }
 
   .checkin {
@@ -1110,42 +1318,31 @@
   .day-label {
     min-width: 148px;
     text-align: center;
+    font: inherit;
     font-size: 0.72rem;
     color: var(--ink);
     font-variant-numeric: tabular-nums;
+    background: transparent;
+    border: none;
+    cursor: pointer;
   }
 
-  .stars-foot {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 8px;
-    flex-wrap: wrap;
+  .stars-note {
+    font-size: 0.64rem;
+    color: var(--dim);
+    margin: 4px 0 0;
   }
 
   .mini {
     font-size: 0.68rem;
-    background: transparent;
     padding: 3px 8px;
     min-height: 24px;
     cursor: pointer;
   }
 
-  .mini.quiet {
-    border-color: transparent;
-    color: var(--dim);
-  }
-
   .mini:disabled {
     opacity: 0.45;
     cursor: default;
-  }
-
-  .stars-save:not(:disabled) {
-    font-weight: 700;
-    background: color-mix(in srgb, var(--accent) 24%, transparent);
-    color: var(--ink);
-    border-color: var(--accent);
   }
 
   .chron-prompts {
@@ -1163,10 +1360,5 @@
     color: var(--ink);
     font-weight: 700;
     background: var(--panel-fill, var(--panel));
-  }
-
-  .stars-note {
-    font-size: 0.64rem;
-    color: var(--dim);
   }
 </style>

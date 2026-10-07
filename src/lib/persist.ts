@@ -84,6 +84,11 @@ export interface Subtask {
   done: boolean;
 }
 
+export interface TrackerHistory {
+  days?: Record<string, number>;
+  sessions?: { day: string; spans: [number, number][] };
+}
+
 export interface Tracker {
   id: string;
   label: string;
@@ -92,6 +97,8 @@ export interface Tracker {
   kind?: "number" | "timer";
   // Epoch ms while a timer is running. Stop folds the delta into value.
   runningSince?: number;
+  // Optional day totals and today's timer spans. Old saves omit it.
+  history?: TrackerHistory;
 }
 
 export interface CardTombstone {

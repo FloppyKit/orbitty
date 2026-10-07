@@ -1300,6 +1300,7 @@ mod tests {
             value,
             kind: kind.map(str::to_string),
             running_since: running,
+            history: None,
         }
     }
 
