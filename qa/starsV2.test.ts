@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import { test } from "node:test";
 import {
   starsColumns,
@@ -24,6 +25,7 @@ import {
   withTimerStop,
 } from "../src/lib/stars/trackerHistory.ts";
 import type { Tracker } from "../src/lib/persist.ts";
+import { STARS_SPOKES, radarDraft, ratingFromKey } from "../src/lib/stars/radarGeom.ts";
 
 const root = new URL("..", import.meta.url);
 function src(rel: string): string {
@@ -131,6 +133,206 @@ test("T3 save chip is gone and autosave waits for a real edit", () => {
     : false, false);
 });
 
+// T3b (Verify 45a37c5 fix): run the real StarsPage autosave functions against
+// fake timers and a fake save_state, so a dropped dirty flag, a dirty sync,
+// a missing day-change / hide / close flush or a lost debounce goes red.
+function autosaveHarness() {
+  const page = src("src/lib/StarsPage.svelte");
+  const script = page.slice(page.indexOf("<script"), page.indexOf("</script>"));
+  const decl = (head: string): string => {
+    const at = script.indexOf(head);
+    assert.ok(at >= 0, head);
+    assert.equal(script.indexOf(head, at + 1), -1, `${head} once`);
+    const open = script.indexOf("{", at);
+    return script.slice(at, open) + braceBody(script, at) + ";\n";
+  };
+  const heads = [
+    "function moveDay(",
+    "function scheduleAutosave(",
+    "function flushAutosave(",
+    "function noteEdit(",
+    "function syncStarsDraft(",
+    "function setSpoke(",
+    "function setWin(",
+    "function filled(",
+    "async function saveStarsToday(",
+    "async function loadState(",
+    "function hideStars(",
+    "const onVisibility = ",
+  ];
+  const code = stripTypeScriptTypes(heads.map(decl).join("\n"));
+  const today = "2026-10-07";
+  let now = 0;
+  let seq = 0;
+  const timers = new Map<number, { at: number; fn: () => void }>();
+  let disk: Record<string, unknown> = {};
+  const writes: { day: string; row: Record<string, unknown> }[] = [];
+  const S: Record<string, unknown> = {
+    cursorDay: today,
+    draftDirty: false,
+    saveTimer: undefined,
+    starsDraft: {},
+    starsSavedDay: "",
+    savedLabel: "",
+    starsState: { promptsOptIn: false, checkins: {} },
+    bagState: null,
+    avgMode: false,
+    embedded: false,
+    hideLabel: "stars",
+    onClose: undefined,
+    onReshow: () => {},
+    themeId: "",
+    windowOpacity: 1,
+    KNOWN_THEMES: new Set(["systemLight", "systemDark", "terminal"]),
+    osThemeId: () => "systemDark",
+    clampWindowOpacity: (v: number) => v,
+    planetDragging: false,
+    projects: [],
+    trackerScope: "overall",
+    starsLoaded: false,
+    document: { hidden: false },
+    get isToday() {
+      return S.cursorDay === today;
+    },
+    get dayEditable() {
+      return S.cursorDay === today && !S.avgMode;
+    },
+    todayKey: () => today,
+    emptyCheckin: () => ({ sleep: 0, terroir: 0, athleticism: 0, relationships: 0, self: 0 }),
+    radarDraft,
+    STARS_SPOKES,
+    autosaveDue,
+    AUTOSAVE_MS,
+    clockLabel: () => "11:52",
+    setTimeout: (fn: () => void, ms: number) => {
+      timers.set(++seq, { at: now + ms, fn });
+      return seq;
+    },
+    clearTimeout: (id: number) => {
+      timers.delete(id);
+    },
+    invoke: async (cmd: string, args?: { state: { stars: { checkins: Record<string, Record<string, unknown>> } } }) => {
+      if (cmd === "load_state") return structuredClone({ stars: { promptsOptIn: false, checkins: disk } });
+      if (cmd === "save_state" && args) {
+        const before = disk;
+        disk = structuredClone(args.state.stars.checkins);
+        for (const [day, row] of Object.entries(disk)) {
+          if (JSON.stringify(before[day]) !== JSON.stringify(row)) writes.push({ day, row: row as Record<string, unknown> });
+        }
+      }
+      return undefined;
+    },
+  };
+  const fns = new Function(
+    "S",
+    `with (S) {\n${code}\nreturn { moveDay, flushAutosave, syncStarsDraft, loadState, setSpoke, setWin, hideStars, onVisibility };\n}`,
+  )(S) as Record<string, (...a: unknown[]) => unknown>;
+  const settle = async () => {
+    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  };
+  const advance = async (ms: number) => {
+    const end = now + ms;
+    for (;;) {
+      const due = [...timers].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!due) break;
+      timers.delete(due[0]);
+      now = due[1].at;
+      due[1].fn();
+      await settle();
+    }
+    now = end;
+  };
+  return { S, fns, writes, advance, settle, today, yesterday: "2026-10-06" };
+}
+
+test("T3b autosave runs on a real edit only: debounced, flushed on day change / hide / close", async () => {
+  // Mount / load / sync / navigation / hide / close never write the untouched draft.
+  {
+    const h = autosaveHarness();
+    await h.fns.loadState();
+    h.fns.syncStarsDraft();
+    assert.equal((h.S.starsDraft as Record<string, number>).sleep, 3, "draft starts at 3");
+    assert.equal(h.S.draftDirty, false, "sync leaves the draft clean");
+    h.fns.flushAutosave();
+    (h.S.document as { hidden: boolean }).hidden = true;
+    h.fns.onVisibility();
+    h.fns.hideStars();
+    h.fns.moveDay(h.yesterday);
+    h.fns.moveDay(h.today);
+    await h.advance(5000);
+    assert.equal(h.writes.length, 0, "untouched draft never saves");
+  }
+  // One edit: nothing before 600 ms, one write at 600 ms.
+  {
+    const h = autosaveHarness();
+    h.fns.syncStarsDraft();
+    h.fns.setSpoke("sleep", 4);
+    assert.equal(h.S.draftDirty, true, "an edit marks the draft dirty");
+    await h.advance(599);
+    assert.equal(h.writes.length, 0, "debounced");
+    await h.advance(1);
+    assert.equal(h.writes.length, 1, "first real edit autosaves");
+    assert.equal(h.writes[0].day, h.today);
+    assert.equal(h.writes[0].row.sleep, 4);
+    assert.equal(h.S.draftDirty, false);
+    await h.advance(5000);
+    assert.equal(h.writes.length, 1, "one write per edit burst");
+  }
+  // A state:changed reload mid-debounce keeps the pending edit and still saves it.
+  {
+    const h = autosaveHarness();
+    h.fns.syncStarsDraft();
+    h.fns.setSpoke("terroir", 2);
+    await h.advance(300);
+    await h.fns.loadState();
+    assert.equal((h.S.starsDraft as Record<string, number>).terroir, 2, "reload keeps the edit");
+    await h.advance(600);
+    assert.equal(h.writes.length, 1, "reload does not cancel the autosave");
+    assert.equal(h.writes[0].row.terroir, 2);
+  }
+  // A burst of edits restarts the 600 ms window and lands as one write.
+  {
+    const h = autosaveHarness();
+    h.fns.syncStarsDraft();
+    h.fns.setSpoke("sleep", 4);
+    await h.advance(400);
+    h.fns.setWin("win1", "walked");
+    await h.advance(400);
+    assert.equal(h.writes.length, 0, "timer restarts on each edit");
+    await h.advance(200);
+    assert.equal(h.writes.length, 1);
+    assert.equal(h.writes[0].row.sleep, 4);
+    assert.equal(h.writes[0].row.win1, "walked");
+  }
+  // Day change, hide and close flush the pending edit at once, then the timer is spent.
+  for (const leave of ["day", "hide", "close"] as const) {
+    const h = autosaveHarness();
+    h.fns.syncStarsDraft();
+    h.fns.setSpoke("self", 5);
+    if (leave === "day") h.fns.moveDay(h.yesterday);
+    if (leave === "hide") {
+      (h.S.document as { hidden: boolean }).hidden = true;
+      h.fns.onVisibility();
+    }
+    if (leave === "close") h.fns.hideStars();
+    await h.settle();
+    assert.equal(h.writes.length, 1, `${leave} flushes the edit`);
+    assert.equal(h.writes[0].day, h.today, leave);
+    assert.equal(h.writes[0].row.self, 5, leave);
+    await h.advance(5000);
+    assert.equal(h.writes.length, 1, `${leave}: no second write`);
+  }
+  // Past days stay read-only: no write.
+  {
+    const h = autosaveHarness();
+    h.fns.syncStarsDraft();
+    h.fns.moveDay(h.yesterday);
+    h.fns.setSpoke("sleep", 5);
+    await h.advance(5000);
+    assert.equal(h.writes.length, 0, "past day edit is refused");
+  }
+});
+
 test("T4 tracker card order, ink value, neutral bars, round buttons", () => {
   const card = src("src/lib/stars/TrackerCard.svelte");
   const top = card.indexOf('class="top"');
@@ -219,6 +421,58 @@ test("T6 tracker week, sessions, and capped history writes", () => {
   assert.notEqual(oldest, "2025-01-01");
 });
 
+// T6b (Verify 45a37c5 fix): the real StarsPage bump / set / stop handlers write
+// history through trackerHistory, and a second stop on the same day adds.
+test("T6b bump / set / stop write history and same-day stops accumulate", () => {
+  const first = withTimerStop({ id: "t", label: "Sit", value: 0, kind: "timer", runningSince: 1_000 }, "2026-10-07", 11_000);
+  const second = withTimerStop({ ...first, runningSince: 20_000 }, "2026-10-07", 25_000);
+  assert.equal(second.history?.days?.["2026-10-07"], 15, "stop adds to today's seconds");
+  assert.deepEqual(trackerSessions(second, "2026-10-07"), [[1_000, 11_000], [20_000, 25_000]]);
+  const nextDay = withTimerStop({ ...second, runningSince: 90_000 }, "2026-10-08", 95_000);
+  assert.deepEqual(trackerSessions(nextDay, "2026-10-08"), [[90_000, 95_000]], "a new day starts a new session list");
+  assert.equal(nextDay.history?.days?.["2026-10-07"], 15);
+  assert.equal(nextDay.history?.days?.["2026-10-08"], 5);
+
+  const page = src("src/lib/StarsPage.svelte");
+  const script = page.slice(page.indexOf("<script"), page.indexOf("</script>"));
+  const decl = (head: string): string => {
+    const at = script.indexOf(head);
+    assert.ok(at >= 0, head);
+    assert.equal(script.indexOf(head, at + 1), -1, `${head} once`);
+    return script.slice(at, script.indexOf("{", at)) + braceBody(script, at) + ";\n";
+  };
+  const code = stripTypeScriptTypes(
+    ["function mapTracker(", "function bumpTracker(", "function setTrackerValue(", "function stopTimer("].map(decl).join("\n"),
+  );
+  let list: { id: string; trackers?: Tracker[] }[] = [];
+  const S: Record<string, unknown> = {
+    todayKey: () => "2026-10-07",
+    withCounterHistory,
+    withTimerStop,
+    Date: { now: () => 31_000 },
+    patchProjects: (fn: (l: typeof list) => typeof list) => {
+      list = fn(list);
+      return Promise.resolve();
+    },
+  };
+  const fns = new Function("S", `with (S) {\n${code}\nreturn { bumpTracker, setTrackerValue, stopTimer };\n}`)(S) as Record<
+    string,
+    (...a: unknown[]) => unknown
+  >;
+  const tr = () => list[0]?.trackers?.[0];
+  list = [{ id: "p", trackers: [{ id: "c", label: "Steps", value: 4 }] }];
+  fns.bumpTracker("p", "c", 1);
+  assert.equal(tr()?.value, 5);
+  assert.equal(tr()?.history?.days?.["2026-10-07"], 5, "bump writes days[today]");
+  fns.setTrackerValue("p", "c", "12");
+  assert.equal(tr()?.history?.days?.["2026-10-07"], 12, "typed set writes days[today]");
+  list = [{ id: "p", trackers: [{ id: "c", label: "Sit", value: 10, kind: "timer", runningSince: 1_000, history: { days: { "2026-10-07": 10 } } }] }];
+  fns.stopTimer("p", "c");
+  assert.equal(tr()?.runningSince, undefined);
+  assert.equal(tr()?.history?.days?.["2026-10-07"], 40, "stop adds the session seconds");
+  assert.deepEqual(trackerSessions(tr() as Tracker, "2026-10-07"), [[1_000, 31_000]]);
+});
+
 test("T7 zones move one level and the embedded edge exits", () => {
   const w = world();
   const right = focusStep(at("Z1", 1), "ArrowRight", w);
@@ -286,6 +540,54 @@ test("T7 zones move one level and the embedded edge exits", () => {
   assert.match(page, /onRingExit\?\.\(\)/);
 });
 
+// T7b (Verify 45a37c5 fix): ← among card controls, every zone tag is enumerable,
+// and a radar handle only edits after Return (live), never while arrowing past it.
+test("T7b card controls move both ways, every zone tag is enumerable, handles edit only when live", () => {
+  const w = world();
+  const card = focusStep(at("Z4", 0), "Enter", w);
+  const right = focusStep(card.pos, "ArrowRight", w);
+  assert.equal(right.pos.ctl, 1);
+  const left = focusStep(right.pos, "ArrowLeft", w);
+  assert.equal(left.pos.depth, 1, "← stays among the card controls");
+  assert.equal(left.pos.ctl, 0, "← moves to the previous control");
+  const files = [
+    "src/lib/StarsPage.svelte",
+    "src/lib/SkyField.svelte",
+    ...readdirSync(new URL("../src/lib/stars/", import.meta.url))
+      .filter((n) => n.endsWith(".svelte") && n !== "ReflectSheet.svelte")
+      .map((n) => `src/lib/stars/${n}`),
+  ];
+  for (const rel of files) {
+    for (const tag of src(rel).match(/<[a-z]+\b[^>]*data-focus-zone[^>]*>/g) ?? []) {
+      assert.ok(/data-focus-(item|ctl)\b/.test(tag), `${rel} ${tag.slice(0, 80)} is never enumerated`);
+    }
+  }
+  const page = src("src/lib/StarsPage.svelte");
+  assert.match(page, /<RadarDial[\s\S]*?live=\{spokeLive\}/);
+  const dial = src("src/lib/stars/RadarDial.svelte");
+  const at0 = dial.indexOf("function onHandleKey(");
+  assert.ok(at0 >= 0);
+  const code = stripTypeScriptTypes(dial.slice(at0, dial.indexOf("{", at0)) + braceBody(dial, at0));
+  for (const live of [false, true]) {
+    const sets: [string, number][] = [];
+    const S = {
+      editable: true,
+      avgMode: false,
+      live,
+      draft: false,
+      ratingFromKey,
+      spokeValue: () => 3,
+      onSet: (k: string, v: number) => sets.push([k, v]),
+    };
+    const onHandleKey = new Function("S", `with (S) {\n${code}\nreturn onHandleKey;\n}`)(S) as (e: unknown, k: string) => void;
+    for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) {
+      onHandleKey({ key, preventDefault() {} }, "sleep");
+    }
+    if (live) assert.equal(sets.length, 4, "live handle edits with arrows");
+    else assert.equal(sets.length, 0, "arrowing past a handle never edits it");
+  }
+});
+
 test("T8 every interactive stars control declares a focus zone", () => {
   const files = [
     "src/lib/StarsPage.svelte",
@@ -317,5 +619,48 @@ test("T9 tracker styles stay on tokens and do not grow a shadow", () => {
     const nums = [...block.matchAll(/(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
     const blur = nums.length >= 3 ? nums[2] : 0;
     assert.ok((blur ?? 0) <= 8, block);
+  }
+});
+
+// T9b (Verify 45a37c5 fix): D-T / D-C / D-G surface values exactly, so a light bar,
+// a brighter card, a glow, a bigger or brighter chip, or a filled Terminal card goes red.
+test("T9b tracker card, bars and chip keep the D-T / D-C values; no glow under trackers", () => {
+  const card = styleOf("src/lib/stars/TrackerCard.svelte");
+  const rule = (css: string, sel: string): string => {
+    const at = css.indexOf(`${sel} {`);
+    assert.ok(at >= 0, sel);
+    return css.slice(at, css.indexOf("}", at));
+  };
+  assert.match(rule(card, "\n  .card"), /background:\s*var\(--panel-fill\);/);
+  const hover = rule(card, "\n  .card:hover");
+  assert.match(hover, /background:\s*color-mix\(in srgb,\s*var\(--ink\)\s*4%,\s*var\(--panel-fill\)\);/);
+  for (const m of card.matchAll(/translateY\(\s*(-?[\d.]+)px\s*\)/g)) assert.ok(Math.abs(Number(m[1])) <= 1, "at most 1px lift");
+  const bar = rule(card, "\n  .bar");
+  assert.match(bar, /background:\s*var\(--dim\);/);
+  assert.match(bar, /opacity:\s*0\.55;/);
+  assert.match(rule(card, "\n  .bar.today"), /background:\s*color-mix\(in srgb,\s*var\(--ink\)\s*70%,\s*transparent\);/);
+  const empty = rule(card, "\n  .bar.empty");
+  assert.match(empty, /background:\s*var\(--dim\);/);
+  assert.match(rule(card, "\n  .sess"), /color-mix\(in srgb,\s*var\(--ink\)\s*70%,\s*transparent\)/);
+  const term = rule(card, ':global(:root[data-theme="terminal"]) .card');
+  assert.match(term, /background:\s*transparent;/);
+  const css = [card, styleOf("src/lib/stars/StarsTrackers.svelte"), styleOf("src/lib/stars/PlanetChip.svelte")].join("\n");
+  for (const m of css.matchAll(/box-shadow:\s*([^;]+);/g)) {
+    for (const layer of (m[1] ?? "").split(/,(?![^(]*\))/)) {
+      const lens = layer.replace(/\b(rgba?|var|color-mix)\([^)]*\)/g, " ").match(/-?\d*\.?\d+(px)?\b/g) ?? [];
+      const blur = Number((lens[2] ?? "0").replace("px", ""));
+      assert.ok(blur <= 8, `blur ${blur} in ${m[0]}`);
+    }
+  }
+  const chip = rule(styleOf("src/lib/stars/PlanetChip.svelte"), "\n  .planet-chip");
+  assert.match(
+    chip.replace(/\s+/g, " "),
+    /radial-gradient\( circle at 34% 30%, color-mix\(in srgb, var\(--p\) 78%, var\(--ink\) 22%\) 0 18%, var\(--p\) 46%, color-mix\(in srgb, var\(--p\) 62%, black\) 100% \)/,
+  );
+  const termChip = styleOf("src/lib/stars/PlanetChip.svelte").replace(/\s+/g, " ");
+  assert.match(termChip, /:global\(:root\[data-theme="terminal"\]\) \.planet-chip \{ background: var\(--p\); box-shadow: none; \}/);
+  assert.match(src("src/lib/stars/PlanetChip.svelte"), /size = 10\b/);
+  for (const rel of ["src/lib/stars/TrackerCard.svelte", "src/lib/stars/StarsTrackers.svelte", "src/lib/stars/StarsPlanetColumn.svelte", "src/lib/stars/LedgerStack.svelte"]) {
+    for (const m of src(rel).matchAll(/<PlanetChip\b[^>]*?size=\{(\d+)\}/g)) assert.ok(Number(m[1]) <= 12, `${rel} chip ${m[1]}px`);
   }
 });
