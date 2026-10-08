@@ -386,7 +386,7 @@ pub fn launch_agent(
     out
 }
 
-pub(crate) fn record_go_launch(app: &tauri::AppHandle, g: &GoLaunch) {
+fn record_go_launch(app: &tauri::AppHandle, g: &GoLaunch) {
     let id = g.parsed.id();
     let unsupported = crate::plans::unsupported_tools(&g.run.harness, &g.run.tools);
     crate::event_log::append_best(
