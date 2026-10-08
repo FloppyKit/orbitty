@@ -592,9 +592,9 @@
 
   function addTracker(projectId: string, raw: string, kind: "number" | "timer") {
     const label = raw.trim().slice(0, 7);
-    if (!label || !projectId) return;
+    if (!label || !projectId) return Promise.resolve();
     const tr: Tracker = { id: newId("tr"), label, value: 0, kind };
-    void patchProjects((list) =>
+    return patchProjects((list) =>
       list.map((p) => (p.id === projectId ? { ...p, trackers: [...(p.trackers ?? []), tr] } : p)),
     );
   }
@@ -907,7 +907,7 @@
       focusPos = { ...focusPos, zone: "Z4", depth: 1, ctl: Math.max(0, ctls - 1) };
     } else {
       const n = focusWorld().counts.Z4 ?? 1;
-      const index = focusPos.zone === "Z4" ? focusPos.index : Math.max(0, n - 1);
+      const index = Math.max(0, n - 1);
       focusPos = { ...focusPos, zone: "Z4", index, depth: 0, ctl: 0 };
     }
     applyStarsFocus();
@@ -1355,6 +1355,12 @@
   :global(.stars [data-focus-zone][data-stars-focus="1"]:not(#_)) {
     outline: none;
     box-shadow: var(--focus-ring);
+    animation: none;
+  }
+
+  :global(.stars select[data-focus-zone][data-stars-focus="1"]:not(#_)) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   :global(:root[data-theme="terminal"] .stars [data-focus-zone][data-stars-focus="1"]:not(#_)) {

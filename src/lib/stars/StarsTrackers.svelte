@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { Project, Tracker } from "../persist";
   import PlanetChip from "./PlanetChip.svelte";
   import TrackerCard from "./TrackerCard.svelte";
@@ -25,7 +26,7 @@
     projects: Project[];
     scope: string;
     today: string;
-    onAdd: (projectId: string, label: string, kind: "number" | "timer") => void;
+    onAdd: (projectId: string, label: string, kind: "number" | "timer") => void | Promise<void>;
     onBump: (projectId: string, trackerId: string, delta: number) => void;
     onSetValue: (projectId: string, trackerId: string, raw: string) => void;
     onRemove: (projectId: string, trackerId: string) => void;
@@ -109,11 +110,17 @@
     const name = label.trim().slice(0, 7);
     const id = planetId || projects[0]?.id || "";
     if (!name || !id) return false;
-    onAdd(id, name, kind);
+    const pending = onAdd(id, name, kind);
     label = "";
     adding = false;
-    onAddFocus?.("add");
+    void landedAdd(pending);
     return true;
+  }
+
+  async function landedAdd(pending: Promise<void> | void) {
+    await pending;
+    await tick();
+    onAddFocus?.("add");
   }
 
   function onAddFormKey(e: KeyboardEvent) {

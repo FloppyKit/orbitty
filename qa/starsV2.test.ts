@@ -1337,20 +1337,30 @@ function bootAddForm() {
     "async function onAddFocus(",
     "function onStarsKey(",
   ]);
-  const trackerCode = loadBodies("src/lib/stars/StarsTrackers.svelte", [
+  const pageSrc = src("src/lib/StarsPage.svelte");
+  const mountAt = pageSrc.indexOf("<StarsTrackers");
+  assert.ok(mountAt >= 0, "StarsTrackers mount");
+  const mount = pageSrc.slice(mountAt, pageSrc.indexOf("/>", mountAt));
+  const passFocus = mount.includes("onAddFocus={onAddFocus}");
+  const passRegister = mount.includes("onRegister={onRegisterAdd}");
+  let trackerCode = loadBodies("src/lib/stars/StarsTrackers.svelte", [
     "function openAdd(",
     "function closeAdd(",
     "function commitAdd(",
+    "async function landedAdd(",
     "function onAddFormKey(",
     "function publishAddForm(",
   ]);
+  if (!passFocus) trackerCode = trackerCode.replaceAll("onAddFocus?.(", "unwiredAddFocus?.(");
   const fns = new Function(
     "S",
-    `with (S) {\n${pageCode}\n${trackerCode}\nreturn { focusWorld, focusElement, applyStarsFocus, activateStarsFocus, applyStep, fieldKind, onRegisterAdd, landAddForm, onAddFocus, onStarsKey, openAdd, closeAdd, commitAdd, onAddFormKey, publishAddForm };\n}`,
+    `with (S) {\n${pageCode}\n${trackerCode}\nreturn { focusWorld, focusElement, applyStarsFocus, activateStarsFocus, applyStep, fieldKind, onRegisterAdd, landAddForm, onAddFocus, onStarsKey, openAdd, closeAdd, commitAdd, landedAdd, onAddFormKey, publishAddForm };\n}`,
   )(S) as Record<string, (...a: unknown[]) => unknown>;
   Object.assign(S, fns);
-  S.onRegister = fns.onRegisterAdd;
-  (fns.publishAddForm as () => void)();
+  if (passRegister) S.onRegister = fns.onRegisterAdd;
+  const trackerSrc = pageScriptFrom("src/lib/stars/StarsTrackers.svelte");
+  const registerEffect = effectBodies(trackerSrc).find((body) => body.includes("publishAddForm()"));
+  if (registerEffect) new Function("S", `with (S) {${stripTypeScriptTypes(registerEffect)}}`)(S);
 
   const trackers = src("src/lib/stars/StarsTrackers.svelte");
   const formChunk = sliceBetween(trackers, "{#if adding}", "{:else}");
@@ -1379,12 +1389,24 @@ function bootAddForm() {
   function render() {
     const prev = doc.activeElement;
     main.children = [];
+    const grid = adopt(new DomEl("div"), doc);
+    grid.setAttribute("data-tracker-cols", "8");
+    const cards = (S.cards as { label: string }[] | undefined) ?? [];
+    for (const card of cards) {
+      const el = adopt(new DomEl("article"), doc);
+      el.setAttribute("data-focus-zone", "Z4");
+      el.setAttribute("data-focus-item", "");
+      el.setAttribute("data-focus-card", "");
+      el.setAttribute("aria-label", card.label);
+      el.text = card.label;
+      grid.append(el);
+    }
     if (!S.adding) {
       const btn = tagNodes(elseChunk, doc).find((n) => n.tagName === "BUTTON");
       assert.ok(btn, "add button markup");
       btn.text = "+ Add";
       wire(btn);
-      main.append(btn);
+      grid.append(btn);
     } else {
       const nodes = tagNodes(formChunk, doc);
       const form = nodes[0];
@@ -1393,8 +1415,9 @@ function bootAddForm() {
         wire(child);
         form.append(child);
       }
-      main.append(form);
+      grid.append(form);
     }
+    main.append(grid);
     if (!prev || !contains(main, prev)) doc.activeElement = doc.body;
   }
 
@@ -1430,13 +1453,26 @@ function bootAddForm() {
       node.selectedIndex = Math.max(0, Math.min(node.options.length - 1, node.selectedIndex + dir));
       node.value = node.options[node.selectedIndex]?.value ?? node.value;
     }
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
     return event;
   }
 
   render();
   return { S, fns, main, doc, added, render, controls, press, formChunk };
+}
+
+function effectBodies(text: string): string[] {
+  const out: string[] = [];
+  const needle = "$effect(() => {";
+  let from = 0;
+  while (from < text.length) {
+    const at = text.indexOf(needle, from);
+    if (at < 0) break;
+    const body = braceBody(text, at);
+    out.push(body.slice(1, -1));
+    from = at + body.length;
+  }
+  return out;
 }
 
 function contains(root: DomEl, node: DomEl) {
@@ -1579,6 +1615,7 @@ test("FR3 Enter in the name submits or moves to Add and never leaves focus on BO
   assert.notEqual(filled.doc.activeElement, filled.doc.body, "submit does not leave focus on BODY");
   assert.equal(filled.doc.activeElement.tagName, "BUTTON");
   assert.equal(filled.doc.activeElement.text, "+ Add");
+  assert.equal(pos(filled.S).depth, 0, "a named commit returns to depth 0 on + Add");
 });
 
 test("FR3 focus ring specificity beats the hum and selected rings with no new colour", () => {
@@ -1586,8 +1623,8 @@ test("FR3 focus ring specificity beats the hum and selected rings with no new co
   const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
     .map((m) => ({ sel: (m[1] ?? "").trim(), body: (m[2] ?? "").replace(/\s+/g, " ").trim() }))
     .filter((rule) => rule.sel.includes("data-stars-focus"));
-  assert.equal(rules.length, 2);
-  const base = rules.find((rule) => !rule.sel.includes("terminal"));
+  assert.equal(rules.length, 3);
+  const base = rules.find((rule) => !rule.sel.includes("terminal") && !rule.sel.includes("select"));
   const term = rules.find((rule) => rule.sel.includes("terminal"));
   assert.ok(base && term);
   const humCss = styleOf("src/lib/stars/TrackerCard.svelte");
@@ -1610,9 +1647,162 @@ test("FR3 focus ring specificity beats the hum and selected rings with no new co
   assert.ok(beats(termSpec, hum), `terminal ${termSpec} beats .round.hum`);
   assert.ok(beats(termSpec, cell), `terminal ${termSpec} beats .cell.selected`);
   assert.ok(baseSpec[0] >= 1 && termSpec[0] >= 1, "both rules carry the id-level bump");
-  assert.equal(base.body, "outline: none; box-shadow: var(--focus-ring);");
+  assert.equal(base.body, "outline: none; box-shadow: var(--focus-ring); animation: none;");
   assert.equal(term.body, "box-shadow: none; outline: 1px solid var(--ink); background: transparent;");
   for (const body of [base.body, term.body]) {
     assert.equal(/#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|\bwhite\b/i.test(body), false, body);
   }
+});
+
+test("FR4 a focused running Pause holds a steady ring and the hum stays at rest", () => {
+  const pageCss = styleOf("src/lib/StarsPage.svelte");
+  const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => ({ sel: (m[1] ?? "").trim(), body: (m[2] ?? "").replace(/\s+/g, " ").trim() }))
+    .filter((rule) => rule.sel.includes("data-stars-focus"));
+  const base = rules.find((rule) => rule.sel.includes(".stars [data-focus-zone]") && !rule.sel.includes("select") && !rule.sel.includes("terminal"));
+  assert.ok(base, "focused rule");
+  assert.match(base.body, /animation:\s*none/, "focused rule stops the hum so the ring stays full");
+  const humCss = styleOf("src/lib/stars/TrackerCard.svelte");
+  const humAt = humCss.indexOf(".round.hum {");
+  assert.ok(humAt >= 0);
+  const humBody = humCss.slice(humAt, humCss.indexOf("}", humAt));
+  assert.match(humBody, /animation:\s*motion-hum/, "the hum still runs when the control is not focused");
+  assert.equal(/\banimation:\s*none/.test(humBody), false);
+});
+
+test("FR4 a focused native select shows an accent outline", () => {
+  const pageCss = styleOf("src/lib/StarsPage.svelte");
+  const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => ({ sel: (m[1] ?? "").trim(), body: (m[2] ?? "").replace(/\s+/g, " ").trim() }))
+    .filter((rule) => rule.sel.includes("data-stars-focus"));
+  const base = rules.find((rule) => !rule.sel.includes("terminal") && !rule.sel.includes("select"));
+  const term = rules.find((rule) => rule.sel.includes("terminal"));
+  const select = rules.find((rule) => rule.sel.includes("select"));
+  assert.ok(base && term && select);
+  assert.match(select.sel, /select\[data-focus-zone\]\[data-stars-focus="1"\]:not\(#_\)/);
+  assert.equal(select.body, "outline: 2px solid var(--accent); outline-offset: 2px;");
+  assert.ok(beats(specOf(select.sel), specOf(base.sel)), "select outline beats the general focus rule's outline: none");
+  assert.ok(beats(specOf(term.sel), specOf(select.sel)), "Terminal's own outline still wins on a focused select");
+  assert.equal(/#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|\bwhite\b/i.test(select.body), false, select.body);
+  assert.match(select.body, /var\(--accent\)/);
+  assert.equal(/var\(--ink\)|outline:\s*none|outline-width:\s*0|outline:\s*0\b/.test(select.body), false);
+});
+
+test("FR4 depth 0 on a Z3 input and the Z0 select still moves the map", async () => {
+  const lines = bootAddForm();
+  const win1 = adopt(new DomEl("input"), lines.doc);
+  win1.setAttribute("data-focus-zone", "Z3");
+  win1.setAttribute("data-focus-item", "");
+  win1.setAttribute("aria-label", "Win 1");
+  const win2 = adopt(new DomEl("input"), lines.doc);
+  win2.setAttribute("data-focus-zone", "Z3");
+  win2.setAttribute("data-focus-item", "");
+  win2.setAttribute("aria-label", "Win 2");
+  lines.main.append(win1);
+  lines.main.append(win2);
+  win1.focus();
+  lines.S.focusPos = { ...focusOrigin("Z3"), index: 0, depth: 0, ctl: 0 };
+  await lines.press(win1, "ArrowDown");
+  assert.equal(pos(lines.S).zone, "Z3");
+  assert.equal(pos(lines.S).index, 1, "ArrowDown on a depth-0 Z3 input moves to the next line");
+  assert.equal(lines.doc.activeElement, win2);
+
+  const title = bootAddForm();
+  const view = adopt(new DomEl("select"), title.doc);
+  view.setAttribute("data-focus-zone", "Z0");
+  view.setAttribute("data-focus-item", "");
+  view.setAttribute("aria-label", "STARS view");
+  const spoke = adopt(new DomEl("button"), title.doc);
+  spoke.setAttribute("data-focus-zone", "Z2");
+  spoke.setAttribute("data-focus-item", "");
+  spoke.setAttribute("aria-label", "Health");
+  title.main.append(view);
+  title.main.append(spoke);
+  view.focus();
+  title.S.focusPos = { ...focusOrigin("Z0"), index: 0, depth: 0, ctl: 0 };
+  await title.press(view, "ArrowDown");
+  assert.equal(pos(title.S).zone, "Z2", "ArrowDown on the depth-0 Z0 select follows the map");
+  assert.equal(title.doc.activeElement, spoke);
+});
+
+test("FR4 single-layout Left and Right inside the add form move controls and keep the segment", async () => {
+  const boot = bootAddForm();
+  boot.S.layout = "single";
+  boot.S.segment = "trackers";
+  boot.S.adding = true;
+  boot.render();
+  const planet = boot.controls()[0];
+  assert.equal(planet.tagName, "SELECT");
+  planet.focus();
+  boot.S.focusPos = { ...focusOrigin("Z4"), index: 0, depth: 1, ctl: 0 };
+  await boot.press(planet, "ArrowRight");
+  assert.equal(pos(boot.S).ctl, 1, "ArrowRight moves to the next add-form control");
+  assert.equal(boot.S.segment, "trackers", "ArrowRight does not switch the single-layout segment");
+  await boot.press(boot.doc.activeElement, "ArrowLeft");
+  assert.equal(pos(boot.S).ctl, 0, "ArrowLeft moves back");
+  assert.equal(boot.S.segment, "trackers", "ArrowLeft does not switch the single-layout segment");
+});
+
+test("FR4 after a named add ArrowLeft from + Add hits the card before it", async () => {
+  const boot = bootAddForm();
+  const cards = [{ label: "Walk" }, { label: "Run" }, { label: "Pages" }];
+  boot.S.cards = cards;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  boot.S.onAdd = (id: string, name: string, kind: string) => {
+    boot.added.push({ id, name, kind });
+    return gate.then(() => {
+      cards.splice(2, 0, { label: name });
+      queueMicrotask(() => boot.render());
+    });
+  };
+  boot.S.adding = true;
+  boot.S.label = "Vfy5";
+  boot.render();
+  const named = boot.controls()[1];
+  assert.equal(named.tagName, "INPUT");
+  named.focus();
+  boot.S.focusPos = { ...focusOrigin("Z4"), index: 3, depth: 1, ctl: 1 };
+  await boot.press(named, "Enter");
+  assert.equal(boot.added.length, 1);
+  assert.equal(boot.added[0]?.name, "Vfy5");
+  release();
+  for (let i = 0; i < 16; i += 1) await Promise.resolve();
+  const items = boot.main.querySelectorAll('[data-focus-zone="Z4"][data-focus-item]');
+  assert.deepEqual(
+    items.map((el) => el.getAttribute("aria-label") || el.text),
+    ["Walk", "Run", "Vfy5", "Pages", "+ Add"],
+  );
+  assert.equal(pos(boot.S).depth, 0, "named commit leaves depth 0");
+  assert.equal(pos(boot.S).index, items.length - 1, "+ Add is the last Z4 slot after the new card renders");
+  assert.equal(boot.doc.activeElement.text, "+ Add");
+  await boot.press(boot.doc.activeElement, "ArrowLeft");
+  assert.equal(boot.doc.activeElement.getAttribute("aria-label"), "Pages", "ArrowLeft hits the card immediately before + Add");
+  assert.notEqual(boot.doc.activeElement.getAttribute("aria-label"), "Vfy5");
+  await boot.press(boot.doc.activeElement, "ArrowRight");
+  assert.equal(boot.doc.activeElement.text, "+ Add");
+  assert.equal(pos(boot.S).index, items.length - 1);
+});
+
+test("FR4 StarsTrackers mount passes onAddFocus and onRegister and Esc uses the registered close", async () => {
+  const page = src("src/lib/StarsPage.svelte");
+  const at = page.indexOf("<StarsTrackers");
+  const mount = page.slice(at, page.indexOf("/>", at));
+  assert.match(mount, /onAddFocus=\{onAddFocus\}/);
+  assert.match(mount, /onRegister=\{onRegisterAdd\}/);
+  const trackers = pageScriptFrom("src/lib/stars/StarsTrackers.svelte");
+  assert.match(trackers, /\$effect\(\(\)\s*=>\s*\{\s*publishAddForm\(\);\s*\}\);/);
+  const boot = bootAddForm();
+  assert.equal(typeof boot.S.closeAddForm, "function", "the effect registers {close}");
+  boot.S.adding = true;
+  boot.render();
+  const planet = boot.controls()[0];
+  planet.focus();
+  boot.S.focusPos = { ...focusOrigin("Z4"), index: 0, depth: 1, ctl: 0 };
+  await boot.press(planet, "Escape");
+  assert.equal(boot.S.adding, false, "Esc drives the registered close");
+  assert.equal(boot.doc.activeElement.text, "+ Add");
+  assert.notEqual(boot.doc.activeElement, boot.doc.body);
 });
