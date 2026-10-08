@@ -2,8 +2,6 @@
 
 use crate::state::{KanbanCard, PersistedState, TodoTree};
 
-pub const DEFAULT_GROW_DAYS: f64 = 14.0;
-
 // Grass pad (same numbers as habitat YARD_*). Negative y is north.
 const YARD_WEST: f64 = -0.364;
 const YARD_EAST: f64 = 0.54;
@@ -86,15 +84,6 @@ pub fn clamp_to_grove(mut x: f64, mut y: f64) -> (f64, f64) {
         }
     }
     (x, y)
-}
-
-pub fn grow_days(st: &PersistedState) -> f64 {
-    let d = st.tree_grow_days;
-    if d.is_finite() && d > 0.0 {
-        d.clamp(1.0, 365.0)
-    } else {
-        DEFAULT_GROW_DAYS
-    }
 }
 
 /// 0 sprout … 1 full. No due → full at treeGrowDays. Due set → full by due.
