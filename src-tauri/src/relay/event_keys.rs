@@ -131,13 +131,6 @@ pub fn classify_value(v: &Value) -> LineClass {
     }
 }
 
-pub fn classify_line(line: &str) -> LineClass {
-    match serde_json::from_str::<Value>(line) {
-        Ok(v) => classify_value(&v),
-        Err(_) => LineClass::Corrupt,
-    }
-}
-
 pub fn nip01_id(
     pubkey: &str,
     created_at: u64,
