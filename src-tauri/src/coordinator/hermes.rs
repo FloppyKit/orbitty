@@ -1,5 +1,3 @@
-//! Coordinator + soul.md. Titles-only context. No LLM in this module.
-
 #![allow(unused_imports)]
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

@@ -1,3 +1,5 @@
+//! Coordinator + soul.md. Titles-only context. No LLM in this module.
+
 mod hermes;
 mod allowlist;
 mod plug;

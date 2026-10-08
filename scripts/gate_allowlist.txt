@@ -30,6 +30,7 @@ src/lib/NeededRuleRow.svelte	  // rule while answering a Needed. Lock: ~/.buzz/P
 src/lib/mdLite.ts	// file://, https://, and bare /Users/… paths become <a data-link> spans	# comment about file URLs
 src/lib/mdLite.ts	// Already-escaped text. Only file:///…, https://…, and bare /Users/….	# comment about file URLs
 src-tauri/src/plans/dirs.rs	.buzz	# max=101 file-wide: .buzz refusal guards + tests (GO-STANDARD r4/r5)
+src-tauri/src/plans/mod.rs	.buzz	# max=101 file-wide: .buzz refusal guards + tests (GO-STANDARD r4/r5)
 src-tauri/src/plans/resolve.rs	.buzz	# max=101 file-wide: .buzz refusal guards + tests (GO-STANDARD r4/r5)
 src-tauri/src/plans/seal.rs	.buzz	# max=101 file-wide: .buzz refusal guards + tests (GO-STANDARD r4/r5)
 src-tauri/src/plans/tests.rs	.buzz	# max=101 file-wide: .buzz refusal guards + tests (GO-STANDARD r4/r5)

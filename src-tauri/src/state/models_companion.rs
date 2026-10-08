@@ -16,6 +16,7 @@ use super::merge::*;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
+/// Companion persist slice. Additive keys; old saves load.
 pub struct CompanionState {
     #[serde(default = "companion_visible_default")]
     pub visible: bool,
