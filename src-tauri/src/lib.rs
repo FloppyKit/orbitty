@@ -9,9 +9,12 @@ mod agent_runs;
 mod agent_stop;
 #[cfg(unix)]
 mod agents;
-#[cfg(unix)]
 mod board;
-mod card_links;
+pub(crate) use board::card_links;
+pub(crate) use board::needed_rules;
+pub(crate) use board::nextcard;
+pub(crate) use board::task;
+pub(crate) use board::todo_trees;
 mod chars;
 mod companion;
 mod companion_backend;
@@ -49,14 +52,10 @@ mod mouth_tools;
 mod mouth_board;
 mod mouth_route;
 mod mouth_roll;
-mod needed_rules;
-mod nextcard;
 mod plans;
 mod habitat;
 mod herdr;
 mod droid_inspect;
-mod task;
-mod todo_trees;
 mod packs;
 #[cfg(unix)]
 mod shift;
