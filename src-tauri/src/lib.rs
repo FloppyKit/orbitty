@@ -1,8 +1,8 @@
 mod actions;
 mod attach;
-mod attach_md;
-mod attach_send;
-mod attach_vision;
+pub(crate) use attach::attach_md;
+pub(crate) use attach::attach_send;
+pub(crate) use attach::attach_vision;
 #[cfg(unix)]
 mod agent_runs;
 #[cfg(unix)]
