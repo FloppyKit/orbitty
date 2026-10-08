@@ -27,13 +27,19 @@ function railSrc() {
   return parts.join("");
 }
 
+function railCss() {
+  const sheet = readFileSync(new URL("../src/lib/rail/rail.css", import.meta.url), "utf8");
+  const names = [...sheet.matchAll(/@import\s+"\.\/([^"]+)"/g)].map((m) => m[1]);
+  return names.map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
+}
+
 const edges = ["left", "right", "top", "bottom"] as const;
 const frames: ArchFrame[] = [
   { w: 892, h: 760 },
   { w: 1040, h: 760 },
   { w: 1040, h: 752 },
 ];
-const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
+const css = railCss();
 const page = railSrc();
 const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
 

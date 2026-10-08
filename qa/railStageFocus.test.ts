@@ -30,9 +30,15 @@ function railSrc() {
   return parts.join("");
 }
 
+function railCss() {
+  const sheet = readFileSync(new URL("../src/lib/rail/rail.css", import.meta.url), "utf8");
+  const names = [...sheet.matchAll(/@import\s+"\.\/([^"]+)"/g)].map((m) => m[1]);
+  return names.map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
+}
+
 const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
 const page = railSrc();
-const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
+const css = railCss();
 const stars = readFileSync(new URL("../src/lib/StarsPage.svelte", import.meta.url), "utf8");
 const settings = readFileSync(new URL("../src/lib/SettingsPage.svelte", import.meta.url), "utf8");
 const kanban = readFileSync(new URL("../src/lib/KanbanPage.svelte", import.meta.url), "utf8");

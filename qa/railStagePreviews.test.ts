@@ -21,6 +21,12 @@ function railSrc() {
   return parts.join("");
 }
 
+function railCss() {
+  const sheet = readFileSync(new URL("../src/lib/rail/rail.css", import.meta.url), "utf8");
+  const names = [...sheet.matchAll(/@import\s+"\.\/([^"]+)"/g)].map((m) => m[1]);
+  return names.map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
+}
+
 function card(partial: ArchCard): ArchCard {
   return partial;
 }
@@ -174,7 +180,7 @@ test("P5 preview tiles and arch slots sit in the painted region", () => {
 test("P6 wiring: embed or beside-rail, no toggle, no feature save, hover lift stays inner", () => {
   const rail = railSrc();
   const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
-  const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
+  const css = railCss();
   const toggle = readFileSync(new URL("../src-tauri/src/rail/rail_toggle.rs", import.meta.url), "utf8");
   const drawers = readFileSync(new URL("../src-tauri/src/windows/drawers/place.rs", import.meta.url), "utf8");
   const openAt = rail.indexOf("function openStageDest");
