@@ -73,6 +73,8 @@ pub(crate) use windows::tilechords;
 pub(crate) use windows::window_chrome;
 pub(crate) use windows::window_thumb;
 mod yard;
+#[cfg(unix)]
+mod stars;
 
 use tauri::{
     menu::{Menu, MenuItem},

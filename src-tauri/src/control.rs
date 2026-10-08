@@ -9,8 +9,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
-#[path = "stars_ctl.rs"]
-mod stars_ctl;
+use crate::stars::stars_ctl;
 
 pub const ERR_OTHER: i32 = 1;
 pub const ERR_AUTH: i32 = 3;
