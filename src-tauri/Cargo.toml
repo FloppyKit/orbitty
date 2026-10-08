@@ -31,7 +31,7 @@ path = "src/bin/orbitty_mcp.rs"
 # habitat; jsonl SoT stays in the app. No rusqlite in this crate.
 [[bin]]
 name = "orbitty-relay"
-path = "src/bin/orbitty_relay/main.rs"
+path = "src/bin/orbitty-relay/main.rs"
 
 [features]
 # Matt's THIN debug/testing stamp (⌘⌥T). Debug builds have it anyway;

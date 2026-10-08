@@ -63,13 +63,9 @@ echo "==> Building orbitty-mcp (before tauri build)"
 (cd src-tauri && cargo build --release --bin orbitty-mcp)
 
 echo "==> Building release bundle"
-# orbitty_relay is not shipped. Cargo writes orbitty-relay. There is no
-# bundle.externalBin. tauri-bundler 2.11 still copies
-# target/release/orbitty_relay (the bin directory name) and fails if that
-# path is missing. The symlink exists only so the copy can resolve; it is
-# removed from the .app before signing.
-mkdir -p src-tauri/target/release
-ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay
+# Relay directory is src/bin/orbitty-relay, so Cargo and tauri-bundler
+# both use orbitty-relay. No bundle.externalBin and no underscore shim.
+# The rm below keeps a leftover orbitty_relay out of the signed bundle.
 (cd src-tauri && cargo build --release --bin orbitty-relay) || true
 
 # Never install a stale bundle from the other channel: Nightly and Stable both
