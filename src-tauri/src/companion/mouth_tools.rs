@@ -433,7 +433,7 @@ mod tests {
         let board = include_str!("mouth_board.rs");
         assert!(board.contains("crate::mouth_tools::project_for_line(app, raw_line)"));
         assert!(!board.contains("project_from_line("));
-        let hop = include_str!("mouth_hop.rs");
+        let hop = concat!(include_str!("mouth_hop/local.rs"), include_str!("mouth_hop/openrouter.rs"), include_str!("mouth_hop/handoff.rs"), include_str!("mouth_hop/tests.rs"));
         assert!(hop.contains("crate::mouth_tools::project_for_line(app, raw_line)"));
         assert!(hop.contains("\"project\": project, \"status\": \"open\""));
         assert!(!hop.contains("\"project\": \"orbitty\", \"status\": \"open\""));
