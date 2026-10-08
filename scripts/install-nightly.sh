@@ -42,8 +42,8 @@ echo "==> Building orbittyctl (before tauri build)"
 echo "==> Building orbitty-mcp (before tauri build)"
 (cd src-tauri && cargo build --release --bin orbitty-mcp)
 echo "==> Building release bundle (nightly)"
-mkdir -p src-tauri/target/release
-ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay
+# orbitty_relay is not shipped. Cargo writes orbitty-relay; the old symlink
+# was copied into the bundle as a second regular file.
 (cd src-tauri && cargo build --release --bin orbitty-relay) || true
 # Never install a stale bundle from the other channel: Nightly and Stable both
 # build into the same Orbitty.app, and only Nightly has dev-thin. Guarded rm:
@@ -107,7 +107,7 @@ if [[ -d "$ICONSET" ]]; then
 fi
 
 # GO-ORBITTY-RENAME-MOVE: ditto merge leaves the pre-rename executable behind.
-# Drop this line once both installed apps are clean.
+rm -f "$DEST/Contents/MacOS/orbitty_relay"
 
 sign_macos_helpers_then_app "$DEST"
 codesign --verify --deep --strict --verbose=2 "$DEST"

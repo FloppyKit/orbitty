@@ -63,10 +63,8 @@ echo "==> Building orbitty-mcp (before tauri build)"
 (cd src-tauri && cargo build --release --bin orbitty-mcp)
 
 echo "==> Building release bundle"
-# Tauri externalBin expects underscore name; cargo emits hyphen.
-mkdir -p src-tauri/target/release
-ln -sfn orbitty-relay src-tauri/target/release/orbitty_relay
-# Ensure the hyphen binary exists for the link target (built later too).
+# orbitty_relay is not shipped. Cargo writes orbitty-relay. There is no
+# bundle.externalBin; the old symlink was a leftover shim.
 (cd src-tauri && cargo build --release --bin orbitty-relay) || true
 
 # Never install a stale bundle from the other channel: Nightly and Stable both
@@ -120,7 +118,7 @@ mkdir -p "$HOME/Applications"
 # human Accessibility grant survive every rebuild.
 ditto "$SRC" "$DEST"
 # GO-ORBITTY-RENAME-MOVE: ditto merge leaves the pre-rename executable behind.
-# Drop this line once both installed apps are clean.
+rm -f "$DEST/Contents/MacOS/orbitty_relay"
 
 # Sign the INSTALLED app — the blessed path is what TCC sees, so it must
 # carry the stable identity itself, not just the build-tree bundle.
