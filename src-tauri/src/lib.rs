@@ -29,8 +29,10 @@ mod thin;
 #[cfg(unix)]
 mod doing_fire;
 mod verify_close;
-mod rail_edge;
-mod rail_stage;
+mod rail;
+pub(crate) use rail::rail_edge;
+pub(crate) use rail::rail_stage;
+pub(crate) use rail::rail_toggle;
 mod event_keys;
 mod event_log;
 mod event_relay;
@@ -56,7 +58,6 @@ mod droid_inspect;
 mod task;
 mod todo_trees;
 mod packs;
-mod rail_toggle;
 #[cfg(unix)]
 mod shift;
 #[cfg(unix)]
