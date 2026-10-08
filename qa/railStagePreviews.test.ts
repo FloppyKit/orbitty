@@ -169,7 +169,7 @@ test("P6 wiring: embed or beside-rail, no toggle, no feature save, hover lift st
   const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
   const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
   const toggle = readFileSync(new URL("../src-tauri/src/rail/rail_toggle.rs", import.meta.url), "utf8");
-  const drawers = readFileSync(new URL("../src-tauri/src/windows/drawers.rs", import.meta.url), "utf8");
+  const drawers = readFileSync(new URL("../src-tauri/src/windows/drawers/place.rs", import.meta.url), "utf8");
   const openAt = rail.indexOf("function openStageDest");
   const open = rail.slice(openAt, openAt + 700);
   assert.match(open, /dest_show/);
