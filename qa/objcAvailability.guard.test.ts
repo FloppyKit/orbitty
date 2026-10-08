@@ -107,7 +107,7 @@ test("G1: no @available( or __builtin_available( in src-tauri native code", () =
 });
 
 test("G2: window_thumb_mac.m runtime OS and class check before ScreenCaptureKit, status 3 fallback", () => {
-  const raw = readFileSync(join(tauriRoot, "src/window_thumb_mac.m"), "utf8");
+  const raw = readFileSync(join(tauriRoot, "src/windows/window_thumb_mac.m"), "utf8");
   const stripped = stripComments(raw);
   assert.equal(stripped.includes("isOperatingSystemAtLeastVersion"), true);
   assert.match(stripped, /\{\s*14\s*,\s*0\s*,\s*0\s*\}/);
@@ -135,7 +135,7 @@ test("G2: window_thumb_mac.m runtime OS and class check before ScreenCaptureKit,
 });
 
 test("G3: window_thumb_mac.m availability pragmas are balanced and narrow", () => {
-  const raw = readFileSync(join(tauriRoot, "src/window_thumb_mac.m"), "utf8");
+  const raw = readFileSync(join(tauriRoot, "src/windows/window_thumb_mac.m"), "utf8");
   const allowed = new Set(["-Wunguarded-availability-new", "-Wunguarded-availability"]);
   let depth = 0;
   let pushes = 0;

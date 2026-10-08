@@ -261,7 +261,7 @@ test("W10 setup loop and ensure_glass stay macos-gated", () => {
 });
 
 test("W11 window_chrome eprintln stays inside chrome_log", () => {
-  const rs = src("src-tauri/src/window_chrome.rs");
+  const rs = src("src-tauri/src/windows/window_chrome.rs");
   const uses: number[] = [];
   const needle = "eprintln!";
   let from = 0;
