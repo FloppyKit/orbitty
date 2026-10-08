@@ -75,6 +75,7 @@ window-vibrancy = "0.6"
 # Unwind, not abort: habitat wraps its AppKit work in catch_unwind so a
 # native failure can never take down the rail.
 panic = "unwind"
+opt-level = "z"
 codegen-units = 1
 lto = true
 # GO-ORBITTY-SHIP-SLIM: LTO was already on; strip is the missing half of
