@@ -100,8 +100,9 @@ function braceBody(src: string, openIndex: number): string {
 }
 
 function functionBody(src: string, name: string): string {
-  const re = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`);
-  const m = re.exec(src);
+  const exported = new RegExp(`export\\s+(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(src);
+  const plain = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(src);
+  const m = exported || plain;
   if (!m) throw new Error(`missing function ${name}`);
   let i = m.index + m[0].length;
   let depth = 1;
@@ -137,7 +138,12 @@ function indexInsideNotEmbedded(src: string, index: number): boolean {
 }
 
 function kanban(): string {
-  return stripComments(fs.readFileSync(kanbanPath, "utf8"));
+  const parts = [
+    kanbanPath,
+    fileURLToPath(new URL("../src/lib/board/pagePlanets.svelte.ts", import.meta.url)),
+    fileURLToPath(new URL("../src/lib/board/pageChips.svelte.ts", import.meta.url)),
+  ];
+  return stripComments(parts.map((p) => fs.readFileSync(p, "utf8")).join(""));
 }
 
 test("stale pending A + manual pick B + reload stays on B", () => {
@@ -296,7 +302,7 @@ test("EDGE ghost pending drops when the loaded list lacks the id", () => {
   assert.equal(reloaded.pending, null);
 
   const apply = functionBody(kanban(), "applyPendingFocus");
-  assert.match(apply, /projectsLoaded:\s*projects\.length\s*>\s*0/);
+  assert.match(apply, /projectsLoaded:\s*(?:scope\.)?projects\.length\s*>\s*0/);
 });
 
 test("not loaded yet keeps pending until the list contains it", () => {

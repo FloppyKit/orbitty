@@ -48,6 +48,14 @@
     TitleOverride,
     WindowInfo,
   } from "./persist";
+  import { raisePlanet as raisePlanetBody, projectIdList as projectIdListBody, applyFocusProject as applyFocusProjectBody, applyPendingFocus as applyPendingFocusBody, onPlanetTabClick as onPlanetTabClickBody, reorderPlanetsLive as reorderPlanetsLiveBody, persistPlanetOrder as persistPlanetOrderBody, planetBeforeAt as planetBeforeAtBody, onPlanetPointerDown as onPlanetPointerDownBody, toggleDoneChip as toggleDoneChipBody, onPlanetTabDblClick as onPlanetTabDblClickBody } from "./board/pagePlanets.svelte";
+  import { todayKey as todayKeyBody, startOfToday as startOfTodayBody, isDueToday as isDueTodayBody, pointsToday as pointsTodayBody, listOf as listOfBody, actorSide as actorSideBody, inDoneFilter as inDoneFilterBody, livePlanetId as livePlanetIdBody, inScope as inScopeBody } from "./board/pageScope.svelte";
+  import { startGrab as startGrabBody, grabArrow as grabArrowBody, dropGrab as dropGrabBody, persistColumnOrder as persistColumnOrderBody, ungrab as ungrabBody } from "./board/pageGrab.svelte";
+  import { sideCount as sideCountBody, projectName as projectNameBody, winFor as winForBody, doneChip as doneChipBody, notesSnippet as notesSnippetBody, subProgress as subProgressBody, agentName as agentNameBody, runState as runStateBody, runIsLive as runIsLiveBody, isWriting as isWritingBody, planetIsLive as planetIsLiveBody, hasAgent as hasAgentBody, goToken as goTokenBody, neededForTodo as neededForTodoBody, isDoingRow as isDoingRowBody, ageLabel as ageLabelBody, dueInfo as dueInfoBody, showProj as showProjBody, osThemeId as osThemeIdBody, loadState as loadStateBody } from "./board/pageChips.svelte";
+  import { logEvent as logEventBody, mutate as mutateBody, errText as errTextBody, showLinkToast as showLinkToastBody, openCardLink as openCardLinkBody, openUrl as openUrlBody, addCardLink as addCardLinkBody, removeCardLink as removeCardLinkBody, completeCard as completeCardBody, toggleCard as toggleCardBody, moveCard as moveCardBody, openDetail as openDetailBody, toggleDoing as toggleDoingBody, skipNeededCard as skipNeededCardBody, laterNeededCard as laterNeededCardBody, onSplitDown as onSplitDownBody, columnWidthNow as columnWidthNowBody, mailMinPx as mailMinPxBody, togglePlanetCol as togglePlanetColBody, previewMinPx as previewMinPxBody, clampPreview as clampPreviewBody, onEastSplitDown as onEastSplitDownBody, resetPreviewWidth as resetPreviewWidthBody } from "./board/pageMutate.svelte";
+  import { drawerStops as drawerStopsBody, saveTitle as saveTitleBody, undoThisTask as undoThisTaskBody, saveNotes as saveNotesBody, setPlanet as setPlanetBody, setAgent as setAgentBody, newCardId as newCardIdBody, childrenOf as childrenOfBody, remainingKids as remainingKidsBody, toggleOpenSubtasks as toggleOpenSubtasksBody, wouldCycle as wouldCycleBody, linkableTodos as linkableTodosBody, mintTodo as mintTodoBody, attachChild as attachChildBody, detachChild as detachChildBody, setDue as setDueBody, dateInputValue as dateInputValueBody, cardHasTag as cardHasTagBody, addTagToCard as addTagToCardBody, toggleCardTag as toggleCardTagBody, toggleSubtask as toggleSubtaskBody, deleteTodo as deleteTodoBody, setRating as setRatingBody, deleteSubtask as deleteSubtaskBody } from "./board/pageFields.svelte";
+  import { onCardDragStart as onCardDragStartBody, onCardDragEnd as onCardDragEndBody, isCardDrag as isCardDragBody, onColDragOver as onColDragOverBody, onColDragLeave as onColDragLeaveBody, onColDrop as onColDropBody, onCardPointerDown as onCardPointerDownBody, onPtrMove as onPtrMoveBody, onPtrUp as onPtrUpBody, onPtrCancel as onPtrCancelBody, ptrEnd as ptrEndBody, onPtrKey as onPtrKeyBody, overStartStrip as overStartStripBody, colAtPoint as colAtPointBody, rowAtPoint as rowAtPointBody, onCardClick as onCardClickBody, refreshWindows as refreshWindowsBody, focusCard as focusCardBody, launchHermes as launchHermesBody } from "./board/pagePointer.svelte";
+
 
   // Embedded mounts this page in the companion's
   // Launchpad well — × calls onClose (never hide_window), the banner
@@ -324,197 +332,72 @@
   let selectedProject = $derived(projects.find((p) => p.id === selected));
 
   function raisePlanet(id: string) {
-    invoke("bring_planet_front", { id }).catch(() => {});
-    invoke("locate_planet", { id }).catch(() => {});
+    return raisePlanetBody({invoke}, id);
   }
 
 
-  function projectIdList(): string[] {
-    return projects.map((p) => p.id);
+  function projectIdList() {
+    return projectIdListBody({get projects() { return projects; }, set projects(v) { projects = v; }});
   }
 
   function applyFocusProject(raw: string | null | undefined) {
-    const id = (raw ?? "").trim();
-    if (!id) return;
-    const next = resolveFocus({
-      pending: id,
-      selected,
-      projectIds: projectIdList(),
-    });
-    pendingFocusProject = next.pending;
-    selected = next.selected;
-    if (projects.some((p) => p.id === id)) raisePlanet(id);
+    return applyFocusProjectBody({get pendingFocusProject() { return pendingFocusProject; }, set pendingFocusProject(v) { pendingFocusProject = v; }, projectIdList, get projects() { return projects; }, set projects(v) { projects = v; }, raisePlanet, resolveFocus, get selected() { return selected; }, set selected(v) { selected = v; }}, raw);
   }
 
   /** loadState / pane show: apply a still-pending board click once, then clear.
    * A loaded list that lacks the id drops it (deleted planet) and does not
    * move the selection. */
   function applyPendingFocus() {
-    const before = pendingFocusProject;
-    const next = resolveFocus({
-      pending: before,
-      selected,
-      projectIds: projectIdList(),
-      projectsLoaded: projects.length > 0,
-    });
-    pendingFocusProject = next.pending;
-    selected = next.selected;
-    if (
-      before &&
-      next.pending === null &&
-      projects.some((p) => p.id === before)
-    ) {
-      raisePlanet(before);
-    }
+    return applyPendingFocusBody({get pendingFocusProject() { return pendingFocusProject; }, set pendingFocusProject(v) { pendingFocusProject = v; }, projectIdList, get projects() { return projects; }, set projects(v) { projects = v; }, raisePlanet, resolveFocus, get selected() { return selected; }, set selected(v) { selected = v; }});
   }
 
   function onPlanetTabClick(id: string) {
-    if (planetDidDrag) {
-      planetDidDrag = false;
-      return;
-    }
-    // A hand pick wins over an earlier board click.
-    pendingFocusProject = null;
-    selected = id;
-    raisePlanet(id);
+    return onPlanetTabClickBody({get pendingFocusProject() { return pendingFocusProject; }, set pendingFocusProject(v) { pendingFocusProject = v; }, get planetDidDrag() { return planetDidDrag; }, set planetDidDrag(v) { planetDidDrag = v; }, raisePlanet, get selected() { return selected; }, set selected(v) { selected = v; }}, id);
   }
 
   function reorderPlanetsLive(fromId: string, beforeId: string | null) {
-    const next = reorderProjects(projects, fromId, beforeId);
-    if (next !== projects) projects = next;
+    return reorderPlanetsLiveBody({get projects() { return projects; }, set projects(v) { projects = v; }, reorderProjects}, fromId, beforeId);
   }
 
   function persistPlanetOrder() {
-    const order = projects.map((p) => p.id);
-    mutate((s) => {
-      const byId = new Map((s.projects ?? []).map((p) => [p.id, p]));
-      s.projects = order.map((id) => byId.get(id)).filter((p): p is Project => !!p);
-    });
+    return persistPlanetOrderBody({mutate, get projects() { return projects; }, set projects(v) { projects = v; }});
   }
 
-  function planetBeforeAt(clientY: number): string | null {
-    const col = document.querySelector(".planet-col");
-    if (!col) return null;
-    const rows: { id: string; top: number; height: number }[] = [];
-    for (const el of col.querySelectorAll("[data-pid]")) {
-      if (!(el instanceof HTMLElement)) continue;
-      const id = el.getAttribute("data-pid");
-      if (!id) continue;
-      const r = el.getBoundingClientRect();
-      rows.push({ id, top: r.top, height: r.height });
-    }
-    return beforeIdAt(rows, clientY);
+  function planetBeforeAt(clientY: number) {
+    return planetBeforeAtBody({beforeIdAt}, clientY);
   }
 
   function onPlanetPointerDown(e: PointerEvent, id: string) {
-    if (e.button !== 0) return;
-    if (!(e.currentTarget instanceof HTMLElement)) return;
-    e.stopPropagation();
-    const tab = e.currentTarget;
-    const scroller = tab.closest(".planet-col-planets");
-    const x0 = e.clientX;
-    const y0 = e.clientY;
-    const scroll0 = scroller instanceof HTMLElement ? scroller.scrollTop : 0;
-    let dragging = false;
-    let armed = true;
-    const SLOP = 16;
-    const onMove = (ev: PointerEvent) => {
-      if (!armed) return;
-      const dx = ev.clientX - x0;
-      const dy = ev.clientY - y0;
-      if (!dragging) {
-        if (Math.hypot(dx, dy) < SLOP) return;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          armed = false;
-          cleanup();
-          return;
-        }
-        if (
-          scroller instanceof HTMLElement &&
-          Math.abs(scroller.scrollTop - scroll0) > 2
-        ) {
-          armed = false;
-          cleanup();
-          return;
-        }
-        dragging = true;
-        planetDidDrag = true;
-        planetDragId = id;
-      }
-      const before = planetBeforeAt(ev.clientY);
-      planetDropId = before;
-      reorderPlanetsLive(id, before);
-    };
-    const onUp = () => {
-      armed = false;
-      if (dragging) persistPlanetOrder();
-      planetDragId = null;
-      planetDropId = null;
-      cleanup();
-    };
-    const cleanup = () => {
-      try {
-        tab.releasePointerCapture(e.pointerId);
-      } catch {
-        /* capture is best-effort */
-      }
-      tab.removeEventListener("pointermove", onMove);
-      tab.removeEventListener("pointerup", onUp);
-      tab.removeEventListener("pointercancel", onUp);
-    };
-    try {
-      tab.setPointerCapture(e.pointerId);
-    } catch {
-      /* capture is best-effort */
-    }
-    tab.addEventListener("pointermove", onMove);
-    tab.addEventListener("pointerup", onUp);
-    tab.addEventListener("pointercancel", onUp);
+    return onPlanetPointerDownBody({persistPlanetOrder, planetBeforeAt, get planetDidDrag() { return planetDidDrag; }, set planetDidDrag(v) { planetDidDrag = v; }, get planetDragId() { return planetDragId; }, set planetDragId(v) { planetDragId = v; }, get planetDropId() { return planetDropId; }, set planetDropId(v) { planetDropId = v; }, reorderPlanetsLive}, e, id);
   }
 
   function toggleDoneChip() {
-    if (selected === "done") {
-      selected = selectedBeforeDone || "inbox";
-    } else {
-      selectedBeforeDone = selected;
-      selected = "done";
-    }
+    return toggleDoneChipBody({get selected() { return selected; }, set selected(v) { selected = v; }, get selectedBeforeDone() { return selectedBeforeDone; }, set selectedBeforeDone(v) { selectedBeforeDone = v; }});
   }
 
   function onPlanetTabDblClick(id: string) {
-    const collapsed = collapsedSectionIds.includes(id);
-    emitTo("main", collapsed ? "habitat:expand" : "habitat:collapse", id).catch(
-      () => {},
-    );
+    return onPlanetTabDblClickBody({get collapsedSectionIds() { return collapsedSectionIds; }, set collapsedSectionIds(v) { collapsedSectionIds = v; }, emitTo}, id);
   }
 
-  function todayKey(): string {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  function todayKey() {
+    return todayKeyBody({});
   }
 
-  function startOfToday(): number {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.getTime() / 1000;
+  function startOfToday() {
+    return startOfTodayBody({});
   }
 
-  function isDueToday(c: KanbanCard): boolean {
-    if (!c.dueAt) return false;
-    const t = startOfToday();
-    return c.dueAt >= t && c.dueAt < t + 86400;
+  function isDueToday(c: KanbanCard) {
+    return isDueTodayBody({startOfToday}, c);
   }
 
-  function pointsToday(): number {
-    const key = todayKey();
-    return pointsLedger
-      .filter((e) => e.day === key)
-      .reduce((a, e) => a + e.amount, 0);
+  function pointsToday() {
+    return pointsTodayBody({get pointsLedger() { return pointsLedger; }, set pointsLedger(v) { pointsLedger = v; }, todayKey});
   }
 
   // A card whose project vanished falls back to Inbox — never invisible.
-  function listOf(c: KanbanCard): string {
-    return projects.some((p) => p.id === c.projectId) ? c.projectId : "inbox";
+  function listOf(c: KanbanCard) {
+    return listOfBody({get projects() { return projects; }, set projects(v) { projects = v; }}, c);
   }
 
   // Needed is never a quest: every quest view filters kind first (Needed
@@ -537,32 +420,24 @@
   // Happened chips (sidebar Done + Board Done header).
   let doneFilter = $state<DoneFilter>("all");
 
-  function actorSide(card: KanbanCard): "mine" | "behalf" {
-    return card.actor && card.actor !== "user" ? "behalf" : "mine";
+  function actorSide(card: KanbanCard) {
+    return actorSideBody({}, card);
   }
 
-  function inDoneFilter(c: KanbanCard): boolean {
-    return doneFilter === "all" || actorSide(c) === doneFilter;
+  function inDoneFilter(c: KanbanCard) {
+    return inDoneFilterBody({actorSide, get doneFilter() { return doneFilter; }, set doneFilter(v) { doneFilter = v; }}, c);
   }
 
   // LP-INBOX: planet color dot — only when projectId is a LIVE project
   // (a vanished project falls back to Inbox and gets no dot).
-  function livePlanetId(card: KanbanCard): string | null {
-    return projects.some((p) => p.id === card.projectId) ? card.projectId : null;
+  function livePlanetId(card: KanbanCard) {
+    return livePlanetIdBody({get projects() { return projects; }, set projects(v) { projects = v; }}, card);
   }
 
   // Board scope mirrors the sidebar selection; the Done smart filter boards
   // every card so all three columns stay meaningful.
-  function inScope(c: KanbanCard): boolean {
-    // LP-SPLIT: the kind filter is also what keeps ANSWERED Neededs out
-    // of the consolidated Inbox — a Needed never becomes a board todo.
-    if (c.kind === "needed" || c.kind === "window") return false;
-    if (selected === "done") return true;
-    if (selected === "today") return isDueToday(c);
-    // LP-SPLIT: Inbox is the consolidated pile — every planet's todos,
-    // each card marked by its planet chip. Planet tabs still filter.
-    if (selected === "inbox") return true;
-    return listOf(c) === selected;
+  function inScope(c: KanbanCard) {
+    return inScopeBody({isDueToday, listOf, get selected() { return selected; }, set selected(v) { selected = v; }}, c);
   }
 
   let boardCols = $derived.by(() => {
@@ -645,186 +520,92 @@
   });
 
   function startGrab(card: KanbanCard) {
-    if (grabbedId) return; // a repeated Shift+Enter is not a re-grab
-    grabbedId = card.id;
-    grabCol = card.status;
-    // Start where the card really sits so the grab never jumps it.
-    grabIdx = Math.max(
-      0,
-      boardCols[card.status].findIndex((c) => c.id === card.id),
-    );
+    return startGrabBody({get boardCols() { return boardCols; }, set boardCols(v) { boardCols = v; }, get grabCol() { return grabCol; }, set grabCol(v) { grabCol = v; }, get grabIdx() { return grabIdx; }, set grabIdx(v) { grabIdx = v; }, get grabbedId() { return grabbedId; }, set grabbedId(v) { grabbedId = v; }}, card);
   }
 
   function grabArrow(dir: RingDir) {
-    if (!grabbedId || !grabCol) return;
-    if (dir === "left" || dir === "right") {
-      // Column hop, clamped at the ends. Empty columns are legal targets
-      // here — you are placing the card, not selecting one.
-      const order = COLUMNS.map((c) => c.id);
-      const next = order.indexOf(grabCol) + (dir === "left" ? -1 : 1);
-      if (next < 0 || next >= order.length) return;
-      grabCol = order[next];
-    } else {
-      grabIdx += dir === "up" ? -1 : 1;
-    }
-    // Same row, clamped into the column (its length excludes the held card).
-    const len = boardCols[grabCol].filter((c) => c.id !== grabbedId).length;
-    grabIdx = Math.min(Math.max(grabIdx, 0), len);
-    // The card moved under a pinned highlight — keep it scrolled in view.
-    menuRing.select(`card-${grabbedId}`);
+    return grabArrowBody({COLUMNS, get boardCols() { return boardCols; }, set boardCols(v) { boardCols = v; }, get grabCol() { return grabCol; }, set grabCol(v) { grabCol = v; }, get grabIdx() { return grabIdx; }, set grabIdx(v) { grabIdx = v; }, get grabbedId() { return grabbedId; }, set grabbedId(v) { grabbedId = v; }, menuRing}, dir);
   }
 
   function dropGrab() {
-    const id = grabbedId;
-    const target = grabCol;
-    const idx = grabIdx;
-    grabbedId = null;
-    grabCol = null;
-    grabIdx = 0;
-    grabGhost = null;
-    const card = id ? kanbanCards.find((c) => c.id === id) : undefined;
-    if (!card || !target) return;
-    if (target !== card.status) {
-      moveCard(card, target);
-      return;
-    }
-    persistColumnOrder(card, target, idx);
+    return dropGrabBody({get grabCol() { return grabCol; }, set grabCol(v) { grabCol = v; }, get grabGhost() { return grabGhost; }, set grabGhost(v) { grabGhost = v; }, get grabIdx() { return grabIdx; }, set grabIdx(v) { grabIdx = v; }, get grabbedId() { return grabbedId; }, set grabbedId(v) { grabbedId = v; }, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, moveCard, persistColumnOrder});
   }
 
   function persistColumnOrder(card: KanbanCard, col: Status, toIdx: number) {
-    mutate((s) => {
-      const cards = s.kanbanCards;
-      const match = (c: KanbanCard) =>
-        c.status === col &&
-        c.kind !== "needed" &&
-        c.kind !== "window" &&
-        !c.parentId &&
-        inScope(c);
-      const group = cards.filter(match);
-      const from = group.findIndex((c) => c.id === card.id);
-      if (from < 0) return;
-      const [held] = group.splice(from, 1);
-      group.splice(Math.min(Math.max(toIdx, 0), group.length), 0, held);
-      let gi = 0;
-      s.kanbanCards = cards.map((c) => (match(c) ? group[gi++] : c));
-    });
+    return persistColumnOrderBody({inScope, mutate}, card, col, toIdx);
   }
 
   function ungrab() {
-    // Esc (pad B): no mutation ever happened — the card is still in its
-    // pre-grab column; the held paint just stops.
-    grabbedId = null;
-    grabCol = null;
-    grabIdx = 0;
-    grabGhost = null;
+    return ungrabBody({get grabCol() { return grabCol; }, set grabCol(v) { grabCol = v; }, get grabGhost() { return grabGhost; }, set grabGhost(v) { grabGhost = v; }, get grabIdx() { return grabIdx; }, set grabIdx(v) { grabIdx = v; }, get grabbedId() { return grabbedId; }, set grabbedId(v) { grabbedId = v; }});
   }
 
   let detailCard = $derived(
     detailId ? kanbanCards.find((c) => c.id === detailId) : undefined,
   );
 
-  function sideCount(list: string): number {
-    if (list === "today") return openCards.filter((c) => isDueToday(c)).length;
-    if (list === "done") return doneCards.length;
-    // LP-SPLIT: Inbox counts the whole consolidated all-planets pile.
-    if (list === "inbox") return openCards.length;
-    return openCards.filter((c) => listOf(c) === list).length;
+  function sideCount(list: string) {
+    return sideCountBody({get doneCards() { return doneCards; }, set doneCards(v) { doneCards = v; }, isDueToday, listOf, get openCards() { return openCards; }, set openCards(v) { openCards = v; }}, list);
   }
 
   let listTitle = $derived(boardWindowTitle(selected, projects));
   let titleDot = $derived(boardTitleDot(selected, projects));
 
-  function projectName(id: string): string {
-    return projects.find((p) => p.id === id)?.name ?? "";
+  function projectName(id: string) {
+    return projectNameBody({get projects() { return projects; }, set projects(v) { projects = v; }}, id);
   }
 
-  function winFor(card: KanbanCard): WindowInfo | undefined {
-    return card.windowId
-      ? windows.find((w) => w.id === card.windowId)
-      : undefined;
+  function winFor(card: KanbanCard) {
+    return winForBody({get windows() { return windows; }, set windows(v) { windows = v; }}, card);
   }
 
-  function doneChip(card: KanbanCard): string {
-    if ((card.completedAt ?? 0) < startOfToday()) return "";
-    return card.pointsAwarded > 0 ? `+${card.pointsAwarded}` : "cap";
+  function doneChip(card: KanbanCard) {
+    return doneChipBody({startOfToday}, card);
   }
 
   // row meta (notes snippet, difficulty pip, due chip, sub count)
 
-  function notesSnippet(card: KanbanCard): string {
-    const first = (card.notes ?? "").split("\n")[0].trim();
-    return first.length > 60 ? `${first.slice(0, 60)}…` : first;
+  function notesSnippet(card: KanbanCard) {
+    return notesSnippetBody({}, card);
   }
 
-  function subProgress(card: KanbanCard): string {
-    const subs = card.subtasks ?? [];
-    if (subs.length === 0) return "";
-    return `${subs.filter((s) => s.done).length}/${subs.length}`;
+  function subProgress(card: KanbanCard) {
+    return subProgressBody({}, card);
   }
 
-  function agentName(card: KanbanCard): string {
-    const id = card.assignedAgentId;
-    if (!id) return "";
-    return agentShortcuts.find((a) => a.id === id)?.name ?? "";
+  function agentName(card: KanbanCard) {
+    return agentNameBody({get agentShortcuts() { return agentShortcuts; }, set agentShortcuts(v) { agentShortcuts = v; }}, card);
   }
 
-  function runState(card: KanbanCard): string {
-    const r = agentRuns.find((x) => x.cardId === card.id);
-    if (!r || r.state === "done") return "";
-    return r.state;
+  function runState(card: KanbanCard) {
+    return runStateBody({get agentRuns() { return agentRuns; }, set agentRuns(v) { agentRuns = v; }}, card);
   }
 
-  function runIsLive(r: AgentRun): boolean {
-    if (r.state !== "working" && r.state !== "starting" && r.state !== "blocked")
-      return false;
-    // GO→doing mints a working row with an empty seat. That is not a
-    // live writer — companion LED (hackLive) is the other honest signal.
-    return !!(r.agentShortcutId || "").trim() || !!r.herdr?.agentName;
+  function runIsLive(r: AgentRun) {
+    return runIsLiveBody({}, r);
   }
 
-  function isWriting(card: KanbanCard): boolean {
-    const r = agentRuns.find((x) => x.cardId === card.id);
-    return !!r && runIsLive(r);
+  function isWriting(card: KanbanCard) {
+    return isWritingBody({get agentRuns() { return agentRuns; }, set agentRuns(v) { agentRuns = v; }, runIsLive}, card);
   }
 
-  function planetIsLive(projectId: string | null | undefined): boolean {
-    if (!projectId) return false;
-    if (hackProjectId === projectId) return true;
-    return agentRuns.some((r) => r.planetId === projectId && runIsLive(r));
+  function planetIsLive(projectId: string | null | undefined) {
+    return planetIsLiveBody({get agentRuns() { return agentRuns; }, set agentRuns(v) { agentRuns = v; }, get hackProjectId() { return hackProjectId; }, set hackProjectId(v) { hackProjectId = v; }, runIsLive}, projectId);
   }
 
-  function hasAgent(card: KanbanCard): boolean {
-    if (card.assignedAgentId) return true;
-    const r = agentRuns.find((x) => x.cardId === card.id);
-    return !!r && runIsLive(r);
+  function hasAgent(card: KanbanCard) {
+    return hasAgentBody({get agentRuns() { return agentRuns; }, set agentRuns(v) { agentRuns = v; }, runIsLive}, card);
   }
 
-  function goToken(title: string): string | null {
-    const m = title.match(/GO-[A-Z0-9]+(?:-[A-Z0-9]+)*/i);
-    return m ? m[0].toUpperCase() : null;
+  function goToken(title: string) {
+    return goTokenBody({}, title);
   }
 
-  function neededForTodo(card: KanbanCard): KanbanCard | undefined {
-    const go = goToken(card.title);
-    if (!go) return undefined;
-    const planet = card.projectId || "";
-    return kanbanCards.find(
-      (c) =>
-        c.kind === "needed" &&
-        (c.neededState === "open" || c.neededState === "later") &&
-        (c.projectId || "") === planet &&
-        ((c.title || "").toUpperCase().includes(go) ||
-          (c.neededWhy || "").toUpperCase().includes(go)),
-    );
+  function neededForTodo(card: KanbanCard) {
+    return neededForTodoBody({goToken, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }}, card);
   }
 
-  function isDoingRow(c: KanbanCard): boolean {
-    return (
-      c.status === "doing" &&
-      c.kind !== "needed" &&
-      c.kind !== "window" &&
-      !c.parentId
-    );
+  function isDoingRow(c: KanbanCard) {
+    return isDoingRowBody({}, c);
   }
 
   // Needed-doings sit at the top of Doing. A one-off drag may park a
@@ -862,95 +643,30 @@
     });
   });
 
-  function ageLabel(card: KanbanCard): string {
-    const t = card.lastTouchedAt || card.createdAt;
-    if (!t) return "";
-    const s = Date.now() / 1000 - t;
-    if (s < 90) return "now";
-    if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
-    if (s < 86400) return `${Math.max(1, Math.round(s / 3600))}h`;
-    return `${Math.max(1, Math.round(s / 86400))}d`;
+  function ageLabel(card: KanbanCard) {
+    return ageLabelBody({}, card);
   }
 
-  function dueInfo(card: KanbanCard): { label: string; overdue: boolean } | null {
-    if (!card.dueAt) return null;
-    const d = new Date(card.dueAt * 1000);
-    const day = new Date(d);
-    day.setHours(0, 0, 0, 0);
-    const diffDays = Math.round(day.getTime() / 1000 - startOfToday()) / 86400;
-    let label: string;
-    if (diffDays === 0) label = "Today";
-    else if (diffDays === 1) label = "Tomorrow";
-    else if (diffDays === -1) label = "Yesterday";
-    else label = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    return {
-      label,
-      overdue: card.status !== "done" && day.getTime() / 1000 < startOfToday(),
-    };
+  function dueInfo(card: KanbanCard) {
+    return dueInfoBody({startOfToday}, card);
   }
 
   // Project chip: LP-SPLIT — on whenever the planet is live, even on that
   // planet's own tab, so a screenshot of any board reads the planet.
-  function showProj(card: KanbanCard): boolean {
-    return livePlanetId(card) !== null;
+  function showProj(card: KanbanCard) {
+    return showProjBody({livePlanetId}, card);
   }
 
   // The seven palette skins are retired; a
   // dead saved id falls back to the OS pair. Terminal stays valid.
   const KNOWN_THEMES = new Set(["systemLight", "systemDark", "terminal"]);
 
-  function osThemeId(): string {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "systemDark"
-      : "systemLight";
+  function osThemeId() {
+    return osThemeIdBody({});
   }
 
   async function loadState() {
-    try {
-      const s = await invoke<PersistedState>("load_state");
-      // "" means the rail follows the OS; retired ids (clear/liquidGlass)
-      // resolve the same way.
-      themeId = KNOWN_THEMES.has(s.themeId) ? s.themeId : osThemeId();
-      windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
-      projects = s.projects ?? [];
-      applyPendingFocus();
-      tags = s.tags ?? [];
-      kanbanCards = s.kanbanCards ?? [];
-      pointsLedger = s.pointsLedger ?? [];
-      titleOverrides = s.titleOverrides ?? [];
-      collapsedSectionIds = s.collapsedSectionIds ?? [];
-      agentShortcuts = s.agentShortcuts ?? [];
-      agentRuns = s.agentRuns ?? [];
-      neededSplit = clampSharedSplit(s.neededSplit ?? 0.28);
-      previewWidth = Math.max(160, s.previewWidth ?? 280);
-      openSubtaskIds = s.openSubtaskIds ?? [];
-      hackProjectId = s.companion?.hackLive
-        ? (s.companion?.hackProjectId ?? null)
-        : null;
-      if (
-        !migratingCardTrackers &&
-        (s.kanbanCards ?? []).some((c) => (c.trackers ?? []).length > 0)
-      ) {
-        migratingCardTrackers = true;
-        await mutate((st) => {
-          for (const c of st.kanbanCards) {
-            const dump = c.trackers ?? [];
-            if (!dump.length || !c.projectId) continue;
-            st.projects = st.projects.map((p) =>
-              p.id === c.projectId
-                ? { ...p, trackers: [...(p.trackers ?? []), ...dump] }
-                : p,
-            );
-          }
-          st.kanbanCards = st.kanbanCards.map((c) =>
-            c.trackers?.length ? { ...c, trackers: undefined } : c,
-          );
-        });
-        migratingCardTrackers = false;
-      }
-    } catch {
-      // keep last good state; next state:changed retries
-    }
+    return loadStateBody({KNOWN_THEMES, get agentRuns() { return agentRuns; }, set agentRuns(v) { agentRuns = v; }, get agentShortcuts() { return agentShortcuts; }, set agentShortcuts(v) { agentShortcuts = v; }, applyPendingFocus, clampSharedSplit, clampWindowOpacity, get collapsedSectionIds() { return collapsedSectionIds; }, set collapsedSectionIds(v) { collapsedSectionIds = v; }, get hackProjectId() { return hackProjectId; }, set hackProjectId(v) { hackProjectId = v; }, invoke, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, get migratingCardTrackers() { return migratingCardTrackers; }, set migratingCardTrackers(v) { migratingCardTrackers = v; }, mutate, get neededSplit() { return neededSplit; }, set neededSplit(v) { neededSplit = v; }, get openSubtaskIds() { return openSubtaskIds; }, set openSubtaskIds(v) { openSubtaskIds = v; }, osThemeId, get pointsLedger() { return pointsLedger; }, set pointsLedger(v) { pointsLedger = v; }, get previewWidth() { return previewWidth; }, set previewWidth(v) { previewWidth = v; }, get projects() { return projects; }, set projects(v) { projects = v; }, get tags() { return tags; }, set tags(v) { tags = v; }, get themeId() { return themeId; }, set themeId(v) { themeId = v; }, get titleOverrides() { return titleOverrides; }, set titleOverrides(v) { titleOverrides = v; }, get windowOpacity() { return windowOpacity; }, set windowOpacity(v) { windowOpacity = v; }});
   }
 
   // A window-linked card shows the rail's rename when one exists; the card's
@@ -968,106 +684,38 @@
   // board mutation, and claim/unclaim events come from the native
   // save_state diff instead of a second guess here.
   function logEvent(eType: string, content: Record<string, unknown>, projectId?: string) {
-    invoke("log_event", {
-      eType,
-      content,
-      projectId: projectId || null,
-      actor: "user",
-    }).catch(() => {});
+    return logEventBody({invoke}, eType, content, projectId);
   }
 
   // Every write goes through here: fresh load, mutate, save. The rail owns
   // the other slices; this window only ever touches kanbanCards / pointsLedger
   // / claims (unclaim on window-card complete or Doing→Todo drag).
   async function mutate(fn: (s: PersistedState) => void) {
-    try {
-      const s = await invoke<PersistedState>("load_state");
-      s.projects ??= [];
-      s.claims ??= [];
-      s.tags ??= [];
-      s.windowTags ??= [];
-      s.collapsedSectionIds ??= [];
-      s.nudgeSuppressedWindowIds ??= [];
-      s.kanbanCards ??= [];
-      s.pointsLedger ??= [];
-      s.titleOverrides ??= [];
-      fn(s);
-      await invoke("save_state", { state: s });
-      await loadState();
-    } catch (e) {
-      // Optimistic column paint already moved the card; reload disk
-      // so a failed save does not leave a lying column.
-      await loadState();
-      const msg = errText(e);
-      if (/link/i.test(msg)) showLinkToast(msg);
-    }
+    return mutateBody({errText, invoke, loadState, showLinkToast}, fn);
   }
 
-  function errText(e: unknown): string {
-    if (typeof e === "string") return e;
-    if (e instanceof Error) return e.message;
-    return "";
+  function errText(e: unknown) {
+    return errTextBody({}, e);
   }
 
   function showLinkToast(msg: string) {
-    linkToast = /file not found/i.test(msg) ? "file not found" : msg;
-    clearTimeout(linkToastTimer);
-    linkToastTimer = setTimeout(() => {
-      linkToast = "";
-    }, 4000);
+    return showLinkToastBody({get linkToast() { return linkToast; }, set linkToast(v) { linkToast = v; }, get linkToastTimer() { return linkToastTimer; }, set linkToastTimer(v) { linkToastTimer = v; }}, msg);
   }
 
   async function openCardLink(card: KanbanCard, index = 0) {
-    const url = card.links?.[index]?.url;
-    if (!url) {
-      showLinkToast("no link");
-      return;
-    }
-    try {
-      await requestLink(url);
-    } catch (e) {
-      showLinkToast(linkErrText(e));
-    }
+    return openCardLinkBody({linkErrText, requestLink, showLinkToast}, card, index);
   }
 
   async function openUrl(url: string) {
-    try {
-      await requestLink(url);
-    } catch (e) {
-      showLinkToast(linkErrText(e));
-    }
+    return openUrlBody({linkErrText, requestLink, showLinkToast}, url);
   }
 
   function addCardLink(card: KanbanCard, url: string, label: string) {
-    const nextUrl = url.trim();
-    if (!nextUrl) return;
-    const nextLabel = label.trim();
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) => {
-        if (c.id !== card.id) return c;
-        const cur = c.links ?? [];
-        if (cur.some((l) => l.url === nextUrl)) return c;
-        return {
-          ...c,
-          links: [...cur, { url: nextUrl, label: nextLabel || undefined }],
-          lastTouchedAt: Date.now() / 1000,
-        };
-      });
-    });
+    return addCardLinkBody({mutate}, card, url, label);
   }
 
   function removeCardLink(card: KanbanCard, url: string) {
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) => {
-        if (c.id !== card.id) return c;
-        const links = (c.links ?? []).filter((l) => l.url !== url);
-        return {
-          ...c,
-          links: links.length ? links : undefined,
-          lastTouchedAt: Date.now() / 1000,
-        };
-      });
-    });
+    return removeCardLinkBody({mutate}, card, url);
   }
 
   // Complete — the only door that retires a sprite and can mint points.
@@ -1077,256 +725,74 @@
   // performs the unclaim (the existing eviction) once the walker is off,
   // or immediately when no walker can narrate the walk (marble/open dot).
   function completeCard(card: KanbanCard) {
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      const key = todayKey();
-      const todayPts = s.pointsLedger
-        .filter((e) => e.day === key)
-        .reduce((a, e) => a + e.amount, 0);
-      const alreadyAwarded = s.pointsLedger.some((e) => e.cardId === card.id);
-      const base = card.clinicalOrMaster ? 2 : 1;
-      const award = !alreadyAwarded && todayPts + base <= DAILY_CAP ? base : 0;
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              status: "done",
-              lastTouchedAt: now,
-              completedAt: now,
-              pointsAwarded: c.pointsAwarded + award,
-              actor: "user" as const,
-            }
-          : c,
-      );
-      s.agentRuns = (s.agentRuns ?? []).map((r) =>
-        r.cardId === card.id && r.state !== "done" ? { ...r, state: "done" as const } : r,
-      );
-      if (award > 0) {
-        s.pointsLedger = [
-          ...s.pointsLedger,
-          {
-            id: `pt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-            cardId: card.id,
-            amount: award,
-            day: key,
-            at: now,
-            actor: "user" as const,
-          },
-        ];
-      }
-      // No unclaim here: the walk-off narrates first, then the rail's
-      // habitat:walked-off handler unclaims (the existing Done eviction).
-    });
-    logEvent("board-move", { from: card.status, to: "done", cardId: card.id }, card.projectId);
+    return completeCardBody({DAILY_CAP, logEvent, mutate, todayKey}, card);
   }
 
   // Checkbox: complete awards points once per card (daily cap honored); the
   // window keeps its claim until the walk-off lands and the rail unclaims —
   // the same rules as the rail ✓. Unchecking returns the card as a loose todo.
   function toggleCard(card: KanbanCard) {
-    const now = Date.now() / 1000;
-    if (card.status === "done") {
-      mutate((s) => {
-        s.kanbanCards = s.kanbanCards.map((c) =>
-          c.id === card.id
-            ? {
-                ...c,
-                status: "todo",
-                windowId: null,
-                completedAt: null,
-                lastTouchedAt: now,
-              }
-            : c,
-        );
-      });
-      logEvent("board-move", { from: "done", to: "todo", cardId: card.id }, card.projectId);
-      return;
-    }
-    completeCard(card);
+    return toggleCardBody({completeCard, logEvent, mutate}, card);
   }
 
   // Board drag: drop on a column = status move. Dropping on Done is the
   // same complete door as the checkbox. Todo/Doing keep the window claim
   // (town: todo = board, doing = field). Unclaim is Unclaim, not a column.
   function moveCard(card: KanbanCard, target: Status) {
-    if (card.status === target) return;
-    if (target === "done") {
-      completeCard(card);
-      return;
-    }
-    const now = Date.now() / 1000;
-    // Paint the column this frame. Doing-fire / walker attach run after
-    // the save returns — awaiting them here is the todo→doing hitch.
-    kanbanCards = kanbanCards.map((c) =>
-      c.id === card.id
-        ? {
-            ...c,
-            status: target,
-            completedAt: null,
-            lastTouchedAt: now,
-          }
-        : c,
-    );
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              status: target,
-              completedAt: null,
-              lastTouchedAt: now,
-            }
-          : c,
-      );
-    });
-    logEvent("board-move", { from: card.status, to: target, cardId: card.id }, card.projectId);
+    return moveCardBody({completeCard, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, logEvent, mutate}, card, target);
   }
 
   // detail drawer mutations (all additive on the card)
 
   function openDetail(card: KanbanCard) {
-    if (card.kind !== "needed") {
-      if (neededSelectedId) armNeededMouth(null, null);
-      neededSelectedId = null;
-    }
-    detailId = card.id;
-    newTagName = "";
-    previewEdit = false;
-    planetDdOpen = false;
+    return openDetailBody({armNeededMouth, get detailId() { return detailId; }, set detailId(v) { detailId = v; }, get neededSelectedId() { return neededSelectedId; }, set neededSelectedId(v) { neededSelectedId = v; }, get newTagName() { return newTagName; }, set newTagName(v) { newTagName = v; }, get planetDdOpen() { return planetDdOpen; }, set planetDdOpen(v) { planetDdOpen = v; }, get previewEdit() { return previewEdit; }, set previewEdit(v) { previewEdit = v; }}, card);
   }
 
   async function toggleDoing(card: KanbanCard, e: MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (card.status === "doing") {
-      moveCard(card, "todo");
-      return;
-    }
-    const agentId = (card.assignedAgentId || "").trim();
-    if (agentId) {
-      try {
-        await invoke("agent_pickup", { id: agentId, cardId: card.id });
-        await loadState();
-        return;
-      } catch {
-        // Harness miss still parks the card so the walker can mint.
-      }
-    }
-    moveCard(card, "doing");
+    return toggleDoingBody({invoke, loadState, moveCard}, card, e);
   }
 
   function skipNeededCard(card: KanbanCard) {
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? { ...c, neededState: "skipped" as const, lastTouchedAt: now }
-          : c,
-      );
-    });
-    logEvent("needed-skip", { cardId: card.id }, card.projectId);
+    return skipNeededCardBody({logEvent, mutate}, card);
   }
 
   function laterNeededCard(card: KanbanCard) {
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? { ...c, neededState: "later" as const, lastTouchedAt: now }
-          : c,
-      );
-    });
-    logEvent("needed-later", { cardId: card.id }, card.projectId);
+    return laterNeededCardBody({logEvent, mutate}, card);
   }
 
   function onSplitDown(e: PointerEvent) {
-    const el = mailEl;
-    if (!el) return;
-    e.preventDefault();
-    const startY = e.clientY;
-    const start = neededSplit;
-    const h = Math.max(el.clientHeight, 1);
-    const move = (ev: PointerEvent) => {
-      neededSplit = clampSharedSplit(start + (ev.clientY - startY) / h);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      const v = neededSplit;
-      mutate((s) => {
-        s.neededSplit = v;
-      });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    return onSplitDownBody({clampSharedSplit, get mailEl() { return mailEl; }, set mailEl(v) { mailEl = v; }, mutate, get neededSplit() { return neededSplit; }, set neededSplit(v) { neededSplit = v; }}, e);
   }
 
-  function columnWidthNow(): number {
-    return columnPx(columnMode(boardPx, planetColPref));
+  function columnWidthNow() {
+    return columnWidthNowBody({get boardPx() { return boardPx; }, set boardPx(v) { boardPx = v; }, columnMode, columnPx, get planetColPref() { return planetColPref; }, set planetColPref(v) { planetColPref = v; }});
   }
 
   // Mail-stack floor plus the planet column. clampPreview subtracts this
   // from the body so the list and the preview both keep a minimum when
   // the column is open (168) or collapsed to chips (72).
-  function mailMinPx(): number {
-    return 120 + columnWidthNow();
+  function mailMinPx() {
+    return mailMinPxBody({columnWidthNow});
   }
 
   function togglePlanetCol() {
-    planetColPref = planetColMode === "open" ? "icons" : "open";
-    previewWidth = clampPreview(previewWidth);
+    return togglePlanetColBody({clampPreview, get planetColMode() { return planetColMode; }, get planetColPref() { return planetColPref; }, set planetColPref(v) { planetColPref = v; }, get previewWidth() { return previewWidth; }, set previewWidth(v) { previewWidth = v; }});
   }
 
-  function previewMinPx(): number {
-    const probe = document.createElement("span");
-    probe.style.cssText =
-      "position:absolute;left:-9999px;font:400 0.8rem 'SF Pro Text',system-ui,sans-serif;white-space:nowrap";
-    probe.textContent = "LED watch dogfood";
-    document.body.appendChild(probe);
-    const text = probe.getBoundingClientRect().width;
-    probe.remove();
-    return Math.max(160, Math.ceil(text + 11 + 7 + 16));
+  function previewMinPx() {
+    return previewMinPxBody({});
   }
 
-  function clampPreview(px: number): number {
-    const body = bodyEl;
-    const prevMin = previewMinPx();
-    if (!body) return Math.max(prevMin, px);
-    const cs = getComputedStyle(body);
-    const pad =
-      (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-    // 6px is the east split. mailMinPx already includes the planet column.
-    const avail = Math.max(body.clientWidth - pad - 6, 1);
-    const maxPreview = Math.max(prevMin, avail - mailMinPx());
-    return Math.min(maxPreview, Math.max(prevMin, px));
+  function clampPreview(px: number) {
+    return clampPreviewBody({get bodyEl() { return bodyEl; }, set bodyEl(v) { bodyEl = v; }, mailMinPx, previewMinPx}, px);
   }
 
   function onEastSplitDown(e: PointerEvent) {
-    if (!bodyEl) return;
-    e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    const startX = e.clientX;
-    const start = previewWidth;
-    const move = (ev: PointerEvent) => {
-      previewWidth = clampPreview(start - (ev.clientX - startX));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      const v = previewWidth;
-      mutate((s) => {
-        s.previewWidth = v;
-      });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    return onEastSplitDownBody({get bodyEl() { return bodyEl; }, set bodyEl(v) { bodyEl = v; }, clampPreview, mutate, get previewWidth() { return previewWidth; }, set previewWidth(v) { previewWidth = v; }}, e);
   }
 
   function resetPreviewWidth() {
-    previewWidth = clampPreview(280);
-    mutate((s) => {
-      s.previewWidth = previewWidth;
-    });
+    return resetPreviewWidthBody({clampPreview, mutate, get previewWidth() { return previewWidth; }, set previewWidth(v) { previewWidth = v; }});
   }
 
   function clampSharedSplit(frac: number): number {
@@ -1363,383 +829,126 @@
   // FOCUSING it (the caret stays the field's own — pad grammar never
   // steals it, Esc blurs); a button confirms by doing what its click
   // does. Closing the drawer pops the surface back to the board.
-  function drawerStops(card: KanbanCard): RingStop[] {
-    const focusStop = (id: string) => () => {
-      document
-        .querySelector<HTMLElement>(`[data-mkey="${CSS.escape(id)}"]`)
-        ?.focus();
-    };
-    const stops: RingStop[] = [
-      { id: "d-title", confirm: focusStop("d-title") },
-      { id: "d-planet", confirm: focusStop("d-planet") },
-      { id: "d-agent", confirm: focusStop("d-agent") },
-      { id: "d-notes", confirm: focusStop("d-notes") },
-    ];
-    stops.push({ id: "d-due", confirm: focusStop("d-due") });
-    if (card.dueAt) {
-      stops.push({ id: "d-due-clear", confirm: () => setDue(card, "") });
-    }
-    for (const sub of card.subtasks ?? []) {
-      stops.push({
-        id: `d-sub-check-${sub.id}`,
-        confirm: () => toggleSubtask(card, sub.id),
-      });
-      stops.push({
-        id: `d-sub-del-${sub.id}`,
-        confirm: () => deleteSubtask(card, sub.id),
-      });
-    }
-    stops.push({ id: "d-tag-new", confirm: focusStop("d-tag-new") });
-    for (const t of tags) {
-      stops.push({
-        id: `d-tag-${t.id}`,
-        confirm: () => toggleCardTag(card, t.id),
-      });
-    }
-    if ((card.kind === "window" || card.windowId) && winFor(card)) {
-      stops.push({ id: "d-win-focus", confirm: () => focusCard(card) });
-    }
-    for (let n = 1; n <= 7; n++) {
-      stops.push({
-        id: `d-rate-${n}`,
-        confirm: () => setRating(card, card.rating === n ? null : n),
-      });
-    }
-    if (card.kind !== "window" && card.kind !== "needed") {
-      stops.push({ id: "d-trash", confirm: () => deleteTodo(card) });
-    }
-    return stops;
+  function drawerStops(card: KanbanCard) {
+    return drawerStopsBody({deleteSubtask, deleteTodo, focusCard, setDue, setRating, get tags() { return tags; }, set tags(v) { tags = v; }, toggleCardTag, toggleSubtask, winFor}, card);
   }
 
   function saveTitle(card: KanbanCard, raw: string) {
-    const title = raw.trim();
-    if (!title || title === card.title) return;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id ? { ...c, title, lastTouchedAt: Date.now() / 1000 } : c,
-      );
-    });
+    return saveTitleBody({mutate}, card, raw);
   }
 
   async function undoThisTask(card: KanbanCard) {
-    try {
-      await invoke("undo_task", { cardId: card.id });
-      await loadState();
-    } catch {
-      /* no before snapshot */
-    }
+    return undoThisTaskBody({invoke, loadState}, card);
   }
 
   function saveNotes(card: KanbanCard, raw: string) {
-    const notes = raw.trim();
-    if (notes === (card.notes ?? "")) return;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? { ...c, notes: notes || undefined, lastTouchedAt: Date.now() / 1000 }
-          : c,
-      );
-    });
+    return saveNotesBody({mutate}, card, raw);
   }
 
   function setPlanet(card: KanbanCard, projectId: string) {
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? { ...c, projectId, lastTouchedAt: Date.now() / 1000 }
-          : c,
-      );
-    });
-    logEvent("board-planet", { cardId: card.id, projectId }, projectId || undefined);
+    return setPlanetBody({logEvent, mutate}, card, projectId);
   }
 
   function setAgent(card: KanbanCard, agentId: string) {
-    const assignedAgentId = agentId || null;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              assignedAgentId,
-              actor: assignedAgentId ? "agent" : c.actor,
-              lastTouchedAt: Date.now() / 1000,
-            }
-          : c,
-      );
-    });
-    logEvent(
-      "board-assign",
-      { cardId: card.id, agentId: assignedAgentId },
-      card.projectId,
-    );
+    return setAgentBody({logEvent, mutate}, card, agentId);
   }
 
-  function newCardId(): string {
-    return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  function newCardId() {
+    return newCardIdBody({});
   }
 
-  function childrenOf(parentId: string): KanbanCard[] {
-    return kanbanCards.filter(
-      (c) => c.parentId === parentId && c.kind !== "needed" && c.kind !== "window",
-    );
+  function childrenOf(parentId: string) {
+    return childrenOfBody({get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }}, parentId);
   }
 
-  function remainingKids(parentId: string): number {
-    return childrenOf(parentId).filter((c) => c.status !== "done").length;
+  function remainingKids(parentId: string) {
+    return remainingKidsBody({childrenOf}, parentId);
   }
 
   function toggleOpenSubtasks(parentId: string, e: MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    const on = openSubtaskIds.includes(parentId);
-    const next = on
-      ? openSubtaskIds.filter((id) => id !== parentId)
-      : [...openSubtaskIds, parentId];
-    openSubtaskIds = next;
-    mutate((s) => {
-      s.openSubtaskIds = next;
-    });
+    return toggleOpenSubtasksBody({mutate, get openSubtaskIds() { return openSubtaskIds; }, set openSubtaskIds(v) { openSubtaskIds = v; }}, parentId, e);
   }
 
-  function wouldCycle(parentId: string, childId: string): boolean {
-    let id: string | null | undefined = parentId;
-    const seen = new Set<string>();
-    while (id) {
-      if (id === childId) return true;
-      if (seen.has(id)) return true;
-      seen.add(id);
-      id = kanbanCards.find((c) => c.id === id)?.parentId;
-    }
-    return false;
+  function wouldCycle(parentId: string, childId: string) {
+    return wouldCycleBody({get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }}, parentId, childId);
   }
 
-  function linkableTodos(parent: KanbanCard): KanbanCard[] {
-    return kanbanCards.filter(
-      (c) =>
-        c.id !== parent.id &&
-        c.kind !== "needed" &&
-        c.kind !== "window" &&
-        c.parentId !== parent.id &&
-        !wouldCycle(parent.id, c.id),
-    );
+  function linkableTodos(parent: KanbanCard) {
+    return linkableTodosBody({get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, wouldCycle}, parent);
   }
 
   function mintTodo(title: string, parentId?: string) {
-    const t = title.trim();
-    if (!t) return;
-    const now = Date.now() / 1000;
-    const projectId =
-      projects.some((p) => p.id === selected) ? selected : "";
-    const card: KanbanCard = {
-      id: newCardId(),
-      title: t,
-      projectId,
-      kind: "todo",
-      status: "todo",
-      createdAt: now,
-      lastTouchedAt: now,
-      goalAligned: true,
-      clinicalOrMaster: false,
-      pointsAwarded: 0,
-      parentId: parentId || undefined,
-    };
-    mutate((s) => {
-      s.kanbanCards = [...s.kanbanCards, card];
-    });
-    logEvent("board-add", { cardId: card.id, title: t, parentId }, projectId || undefined);
-    // A marble opens when a todo lands on it so the new card is visible.
-    if (projectId && collapsedSectionIds.includes(projectId)) {
-      emitTo("main", "habitat:expand", projectId).catch(() => {});
-    }
-    if (!parentId) {
-      addingTodo = false;
-      newTodoTitle = "";
-      detailId = card.id;
-    }
+    return mintTodoBody({get addingTodo() { return addingTodo; }, set addingTodo(v) { addingTodo = v; }, get collapsedSectionIds() { return collapsedSectionIds; }, set collapsedSectionIds(v) { collapsedSectionIds = v; }, get detailId() { return detailId; }, set detailId(v) { detailId = v; }, emitTo, logEvent, mutate, newCardId, get newTodoTitle() { return newTodoTitle; }, set newTodoTitle(v) { newTodoTitle = v; }, get projects() { return projects; }, set projects(v) { projects = v; }, get selected() { return selected; }, set selected(v) { selected = v; }}, title, parentId);
   }
 
   function attachChild(parent: KanbanCard, childId: string) {
-    if (!childId || wouldCycle(parent.id, childId)) return;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === childId
-          ? { ...c, parentId: parent.id, lastTouchedAt: Date.now() / 1000 }
-          : c,
-      );
-    });
+    return attachChildBody({mutate, wouldCycle}, parent, childId);
   }
 
   function detachChild(childId: string) {
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === childId
-          ? { ...c, parentId: undefined, lastTouchedAt: Date.now() / 1000 }
-          : c,
-      );
-    });
+    return detachChildBody({mutate}, childId);
   }
 
   function setDue(card: KanbanCard, dateValue: string) {
-    // Local noon sidesteps DST/timezone edge flips on the stored epoch.
-    const dueAt = dateValue
-      ? new Date(`${dateValue}T12:00:00`).getTime() / 1000
-      : null;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id ? { ...c, dueAt } : c,
-      );
-    });
+    return setDueBody({mutate}, card, dateValue);
   }
 
-  function dateInputValue(card: KanbanCard): string {
-    if (!card.dueAt) return "";
-    const d = new Date(card.dueAt * 1000);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  function dateInputValue(card: KanbanCard) {
+    return dateInputValueBody({}, card);
   }
 
-  function cardHasTag(card: KanbanCard, tagId: string): boolean {
-    return (card.tagIds ?? []).includes(tagId);
+  function cardHasTag(card: KanbanCard, tagId: string) {
+    return cardHasTagBody({}, card, tagId);
   }
 
   function addTagToCard(card: KanbanCard, raw: string) {
-    const name = raw.trim();
-    if (!name) return;
-    mutate((s) => {
-      s.tags ??= [];
-      let tag = s.tags.find((t) => t.name.toLowerCase() === name.toLowerCase());
-      if (!tag) {
-        tag = {
-          id: `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-          name,
-        };
-        s.tags = [...s.tags, tag];
-      }
-      const tagId = tag.id;
-      s.kanbanCards = s.kanbanCards.map((c) => {
-        if (c.id !== card.id) return c;
-        const cur = c.tagIds ?? [];
-        if (cur.includes(tagId)) return c;
-        return { ...c, tagIds: [...cur, tagId] };
-      });
-    });
-    newTagName = "";
+    return addTagToCardBody({mutate, get newTagName() { return newTagName; }, set newTagName(v) { newTagName = v; }}, card, raw);
   }
 
   function toggleCardTag(card: KanbanCard, tagId: string) {
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) => {
-        if (c.id !== card.id) return c;
-        const cur = c.tagIds ?? [];
-        const next = cur.includes(tagId)
-          ? cur.filter((id) => id !== tagId)
-          : [...cur, tagId];
-        return { ...c, tagIds: next.length ? next : undefined };
-      });
-    });
+    return toggleCardTagBody({mutate}, card, tagId);
   }
 
   function toggleSubtask(card: KanbanCard, subId: string) {
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? {
-              ...c,
-              subtasks: (c.subtasks ?? []).map((sub) =>
-                sub.id === subId ? { ...sub, done: !sub.done } : sub,
-              ),
-            }
-          : c,
-      );
-    });
+    return toggleSubtaskBody({mutate}, card, subId);
   }
 
   function deleteTodo(card: KanbanCard) {
-    if (card.kind === "window" || card.kind === "needed") return;
-    const id = card.id;
-    const now = Date.now() / 1000;
-    mutate((s) => {
-      s.cardTombstones = [
-        ...(s.cardTombstones ?? []).filter((t) => t.id !== id),
-        { id, lastTouchedAt: now },
-      ];
-      s.kanbanCards = s.kanbanCards
-        .filter((c) => c.id !== id)
-        .map((c) =>
-          c.parentId === id
-            ? { ...c, parentId: undefined, lastTouchedAt: Date.now() / 1000 }
-            : c,
-        );
-      s.agentRuns = (s.agentRuns ?? []).filter((r) => r.cardId !== id);
-    });
-    logEvent("board-delete", { cardId: id, title: card.title }, card.projectId);
-    previewEdit = false;
-    if (detailId === id) detailId = null;
-    if (neededSelectedId === id) neededSelectedId = null;
+    return deleteTodoBody({get detailId() { return detailId; }, set detailId(v) { detailId = v; }, logEvent, mutate, get neededSelectedId() { return neededSelectedId; }, set neededSelectedId(v) { neededSelectedId = v; }, get previewEdit() { return previewEdit; }, set previewEdit(v) { previewEdit = v; }}, card);
   }
 
   function setRating(card: KanbanCard, n: number | null) {
-    const rating = n != null && n >= 1 && n <= 7 ? n : null;
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? { ...c, rating, lastTouchedAt: Date.now() / 1000 }
-          : c,
-      );
-    });
+    return setRatingBody({mutate}, card, n);
   }
 
   function deleteSubtask(card: KanbanCard, subId: string) {
-    mutate((s) => {
-      s.kanbanCards = s.kanbanCards.map((c) =>
-        c.id === card.id
-          ? { ...c, subtasks: (c.subtasks ?? []).filter((sub) => sub.id !== subId) }
-          : c,
-      );
-    });
+    return deleteSubtaskBody({mutate}, card, subId);
   }
 
   // board drag handlers
 
   function onCardDragStart(e: DragEvent, _card: KanbanCard) {
-    // Pointer path owns the mouse. Prevent native WK drag so it cannot
-    // pointercancel the stream at ~4px. DnD handlers stay as a belt.
-    e.preventDefault();
+    return onCardDragStartBody({}, e, _card);
   }
 
   function onCardDragEnd() {
-    dragCardId = null;
-    dropCol = null;
+    return onCardDragEndBody({get dragCardId() { return dragCardId; }, set dragCardId(v) { dragCardId = v; }, get dropCol() { return dropCol; }, set dropCol(v) { dropCol = v; }});
   }
 
-  function isCardDrag(e: DragEvent): boolean {
-    return !!dragCardId || !!e.dataTransfer?.types?.includes("text/plain");
+  function isCardDrag(e: DragEvent) {
+    return isCardDragBody({get dragCardId() { return dragCardId; }, set dragCardId(v) { dragCardId = v; }}, e);
   }
 
   function onColDragOver(e: DragEvent, col: Status) {
-    if (!isCardDrag(e)) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    if (dropCol !== col) dropCol = col;
+    return onColDragOverBody({get dropCol() { return dropCol; }, set dropCol(v) { dropCol = v; }, isCardDrag}, e, col);
   }
 
   function onColDragLeave(e: DragEvent, col: Status) {
-    const next = e.relatedTarget as Node | null;
-    if (
-      next &&
-      e.currentTarget instanceof HTMLElement &&
-      e.currentTarget.contains(next)
-    )
-      return;
-    if (dropCol === col) dropCol = null;
+    return onColDragLeaveBody({get dropCol() { return dropCol; }, set dropCol(v) { dropCol = v; }}, e, col);
   }
 
   function onColDrop(e: DragEvent, col: Status) {
-    e.preventDefault();
-    const id = e.dataTransfer?.getData("text/plain") || dragCardId;
-    const card = kanbanCards.find((c) => c.id === id);
-    if (card && col !== card.status) moveCard(card, col);
-    dragCardId = null;
-    dropCol = null;
+    return onColDropBody({get dragCardId() { return dragCardId; }, set dragCardId(v) { dragCardId = v; }, get dropCol() { return dropCol; }, set dropCol(v) { dropCol = v; }, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, moveCard}, e, col);
   }
 
   // Pointer drag is the grab path. The card floats under the cursor.
@@ -1758,179 +967,57 @@
   } | null = null;
 
   function onCardPointerDown(e: PointerEvent, card: KanbanCard) {
-    if (e.button !== 0 || grabbedId) return;
-    if (!(e.currentTarget instanceof HTMLElement)) return;
-    suppressClick = false;
-    const row = e.currentTarget.closest(".b-row");
-    const r = (row instanceof HTMLElement
-      ? row
-      : e.currentTarget
-    ).getBoundingClientRect();
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      /* capture is best-effort */
-    }
-    ptr = {
-      id: card.id,
-      x: e.clientX,
-      y: e.clientY,
-      held: false,
-      ox: e.clientX - r.left,
-      oy: e.clientY - r.top,
-      w: r.width,
-      h: r.height,
-    };
-    window.addEventListener("pointermove", onPtrMove);
-    window.addEventListener("pointerup", onPtrUp);
-    window.addEventListener("pointercancel", onPtrCancel);
-    window.addEventListener("keydown", onPtrKey, true);
-    window.addEventListener("blur", onPtrCancel);
+    return onCardPointerDownBody({get grabbedId() { return grabbedId; }, set grabbedId(v) { grabbedId = v; }, onPtrCancel, onPtrKey, onPtrMove, onPtrUp, get ptr() { return ptr; }, set ptr(v) { ptr = v; }, get suppressClick() { return suppressClick; }, set suppressClick(v) { suppressClick = v; }}, e, card);
   }
 
   function onPtrMove(e: PointerEvent) {
-    const p = ptr;
-    if (!p) return;
-    if (!p.held) {
-      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 2) return;
-      const card = kanbanCards.find((c) => c.id === p.id);
-      if (!card) return ptrEnd();
-      startGrab(card);
-      p.held = true;
-      grabGhost = {
-        x: e.clientX - p.ox,
-        y: e.clientY - p.oy,
-        w: p.w,
-        h: p.h,
-      };
-    }
-    if (!grabbedId) return;
-    const card = kanbanCards.find((c) => c.id === grabbedId);
-    if (!card) return;
-    const over = overStartStrip(e.clientX, e.clientY)
-      ? "doing"
-      : colAtPoint(e.clientX, e.clientY);
-    grabCol = over === "doing" || over === "done" ? over : card.status;
-    grabIdx = rowAtPoint(grabCol === card.status ? card.status : grabCol, e.clientY);
-    if (grabGhost) {
-      grabGhost = {
-        ...grabGhost,
-        x: e.clientX - p.ox,
-        y: e.clientY - p.oy,
-      };
-    }
+    return onPtrMoveBody({colAtPoint, get grabCol() { return grabCol; }, set grabCol(v) { grabCol = v; }, get grabGhost() { return grabGhost; }, set grabGhost(v) { grabGhost = v; }, get grabIdx() { return grabIdx; }, set grabIdx(v) { grabIdx = v; }, get grabbedId() { return grabbedId; }, set grabbedId(v) { grabbedId = v; }, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, overStartStrip, get ptr() { return ptr; }, set ptr(v) { ptr = v; }, ptrEnd, rowAtPoint, startGrab}, e);
   }
 
   function onPtrUp(e: PointerEvent) {
-    const p = ptr;
-    if (!p) return;
-    if (overStartStrip(e.clientX, e.clientY)) grabCol = "doing";
-    const wasHeld = p.held;
-    const stillHeld = !!grabbedId;
-    ptrEnd();
-    if (!wasHeld) return;
-    suppressClick = true;
-    if (stillHeld) dropGrab();
+    return onPtrUpBody({dropGrab, get grabCol() { return grabCol; }, set grabCol(v) { grabCol = v; }, get grabbedId() { return grabbedId; }, set grabbedId(v) { grabbedId = v; }, overStartStrip, get ptr() { return ptr; }, set ptr(v) { ptr = v; }, ptrEnd, get suppressClick() { return suppressClick; }, set suppressClick(v) { suppressClick = v; }}, e);
   }
 
   function onPtrCancel() {
-    if (ptr?.held && grabbedId) ungrab();
-    ptrEnd();
+    return onPtrCancelBody({get grabbedId() { return grabbedId; }, set grabbedId(v) { grabbedId = v; }, get ptr() { return ptr; }, set ptr(v) { ptr = v; }, ptrEnd, ungrab});
   }
 
   function ptrEnd() {
-    ptr = null;
-    window.removeEventListener("pointermove", onPtrMove);
-    window.removeEventListener("pointerup", onPtrUp);
-    window.removeEventListener("pointercancel", onPtrCancel);
-    window.removeEventListener("keydown", onPtrKey, true);
-    window.removeEventListener("blur", onPtrCancel);
+    return ptrEndBody({onPtrCancel, onPtrKey, onPtrMove, onPtrUp, get ptr() { return ptr; }, set ptr(v) { ptr = v; }});
   }
 
   function onPtrKey(e: KeyboardEvent) {
-    if (e.key !== "Escape" || !ptr?.held || !grabbedId) return;
-    ungrab();
-    e.preventDefault();
-    e.stopPropagation();
+    return onPtrKeyBody({get grabbedId() { return grabbedId; }, set grabbedId(v) { grabbedId = v; }, get ptr() { return ptr; }, set ptr(v) { ptr = v; }, ungrab}, e);
   }
 
-  function overStartStrip(x: number, y: number): boolean {
-    const strip = document.querySelector(".start-drop");
-    if (!strip) return false;
-    const r = strip.getBoundingClientRect();
-    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  function overStartStrip(x: number, y: number) {
+    return overStartStripBody({}, x, y);
   }
 
-  function colAtPoint(x: number, y: number): Status | null {
-    const id = document
-      .elementFromPoint(x, y)
-      ?.closest("[data-col]")
-      ?.getAttribute("data-col");
-    return COLUMNS.some((c) => c.id === id) ? (id as Status) : null;
+  function colAtPoint(x: number, y: number) {
+    return colAtPointBody({COLUMNS}, x, y);
   }
 
-  function rowAtPoint(col: Status, y: number): number {
-    const els = document.querySelectorAll(
-      `.${col}-lane .b-card:not(.held)`,
-    );
-    let i = 0;
-    for (const el of els) {
-      const r = el.getBoundingClientRect();
-      if (y > r.top + r.height / 2) i++;
-    }
-    return i;
+  function rowAtPoint(col: Status, y: number) {
+    return rowAtPointBody({}, col, y);
   }
 
   function onCardClick(card: KanbanCard) {
-    if (suppressClick) {
-      suppressClick = false;
-      return;
-    }
-    openDetail(card);
+    return onCardClickBody({openDetail, get suppressClick() { return suppressClick; }, set suppressClick(v) { suppressClick = v; }}, card);
   }
 
   async function refreshWindows() {
-    try {
-      windows = await invoke<WindowInfo[]>("list_windows");
-    } catch {
-      // AX not granted here yet; window icons just stay generic
-    }
+    return refreshWindowsBody({invoke, get windows() { return windows; }, set windows(v) { windows = v; }});
   }
 
   async function focusCard(card: KanbanCard) {
-    const w = winFor(card);
-    if (!w) return;
-    try {
-      await invoke("focus_window", { id: w.id });
-    } catch {
-      // app may have exited between polls; next refresh reflects reality
-    }
+    return focusCardBody({invoke, winFor}, card);
   }
 
   // S5 Hermes: launch/focus the EXISTING harness with this list's open
   // titles (window cards already carry "App — Title"). Never file contents.
   async function launchHermes() {
-    const p = selectedProject;
-    if (!p) return;
-    const titles = kanbanCards
-      .filter(
-        (c) =>
-          c.kind !== "needed" &&
-          c.kind !== "window" &&
-          c.status !== "done" &&
-          listOf(c) === p.id,
-      )
-      .map((c) => c.title);
-    try {
-      const route = await invoke<string>("launch_coordinator", {
-        projectId: p.id,
-        projectName: p.name,
-        titles,
-      });
-      hermesNote = { kind: "ok", text: route };
-    } catch (e) {
-      hermesNote = { kind: "err", text: `${e}` };
-    }
+    return launchHermesBody({get hermesNote() { return hermesNote; }, set hermesNote(v) { hermesNote = v; }, invoke, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, listOf, get selectedProject() { return selectedProject; }, set selectedProject(v) { selectedProject = v; }});
   }
 
   $effect(() => {
