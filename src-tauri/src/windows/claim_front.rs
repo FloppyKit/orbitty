@@ -476,12 +476,6 @@ pub fn claim_front(app: &AppHandle, origin: &ClaimOrigin) -> Result<(), String> 
     claim_window(app, &w, None, &list, origin.clone())
 }
 
-/// Planet menu ("Put front window here") stays user-origin. The two-arg
-/// signature is what `habitat_mac/planet_menu.rs` already calls.
-pub fn claim_front_to_planet(app: &AppHandle, project_id: &str) -> Result<(), String> {
-    claim_front_to_planet_origin(app, project_id, &ClaimOrigin::User)
-}
-
 pub(crate) fn claim_front_to_planet_origin(
     app: &AppHandle,
     project_id: &str,
