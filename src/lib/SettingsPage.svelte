@@ -16,6 +16,9 @@
   } from "../themes/apply";
   import "./chrome.css";
   import MouthSettings from "./MouthSettings.svelte";
+  import SettingsAppearance from "./SettingsAppearance.svelte";
+  import SettingsPacks from "./SettingsPacks.svelte";
+  import SettingsPlans from "./SettingsPlans.svelte";
   import type { PersistedState } from "./persist";
   import { RAIL_EDGES, stagePrefs, type RailEdge } from "./rail/habitat";
   import { maybeGraduatePeerChrome, peerChromeOn } from "./peerChrome";
@@ -661,407 +664,29 @@
 
   <div class="s-body">
     {#if section === "appearance"}
-      <section class="panel">
-        {#each BLOCKS as block (block)}
-          <p class="block-label">{block}</p>
-          <div class="theme-grid">
-            {#each THEMES.filter((t) => t.block === block) as t (t.id)}
-              <button
-                class="swatch"
-                class:active={themeId === t.id}
-                onclick={() => pickTheme(t.id)}
-              >
-                <span class="chips" data-theme={t.id}
-                  ><i class="c-bg"></i><i class="c-fg"></i><i class="c-ac"></i></span
-                >
-                {t.name}
-              </button>
-            {/each}
-          </div>
-        {/each}
-        <div class="opacity-row">
-          <label for="opacity-slider">Background opacity</label>
-          <input
-            id="opacity-slider"
-            type="range"
-            min="0.2"
-            max="1"
-            step="0.05"
-            bind:value={windowOpacity}
-            oninput={onOpacityInput}
-            onchange={onOpacityCommit}
-          />
-          <span class="opacity-val">{Math.round(windowOpacity * 100)}%</span>
-        </div>
-        <div class="opacity-row">
-          <label for="sprite-scale">Sprite size</label>
-          <input
-            id="sprite-scale"
-            type="range"
-            min="0.5"
-            max="1.25"
-            step="0.05"
-            bind:value={spriteScale}
-            oninput={onSpriteScaleInput}
-            onchange={onSpriteScaleCommit}
-          />
-          <span class="opacity-val">{Math.round(spriteScale * 100)}%</span>
-        </div>
-        <p class="block-label">Rows</p>
-        <div class="setting-row">
-          <button
-            class="mini"
-            class:active={autohideRowChrome}
-            aria-pressed={autohideRowChrome}
-            onclick={toggleAutohide}
-            title="Hide the complete-circle, stow arrows and folder+ until a row is hovered"
-          >Auto-hide row chrome</button>
-          <button
-            class="mini"
-            class:active={hideTitles}
-            aria-pressed={hideTitles}
-            onclick={toggleHideTitles}
-            title="Hide window titles — rows collapse to icon + chrome"
-          >Hide titles</button>
-          <button
-            class="mini"
-            class:active={hideAppIcons}
-            aria-pressed={hideAppIcons}
-            onclick={toggleHideIcons}
-            title="Hide app icons — rows collapse to title only"
-          >Hide icons</button>
-        </div>
-        <p class="block-label">Rail</p>
-        <div class="setting-row" role="group" aria-label="Rail edge">
-          {#each RAIL_EDGES as edge (edge)}
-            <button
-              class="mini"
-              class:active={railEdge === edge}
-              aria-pressed={railEdge === edge}
-              onclick={() => pickRailEdge(edge)}
-              title="Park the inspector on this screen edge. This Mac only."
-            >{edge}</button>
-          {/each}
-        </div>
-        <div class="setting-row">
-          <button
-            class="mini"
-            class:active={railAutoHideOnBlur}
-            aria-pressed={railAutoHideOnBlur}
-            onclick={toggleRailAutoHide}
-            title="Hide the rail strip when focus leaves it. Separate from auto-hide row chrome."
-          >Auto-hide rail when focus leaves</button>
-        </div>
-        <p class="block-label">Peer chrome</p>
-        <div class="setting-row">
-          <button
-            class="mini"
-            class:active={peerChrome}
-            aria-pressed={peerChrome}
-            onclick={togglePeerChrome}
-            title="Show companion Launchpad/STARS/Planets strip and the rail STARS·Sky·Board·Comp stack. Off for demo — tray/Dock stay the map. Turns on after 3 claims or first Done."
-          >Peer chrome</button>
-        </div>
-        <p class="block-label">Marbles</p>
-        <div class="setting-row">
-          <button
-            class="mini"
-            class:active={marbleDrift}
-            aria-pressed={marbleDrift}
-            onclick={toggleMarbleDrift}
-            title="Nearby marbles ring an open planet about two marble-widths off its current size and go around the disc instead of through it. If none is open, they take slow rings around a quiet midpoint. They do not chase each other. Expanded planets never move. Reduce Motion stills everything"
-          >Marbles drift</button>
-        </div>
-        <p class="block-label">Planet sleep</p>
-        <div class="setting-row" role="group" aria-label="Planet sleep">
-          {#each [["1h", "1 hour"], ["4h", "4 hours"], ["12h", "12 hours"], ["never", "Never"]] as [id, lab]}
-            <button
-              class="mini"
-              class:active={planetIdle === id}
-              aria-pressed={planetIdle === id}
-              onclick={() => pickPlanetIdle(id)}
-            >{lab}</button>
-          {/each}
-        </div>
-        <p class="help">Unused expanded planets shrink to marbles. Never leaves them up.</p>
-        <p class="block-label">Companion body</p>
-        <div class="setting-row">
-          <select
-            class="bodypick"
-            bind:value={bodyId}
-            onchange={onBodyChange}
-            disabled={bodyBusy}
-            aria-label="Companion body"
-            title="Which body the companion wears — the blessed Spirit, a bundled 3D body, or an imported companion pack"
-          >
-            <!-- LEGACY (to be replaced by the new companion pack, Matt 2026-09-29) -->
-            <option value="spirit">Spirit</option>
-            <!-- Reserved bundled-GLB ids, never
-                 pack folders. Spirit stays the default. -->
-            <!-- LEGACY (to be replaced by the new companion pack, Matt 2026-09-29) -->
-            <option value="female">Female · 3D</option>
-            {#each bodyPacks as p (p.id)}
-              <option value={p.id}>{p.name}</option>
-            {/each}
-          </select>
-        </div>
-        <p class="block-label">Talk</p>
-        <div class="setting-row">
-          <button
-            class="mini"
-            class:active={talkSource === "system"}
-            aria-pressed={talkSource === "system"}
-            onclick={() => pickTalk("system")}
-          >System speech</button>
-          <button
-            class="mini"
-            class:active={talkSource === "hotkey"}
-            aria-pressed={talkSource === "hotkey"}
-            onclick={() => pickTalk("hotkey")}
-          >Hotkey (Handy)</button>
-        </div>
-        <p class="help">
-          System speech is the default — macOS dictation. Hotkey needs Handy
-          and holds Ctrl+Space while Listening.
-        </p>
-        <p class="block-label">Caps</p>
-        <div class="opacity-row">
-          <label for="spend-cap">Spend / day (USD)</label>
-          <input
-            id="spend-cap"
-            type="number"
-            min="0.01"
-            step="1"
-            bind:value={spendCapUsd}
-            disabled={!spendCapEnabled}
-            onchange={() => {
-              const n = Number(spendCapUsd);
-              spendCapUsd = Number.isFinite(n) && n > 0 ? n : 20;
-              persistSettings();
-            }}
-          />
-          <button
-            class="mini"
-            class:active={!spendCapEnabled}
-            aria-pressed={!spendCapEnabled}
-            onclick={() => {
-              spendCapEnabled = !spendCapEnabled;
-              persistSettings();
-            }}
-            title="Off = Never for money"
-          >Never</button>
-        </div>
-        <div class="opacity-row">
-          <label for="runner-cap">Runners</label>
-          <input
-            id="runner-cap"
-            type="number"
-            min="1"
-            max="4"
-            step="1"
-            bind:value={runnerCap}
-            onchange={() => {
-              const n = Number(runnerCap);
-              runnerCap = Math.min(4, Math.max(1, Number.isFinite(n) ? n : 2));
-              persistSettings();
-            }}
-          />
-          <span class="opacity-val">{runnerCap} / 4</span>
-        </div>
-        <div class="opacity-row">
-          <label for="tree-grow">Todo tree (days to full)</label>
-          <input
-            id="tree-grow"
-            type="number"
-            min="1"
-            max="365"
-            step="1"
-            bind:value={treeGrowDays}
-            onchange={() => {
-              const n = Number(treeGrowDays);
-              treeGrowDays = Number.isFinite(n) && n > 0 ? n : 14;
-              persistSettings();
-            }}
-          />
-          <span class="opacity-val">{treeGrowDays}d</span>
-        </div>
-        <p class="help">
-          Default $20/day and 2 runners (hard 4). Needed is the gate — no toast.
-        </p>
-        <p class="block-label">Event log</p>
-        <div class="setting-row">
-          <button
-            class="mini"
-            class:active={signedLocally}
-            aria-pressed={signedLocally}
-            onclick={toggleSignedLocally}
-            title="New 420/421/422 and journal lines get a NIP-01 id and a device signature. Old lines stay unsigned. Local file only — not a relay, not the wallet."
-          >Signed locally</button>
-          <button
-            class="mini"
-            class:active={privateRelay}
-            aria-pressed={privateRelay}
-            onclick={togglePrivateRelay}
-            title="Signed 420/421/422 with t=orbitty also EVENT to the loopback sidecar. Default off. Failures never fail the board. Journal 31200 stays file-only."
-          >Private relay</button>
-        </div>
-        <div class="opacity-row">
-          <label for="relay-replica">Replica URL</label>
-          <input
-            id="relay-replica"
-            class="keyin"
-            type="text"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="ws://100.x:13120 — empty = this Mac only"
-            bind:value={privateRelayUrl}
-            onchange={onReplicaUrlCommit}
-          />
-        </div>
-        <p class="help">
-          New log lines are signed on this Mac. Off writes unsigned again. History is never rewritten. Private relay copies signed board proofs to the sidecar on this Mac; a replica URL also copies to that one-user Tailscale/SSH box. Empty replica is local only. Failures never fail the board.
-        </p>
-        {#if replicaUrlNote}
-          <p class="help err">{replicaUrlNote}</p>
-        {/if}
-        <MouthSettings />
-        <p class="block-label">Cheat sheet</p>
-        <div class="setting-row">
-          <button
-            class="mini"
-            class:active={cheatSheetHint}
-            aria-pressed={cheatSheetHint}
-            onclick={toggleCheatHint}
-            title="Show Action: ⌘?(⌘⇧/) on the dock"
-          >Show Action ⌘? on dock</button>
-        </div>
-        <p class="block-label">Approved links</p>
-        <p class="help">
-          The first open of a link asks. After you click Open or Run, that exact path or URL opens directly. A program asks again if its contents change. This list stays on this Mac.
-        </p>
-        {#if linkApprovals.length === 0}
-          <p class="help">None yet.</p>
-        {:else}
-          <ul class="approved">
-            {#each linkApprovals as row (row.target)}
-              <li>
-                <span class="path" title={row.target}>{row.target}</span>
-                <button
-                  type="button"
-                  class="mini ghost"
-                  onclick={() => removeApproval(row.target)}>Remove</button>
-              </li>
-            {/each}
-          </ul>
-          <button type="button" class="mini" onclick={clearApprovals}>Clear all</button>
-        {/if}
-        <div class="yard-foot">
-          <button
-            class="mini ghost"
-            onclick={openYardWarn}
-            title="Open the Herding Cats confirm — ⌘⇧Y works too, even with Settings closed"
-          >Herding Cats…</button>
-        </div>
-      </section>
+      <SettingsAppearance {BLOCKS} {THEMES} {themeId} {pickTheme} bind:windowOpacity {onOpacityInput} {onOpacityCommit} bind:spriteScale {onSpriteScaleInput} {onSpriteScaleCommit} {autohideRowChrome} {toggleAutohide} {hideTitles} {toggleHideTitles} {hideAppIcons} {toggleHideIcons} {RAIL_EDGES} {railEdge} {pickRailEdge} {railAutoHideOnBlur} {toggleRailAutoHide} {peerChrome} {togglePeerChrome} {marbleDrift} {toggleMarbleDrift} {planetIdle} {pickPlanetIdle} bind:bodyId {onBodyChange} {bodyBusy} {bodyPacks} {talkSource} {pickTalk} bind:spendCapUsd bind:spendCapEnabled {persistSettings} bind:runnerCap bind:treeGrowDays {signedLocally} {toggleSignedLocally} {privateRelay} {togglePrivateRelay} bind:privateRelayUrl {onReplicaUrlCommit} {replicaUrlNote} {cheatSheetHint} {toggleCheatHint} {linkApprovals} {removeApproval} {clearApprovals} {openYardWarn} />
     {:else if section === "packs"}
-      <section class="panel">
-        <div class="setting-row">
-          <button
-            class="mini"
-            disabled={packBusy}
-            onclick={importPackFolder}
-            title="Pick a folder of PNG frames (optional manifest.json)"
-          >Import folder…</button>
-          <button
-            class="mini"
-            disabled={packBusy}
-            onclick={importPackZip}
-            title="Pick a .zip you downloaded"
-          >Import zip…</button>
-          <button
-            class="mini"
-            disabled={packBusy}
-            onclick={importPackImage}
-            title="Pick a PNG/GIF/WebP/JPEG"
-          >Import image…</button>
-          {#if packsDir}
-            <button
-              class="mini ghost"
-              onclick={() => shellOpen(packsDir).catch(() => {})}
-              title={packsDir}
-            >Reveal</button>
-          {/if}
-        </div>
-        {#if packNote}
-          <p class="help" class:err={packNote.kind === "err"}>{packNote.text}</p>
-        {/if}
-        {#if packs.length > 0}
-          <ul class="pack-list">
-            {#each packs.filter((p) => p.role !== "companion") as p (p.id)}
-              <li class="pack-row">
-                <span class="pack-name" title={p.path}>{p.name}</span>
-                <span class="pack-meta">{p.frameCount} frame{p.frameCount === 1 ? "" : "s"}</span>
-                {#if p.license}
-                  <span class="pack-license">{p.license}</span>
-                {:else}
-                  <span class="pack-license warn">no license ⚠</span>
-                {/if}
-                <button
-                  class="mini ghost"
-                  onclick={() => removePack(p.id)}
-                  title="Remove this pack — deletes only its own subfolder"
-                >×</button>
-              </li>
-            {/each}
-          </ul>
-        {:else}
-          <p class="help">A single PNG/JPEG/GIF/WebP is enough (it stands still).</p>
-        {/if}
-        <p class="help">
-          Walkers are the built-in Season 1 bitty crew or imported from your
-          files — Orbitty never downloads art. Missing license warns, never
-          blocks.
-        </p>
-      </section>
+      <SettingsPacks {packBusy} {importPackFolder} {importPackZip} {importPackImage} {packsDir} {packNote} {packs} {removePack} />
     {:else if section === "plans"}
-      <section class="panel">
-        <p class="block-label">Plans folder</p>
-        <div class="setting-row">
-          <input class="plans-path" bind:value={plansDir} spellcheck="false" />
-          <button class="mini" onclick={savePlansDir}>Save</button>
-          <button class="mini" onclick={revealPlans} title="Reveal in Finder">Reveal in Finder</button>
-        </div>
-        <p class="help">Shared by Nightly and stable. Default is the visible Orbitty GOs folder in your home.</p>
-        <p class="block-label">Default runner</p>
-        <p class="help">Doing uses this when a GO has no agent. A new install starts blank. Change it any time.</p>
-        <div class="setting-row">
-          <input class="plans-path" bind:value={plansRunner} placeholder="runner name" spellcheck="false" />
-          <input class="plans-path" bind:value={plansHarness} placeholder="cursor, grok, hermes, pi" spellcheck="false" />
-          <input class="plans-path" bind:value={plansModel} placeholder="model" spellcheck="false" />
-          <button class="mini" onclick={saveRunner}>Save</button>
-        </div>
-        {#if plansNote}
-          <p class="help err">{plansNote}</p>
-        {/if}
-      </section>
+      <SettingsPlans bind:plansDir {savePlansDir} {revealPlans} bind:plansRunner bind:plansHarness bind:plansModel {saveRunner} {plansNote} />
     {/if}
   </div>
 </main>
 
 <style>
-  .settings.embedded {
+.settings.embedded {
     height: 100%;
     min-height: 0;
   }
-  .settings.embedded .s-banner {
+.settings.embedded .s-banner {
     cursor: default;
   }
-  .embed-actions {
+.embed-actions {
     margin-left: auto;
     display: flex;
     gap: 6px;
   }
-  .settings {
+.settings {
     height: 100vh;
     overflow: hidden;
     display: flex;
@@ -1074,7 +699,7 @@
       "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
       BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   }
-  .s-banner {
+.s-banner {
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -1086,22 +711,22 @@
     -webkit-user-select: none;
     cursor: grab;
   }
-  .s-banner:active {
+.s-banner:active {
     cursor: grabbing;
   }
-  .s-banner h1 {
+.s-banner h1 {
     margin: 0;
     font-size: 0.9rem;
     font-weight: 600;
     letter-spacing: 0.02em;
   }
-  .tabs {
+.tabs {
     flex-shrink: 0;
     display: flex;
     gap: 4px;
     padding: 8px 12px 0;
   }
-  .tab {
+.tab {
     font: inherit;
     font-size: 0.72rem;
     color: var(--dim);
@@ -1111,54 +736,19 @@
     padding: 4px 10px;
     cursor: pointer;
   }
-  .tab.on {
+.tab.on {
     color: var(--accent);
     border-color: var(--edge);
     background: var(--panel-fill, var(--panel));
     font-weight: 700;
   }
-  .s-body {
+.s-body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
     padding: 10px 12px 16px;
   }
-  .panel {
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 10px;
-    padding: 10px 12px 12px;
-  }
-  .block-label {
-    margin: 8px 0 4px;
-    font-size: 0.64rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--dim);
-  }
-  .theme-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  .setting-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-  }
-  .plans-path {
-    flex: 1;
-    min-width: 12rem;
-    font: inherit;
-    font-size: 0.72rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 3px 8px;
-  }
-  .mini {
+.mini {
     font: inherit;
     font-size: 0.68rem;
     color: var(--ink);
@@ -1168,169 +758,17 @@
     padding: 3px 8px;
     cursor: pointer;
   }
-  .mini:hover {
+.mini:hover {
     border-color: var(--accent);
   }
-  .mini.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--bg);
-    font-weight: 700;
-  }
-  .mini.ghost {
+.mini.ghost {
     background: transparent;
   }
-  .mini:disabled {
+.mini:disabled {
     opacity: 0.5;
     cursor: default;
   }
-  .swatch {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font: inherit;
-    font-size: 0.72rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 6px;
-    padding: 4px 8px;
-    cursor: pointer;
-  }
-  .swatch.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    font-weight: 700;
-  }
-  .bodypick {
-    font: inherit;
-    font-size: 0.72rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 3px 8px;
-    cursor: pointer;
-    outline: none;
-  }
-  .bodypick:focus {
-    border-color: var(--accent);
-  }
-  .bodypick:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  /* The BYOK key field — same chrome as bodypick,
-     flexes to the row. */
-  .keyin {
-    flex: 1;
-    min-width: 140px;
-    font: inherit;
-    font-size: 0.72rem;
-    color: var(--ink);
-    background: var(--bg-fill, var(--bg));
-    border: 1px solid var(--edge);
-    border-radius: 7px;
-    padding: 3px 8px;
-    outline: none;
-  }
-  .keyin:focus {
-    border-color: var(--accent);
-  }
-  .chips {
-    display: inline-flex;
-    gap: 2px;
-  }
-  .chips i {
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    display: inline-block;
-  }
-  .chips[data-theme="systemLight"] .c-bg { background: #ececec; }
-  .chips[data-theme="systemLight"] .c-fg { background: rgba(0, 0, 0, 0.85); }
-  .chips[data-theme="systemLight"] .c-ac { background: #3d8f8a; }
-  .chips[data-theme="systemDark"] .c-bg { background: #1e1e1e; }
-  .chips[data-theme="systemDark"] .c-fg { background: rgba(255, 255, 255, 0.85); }
-  .chips[data-theme="systemDark"] .c-ac { background: #3d8f8a; }
-  .chips[data-theme="terminal"] .c-bg { background: #0a120e; }
-  .chips[data-theme="terminal"] .c-fg { background: #c8f0d0; }
-  .chips[data-theme="terminal"] .c-ac { background: #3ddc84; }
-  .opacity-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-    font-size: 0.68rem;
-    color: var(--ink);
-  }
-  .opacity-row label {
-    flex-shrink: 0;
-    color: var(--dim);
-  }
-  .opacity-row input[type="range"] {
-    flex: 1;
-    min-width: 0;
-    accent-color: var(--accent);
-  }
-  .opacity-val {
-    flex-shrink: 0;
-    width: 34px;
-    text-align: right;
-    color: var(--dim);
-    font-variant-numeric: tabular-nums;
-  }
-  .help {
-    margin: 8px 0 0;
-    font-size: 0.64rem;
-    line-height: 1.5;
-    color: var(--dim);
-  }
-  .help.err {
-    color: var(--accent);
-  }
-  .pack-list {
-    list-style: none;
-    margin: 8px 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .pack-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 22px;
-  }
-  .pack-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: var(--ink);
-  }
-  .pack-meta {
-    flex-shrink: 0;
-    font-size: 0.64rem;
-    color: var(--dim);
-  }
-  .pack-license {
-    flex-shrink: 0;
-    font-size: 0.62rem;
-    color: var(--dim);
-    border: 1px solid var(--edge);
-    border-radius: 999px;
-    padding: 0 0.35rem;
-  }
-  .pack-license.warn {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-  /* The actions face — one monospace list. */
+/* The actions face — one monospace list. */
   .action-list {
     list-style: none;
     margin: 2px 0 0;
@@ -1340,13 +778,13 @@
     gap: 1px;
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
   }
-  .action-row {
+.action-row {
     display: flex;
     align-items: baseline;
     gap: 8px;
     min-height: 22px;
   }
-  .a-name {
+.a-name {
     flex-shrink: 0;
     max-width: 40%;
     overflow: hidden;
@@ -1361,14 +799,14 @@
     padding: 2px 6px;
     cursor: pointer;
   }
-  .a-name:hover {
+.a-name:hover {
     color: var(--accent);
     background: var(--bg-fill, var(--bg));
   }
-  .a-name.running {
+.a-name.running {
     opacity: 0.55;
   }
-  .a-combo {
+.a-combo {
     flex-shrink: 0;
     min-width: 44px;
     text-align: center;
@@ -1381,14 +819,14 @@
     padding: 1px 6px;
     cursor: pointer;
   }
-  .a-combo:hover {
+.a-combo:hover {
     border-color: var(--accent);
   }
-  .a-combo.rec {
+.a-combo.rec {
     color: var(--accent);
     border-color: var(--accent);
   }
-  .a-conflict {
+.a-conflict {
     flex-shrink: 0;
     font-size: 0.62rem;
     color: var(--accent);
@@ -1396,7 +834,7 @@
     border-radius: 999px;
     padding: 0 0.35rem;
   }
-  .a-cmd {
+.a-cmd {
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -1405,37 +843,8 @@
     font-size: 0.68rem;
     color: var(--dim);
   }
-  .help code {
+.help code {
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 0.62rem;
-  }
-  /* Quiet footer of the Appearance tab — not a
-     section, not on launch. */
-  .approved {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .approved li {
-    display: flex;
-    gap: 8px;
-    align-items: baseline;
-  }
-  .approved .path {
-    flex: 1;
-    min-width: 0;
-    overflow-wrap: anywhere;
-    font-size: 0.72rem;
-    color: var(--dim);
-  }
-  .yard-foot {
-    margin-top: 12px;
-    padding-top: 8px;
-    border-top: 1px solid var(--edge);
-    display: flex;
-    justify-content: flex-end;
   }
 </style>
