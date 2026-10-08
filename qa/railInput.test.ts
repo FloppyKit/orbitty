@@ -32,8 +32,15 @@ import {
 } from "../src/lib/rail/railInput.ts";
 import { columnNext, segmentNext, withinNext } from "../src/lib/stars/starsFocus.ts";
 
+function railSrc() {
+  const names = ["pageRows", "pageStage", "pagePointer", "pageRing", "pageClaim", "pageBeing", "pageDrag"];
+  const parts = names.map((n) => readFileSync(new URL(`../src/lib/rail/${n}.svelte.ts`, import.meta.url), "utf8"));
+  parts.push(readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8"));
+  return parts.join("");
+}
+
 const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
-const page = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+const page = railSrc();
 const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
 const chrome = readFileSync(new URL("../src/lib/rail/Chrome.svelte", import.meta.url), "utf8");
 const host = readFileSync(new URL("../src/themes/host.ts", import.meta.url), "utf8");
@@ -430,11 +437,11 @@ test("B1 Esc and walkOut call sites step one level", () => {
   const esc = fnBody(page, "onRailEscape", "reclaimRailRing");
   const at = esc.indexOf('arch.front !== "arch"');
   const branch = esc.slice(at, esc.indexOf("return true;", at));
-  assert.match(branch, /const step = depthOut\(arch\.front\)/);
+  assert.match(branch, /const step = (?:scope\.)?depthOut\((?:scope\.)?arch\.front\)/);
   assert.match(branch, /front:\s*step\.front/);
   assert.doesNotMatch(branch, /front:\s*"arch"/);
   const walk = fnBody(page, "walkOut", "closeStageEmbed");
-  assert.match(walk, /if \(fromBoard\) archDo\(\{ \.\.\.arch, front: "layer2", pending: null \}\)/);
+  assert.match(walk, /if \(fromBoard\) (?:scope\.)?archDo\(\{ \.\.\.(?:scope\.)?arch, front: "layer2", pending: null \}\)/);
   assert.doesNotMatch(walk, /front:\s*"arch"/);
 });
 
@@ -446,7 +453,7 @@ test("B2 empty dismiss is pointerup and overPanel is its own hit", () => {
   assert.match(up, /phase:\s*"pointerup"/);
   assert.match(up, /dragPx:\s*drag,/);
   assert.doesNotMatch(up, /dragPx:\s*0/);
-  assert.match(up, /const animating = wheelAnimating\(\)/);
+  assert.match(up, /const animating = (?:scope\.)?wheelAnimating\(\)/);
   assert.match(up, /\n\s*animating,\n/);
   assert.doesNotMatch(up, /animating:\s*false/);
   assert.match(up, /closest\("\.stage-settings, \.l2-expanded, \.l2-board, \.chrome"\)/);
@@ -495,9 +502,9 @@ test("B5 depth-out keeps the came-from planet and does not open beside", () => {
   const branchAt = esc.indexOf('arch.front !== "arch"');
   const branch = esc.slice(branchAt, esc.indexOf("return true;", branchAt));
   assert.match(branch, /reselectStop = backStop/);
-  assert.match(branch, /depthOutStop\(arch\.pid\)/);
+  assert.match(branch, /(?:scope\.)?depthOutStop\((?:scope\.)?arch\.pid\)/);
   assert.match(branch, /centreCause = "depthOut"/);
-  assert.ok(branch.indexOf("reselectStop") < branch.indexOf("const step = depthOut"));
+  assert.ok(branch.indexOf("reselectStop") < branch.indexOf("const step ="));
   assert.doesNotMatch(branch, /applyBeside\(/);
   assert.doesNotMatch(branch, /stageEmbed\s*=/);
 });

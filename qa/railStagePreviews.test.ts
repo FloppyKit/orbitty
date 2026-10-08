@@ -14,6 +14,13 @@ import {
   type PlaceRect,
 } from "../src/lib/rail/stageArch.ts";
 
+function railSrc() {
+  const names = ["pageRows", "pageStage", "pagePointer", "pageRing", "pageClaim", "pageBeing", "pageDrag"];
+  const parts = names.map((n) => readFileSync(new URL(`../src/lib/rail/${n}.svelte.ts`, import.meta.url), "utf8"));
+  parts.push(readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8"));
+  return parts.join("");
+}
+
 function card(partial: ArchCard): ArchCard {
   return partial;
 }
@@ -165,7 +172,7 @@ test("P5 preview tiles and arch slots sit in the painted region", () => {
 });
 
 test("P6 wiring: embed or beside-rail, no toggle, no feature save, hover lift stays inner", () => {
-  const rail = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+  const rail = railSrc();
   const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
   const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
   const toggle = readFileSync(new URL("../src-tauri/src/rail/rail_toggle.rs", import.meta.url), "utf8");

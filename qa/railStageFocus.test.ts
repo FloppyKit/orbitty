@@ -23,8 +23,15 @@ import {
 } from "../src/lib/rail/stageArch.ts";
 import { spinItems, type SpinItem } from "../src/lib/rail/stageLook.ts";
 
+function railSrc() {
+  const names = ["pageRows", "pageStage", "pagePointer", "pageRing", "pageClaim", "pageBeing", "pageDrag"];
+  const parts = names.map((n) => readFileSync(new URL(`../src/lib/rail/${n}.svelte.ts`, import.meta.url), "utf8"));
+  parts.push(readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8"));
+  return parts.join("");
+}
+
 const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
-const page = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+const page = railSrc();
 const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
 const stars = readFileSync(new URL("../src/lib/StarsPage.svelte", import.meta.url), "utf8");
 const settings = readFileSync(new URL("../src/lib/SettingsPage.svelte", import.meta.url), "utf8");
@@ -424,14 +431,14 @@ test("W4 board outer column calls onRingExit", () => {
 
 test("W5 rail Esc walks out of Unmapped", () => {
   const esc = fnBody(page, "onRailEscape");
-  assert.match(esc, /if\s*\(\s*keyOwner\s*===\s*"unmapped"\s*\)\s*\{\s*walkOut\(\);\s*return true;\s*\}/);
+  assert.match(esc, /if\s*\(\s*(?:scope\.)?keyOwner\s*===\s*"unmapped"\s*\)\s*\{\s*(?:scope\.)?walkOut\(\);\s*return true;\s*\}/);
   const walk = fnBody(page, "walkOut");
-  assert.match(walk, /reselectStop\s*=\s*ownerStop\(keyOwner\)/);
-  assert.match(walk, /keyOwnerNext\(\s*keyOwner\s*,\s*\{\s*type:\s*"walkOut"\s*\}\s*\)/);
-  assert.match(fnBody(page, "ownerStop"), /owner === "unmapped"\) return `rhead-\$\{UNMAPPED_KEY\}`/);
+  assert.match(walk, /reselectStop\s*=\s*(?:scope\.)?ownerStop\((?:scope\.)?keyOwner\)/);
+  assert.match(walk, /(?:scope\.)?keyOwnerNext\(\s*(?:scope\.)?keyOwner\s*,\s*\{\s*type:\s*"walkOut"\s*\}\s*\)/);
+  assert.match(fnBody(page, "ownerStop"), /owner === "unmapped"\) return `rhead-\$\{(?:scope\.)?UNMAPPED_KEY\}`/);
 });
 
 test("FR2 Enter on a planet stop calls applyBeside", () => {
   const confirm = fnBody(page, "confirmHabitatStop");
-  assert.match(confirm, /if\s*\(\s*spin\s*===\s*"raise"\s*\)\s*\{\s*applyBeside\(\s*"planet"\s*\)/);
+  assert.match(confirm, /if\s*\(\s*(?:scope\.)?spin\s*===\s*"raise"\s*\)\s*\{\s*(?:scope\.)?applyBeside\(\s*"planet"\s*\)/);
 });

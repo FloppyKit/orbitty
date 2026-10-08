@@ -32,6 +32,13 @@ import {
 import { wheelLayout, type ZoneRect } from "../src/lib/rail/stageLook.ts";
 import { svgPathPoints } from "./svgPath.ts";
 
+function railSrc() {
+  const names = ["pageRows", "pageStage", "pagePointer", "pageRing", "pageClaim", "pageBeing", "pageDrag"];
+  const parts = names.map((n) => readFileSync(new URL(`../src/lib/rail/${n}.svelte.ts`, import.meta.url), "utf8"));
+  parts.push(readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8"));
+  return parts.join("");
+}
+
 const STEP = (ARCH_SPAN_DEG / 4) * (Math.PI / 180);
 const edges = ["left", "right", "top", "bottom"] as const;
 const frames: ArchFrame[] = [
@@ -350,7 +357,7 @@ test("F9 legibility", () => {
 });
 
 test("F10 wiring guards", () => {
-  const rail = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+  const rail = railSrc();
   const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
   const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
   const over = rail.slice(rail.indexOf("function overPainted"), rail.indexOf("function overPainted") + 700);

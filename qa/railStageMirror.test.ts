@@ -24,6 +24,13 @@ import {
 import { spinItems, type SpinItem, type ZoneRect } from "../src/lib/rail/stageLook.ts";
 import { svgPathPoints } from "./svgPath.ts";
 
+function railSrc() {
+  const names = ["pageRows", "pageStage", "pagePointer", "pageRing", "pageClaim", "pageBeing", "pageDrag"];
+  const parts = names.map((n) => readFileSync(new URL(`../src/lib/rail/${n}.svelte.ts`, import.meta.url), "utf8"));
+  parts.push(readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8"));
+  return parts.join("");
+}
+
 function card(partial: ArchCard): ArchCard {
   return partial;
 }
@@ -203,7 +210,7 @@ test("M4 enter centres Board; arrows spin layer 2; none reach front board", () =
   assert.equal(archConfirm(items[2]), "wake");
   assert.equal(archConfirm(items[3]), "restore");
   assert.equal(archConfirm(items[4]), "focus");
-  const rail = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+  const rail = railSrc();
   const applyAt = rail.indexOf("const applyArrow");
   const apply = rail.slice(applyAt, applyAt + 900);
   assert.equal(apply.includes("popOutBoard"), false);
@@ -240,7 +247,7 @@ test("M5 expanded and back are painted; old misses stay misses", () => {
 });
 
 test("M6 hover does not switch fronts; reduced mirror depth is instant", () => {
-  const rail = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+  const rail = railSrc();
   const moveAt = rail.indexOf("function onStagePointerMove");
   const move = rail.slice(moveAt, rail.indexOf("function onStagePointerDown"));
   assert.equal(move.includes("pokeArch"), false);
@@ -294,7 +301,7 @@ test("M7 orbit is above the scrim and stage chrome is gone", () => {
 });
 
 test("M8 parked pointer does not reveal; edge source seeds grace", () => {
-  const rail = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+  const rail = railSrc();
   const moveAt = rail.indexOf("function onStagePointerMove");
   const move = rail.slice(moveAt, rail.indexOf("function onStagePointerDown"));
   assert.equal(move.includes("showStage"), false);

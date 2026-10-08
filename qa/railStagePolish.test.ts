@@ -20,6 +20,13 @@ import type { ZoneRect } from "../src/lib/rail/stageLook.ts";
 import { archCssChain, stripComments } from "./cssChain.ts";
 import { svgPathPoints } from "./svgPath.ts";
 
+function railSrc() {
+  const names = ["pageRows", "pageStage", "pagePointer", "pageRing", "pageClaim", "pageBeing", "pageDrag"];
+  const parts = names.map((n) => readFileSync(new URL(`../src/lib/rail/${n}.svelte.ts`, import.meta.url), "utf8"));
+  parts.push(readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8"));
+  return parts.join("");
+}
+
 const edges = ["left", "right", "top", "bottom"] as const;
 const frames: ArchFrame[] = [
   { w: 892, h: 760 },
@@ -27,7 +34,7 @@ const frames: ArchFrame[] = [
   { w: 1040, h: 752 },
 ];
 const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
-const page = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+const page = railSrc();
 const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
 
 function hit(a: ZoneRect, b: ZoneRect): boolean {
@@ -424,7 +431,7 @@ test("P4 stars embed beside the strip", () => {
   assert.match(beside, /clearArchToFront\(\)/);
   assert.match(list, /<StarsPage[\s\S]*embedded/);
   assert.match(list, /data-stage-stars/);
-  assert.match(page, /function popOutStars\(\) \{[\s\S]*rail_stage_set[\s\S]*stars-beside/);
+  assert.match(page, /function popOutStars\([^)]*\) \{[\s\S]*rail_stage_set[\s\S]*stars-beside/);
 });
 
 test("P5 needed click opens the mouth", () => {
@@ -452,7 +459,7 @@ test("P6 a raise parks and grace is retried", () => {
   const recheckHead = recheck.slice(0, recheckTimeout);
   const earlyReturns = recheckHead.match(/\breturn\b/g) ?? [];
   assert.equal(earlyReturns.length, 1, "only the in-flight guard returns before setTimeout");
-  assert.match(recheckHead, /if\s*\(\s*graceRecheck\s*\)\s*return/);
+  assert.match(recheckHead, /if\s*\(\s*(?:scope\.)?graceRecheck\s*\)\s*return/);
   const recheckCb = braceBody(recheck, recheckTimeout);
   assert.ok(recheckCb.includes("maybeAutoHide()"), "scheduleGraceRecheck callback calls maybeAutoHide()");
   const listenAt = pageSrc.indexOf("orbitty:rail-stage");
