@@ -12,9 +12,6 @@ static LIVE_ACTIONS: AtomicU32 = AtomicU32::new(0);
 fn spend_cap_usd_default() -> f64 {
     20.0
 }
-fn spend_cap_enabled_default() -> bool {
-    true
-}
 fn runner_cap_default() -> u32 {
     2
 }
