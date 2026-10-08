@@ -331,7 +331,15 @@ mod tests {
         let control = include_str!("../agents/control.rs");
         assert!(control.contains("\"companion.harnesses\" =>"));
         assert!(control.contains("\"companion.set_backend\" =>"));
-        let ctl = include_str!("../bin/orbittyctl.rs");
+        let ctl = concat!(
+        include_str!("../bin/orbittyctl/main.rs"),
+        include_str!("../bin/orbittyctl/imp/usage.rs"),
+        include_str!("../bin/orbittyctl/imp/parse.rs"),
+        include_str!("../bin/orbittyctl/imp/call.rs"),
+        include_str!("../bin/orbittyctl/imp/print.rs"),
+        include_str!("../bin/orbittyctl/imp/mod.rs"),
+        include_str!("../bin/orbittyctl/imp/tests.rs"),
+    );
         assert!(ctl.contains("[\"companion\", \"harnesses\"]"));
         assert!(ctl.contains("[\"companion\", \"set-backend\"]"));
         let mcp = include_str!("../bin/orbitty_mcp.rs");

@@ -19,7 +19,7 @@ path = "src/main.rs"
 # serde_json — never links Tauri, never opens a WebView.
 [[bin]]
 name = "orbittyctl"
-path = "src/bin/orbittyctl.rs"
+path = "src/bin/orbittyctl/main.rs"
 
 # GO-ORBITTY-MCP-0: thin stdio MCP adapter over the same socket.
 # Pure std + serde_json — never links Tauri, never opens a WebView.

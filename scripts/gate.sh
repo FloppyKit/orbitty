@@ -131,7 +131,7 @@ load_allowlist() {
     ALLOW_USED+=(0)
     ALLOW_LINE+=("$path	$substr")
     # max=N comes from the reason only, never the substring
-    # (orbittyctl.rs's substring contains "(max 8)").
+    # (orbittyctl/imp/usage.rs's substring contains "(max 8)").
     # No max= means uncapped (0). max=0 or a non-number exits 2.
     max=0
     if [[ "${rest:-}" =~ 'max=([^[:space:]]*)' ]]; then

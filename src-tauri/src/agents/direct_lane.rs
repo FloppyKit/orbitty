@@ -892,7 +892,15 @@ include_str!("../coordinator/launch_tests.rs")
     #[test]
     fn ctl_mcp_and_control_list_route_and_not_the_key() {
         let control = include_str!("control.rs");
-        let ctl = include_str!("../bin/orbittyctl.rs");
+        let ctl = concat!(
+        include_str!("../bin/orbittyctl/main.rs"),
+        include_str!("../bin/orbittyctl/imp/usage.rs"),
+        include_str!("../bin/orbittyctl/imp/parse.rs"),
+        include_str!("../bin/orbittyctl/imp/call.rs"),
+        include_str!("../bin/orbittyctl/imp/print.rs"),
+        include_str!("../bin/orbittyctl/imp/mod.rs"),
+        include_str!("../bin/orbittyctl/imp/tests.rs"),
+    );
         let mcp = include_str!("../bin/orbitty_mcp.rs");
         assert!(control.contains("\"companion.route\" =>"));
         assert!(ctl.contains("[\"companion\", \"route\"]"));

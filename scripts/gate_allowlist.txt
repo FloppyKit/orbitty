@@ -8,7 +8,7 @@
 # one more fails the gate. Raising N is a deliberate, reviewable change. No max= means uncapped.
 src-tauri/src/bin/orbitty_mcp.rs	                    "description": "Optional file:// or https:// links. A bare /Users/… path is stored as a file URL.",	# help text: a bare /Users/ path
 src-tauri/src/bin/orbitty_mcp.rs	                "add": { "type": "string", "description": "URL to add (file://, https://, or a bare /Users/… path). Pass exactly one of add, rm, clear." },	# help text: a bare /Users/ path
-src-tauri/src/bin/orbittyctl.rs	(max 8). Only file:// and https:// are accepted; a bare /Users/… path	# help text: a bare /Users/ path
+src-tauri/src/bin/orbittyctl/imp/usage.rs	(max 8). Only file:// and https:// are accepted; a bare /Users/… path	# help text: a bare /Users/ path
 src-tauri/src/board/card_links/norm.rs	//! A bare absolute `/Users/…` path is stored as a percent-encoded file URL.	# link normalization docs/tests (back-compat; not rewritten)
 src-tauri/src/board/card_links/norm.rs	/// `file://Users/x` (two slashes) is a common typo for `file:///Users/x`:	# link normalization docs/tests (back-compat; not rewritten)
 src-tauri/src/board/card_links/norm.rs	            // file://Users/dude/x → /Users/dude/x	# link normalization docs/tests (back-compat; not rewritten)
