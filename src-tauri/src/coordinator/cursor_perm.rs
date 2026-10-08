@@ -1,33 +1,7 @@
-#![allow(unused_imports)]
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, Manager};
-#[allow(unused_imports)]
-use super::hermes::*;
-#[allow(unused_imports)]
-use super::allowlist::*;
-#[allow(unused_imports)]
-use super::plug::*;
-#[allow(unused_imports)]
-use super::mouth_cli::*;
-#[allow(unused_imports)]
-use super::commands::*;
-#[allow(unused_imports)]
-use super::intercept::*;
-#[allow(unused_imports)]
-use super::send::*;
-#[allow(unused_imports)]
-use super::soul_wake::*;
-#[allow(unused_imports)]
-use super::action::*;
-#[allow(unused_imports)]
-use super::paths::*;
-#[allow(unused_imports)]
-use super::launch_agent::*;
-#[cfg(target_os = "macos")]
-#[allow(unused_imports)]
-use super::mac;
+use super::hermes::{spawn_detached};
+use super::paths::{bundled_orbittyctl, control_sock_path, ghostty_installed, open_terminal_argv, resolve_agent_terminal, sq};
 
 /// `.command` body. The EXIT trap calls the bundled ctl with this app's
 /// socket. Every interpolated value is single-quoted (`sq`), and the trap

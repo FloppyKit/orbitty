@@ -12,17 +12,11 @@ mod models_board;
 mod io;
 mod merge;
 
-#[allow(unused_imports)]
 pub(crate) use rail_geom::*;
-#[allow(unused_imports)]
 pub(crate) use models::*;
-#[allow(unused_imports)]
 pub(crate) use models_companion::*;
-#[allow(unused_imports)]
 pub(crate) use models_board::*;
-#[allow(unused_imports)]
 pub(crate) use io::*;
-#[allow(unused_imports)]
 pub(crate) use merge::*;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

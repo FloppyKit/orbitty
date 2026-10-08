@@ -1,33 +1,5 @@
-#![allow(unused_imports)]
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::{ PathBuf };
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, Manager};
-#[allow(unused_imports)]
-use super::hermes::*;
-#[allow(unused_imports)]
-use super::plug::*;
-#[allow(unused_imports)]
-use super::mouth_cli::*;
-#[allow(unused_imports)]
-use super::commands::*;
-#[allow(unused_imports)]
-use super::intercept::*;
-#[allow(unused_imports)]
-use super::send::*;
-#[allow(unused_imports)]
-use super::soul_wake::*;
-#[allow(unused_imports)]
-use super::action::*;
-#[allow(unused_imports)]
-use super::paths::*;
-#[allow(unused_imports)]
-use super::cursor_perm::*;
-#[allow(unused_imports)]
-use super::launch_agent::*;
-#[cfg(target_os = "macos")]
-#[allow(unused_imports)]
-use super::mac;
 
 /// pub(crate): mouth_hop keeps the BYOK OpenRouter key next to plug.json.
 pub(crate) fn companions_root() -> PathBuf {

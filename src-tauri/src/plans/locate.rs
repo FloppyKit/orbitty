@@ -1,19 +1,8 @@
-#![allow(unused_imports)]
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
-#[allow(unused_imports)]
-use super::dirs::*;
-#[allow(unused_imports)]
-use super::seal::*;
-#[allow(unused_imports)]
-use super::resolve::*;
-#[allow(unused_imports)]
-use super::parse::*;
-#[allow(unused_imports)]
-use super::rules::*;
+use super::dirs::{Gate, ParsedGo, Roots, read_dirs_in};
+use super::parse::{ file_url_to_path, is_inside, legacy_token_from_path, parse_file, walk_md };
+use super::seal::{seal_note};
 
 pub fn legacy_prompt_file(go: &str) -> Option<PathBuf> {
     legacy_prompt_in(&Roots::real(), go)

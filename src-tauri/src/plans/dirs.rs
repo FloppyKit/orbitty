@@ -1,20 +1,9 @@
-#![allow(unused_imports)]
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use serde_json::{ Value };
+use super::parse::{expand_home, load_settings, nonblank, save_settings, snapshot};
 
-#[allow(unused_imports)]
-use super::locate::*;
-#[allow(unused_imports)]
-use super::seal::*;
-#[allow(unused_imports)]
-use super::resolve::*;
-#[allow(unused_imports)]
-use super::parse::*;
-#[allow(unused_imports)]
-use super::rules::*;
 
 pub const QUERY_CAP: usize = 64_000;
 

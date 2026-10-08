@@ -1,18 +1,5 @@
-#![allow(unused_imports)]
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-#[allow(unused_imports)]
-use super::{CardTombstone, PersistedState};
-#[allow(unused_imports)]
-use super::rail_geom::*;
-#[allow(unused_imports)]
-use super::models_companion::*;
-#[allow(unused_imports)]
-use super::models_board::*;
-#[allow(unused_imports)]
-use super::io::*;
-#[allow(unused_imports)]
-use super::merge::*;
+use super::models_companion::{CompanionBounds};
 
 /// One unbound-todo tree on a planet disc.
 #[derive(Serialize, Deserialize, Clone, Debug)]

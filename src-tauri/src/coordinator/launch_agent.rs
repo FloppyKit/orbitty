@@ -1,33 +1,10 @@
-#![allow(unused_imports)]
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, Manager};
-#[allow(unused_imports)]
-use super::hermes::*;
-#[allow(unused_imports)]
-use super::allowlist::*;
-#[allow(unused_imports)]
-use super::plug::*;
-#[allow(unused_imports)]
-use super::mouth_cli::*;
-#[allow(unused_imports)]
-use super::commands::*;
-#[allow(unused_imports)]
-use super::intercept::*;
-#[allow(unused_imports)]
-use super::send::*;
-#[allow(unused_imports)]
-use super::soul_wake::*;
-#[allow(unused_imports)]
-use super::action::*;
-#[allow(unused_imports)]
-use super::paths::*;
-#[allow(unused_imports)]
-use super::cursor_perm::*;
-#[cfg(target_os = "macos")]
-#[allow(unused_imports)]
-use super::mac;
+use super::action::{find_on_path};
+use super::commands::{set_companion_hack};
+use super::cursor_perm::{install_cursor_permissions, launch_refused, open_agent_terminal};
+use super::paths::{ GoLaunch, terminal_run_paths, write_agent_query };
+use super::plug::{find_grok};
 
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
 /// writes the query file and hands off — it never runs the model.

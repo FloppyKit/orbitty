@@ -1,33 +1,8 @@
-#![allow(unused_imports)]
-use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, Manager};
-#[allow(unused_imports)]
-use super::hermes::*;
-#[allow(unused_imports)]
-use super::allowlist::*;
-#[allow(unused_imports)]
-use super::plug::*;
-#[allow(unused_imports)]
-use super::mouth_cli::*;
-#[allow(unused_imports)]
-use super::intercept::*;
-#[allow(unused_imports)]
-use super::send::*;
-#[allow(unused_imports)]
-use super::soul_wake::*;
-#[allow(unused_imports)]
-use super::action::*;
-#[allow(unused_imports)]
-use super::paths::*;
-#[allow(unused_imports)]
-use super::cursor_perm::*;
-#[allow(unused_imports)]
-use super::launch_agent::*;
-#[cfg(target_os = "macos")]
-#[allow(unused_imports)]
-use super::mac;
+use tauri::{ Emitter };
+use super::allowlist::{berd_agent_stems, berd_companion_stems, hermes_profile_dirs, load_companion_allowlist, resolve_agent, resolve_agent_prefer};
+use super::intercept::{load_now, save_now};
+use super::plug::{update_soul_pointer};
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

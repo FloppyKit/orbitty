@@ -1,33 +1,12 @@
-#![allow(unused_imports)]
-use std::path::{Path, PathBuf};
+use std::path::{ Path };
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, Manager};
-#[allow(unused_imports)]
-use super::hermes::*;
-#[allow(unused_imports)]
-use super::allowlist::*;
-#[allow(unused_imports)]
-use super::plug::*;
-#[allow(unused_imports)]
-use super::mouth_cli::*;
-#[allow(unused_imports)]
-use super::commands::*;
-#[allow(unused_imports)]
-use super::intercept::*;
-#[allow(unused_imports)]
-use super::soul_wake::*;
-#[allow(unused_imports)]
-use super::action::*;
-#[allow(unused_imports)]
-use super::paths::*;
-#[allow(unused_imports)]
-use super::cursor_perm::*;
-#[allow(unused_imports)]
-use super::launch_agent::*;
-#[cfg(target_os = "macos")]
-#[allow(unused_imports)]
-use super::mac;
+use tauri::{ Emitter };
+use super::action::{find_on_path};
+use super::allowlist::{hermes_profile_dirs, load_companion_session_id, resolve_agent};
+use super::hermes::{app_data};
+use super::intercept::{ActionIntercept, log_companion_route, match_action_line, persist_action_intercept, persist_companion_you, wrap_with_pocket};
+use super::mouth_cli::{is_goose_session_id, is_uuid, mint_uuid, run_mouth_cli};
+use super::plug::{GROK_ROLL_EVERY, PlugState, berdctl_cmd, companion_soul_text, find_berdctl, find_grok, load_plug, save_plug};
 
 /// Companion composer send path.
 /// Harness order: env override, saved companion.backend, legacy goose

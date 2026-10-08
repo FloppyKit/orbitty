@@ -1,33 +1,6 @@
-#![allow(unused_imports)]
-use std::path::{Path, PathBuf};
+use std::path::{ Path };
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, Manager};
-#[allow(unused_imports)]
-use super::hermes::*;
-#[allow(unused_imports)]
-use super::allowlist::*;
-#[allow(unused_imports)]
-use super::plug::*;
-#[allow(unused_imports)]
-use super::commands::*;
-#[allow(unused_imports)]
-use super::intercept::*;
-#[allow(unused_imports)]
-use super::send::*;
-#[allow(unused_imports)]
-use super::soul_wake::*;
-#[allow(unused_imports)]
-use super::action::*;
-#[allow(unused_imports)]
-use super::paths::*;
-#[allow(unused_imports)]
-use super::cursor_perm::*;
-#[allow(unused_imports)]
-use super::launch_agent::*;
-#[cfg(target_os = "macos")]
-#[allow(unused_imports)]
-use super::mac;
+use super::send::{tool_error_line};
 
 pub(crate) fn is_uuid(s: &str) -> bool {
     let lens = [8usize, 4, 4, 4, 12];
