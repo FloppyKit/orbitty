@@ -752,18 +752,6 @@ pub(crate) fn run_grok_reply(
     Ok(text)
 }
 
-pub(crate) fn grok_reply_text(raw: &str) -> String {
-    let v: serde_json::Value = match serde_json::from_str(raw) {
-        Ok(v) => v,
-        Err(_) => return String::new(),
-    };
-    v.get("text")
-        .and_then(|t| t.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string()
-}
-
 pub(crate) async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
     let bin = find_on_path("hermes")
         .ok_or("`hermes` not found — install Hermes or put it on PATH.")?;
