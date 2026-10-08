@@ -137,13 +137,3 @@ pub(crate) fn view_to_disc(center: NSPoint, radius: f64, projection: Projection,
         (p.y - center.y) / radius_y(radius, projection),
     )
 }
-
-/// Keep a placed/dragged decor point inside the disc, with a small margin.
-pub(crate) fn clamp_disc(x: f64, y: f64) -> (f64, f64) {
-    let len = (x * x + y * y).sqrt();
-    if len > 0.85 {
-        (x / len * 0.85, y / len * 0.85)
-    } else {
-        (x, y)
-    }
-}

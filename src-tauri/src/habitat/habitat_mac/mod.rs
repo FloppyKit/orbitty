@@ -70,7 +70,7 @@ mod worlds_io;
 mod api;
 
 pub(crate) use geom::{
-    clamp_disc, disc_to_view, locked_projection, locked_projection_str,
+    disc_to_view, locked_projection, locked_projection_str,
     radius_y, view_to_disc, walker_fit, CGSize, NSPoint, NSRect, Projection,
 };
 pub(crate) use world::{
