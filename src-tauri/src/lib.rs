@@ -1,14 +1,28 @@
-mod actions;
 mod attach;
 pub(crate) use attach::attach_md;
 pub(crate) use attach::attach_send;
 pub(crate) use attach::attach_vision;
-#[cfg(unix)]
-mod agent_runs;
-#[cfg(unix)]
-mod agent_stop;
-#[cfg(unix)]
 mod agents;
+pub(crate) use agents::actions;
+#[cfg(unix)]
+pub(crate) use agents::agent_runs;
+#[cfg(unix)]
+pub(crate) use agents::agent_stop;
+#[cfg(unix)]
+pub(crate) use agents::control;
+pub(crate) use agents::direct_lane;
+#[cfg(unix)]
+pub(crate) use agents::doing_fire;
+#[cfg(unix)]
+pub(crate) use agents::gate_caps;
+pub(crate) use agents::interrupt_gate;
+#[cfg(unix)]
+pub(crate) use agents::shift;
+#[cfg(unix)]
+pub(crate) use agents::shift_continue;
+pub(crate) use agents::starter;
+pub(crate) use agents::thin;
+pub(crate) use agents::verify_close;
 mod board;
 pub(crate) use board::card_links;
 pub(crate) use board::needed_rules;
@@ -35,14 +49,7 @@ pub(crate) use companion::mouth_scan;
 pub(crate) use companion::mouth_sidecar;
 pub(crate) use companion::mouth_tools;
 pub(crate) use companion::talk;
-mod direct_lane;
-#[cfg(unix)]
-mod control;
 mod coordinator;
-mod thin;
-#[cfg(unix)]
-mod doing_fire;
-mod verify_close;
 mod rail;
 pub(crate) use rail::rail_edge;
 pub(crate) use rail::rail_stage;
@@ -51,20 +58,12 @@ mod relay;
 pub(crate) use relay::event_keys;
 pub(crate) use relay::event_log;
 pub(crate) use relay::event_relay;
-#[cfg(unix)]
-mod gate_caps;
-mod interrupt_gate;
 mod plans;
 mod habitat;
 pub(crate) use habitat::droid_inspect;
 pub(crate) use habitat::herdr;
 pub(crate) use habitat::packs;
-#[cfg(unix)]
-mod shift;
-#[cfg(unix)]
-mod shift_continue;
 mod state;
-mod starter;
 mod windows;
 pub(crate) use windows::claim_front;
 pub(crate) use windows::drawers;

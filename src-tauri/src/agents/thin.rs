@@ -799,7 +799,7 @@ not json companion-send\n";
 
     #[test]
     fn script_writes_one_stamp_and_does_not_shell_out() {
-        let src = include_str!("../../scripts/thin/vivo_thin.py");
+        let src = include_str!("../../../scripts/thin/vivo_thin.py");
         assert!(!src.contains("orbittyctl"));
         assert!(!src.contains(".buzz"));
         assert!(!src.contains("/opt/homebrew"));
@@ -932,7 +932,7 @@ not json companion-send\n";
     #[test]
     fn gate_and_seed_share_the_dev_thin_cfg() {
         assert_eq!(THIN_ENABLED, cfg!(any(debug_assertions, feature = "dev-thin")));
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         let actions = include_str!("actions.rs");
         let thin = fn_body(coord, "pub fn companion_thin(");
         assert!(thin.contains("release_gate(crate::thin::THIN_ENABLED)"), "{thin}");
@@ -948,11 +948,11 @@ not json companion-send\n";
         ] {
             assert!(!src.contains(&needle), "thin.rs still has {needle}");
         }
-        let cargo = include_str!("../Cargo.toml");
+        let cargo = include_str!("../../Cargo.toml");
         assert!(cargo.contains("\n[features]\n") && cargo.contains("\ndev-thin = []\n"));
-        let nightly = include_str!("../../scripts/install-nightly.sh");
+        let nightly = include_str!("../../../scripts/install-nightly.sh");
         assert!(nightly.contains("npm run tauri build -- --features dev-thin"));
-        let stable = include_str!("../../scripts/install-stable.sh");
+        let stable = include_str!("../../../scripts/install-stable.sh");
         assert!(!stable.contains("dev-thin"));
     }
 
@@ -1006,7 +1006,7 @@ not json companion-send\n";
         assert_eq!(nods.get(), 2);
 
         // companion_thin wires the real gate, the real stamp, and one nod.
-        let body = fn_body(include_str!("coordinator.rs"), "pub fn companion_thin(");
+        let body = fn_body(include_str!("../coordinator.rs"), "pub fn companion_thin(");
         assert!(body.contains("crate::thin::thin_flow("), "{body}");
         assert!(body.contains("|| crate::thin::stamp(&app)"), "{body}");
         assert_eq!(body.matches("companion_play(").count(), 1, "{body}");
@@ -1203,8 +1203,8 @@ not json companion-send\n";
     #[test]
     fn install_scripts_clear_the_bundle_before_building() {
         for (name, src) in [
-            ("install-nightly.sh", include_str!("../../scripts/install-nightly.sh")),
-            ("install-stable.sh", include_str!("../../scripts/install-stable.sh")),
+            ("install-nightly.sh", include_str!("../../../scripts/install-nightly.sh")),
+            ("install-stable.sh", include_str!("../../../scripts/install-stable.sh")),
         ] {
             let guard = r#"if [[ -n "${SRC:-}" && "$SRC" == *.app && "$SRC" == src-tauri/target/release/bundle/macos/* ]]; then"#;
             let g = src.find(guard).unwrap_or_else(|| panic!("{name}: guard missing"));

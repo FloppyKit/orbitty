@@ -30,8 +30,8 @@ src/lib/NeededRuleRow.svelte	  // rule while answering a Needed. Lock: ~/.buzz/P
 src/lib/mdLite.ts	// file://, https://, and bare /Users/… paths become <a data-link> spans	# comment about file URLs
 src/lib/mdLite.ts	// Already-escaped text. Only file:///…, https://…, and bare /Users/….	# comment about file URLs
 src-tauri/src/plans.rs	.buzz	# max=101 file-wide: .buzz refusal guards + tests (GO-STANDARD r4/r5)
-src-tauri/src/thin.rs	.buzz	# max=37 file-wide: THIN .buzz refusal guard + tests (MH-ARCHIVE)
-src-tauri/src/actions.rs	.buzz	# max=6 file-wide: THIN door guard tests (MH-ARCHIVE)
+src-tauri/src/agents/thin.rs	.buzz	# max=37 file-wide: THIN .buzz refusal guard + tests (MH-ARCHIVE)
+src-tauri/src/agents/actions.rs	.buzz	# max=6 file-wide: THIN door guard tests (MH-ARCHIVE)
 src-tauri/src/board/card_links.rs	            normalize_link("file:///Users/dude/Orbitty%20GOs/x.md").unwrap(),	# link tests as rustfmt splits them (LINK-OPEN-SAFE stack)
 src-tauri/src/board/card_links.rs	            normalize_link("file://Users/dude/Orbitty GOs/x.md").unwrap(),	# link tests as rustfmt splits them (LINK-OPEN-SAFE stack)
 src-tauri/src/board/card_links.rs	            normalize_link("FILE://Users/dude/Orbitty%20GOs/x.md").unwrap(),	# link tests as rustfmt splits them (LINK-OPEN-SAFE stack)

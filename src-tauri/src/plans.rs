@@ -2635,7 +2635,7 @@ mod tests {
         for (name, src) in [
             ("coordinator.rs", include_str!("coordinator.rs")),
             ("herdr.rs", include_str!("habitat/herdr.rs")),
-            ("agents.rs", include_str!("agents.rs")),
+            ("agents.rs", include_str!("agents/agents.rs")),
         ] {
             assert!(!src.contains(&flag), "{name} still passes {flag}");
         }

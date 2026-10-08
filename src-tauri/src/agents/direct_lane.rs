@@ -685,7 +685,7 @@ mod tests {
         }
         // The send arm, inside companion_send_inner (the agent-roster arms
         // also name "direct" now, alongside grok).
-        let coord = body_of(include_str!("coordinator.rs"), "async fn companion_send_inner(");
+        let coord = body_of(include_str!("../coordinator.rs"), "async fn companion_send_inner(");
         let at = coord.find("\"direct\" =>").expect("direct arm");
         let arm = &coord[at..];
         let arm = &arm[..arm.find("\"hermes\" =>").expect("hermes arm follows")];
@@ -698,7 +698,7 @@ mod tests {
 
     #[test]
     fn mouth_route_runs_before_no_harness_and_before_pin() {
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         let at = coord.find("async fn companion_send_inner(").unwrap();
         let rest = &coord[at..];
         let send = &rest[..rest.find("\n}\n").unwrap()];
@@ -815,7 +815,7 @@ mod tests {
     fn compat_vision_is_text_only() {
         assert_eq!(direct_vision("compat", "local", true), ("compat".into(), false));
         assert_eq!(direct_vision("local", "local", true), ("local".into(), true));
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         let at = coord.find("async fn companion_send_inner(").unwrap();
         let rest = &coord[at..];
         let send = &rest[..rest.find("\n}\n").unwrap()];
@@ -847,8 +847,8 @@ mod tests {
     #[test]
     fn ctl_mcp_and_control_list_route_and_not_the_key() {
         let control = include_str!("control.rs");
-        let ctl = include_str!("bin/orbittyctl.rs");
-        let mcp = include_str!("bin/orbitty_mcp.rs");
+        let ctl = include_str!("../bin/orbittyctl.rs");
+        let mcp = include_str!("../bin/orbitty_mcp.rs");
         assert!(control.contains("\"companion.route\" =>"));
         assert!(ctl.contains("[\"companion\", \"route\"]"));
         assert!(ctl.contains("\"companion.route\", json!({ \"line\": payload(o)? })"));
@@ -857,14 +857,14 @@ mod tests {
         assert!(!ctl.contains("set_direct_key"));
         assert!(!mcp.contains("set_direct_key"));
         assert!(!control.contains("companion.set_direct_key"));
-        let hop = include_str!("companion/mouth_hop.rs");
+        let hop = include_str!("../companion/mouth_hop.rs");
         let run = body_of(hop, "pub(crate) fn run_free_lanes(");
         assert!(run.contains("honest_down_line(!direct && skip_grok, &notes)"));
         assert!(run.contains("\"direct\": true"));
-        let ui = include_str!("../../src/lib/MouthSettings.svelte");
+        let ui = include_str!("../../../src/lib/MouthSettings.svelte");
         assert!(ui.contains("A compat key is not part of Free Mode."));
         assert!(!ui.contains("compat key is free"));
-        let ts = include_str!("../../src/lib/persist.ts");
+        let ts = include_str!("../../../src/lib/persist.ts");
         assert!(ts.contains("directBaseUrl"));
         assert!(ts.contains("directModel"));
         assert!(!ts.contains("directKey"));
@@ -885,7 +885,7 @@ mod tests {
 
     #[test]
     fn direct_takes_the_grok_agent_arm_and_unknown_still_errors() {
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         for sig in [
             "pub fn companion_agents(app: tauri::AppHandle)",
             "pub fn set_companion_agent(app: tauri::AppHandle, profile: String)",
@@ -908,7 +908,7 @@ mod tests {
     /// "what's on the board" still answers (bare `board` is not a local verb).
     #[test]
     fn local_verbs_are_not_gated_on_a_picked_harness() {
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         let send = body_of(coord, "async fn companion_send_inner(");
         let route = send.find("crate::mouth_route::run(").expect("mouth_route::run");
         let before = &send[..route];
@@ -965,7 +965,7 @@ mod tests {
     /// try_compat=false. Only direct_lane::send may try compat.
     #[test]
     fn grok_send_with_hops_never_tries_compat() {
-        let hop = include_str!("companion/mouth_hop.rs");
+        let hop = include_str!("../companion/mouth_hop.rs");
         let sig = body_of(hop, "pub(crate) fn run_free_lanes(");
         let params: Vec<&str> = sig
             .lines()
@@ -988,7 +988,7 @@ mod tests {
 
     #[test]
     fn route_log_names_the_route_only() {
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         let body = body_of(coord, "fn log_companion_route(");
         assert!(body.contains("\"companion-route\""));
         assert!(body.contains("\"route\": route"));

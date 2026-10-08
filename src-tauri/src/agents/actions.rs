@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn every_action_door_calls_dispatch_action() {
         use crate::thin::tests::fn_body;
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         let actions = include_str!("actions.rs");
 
         let cheat = fn_body(coord, "pub fn run_action(\n");
@@ -644,12 +644,12 @@ mod tests {
         }
         let flow = fn_body_of_companion_thin();
         assert!(!flow.contains("orbittyctl") && !flow.contains(".buzz") && !flow.contains("Command::new"));
-        let script = include_str!("../../scripts/thin/vivo_thin.py");
+        let script = include_str!("../../../scripts/thin/vivo_thin.py");
         assert!(!script.contains("orbittyctl") && !script.contains(".buzz"));
     }
 
     fn fn_body_of_companion_thin() -> &'static str {
-        crate::thin::tests::fn_body(include_str!("coordinator.rs"), "pub fn companion_thin(")
+        crate::thin::tests::fn_body(include_str!("../coordinator.rs"), "pub fn companion_thin(")
     }
 
     #[test]

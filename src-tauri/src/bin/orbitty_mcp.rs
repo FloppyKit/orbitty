@@ -883,7 +883,7 @@ mod tests {
 
     /// Every `"claim.<x>" =>` arm in control.rs, and every claim.* ToolDef.
     fn control_claim_arms() -> Vec<String> {
-        let src = include_str!("../control.rs");
+        let src = include_str!("../agents/control.rs");
         let mut names = Vec::new();
         for line in src.lines() {
             let t = line.trim_start();

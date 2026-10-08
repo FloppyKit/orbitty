@@ -457,7 +457,7 @@ mod tests {
 
     #[test]
     fn launch_agent_arms_verify_close_after_success() {
-        let src = include_str!("coordinator.rs");
+        let src = include_str!("../coordinator.rs");
         let start = src.find("pub fn launch_agent(").expect("launch_agent");
         let body = &src[start..];
         let end = body.find("\nfn record_go_launch").expect("record_go_launch");

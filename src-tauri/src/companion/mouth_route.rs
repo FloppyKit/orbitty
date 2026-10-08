@@ -1869,7 +1869,7 @@ mod tests {
 
     #[test]
     fn route_run_is_one_door_on_three_surfaces() {
-        let control = include_str!("../control.rs");
+        let control = include_str!("../agents/control.rs");
         assert!(control.contains("mouth_route::run_outcome"));
         assert!(control.contains("pendingId"));
         let ctl = include_str!("../bin/orbittyctl.rs");
@@ -2282,7 +2282,7 @@ mod tests {
         assert!(matches!(d, Decision::Miss));
 
         // Wiring: each surface names its origin; the socket passes pendingId.
-        let control = include_str!("../control.rs");
+        let control = include_str!("../agents/control.rs");
         let send = &control[control.find("\"companion.send\" =>").unwrap()..];
         let send = &send[..send.find("\"companion.agents\"").unwrap()];
         assert!(

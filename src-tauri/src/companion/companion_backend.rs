@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn control_ctl_mcp_list_the_two_verbs() {
-        let control = include_str!("../control.rs");
+        let control = include_str!("../agents/control.rs");
         assert!(control.contains("\"companion.harnesses\" =>"));
         assert!(control.contains("\"companion.set_backend\" =>"));
         let ctl = include_str!("../bin/orbittyctl.rs");
