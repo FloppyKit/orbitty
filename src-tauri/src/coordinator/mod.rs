@@ -27,6 +27,5 @@ pub(crate) use send::*;
 pub(crate) use soul_wake::*;
 pub(crate) use action::*;
 pub(crate) use paths::*;
-#[allow(unused_imports)]
 pub(crate) use cursor_perm::*;
 pub(crate) use launch_agent::*;
