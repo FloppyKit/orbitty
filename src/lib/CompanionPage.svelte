@@ -31,6 +31,11 @@
     StarsSlice,
   } from "./persist";
   import "./companion/page.css";
+  import { measureHugHeight as measureHugHeightBody, reportHug as reportHugBody, reportHostHug as reportHostHugBody, actionRowExtra as actionRowExtraBody, reportComposerGrow as reportComposerGrowBody, toggleSprite as toggleSpriteBody, toggleCaptions as toggleCaptionsBody, togglePlanetsHidden as togglePlanetsHiddenBody, setSpeakVolume as setSpeakVolumeBody, toggleSpeak as toggleSpeakBody } from "./companion/pageHug.svelte";
+  import { todayKey as todayKeyBody, toggleNextCard as toggleNextCardBody, togglePrompts as togglePromptsBody, ackStrip as ackStripBody, smallestTodo as smallestTodoBody, openSmallestTodo as openSmallestTodoBody, talkStop as talkStopBody, talkStart as talkStartBody, talkStopOnly as talkStopOnlyBody, talkStopSend as talkStopSendBody, applyTalkText as applyTalkTextBody, onNeededFocus as onNeededFocusBody, composerField as composerFieldBody, focusComposer as focusComposerBody, landCaret as landCaretBody, onNeededAnswer as onNeededAnswerBody, sendLine as sendLineBody, loadAgents as loadAgentsBody, stampThin as stampThinBody, onAgentChange as onAgentChangeBody } from "./companion/pageNeeded.svelte";
+  import { toggleExpanded as toggleExpandedBody, enterHost as enterHostBody, dismissHost as dismissHostBody, refreshDestOpen as refreshDestOpenBody, toggleDest as toggleDestBody, popoutLaunchpad as popoutLaunchpadBody, popoutInspector as popoutInspectorBody, restartTimer as restartTimerBody, sliceSheet as sliceSheetBody, loadArt as loadArtBody, onGlbFail as onGlbFailBody, loadState as loadStateBody } from "./companion/pageExpand.svelte";
+  import { startCompanionDrag as startCompanionDragBody, onDragMouseDown as onDragMouseDownBody, onDockMouseDown as onDockMouseDownBody } from "./companion/pageDrag.svelte";
+
   interface CompanionSheet {
     dataUrl: string;
     frameW: number;
@@ -313,24 +318,8 @@
   // note / starstrip when present) down through the dock, bottom margin
   // included. Diffed from element edges, so it measures the same whether
   // the content is bottom-pinned by the live stage or already hugged.
-  function measureHugHeight(): number | null {
-    if (!mainEl) return null;
-    const dock = mainEl.querySelector(".ghostdock");
-    if (!dock) return null;
-    const dockR = dock.getBoundingClientRect();
-    let top = dockR.top;
-    mainEl.querySelectorAll(".ccrow, .note, .starstrip").forEach((el) => {
-      const r = el.getBoundingClientRect();
-      if (r.height >= 2 && r.top < top) top = r.top;
-    });
-    let h = Math.round(dockR.bottom - top + 8);
-    // the open reply overlay rides the
-    // hug — grow the bar to its wanted window height so the fixed popup
-    // fits whole (it covers the bar), never clipped to the idle bar.
-    // The native side still clamps to the tall idle rect — that clamp is
-    // the absurd line where the overlay keeps its inner scroll.
-    if (overlayWinH > 0) h = Math.max(h, overlayWinH);
-    return h < 120 ? 120 : h;
+  function measureHugHeight() {
+    return measureHugHeightBody({get mainEl() { return mainEl; }, set mainEl(v) { mainEl = v; }, get overlayWinH() { return overlayWinH; }, set overlayWinH(v) { overlayWinH = v; }});
   }
 
   // SPRITE-HUG: idle collapsed + sprite off asks the native side to hug
@@ -338,9 +327,7 @@
   // native-side, so this is cheap on every collapsed layout change; the
   // native side no-ops while expanded/hosted/hidden or already fit.
   function reportHug() {
-    if (expanded || hosted !== "off" || sprite) return;
-    const h = measureHugHeight();
-    if (h) invoke("set_companion_sprite", { enabled: false, hugHeight: h }).catch(() => {});
+    return reportHugBody({get expanded() { return expanded; }, set expanded(v) { expanded = v; }, get hosted() { return hosted; }, set hosted(v) { hosted = v; }, invoke, measureHugHeight, get sprite() { return sprite; }, set sprite(v) { sprite = v; }});
   }
 
   // Hosted well gets a comfortable height (dock stays). Launchpad /
@@ -349,15 +336,7 @@
   let lastHostHug = 0;
   let hugTimer: ReturnType<typeof setTimeout> | undefined;
   function reportHostHug() {
-    if (hosted === "off" || expanded || tilePre || tileEnter || swapPrev) return;
-    if (hugTimer) clearTimeout(hugTimer);
-    hugTimer = setTimeout(() => {
-      hugTimer = undefined;
-      if (hosted === "off" || expanded || tilePre || tileEnter || swapPrev) return;
-      if (Math.abs(HOST_COMFORT_H - lastHostHug) < 4) return;
-      lastHostHug = HOST_COMFORT_H;
-      invoke("set_companion_host_hug", { height: HOST_COMFORT_H }).catch(() => {});
-    }, 80);
+    return reportHostHugBody({HOST_COMFORT_H, get expanded() { return expanded; }, set expanded(v) { expanded = v; }, get hosted() { return hosted; }, set hosted(v) { hosted = v; }, get hugTimer() { return hugTimer; }, set hugTimer(v) { hugTimer = v; }, invoke, get lastHostHug() { return lastHostHug; }, set lastHostHug(v) { lastHostHug = v; }, get swapPrev() { return swapPrev; }, set swapPrev(v) { swapPrev = v; }, get tileEnter() { return tileEnter; }, set tileEnter(v) { tileEnter = v; }, get tilePre() { return tilePre; }, set tilePre(v) { tilePre = v; }});
   }
 
   // Sprite-ON collapsed grows the WINDOW down
@@ -369,18 +348,12 @@
   // rides the SAME channel — the window grows down until the popup fits
   // whole, and snaps back when it closes. (Sprite-off rides reportHug;
   // the native gate turns this report into a no-op there.)
-  function actionRowExtra(): number {
-    if (!cheatSheetHint || !mainEl) return 0;
-    const row = mainEl.querySelector(".actionrow");
-    if (!row) return 0;
-    const h = row.getBoundingClientRect().height;
-    return h > 2 ? Math.round(h) : 0;
+  function actionRowExtra() {
+    return actionRowExtraBody({get cheatSheetHint() { return cheatSheetHint; }, set cheatSheetHint(v) { cheatSheetHint = v; }, get mainEl() { return mainEl; }, set mainEl(v) { mainEl = v; }});
   }
 
   function reportComposerGrow() {
-    invoke("set_companion_composer_grow", {
-      extra: composerExtra + overlayExtra + actionRowExtra(),
-    }).catch(() => {});
+    return reportComposerGrowBody({actionRowExtra, get composerExtra() { return composerExtra; }, set composerExtra(v) { composerExtra = v; }, invoke, get overlayExtra() { return overlayExtra; }, set overlayExtra(v) { overlayExtra = v; }});
   }
 
   $effect(() => {
@@ -397,19 +370,7 @@
   });
 
   async function toggleSprite(e: MouseEvent) {
-    e.preventDefault();
-    const next = !sprite;
-    sprite = next;
-    try {
-      // SPRITE-HUG: pass the measured bar height on the off flip so the
-      // native hug lands with the flag write; on never needs a height.
-      const hugHeight =
-        next || expanded || hosted !== "off" ? null : measureHugHeight();
-      await invoke("set_companion_sprite", { enabled: next, hugHeight });
-    } catch (err) {
-      sprite = !next;
-      sendNote = `${err}`;
-    }
+    return toggleSpriteBody({get expanded() { return expanded; }, set expanded(v) { expanded = v; }, get hosted() { return hosted; }, set hosted(v) { hosted = v; }, invoke, measureHugHeight, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get sprite() { return sprite; }, set sprite(v) { sprite = v; }}, e);
   }
 
   const viewTitle = $derived(
@@ -423,20 +384,7 @@
   let captions = $state(true);
 
   async function toggleCaptions() {
-    const next = !captions;
-    const wasExpanded = expanded;
-    captions = next;
-    // Optimistic: muted bubbles never keep the big expanded chrome.
-    if (!next && expanded) expanded = false;
-    try {
-      // Native captions=false also clears expanded in one save so
-      // state:changed cannot reload expanded:true and fight us.
-      await invoke("set_companion_captions", { enabled: next });
-    } catch (err) {
-      captions = !next;
-      if (!next && wasExpanded) expanded = true;
-      sendNote = `${err}`;
-    }
+    return toggleCaptionsBody({get captions() { return captions; }, set captions(v) { captions = v; }, get expanded() { return expanded; }, set expanded(v) { expanded = v; }, invoke, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }});
   }
 
   let planetsHidden = $state(false);
@@ -444,27 +392,13 @@
   let peerChrome = $state(false);
   const showDests = $derived(peerChrome);
   async function togglePlanetsHidden() {
-    const next = !planetsHidden;
-    planetsHidden = next;
-    try {
-      await invoke("set_planets_hidden", { hidden: next });
-    } catch (e) {
-      planetsHidden = !next;
-      sendNote = `${e}`;
-    }
+    return togglePlanetsHiddenBody({invoke, get planetsHidden() { return planetsHidden; }, set planetsHidden(v) { planetsHidden = v; }, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }});
   }
 
   let speakVolume = $state(1);
   let volOpen = $state(false);
   async function setSpeakVolume(v: number) {
-    const vol = Math.max(0, Math.min(1, v));
-    speakVolume = vol;
-    try {
-      await invoke("set_companion_speak_volume", { volume: vol });
-      if (vol > 0 && !speak) await toggleSpeak();
-    } catch (e) {
-      sendNote = `${e}`;
-    }
+    return setSpeakVolumeBody({invoke, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get speak() { return speak; }, set speak(v) { speak = v; }, get speakVolume() { return speakVolume; }, set speakVolume(v) { speakVolume = v; }, toggleSpeak}, v);
   }
 
   // S2.7: Speak toggle (persisted companion.speakReplies, default off).
@@ -475,14 +409,7 @@
   let speak = $state(false);
 
   async function toggleSpeak() {
-    const next = !speak;
-    speak = next;
-    try {
-      await invoke("set_companion_speak", { enabled: next });
-    } catch (e) {
-      speak = !next;
-      sendNote = `${e}`;
-    }
+    return toggleSpeakBody({invoke, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get speak() { return speak; }, set speak(v) { speak = v; }});
   }
 
   // Prompts strip + hold-to-talk
@@ -495,9 +422,8 @@
     { key: "self", label: "Self" },
   ] as const;
 
-  function todayKey(): string {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  function todayKey() {
+    return todayKeyBody({});
   }
 
   let stars = $state<StarsSlice>({ promptsOptIn: false, checkins: {} });
@@ -511,7 +437,7 @@
     }).length,
   );
   function toggleNextCard() {
-    invoke("toggle_next_card_window").catch(() => {});
+    return toggleNextCardBody({invoke});
   }
   // Prompts opt-in (default Off): mirrored with the rail's STARS pane —
   // both write the same key, this window via set_stars_prompts.
@@ -543,60 +469,23 @@
   );
 
   async function togglePrompts() {
-    const next = !prompts;
-    prompts = next;
-    try {
-      await invoke("set_stars_prompts", { enabled: next });
-    } catch (e) {
-      prompts = !next;
-      sendNote = `${e}`;
-    }
+    return togglePromptsBody({invoke, get prompts() { return prompts; }, set prompts(v) { prompts = v; }, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }});
   }
 
   // Rest / Water / × — an ack, not a lecture: hide until the day rolls or
   // a fresh check-in lands.
   async function ackStrip() {
-    if (!promptAckKey) return;
-    const ack = promptAckKey;
-    stars = { ...stars, promptsAck: ack };
-    try {
-      await invoke("ack_stars_prompt", { ack });
-    } catch (e) {
-      sendNote = `${e}`;
-    }
+    return ackStripBody({invoke, get promptAckKey() { return promptAckKey; }, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get stars() { return stars; }, set stars(v) { stars = v; }});
   }
 
   // Smallest todo: first undone subtask on the first Doing card, else that
   // card's title, else an honest "nothing open". Opens Lists on the card.
-  function smallestTodo(): { cardId: string; text: string } | null {
-    const card = cards.find((c) => c.status === "doing");
-    if (!card) return null;
-    const sub = card.subtasks?.find((s) => !s.done);
-    return { cardId: card.id, text: sub?.title || card.title };
+  function smallestTodo() {
+    return smallestTodoBody({get cards() { return cards; }, set cards(v) { cards = v; }});
   }
 
   async function openSmallestTodo() {
-    const t = smallestTodo();
-    await ackStrip();
-    if (!t) {
-      sendNote = "Nothing open on the Board.";
-      return;
-    }
-    try {
-      // HOST-SPLIT: the card opens in the embedded Launchpad well — never
-      // the overlay on the spirit. The focus event targets THIS window
-      // (the embedded KanbanPage listens here); the re-emit covers a well
-      // still mid-mount when the first event lands.
-      await enterHost("launchpad");
-      emitTo("companion", "orbitty:focus-card", t.cardId).catch(() => {});
-      setTimeout(
-        () =>
-          emitTo("companion", "orbitty:focus-card", t.cardId).catch(() => {}),
-        400,
-      );
-    } catch (e) {
-      sendNote = `${e}`;
-    }
+    return openSmallestTodoBody({ackStrip, emitTo, enterHost, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, smallestTodo});
   }
 
   // Talk: Grok-style press to start / press to stop.
@@ -612,60 +501,25 @@
   let sendOnTalkEnd = false;
 
   async function talkStop() {
-    talking = false;
-    fieldEl?.focus();
-    try {
-      await invoke("talk_stop");
-    } catch {
-      /* release is best-effort — never leave the chord stuck */
-    }
-    fieldEl?.focus();
+    return talkStopBody({get fieldEl() { return fieldEl; }, set fieldEl(v) { fieldEl = v; }, invoke, get talking() { return talking; }, set talking(v) { talking = v; }});
   }
 
   async function talkStart(e: Event) {
-    e.preventDefault();
-    if (talking) return;
-    fieldEl?.focus();
-    try {
-      talkBase = draft.trimEnd();
-      await invoke("talk_start");
-      talking = true;
-      sendNote = null;
-      fieldEl?.focus();
-    } catch (err) {
-      talking = false;
-      sendNote = `${err}`;
-    }
+    return talkStartBody({get draft() { return draft; }, set draft(v) { draft = v; }, get fieldEl() { return fieldEl; }, set fieldEl(v) { fieldEl = v; }, invoke, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get talkBase() { return talkBase; }, set talkBase(v) { talkBase = v; }, get talking() { return talking; }, set talking(v) { talking = v; }}, e);
   }
 
   // Check: stop only — the text stays in the field for review + Send.
   async function talkStopOnly() {
-    sendOnTalkEnd = false;
-    await talkStop();
+    return talkStopOnlyBody({get sendOnTalkEnd() { return sendOnTalkEnd; }, set sendOnTalkEnd(v) { sendOnTalkEnd = v; }, talkStop});
   }
 
   // Up-arrow: stop, then send immediately — no second confirm.
   async function talkStopSend() {
-    if (!talking) return;
-    sendOnTalkEnd = true;
-    await talkStop();
-    await new Promise((r) => setTimeout(r, 80));
-    if (sendOnTalkEnd) {
-      sendOnTalkEnd = false;
-      await sendLine();
-    }
+    return talkStopSendBody({sendLine, get sendOnTalkEnd() { return sendOnTalkEnd; }, set sendOnTalkEnd(v) { sendOnTalkEnd = v; }, talkStop, get talking() { return talking; }, set talking(v) { talking = v; }});
   }
 
   function applyTalkText(text: string) {
-    const spoken = (text ?? "").trim();
-    if (!spoken) {
-      draft = talkBase;
-    } else if (!talkBase) {
-      draft = spoken;
-    } else {
-      draft = `${talkBase} ${spoken}`;
-    }
-    fieldEl?.focus();
+    return applyTalkTextBody({get draft() { return draft; }, set draft(v) { draft = v; }, get fieldEl() { return fieldEl; }, set fieldEl(v) { fieldEl = v; }, get talkBase() { return talkBase; }, set talkBase(v) { talkBase = v; }}, text);
   }
 
   let neededFocusId = $state<string | null>(null);
@@ -673,30 +527,15 @@
   // Plain let so onFocusChanged (registered once) sees the live hook.
   let mouthHooked = false;
   function onNeededFocus(id: string | null, title: string | null) {
-    neededFocusId = id;
-    neededFocusTitle = title;
-    mouthHooked = !!id;
-    if (id) void landCaret();
+    return onNeededFocusBody({landCaret, get mouthHooked() { return mouthHooked; }, set mouthHooked(v) { mouthHooked = v; }, get neededFocusId() { return neededFocusId; }, set neededFocusId(v) { neededFocusId = v; }, get neededFocusTitle() { return neededFocusTitle; }, set neededFocusTitle(v) { neededFocusTitle = v; }}, id, title);
   }
 
-  function composerField(): HTMLTextAreaElement | null {
-    return (
-      fieldEl ??
-      document.querySelector<HTMLTextAreaElement>("textarea.field")
-    );
+  function composerField() {
+    return composerFieldBody({get fieldEl() { return fieldEl; }, set fieldEl(v) { fieldEl = v; }});
   }
 
-  function focusComposer(): boolean {
-    const el = composerField();
-    if (!el) return false;
-    el.focus();
-    try {
-      const n = el.value.length;
-      el.setSelectionRange(n, n);
-    } catch {
-      /* setSelectionRange can throw on a detached node */
-    }
-    return document.activeElement === el;
+  function focusComposer() {
+    return focusComposerBody({composerField});
   }
 
   // Native raise (arm_companion_mouth / ⌘⇧O show_companion) makes this
@@ -704,15 +543,7 @@
   // One tick is too early — Launchpad just had key, and fieldEl can be
   // stale until the dock paints the placeholder. Retry until it sticks.
   async function landCaret() {
-    await tick();
-    await new Promise<void>((r) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => r())),
-    );
-    if (focusComposer()) return;
-    for (const ms of [40, 100, 220, 400]) {
-      await new Promise((r) => setTimeout(r, ms));
-      if (focusComposer()) return;
-    }
+    return landCaretBody({focusComposer, tick});
   }
 
   // Enter on a Needed row arms the composer
@@ -720,103 +551,16 @@
   // next typed line answers it. Esc blurs back out (onPaneKey), arrows
   // resume the ring.
   function onNeededAnswer() {
-    void landCaret();
+    return onNeededAnswerBody({landCaret});
   }
 
 
   async function sendLine() {
-    const line = draft.trim();
-    const file = attach;
-    if (!line && !file) return;
-    // Highlighted Needed in Launchpad owns the mouth — even with
-    // Launchpad in its own window. A file chip stands the hijack down.
-    if (neededFocusId && !file) {
-      draft = "";
-      try {
-        await invoke("needed_answer", { id: neededFocusId, answer: line });
-      } catch (e) {
-        draft = line;
-        sendNote = `${e}`;
-      }
-      return;
-    }
-    if (sending) return;
-    sending = true;
-    sendNote = null;
-    ackLine = "";
-    pendingAck = "";
-    if (ackReveal) clearTimeout(ackReveal);
-    ackReveal = setTimeout(() => {
-      ackReveal = undefined;
-      if (sending && pendingAck) ackLine = pendingAck;
-    }, ACK_SPIN_MS);
-    // S2.5 optimistic you: the bubble lands NOW, the field clears, and
-    // the scroll effect (watching turns.length + sending) pins the
-    // expanded transcript to the bottom; `sending` swaps the spirit to
-    // the thinking v9 loop until the reply lands — the wait mark sits
-    // bare in the agent-text slot (no bubble, no border) where the
-    // reply will land; spirit still plays thinking v9.
-    // A file-only send bubbles "[file] name" (the
-    // same stand-in companion_send persists); the chip vanishes on send
-    // and returns only on an honest error.
-    const youText = line || `[file] ${file?.name ?? ""}`;
-    turns = [...turns, { role: "you", text: youText }].slice(-40);
-    userLine = youText;
-    draft = "";
-    attach = null;
-    try {
-      const reply = await invoke<string>("companion_send", {
-        line,
-        path: file?.path ?? null,
-      });
-      botLine = reply;
-      // CAPTION-CHUNK: speaking is the arrival effect's job — fill the
-      // live CC box, then read page one.
-      // companion_send persists the exchange and emits state:changed;
-      // if that loadState won the race, this exact exchange is already
-      // the tail — append the reply only when it isn't.
-      const n = turns.length;
-      const landed =
-        n >= 2 &&
-        turns[n - 1].role === "them" &&
-        turns[n - 1].text === reply &&
-        turns[n - 2].role === "you" &&
-        turns[n - 2].text === youText;
-      if (!landed) {
-        turns = [...turns, { role: "them", text: reply }].slice(-40);
-      }
-      ackLine = "";
-      pendingAck = "";
-      if (ackReveal) {
-        clearTimeout(ackReveal);
-        ackReveal = undefined;
-      }
-    } catch (e) {
-      // The you bubble stays (it was appended up front); the draft is
-      // already gone — one honest error line is all that remains. The
-      // chip comes back too: the file never left, so don't fake it.
-      sendNote = `${e}`;
-      ackLine = "";
-      pendingAck = "";
-      if (ackReveal) {
-        clearTimeout(ackReveal);
-        ackReveal = undefined;
-      }
-      attach = file;
-    } finally {
-      sending = false;
-    }
+    return sendLineBody({ACK_SPIN_MS, get ackLine() { return ackLine; }, set ackLine(v) { ackLine = v; }, get ackReveal() { return ackReveal; }, set ackReveal(v) { ackReveal = v; }, get attach() { return attach; }, set attach(v) { attach = v; }, get botLine() { return botLine; }, set botLine(v) { botLine = v; }, get draft() { return draft; }, set draft(v) { draft = v; }, invoke, get neededFocusId() { return neededFocusId; }, set neededFocusId(v) { neededFocusId = v; }, get pendingAck() { return pendingAck; }, set pendingAck(v) { pendingAck = v; }, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get sending() { return sending; }, set sending(v) { sending = v; }, get turns() { return turns; }, set turns(v) { turns = v; }, get userLine() { return userLine; }, set userLine(v) { userLine = v; }});
   }
 
   async function loadAgents() {
-    try {
-      const a = await invoke<CompanionAgents>("companion_agents");
-      agents = a.agents.length > 0 ? a.agents : ["default"];
-      agent = a.selected;
-    } catch {
-      agents = ["default"];
-      agent = "default";
-    }
+    return loadAgentsBody({get agent() { return agent; }, set agent(v) { agent = v; }, get agents() { return agents; }, set agents(v) { agents = v; }, invoke});
   }
 
   // Four-cast stem → mode JOB (spark/work/chat/hold). One transcript —
@@ -830,42 +574,17 @@
   };
 
   async function stampThin() {
-    try {
-      const msg = await invoke<string>("companion_thin");
-      sendNote = msg.split("\n")[0] ?? "THIN stamped";
-    } catch (e) {
-      sendNote = `${e}`;
-    }
+    return stampThinBody({invoke, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }});
   }
 
   async function onAgentChange() {
-    try {
-      agent = await invoke<string>("set_companion_agent", { profile: agent });
-      // Same flip switches the JOB (mode law). Transcript stays.
-      const nextMode = AGENT_MODE[agent];
-      if (nextMode) {
-        await invoke("set_companion_mode", { mode: nextMode });
-      }
-    } catch (e) {
-      sendNote = `${e}`;
-      await loadAgents(); // snap back to the persisted pick
-    }
+    return onAgentChangeBody({AGENT_MODE, get agent() { return agent; }, set agent(v) { agent = v; }, invoke, loadAgents, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }});
   }
 
 
 
   function toggleExpanded() {
-    expanded = !expanded;
-    // Expanding with bubbles muted would be an empty slab — turn captions
-    // back on with the expand.
-    if (expanded && !captions) {
-      captions = true;
-      invoke("set_companion_captions", { enabled: true }).catch(() => {});
-    }
-    invoke("set_companion_expanded", { expanded }).catch(() => {});
-    // HOST-CC (overrides HOST-SPLIT): expanding while hosted KEEPS the
-    // well — the transcript overlays it dimmed. Never dismissHost here;
-    // the native host frame (1080×620) stays up.
+    return toggleExpandedBody({get captions() { return captions; }, set captions(v) { captions = v; }, get expanded() { return expanded; }, set expanded(v) { expanded = v; }, invoke});
   }
 
   // The hosted well
@@ -878,177 +597,22 @@
   // Escape.
 
   async function enterHost(mode: "launchpad" | "stars" | "inspector") {
-    const gen = ++tileGen; // a fresh enter/swap supersedes any in-flight leave
-    if (hosted !== "off") {
-      // Swap dests: re-assert host (no second grow). Same dest does not turn.
-      tileReset();
-      const prev = hosted;
-      // Different dest turns the prism; same dest (tray raise) does not.
-      if (prev !== mode) {
-        const from = DEST_RING.indexOf(prev);
-        swapDir = DEST_RING.indexOf(mode) === (from + 1) % DEST_RING.length ? 1 : -1;
-        // Prism apothem from the pane width: r = w / (2·tan(π/3)). The
-        // pane is already mounted and keeps its width across a swap.
-        const w = wellpaneEl?.clientWidth ?? 0;
-        prismR = w > 16 ? Math.round(w / (2 * Math.tan(Math.PI / 3))) : 0;
-        // r=0 + rotateY(120) + backface-hidden is a black card. Instant
-        // swap instead of a 3D turn that cannot land.
-        swapPrev = prismR > 0 ? prev : null;
-      }
-      hosted = mode;
-      try {
-        await invoke("set_companion_host", { mode });
-      } catch (e) {
-        hosted = prev;
-        swapPrev = null;
-        sendNote = `${e}`;
-        return;
-      }
-      // Both faces are mounted now (outgoing under swapPrev, incoming
-      // under hosted) — drop the outgoing face once the CSS turn has
-      // finished (timeout matches the 400ms keyframes; 140 reduced). A
-      // fresh enter/swap/leave bumps tileGen and owns it.
-      if (swapPrev !== null) {
-        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        setTimeout(
-          () => {
-            if (gen === tileGen) swapPrev = null;
-          },
-          (reduce ? 140 : TILE_YAW_MS) + 40,
-        );
-      }
-      return;
-    }
-    // Measure the idle spirit box before native grow; hosted spirit
-    // translates onto that box. Never scale about the feet.
-    const idleSpirit =
-      !expanded && sprite
-        ? (mainEl
-            ?.querySelector(".stage .floatwrap")
-            ?.getBoundingClientRect() ?? null)
-        : null;
-    if (idleSpirit && mainEl && idleSpirit.width >= 2) {
-      const win = mainEl.getBoundingClientRect();
-      mainEl.style.setProperty(
-        "--hold-x",
-        `${(idleSpirit.left - win.left).toFixed(1)}px`,
-      );
-      mainEl.style.setProperty(
-        "--hold-b",
-        `${(win.bottom - idleSpirit.bottom).toFixed(1)}px`,
-      );
-      mainEl.style.setProperty("--hold-w", `${idleSpirit.width.toFixed(1)}px`);
-      mainEl.style.setProperty("--hold-h", `${idleSpirit.height.toFixed(1)}px`);
-      spiritHold = true;
-    }
-    tilePre = true;
-    // Hold class + native grow in parallel — sequential tick-then-invoke
-    // was the empty pause before the sprite moved.
-    const grow = invoke("set_companion_host", { mode });
-    try {
-      await Promise.all([tick(), grow]);
-    } catch (e) {
-      tileReset();
-      spiritHold = false;
-      sendNote = `${e}`;
-      return;
-    }
-    hosted = mode;
-    await tick();
-    let shifted = false;
-    if (idleSpirit && mainEl && idleSpirit.width >= 2) {
-      const art =
-        mainEl.querySelector(".wellhead .floatwrap") ??
-        mainEl.querySelector(".wellhead .spirshift");
-      const rest = art?.getBoundingClientRect();
-      if (rest && rest.width >= 2 && rest.height >= 2) {
-        const dx =
-          idleSpirit.left + idleSpirit.width / 2 - (rest.left + rest.width / 2);
-        const dy = idleSpirit.bottom - rest.bottom;
-        const s = idleSpirit.width / rest.width;
-        mainEl.style.setProperty("--spir-dx", `${dx.toFixed(1)}px`);
-        mainEl.style.setProperty("--spir-dy", `${dy.toFixed(1)}px`);
-        mainEl.style.setProperty("--spir-s", Number.isFinite(s) ? s.toFixed(3) : "1");
-        shifted = true;
-      }
-    }
-    if (!shifted && mainEl) {
-      mainEl.style.removeProperty("--spir-dx");
-      mainEl.style.removeProperty("--spir-dy");
-      mainEl.style.removeProperty("--spir-s");
-    }
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    tilePre = false;
-    tileEnter = true;
-    spiritHold = false;
-    setTimeout(
-      () => {
-        if (gen !== tileGen) return;
-        tileEnter = false;
-      },
-      (reduce ? 140 : TILE_ENTER_MS) + 80,
-    );
-    // Force collapsed on enter (the existing persisted expanded flag).
-    if (expanded) {
-      expanded = false;
-      invoke("set_companion_expanded", { expanded: false }).catch(() => {});
-    }
+    return enterHostBody({DEST_RING, TILE_ENTER_MS, TILE_YAW_MS, get expanded() { return expanded; }, set expanded(v) { expanded = v; }, get hosted() { return hosted; }, set hosted(v) { hosted = v; }, invoke, get mainEl() { return mainEl; }, set mainEl(v) { mainEl = v; }, get prismR() { return prismR; }, set prismR(v) { prismR = v; }, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get spiritHold() { return spiritHold; }, set spiritHold(v) { spiritHold = v; }, get sprite() { return sprite; }, set sprite(v) { sprite = v; }, get swapDir() { return swapDir; }, set swapDir(v) { swapDir = v; }, get swapPrev() { return swapPrev; }, set swapPrev(v) { swapPrev = v; }, tick, get tileEnter() { return tileEnter; }, set tileEnter(v) { tileEnter = v; }, get tileGen() { return tileGen; }, set tileGen(v) { tileGen = v; }, get tilePre() { return tilePre; }, set tilePre(v) { tilePre = v; }, tileReset, get wellpaneEl() { return wellpaneEl; }, set wellpaneEl(v) { wellpaneEl = v; }}, mode);
   }
 
   async function dismissHost() {
-    if (hosted === "off" || tileLeave) return;
-    // ⌘⌥↑ leftover: remember what is being lowered (written just before
-    // `hosted = "off"` below; a superseded leave never completes the
-    // lower, so it never writes).
-    const lowered = hosted;
-    const gen = ++tileGen;
-    tilePre = false;
-    tileEnter = false;
-    spiritHold = false;
-    // A mid-drop dismiss supersedes the enter timeout; the spirit is
-    // already in the hosted column (no hold overlay to release).
-    swapPrev = null; // a mid-turn dismiss drops the outgoing face
-    // Reverse the drop in the grown frame; native idle restore waits
-    // for CSS. Never restore mid-animation.
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!reduce) {
-      tileLeave = true;
-      await new Promise((r) => setTimeout(r, TILE_LEAVE_MS));
-      if (gen !== tileGen) return; // a fresh enter/swap superseded us
-      tileLeave = false;
-    }
-    lastDest = lowered;
-    hosted = "off";
-    try {
-      await invoke("set_companion_host", { mode: "off" });
-    } catch (e) {
-      sendNote = `${e}`;
-    }
+    return dismissHostBody({TILE_LEAVE_MS, get hosted() { return hosted; }, set hosted(v) { hosted = v; }, invoke, get lastDest() { return lastDest; }, set lastDest(v) { lastDest = v; }, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get spiritHold() { return spiritHold; }, set spiritHold(v) { spiritHold = v; }, get swapPrev() { return swapPrev; }, set swapPrev(v) { swapPrev = v; }, get tileEnter() { return tileEnter; }, set tileEnter(v) { tileEnter = v; }, get tileGen() { return tileGen; }, set tileGen(v) { tileGen = v; }, get tileLeave() { return tileLeave; }, set tileLeave(v) { tileLeave = v; }, get tilePre() { return tilePre; }, set tilePre(v) { tilePre = v; }});
   }
 
   async function refreshDestOpen() {
-    try {
-      destOpen = await invoke<{
-        launchpad: boolean;
-        stars: boolean;
-        inspector: boolean;
-      }>("dest_open_state");
-    } catch {
-      /* chip paint retries on the next pane-vis */
-    }
+    return refreshDestOpenBody({get destOpen() { return destOpen; }, set destOpen(v) { destOpen = v; }, invoke, get stars() { return stars; }, set stars(v) { stars = v; }});
   }
 
   // Dest chips are lightswitches for real windows. The companion
   // stays idle — never enterHost. Click while open hides; click
   // again shows and orders front.
   async function toggleDest(mode: "launchpad" | "stars" | "inspector") {
-    if (hosted !== "off") await dismissHost();
-    try {
-      await invoke("dest_toggle", { dest: mode });
-    } catch (e) {
-      sendNote = `${e}`;
-    }
-    await refreshDestOpen();
+    return toggleDestBody({dismissHost, get hosted() { return hosted; }, set hosted(v) { hosted = v; }, invoke, refreshDestOpen, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }}, mode);
   }
 
   // PLANETS-STRIP: dest L-click toggles the well. Planet tabs in the well
@@ -1061,74 +625,22 @@
   // window becomes the popped Launchpad beside the restored idle
   // companion. Never parks — the two sit side by side.
   async function popoutLaunchpad() {
-    if (hosted !== "launchpad") return;
-    tileGen++; // cancel any in-flight leave; pop-out stays instant
-    tileReset();
-    hosted = "off";
-    try {
-      await invoke("set_companion_host", { mode: "off" });
-      await invoke("open_kanban");
-    } catch (e) {
-      sendNote = `${e}`;
-    }
+    return popoutLaunchpadBody({get hosted() { return hosted; }, set hosted(v) { hosted = v; }, invoke, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get tileGen() { return tileGen; }, set tileGen(v) { tileGen = v; }, tileReset});
   }
 
   // Same pop-out pattern — dismiss the well,
   // then show the real rail window. Tray Inspector still show_rail too.
   async function popoutInspector() {
-    if (hosted !== "inspector") return;
-    tileGen++; // cancel any in-flight leave; pop-out stays instant
-    tileReset();
-    hosted = "off";
-    try {
-      await invoke("set_companion_host", { mode: "off" });
-      await invoke("show_rail");
-    } catch (e) {
-      sendNote = `${e}`;
-    }
+    return popoutInspectorBody({get hosted() { return hosted; }, set hosted(v) { hosted = v; }, invoke, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }, get tileGen() { return tileGen; }, set tileGen(v) { tileGen = v; }, tileReset});
   }
 
   function restartTimer() {
-    if (timer) clearInterval(timer);
-    // Reduced motion: hold frame 0 of the active set (rest or thinking).
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    timer = setInterval(() => {
-      const n = drawFrames.length;
-      if (n > 1) frameIdx = (frameIdx + 1) % n;
-    }, frameMs);
+    return restartTimerBody({get drawFrames() { return drawFrames; }, get frameIdx() { return frameIdx; }, set frameIdx(v) { frameIdx = v; }, get frameMs() { return frameMs; }, set frameMs(v) { frameMs = v; }, get timer() { return timer; }, set timer(v) { timer = v; }});
   }
 
   // Sheet → frames: 1:1 canvas blits (no resample, no redraw).
-  async function sliceSheet(sheet: CompanionSheet): Promise<string[]> {
-    const img = new Image();
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("sheet decode failed"));
-      img.src = sheet.dataUrl;
-    });
-    const c = document.createElement("canvas");
-    c.width = sheet.frameW;
-    c.height = sheet.frameH;
-    const ctx = c.getContext("2d");
-    if (!ctx) return [];
-    ctx.imageSmoothingEnabled = false;
-    const out: string[] = [];
-    for (let i = 0; i < sheet.count; i++) {
-      ctx.clearRect(0, 0, c.width, c.height);
-      ctx.drawImage(
-        img,
-        i * sheet.frameW,
-        0,
-        sheet.frameW,
-        sheet.frameH,
-        0,
-        0,
-        sheet.frameW,
-        sheet.frameH,
-      );
-      out.push(c.toDataURL("image/png"));
-    }
-    return out;
+  async function sliceSheet(sheet: CompanionSheet) {
+    return sliceSheetBody({}, sheet);
   }
 
   // Spirit when imagePackId is empty; else a role:companion pack.
@@ -1136,137 +648,18 @@
   // COMPANION-3D: reserved 3D ids load the SPIRIT art — it is the warm
   // fallback under Companion3D (and what a 3D failure lands on).
   async function loadArt() {
-    const packId =
-      bodyId === "spirit" || bodyId === "female"
-        ? null
-        : bodyId;
-    try {
-      const art = await invoke<CompanionArt>("companion_frames", {
-        packId,
-      });
-      let f = art.frames ?? [];
-      if (f.length === 0 && art.sheet) f = await sliceSheet(art.sheet);
-      if (f.length === 0) throw new Error("no frames");
-      frameMs = art.frameMs > 0 ? art.frameMs : 140;
-      artSmooth = !!art.smooth;
-      frameIdx = 0;
-      restFrames = f;
-      thinkFrames = art.thinkingFrames ?? [];
-      restBust = art.bustFrames ?? [];
-      thinkBust = art.bustThinkingFrames ?? [];
-      missing = false;
-      restartTimer();
-    } catch {
-      if (packId) {
-        bodyId = "spirit";
-        try {
-          const art = await invoke<CompanionArt>("companion_frames", {
-            packId: null,
-          });
-          let f = art.frames ?? [];
-          if (f.length === 0 && art.sheet) f = await sliceSheet(art.sheet);
-          if (f.length === 0) throw new Error("no frames");
-          frameMs = art.frameMs > 0 ? art.frameMs : 140;
-          artSmooth = false;
-          frameIdx = 0;
-          restFrames = f;
-          thinkFrames = art.thinkingFrames ?? [];
-          restBust = art.bustFrames ?? [];
-          thinkBust = art.bustThinkingFrames ?? [];
-          missing = false;
-          restartTimer();
-          artLoaded = true;
-          return;
-        } catch {
-          /* fall through to missing */
-        }
-      }
-      restFrames = [];
-      thinkFrames = [];
-      restBust = [];
-      thinkBust = [];
-      missing = true;
-    }
-    artLoaded = true;
+    return loadArtBody({get artLoaded() { return artLoaded; }, set artLoaded(v) { artLoaded = v; }, get artSmooth() { return artSmooth; }, set artSmooth(v) { artSmooth = v; }, get bodyId() { return bodyId; }, set bodyId(v) { bodyId = v; }, get frameIdx() { return frameIdx; }, set frameIdx(v) { frameIdx = v; }, get frameMs() { return frameMs; }, set frameMs(v) { frameMs = v; }, invoke, get missing() { return missing; }, set missing(v) { missing = v; }, get restBust() { return restBust; }, set restBust(v) { restBust = v; }, get restFrames() { return restFrames; }, set restFrames(v) { restFrames = v; }, restartTimer, sliceSheet, get thinkBust() { return thinkBust; }, set thinkBust(v) { thinkBust = v; }, get thinkFrames() { return thinkFrames; }, set thinkFrames(v) { thinkFrames = v; }});
   }
 
   // COMPANION-3D fail-soft: WebGL2 missing / loader error / missing GLB →
   // revert the pick to the blessed spirit (persisted, so Settings follows)
   // with one quiet line. Never a black stage, never a crash.
   async function onGlbFail() {
-    if (glbFailed) return;
-    glbFailed = true;
-    sendNote = "3D body failed; back on Spirit.";
-    bodyId = "spirit";
-    try {
-      await invoke<string | null>("set_companion_pack", { packId: "" });
-    } catch {
-      /* the local revert stands; the next state:changed re-syncs */
-    }
+    return onGlbFailBody({get bodyId() { return bodyId; }, set bodyId(v) { bodyId = v; }, get glbFailed() { return glbFailed; }, set glbFailed(v) { glbFailed = v; }, invoke, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }});
   }
 
   async function loadState() {
-    try {
-      const s = await invoke<PersistedState>("load_state");
-      themeId = KNOWN_THEMES.has(s.themeId) ? s.themeId : osThemeId();
-      windowOpacity = clampWindowOpacity(s.windowOpacity ?? 1);
-      // sendLine already swapped the you-row to
-      // the line just sent; while sending, a state:changed reload must
-      // not clobber it with the STALE persisted lastUserLine (still the
-      // previous prompt — the native side writes the new one only when
-      // the reply lands). Persisted truth reapplies on the next load
-      // once sending is false.
-      if (!sending) userLine = s.companion?.lastUserLine ?? "";
-      botLine = s.companion?.lastBotLine ?? "";
-      const incoming = s.companion?.turns ?? [];
-      if (sending) {
-        const optimistic = turns.at(-1);
-        turns = incoming;
-        if (
-          optimistic?.role === "you" &&
-          turns.at(-1)?.text !== optimistic.text
-        ) {
-          turns = [...turns, optimistic].slice(-40);
-        }
-      } else {
-        turns = incoming;
-      }
-      expanded = s.companion?.expanded ?? false;
-      speak = s.companion?.speakReplies ?? false;
-      speakVolume = typeof s.companion?.speakVolume === "number"
-        ? Math.max(0, Math.min(1, s.companion.speakVolume))
-        : 1;
-      figureView = s.companion?.viewCollapsed === "head" ? "head" : "full";
-      sprite = s.companion?.sprite ?? true;
-      captions = s.companion?.captions ?? true;
-      planetsHidden = s.companion?.planetsHidden ?? false;
-      cheatSheetHint = s.companion?.cheatSheetHint ?? true;
-      if (maybeGraduatePeerChrome(s)) {
-        peerChrome = true;
-        invoke("set_peer_chrome", { on: true }).catch(() => {});
-      } else {
-        peerChrome = peerChromeOn(s);
-      }
-      // DOCK-HACK: missing keys (old saves) = dark LED, unknown source.
-      hackLive = s.companion?.hackLive ?? false;
-      hackWho = s.companion?.hackWho ?? "";
-      const pack = s.companion?.imagePackId ?? null;
-      const nextBody = pack && pack.length > 0 ? pack : "spirit";
-      if (nextBody !== bodyId) {
-        bodyId = nextBody;
-        glbFailed = false; // a fresh pick re-tries the 3D load
-        artLoaded = false;
-        void loadArt();
-      }
-      stars = s.stars ?? { promptsOptIn: false, checkins: {} };
-      prompts = stars.promptsOptIn ?? false;
-      cards = s.kanbanCards ?? [];
-      void refreshDestOpen();
-    } catch {
-      // keep last good state; next state:changed retries
-    } finally {
-      captionReady = true;
-    }
+    return loadStateBody({KNOWN_THEMES, get artLoaded() { return artLoaded; }, set artLoaded(v) { artLoaded = v; }, get bodyId() { return bodyId; }, set bodyId(v) { bodyId = v; }, get botLine() { return botLine; }, set botLine(v) { botLine = v; }, get captionReady() { return captionReady; }, set captionReady(v) { captionReady = v; }, get captions() { return captions; }, set captions(v) { captions = v; }, get cards() { return cards; }, set cards(v) { cards = v; }, get cheatSheetHint() { return cheatSheetHint; }, set cheatSheetHint(v) { cheatSheetHint = v; }, clampWindowOpacity, get expanded() { return expanded; }, set expanded(v) { expanded = v; }, get figureView() { return figureView; }, set figureView(v) { figureView = v; }, get glbFailed() { return glbFailed; }, set glbFailed(v) { glbFailed = v; }, get hackLive() { return hackLive; }, set hackLive(v) { hackLive = v; }, get hackWho() { return hackWho; }, set hackWho(v) { hackWho = v; }, invoke, loadArt, maybeGraduatePeerChrome, osThemeId, get peerChrome() { return peerChrome; }, set peerChrome(v) { peerChrome = v; }, peerChromeOn, get planetsHidden() { return planetsHidden; }, set planetsHidden(v) { planetsHidden = v; }, get prompts() { return prompts; }, set prompts(v) { prompts = v; }, refreshDestOpen, get sending() { return sending; }, set sending(v) { sending = v; }, get speak() { return speak; }, set speak(v) { speak = v; }, get speakVolume() { return speakVolume; }, set speakVolume(v) { speakVolume = v; }, get sprite() { return sprite; }, set sprite(v) { sprite = v; }, get stars() { return stars; }, set stars(v) { stars = v; }, get themeId() { return themeId; }, set themeId(v) { themeId = v; }, get turns() { return turns; }, set turns(v) { turns = v; }, get userLine() { return userLine; }, set userLine(v) { userLine = v; }, get windowOpacity() { return windowOpacity; }, set windowOpacity(v) { windowOpacity = v; }});
   }
 
   // GRAB-LAW: collapsed, the spirit RECTANGLE is the drag handle — the
@@ -1279,37 +672,15 @@
   // jumps the pane to the click; Tauri setPosition is the wrong space.
   // Click ≠ drag: wait for a real move, then native follow until mouse up.
   function startCompanionDrag(e: MouseEvent) {
-    if (e.button !== 0) return;
-    const x0 = e.screenX;
-    const y0 = e.screenY;
-    const move = (ev: MouseEvent) => {
-      if (Math.hypot(ev.screenX - x0, ev.screenY - y0) < 12) return;
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", onUp);
-      invoke("companion_drag_begin").catch(() => {});
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", onUp);
+    return startCompanionDragBody({invoke}, e);
   }
 
   function onDragMouseDown(e: MouseEvent) {
-    startCompanionDrag(e);
+    return onDragMouseDownBody({startCompanionDrag}, e);
   }
 
   function onDockMouseDown(e: MouseEvent | PointerEvent) {
-    if (e.button !== 0) return;
-    const t = eventElement(e);
-    if (
-      t?.closest(
-        "button, input, a, select, textarea, option, .field, .fieldwrap, .volpop, .agentbubble, .agentopt",
-      )
-    )
-      return;
-    startCompanionDrag(e);
+    return onDockMouseDownBody({eventElement, startCompanionDrag}, e);
   }
 
   // SPRITE-HUG: re-fit the idle bar when CC / wait / strips change.
