@@ -1,41 +1,7 @@
 // @ts-expect-error Node's test runner needs the .ts suffix; the bundler flag for it is off.
 import { normalizeStageEdge, wheelLayout, type SpinItem, type StageEdge, type ZoneRect } from "./stageLook.ts";
-import {
-  ARCH_DEPTH_BLUR,
-  ARCH_DEPTH_MS,
-  ARCH_DEPTH_OPACITY,
-  ARCH_DEPTH_SCALE,
-  ARCH_DEPTH_SHIFT,
-  ARCH_EASING,
-  ARCH_IDLE,
-  ARCH_ITEM_BOX,
-  BESIDE_ADJACENT,
-  BESIDE_GAP,
-  EDGE_GRACE_MS,
-  EDGE_HIDE_MS,
-  EDGE_SLOP,
-  MIRROR_GAP,
-  MIRROR_RECEDE,
-  PREVIEW_WINDOW_CAP,
-  archSlot,
-  bulge,
-  byCreated,
-  copy,
-  windowItem,
-  type ArchCard,
-  type ArchConfirmAction,
-  type ArchDepth,
-  type ArchFrame,
-  type ArchFront,
-  type ArchLayout,
-  type ArchRow,
-  type ArchSlot,
-  type ArchState,
-  type ArchZone,
-  type Layer2Item,
-  type PlaceRect,
-  type StagePreviewModel,
-} from "./stageArch.ts";
+// @ts-expect-error Node's test runner needs the .ts suffix; the bundler flag for it is off.
+import { ARCH_DEPTH_BLUR, ARCH_DEPTH_MS, ARCH_DEPTH_OPACITY, ARCH_DEPTH_SCALE, ARCH_DEPTH_SHIFT, ARCH_EASING, ARCH_IDLE, ARCH_ITEM_BOX, BESIDE_ADJACENT, BESIDE_GAP, EDGE_GRACE_MS, EDGE_HIDE_MS, EDGE_SLOP, MIRROR_GAP, MIRROR_RECEDE, PREVIEW_WINDOW_CAP, archSlot, bulge, byCreated, copy, windowItem, type ArchCard, type ArchConfirmAction, type ArchDepth, type ArchFrame, type ArchFront, type ArchLayout, type ArchRow, type ArchSlot, type ArchState, type ArchZone, type Layer2Item, type PlaceRect, type StagePreviewModel } from "./stageArch.ts";
 
 export function stagePreviewModel(opts: {
   pid: string;

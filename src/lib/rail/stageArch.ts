@@ -3,6 +3,7 @@
 
 // @ts-expect-error Node's test runner needs the .ts suffix; the bundler flag for it is off.
 import { normalizeStageEdge, spinArrow, spinStep, wheelLayout, type SpinDir, type SpinItem, type StageEdge, type ZoneRect } from "./stageLook.ts";
+// @ts-expect-error Node's test runner needs the .ts suffix; the bundler flag for it is off.
 import { mirrorStart, slotFramePoint } from "./stagePlace.ts";
 
 export const ARCH_DWELL_MS = 160;
@@ -764,32 +765,5 @@ export function windowItem(w: ArchRow): Layer2Item {
 /** Stage Manager layer 2. Doing/todo cards stay inside the board tile.
  *  Window art is the card fallback (icon, title, app, state) — no capture API. */
 
-export {
-  archConfirm,
-  archDepth,
-  archFocusPid,
-  archInitial,
-  archLayout,
-  archPainted,
-  archStart2,
-  archZone,
-  besideRailAdjacent,
-  claimLanded,
-  edgeHover,
-  edgeLeaveSide,
-  mirrorDepth,
-  mirrorItems,
-  mirrorLayout,
-  mirrorSlot,
-  mirrorSlotBox,
-  mirrorStart,
-  placeBesideRail,
-  stageContrast,
-  stagePreviewModel,
-  stageStackLayout,
-  type ClaimSnap,
-  type EdgeHoverEvent,
-  type EdgeHoverState,
-  type MirrorLayout,
-  type StackLayout,
-} from "./stagePlace.ts";
+// @ts-expect-error Node's test runner needs the .ts suffix; the bundler flag for it is off.
+export { archConfirm, archDepth, archFocusPid, archInitial, archLayout, archPainted, archStart2, archZone, besideRailAdjacent, claimLanded, edgeHover, edgeLeaveSide, mirrorDepth, mirrorItems, mirrorLayout, mirrorSlot, mirrorSlotBox, mirrorStart, placeBesideRail, stageContrast, stagePreviewModel, stageStackLayout, type ClaimSnap, type EdgeHoverEvent, type EdgeHoverState, type MirrorLayout, type StackLayout } from "./stagePlace.ts";
