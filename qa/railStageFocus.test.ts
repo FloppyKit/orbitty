@@ -25,7 +25,7 @@ import { spinItems, type SpinItem } from "../src/lib/rail/stageLook.ts";
 
 const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
 const page = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
-const css = readFileSync(new URL("../src/lib/rail/rail.css", import.meta.url), "utf8");
+const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
 const stars = readFileSync(new URL("../src/lib/StarsPage.svelte", import.meta.url), "utf8");
 const settings = readFileSync(new URL("../src/lib/SettingsPage.svelte", import.meta.url), "utf8");
 const kanban = readFileSync(new URL("../src/lib/KanbanPage.svelte", import.meta.url), "utf8");

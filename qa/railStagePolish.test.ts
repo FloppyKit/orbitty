@@ -26,7 +26,7 @@ const frames: ArchFrame[] = [
   { w: 1040, h: 760 },
   { w: 1040, h: 752 },
 ];
-const css = readFileSync(new URL("../src/lib/rail/rail.css", import.meta.url), "utf8");
+const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
 const page = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
 const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
 

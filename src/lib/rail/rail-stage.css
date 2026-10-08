@@ -1,0 +1,163 @@
+  /* Half-wheel stage. Every rule stays under .rail.stage-shell so the
+     embedded well keeps the 5ff8286 drawer. Row-chrome autohide stays
+     on .rail.autohide. Motion numbers match wheelMotion() (240 / 80). */
+  .rail.stage-shell {
+    position: relative;
+    width: 100%;
+    background: transparent;
+    border-radius: 0;
+    --stage-shadow: 0 4px 14px rgb(0 0 0 / 0.12);
+    box-shadow: none;
+    overflow: clip;
+  }
+
+  .rail.stage-shell .list-head,
+  .rail.stage-shell .tag-filters,
+  .rail.stage-shell .railstack,
+  .rail.stage-shell .foot {
+    display: none;
+  }
+
+  .rail.stage-shell .stage-hit {
+    position: absolute;
+    z-index: 30;
+    pointer-events: none;
+    background: transparent;
+  }
+
+  .rail.stage-shell[data-edge="left"] .stage-hit {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 14px;
+  }
+
+  .rail.stage-shell[data-edge="right"] .stage-hit {
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 14px;
+  }
+
+  .rail.stage-shell[data-edge="top"] .stage-hit {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 14px;
+  }
+
+  .rail.stage-shell[data-edge="bottom"] .stage-hit {
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 14px;
+  }
+
+  .rail.stage-shell .scroll {
+    background: transparent;
+    overflow: clip;
+    padding: 0;
+  }
+
+  .rail.stage-shell .stage-strip,
+  .rail.stage-shell .wins,
+  .rail.stage-shell .stage-planet,
+  .rail.stage-shell .section {
+    position: static;
+    transform: none;
+    filter: none;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    opacity: 1;
+  }
+
+  .rail.stage-shell .section.drop-ok {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .rail.stage-shell .arch-slot.drop-ok .arch-glyph {
+    filter: drop-shadow(0 0 2px var(--accent, #6e4db0));
+  }
+
+  .rail.stage-shell .wheel-col {
+    position: absolute;
+    z-index: 4;
+    top: var(--pin-h, 132px);
+    bottom: 0;
+    width: var(--wheel-col, 320px);
+    overflow: visible;
+  }
+
+  .rail.stage-shell .coach-line {
+    position: absolute;
+    z-index: 30;
+    top: 0;
+    left: 8px;
+    right: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(20, 22, 26, 0.78);
+    color: #f4f5f7;
+    font-size: 13px;
+    line-height: 1.35;
+    pointer-events: auto;
+  }
+
+  .rail.stage-shell .coach-line .coach-text {
+    flex: 1 1 8em;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .rail.stage-shell .coach-line .coach-err {
+    flex: 1 0 100%;
+    color: #f0c2c2;
+    font-size: 12px;
+  }
+
+  .rail.stage-shell[data-edge="left"] .wheel-col { left: 0; }
+  .rail.stage-shell[data-edge="right"] .wheel-col { right: 0; left: auto; }
+
+  .rail.stage-shell[data-edge="top"] .wheel-col,
+  .rail.stage-shell[data-edge="bottom"] .wheel-col {
+    left: 0;
+    right: 0;
+    width: auto;
+    height: var(--wheel-row, 250px);
+  }
+
+  .rail.stage-shell[data-edge="top"] .wheel-col { top: 0; bottom: auto; }
+  .rail.stage-shell[data-edge="bottom"] .wheel-col { top: auto; bottom: 0; }
+
+  .rail.stage-shell .stage-strip {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+  }
+
+  .rail.stage-shell .arch-ring,
+  .rail.stage-shell .layer2-ring {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    transform: translate(var(--ad-x, 0px), var(--ad-y, 0px)) scale(var(--ad-scale, 1));
+    opacity: var(--ad-opacity, 1);
+    transform-origin: left center;
+    transition:
+      transform var(--ad-ms, 360ms) cubic-bezier(0.34, 1.56, 0.64, 1),
+      opacity var(--ad-ms, 360ms) cubic-bezier(0.34, 1.56, 0.64, 1),
+      filter var(--ad-ms, 360ms) ease;
+  }
+
+  .rail.stage-shell .layer2-ring { z-index: 3; }
+

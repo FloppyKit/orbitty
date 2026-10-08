@@ -342,7 +342,7 @@ test("F9 legibility", () => {
   assert.ok(stageContrast(STAGE_INK, STAGE_PLATTER_RGBA, "black") >= 4.5);
   assert.ok(stageContrast(STAGE_INK_DIM, STAGE_PLATTER_RGBA, "white") >= 4.5);
   assert.ok(stageContrast(STAGE_INK_DIM, STAGE_PLATTER_RGBA, "black") >= 4.5);
-  const css = readFileSync(new URL("../src/lib/rail/rail.css", import.meta.url), "utf8");
+  const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
   for (const chunk of css.split("}")) {
     if (!chunk.includes(".arch-platter") && !chunk.includes(".layer2-unmapped")) continue;
     assert.equal(chunk.includes("light-dark("), false, chunk.slice(0, 120));
@@ -352,7 +352,7 @@ test("F9 legibility", () => {
 test("F10 wiring guards", () => {
   const rail = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
   const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
-  const css = readFileSync(new URL("../src/lib/rail/rail.css", import.meta.url), "utf8");
+  const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
   const over = rail.slice(rail.indexOf("function overPainted"), rail.indexOf("function overPainted") + 700);
   assert.match(over, /archPainted\(/);
   assert.equal(over.includes("paintedZoneHit"), false);

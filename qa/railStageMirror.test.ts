@@ -257,7 +257,7 @@ test("M6 hover does not switch fronts; reduced mirror depth is instant", () => {
 
 test("M7 orbit is above the scrim and stage chrome is gone", () => {
   const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
-  const css = readFileSync(new URL("../src/lib/rail/rail.css", import.meta.url), "utf8");
+  const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
   const chrome = readFileSync(new URL("../src/lib/rail/Chrome.svelte", import.meta.url), "utf8");
   const arch = readFileSync(new URL("../src/lib/rail/stageArch.ts", import.meta.url), "utf8");
   assert.equal(list.includes("stage-stacks"), false);

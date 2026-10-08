@@ -167,9 +167,9 @@ test("P5 preview tiles and arch slots sit in the painted region", () => {
 test("P6 wiring: embed or beside-rail, no toggle, no feature save, hover lift stays inner", () => {
   const rail = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
   const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
-  const css = readFileSync(new URL("../src/lib/rail/rail.css", import.meta.url), "utf8");
-  const toggle = readFileSync(new URL("../src-tauri/src/rail_toggle.rs", import.meta.url), "utf8");
-  const drawers = readFileSync(new URL("../src-tauri/src/drawers.rs", import.meta.url), "utf8");
+  const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
+  const toggle = readFileSync(new URL("../src-tauri/src/rail/rail_toggle.rs", import.meta.url), "utf8");
+  const drawers = readFileSync(new URL("../src-tauri/src/windows/drawers.rs", import.meta.url), "utf8");
   const openAt = rail.indexOf("function openStageDest");
   const open = rail.slice(openAt, openAt + 700);
   assert.match(open, /dest_show/);
