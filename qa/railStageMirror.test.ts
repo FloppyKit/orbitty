@@ -235,7 +235,7 @@ test("M5 expanded and back are painted; old misses stay misses", () => {
   assert.equal(archPainted(lay, mid, { front: "arch", pid: null, revealed: true, edge: "left", frame }), false);
   assert.equal(archPainted(lay, mid, { front: "layer2", pid: null, revealed: true, edge: "left", frame }), false);
   assert.equal(archPainted(lay, mid, { front: "arch", pid: "p", revealed: true, edge: "left", frame }), false);
-  const arch = readFileSync(new URL("../src/lib/rail/stageArch.ts", import.meta.url), "utf8");
+  const arch = readFileSync(new URL("../src/lib/rail/stagePlace.ts", import.meta.url), "utf8");
   assert.match(arch, /zones\.push\(mirror\.expanded, mirror\.back\)/);
 });
 
@@ -259,7 +259,10 @@ test("M7 orbit is above the scrim and stage chrome is gone", () => {
   const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
   const css = ["rail-chrome.css", "rail-rows.css", "rail-stage.css", "rail-arch.css"].map((name) => readFileSync(new URL(`../src/lib/rail/${name}`, import.meta.url), "utf8")).join("");
   const chrome = readFileSync(new URL("../src/lib/rail/Chrome.svelte", import.meta.url), "utf8");
-  const arch = readFileSync(new URL("../src/lib/rail/stageArch.ts", import.meta.url), "utf8");
+  const arch = [
+    readFileSync(new URL("../src/lib/rail/stageArch.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../src/lib/rail/stagePlace.ts", import.meta.url), "utf8"),
+  ].join("");
   assert.equal(list.includes("stage-stacks"), false);
   assert.match(list, /class="stage-orbit"/);
   assert.match(list, /width=\{frameW\}/);

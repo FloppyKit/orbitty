@@ -295,7 +295,10 @@ test("S7 recede depth", () => {
 });
 
 test("S8 view-only guard", () => {
-  const src = readFileSync(new URL("../src/lib/rail/stageArch.ts", import.meta.url), "utf8");
+  const src = [
+    readFileSync(new URL("../src/lib/rail/stageArch.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../src/lib/rail/stagePlace.ts", import.meta.url), "utf8"),
+  ].join("");
   for (const banned of ["@tauri-apps", "invoke(", "persist", "save_state", "collapsedSectionIds"]) {
     assert.equal(src.includes(banned), false, banned);
   }
