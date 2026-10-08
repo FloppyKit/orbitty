@@ -1126,7 +1126,7 @@ mod board_focus_wiring_pins {
     /// between them.
     #[test]
     fn mouse_up_remembers_pid_then_emits_same_pid() {
-        let src = strip_comments(include_str!("../habitat_mac/mouse_up.rs"));
+        let src = strip_comments(include_str!("../habitat/habitat_mac/mouse_up.rs"));
         let needle = "remember_board_focus(&pid)";
         let at = src
             .find(needle)

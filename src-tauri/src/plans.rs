@@ -2634,7 +2634,7 @@ mod tests {
         let flag = ["--git", "-push"].concat();
         for (name, src) in [
             ("coordinator.rs", include_str!("coordinator.rs")),
-            ("herdr.rs", include_str!("herdr.rs")),
+            ("herdr.rs", include_str!("habitat/herdr.rs")),
             ("agents.rs", include_str!("agents.rs")),
         ] {
             assert!(!src.contains(&flag), "{name} still passes {flag}");

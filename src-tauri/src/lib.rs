@@ -56,9 +56,9 @@ mod gate_caps;
 mod interrupt_gate;
 mod plans;
 mod habitat;
-mod herdr;
-mod droid_inspect;
-mod packs;
+pub(crate) use habitat::droid_inspect;
+pub(crate) use habitat::herdr;
+pub(crate) use habitat::packs;
 #[cfg(unix)]
 mod shift;
 #[cfg(unix)]
