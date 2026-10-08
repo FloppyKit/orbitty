@@ -1319,6 +1319,17 @@ function bootAddForm() {
     onRingExit: () => {},
     focusStarsCol: () => {},
     hideStars: () => {},
+    hideLabel: "stars",
+    invoke: () => Promise.resolve({ projects: [] }),
+    bagState: null,
+    navView: "day",
+    avgFrom: "",
+    avgTo: "",
+    cursorDay: "2026-10-07",
+    shiftDay: () => "2026-09-08",
+    setAverageWindow: () => {},
+    trackerCols: 8,
+    mountSides: null as null | (() => void),
     tick: () => {
       render();
       return Promise.resolve();
@@ -1334,30 +1345,39 @@ function bootAddForm() {
     "function fieldKind(",
     "function onRegisterAdd(",
     "async function landAddForm(",
+    "async function keepStarsFocus(",
     "async function onAddFocus(",
     "function onStarsKey(",
+    "function newId(",
+    "async function patchProjects(",
+    "function addTracker(",
+    "async function onNavChange(",
   ]);
   const pageSrc = src("src/lib/StarsPage.svelte");
   const mountAt = pageSrc.indexOf("<StarsTrackers");
   assert.ok(mountAt >= 0, "StarsTrackers mount");
   const mount = pageSrc.slice(mountAt, pageSrc.indexOf("/>", mountAt));
   const passFocus = mount.includes("onAddFocus={onAddFocus}");
+  const passKeep = mount.includes("onKeepFocus={keepStarsFocus}");
   const passRegister = mount.includes("onRegister={onRegisterAdd}");
   let trackerCode = loadBodies("src/lib/stars/StarsTrackers.svelte", [
     "function openAdd(",
     "function closeAdd(",
     "function commitAdd(",
     "async function landedAdd(",
+    "function keepAddFocus(",
     "function onAddFormKey(",
     "function publishAddForm(",
   ]);
   if (!passFocus) trackerCode = trackerCode.replaceAll("onAddFocus?.(", "unwiredAddFocus?.(");
+  if (!passKeep) trackerCode = trackerCode.replaceAll("onKeepFocus?.(", "unwiredKeepFocus?.(");
   const fns = new Function(
     "S",
-    `with (S) {\n${pageCode}\n${trackerCode}\nreturn { focusWorld, focusElement, applyStarsFocus, activateStarsFocus, applyStep, fieldKind, onRegisterAdd, landAddForm, onAddFocus, onStarsKey, openAdd, closeAdd, commitAdd, landedAdd, onAddFormKey, publishAddForm };\n}`,
+    `with (S) {\n${pageCode}\n${trackerCode}\nreturn { focusWorld, focusElement, applyStarsFocus, activateStarsFocus, applyStep, fieldKind, onRegisterAdd, landAddForm, keepStarsFocus, onAddFocus, onStarsKey, openAdd, closeAdd, commitAdd, landedAdd, onAddFormKey, publishAddForm, keepAddFocus, newId, patchProjects, addTracker, onNavChange };\n}`,
   )(S) as Record<string, (...a: unknown[]) => unknown>;
   Object.assign(S, fns);
   if (passRegister) S.onRegister = fns.onRegisterAdd;
+  if (passKeep) S.onKeepFocus = fns.keepStarsFocus;
   const trackerSrc = pageScriptFrom("src/lib/stars/StarsTrackers.svelte");
   const registerEffect = effectBodies(trackerSrc).find((body) => body.includes("publishAddForm()"));
   if (registerEffect) new Function("S", `with (S) {${stripTypeScriptTypes(registerEffect)}}`)(S);
@@ -1386,12 +1406,26 @@ function bootAddForm() {
     }
   }
 
+  function rowLabels(): { label: string }[] {
+    const projects = (S.projects as { id: string; trackers?: { label: string }[] }[] | undefined) ?? [];
+    if (projects.some((p) => Array.isArray(p.trackers))) {
+      const scope = String(S.scope ?? "overall");
+      const out: { label: string }[] = [];
+      for (const p of projects) {
+        if (scope !== "overall" && p.id !== scope) continue;
+        for (const tr of p.trackers ?? []) out.push({ label: tr.label });
+      }
+      return out;
+    }
+    return (S.cards as { label: string }[] | undefined) ?? [];
+  }
+
   function render() {
     const prev = doc.activeElement;
     main.children = [];
     const grid = adopt(new DomEl("div"), doc);
-    grid.setAttribute("data-tracker-cols", "8");
-    const cards = (S.cards as { label: string }[] | undefined) ?? [];
+    grid.setAttribute("data-tracker-cols", String(S.trackerCols ?? 8));
+    const cards = rowLabels();
     for (const card of cards) {
       const el = adopt(new DomEl("article"), doc);
       el.setAttribute("data-focus-zone", "Z4");
@@ -1418,7 +1452,17 @@ function bootAddForm() {
       grid.append(form);
     }
     main.append(grid);
+    if (typeof S.mountSides === "function") S.mountSides();
     if (!prev || !contains(main, prev)) doc.activeElement = doc.body;
+  }
+
+  async function change(node: DomEl) {
+    const label = node.getAttribute("aria-label") ?? "";
+    if (label.includes("Planet")) S.planetId = node.value;
+    if (label.includes("kind")) S.kind = node.value;
+    const onchange = node.getAttribute("onchange") ?? "";
+    render();
+    if (onchange.includes("keepAddFocus")) await (fns.keepAddFocus as () => Promise<void>)();
   }
 
   function controls(): DomEl[] {
@@ -1458,7 +1502,7 @@ function bootAddForm() {
   }
 
   render();
-  return { S, fns, main, doc, added, render, controls, press, formChunk };
+  return { S, fns, main, doc, added, render, controls, press, change, formChunk };
 }
 
 function effectBodies(text: string): string[] {
@@ -1743,47 +1787,221 @@ test("FR4 single-layout Left and Right inside the add form move controls and kee
   assert.equal(boot.S.segment, "trackers", "ArrowLeft does not switch the single-layout segment");
 });
 
-test("FR4 after a named add ArrowLeft from + Add hits the card before it", async () => {
+test("FR5 addTracker returns the patchProjects promise", () => {
+  const page = pageScriptFrom("src/lib/StarsPage.svelte");
+  const at = page.indexOf("function addTracker(");
+  assert.ok(at >= 0);
+  const body = page.slice(at, page.indexOf("function bumpTracker(", at));
+  assert.match(body, /return patchProjects\(/);
+  assert.equal(body.includes("void patchProjects("), false);
+});
+
+test("FR5 after a named add at 2 columns ArrowUp hits the card above + Add and ArrowLeft leaves to Z1", async () => {
+  // 900×700 is 2 tracker columns. Vfy5 is added on the last planet (Indigo),
+  // so it is appended after Pages and sits in column 1. + Add is then column 0.
+  // The card directly above + Add is Pages, not the new card. Adding on Yellow
+  // would insert Vfy5 above + Add; this fixture does not.
   const boot = bootAddForm();
-  const cards = [{ label: "Walk" }, { label: "Run" }, { label: "Pages" }];
-  boot.S.cards = cards;
-  let release: () => void = () => {};
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
+  boot.S.projects = [
+    {
+      id: "yel",
+      name: "Yellow",
+      trackers: [
+        { id: "t-walk", label: "Walk", value: 0, kind: "number" },
+        { id: "t-run", label: "Run", value: 0, kind: "number" },
+      ],
+    },
+    {
+      id: "ind",
+      name: "Indigo",
+      trackers: [{ id: "t-pages", label: "Pages", value: 0, kind: "number" }],
+    },
+  ];
+  let projectRows = boot.S.projects;
+  Object.defineProperty(boot.S, "projects", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      return projectRows;
+    },
+    set(v) {
+      projectRows = v;
+      boot.render();
+    },
   });
-  boot.S.onAdd = (id: string, name: string, kind: string) => {
-    boot.added.push({ id, name, kind });
-    return gate.then(() => {
-      cards.splice(2, 0, { label: name });
-      queueMicrotask(() => boot.render());
+  boot.S.trackerCols = 2;
+  boot.S.planetId = "ind";
+  boot.S.scope = "overall";
+  boot.S.mountSides = () => {
+    const all = adopt(new DomEl("button"), boot.doc);
+    all.setAttribute("data-focus-zone", "Z1");
+    all.setAttribute("data-focus-item", "");
+    all.setAttribute("aria-label", "All planets");
+    all.text = "All planets";
+    boot.main.append(all);
+  };
+  const seen: string[] = [];
+  let loadWait: () => void = () => {};
+  let saveWait: () => void = () => {};
+  boot.S.invoke = (cmd: string) => {
+    seen.push(cmd);
+    if (cmd === "load_state") {
+      return new Promise((resolve) => {
+        loadWait = () => resolve({ projects: structuredClone(boot.S.projects) });
+      });
+    }
+    return new Promise((resolve) => {
+      saveWait = () => resolve(undefined);
     });
   };
+  boot.S.onAdd = boot.fns.addTracker;
   boot.S.adding = true;
   boot.S.label = "Vfy5";
+  boot.S.kind = "number";
   boot.render();
+  assert.equal(boot.main.querySelector("[data-tracker-cols]")?.getAttribute("data-tracker-cols"), "2");
   const named = boot.controls()[1];
   assert.equal(named.tagName, "INPUT");
   named.focus();
   boot.S.focusPos = { ...focusOrigin("Z4"), index: 3, depth: 1, ctl: 1 };
   await boot.press(named, "Enter");
-  assert.equal(boot.added.length, 1);
-  assert.equal(boot.added[0]?.name, "Vfy5");
-  release();
-  for (let i = 0; i < 16; i += 1) await Promise.resolve();
+  assert.deepEqual(seen, ["load_state"], "commit goes through addTracker → patchProjects");
+  loadWait();
+  for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  assert.deepEqual(seen, ["load_state", "save_state"]);
+  saveWait();
+  for (let i = 0; i < 24; i += 1) await Promise.resolve();
   const items = boot.main.querySelectorAll('[data-focus-zone="Z4"][data-focus-item]');
-  assert.deepEqual(
-    items.map((el) => el.getAttribute("aria-label") || el.text),
-    ["Walk", "Run", "Vfy5", "Pages", "+ Add"],
-  );
+  const labels = items.map((el) => el.getAttribute("aria-label") || el.text);
+  assert.deepEqual(labels, ["Walk", "Run", "Pages", "Vfy5", "+ Add"]);
+  const indigo = (boot.S.projects as { id: string; trackers: { label: string }[] }[]).find((p) => p.id === "ind");
+  assert.deepEqual(indigo?.trackers.map((tr) => tr.label), ["Pages", "Vfy5"]);
   assert.equal(pos(boot.S).depth, 0, "named commit leaves depth 0");
+  assert.equal(pos(boot.S).zone, "Z4");
   assert.equal(pos(boot.S).index, items.length - 1, "+ Add is the last Z4 slot after the new card renders");
+  assert.equal(boot.doc.activeElement, items[items.length - 1]);
+  assert.equal(boot.doc.activeElement.text, "+ Add");
+  assert.notEqual(labels[pos(boot.S).index], "Vfy5");
+  await boot.press(boot.doc.activeElement, "ArrowUp");
+  assert.equal(pos(boot.S).zone, "Z4");
+  assert.equal(pos(boot.S).index, 2, "ArrowUp stays in the same column");
+  assert.equal(boot.doc.activeElement.getAttribute("aria-label"), "Pages", "ArrowUp hits the card directly above + Add");
+  assert.notEqual(boot.doc.activeElement.getAttribute("aria-label"), "Vfy5");
+  await boot.press(boot.doc.activeElement, "ArrowDown");
   assert.equal(boot.doc.activeElement.text, "+ Add");
   await boot.press(boot.doc.activeElement, "ArrowLeft");
-  assert.equal(boot.doc.activeElement.getAttribute("aria-label"), "Pages", "ArrowLeft hits the card immediately before + Add");
+  assert.equal(pos(boot.S).zone, "Z1", "ArrowLeft at column 0 leaves via gridStep / columnMove");
+  assert.equal(boot.doc.activeElement.getAttribute("aria-label"), "All planets");
   assert.notEqual(boot.doc.activeElement.getAttribute("aria-label"), "Vfy5");
-  await boot.press(boot.doc.activeElement, "ArrowRight");
-  assert.equal(boot.doc.activeElement.text, "+ Add");
-  assert.equal(pos(boot.S).index, items.length - 1);
+});
+
+test("FR5 a Z0 view change keeps the ring on the select and the first Esc leaves Z0", async () => {
+  const boot = bootAddForm();
+  const page = src("src/lib/StarsPage.svelte");
+  assert.match(page, /onchange=\{onNavChange\}/);
+  let view = "day";
+  Object.defineProperty(boot.S, "navView", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      return view;
+    },
+    set(v) {
+      view = String(v);
+      boot.render();
+    },
+  });
+  let left = false;
+  boot.S.hideStars = () => {
+    left = true;
+  };
+  const priorInvoke = boot.S.invoke as (cmd: string, ...rest: unknown[]) => unknown;
+  boot.S.invoke = (cmd: string, ...rest: unknown[]) => {
+    if (cmd === "hide_window") left = true;
+    return priorInvoke(cmd, ...rest);
+  };
+  boot.S.mountSides = () => {
+    const specs: { tag: string; label: string; text: string }[] = [
+      { tag: "button", label: "Previous day", text: "‹" },
+      { tag: "button", label: "Choose day", text: "Today" },
+      { tag: "select", label: "STARS view", text: "" },
+      { tag: "button", label: "Prompts", text: "Prompts" },
+    ];
+    for (const spec of specs) {
+      const el = adopt(new DomEl(spec.tag), boot.doc);
+      el.setAttribute("data-focus-zone", "Z0");
+      el.setAttribute("data-focus-item", "");
+      el.setAttribute("aria-label", spec.label);
+      el.text = spec.text;
+      if (spec.tag === "select") {
+        el.options = ["day", "week", "month", "year", "custom"].map((value) => ({ value, text: value }));
+        el.value = String(boot.S.navView);
+        el.selectedIndex = Math.max(0, el.options.findIndex((o) => o.value === el.value));
+        el.setAttribute("onchange", "onNavChange");
+      }
+      boot.main.append(el);
+    }
+  };
+  boot.render();
+  const before = boot.main.querySelector('[aria-label="STARS view"]');
+  assert.ok(before);
+  before.focus();
+  boot.S.focusPos = { ...focusOrigin("Z0"), index: 2, depth: 0, ctl: 0 };
+  boot.fns.applyStarsFocus();
+  before.value = "week";
+  before.selectedIndex = 1;
+  await boot.fns.onNavChange({ target: before });
+  const rings = boot.main.querySelectorAll("[data-stars-focus]");
+  assert.equal(rings.length, 1, "exactly one ring after the view change");
+  assert.equal(rings[0]?.getAttribute("aria-label"), "STARS view");
+  assert.equal(boot.doc.activeElement, rings[0]);
+  assert.equal(pos(boot.S).zone, "Z0");
+  assert.equal(pos(boot.S).index, 2);
+  assert.equal(pos(boot.S).depth, 0);
+  assert.equal(boot.S.navView, "week");
+  await boot.press(rings[0] as DomEl, "Escape");
+  assert.equal(left, true, "the first Esc steps out of Z0 (hide), it does not only restore the ring");
+});
+
+test("FR5 planet and kind selects keep the ring after a value change", async () => {
+  const boot = bootAddForm();
+  const trackers = src("src/lib/stars/StarsTrackers.svelte");
+  assert.match(trackers, /aria-label="Planet for this tracker"[^>]*onchange=\{keepAddFocus\}/);
+  assert.match(trackers, /aria-label="Tracker kind"[^>]*onchange=\{keepAddFocus\}/);
+  boot.S.adding = true;
+  boot.render();
+  const planet = boot.controls()[0];
+  assert.equal(planet.tagName, "SELECT");
+  planet.focus();
+  boot.S.focusPos = { ...focusOrigin("Z4"), index: 0, depth: 1, ctl: 0 };
+  boot.fns.applyStarsFocus();
+  planet.value = "p2";
+  planet.selectedIndex = 1;
+  await boot.change(planet);
+  let rings = boot.main.querySelectorAll("[data-stars-focus]");
+  assert.equal(rings.length, 1);
+  assert.match(rings[0]?.getAttribute("aria-label") ?? "", /Planet/);
+  assert.equal(boot.doc.activeElement, rings[0]);
+  assert.equal(pos(boot.S).zone, "Z4");
+  assert.equal(pos(boot.S).depth, 1);
+  assert.equal(pos(boot.S).ctl, 0);
+  assert.equal(boot.S.planetId, "p2");
+
+  const kind = boot.controls()[2];
+  assert.equal(kind.tagName, "SELECT");
+  kind.focus();
+  boot.S.focusPos = { ...focusOrigin("Z4"), index: 0, depth: 1, ctl: 2 };
+  boot.fns.applyStarsFocus();
+  kind.value = "timer";
+  kind.selectedIndex = 1;
+  await boot.change(kind);
+  rings = boot.main.querySelectorAll("[data-stars-focus]");
+  assert.equal(rings.length, 1);
+  assert.match(rings[0]?.getAttribute("aria-label") ?? "", /kind/);
+  assert.equal(boot.doc.activeElement, rings[0]);
+  assert.equal(pos(boot.S).ctl, 2);
+  assert.equal(pos(boot.S).depth, 1);
+  assert.equal(boot.S.kind, "timer");
 });
 
 test("FR4 StarsTrackers mount passes onAddFocus and onRegister and Esc uses the registered close", async () => {

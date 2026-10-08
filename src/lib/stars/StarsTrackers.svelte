@@ -20,6 +20,7 @@
     onScope,
     onTyping,
     onAddFocus,
+    onKeepFocus,
     onRegister,
     showPlanetMenu = false,
   }: {
@@ -35,6 +36,7 @@
     onScope?: (id: string) => void;
     onTyping?: (open: boolean) => void;
     onAddFocus?: (where: "add" | "commit") => void | Promise<void>;
+    onKeepFocus?: () => void | Promise<void>;
     onRegister?: (api: { close: () => void } | null) => void;
     showPlanetMenu?: boolean;
   } = $props();
@@ -121,6 +123,10 @@
     await pending;
     await tick();
     onAddFocus?.("add");
+  }
+
+  function keepAddFocus() {
+    return onKeepFocus?.();
   }
 
   function onAddFormKey(e: KeyboardEvent) {
@@ -214,7 +220,7 @@
     {#if adding}
       <div class="add card" data-add-form data-focus-zone="Z4" data-focus-item>
         <PlanetChip id={planetId || projects[0]?.id || "overall"} size={10} />
-        <select bind:value={planetId} aria-label="Planet for this tracker" data-focus-zone="Z4" data-focus-ctl>
+        <select bind:value={planetId} aria-label="Planet for this tracker" data-focus-zone="Z4" data-focus-ctl onchange={keepAddFocus}>
           {#each projects as p (p.id)}
             <option value={p.id}>{p.name}</option>
           {/each}
@@ -228,7 +234,7 @@
           data-focus-ctl
           onkeydown={onAddFormKey}
         />
-        <select bind:value={kind} aria-label="Tracker kind" data-focus-zone="Z4" data-focus-ctl>
+        <select bind:value={kind} aria-label="Tracker kind" data-focus-zone="Z4" data-focus-ctl onchange={keepAddFocus}>
           <option value="number">Number</option>
           <option value="timer">Timer</option>
         </select>

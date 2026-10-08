@@ -345,9 +345,15 @@
     }
   }
 
-  function onNavChange(e: Event) {
+  async function onNavChange(e: Event) {
     const v = (e.target as HTMLSelectElement).value as StarsNav;
     navView = v;
+    // The view swap re-renders the title row and drops the imperative ring.
+    // After that paint, put it back on the STARS view select (Z0 index 2, depth 0)
+    // so the first Esc steps out of Z0 instead of only restoring the ring.
+    await tick();
+    focusPos = { ...focusPos, zone: "Z0", index: 2, depth: 0, ctl: 0 };
+    applyStarsFocus();
     if (v === "day") return;
     if (v === "custom") {
       const from = avgFrom || shiftDay(cursorDay, -29);
@@ -900,6 +906,11 @@
     applyStarsFocus();
   }
 
+  async function keepStarsFocus() {
+    await tick();
+    applyStarsFocus();
+  }
+
   async function onAddFocus(where: "add" | "commit") {
     await tick();
     if (where === "commit") {
@@ -1201,6 +1212,7 @@
             onStop={stopTimer}
             onTyping={onTrackerTyping}
             onAddFocus={onAddFocus}
+            onKeepFocus={keepStarsFocus}
             onRegister={onRegisterAdd}
           />
         {/if}
