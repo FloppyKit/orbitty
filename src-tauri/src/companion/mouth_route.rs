@@ -1869,13 +1869,13 @@ mod tests {
 
     #[test]
     fn route_run_is_one_door_on_three_surfaces() {
-        let control = include_str!("control.rs");
+        let control = include_str!("../control.rs");
         assert!(control.contains("mouth_route::run_outcome"));
         assert!(control.contains("pendingId"));
-        let ctl = include_str!("bin/orbittyctl.rs");
+        let ctl = include_str!("../bin/orbittyctl.rs");
         assert!(ctl.contains("[\"route\", \"run\"]"));
         assert!(ctl.contains("pendingId"));
-        let mcp = include_str!("bin/orbitty_mcp.rs");
+        let mcp = include_str!("../bin/orbitty_mcp.rs");
         assert!(mcp.contains("name: \"route.run\""));
         assert!(mcp.contains("name: \"route.table\""));
         assert!(mcp.contains("pendingId"));
@@ -1883,7 +1883,7 @@ mod tests {
 
     #[test]
     fn write_lane_still_reaches_the_route() {
-        let src = include_str!("coordinator.rs");
+        let src = include_str!("../coordinator.rs");
         let start = src.find("Board add / agent spawn").expect("comment");
         let slice = &src[start..start + 400];
         assert!(slice.contains("mouth_route::run"));
@@ -2282,7 +2282,7 @@ mod tests {
         assert!(matches!(d, Decision::Miss));
 
         // Wiring: each surface names its origin; the socket passes pendingId.
-        let control = include_str!("control.rs");
+        let control = include_str!("../control.rs");
         let send = &control[control.find("\"companion.send\" =>").unwrap()..];
         let send = &send[..send.find("\"companion.agents\"").unwrap()];
         assert!(
@@ -2296,7 +2296,7 @@ mod tests {
         assert!(run.contains("Origin::Socket"), "{run}");
         assert!(run.contains("arg_opt(args, \"pendingId\")"), "{run}");
         assert!(run.contains("confirm.as_deref(),"), "{run}");
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         let cmd = fn_body(coord, "pub async fn companion_send(");
         assert!(cmd.contains("Origin::Chat"), "{cmd}");
         assert!(coord.contains("mouth_route::run(&app, &line, origin)"));

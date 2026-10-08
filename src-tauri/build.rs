@@ -1,12 +1,12 @@
 fn main() {
     #[cfg(target_os = "macos")]
     {
-        println!("cargo:rerun-if-changed=src/talk_mac.m");
+        println!("cargo:rerun-if-changed=src/companion/talk_mac.m");
         println!("cargo:rerun-if-changed=src/objc_try.m");
         println!("cargo:rerun-if-changed=src/attach_mac.m");
         println!("cargo:rerun-if-changed=src/windows/window_thumb_mac.m");
         cc::Build::new()
-            .file("src/talk_mac.m")
+            .file("src/companion/talk_mac.m")
             .flag("-fobjc-arc")
             .compile("orbitty_talk_mac");
         cc::Build::new()

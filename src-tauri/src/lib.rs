@@ -15,16 +15,27 @@ pub(crate) use board::needed_rules;
 pub(crate) use board::nextcard;
 pub(crate) use board::task;
 pub(crate) use board::todo_trees;
-mod chars;
 mod companion;
-mod companion_backend;
+pub(crate) use companion::chars;
+pub(crate) use companion::companion_backend;
+pub(crate) use companion::companion_clear;
+pub(crate) use companion::companion_desk;
+#[cfg(unix)]
+pub(crate) use companion::companion_go;
+#[cfg(unix)]
+pub(crate) use companion::companion_todo;
+pub(crate) use companion::mouth_ack;
+pub(crate) use companion::mouth_blip;
+pub(crate) use companion::mouth_board;
+pub(crate) use companion::mouth_gist;
+pub(crate) use companion::mouth_hop;
+pub(crate) use companion::mouth_roll;
+pub(crate) use companion::mouth_route;
+pub(crate) use companion::mouth_scan;
+pub(crate) use companion::mouth_sidecar;
+pub(crate) use companion::mouth_tools;
+pub(crate) use companion::talk;
 mod direct_lane;
-mod companion_clear;
-mod companion_desk;
-#[cfg(unix)]
-mod companion_todo;
-#[cfg(unix)]
-mod companion_go;
 #[cfg(unix)]
 mod control;
 mod coordinator;
@@ -42,16 +53,6 @@ mod event_relay;
 #[cfg(unix)]
 mod gate_caps;
 mod interrupt_gate;
-mod mouth_ack;
-mod mouth_blip;
-mod mouth_gist;
-mod mouth_hop;
-mod mouth_scan;
-mod mouth_sidecar;
-mod mouth_tools;
-mod mouth_board;
-mod mouth_route;
-mod mouth_roll;
 mod plans;
 mod habitat;
 mod herdr;
@@ -63,7 +64,6 @@ mod shift;
 mod shift_continue;
 mod state;
 mod starter;
-mod talk;
 mod windows;
 pub(crate) use windows::claim_front;
 pub(crate) use windows::drawers;

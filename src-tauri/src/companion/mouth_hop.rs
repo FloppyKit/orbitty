@@ -1679,7 +1679,7 @@ mod tests {
     // B2: every reply door strips before the reply is saved or returned.
     #[test]
     fn every_reply_door_strips_before_saving() {
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         let send = body_of(coord, "async fn companion_send_inner(");
         let m = send.find("let reply = match backend.as_str() {").expect("backend match");
         let strip = send
@@ -1716,7 +1716,7 @@ mod tests {
     // N-A: every intercept door returns the stripped string it saved.
     #[test]
     fn intercept_doors_return_the_stripped_row() {
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         let send = body_of(coord, "async fn companion_send_inner(");
         let calls = send.matches("persist_action_intercept(").count();
         let returned = send.matches("return Ok(persist_action_intercept(").count();
@@ -1786,7 +1786,7 @@ mod tests {
         let take = button.find("let offer = take_handoff(&id)?;").expect("take");
         assert!(take < button.find("dispatch_handoff(").unwrap());
         // The frontend sends the id only.
-        let pane = include_str!("../../src/lib/CaptionPane.svelte");
+        let pane = include_str!("../../../src/lib/CaptionPane.svelte");
         assert!(pane.contains("invoke<string>(\"companion_handoff\", { id: offer.id })"));
         assert!(!pane.contains("path: offer.path"));
         // N-E: no button on the you-row.
@@ -1821,7 +1821,7 @@ mod tests {
         assert!(act.is_none());
         assert!(split_handoff(&with_handoff_action("t", "no-vision", "")).1.is_none());
         assert!(split_handoff(&with_handoff_action("t", "no-vision", "/etc/passwd")).1.is_none());
-        let pane = include_str!("../../src/lib/CaptionPane.svelte");
+        let pane = include_str!("../../../src/lib/CaptionPane.svelte");
         assert!(pane.contains("const HANDOFF_ID = /^[0-9a-f]{32}$/;"));
         assert!(pane.contains("!v.reason ||"));
         assert!(pane.contains("!HANDOFF_ID.test(v.id)"));

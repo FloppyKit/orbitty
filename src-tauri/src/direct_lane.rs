@@ -857,7 +857,7 @@ mod tests {
         assert!(!ctl.contains("set_direct_key"));
         assert!(!mcp.contains("set_direct_key"));
         assert!(!control.contains("companion.set_direct_key"));
-        let hop = include_str!("mouth_hop.rs");
+        let hop = include_str!("companion/mouth_hop.rs");
         let run = body_of(hop, "pub(crate) fn run_free_lanes(");
         assert!(run.contains("honest_down_line(!direct && skip_grok, &notes)"));
         assert!(run.contains("\"direct\": true"));
@@ -965,7 +965,7 @@ mod tests {
     /// try_compat=false. Only direct_lane::send may try compat.
     #[test]
     fn grok_send_with_hops_never_tries_compat() {
-        let hop = include_str!("mouth_hop.rs");
+        let hop = include_str!("companion/mouth_hop.rs");
         let sig = body_of(hop, "pub(crate) fn run_free_lanes(");
         let params: Vec<&str> = sig
             .lines()

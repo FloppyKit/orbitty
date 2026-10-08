@@ -328,13 +328,13 @@ mod tests {
 
     #[test]
     fn control_ctl_mcp_list_the_two_verbs() {
-        let control = include_str!("control.rs");
+        let control = include_str!("../control.rs");
         assert!(control.contains("\"companion.harnesses\" =>"));
         assert!(control.contains("\"companion.set_backend\" =>"));
-        let ctl = include_str!("bin/orbittyctl.rs");
+        let ctl = include_str!("../bin/orbittyctl.rs");
         assert!(ctl.contains("[\"companion\", \"harnesses\"]"));
         assert!(ctl.contains("[\"companion\", \"set-backend\"]"));
-        let mcp = include_str!("bin/orbitty_mcp.rs");
+        let mcp = include_str!("../bin/orbitty_mcp.rs");
         assert!(mcp.contains("name: \"companion.harnesses\""));
         assert!(mcp.contains("name: \"companion.set_backend\""));
     }
@@ -349,7 +349,7 @@ mod tests {
             1
         );
         assert_eq!(prod.matches("Unknown ORBITTY_COMPANION_BACKEND").count(), 1);
-        let coord = include_str!("coordinator.rs");
+        let coord = include_str!("../coordinator.rs");
         assert_eq!(
             coord
                 .matches("std::env::var(\"ORBITTY_COMPANION_BACKEND\")")
