@@ -4,7 +4,7 @@ fn main() {
         println!("cargo:rerun-if-changed=src/talk_mac.m");
         println!("cargo:rerun-if-changed=src/objc_try.m");
         println!("cargo:rerun-if-changed=src/attach_mac.m");
-        println!("cargo:rerun-if-changed=src/window_thumb_mac.m");
+        println!("cargo:rerun-if-changed=src/windows/window_thumb_mac.m");
         cc::Build::new()
             .file("src/talk_mac.m")
             .flag("-fobjc-arc")
@@ -19,7 +19,7 @@ fn main() {
             .flag("-fobjc-arc")
             .compile("orbitty_attach_mac");
         cc::Build::new()
-            .file("src/window_thumb_mac.m")
+            .file("src/windows/window_thumb_mac.m")
             .flag("-fobjc-arc")
             .compile("orbitty_window_thumb");
         println!("cargo:rustc-link-arg=-Wl,-weak_framework,ScreenCaptureKit");

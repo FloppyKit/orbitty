@@ -1126,7 +1126,7 @@ mod board_focus_wiring_pins {
     /// between them.
     #[test]
     fn mouse_up_remembers_pid_then_emits_same_pid() {
-        let src = strip_comments(include_str!("habitat_mac/mouse_up.rs"));
+        let src = strip_comments(include_str!("../habitat_mac/mouse_up.rs"));
         let needle = "remember_board_focus(&pid)";
         let at = src
             .find(needle)
@@ -1146,7 +1146,7 @@ mod board_focus_wiring_pins {
     /// R6: the command is on the invoke-handler list.
     #[test]
     fn lib_registers_take_board_focus() {
-        let src = strip_comments(include_str!("lib.rs"));
+        let src = strip_comments(include_str!("../lib.rs"));
         let start = src.find("generate_handler!").expect("generate_handler");
         let list = &src[start..];
         let end = list.find(']').expect("handler list");

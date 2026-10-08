@@ -25,7 +25,7 @@ src-tauri/src/card_links.rs	        assert_eq!(normalize_link("FILE://Users/dude
 src-tauri/src/card_links.rs	        assert_eq!(normalize_link("/Users/dude/x.md").unwrap(), "file:///Users/dude/x.md");	# link normalization docs/tests (back-compat; not rewritten)
 src-tauri/src/card_links.rs	        let once = normalize_link("file://Users/dude/Orbitty GOs/x.md").unwrap();	# link normalization docs/tests (back-compat; not rewritten)
 src-tauri/src/card_links.rs	        assert!(normalize_link("file://Users/dude/../../etc/passwd").is_err());	# link normalization docs/tests (back-compat; not rewritten)
-src-tauri/src/windows_mac.rs	/// `file:///Users/…` (or `file://localhost/…`) → percent-decoded path that	# comment about file URLs
+src-tauri/src/windows/windows_mac.rs	/// `file:///Users/…` (or `file://localhost/…`) → percent-decoded path that	# comment about file URLs
 src/lib/NeededRuleRow.svelte	  // rule while answering a Needed. Lock: ~/.buzz/PLANS/ORBITTY_NEEDED_RULES_LOCK_v0.md	# comment naming a lock doc under ~/.buzz/PLANS
 src/lib/mdLite.ts	// file://, https://, and bare /Users/… paths become <a data-link> spans	# comment about file URLs
 src/lib/mdLite.ts	// Already-escaped text. Only file:///…, https://…, and bare /Users/….	# comment about file URLs

@@ -12,7 +12,6 @@ mod agents;
 #[cfg(unix)]
 mod board;
 mod card_links;
-mod claim_front;
 mod chars;
 mod companion;
 mod companion_backend;
@@ -30,7 +29,6 @@ mod thin;
 #[cfg(unix)]
 mod doing_fire;
 mod verify_close;
-mod drawers;
 mod rail_edge;
 mod rail_stage;
 mod event_keys;
@@ -39,8 +37,6 @@ mod event_relay;
 #[cfg(unix)]
 mod gate_caps;
 mod interrupt_gate;
-mod glass;
-mod window_chrome;
 mod mouth_ack;
 mod mouth_blip;
 mod mouth_gist;
@@ -53,7 +49,6 @@ mod mouth_route;
 mod mouth_roll;
 mod needed_rules;
 mod nextcard;
-mod panes;
 mod plans;
 mod habitat;
 mod herdr;
@@ -69,9 +64,14 @@ mod shift_continue;
 mod state;
 mod starter;
 mod talk;
-mod tilechords;
 mod windows;
-mod window_thumb;
+pub(crate) use windows::claim_front;
+pub(crate) use windows::drawers;
+pub(crate) use windows::glass;
+pub(crate) use windows::panes;
+pub(crate) use windows::tilechords;
+pub(crate) use windows::window_chrome;
+pub(crate) use windows::window_thumb;
 mod yard;
 
 use tauri::{
