@@ -47,9 +47,10 @@ mod rail;
 pub(crate) use rail::rail_edge;
 pub(crate) use rail::rail_stage;
 pub(crate) use rail::rail_toggle;
-mod event_keys;
-mod event_log;
-mod event_relay;
+mod relay;
+pub(crate) use relay::event_keys;
+pub(crate) use relay::event_log;
+pub(crate) use relay::event_relay;
 #[cfg(unix)]
 mod gate_caps;
 mod interrupt_gate;
