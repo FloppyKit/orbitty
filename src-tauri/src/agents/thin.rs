@@ -932,7 +932,22 @@ not json companion-send\n";
     #[test]
     fn gate_and_seed_share_the_dev_thin_cfg() {
         assert_eq!(THIN_ENABLED, cfg!(any(debug_assertions, feature = "dev-thin")));
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let actions = include_str!("actions.rs");
         let thin = fn_body(coord, "pub fn companion_thin(");
         assert!(thin.contains("release_gate(crate::thin::THIN_ENABLED)"), "{thin}");
@@ -1006,7 +1021,22 @@ not json companion-send\n";
         assert_eq!(nods.get(), 2);
 
         // companion_thin wires the real gate, the real stamp, and one nod.
-        let body = fn_body(include_str!("../coordinator.rs"), "pub fn companion_thin(");
+        let body = fn_body(concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+), "pub fn companion_thin(");
         assert!(body.contains("crate::thin::thin_flow("), "{body}");
         assert!(body.contains("|| crate::thin::stamp(&app)"), "{body}");
         assert_eq!(body.matches("companion_play(").count(), 1, "{body}");

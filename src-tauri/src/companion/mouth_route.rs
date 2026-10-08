@@ -1883,7 +1883,22 @@ mod tests {
 
     #[test]
     fn write_lane_still_reaches_the_route() {
-        let src = include_str!("../coordinator.rs");
+        let src = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let start = src.find("Board add / agent spawn").expect("comment");
         let slice = &src[start..start + 400];
         assert!(slice.contains("mouth_route::run"));
@@ -2296,7 +2311,22 @@ mod tests {
         assert!(run.contains("Origin::Socket"), "{run}");
         assert!(run.contains("arg_opt(args, \"pendingId\")"), "{run}");
         assert!(run.contains("confirm.as_deref(),"), "{run}");
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let cmd = fn_body(coord, "pub async fn companion_send(");
         assert!(cmd.contains("Origin::Chat"), "{cmd}");
         assert!(coord.contains("mouth_route::run(&app, &line, origin)"));

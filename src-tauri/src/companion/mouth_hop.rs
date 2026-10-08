@@ -1679,7 +1679,22 @@ mod tests {
     // B2: every reply door strips before the reply is saved or returned.
     #[test]
     fn every_reply_door_strips_before_saving() {
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let send = body_of(coord, "async fn companion_send_inner(");
         let m = send.find("let reply = match backend.as_str() {").expect("backend match");
         let strip = send
@@ -1716,7 +1731,22 @@ mod tests {
     // N-A: every intercept door returns the stripped string it saved.
     #[test]
     fn intercept_doors_return_the_stripped_row() {
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let send = body_of(coord, "async fn companion_send_inner(");
         let calls = send.matches("persist_action_intercept(").count();
         let returned = send.matches("return Ok(persist_action_intercept(").count();

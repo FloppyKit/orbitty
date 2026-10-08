@@ -685,7 +685,22 @@ mod tests {
         }
         // The send arm, inside companion_send_inner (the agent-roster arms
         // also name "direct" now, alongside grok).
-        let coord = body_of(include_str!("../coordinator.rs"), "async fn companion_send_inner(");
+        let coord = body_of(concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+), "async fn companion_send_inner(");
         let at = coord.find("\"direct\" =>").expect("direct arm");
         let arm = &coord[at..];
         let arm = &arm[..arm.find("\"hermes\" =>").expect("hermes arm follows")];
@@ -698,7 +713,22 @@ mod tests {
 
     #[test]
     fn mouth_route_runs_before_no_harness_and_before_pin() {
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let at = coord.find("async fn companion_send_inner(").unwrap();
         let rest = &coord[at..];
         let send = &rest[..rest.find("\n}\n").unwrap()];
@@ -815,7 +845,22 @@ mod tests {
     fn compat_vision_is_text_only() {
         assert_eq!(direct_vision("compat", "local", true), ("compat".into(), false));
         assert_eq!(direct_vision("local", "local", true), ("local".into(), true));
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let at = coord.find("async fn companion_send_inner(").unwrap();
         let rest = &coord[at..];
         let send = &rest[..rest.find("\n}\n").unwrap()];
@@ -885,7 +930,22 @@ mod tests {
 
     #[test]
     fn direct_takes_the_grok_agent_arm_and_unknown_still_errors() {
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         for sig in [
             "pub fn companion_agents(app: tauri::AppHandle)",
             "pub fn set_companion_agent(app: tauri::AppHandle, profile: String)",
@@ -908,7 +968,22 @@ mod tests {
     /// "what's on the board" still answers (bare `board` is not a local verb).
     #[test]
     fn local_verbs_are_not_gated_on_a_picked_harness() {
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let send = body_of(coord, "async fn companion_send_inner(");
         let route = send.find("crate::mouth_route::run(").expect("mouth_route::run");
         let before = &send[..route];
@@ -988,7 +1063,22 @@ mod tests {
 
     #[test]
     fn route_log_names_the_route_only() {
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let body = body_of(coord, "fn log_companion_route(");
         assert!(body.contains("\"companion-route\""));
         assert!(body.contains("\"route\": route"));

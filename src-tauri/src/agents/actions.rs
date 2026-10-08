@@ -598,7 +598,22 @@ mod tests {
     #[test]
     fn every_action_door_calls_dispatch_action() {
         use crate::thin::tests::fn_body;
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let actions = include_str!("actions.rs");
 
         let cheat = fn_body(coord, "pub fn run_action(\n");
@@ -649,7 +664,22 @@ mod tests {
     }
 
     fn fn_body_of_companion_thin() -> &'static str {
-        crate::thin::tests::fn_body(include_str!("../coordinator.rs"), "pub fn companion_thin(")
+        crate::thin::tests::fn_body(concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+), "pub fn companion_thin(")
     }
 
     #[test]

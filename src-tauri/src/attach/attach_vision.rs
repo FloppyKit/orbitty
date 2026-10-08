@@ -299,7 +299,22 @@ mod tests {
     // backend is called; the non-grok lane stays (backend, false).
     #[test]
     fn send_path_uses_the_narrow_gate_before_the_backend() {
-        let coord = include_str!("../coordinator.rs");
+        let coord = concat!(
+include_str!("../coordinator/hermes.rs"),
+include_str!("../coordinator/allowlist.rs"),
+include_str!("../coordinator/plug.rs"),
+include_str!("../coordinator/mouth_cli.rs"),
+include_str!("../coordinator/commands.rs"),
+include_str!("../coordinator/intercept.rs"),
+include_str!("../coordinator/send.rs"),
+include_str!("../coordinator/soul_wake.rs"),
+include_str!("../coordinator/action.rs"),
+include_str!("../coordinator/paths.rs"),
+include_str!("../coordinator/cursor_perm.rs"),
+include_str!("../coordinator/launch_agent.rs"),
+include_str!("../coordinator/mac.rs"),
+include_str!("../coordinator/launch_tests.rs")
+);
         let at = coord.find("async fn companion_send_inner(").unwrap();
         let rest = &coord[at..];
         let send = &rest[..rest.find("\n}\n").unwrap()];
