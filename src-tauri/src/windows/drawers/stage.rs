@@ -127,6 +127,9 @@ pub(crate) fn rail_stage_perform(
     // Listen-only diag. No-op unless RAIL_MOUSE_DIAG=1.
     #[cfg(target_os = "macos")]
     crate::windows::rail_mouse_diag::sync_revealed(revealed);
+    // Local Cmd+key Back/Forward. Installed while revealed, removed on park.
+    #[cfg(target_os = "macos")]
+    crate::windows::sync_rail_mouse_keys(revealed);
 }
 
 #[derive(Clone, Copy)]

@@ -53,6 +53,6 @@ mod platform;
 
 pub use platform::{
     accessibility_status, close_window, deminiaturize_window, focus_window, frontmost_claimable,
-    install_frontmost_tracker, install_rail_mouse_buttons, list_windows, locate_window, minimize_window, open_accessibility_settings, prompt_accessibility,
+    install_frontmost_tracker, install_rail_mouse_buttons, list_windows, locate_window, minimize_window, open_accessibility_settings, prompt_accessibility, sync_rail_mouse_keys,
     restore_window,
 };

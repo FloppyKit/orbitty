@@ -84,6 +84,7 @@ type Scope_takeMouseButton = {
   inputIntent: (...args: any[]) => InputIntent;
   onRailEscape: (...args: any[]) => boolean;
   confirmActive: () => boolean;
+  textFieldFocused: () => boolean;
 };
 
 type Scope_onStagePointerDown = {
@@ -358,7 +359,7 @@ export function takeMouseButton(scope: Scope_takeMouseButton, button: number): b
   scope.mouseButtonAt = now;
   const intent = scope.inputIntent({ kind: "pointer", button });
   if (intent === "out") scope.onRailEscape();
-  else if (intent === "in") scope.confirmActive();
+  else if (intent === "in" && !scope.textFieldFocused()) scope.confirmActive();
   return true;
 }
 

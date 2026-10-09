@@ -1240,7 +1240,10 @@ pub fn run() {
                 #[cfg(unix)]
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
                     #[cfg(target_os = "macos")]
-                    windows::rail_mouse_diag::on_app_drop();
+                    {
+                        windows::rail_mouse_diag::on_app_drop();
+                        windows::sync_rail_mouse_keys(false);
+                    }
                     // Kill the meow + tear the
                     // overlay on quit (boombox-kill law — no orphan audio).
                     let _ = yard::stop();

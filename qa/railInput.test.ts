@@ -510,6 +510,20 @@ test("mouse buttonNumber 3 and 4 map to DOM 3 and 4 and Forward confirms", () =>
   assert.match(page, /listen<number>\("rail:mouse-button"/);
 });
 
+test("Forward skips confirm when a text field is focused", () => {
+  const pointer = readFileSync(new URL("../src/lib/rail/pagePointer.svelte.ts", import.meta.url), "utf8");
+  const at = pointer.indexOf("export function takeMouseButton");
+  assert.ok(at > 0);
+  const body = pointer.slice(at, pointer.indexOf("export function onStagePointerDown", at));
+  assert.match(body, /intent === "out"\) scope\.onRailEscape\(\)/);
+  assert.match(body, /intent === "in" && !scope\.textFieldFocused\(\)\) scope\.confirmActive\(\)/);
+  const pageSrc = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+  assert.match(pageSrc, /function textFieldFocused\(\)/);
+  assert.match(pageSrc, /closest\("input, textarea, select"\)/);
+  const mouse = fnBody(pageSrc, "takeMouseButton", "onStagePointerDown");
+  assert.match(mouse, /textFieldFocused/);
+});
+
 test("B5 depth-out keeps the came-from planet and does not open beside", () => {
   const items = spinItems(["came-from"], "__unmapped__");
   const at = spinCenterFor(items, depthOutStop("came-from"), 0);

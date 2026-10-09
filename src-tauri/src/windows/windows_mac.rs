@@ -16,7 +16,7 @@ use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter};
 
@@ -987,13 +987,12 @@ extern "C" fn rail_mouse_invoke(_block: *const RailMouseBlock, event: *mut Objec
         if event.is_null() {
             return;
         }
-        let button: isize = msg_send![event, buttonNumber];
-        if button != 3 && button != 4 {
+        let ty: u64 = msg_send![event, type];
+        if !rail_mouse_other_mouse_up(ty) {
             return;
         }
-        let pressed: u64 = msg_send![class!(NSEvent), pressedMouseButtons];
-        let down = pressed & (1u64 << (button as u32)) != 0;
-        if down {
+        let button: isize = msg_send![event, buttonNumber];
+        if button != 3 && button != 4 {
             return;
         }
         let Some(app) = RAIL_MOUSE_APP.get() else {
@@ -1018,5 +1017,279 @@ pub fn install_rail_mouse_buttons(app: AppHandle) {
         if !monitor.is_null() {
             let _: *mut Object = msg_send![monitor, retain];
         }
+    }
+}
+
+/// Mouse Assistant chords from the 2026-10-09 capture.
+/// Back = keyCode 30, Forward = keyCode 42. DOGFOOD: swap these two
+/// constants if Matt's presses come out backwards.
+const RAIL_MOUSE_KEY_BACK: u16 = 30;
+const RAIL_MOUSE_KEY_FORWARD: u16 = 42;
+const RAIL_MOUSE_DEDUPE_MS: u64 = 50;
+const RAIL_MOUSE_MOD_SHIFT: u64 = 1 << 17;
+const RAIL_MOUSE_MOD_CTRL: u64 = 1 << 18;
+const RAIL_MOUSE_MOD_OPT: u64 = 1 << 19;
+const RAIL_MOUSE_MOD_CMD: u64 = 1 << 20;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RailMouseKeyAction {
+    None,
+    Back,
+    Forward,
+}
+
+/// Cmd+keyDown while the stage is revealed. keyUp, repeats, a hidden
+/// stage, and shift/opt/ctrl all map to none. cmd is required.
+fn rail_mouse_key_action(
+    event_type: u64,
+    key_code: u16,
+    cmd: bool,
+    shift: bool,
+    opt: bool,
+    ctrl: bool,
+    stage_revealed: bool,
+    is_repeat: bool,
+) -> RailMouseKeyAction {
+    if event_type != 10 || !stage_revealed || is_repeat || !cmd || shift || opt || ctrl {
+        return RailMouseKeyAction::None;
+    }
+    if key_code == RAIL_MOUSE_KEY_BACK {
+        return RailMouseKeyAction::Back;
+    }
+    if key_code == RAIL_MOUSE_KEY_FORWARD {
+        return RailMouseKeyAction::Forward;
+    }
+    RailMouseKeyAction::None
+}
+
+fn rail_mouse_dom_button(action: RailMouseKeyAction) -> Option<i32> {
+    match action {
+        RailMouseKeyAction::Back => Some(3),
+        RailMouseKeyAction::Forward => Some(4),
+        RailMouseKeyAction::None => None,
+    }
+}
+
+/// True when this keyDown is a new physical press. `last_ms` is None
+/// until the first accepted press. A second keyDown inside `window_ms`
+/// is dropped. The window is the same 50 ms as `mouseButtonAt`.
+fn rail_mouse_dedupe_open(now_ms: u64, last_ms: Option<u64>, window_ms: u64) -> bool {
+    match last_ms {
+        None => true,
+        Some(last) => now_ms.saturating_sub(last) >= window_ms,
+    }
+}
+
+/// N1. Other-mouse up is event type 26. Not the live button bits.
+fn rail_mouse_other_mouse_up(event_type: u64) -> bool {
+    event_type == 26
+}
+
+static RAIL_MOUSE_KEYS_LIVE: AtomicBool = AtomicBool::new(false);
+static RAIL_MOUSE_KEY_MON: AtomicPtr<Object> = AtomicPtr::new(std::ptr::null_mut());
+static RAIL_MOUSE_KEY_LAST: AtomicU64 = AtomicU64::new(0);
+static RAIL_MOUSE_KEY_ARMED: AtomicBool = AtomicBool::new(false);
+
+fn rail_mouse_on_main() -> bool {
+    unsafe {
+        let on: bool = msg_send![class!(NSThread), isMainThread];
+        on
+    }
+}
+
+fn rail_mouse_now_ms() -> u64 {
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    let start = START.get_or_init(std::time::Instant::now);
+    u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+fn rail_mouse_key_accept(now_ms: u64) -> bool {
+    let last = if RAIL_MOUSE_KEY_ARMED.load(Ordering::Relaxed) {
+        Some(RAIL_MOUSE_KEY_LAST.load(Ordering::Relaxed))
+    } else {
+        None
+    };
+    if !rail_mouse_dedupe_open(now_ms, last, RAIL_MOUSE_DEDUPE_MS) {
+        return false;
+    }
+    RAIL_MOUSE_KEY_LAST.store(now_ms, Ordering::Relaxed);
+    RAIL_MOUSE_KEY_ARMED.store(true, Ordering::Relaxed);
+    true
+}
+
+fn rail_mouse_key_block() -> *const RailMouseBlock {
+    static BLOCK: OnceLock<usize> = OnceLock::new();
+    *BLOCK.get_or_init(|| {
+        Box::into_raw(Box::new(RailMouseBlock {
+            isa: unsafe { &RAIL_MOUSE_GLOBAL_BLOCK as *const c_void },
+            flags: RAIL_MOUSE_BLOCK_GLOBAL,
+            reserved: 0,
+            invoke: rail_mouse_key_invoke,
+            descriptor: &RAIL_MOUSE_BLOCK_DESCRIPTOR,
+        })) as usize
+    }) as *const RailMouseBlock
+}
+
+extern "C" fn rail_mouse_key_invoke(_block: *const RailMouseBlock, event: *mut Object) -> *mut Object {
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+        if event.is_null() {
+            return;
+        }
+        let ty: u64 = msg_send![event, type];
+        let key: u16 = msg_send![event, keyCode];
+        let flags: u64 = msg_send![event, modifierFlags];
+        let repeat: bool = msg_send![event, isARepeat];
+        let action = rail_mouse_key_action(
+            ty,
+            key,
+            flags & RAIL_MOUSE_MOD_CMD != 0,
+            flags & RAIL_MOUSE_MOD_SHIFT != 0,
+            flags & RAIL_MOUSE_MOD_OPT != 0,
+            flags & RAIL_MOUSE_MOD_CTRL != 0,
+            RAIL_MOUSE_KEYS_LIVE.load(Ordering::Relaxed),
+            repeat,
+        );
+        let Some(button) = rail_mouse_dom_button(action) else {
+            return;
+        };
+        if !rail_mouse_key_accept(rail_mouse_now_ms()) {
+            return;
+        }
+        let Some(app) = RAIL_MOUSE_APP.get() else {
+            return;
+        };
+        let _ = app.emit("rail:mouse-button", button);
+    }));
+    // Not consumed. The menu ring ignores meta chords, and no menu
+    // key equivalent binds Cmd+] or Cmd+\. A hidden stage has no monitor.
+    event
+}
+
+/// Local key monitor. On while the stage is revealed, off on park and on
+/// app drop. Matt, 12:57 CT: Back/Forward only while Orbitty is active.
+pub fn sync_rail_mouse_keys(revealed: bool) {
+    if !rail_mouse_on_main() {
+        return;
+    }
+    if revealed {
+        RAIL_MOUSE_KEYS_LIVE.store(true, Ordering::Relaxed);
+        if !RAIL_MOUSE_KEY_MON.load(Ordering::Relaxed).is_null() {
+            return;
+        }
+        let monitor: *mut Object = unsafe {
+            msg_send![class!(NSEvent),
+                addLocalMonitorForEventsMatchingMask: (1u64 << 10)
+                handler: rail_mouse_key_block()]
+        };
+        if monitor.is_null() {
+            return;
+        }
+        unsafe {
+            let _: *mut Object = msg_send![monitor, retain];
+        }
+        RAIL_MOUSE_KEY_MON.store(monitor, Ordering::Relaxed);
+        return;
+    }
+    RAIL_MOUSE_KEYS_LIVE.store(false, Ordering::Relaxed);
+    let monitor = RAIL_MOUSE_KEY_MON.swap(std::ptr::null_mut(), Ordering::Relaxed);
+    if monitor.is_null() {
+        return;
+    }
+    unsafe {
+        let _: () = msg_send![class!(NSEvent), removeMonitor: monitor];
+        let _: () = msg_send![monitor, release];
+    }
+}
+
+#[cfg(test)]
+mod rail_mouse_key_tests {
+    use super::*;
+
+    fn act(
+        event_type: u64,
+        key_code: u16,
+        cmd: bool,
+        shift: bool,
+        opt: bool,
+        ctrl: bool,
+        revealed: bool,
+        is_repeat: bool,
+    ) -> RailMouseKeyAction {
+        rail_mouse_key_action(
+            event_type, key_code, cmd, shift, opt, ctrl, revealed, is_repeat,
+        )
+    }
+
+    #[test]
+    fn mouse_assistant_cmd_key_maps_back_and_forward() {
+        assert_eq!(act(10, 30, true, false, false, false, true, false), RailMouseKeyAction::Back);
+        assert_eq!(act(10, 42, true, false, false, false, true, false), RailMouseKeyAction::Forward);
+        assert_eq!(rail_mouse_dom_button(RailMouseKeyAction::Back), Some(3));
+        assert_eq!(rail_mouse_dom_button(RailMouseKeyAction::Forward), Some(4));
+        assert_eq!(rail_mouse_dom_button(RailMouseKeyAction::None), None);
+        assert_eq!(RAIL_MOUSE_KEY_BACK, 30);
+        assert_eq!(RAIL_MOUSE_KEY_FORWARD, 42);
+    }
+
+    #[test]
+    fn mouse_assistant_chord_rejects_repeat_keyup_mods_and_hidden() {
+        assert_eq!(act(10, 30, true, false, false, false, true, true), RailMouseKeyAction::None);
+        assert_eq!(act(11, 30, true, false, false, false, true, false), RailMouseKeyAction::None);
+        assert_eq!(act(11, 42, false, false, false, false, true, false), RailMouseKeyAction::None);
+        assert_eq!(act(10, 30, false, false, false, false, true, false), RailMouseKeyAction::None);
+        assert_eq!(act(10, 30, true, true, false, false, true, false), RailMouseKeyAction::None);
+        assert_eq!(act(10, 42, true, false, true, false, true, false), RailMouseKeyAction::None);
+        assert_eq!(act(10, 42, true, false, false, true, true, false), RailMouseKeyAction::None);
+        assert_eq!(act(10, 30, true, false, false, false, false, false), RailMouseKeyAction::None);
+        assert_eq!(act(10, 53, true, false, false, false, true, false), RailMouseKeyAction::None);
+        assert_eq!(act(10, 33, true, false, false, false, true, false), RailMouseKeyAction::None);
+    }
+
+    #[test]
+    fn doubled_keydown_inside_50ms_is_dropped() {
+        assert!(rail_mouse_dedupe_open(0, None, RAIL_MOUSE_DEDUPE_MS));
+        assert!(!rail_mouse_dedupe_open(20, Some(0), RAIL_MOUSE_DEDUPE_MS));
+        assert!(!rail_mouse_dedupe_open(1, Some(0), RAIL_MOUSE_DEDUPE_MS));
+        assert!(!rail_mouse_dedupe_open(49, Some(0), RAIL_MOUSE_DEDUPE_MS));
+        assert!(rail_mouse_dedupe_open(50, Some(0), RAIL_MOUSE_DEDUPE_MS));
+        assert!(rail_mouse_dedupe_open(240, Some(0), RAIL_MOUSE_DEDUPE_MS));
+        assert_eq!(RAIL_MOUSE_DEDUPE_MS, 50);
+    }
+
+    #[test]
+    fn other_mouse_up_keys_on_event_type_26() {
+        assert!(rail_mouse_other_mouse_up(26));
+        assert!(!rail_mouse_other_mouse_up(25));
+        assert!(!rail_mouse_other_mouse_up(10));
+        let src = include_str!("windows_mac.rs");
+        let start = src.find("fn rail_mouse_invoke").expect("invoke");
+        let rest = &src[start..];
+        let end = rest.find("\npub fn install_rail_mouse_buttons").expect("install");
+        let body = &rest[..end];
+        assert!(body.contains("rail_mouse_other_mouse_up"));
+        assert!(!body.contains("pressedMouseButtons"));
+    }
+
+    #[test]
+    fn key_monitor_is_local_and_does_not_swallow() {
+        let src = include_str!("windows_mac.rs");
+        let start = src.find("fn rail_mouse_key_invoke").expect("key invoke");
+        let rest = &src[start..];
+        let end = rest.find("\npub fn sync_rail_mouse_keys").expect("sync");
+        let body = &rest[..end];
+        assert!(body.contains("rail_mouse_key_action"));
+        assert!(body.contains("rail_mouse_key_accept"));
+        assert!(body.contains("\n    event\n"));
+        assert!(!body.contains("null_mut()"));
+        let accept_at = src.find("fn rail_mouse_key_accept").expect("accept");
+        let accept = &src[accept_at..accept_at + 500];
+        assert!(accept.contains("rail_mouse_dedupe_open"));
+        assert!(accept.contains("RAIL_MOUSE_DEDUPE_MS"));
+        let sync_at = src.find("pub fn sync_rail_mouse_keys").expect("sync fn");
+        let sync = &src[sync_at..sync_at + 900];
+        assert!(sync.contains("addLocalMonitorForEventsMatchingMask"));
+        assert!(sync.contains("1u64 << 10"));
+        assert!(!sync.contains("addGlobalMonitor"));
+        assert!(!sync.contains("CGEventTapCreate"));
     }
 }

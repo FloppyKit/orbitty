@@ -635,8 +635,13 @@
     return menuRing.confirmActive();
   }
 
+  function textFieldFocused() {
+    const el = document.activeElement;
+    return el instanceof Element && !!el.closest("input, textarea, select");
+  }
+
   function takeMouseButton(button: number) {
-    return takeMouseButtonBody({confirmActive, inputIntent, get mouseButtonAt() { return mouseButtonAt; }, set mouseButtonAt(v) { mouseButtonAt = v; }, onRailEscape}, button);
+    return takeMouseButtonBody({confirmActive, inputIntent, get mouseButtonAt() { return mouseButtonAt; }, set mouseButtonAt(v) { mouseButtonAt = v; }, onRailEscape, textFieldFocused}, button);
   }
 
   function onStagePointerDown(e: PointerEvent) {
