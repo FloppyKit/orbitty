@@ -9,16 +9,6 @@ import type { InputIntent } from "./railInput";
 
 type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
 
-function railMouseDiag(line: string) {
-  const env = import.meta.env as { VITE_RAIL_MOUSE_DIAG?: string };
-  if (env.VITE_RAIL_MOUSE_DIAG !== "1") return;
-  if (line.length > 800 || !/^[a-zA-Z0-9 .=_-]+$/.test(line)) return;
-  console.log(`rail-mouse-diag ${line}`);
-  void import("@tauri-apps/api/event")
-    .then((m) => m.emit("rail-mouse-diag", line))
-    .catch(() => {});
-}
-
 type Scope_overPainted = {
   archPainted: (...args: any[]) => boolean;
   archLayout: (...args: any[]) => ArchLayout;
@@ -362,7 +352,6 @@ export function goInFromPointer(scope: Scope_goInFromPointer) {
 }
 
 export function takeMouseButton(scope: Scope_takeMouseButton, button: number): boolean {
-  railMouseDiag(`handler=takeMouseButton button=${button}`);
   if (button !== 3 && button !== 4) return false;
   const now = Date.now();
   if (now - scope.mouseButtonAt < 50) return true;
@@ -374,18 +363,12 @@ export function takeMouseButton(scope: Scope_takeMouseButton, button: number): b
 }
 
 export function onStagePointerDown(scope: Scope_onStagePointerDown, e: PointerEvent) {
-  railMouseDiag(
-    `handler=onStagePointerDown button=${e.button} buttons=${e.buttons} revealed=${scope.stageRevealed ? 1 : 0} embedded=${scope.embedded ? 1 : 0}`,
-  );
   if (scope.embedded || !scope.stageRevealed) return;
   scope.pointerDownAt = { x: e.clientX, y: e.clientY };
   scope.pointerInside = scope.nearHit(e) || scope.overPainted(e);
 }
 
 export function onStagePointerUp(scope: Scope_onStagePointerUp, e: PointerEvent) {
-  railMouseDiag(
-    `handler=onStagePointerUp button=${e.button} buttons=${e.buttons} revealed=${scope.stageRevealed ? 1 : 0} embedded=${scope.embedded ? 1 : 0}`,
-  );
   if (scope.embedded || !scope.stageRevealed) return;
   if (scope.takeMouseButton(e.button)) {
     e.preventDefault();
@@ -420,9 +403,6 @@ export function onStagePointerUp(scope: Scope_onStagePointerUp, e: PointerEvent)
 }
 
 export function onStageAux(scope: Scope_onStageAux, e: MouseEvent) {
-  railMouseDiag(
-    `handler=onStageAux button=${e.button} buttons=${e.buttons} revealed=${scope.stageRevealed ? 1 : 0} embedded=${scope.embedded ? 1 : 0}`,
-  );
   if (scope.embedded || !scope.stageRevealed) return;
   if (!scope.takeMouseButton(e.button)) return;
   e.preventDefault();

@@ -890,16 +890,6 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             crate::windows::install_rail_mouse_buttons(app.handle().clone());
-            if std::env::var("RAIL_MOUSE_DIAG").ok().as_deref() == Some("1") {
-                use tauri::Listener;
-                app.listen("rail-mouse-diag", |event| {
-                    let payload = event.payload();
-                    if payload.len() > 900 || payload.contains('/') || payload.contains('\\') {
-                        return;
-                    }
-                    eprintln!("rail-mouse-diag page {payload}");
-                });
-            }
             // one-time 0–4 → 1–5 checkin shift
             // (scaleV flag — never twice), before any window reads state.
             state::migrate_stars_scale(app.handle());

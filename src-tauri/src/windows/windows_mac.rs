@@ -379,70 +379,7 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
                 })
                 .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
         });
-        diag_after_list(&windows);
         Ok(windows)
-    }
-}
-
-fn rail_mouse_diag() -> bool {
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| std::env::var("RAIL_MOUSE_DIAG").ok().as_deref() == Some("1"))
-}
-
-fn diag_after_list(windows: &[WindowInfo]) {
-    if !rail_mouse_diag() {
-        return;
-    }
-    let main: bool = unsafe { msg_send![class!(NSThread), isMainThread] };
-    let n = windows.len();
-    let some = windows.iter().filter(|w| w.icon_base64.is_some()).count();
-    let none = n.saturating_sub(some);
-    eprintln!(
-        "rail-mouse-diag list_windows main_thread={} windows={n} icon_some={some} icon_none={none}",
-        main as u8
-    );
-    diag_frame_once();
-    windows_mac_ax::diag_icon_probe_once();
-}
-
-fn diag_frame_once() {
-    static ONCE: OnceLock<()> = OnceLock::new();
-    if ONCE.set(()).is_err() {
-        return;
-    }
-    let edge = crate::rail_edge::cached_edge();
-    let known = crate::rail_edge::stage_known() as u8;
-    unsafe {
-        let screens: *mut Object = msg_send![class!(NSScreen), screens];
-        if screens.is_null() {
-            eprintln!("rail-mouse-diag frame screens_null=1 edge={edge} stage_known={known}");
-            return;
-        }
-        let count: usize = msg_send![screens, count];
-        if count == 0 {
-            eprintln!("rail-mouse-diag frame screens=0 edge={edge} stage_known={known}");
-            return;
-        }
-        let s0: *mut Object = msg_send![screens, objectAtIndex: 0usize];
-        if s0.is_null() {
-            eprintln!("rail-mouse-diag frame primary_null=1 screens={count}");
-            return;
-        }
-        let full: NSRect = msg_send![s0, frame];
-        let vis: NSRect = msg_send![s0, visibleFrame];
-        let primary_h = full.size.height;
-        let vis_x = vis.origin.x;
-        let vis_y = primary_h - (vis.origin.y + vis.size.height);
-        let vis_w = vis.size.width;
-        let vis_h = vis.size.height;
-        let full_w = full.size.width;
-        let full_h = full.size.height;
-        let (wheel_w, wheel_h) = crate::state::rail_wheel_size(edge, true, vis_w, vis_h);
-        let (stage_x, stage_y, stage_w, stage_h) =
-            crate::state::rail_stage_frame(edge, true, vis_x, vis_y, vis_w, vis_h, wheel_w, wheel_h);
-        eprintln!(
-            "rail-mouse-diag frame edge={edge} stage_known={known} screens={count} full_w={full_w:.1} full_h={full_h:.1} vis_x={vis_x:.1} vis_y={vis_y:.1} vis_w={vis_w:.1} vis_h={vis_h:.1} wheel_w={wheel_w:.1} wheel_h={wheel_h:.1} stage_x={stage_x:.1} stage_y={stage_y:.1} stage_w={stage_w:.1} stage_h={stage_h:.1}"
-        );
     }
 }
 
@@ -1056,13 +993,6 @@ extern "C" fn rail_mouse_invoke(_block: *const RailMouseBlock, event: *mut Objec
         }
         let pressed: u64 = msg_send![class!(NSEvent), pressedMouseButtons];
         let down = pressed & (1u64 << (button as u32)) != 0;
-        if rail_mouse_diag() {
-            eprintln!(
-                "rail-mouse-diag ns_button={button} pressed={} emit={}",
-                down as u8,
-                (!down) as u8
-            );
-        }
         if down {
             return;
         }
