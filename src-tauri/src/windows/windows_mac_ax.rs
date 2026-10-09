@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 const NS_ACTIVATION_POLICY_REGULAR: i64 = 0;
 const NS_COMPOSITING_OPERATION_SOURCE_OVER: usize = 2;
 const NS_BITMAP_IMAGE_FILE_TYPE_PNG: usize = 4;
-const ICON_PX: usize = 32;
+const ICON_PX: usize = 64;
 /// The window's AXDocument as a real on-disk path.
 /// AXDocument arrives as a CFURL or a CFString URL; only `file://` URLs
 /// whose target exists are stamped — never contents, never a guessed path.
@@ -152,6 +152,11 @@ fn icon_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, S
     static CACHE: OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
         OnceLock::new();
     CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn icon_flight() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static FLIGHT: OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    FLIGHT.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
 }
 
 fn rail_mouse_diag() -> bool {
@@ -324,17 +329,17 @@ fn cached_icon(app: *mut Object, cache_key: &str) -> Option<String> {
         return Some(hit.clone());
     }
     // WK custom-scheme IPC (`list_windows`) runs on the main thread.
-    // `NSRunningApplication.icon` → getattrlist can block that handler
-    // forever (beach ball, 100% samples in startURLSchemeTask). Skip
-    // the fetch here; empty icon is better than a dead desk.
+    // `NSRunningApplication.icon` can block in getattrlist. A miss returns
+    // None and warms the cache off this thread. The next poll paints it.
     let is_main: bool = unsafe { msg_send![class!(NSThread), isMainThread] };
     if is_main {
         if rail_mouse_diag() {
             static ONCE: OnceLock<()> = OnceLock::new();
             if ONCE.set(()).is_ok() {
-                eprintln!("rail-mouse-diag cached_icon main_thread=1 skipped_fetch=1");
+                eprintln!("rail-mouse-diag cached_icon main_thread=1 cache_miss=1 warm=1");
             }
         }
+        warm_icon(cache_key.to_string());
         return None;
     }
     let fetched = unsafe { app_icon_png_base64(app) };
@@ -347,8 +352,65 @@ fn cached_icon(app: *mut Object, cache_key: &str) -> Option<String> {
     fetched
 }
 
-/// Draw the app's icon into a small offscreen bitmap and PNG-encode it, so the
-/// payload stays ~2–4 KB regardless of the source icon's resolution.
+/// One background fill per bundle id (or `pid:` key). The job looks the app
+/// up itself so the main-thread object pointer never crosses threads.
+fn warm_icon(cache_key: String) {
+    {
+        let cache = icon_cache().lock().unwrap_or_else(|e| e.into_inner());
+        if cache.contains_key(&cache_key) {
+            return;
+        }
+        let mut flight = icon_flight().lock().unwrap_or_else(|e| e.into_inner());
+        if !flight.insert(cache_key.clone()) {
+            return;
+        }
+    }
+    std::thread::spawn(move || {
+        let fetched = objc::rc::autoreleasepool(|| unsafe { icon_png_for_key(&cache_key) });
+        if let Some(png) = fetched {
+            icon_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(cache_key.clone(), png);
+        }
+        icon_flight()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&cache_key);
+    });
+}
+
+unsafe fn icon_png_for_key(cache_key: &str) -> Option<String> {
+    let want_pid = cache_key
+        .strip_prefix("pid:")
+        .and_then(|s| s.parse::<i32>().ok());
+    let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+    let apps: *mut Object = msg_send![workspace, runningApplications];
+    if apps.is_null() {
+        return None;
+    }
+    let count: usize = msg_send![apps, count];
+    for i in 0..count {
+        let app: *mut Object = msg_send![apps, objectAtIndex: i];
+        if app.is_null() {
+            continue;
+        }
+        let hit = if let Some(pid) = want_pid {
+            let got: i32 = msg_send![app, processIdentifier];
+            got == pid
+        } else {
+            let bundle: *mut Object = msg_send![app, bundleIdentifier];
+            ns_to_string(bundle).as_deref() == Some(cache_key)
+        };
+        if hit {
+            return app_icon_png_base64(app);
+        }
+    }
+    None
+}
+
+/// Draw the app's icon into a small offscreen bitmap and PNG-encode it.
+/// Runs off the main thread. A 32 px sample was 2930 bytes, so 64 px stays small.
 unsafe fn app_icon_png_base64(app: *mut Object) -> Option<String> {
     let icon: *mut Object = msg_send![app, icon];
     if icon.is_null() {

@@ -208,3 +208,20 @@ test("P6 wiring: embed or beside-rail, no toggle, no feature save, hover lift st
   const parked = css.slice(css.indexOf(".rail.stage-shell.stage-parked"), css.indexOf(".rail.stage-shell.stage-parked") + 420);
   assert.equal(/stage-parked \.scroll/.test(parked), false);
 });
+
+test("icon warm-up is off the main thread at 64 px", () => {
+  const ax = readFileSync(new URL("../src-tauri/src/windows/windows_mac_ax.rs", import.meta.url), "utf8");
+  assert.match(ax, /const ICON_PX: usize = 64;/);
+  const cached = ax.slice(ax.indexOf("fn cached_icon"), ax.indexOf("fn warm_icon"));
+  const miss = cached.slice(cached.indexOf("if is_main"), cached.indexOf("let fetched"));
+  assert.match(miss, /warm_icon\(cache_key\.to_string\(\)\)/);
+  assert.match(miss, /return None/);
+  assert.equal(miss.includes("app_icon_png_base64"), false);
+  const warm = ax.slice(ax.indexOf("fn warm_icon"), ax.indexOf("fn icon_png_for_key"));
+  assert.match(warm, /std::thread::spawn/);
+  assert.match(warm, /icon_png_for_key/);
+  const lookup = ax.slice(ax.indexOf("fn icon_png_for_key"), ax.indexOf("unsafe fn app_icon_png_base64"));
+  assert.match(lookup, /bundleIdentifier/);
+  assert.match(lookup, /processIdentifier/);
+  assert.match(lookup, /app_icon_png_base64\(app\)/);
+});
