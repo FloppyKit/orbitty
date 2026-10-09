@@ -259,6 +259,62 @@ export function mirrorLayout(edge: string, frameW: number, frameH: number): Mirr
   return { arch: lay.arch, expanded, back };
 }
 
+/** Phase-0 stylesheet box. The rendered card was not in the DOM. */
+export const PHASE0_PREVIEW = {
+  cardW: 300,
+  thumbH: 160,
+  icon: 96,
+  pad: 28,
+  gap: 16,
+  font: 18,
+  lines: 3,
+  line: 1.3,
+} as const;
+
+/** `archGutter(220)` on the layer-2 ring. The card's margin sits inside `expanded`. */
+const PREVIEW_GUTTER = 55;
+
+export type PreviewCardBox = {
+  scale: number;
+  cardW: number;
+  thumbH: number;
+  icon: number;
+  pad: number;
+  gap: number;
+  font: number;
+};
+
+/** Centred-card sizes. `want` is clamped so the content-box card, its padding, and the gutter stay inside `expanded`. */
+export function previewCardScale(expanded: { w: number; h: number }, want = 1.5): PreviewCardBox {
+  const p = PHASE0_PREVIEW;
+  const baseW = p.cardW + p.pad * 2;
+  const baseH = p.pad * 2 + p.gap + p.thumbH + p.font * p.line * p.lines;
+  const roomW = expanded.w - PREVIEW_GUTTER;
+  const fitW = baseW > 0 ? roomW / baseW : 0;
+  const fitH = baseH > 0 ? expanded.h / baseH : 0;
+  let scale = Math.min(want, fitW, fitH);
+  if (!Number.isFinite(scale) || scale < 0) scale = 1;
+  const px = (n: number) => Math.max(0, Math.floor(n * scale));
+  return {
+    scale,
+    cardW: px(p.cardW),
+    thumbH: px(p.thumbH),
+    icon: px(p.icon),
+    pad: px(p.pad),
+    gap: px(p.gap),
+    font: px(p.font),
+  };
+}
+
+/** Border box of the content-box card, plus the ring gutter on the width. */
+export function previewCardOuter(box: PreviewCardBox): { w: number; h: number } {
+  const p = PHASE0_PREVIEW;
+  return {
+    w: box.cardW + box.pad * 2 + PREVIEW_GUTTER,
+    h: box.pad * 2 + box.gap + box.thumbH + box.font * p.line * p.lines,
+  };
+}
+
 /** Layer 1 recedes toward the edge while layer 2 is front. `archDepth` stays the locked contract. */
 export function mirrorDepth(front: ArchFront, layer: 1 | 2, reduce: boolean): ArchDepth {
   if (front === "layer2" && layer === 1) {

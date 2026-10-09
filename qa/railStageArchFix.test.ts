@@ -21,6 +21,9 @@ import {
   archSlot,
   archZone,
   claimLanded,
+  mirrorLayout,
+  previewCardOuter,
+  previewCardScale,
   wheelZone,
   edgeHover,
   edgeLeaveSide,
@@ -402,4 +405,29 @@ test("wheelZone is the front layer anywhere inside the frame", () => {
   assert.equal(wheelZone(frame, { x: frame.w, y: 10 }, "arch", false), "none");
   assert.equal(wheelZone(frame, { x: 10, y: 10 }, "board", false), "none");
   assert.equal(wheelZone(frame, archPt, "layer2", true), "none");
+});
+
+test("preview card is 1.5x and stays inside the beside panel", () => {
+  const frames = [ARCH_FRAME, { w: 892, h: 760 }];
+  for (const frame of frames) {
+    const expanded = mirrorLayout("left", frame.w, frame.h).expanded;
+    const box = previewCardScale(expanded);
+    const outer = previewCardOuter(box);
+    assert.equal(box.scale, 1.5);
+    assert.ok(outer.w <= expanded.w, `${frame.w} width ${outer.w} > ${expanded.w}`);
+    assert.ok(outer.h <= expanded.h, `${frame.h} height ${outer.h} > ${expanded.h}`);
+    assert.ok(box.cardW >= 300);
+    assert.ok(box.thumbH >= 160);
+    assert.ok(box.icon >= 96);
+  }
+  const css = readFileSync(new URL("../src/lib/rail/rail-arch.css", import.meta.url), "utf8");
+  const card = css.slice(css.indexOf(".l2-window-card {"), css.indexOf(".l2-needed-card"));
+  assert.match(card, /max-width:\s*450px/);
+  assert.match(card, /padding:\s*42px/);
+  assert.match(card, /gap:\s*24px/);
+  assert.match(card, /font:\s*600 27px/);
+  assert.match(css, /\.l2-thumb \{[\s\S]*?max-height:\s*240px/);
+  assert.match(css, /\.l2-card-icon,[\s\S]*?\.l2-app-icon \{[\s\S]*?width:\s*144px;[\s\S]*?height:\s*144px;/);
+  assert.match(css, /\.arch-slot \.l2-app-icon \{[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px;/);
+  assert.match(css, /\.l2-slot \{[\s\S]*?width:\s*148px;[\s\S]*?height:\s*64px;/);
 });
