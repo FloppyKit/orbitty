@@ -388,13 +388,13 @@ test("F13 preview card shrinks onto stage tokens", () => {
   const blocks = cssRuleBlocks(stripComments(css));
   const thumb = blocks.find((b) => b.selector.includes(".l2-thumb") && /max-height/.test(b.body));
   assert.ok(thumb);
-  const maxH = Number(/max-height:\s*(\d+)px/.exec(thumb.body)?.[1]);
-  assert.equal(maxH, 240);
+  const maxH = Number(/max-height:\s*(?:var\(--pv-thumb,\s*)?(\d+)px/.exec(thumb.body)?.[1]);
+  assert.equal(maxH, 320);
   assert.match(thumb.body, /max-width:\s*100%/);
   const card = blocks.find((b) => b.selector.includes(".l2-window-card") && /max-width/.test(b.body));
   assert.ok(card);
-  const maxW = Number(/max-width:\s*(\d+)px/.exec(card.body)?.[1]);
-  assert.equal(maxW, 450);
+  const maxW = Number(/max-width:\s*(?:var\(--pv-card,\s*)?(\d+)px/.exec(card.body)?.[1]);
+  assert.equal(maxW, 600);
   assert.match(card.body, /flex:\s*none/);
   assert.match(card.body, /align-self:\s*center/);
   assert.match(card.body, /var\(\s*--stage-platter/);

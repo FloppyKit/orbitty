@@ -46,6 +46,7 @@
     wheelZone,
     mirrorItems,
     mirrorLayout,
+    previewCardScale,
     stageStackLayout,
     STAGE_INK,
     STAGE_INK_DIM,
@@ -101,6 +102,11 @@
     });
   });
   const mirror = $derived(mirrorLayout(stageEdge(), frameW, frameH));
+  function previewVars(expanded: { w: number; h: number }) {
+    const b = previewCardScale(expanded);
+    const radius = Math.floor(18 * b.scale);
+    return `--pv-card:${b.cardW}px;--pv-thumb:${b.thumbH}px;--pv-icon:${b.icon}px;--pv-pad:${b.pad}px;--pv-gap:${b.gap}px;--pv-font:${b.font}px;--pv-radius:${radius}px`;
+  }
   const centred2 = $derived(layer2[archState?.center2 ?? 0] ?? null);
   let thumb = $state<{ state: string; jpeg?: string | null; forId: string } | null>(null);
   const thumbForCard = $derived(
@@ -1053,6 +1059,7 @@
                       type="button"
                       class="l2-window-card"
                       data-win-preview={centred2.id}
+                      style={previewVars(mirror.expanded)}
                       aria-label={centred2.title || "Window"}
                       onclick={() => raiseWindow(centred2)}
                     >

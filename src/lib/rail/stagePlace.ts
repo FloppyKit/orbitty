@@ -284,8 +284,9 @@ export type PreviewCardBox = {
   font: number;
 };
 
-/** Centred-card sizes. `want` is clamped so the content-box card, its padding, and the gutter stay inside `expanded`. */
-export function previewCardScale(expanded: { w: number; h: number }, want = 1.5): PreviewCardBox {
+/** Centred-card sizes. `want` (2× the pre-RAIL-MOUSE box) is clamped so the
+ *  content-box card, its padding, and the gutter stay inside `expanded`. */
+export function previewCardScale(expanded: { w: number; h: number }, want = 2): PreviewCardBox {
   const p = PHASE0_PREVIEW;
   const baseW = p.cardW + p.pad * 2;
   const baseH = p.pad * 2 + p.gap + p.thumbH + p.font * p.line * p.lines;
