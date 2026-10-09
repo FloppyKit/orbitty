@@ -41,12 +41,14 @@
     archMarbleBox,
     L2_RING,
     thumbShowsImage,
+    ARCH_FRAME,
     archScroll2,
     archSlot,
     archZone,
     mirrorDepth,
     mirrorItems,
     mirrorLayout,
+    stagePreviewModel,
     stageStackLayout,
     STAGE_INK,
     STAGE_INK_DIM,
@@ -61,6 +63,23 @@
   import { archGutter, centreStep, depthOut, spinStepsCap, SPIN_CAP_IDLE, type SpinCapState } from "./railInput";
 
   let { rail }: { rail: RailApi } = $props();
+
+  function railMouseDiag(line: string) {
+    const env = import.meta.env as { VITE_RAIL_MOUSE_DIAG?: string };
+    if (env.VITE_RAIL_MOUSE_DIAG !== "1") return;
+    if (line.length > 800 || !/^[a-zA-Z0-9 .=_-]+$/.test(line)) return;
+    console.log(`rail-mouse-diag ${line}`);
+    void import("@tauri-apps/api/event")
+      .then((m) => m.emit("rail-mouse-diag", line))
+      .catch(() => {});
+  }
+
+  function diagClass(target: EventTarget | null): string {
+    if (!(target instanceof Element)) return "none";
+    const raw = typeof target.className === "string" ? target.className : "";
+    const tokens = raw.split(/\s+/).filter((t) => /^[A-Za-z0-9_-]+$/.test(t)).slice(0, 6);
+    return tokens.length ? tokens.join(".") : "none";
+  }
 
   const NEUTRAL = "#8a8f98";
 
@@ -238,6 +257,24 @@
     const onWheel = (e: WheelEvent) => {
       const zone = zoneAt(e);
       const front = (rail.arch?.front ?? "arch") as ArchFront;
+      const main = stageEl?.closest("main");
+      const host = main instanceof HTMLElement ? main : stageEl;
+      const rect = host ? host.getBoundingClientRect() : null;
+      const relX = rect ? Math.round(e.clientX - rect.left) : -1;
+      const relY = rect ? Math.round(e.clientY - rect.top) : -1;
+      const painted =
+        e.target instanceof Element &&
+        !!e.target.closest(".l2-window-card, .l2-thumb, .l2-card-icon, .l2-hit, .arch-slot, .l2-expanded");
+      const unmapped = zone === "layer2" && front === "layer2" && rail.arch?.pid === rail.UNMAPPED_KEY;
+      const early =
+        zone === "none" ||
+        zone === "board" ||
+        unmapped ||
+        (zone === "arch" && front !== "arch") ||
+        (zone === "layer2" && front !== "layer2");
+      railMouseDiag(
+        `wheel zone=${zone} front=${front} early=${early ? 1 : 0} client_x=${Math.round(e.clientX)} client_y=${Math.round(e.clientY)} rel_x=${relX} rel_y=${relY} main_w=${rect ? Math.round(rect.width) : -1} main_h=${rect ? Math.round(rect.height) : -1} over_painted=${painted ? 1 : 0} class=${diagClass(e.target)}`,
+      );
       if (zone === "none" || zone === "board") return;
       if (zone === "layer2" && front === "layer2" && rail.arch?.pid === rail.UNMAPPED_KEY) return;
       // Scroll never changes depth. A wheel over a layer that is not front does nothing.
@@ -274,7 +311,32 @@
       rail.applyBeside("planet");
     };
     el.addEventListener("wheel", onWheel, { passive: false });
+    railMouseDiag("wheel_listener=1 host=stage-strip passive=0");
     return () => el.removeEventListener("wheel", onWheel);
+  });
+
+  $effect(() => {
+    const env = import.meta.env as { VITE_RAIL_MOUSE_DIAG?: string };
+    if (env.VITE_RAIL_MOUSE_DIAG !== "1") return;
+    const edge = stageEdge();
+    const arch = mirrorLayout("left", ARCH_FRAME.w, ARCH_FRAME.h);
+    const live = mirrorLayout(edge, frameW, frameH);
+    const model = stagePreviewModel({ pid: "p", cards: [], rows: [] });
+    const measure = (sel: string) => {
+      const el = document.querySelector(sel);
+      if (!(el instanceof HTMLElement)) return "missing=1";
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      const px = (v: string) => {
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? Math.round(n) : -1;
+      };
+      return `x=${Math.round(r.x)} y=${Math.round(r.y)} w=${Math.round(r.width)} h=${Math.round(r.height)} max_w=${px(cs.maxWidth)} max_h=${px(cs.maxHeight)}`;
+    };
+    const front = (rail.arch?.front ?? "none") as string;
+    railMouseDiag(
+      `preview edge=${edge} front=${front} revealed=${rail.stageRevealed ? 1 : 0} frame_w=${Math.round(frameW)} frame_h=${Math.round(frameH)} arch_exp_x=${Math.round(arch.expanded.x)} arch_exp_y=${Math.round(arch.expanded.y)} arch_exp_w=${Math.round(arch.expanded.w)} arch_exp_h=${Math.round(arch.expanded.h)} live_exp_x=${Math.round(live.expanded.x)} live_exp_y=${Math.round(live.expanded.y)} live_exp_w=${Math.round(live.expanded.w)} live_exp_h=${Math.round(live.expanded.h)} slots=${model.slots.length} card_${measure(".l2-window-card")} thumb_${measure(".l2-thumb")} icon_${measure(".l2-card-icon")}`,
+    );
   });
 
   $effect(() => {

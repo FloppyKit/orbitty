@@ -154,6 +154,167 @@ fn icon_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, S
     CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+fn rail_mouse_diag() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| std::env::var("RAIL_MOUSE_DIAG").ok().as_deref() == Some("1"))
+}
+
+struct IconProbe {
+    apps: usize,
+    null_icon: bool,
+    null_bitmap: bool,
+    empty_png: bool,
+    png_bytes: usize,
+    draw_err: bool,
+}
+
+/// One off-main icon sample while `RAIL_MOUSE_DIAG=1`. Does not fill the cache.
+pub(super) fn diag_icon_probe_once() {
+    if !rail_mouse_diag() {
+        return;
+    }
+    static ONCE: OnceLock<()> = OnceLock::new();
+    if ONCE.set(()).is_err() {
+        return;
+    }
+    std::thread::spawn(|| {
+        let main: bool = unsafe { msg_send![class!(NSThread), isMainThread] };
+        eprintln!(
+            "rail-mouse-diag icon_probe start main_thread={} icon_px={ICON_PX}",
+            main as u8
+        );
+        let snap = objc::rc::autoreleasepool(|| unsafe { diag_probe_one_icon() });
+        eprintln!(
+            "rail-mouse-diag icon_probe done main_thread={} apps={} null_icon={} null_bitmap={} empty_png={} png_bytes={} draw_err={} icon_px={ICON_PX}",
+            main as u8,
+            snap.apps,
+            snap.null_icon as u8,
+            snap.null_bitmap as u8,
+            snap.empty_png as u8,
+            snap.png_bytes,
+            snap.draw_err as u8
+        );
+    });
+}
+
+unsafe fn diag_probe_one_icon() -> IconProbe {
+    let mut snap = IconProbe {
+        apps: 0,
+        null_icon: true,
+        null_bitmap: false,
+        empty_png: false,
+        png_bytes: 0,
+        draw_err: false,
+    };
+    let self_pid = std::process::id() as i32;
+    let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+    if workspace.is_null() {
+        snap.draw_err = true;
+        return snap;
+    }
+    let apps: *mut Object = msg_send![workspace, runningApplications];
+    if apps.is_null() {
+        snap.draw_err = true;
+        return snap;
+    }
+    let count: usize = msg_send![apps, count];
+    let mut chosen: *mut Object = std::ptr::null_mut();
+    for i in 0..count {
+        let app: *mut Object = msg_send![apps, objectAtIndex: i];
+        if app.is_null() {
+            continue;
+        }
+        let policy: i64 = msg_send![app, activationPolicy];
+        let terminated: bool = msg_send![app, isTerminated];
+        let pid: i32 = msg_send![app, processIdentifier];
+        if policy != NS_ACTIVATION_POLICY_REGULAR || terminated || pid == self_pid || pid <= 0 {
+            continue;
+        }
+        let bundle: *mut Object = msg_send![app, bundleIdentifier];
+        let bundle_id = ns_to_string(bundle);
+        if matches!(bundle_id.as_deref(), Some("space.orbitty.mac")) {
+            continue;
+        }
+        snap.apps += 1;
+        if chosen.is_null() {
+            chosen = app;
+        }
+    }
+    if chosen.is_null() {
+        return snap;
+    }
+    let icon: *mut Object = msg_send![chosen, icon];
+    if icon.is_null() {
+        snap.null_icon = true;
+        return snap;
+    }
+    snap.null_icon = false;
+    let rep: *mut Object = msg_send![class!(NSBitmapImageRep), alloc];
+    let rep: *mut Object = msg_send![rep,
+        initWithBitmapDataPlanes: std::ptr::null_mut::<*mut u8>()
+        pixelsWide: ICON_PX
+        pixelsHigh: ICON_PX
+        bitsPerSample: 8usize
+        samplesPerPixel: 4usize
+        hasAlpha: true
+        isPlanar: false
+        colorSpaceName: ns_string("NSCalibratedRGBColorSpace")
+        bytesPerRow: 0usize
+        bitsPerPixel: 0usize
+    ];
+    if rep.is_null() {
+        snap.null_bitmap = true;
+        return snap;
+    }
+    let ctx: *mut Object =
+        msg_send![class!(NSGraphicsContext), graphicsContextWithBitmapImageRep: rep];
+    if ctx.is_null() {
+        snap.draw_err = true;
+        let _: () = msg_send![rep, release];
+        return snap;
+    }
+    let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+    let _: () = msg_send![class!(NSGraphicsContext), setCurrentContext: ctx];
+    let frame = NSRect {
+        origin: NSPoint { x: 0.0, y: 0.0 },
+        size: CGSize {
+            width: ICON_PX as f64,
+            height: ICON_PX as f64,
+        },
+    };
+    let whole = NSRect {
+        origin: NSPoint { x: 0.0, y: 0.0 },
+        size: CGSize {
+            width: 0.0,
+            height: 0.0,
+        },
+    };
+    let _: () = msg_send![icon,
+        drawInRect: frame
+        fromRect: whole
+        operation: NS_COMPOSITING_OPERATION_SOURCE_OVER
+        fraction: 1.0f64
+    ];
+    let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
+    let png: *mut Object = msg_send![rep,
+        representationUsingType: NS_BITMAP_IMAGE_FILE_TYPE_PNG
+        properties: std::ptr::null_mut::<Object>()
+    ];
+    if png.is_null() {
+        snap.empty_png = true;
+    } else {
+        let bytes: *const u8 = msg_send![png, bytes];
+        let len: usize = msg_send![png, length];
+        if bytes.is_null() || len == 0 {
+            snap.empty_png = true;
+        } else {
+            snap.png_bytes = len;
+        }
+    }
+    let _: () = msg_send![rep, release];
+    snap
+}
+
 fn cached_icon(app: *mut Object, cache_key: &str) -> Option<String> {
     if let Some(hit) = icon_cache()
         .lock()
@@ -168,6 +329,12 @@ fn cached_icon(app: *mut Object, cache_key: &str) -> Option<String> {
     // the fetch here; empty icon is better than a dead desk.
     let is_main: bool = unsafe { msg_send![class!(NSThread), isMainThread] };
     if is_main {
+        if rail_mouse_diag() {
+            static ONCE: OnceLock<()> = OnceLock::new();
+            if ONCE.set(()).is_ok() {
+                eprintln!("rail-mouse-diag cached_icon main_thread=1 skipped_fetch=1");
+            }
+        }
         return None;
     }
     let fetched = unsafe { app_icon_png_base64(app) };

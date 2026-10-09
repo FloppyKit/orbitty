@@ -90,6 +90,9 @@ pub(crate) fn rail_stage_perform(
             let _ = w.unminimize();
             let _ = w.show();
             let _ = w.set_ignore_cursor_events(false);
+            if std::env::var("RAIL_MOUSE_DIAG").ok().as_deref() == Some("1") {
+                eprintln!("rail-mouse-diag stage raise=1 ignore_cursor=0 alpha=1 transparent=1 locate_ring=0");
+            }
             stage_alpha_level(&w, 1.0, crate::rail_stage::RAIL_LEVEL_FLOATING);
             if let Some(r) = rect {
                 appkit_place_points(&w, &r);
@@ -101,6 +104,9 @@ pub(crate) fn rail_stage_perform(
         } else {
             stage_alpha_level(&w, 0.0, crate::rail_stage::RAIL_LEVEL_NORMAL);
             let _ = w.set_ignore_cursor_events(true);
+            if std::env::var("RAIL_MOUSE_DIAG").ok().as_deref() == Some("1") {
+                eprintln!("rail-mouse-diag stage park=1 ignore_cursor=1 alpha=0");
+            }
             if let Some(r) = rect {
                 appkit_place_points(&w, &r);
             }

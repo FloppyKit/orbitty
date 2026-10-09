@@ -2182,6 +2182,29 @@
     set windows(v) { windows = v; },
   };
 
+  $effect(() => {
+    const env = import.meta.env as { VITE_RAIL_MOUSE_DIAG?: string };
+    if (env.VITE_RAIL_MOUSE_DIAG !== "1") return;
+    const types = ["mousedown", "mouseup", "auxclick", "pointerdown", "pointerup"] as const;
+    const fn = (ev: Event) => {
+      const e = ev as MouseEvent;
+      const line = `raw type=${ev.type} button=${e.button} buttons=${e.buttons}`;
+      console.log(`rail-mouse-diag ${line}`);
+      void import("@tauri-apps/api/event")
+        .then((m) => m.emit("rail-mouse-diag", line))
+        .catch(() => {});
+    };
+    for (const t of types) window.addEventListener(t, fn, true);
+    const line = `page_boot hideAppIcons=${hideAppIcons ? 1 : 0} revealed=${stageRevealed ? 1 : 0} button_listeners=1`;
+    console.log(`rail-mouse-diag ${line}`);
+    void import("@tauri-apps/api/event")
+      .then((m) => m.emit("rail-mouse-diag", line))
+      .catch(() => {});
+    return () => {
+      for (const t of types) window.removeEventListener(t, fn, true);
+    };
+  });
+
 </script>
 
 <main
