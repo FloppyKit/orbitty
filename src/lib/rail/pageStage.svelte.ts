@@ -1,10 +1,214 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function stageRole(scope: any, pid: string): StageRole {
+
+import type { Claim } from "../persist";
+import type { MenuRing } from "../menuKeys.svelte";
+import type { ArchState } from "./stageArch";
+import type { Beside, BesideFront, BesidePick, KeyOwner, WalkTarget } from "./stageFocus";
+import type { StageRole } from "./habitat";
+import type { CoachStory } from "./coach";
+
+interface AxStatus {
+  trusted: boolean;
+  bundlePath: string;
+  signingLine: string;
+  inBundle: boolean;
+  isAdhoc: boolean;
+}
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_stageRole = {
+  stageRoles: (...args: any[]) => { id: string; role: StageRole }[];
+  sectionIds: (...args: any[]) => string[];
+  openSectionId: (...args: any[]) => string | null;
+};
+
+type Scope_ensureExpand = {
+  sectionIds: (...args: any[]) => string[];
+  applyPlanetOpen: (...args: any[]) => string | null;
+  openSectionId: (...args: any[]) => string | null;
+  collapsedSectionIds: string[];
+  persist: (...args: any[]) => Promise<any>;
+  showStage: (...args: any[]) => Promise<any>;
+};
+
+type Scope_collapsePlanet = {
+  sectionIds: (...args: any[]) => string[];
+  isCollapsed: (...args: any[]) => boolean;
+  collapsedSectionIds: string[];
+  persist: (...args: any[]) => Promise<any>;
+};
+
+type Scope_currentBeside = {
+  stageEmbed: null | "settings" | "stars";
+  arch: ArchState;
+  UNMAPPED_KEY: string;
+};
+
+type Scope_hideBesidePopouts = {
+  invoke: Invoke;
+};
+
+type Scope_clearArchToFront = {
+  arch: ArchState;
+  archBack: (...args: any[]) => ArchState;
+};
+
+type Scope_ownerStop = {
+  UNMAPPED_KEY: string;
+};
+
+type Scope_focusMkey = {};
+
+type Scope_releaseKeysToRail = {
+  keyOwner: KeyOwner;
+  keyOwnerNext: (...args: any[]) => KeyOwner;
+  reclaimRailRing: (...args: any[]) => any;
+};
+
+type Osd = {
+  applyBeside: (...args: any[]) => any;
+};
+
+type Pos = {
+  keyOwner: KeyOwner;
+  walkOut: (...args: any[]) => any;
+  stageEmbed: null | "settings" | "stars";
+  invoke: Invoke;
+};
+
+type Abs = {
+  currentBeside: (...args: any[]) => Beside;
+  besideNext: (...args: any[]) => Beside;
+  hideBesidePopouts: (...args: any[]) => any;
+  releaseKeysToRail: (...args: any[]) => any;
+  besideFront: (...args: any[]) => BesideFront;
+  clearArchToFront: (...args: any[]) => any;
+  stageEmbed: null | "settings" | "stars";
+};
+
+type Scope_walkInto = {
+  applyBeside: (...args: any[]) => any;
+  reselectStop: string | null;
+  keyOwner: KeyOwner;
+  keyOwnerNext: (...args: any[]) => KeyOwner;
+};
+
+type Scope_walkOut = {
+  keyOwner: KeyOwner;
+  arch: ArchState;
+  reselectStop: string | null;
+  ownerStop: (...args: any[]) => string | null;
+  keyOwnerNext: (...args: any[]) => KeyOwner;
+  archDo: (...args: any[]) => any;
+  reclaimRailRing: (...args: any[]) => any;
+};
+
+type Scope_closeStageEmbed = {
+  stageEmbed: null | "settings" | "stars";
+  keyOwner: KeyOwner;
+  keyOwnerNext: (...args: any[]) => KeyOwner;
+  reselectStop: string | null;
+  reclaimRailRing: (...args: any[]) => any;
+  menuRing: MenuRing;
+  focusMkey: (...args: any[]) => any;
+};
+
+type Scope_popOutSettings = {
+  keyOwner: KeyOwner;
+  walkOut: (...args: any[]) => any;
+  stageEmbed: null | "settings" | "stars";
+  invoke: Invoke;
+};
+
+type Scope_popOutBoard = {
+  invoke: Invoke;
+};
+
+type Scope_coachIsDue = {
+  coachDue: (...args: any[]) => boolean;
+  status: AxStatus | null;
+  stateLoaded: boolean;
+  claims: Claim[];
+  starterStory: CoachStory;
+  embedded: boolean;
+};
+
+type Scope_maybeRevealCoach = {
+  bootParkDone: boolean;
+  coachRevealed: boolean;
+  embedded: boolean;
+  coachIsDue: (...args: any[]) => boolean;
+  showStage: (...args: any[]) => Promise<any>;
+};
+
+type Scope_noteAx = {
+  status: AxStatus | null;
+  maybeRevealCoach: (...args: any[]) => any;
+};
+
+type Scope_coachClaim = {
+  coachError: string;
+  invoke: Invoke;
+  coachErrorTimer: ReturnType<typeof setTimeout> | undefined;
+};
+
+type Scope_coachSkip = {
+  invoke: Invoke;
+};
+
+type Scope_showStage = {
+  embedded: boolean;
+  stageRevealed: boolean;
+  invoke: Invoke;
+};
+
+type Scope_parkStage = {
+  embedded: boolean;
+  stageRevealed: boolean;
+  invoke: Invoke;
+};
+
+type Scope_scheduleGraceRecheck = {
+  graceRecheck: ReturnType<typeof setTimeout> | null;
+  revealGraceUntil: number;
+  maybeAutoHide: (...args: any[]) => any;
+};
+
+type Scope_maybeAutoHide = {
+  embedded: boolean;
+  stageRevealed: boolean;
+  revealGraceUntil: number;
+  scheduleGraceRecheck: (...args: any[]) => any;
+  autoHideWanted: (...args: any[]) => boolean;
+  railAutoHideOnBlur: boolean;
+  focusInside: boolean;
+  pointerInside: boolean;
+  parkStage: (...args: any[]) => Promise<any>;
+};
+
+type Scope_parkAfterRaise = {
+  invoke: Invoke;
+};
+
+type Scope_armNeededMouth = {
+  neededAct: (...args: any[]) => { kind: "mouth"; id: string; title: string } | null;
+  invoke: Invoke;
+};
+
+type Scope_stageFocus = {
+  embedded: boolean;
+  focusInside: boolean;
+  maybeAutoHide: (...args: any[]) => any;
+};
+
+type Scope_previewStop = {};
+
+export function stageRole(scope: Scope_stageRole, pid: string): StageRole {
   return scope.stageRoles(scope.sectionIds(), scope.openSectionId()).find((r) => r.id === pid)?.role ?? "icon";
 }
 
-export function ensureExpand(scope: any, pid: string) {
+export function ensureExpand(scope: Scope_ensureExpand, pid: string) {
   const ids = scope.sectionIds();
   if (!ids.includes(pid)) return;
   const nextOpen = scope.applyPlanetOpen(scope.openSectionId(), ids, pid);
@@ -13,25 +217,25 @@ export function ensureExpand(scope: any, pid: string) {
   void scope.showStage();
 }
 
-export function collapsePlanet(scope: any, pid: string) {
+export function collapsePlanet(scope: Scope_collapsePlanet, pid: string) {
   if (!scope.sectionIds().includes(pid) || scope.isCollapsed(pid)) return;
   scope.collapsedSectionIds = [...scope.collapsedSectionIds, pid];
   scope.persist();
 }
 
-export function currentBeside(scope: any): Beside {
+export function currentBeside(scope: Scope_currentBeside): Beside {
   if (scope.stageEmbed === "stars" || scope.stageEmbed === "settings") return scope.stageEmbed;
   if (scope.arch.front === "board") return "board";
   if (scope.arch.pid === scope.UNMAPPED_KEY && scope.arch.front !== "arch") return "unmapped";
   return null;
 }
 
-export function hideBesidePopouts(scope: any) {
+export function hideBesidePopouts(scope: Scope_hideBesidePopouts) {
   void scope.invoke("hide_window", { label: "stars-beside" }).catch(() => {});
   void scope.invoke("hide_window", { label: "settings-beside" }).catch(() => {});
 }
 
-export function clearArchToFront(scope: any) {
+export function clearArchToFront(scope: Scope_clearArchToFront) {
   if (scope.arch.front === "arch") return;
   let s = scope.arch;
   if (s.front === "board") s = scope.archBack(s);
@@ -39,7 +243,7 @@ export function clearArchToFront(scope: any) {
   scope.arch = s;
 }
 
-export function ownerStop(scope: any, owner: KeyOwner): string | null {
+export function ownerStop(scope: Scope_ownerStop, owner: KeyOwner): string | null {
   if (owner === "stars") return "rstars";
   if (owner === "settings") return "rsettings";
   if (owner === "unmapped") return `rhead-${scope.UNMAPPED_KEY}`;
@@ -47,31 +251,31 @@ export function ownerStop(scope: any, owner: KeyOwner): string | null {
   return null;
 }
 
-export function focusMkey(scope: any, id: string) {
+export function focusMkey(scope: Scope_focusMkey, id: string) {
   queueMicrotask(() => {
     const icon = document.querySelector(`[data-mkey="${CSS.escape(id)}"]`);
     if (icon instanceof HTMLElement) icon.focus();
   });
 }
 
-export function releaseKeysToRail(scope: any) {
+export function releaseKeysToRail(scope: Scope_releaseKeysToRail) {
   if (scope.keyOwner === "rail") return;
   scope.keyOwner = scope.keyOwnerNext(scope.keyOwner, { type: "select", other: "rail" });
   scope.reclaimRailRing();
 }
 
-export function openStageDest(scope: any, label: "stars" | "settings") {
+export function openStageDest(scope: Osd, label: "stars" | "settings") {
   scope.applyBeside(label);
 }
 
-export function popOutStars(scope: any) {
+export function popOutStars(scope: Pos) {
   if (scope.keyOwner === "stars") scope.walkOut();
   scope.stageEmbed = null;
   void scope.invoke("rail_stage_set", { revealed: false });
   void scope.invoke("dest_show", { dest: "stars-beside" });
 }
 
-export function applyBeside(scope: any, pick: BesidePick) {
+export function applyBeside(scope: Abs, pick: BesidePick) {
   const open = scope.currentBeside();
   const next = scope.besideNext(open, pick);
   if (next === open) return;
@@ -83,13 +287,13 @@ export function applyBeside(scope: any, pick: BesidePick) {
   else scope.stageEmbed = null;
 }
 
-export function walkInto(scope: any, target: WalkTarget) {
+export function walkInto(scope: Scope_walkInto, target: WalkTarget) {
   scope.applyBeside(target);
   scope.reselectStop = null;
   scope.keyOwner = scope.keyOwnerNext(scope.keyOwner, { type: "walkIn", target });
 }
 
-export function walkOut(scope: any) {
+export function walkOut(scope: Scope_walkOut) {
   const fromBoard = scope.keyOwner === "board" && scope.arch.front === "board";
   scope.reselectStop = scope.ownerStop(scope.keyOwner);
   scope.keyOwner = scope.keyOwnerNext(scope.keyOwner, { type: "walkOut" });
@@ -97,7 +301,7 @@ export function walkOut(scope: any) {
   scope.reclaimRailRing();
 }
 
-export function closeStageEmbed(scope: any) {
+export function closeStageEmbed(scope: Scope_closeStageEmbed) {
   const which = scope.stageEmbed;
   scope.stageEmbed = null;
   if (which && scope.keyOwner === which) {
@@ -115,18 +319,18 @@ export function closeStageEmbed(scope: any) {
   }
 }
 
-export function popOutSettings(scope: any) {
+export function popOutSettings(scope: Scope_popOutSettings) {
   if (scope.keyOwner === "settings") scope.walkOut();
   scope.stageEmbed = null;
   void scope.invoke("rail_stage_set", { revealed: false });
   void scope.invoke("dest_show", { dest: "settings-beside" });
 }
 
-export function popOutBoard(scope: any) {
+export function popOutBoard(scope: Scope_popOutBoard) {
   void scope.invoke("dest_show", { dest: "launchpad" });
 }
 
-export function coachIsDue(scope: any): boolean {
+export function coachIsDue(scope: Scope_coachIsDue): boolean {
   return scope.coachDue({
     trusted: !!scope.status?.trusted,
     stateLoaded: scope.stateLoaded,
@@ -136,19 +340,19 @@ export function coachIsDue(scope: any): boolean {
   });
 }
 
-export function maybeRevealCoach(scope: any) {
+export function maybeRevealCoach(scope: Scope_maybeRevealCoach) {
   if (!scope.bootParkDone || scope.coachRevealed || scope.embedded) return;
   if (!scope.coachIsDue()) return;
   scope.coachRevealed = true;
   void scope.showStage();
 }
 
-export function noteAx(scope: any, s: AxStatus) {
+export function noteAx(scope: Scope_noteAx, s: AxStatus) {
   scope.status = s;
   scope.maybeRevealCoach();
 }
 
-export async function coachClaim(scope: any) {
+export async function coachClaim(scope: Scope_coachClaim) {
   scope.coachError = "";
   try {
     await scope.invoke("claim_front_window");
@@ -163,7 +367,7 @@ export async function coachClaim(scope: any) {
   }
 }
 
-export async function coachSkip(scope: any) {
+export async function coachSkip(scope: Scope_coachSkip) {
   try {
     await scope.invoke("set_starter_coach_done");
   } catch {
@@ -171,7 +375,7 @@ export async function coachSkip(scope: any) {
   }
 }
 
-export async function showStage(scope: any) {
+export async function showStage(scope: Scope_showStage) {
   if (scope.embedded) return;
   scope.stageRevealed = true;
   try {
@@ -181,7 +385,7 @@ export async function showStage(scope: any) {
   }
 }
 
-export async function parkStage(scope: any) {
+export async function parkStage(scope: Scope_parkStage) {
   if (scope.embedded) return;
   scope.stageRevealed = false;
   try {
@@ -191,7 +395,7 @@ export async function parkStage(scope: any) {
   }
 }
 
-export function scheduleGraceRecheck(scope: any) {
+export function scheduleGraceRecheck(scope: Scope_scheduleGraceRecheck) {
   if (scope.graceRecheck) return;
   const wait = Math.max(16, scope.revealGraceUntil + 16 - Date.now());
   scope.graceRecheck = setTimeout(() => {
@@ -200,7 +404,7 @@ export function scheduleGraceRecheck(scope: any) {
   }, wait);
 }
 
-export function maybeAutoHide(scope: any) {
+export function maybeAutoHide(scope: Scope_maybeAutoHide) {
   if (scope.embedded || !scope.stageRevealed) return;
   if (Date.now() < scope.revealGraceUntil) {
     scope.scheduleGraceRecheck();
@@ -210,23 +414,23 @@ export function maybeAutoHide(scope: any) {
   void scope.parkStage();
 }
 
-export function parkAfterRaise(scope: any) {
+export function parkAfterRaise(scope: Scope_parkAfterRaise) {
   void scope.invoke("rail_stage_set", { revealed: false, reason: "raised" });
 }
 
-export function armNeededMouth(scope: any, item: { kind?: string; id?: string; title?: string }) {
+export function armNeededMouth(scope: Scope_armNeededMouth, item: { kind?: string; id?: string; title?: string }) {
   const act = scope.neededAct(item);
   if (!act) return;
   void scope.invoke("arm_companion_mouth", { id: act.id, title: act.title });
 }
 
-export function stageFocus(scope: any, inside: boolean) {
+export function stageFocus(scope: Scope_stageFocus, inside: boolean) {
   if (scope.embedded) return;
   scope.focusInside = inside;
   if (!inside) scope.maybeAutoHide();
 }
 
-export function previewStop(scope: any, id: string | null): boolean {
+export function previewStop(scope: Scope_previewStop, id: string | null): boolean {
   if (!id) return false;
   return (
     id.startsWith("rraise-") ||

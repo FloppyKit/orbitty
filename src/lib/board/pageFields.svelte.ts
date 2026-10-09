@@ -1,6 +1,129 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function drawerStops(scope: any, card: KanbanCard): RingStop[] {
+
+import type { KanbanCard, PersistedState, Project, Tag, WindowInfo } from "../persist";
+import type { RingStop } from "../menuKeys.svelte";
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_drawerStops = {
+  setDue: (...args: any[]) => any;
+  toggleSubtask: (...args: any[]) => any;
+  deleteSubtask: (...args: any[]) => any;
+  tags: Tag[];
+  toggleCardTag: (...args: any[]) => any;
+  winFor: (...args: any[]) => WindowInfo | undefined;
+  focusCard: (...args: any[]) => Promise<any>;
+  setRating: (...args: any[]) => any;
+  deleteTodo: (...args: any[]) => any;
+};
+
+type Scope_saveTitle = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_undoThisTask = {
+  invoke: Invoke;
+  loadState: (...args: any[]) => Promise<any>;
+};
+
+type Scope_saveNotes = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_setPlanet = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  logEvent: (...args: any[]) => any;
+};
+
+type Scope_setAgent = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  logEvent: (...args: any[]) => any;
+};
+
+type Scope_newCardId = {};
+
+type Scope_childrenOf = {
+  kanbanCards: KanbanCard[];
+};
+
+type Scope_remainingKids = {
+  childrenOf: (...args: any[]) => KanbanCard[];
+};
+
+type Scope_toggleOpenSubtasks = {
+  openSubtaskIds: string[];
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_wouldCycle = {
+  kanbanCards: KanbanCard[];
+};
+
+type Scope_linkableTodos = {
+  kanbanCards: KanbanCard[];
+  wouldCycle: (...args: any[]) => boolean;
+};
+
+type Scope_mintTodo = {
+  projects: Project[];
+  selected: string;
+  newCardId: (...args: any[]) => string;
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  logEvent: (...args: any[]) => any;
+  collapsedSectionIds: string[];
+  emitTo: (...args: any[]) => any;
+  addingTodo: boolean;
+  newTodoTitle: string;
+  detailId: string | null;
+};
+
+type Scope_attachChild = {
+  wouldCycle: (...args: any[]) => boolean;
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_detachChild = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_setDue = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_dateInputValue = {};
+
+type Scope_cardHasTag = {};
+
+type Scope_addTagToCard = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  newTagName: string;
+};
+
+type Scope_toggleCardTag = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_toggleSubtask = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_deleteTodo = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  logEvent: (...args: any[]) => any;
+  previewEdit: boolean;
+  detailId: string | null;
+  neededSelectedId: string | null;
+};
+
+type Scope_setRating = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_deleteSubtask = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+export function drawerStops(scope: Scope_drawerStops, card: KanbanCard): RingStop[] {
   const focusStop = (id: string) => () => {
     document
       .querySelector<HTMLElement>(`[data-mkey="${CSS.escape(id)}"]`)
@@ -48,7 +171,7 @@ export function drawerStops(scope: any, card: KanbanCard): RingStop[] {
   return stops;
 }
 
-export function saveTitle(scope: any, card: KanbanCard, raw: string) {
+export function saveTitle(scope: Scope_saveTitle, card: KanbanCard, raw: string) {
   const title = raw.trim();
   if (!title || title === card.title) return;
   scope.mutate((s) => {
@@ -58,7 +181,7 @@ export function saveTitle(scope: any, card: KanbanCard, raw: string) {
   });
 }
 
-export async function undoThisTask(scope: any, card: KanbanCard) {
+export async function undoThisTask(scope: Scope_undoThisTask, card: KanbanCard) {
   try {
     await scope.invoke("undo_task", { cardId: card.id });
     await scope.loadState();
@@ -67,7 +190,7 @@ export async function undoThisTask(scope: any, card: KanbanCard) {
   }
 }
 
-export function saveNotes(scope: any, card: KanbanCard, raw: string) {
+export function saveNotes(scope: Scope_saveNotes, card: KanbanCard, raw: string) {
   const notes = raw.trim();
   if (notes === (card.notes ?? "")) return;
   scope.mutate((s) => {
@@ -79,7 +202,7 @@ export function saveNotes(scope: any, card: KanbanCard, raw: string) {
   });
 }
 
-export function setPlanet(scope: any, card: KanbanCard, projectId: string) {
+export function setPlanet(scope: Scope_setPlanet, card: KanbanCard, projectId: string) {
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) =>
       c.id === card.id
@@ -90,7 +213,7 @@ export function setPlanet(scope: any, card: KanbanCard, projectId: string) {
   scope.logEvent("board-planet", { cardId: card.id, projectId }, projectId || undefined);
 }
 
-export function setAgent(scope: any, card: KanbanCard, agentId: string) {
+export function setAgent(scope: Scope_setAgent, card: KanbanCard, agentId: string) {
   const assignedAgentId = agentId || null;
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) =>
@@ -111,21 +234,21 @@ export function setAgent(scope: any, card: KanbanCard, agentId: string) {
   );
 }
 
-export function newCardId(scope: any): string {
+export function newCardId(scope: Scope_newCardId): string {
   return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function childrenOf(scope: any, parentId: string): KanbanCard[] {
+export function childrenOf(scope: Scope_childrenOf, parentId: string): KanbanCard[] {
   return scope.kanbanCards.filter(
     (c) => c.parentId === parentId && c.kind !== "needed" && c.kind !== "window",
   );
 }
 
-export function remainingKids(scope: any, parentId: string): number {
+export function remainingKids(scope: Scope_remainingKids, parentId: string): number {
   return scope.childrenOf(parentId).filter((c) => c.status !== "done").length;
 }
 
-export function toggleOpenSubtasks(scope: any, parentId: string, e: MouseEvent) {
+export function toggleOpenSubtasks(scope: Scope_toggleOpenSubtasks, parentId: string, e: MouseEvent) {
   e.preventDefault();
   e.stopPropagation();
   const on = scope.openSubtaskIds.includes(parentId);
@@ -138,7 +261,7 @@ export function toggleOpenSubtasks(scope: any, parentId: string, e: MouseEvent) 
   });
 }
 
-export function wouldCycle(scope: any, parentId: string, childId: string): boolean {
+export function wouldCycle(scope: Scope_wouldCycle, parentId: string, childId: string): boolean {
   let id: string | null | undefined = parentId;
   const seen = new Set<string>();
   while (id) {
@@ -150,7 +273,7 @@ export function wouldCycle(scope: any, parentId: string, childId: string): boole
   return false;
 }
 
-export function linkableTodos(scope: any, parent: KanbanCard): KanbanCard[] {
+export function linkableTodos(scope: Scope_linkableTodos, parent: KanbanCard): KanbanCard[] {
   return scope.kanbanCards.filter(
     (c) =>
       c.id !== parent.id &&
@@ -161,7 +284,7 @@ export function linkableTodos(scope: any, parent: KanbanCard): KanbanCard[] {
   );
 }
 
-export function mintTodo(scope: any, title: string, parentId?: string) {
+export function mintTodo(scope: Scope_mintTodo, title: string, parentId?: string) {
   const t = title.trim();
   if (!t) return;
   const now = Date.now() / 1000;
@@ -195,7 +318,7 @@ export function mintTodo(scope: any, title: string, parentId?: string) {
   }
 }
 
-export function attachChild(scope: any, parent: KanbanCard, childId: string) {
+export function attachChild(scope: Scope_attachChild, parent: KanbanCard, childId: string) {
   if (!childId || scope.wouldCycle(parent.id, childId)) return;
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) =>
@@ -206,7 +329,7 @@ export function attachChild(scope: any, parent: KanbanCard, childId: string) {
   });
 }
 
-export function detachChild(scope: any, childId: string) {
+export function detachChild(scope: Scope_detachChild, childId: string) {
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) =>
       c.id === childId
@@ -216,7 +339,7 @@ export function detachChild(scope: any, childId: string) {
   });
 }
 
-export function setDue(scope: any, card: KanbanCard, dateValue: string) {
+export function setDue(scope: Scope_setDue, card: KanbanCard, dateValue: string) {
   // Local noon sidesteps DST/timezone edge flips on the stored epoch.
   const dueAt = dateValue
     ? new Date(`${dateValue}T12:00:00`).getTime() / 1000
@@ -228,17 +351,17 @@ export function setDue(scope: any, card: KanbanCard, dateValue: string) {
   });
 }
 
-export function dateInputValue(scope: any, card: KanbanCard): string {
+export function dateInputValue(scope: Scope_dateInputValue, card: KanbanCard): string {
   if (!card.dueAt) return "";
   const d = new Date(card.dueAt * 1000);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function cardHasTag(scope: any, card: KanbanCard, tagId: string): boolean {
+export function cardHasTag(scope: Scope_cardHasTag, card: KanbanCard, tagId: string): boolean {
   return (card.tagIds ?? []).includes(tagId);
 }
 
-export function addTagToCard(scope: any, card: KanbanCard, raw: string) {
+export function addTagToCard(scope: Scope_addTagToCard, card: KanbanCard, raw: string) {
   const name = raw.trim();
   if (!name) return;
   scope.mutate((s) => {
@@ -262,7 +385,7 @@ export function addTagToCard(scope: any, card: KanbanCard, raw: string) {
   scope.newTagName = "";
 }
 
-export function toggleCardTag(scope: any, card: KanbanCard, tagId: string) {
+export function toggleCardTag(scope: Scope_toggleCardTag, card: KanbanCard, tagId: string) {
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) => {
       if (c.id !== card.id) return c;
@@ -275,7 +398,7 @@ export function toggleCardTag(scope: any, card: KanbanCard, tagId: string) {
   });
 }
 
-export function toggleSubtask(scope: any, card: KanbanCard, subId: string) {
+export function toggleSubtask(scope: Scope_toggleSubtask, card: KanbanCard, subId: string) {
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) =>
       c.id === card.id
@@ -290,7 +413,7 @@ export function toggleSubtask(scope: any, card: KanbanCard, subId: string) {
   });
 }
 
-export function deleteTodo(scope: any, card: KanbanCard) {
+export function deleteTodo(scope: Scope_deleteTodo, card: KanbanCard) {
   if (card.kind === "window" || card.kind === "needed") return;
   const id = card.id;
   const now = Date.now() / 1000;
@@ -314,7 +437,7 @@ export function deleteTodo(scope: any, card: KanbanCard) {
   if (scope.neededSelectedId === id) scope.neededSelectedId = null;
 }
 
-export function setRating(scope: any, card: KanbanCard, n: number | null) {
+export function setRating(scope: Scope_setRating, card: KanbanCard, n: number | null) {
   const rating = n != null && n >= 1 && n <= 7 ? n : null;
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) =>
@@ -325,7 +448,7 @@ export function setRating(scope: any, card: KanbanCard, n: number | null) {
   });
 }
 
-export function deleteSubtask(scope: any, card: KanbanCard, subId: string) {
+export function deleteSubtask(scope: Scope_deleteSubtask, card: KanbanCard, subId: string) {
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) =>
       c.id === card.id

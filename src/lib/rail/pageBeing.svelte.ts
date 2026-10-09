@@ -1,6 +1,237 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function claim(scope: any, windowId: string, projectId: string) {
+
+import type { CharLook, Claim, KanbanCard, PointsEntry, Project, TitleOverride, WindowInfo } from "../persist";
+
+interface BittyKind {
+  name: string;
+  slug: string;
+  palettes: string[];
+}
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_claim = {
+  nowEpoch: (...args: any[]) => number;
+  windows: WindowInfo[];
+  liveClaims: Claim[];
+  claims: Claim[];
+  rollCharSeed: (...args: any[]) => number;
+  titleIndexFor: (...args: any[]) => number;
+  noteClaims: (...args: any[]) => any;
+  revealPlanet: (...args: any[]) => any;
+  titleOverrides: TitleOverride[];
+  kanbanCards: KanbanCard[];
+  isClinicalOrMaster: (...args: any[]) => boolean;
+  persist: (...args: any[]) => Promise<any>;
+  sleeperStamps: (...args: any[]) => Partial<Claim>;
+};
+
+type Scope_unclaim = {
+  claims: Claim[];
+  liveClaims: Claim[];
+  nowEpoch: (...args: any[]) => number;
+  kanbanCards: KanbanCard[];
+  persist: (...args: any[]) => Promise<any>;
+};
+
+type Scope_completeWindow = {
+  nowEpoch: (...args: any[]) => number;
+  isClinicalOrMaster: (...args: any[]) => boolean;
+  titleOverrides: TitleOverride[];
+  kanbanCards: KanbanCard[];
+  newCardId: (...args: any[]) => string;
+  persist: (...args: any[]) => Promise<any>;
+  invoke: Invoke;
+  tick: (...args: any[]) => Promise<any>;
+  pointsToday: (...args: any[]) => number;
+  DAILY_CAP: number;
+  pointsLedger: PointsEntry[];
+  todayKey: (...args: any[]) => string;
+};
+
+type Scope_completeTodo = {
+  nowEpoch: (...args: any[]) => number;
+  pointsLedger: PointsEntry[];
+  pointsToday: (...args: any[]) => number;
+  DAILY_CAP: number;
+  kanbanCards: KanbanCard[];
+  todayKey: (...args: any[]) => string;
+  persist: (...args: any[]) => Promise<any>;
+};
+
+type Scope_circleComplete = {
+  completingIds: string[];
+};
+
+type Scope_logEvent = {
+  invoke: Invoke;
+};
+
+type Scope_addTodoTo = {
+  newTodoTitle: string;
+  nowEpoch: (...args: any[]) => number;
+  newCardId: (...args: any[]) => string;
+  kanbanCards: KanbanCard[];
+  addingTodoFor: string | null;
+  revealPlanet: (...args: any[]) => any;
+  persist: (...args: any[]) => Promise<any>;
+  logEvent: (...args: any[]) => any;
+  openKanbanFocus: (...args: any[]) => Promise<any>;
+};
+
+type Scope_occupancyOf = {};
+
+type Scope_setSpritePack = {
+  claims: Claim[];
+  liveClaims: Claim[];
+  persist: (...args: any[]) => Promise<any>;
+};
+
+type Scope_beingClaim = {
+  beingEditorFor: string | null;
+  liveClaims: Claim[];
+};
+
+type Scope_beingWindow = {
+  beingEditorFor: string | null;
+  windows: WindowInfo[];
+};
+
+type Scope_refreshBeingPreview = {
+  editorLook: CharLook | null;
+  editorPreview: string;
+  invoke: Invoke;
+};
+
+type Scope_commitBeingLook = {
+  beingEditorFor: string | null;
+  editorLook: CharLook | null;
+  claims: Claim[];
+  liveClaims: Claim[];
+  persist: (...args: any[]) => Promise<any>;
+  refreshBeingPreview: (...args: any[]) => Promise<any>;
+};
+
+type Scope_openBeingEditor = {
+  liveClaims: Claim[];
+  bittyKinds: BittyKind[];
+  invoke: Invoke;
+  rollCharSeed: (...args: any[]) => number;
+  claims: Claim[];
+  beingEditorFor: string | null;
+  editorLook: CharLook | null;
+  commitBeingLook: (...args: any[]) => Promise<any>;
+};
+
+type Scope_closeBeingEditor = {
+  beingEditorFor: string | null;
+  editorLook: CharLook | null;
+  editorPreview: string;
+};
+
+type Scope_beingKindIndex = {
+  editorLook: CharLook | null;
+};
+
+type Scope_beingPaletteIndex = {
+  editorLook: CharLook | null;
+};
+
+type Scope_cycleKind = {
+  editorLook: CharLook | null;
+  bittyKinds: BittyKind[];
+  beingKindIndex: (...args: any[]) => number;
+  beingPaletteIndex: (...args: any[]) => number;
+  commitBeingLook: (...args: any[]) => Promise<any>;
+};
+
+type Scope_cyclePalette = {
+  editorLook: CharLook | null;
+  bittyKinds: BittyKind[];
+  beingKindIndex: (...args: any[]) => number;
+  beingPaletteIndex: (...args: any[]) => number;
+  commitBeingLook: (...args: any[]) => Promise<any>;
+};
+
+type Scope_kindLabel = {
+  bittyKinds: BittyKind[];
+  beingKindIndex: (...args: any[]) => number;
+};
+
+type Scope_paletteLabel = {
+  bittyKinds: BittyKind[];
+  beingKindIndex: (...args: any[]) => number;
+  beingPaletteIndex: (...args: any[]) => number;
+};
+
+type Scope_rerollBeing = {
+  rollCharSeed: (...args: any[]) => number;
+  editorLook: CharLook | null;
+  invoke: Invoke;
+  commitBeingLook: (...args: any[]) => Promise<any>;
+};
+
+type Scope_beingScale = {
+  beingClaim: (...args: any[]) => Claim | undefined;
+  spriteScale: number;
+};
+
+type Scope_onBeingScaleInput = {
+  beingEditorFor: string | null;
+  clampSpriteScale: (...args: any[]) => any;
+  claims: Claim[];
+  liveClaims: Claim[];
+  lastHabitatSig: string;
+  syncHabitat: (...args: any[]) => Promise<any>;
+};
+
+type Scope_onBeingScaleCommit = {
+  persist: (...args: any[]) => Promise<any>;
+};
+
+type Scope_resetBeingScale = {
+  beingEditorFor: string | null;
+  claims: Claim[];
+  liveClaims: Claim[];
+  persist: (...args: any[]) => Promise<any>;
+};
+
+type Scope_beingMoveHome = {
+  beingEditorFor: string | null;
+  claim: (...args: any[]) => any;
+};
+
+type Scope_beingUnclaim = {
+  beingEditorFor: string | null;
+  unclaim: (...args: any[]) => any;
+  closeBeingEditor: (...args: any[]) => any;
+};
+
+type Scope_createProjectOnly = {
+  newProjectName: string;
+  createProject: (...args: any[]) => Project;
+  creatingProject: boolean;
+  embedded: boolean;
+  sheetSlot: string;
+  persist: (...args: any[]) => Promise<any>;
+  invoke: Invoke;
+};
+
+type Scope_armRemove = {
+  rmArmedFor: string | null;
+  rmErrorFor: { id: string; msg: string } | null;
+};
+
+type Scope_removeProject = {
+  invoke: Invoke;
+  rmArmedFor: string | null;
+  rmErrorFor: { id: string; msg: string } | null;
+  projects: Project[];
+  sheetSlot: string;
+  syncHabitat: (...args: any[]) => Promise<any>;
+};
+
+export function claim(scope: Scope_claim, windowId: string, projectId: string) {
   const now = scope.nowEpoch();
   const w = scope.windows.find((x) => x.id === windowId);
   // The sprite pick / generated being / per-walker size are per-window
@@ -61,7 +292,7 @@ export function claim(scope: any, windowId: string, projectId: string) {
   scope.persist();
 }
 
-export function unclaim(scope: any, windowId: string) {
+export function unclaim(scope: Scope_unclaim, windowId: string) {
   scope.claims = scope.liveClaims.filter((c) => c.windowId !== windowId);
   const now = scope.nowEpoch();
   scope.kanbanCards = scope.kanbanCards.map((c) =>
@@ -72,7 +303,7 @@ export function unclaim(scope: any, windowId: string) {
   scope.persist();
 }
 
-export async function completeWindow(scope: any, w: WindowInfo, project: Project) {
+export async function completeWindow(scope: Scope_completeWindow, w: WindowInfo, project: Project) {
   const now = scope.nowEpoch();
   const clinicalOrMaster = scope.isClinicalOrMaster(w.id);
   const shown = scope.titleOverrides.find((o) => o.windowId === w.id)?.title || w.title;
@@ -175,7 +406,7 @@ export async function completeWindow(scope: any, w: WindowInfo, project: Project
   await scope.tick();
 }
 
-export function completeTodo(scope: any, card: KanbanCard) {
+export function completeTodo(scope: Scope_completeTodo, card: KanbanCard) {
   const now = scope.nowEpoch();
   const alreadyAwarded = scope.pointsLedger.some((e) => e.cardId === card.id);
   const base = card.clinicalOrMaster ? 2 : 1;
@@ -207,7 +438,7 @@ export function completeTodo(scope: any, card: KanbanCard) {
   scope.persist();
 }
 
-export function circleComplete(scope: any, key: string, fn: () => void) {
+export function circleComplete(scope: Scope_circleComplete, key: string, fn: () => void) {
   if (scope.completingIds.includes(key)) return;
   scope.completingIds = [...scope.completingIds, key];
   setTimeout(() => {
@@ -216,7 +447,7 @@ export function circleComplete(scope: any, key: string, fn: () => void) {
   }, 240);
 }
 
-export function logEvent(scope: any, eType: string, content: Record<string, unknown>, projectId?: string) {
+export function logEvent(scope: Scope_logEvent, eType: string, content: Record<string, unknown>, projectId?: string) {
   scope.invoke("log_event", {
     eType,
     content,
@@ -225,7 +456,7 @@ export function logEvent(scope: any, eType: string, content: Record<string, unkn
   }).catch(() => {});
 }
 
-export function addTodoTo(scope: any, projectId: string) {
+export function addTodoTo(scope: Scope_addTodoTo, projectId: string) {
   const title = scope.newTodoTitle.trim();
   if (!title) return;
   const now = scope.nowEpoch();
@@ -256,30 +487,30 @@ export function addTodoTo(scope: any, projectId: string) {
   scope.openKanbanFocus(id);
 }
 
-export function occupancyOf(scope: any, c: Claim): string {
+export function occupancyOf(scope: Scope_occupancyOf, c: Claim): string {
   return c.projectId;
 }
 
-export function setSpritePack(scope: any, windowId: string, packId: string | null) {
+export function setSpritePack(scope: Scope_setSpritePack, windowId: string, packId: string | null) {
   scope.claims = scope.liveClaims.map((c) =>
     c.windowId === windowId ? { ...c, spritePackId: packId || null } : c,
   );
   scope.persist();
 }
 
-export function beingClaim(scope: any): Claim | undefined {
+export function beingClaim(scope: Scope_beingClaim): Claim | undefined {
   return scope.beingEditorFor
     ? scope.liveClaims.find((c) => c.windowId === scope.beingEditorFor)
     : undefined;
 }
 
-export function beingWindow(scope: any): WindowInfo | undefined {
+export function beingWindow(scope: Scope_beingWindow): WindowInfo | undefined {
   return scope.beingEditorFor
     ? scope.windows.find((w) => w.id === scope.beingEditorFor)
     : undefined;
 }
 
-export async function refreshBeingPreview(scope: any) {
+export async function refreshBeingPreview(scope: Scope_refreshBeingPreview) {
   if (!scope.editorLook) {
     scope.editorPreview = "";
     return;
@@ -295,7 +526,7 @@ export async function refreshBeingPreview(scope: any) {
   }
 }
 
-export async function commitBeingLook(scope: any, seed?: number) {
+export async function commitBeingLook(scope: Scope_commitBeingLook, seed?: number) {
   const id = scope.beingEditorFor;
   if (!id || !scope.editorLook) return;
   scope.claims = scope.liveClaims.map((c) =>
@@ -307,7 +538,7 @@ export async function commitBeingLook(scope: any, seed?: number) {
   await scope.refreshBeingPreview();
 }
 
-export async function openBeingEditor(scope: any, windowId: string) {
+export async function openBeingEditor(scope: Scope_openBeingEditor, windowId: string) {
   const c = scope.liveClaims.find((x) => x.windowId === windowId);
   if (!c) return; // only claimed windows have beings
   if (scope.bittyKinds.length === 0) {
@@ -346,21 +577,21 @@ export async function openBeingEditor(scope: any, windowId: string) {
   await scope.commitBeingLook();
 }
 
-export function closeBeingEditor(scope: any) {
+export function closeBeingEditor(scope: Scope_closeBeingEditor) {
   scope.beingEditorFor = null;
   scope.editorLook = null;
   scope.editorPreview = "";
 }
 
-export function beingKindIndex(scope: any): number {
+export function beingKindIndex(scope: Scope_beingKindIndex): number {
   return scope.editorLook?.kind ?? 0;
 }
 
-export function beingPaletteIndex(scope: any): number {
+export function beingPaletteIndex(scope: Scope_beingPaletteIndex): number {
   return scope.editorLook?.palette ?? 0;
 }
 
-export function cycleKind(scope: any, dir: 1 | -1) {
+export function cycleKind(scope: Scope_cycleKind, dir: 1 | -1) {
   if (!scope.editorLook || scope.bittyKinds.length === 0) return;
   const n = scope.bittyKinds.length;
   const k = (((scope.beingKindIndex() + dir) % n) + n) % n;
@@ -369,7 +600,7 @@ export function cycleKind(scope: any, dir: 1 | -1) {
   scope.commitBeingLook();
 }
 
-export function cyclePalette(scope: any, dir: 1 | -1) {
+export function cyclePalette(scope: Scope_cyclePalette, dir: 1 | -1) {
   if (!scope.editorLook || scope.bittyKinds.length === 0) return;
   const n = scope.bittyKinds[scope.beingKindIndex()]?.palettes.length || 1;
   const p = (((scope.beingPaletteIndex() + dir) % n) + n) % n;
@@ -377,15 +608,15 @@ export function cyclePalette(scope: any, dir: 1 | -1) {
   scope.commitBeingLook();
 }
 
-export function kindLabel(scope: any): string {
+export function kindLabel(scope: Scope_kindLabel): string {
   return scope.bittyKinds[scope.beingKindIndex()]?.name ?? "";
 }
 
-export function paletteLabel(scope: any): string {
+export function paletteLabel(scope: Scope_paletteLabel): string {
   return scope.bittyKinds[scope.beingKindIndex()]?.palettes[scope.beingPaletteIndex()] ?? "";
 }
 
-export async function rerollBeing(scope: any) {
+export async function rerollBeing(scope: Scope_rerollBeing) {
   const seed = scope.rollCharSeed();
   try {
     scope.editorLook = await scope.invoke<CharLook>("roll_char_look", { seed });
@@ -395,11 +626,11 @@ export async function rerollBeing(scope: any) {
   await scope.commitBeingLook(seed);
 }
 
-export function beingScale(scope: any): number {
+export function beingScale(scope: Scope_beingScale): number {
   return scope.beingClaim()?.spriteScale ?? scope.spriteScale;
 }
 
-export function onBeingScaleInput(scope: any, e: Event) {
+export function onBeingScaleInput(scope: Scope_onBeingScaleInput, e: Event) {
   const id = scope.beingEditorFor;
   if (!id) return;
   const v = scope.clampSpriteScale(+(e.target as HTMLInputElement).value);
@@ -410,11 +641,11 @@ export function onBeingScaleInput(scope: any, e: Event) {
   scope.syncHabitat();
 }
 
-export function onBeingScaleCommit(scope: any) {
+export function onBeingScaleCommit(scope: Scope_onBeingScaleCommit) {
   scope.persist();
 }
 
-export function resetBeingScale(scope: any) {
+export function resetBeingScale(scope: Scope_resetBeingScale) {
   const id = scope.beingEditorFor;
   if (!id) return;
   scope.claims = scope.liveClaims.map((c) =>
@@ -423,20 +654,20 @@ export function resetBeingScale(scope: any) {
   scope.persist();
 }
 
-export function beingMoveHome(scope: any, projectId: string) {
+export function beingMoveHome(scope: Scope_beingMoveHome, projectId: string) {
   const id = scope.beingEditorFor;
   if (!id) return;
   scope.claim(id, projectId);
 }
 
-export function beingUnclaim(scope: any) {
+export function beingUnclaim(scope: Scope_beingUnclaim) {
   const id = scope.beingEditorFor;
   if (!id) return;
   scope.unclaim(id);
   scope.closeBeingEditor();
 }
 
-export async function createProjectOnly(scope: any) {
+export async function createProjectOnly(scope: Scope_createProjectOnly) {
   if (!scope.newProjectName.trim()) return;
   const p = scope.createProject(scope.newProjectName);
   scope.newProjectName = "";
@@ -449,12 +680,12 @@ export async function createProjectOnly(scope: any) {
   setTimeout(() => scope.invoke("bring_planet_front", { id: p.id }).catch(() => {}), 50);
 }
 
-export function armRemove(scope: any, id: string) {
+export function armRemove(scope: Scope_armRemove, id: string) {
   scope.rmArmedFor = id;
   scope.rmErrorFor = null;
 }
 
-export async function removeProject(scope: any, p: Project) {
+export async function removeProject(scope: Scope_removeProject, p: Project) {
   try {
     await scope.invoke("project_rm", { id: p.id });
   } catch (e) {

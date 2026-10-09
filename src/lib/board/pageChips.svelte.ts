@@ -1,6 +1,105 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function sideCount(scope: any, list: string): number {
+
+import type { AgentRun, AgentShortcut, KanbanCard, PersistedState, PointsEntry, Project, Tag, TitleOverride, WindowInfo } from "../persist";
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_sideCount = {
+  openCards: KanbanCard[];
+  isDueToday: (...args: any[]) => boolean;
+  doneCards: KanbanCard[];
+  listOf: (...args: any[]) => string;
+};
+
+type Scope_projectName = {
+  projects: Project[];
+};
+
+type Scope_winFor = {
+  windows: WindowInfo[];
+};
+
+type Scope_doneChip = {
+  startOfToday: (...args: any[]) => number;
+};
+
+type Scope_notesSnippet = {};
+
+type Scope_subProgress = {};
+
+type Scope_agentName = {
+  agentShortcuts: AgentShortcut[];
+};
+
+type Scope_runState = {
+  agentRuns: AgentRun[];
+};
+
+type Scope_runIsLive = {};
+
+type Scope_isWriting = {
+  agentRuns: AgentRun[];
+  runIsLive: (...args: any[]) => boolean;
+};
+
+type Scope_planetIsLive = {
+  hackProjectId: string | null;
+  agentRuns: AgentRun[];
+  runIsLive: (...args: any[]) => boolean;
+};
+
+type Scope_hasAgent = {
+  agentRuns: AgentRun[];
+  runIsLive: (...args: any[]) => boolean;
+};
+
+type Scope_goToken = {};
+
+type Scope_neededForTodo = {
+  goToken: (...args: any[]) => string | null;
+  kanbanCards: KanbanCard[];
+};
+
+type Scope_isDoingRow = {};
+
+type Scope_ageLabel = {};
+
+type Scope_dueInfo = {
+  startOfToday: (...args: any[]) => number;
+};
+
+type Scope_showProj = {
+  livePlanetId: (...args: any[]) => string | null;
+};
+
+type Scope_osThemeId = {};
+
+type Scope_loadState = {
+  invoke: Invoke;
+  themeId: string;
+  KNOWN_THEMES: Set<string>;
+  osThemeId: (...args: any[]) => string;
+  windowOpacity: number;
+  clampWindowOpacity: (...args: any[]) => any;
+  projects: Project[];
+  applyPendingFocus: (...args: any[]) => any;
+  tags: Tag[];
+  kanbanCards: KanbanCard[];
+  pointsLedger: PointsEntry[];
+  titleOverrides: TitleOverride[];
+  collapsedSectionIds: string[];
+  agentShortcuts: AgentShortcut[];
+  agentRuns: AgentRun[];
+  neededSplit: number;
+  clampSharedSplit: (...args: any[]) => any;
+  previewWidth: number;
+  openSubtaskIds: string[];
+  hackProjectId: string | null;
+  migratingCardTrackers: boolean;
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+export function sideCount(scope: Scope_sideCount, list: string): number {
   if (list === "today") return scope.openCards.filter((c) => scope.isDueToday(c)).length;
   if (list === "done") return scope.doneCards.length;
   // LP-SPLIT: Inbox counts the whole consolidated all-planets pile.
@@ -8,45 +107,45 @@ export function sideCount(scope: any, list: string): number {
   return scope.openCards.filter((c) => scope.listOf(c) === list).length;
 }
 
-export function projectName(scope: any, id: string): string {
+export function projectName(scope: Scope_projectName, id: string): string {
   return scope.projects.find((p) => p.id === id)?.name ?? "";
 }
 
-export function winFor(scope: any, card: KanbanCard): WindowInfo | undefined {
+export function winFor(scope: Scope_winFor, card: KanbanCard): WindowInfo | undefined {
   return card.windowId
     ? scope.windows.find((w) => w.id === card.windowId)
     : undefined;
 }
 
-export function doneChip(scope: any, card: KanbanCard): string {
+export function doneChip(scope: Scope_doneChip, card: KanbanCard): string {
   if ((card.completedAt ?? 0) < scope.startOfToday()) return "";
   return card.pointsAwarded > 0 ? `+${card.pointsAwarded}` : "cap";
 }
 
-export function notesSnippet(scope: any, card: KanbanCard): string {
+export function notesSnippet(scope: Scope_notesSnippet, card: KanbanCard): string {
   const first = (card.notes ?? "").split("\n")[0].trim();
   return first.length > 60 ? `${first.slice(0, 60)}…` : first;
 }
 
-export function subProgress(scope: any, card: KanbanCard): string {
+export function subProgress(scope: Scope_subProgress, card: KanbanCard): string {
   const subs = card.subtasks ?? [];
   if (subs.length === 0) return "";
   return `${subs.filter((s) => s.done).length}/${subs.length}`;
 }
 
-export function agentName(scope: any, card: KanbanCard): string {
+export function agentName(scope: Scope_agentName, card: KanbanCard): string {
   const id = card.assignedAgentId;
   if (!id) return "";
   return scope.agentShortcuts.find((a) => a.id === id)?.name ?? "";
 }
 
-export function runState(scope: any, card: KanbanCard): string {
+export function runState(scope: Scope_runState, card: KanbanCard): string {
   const r = scope.agentRuns.find((x) => x.cardId === card.id);
   if (!r || r.state === "done") return "";
   return r.state;
 }
 
-export function runIsLive(scope: any, r: AgentRun): boolean {
+export function runIsLive(scope: Scope_runIsLive, r: AgentRun): boolean {
   if (r.state !== "working" && r.state !== "starting" && r.state !== "blocked")
     return false;
   // GO→doing mints a working row with an empty seat. That is not a
@@ -54,29 +153,29 @@ export function runIsLive(scope: any, r: AgentRun): boolean {
   return !!(r.agentShortcutId || "").trim() || !!r.herdr?.agentName;
 }
 
-export function isWriting(scope: any, card: KanbanCard): boolean {
+export function isWriting(scope: Scope_isWriting, card: KanbanCard): boolean {
   const r = scope.agentRuns.find((x) => x.cardId === card.id);
   return !!r && scope.runIsLive(r);
 }
 
-export function planetIsLive(scope: any, projectId: string | null | undefined): boolean {
+export function planetIsLive(scope: Scope_planetIsLive, projectId: string | null | undefined): boolean {
   if (!projectId) return false;
   if (scope.hackProjectId === projectId) return true;
   return scope.agentRuns.some((r) => r.planetId === projectId && scope.runIsLive(r));
 }
 
-export function hasAgent(scope: any, card: KanbanCard): boolean {
+export function hasAgent(scope: Scope_hasAgent, card: KanbanCard): boolean {
   if (card.assignedAgentId) return true;
   const r = scope.agentRuns.find((x) => x.cardId === card.id);
   return !!r && scope.runIsLive(r);
 }
 
-export function goToken(scope: any, title: string): string | null {
+export function goToken(scope: Scope_goToken, title: string): string | null {
   const m = title.match(/GO-[A-Z0-9]+(?:-[A-Z0-9]+)*/i);
   return m ? m[0].toUpperCase() : null;
 }
 
-export function neededForTodo(scope: any, card: KanbanCard): KanbanCard | undefined {
+export function neededForTodo(scope: Scope_neededForTodo, card: KanbanCard): KanbanCard | undefined {
   const go = scope.goToken(card.title);
   if (!go) return undefined;
   const planet = card.projectId || "";
@@ -90,7 +189,7 @@ export function neededForTodo(scope: any, card: KanbanCard): KanbanCard | undefi
   );
 }
 
-export function isDoingRow(scope: any, c: KanbanCard): boolean {
+export function isDoingRow(scope: Scope_isDoingRow, c: KanbanCard): boolean {
   return (
     c.status === "doing" &&
     c.kind !== "needed" &&
@@ -99,7 +198,7 @@ export function isDoingRow(scope: any, c: KanbanCard): boolean {
   );
 }
 
-export function ageLabel(scope: any, card: KanbanCard): string {
+export function ageLabel(scope: Scope_ageLabel, card: KanbanCard): string {
   const t = card.lastTouchedAt || card.createdAt;
   if (!t) return "";
   const s = Date.now() / 1000 - t;
@@ -109,7 +208,7 @@ export function ageLabel(scope: any, card: KanbanCard): string {
   return `${Math.max(1, Math.round(s / 86400))}d`;
 }
 
-export function dueInfo(scope: any, card: KanbanCard): { label: string; overdue: boolean } | null {
+export function dueInfo(scope: Scope_dueInfo, card: KanbanCard): { label: string; overdue: boolean } | null {
   if (!card.dueAt) return null;
   const d = new Date(card.dueAt * 1000);
   const day = new Date(d);
@@ -126,17 +225,17 @@ export function dueInfo(scope: any, card: KanbanCard): { label: string; overdue:
   };
 }
 
-export function showProj(scope: any, card: KanbanCard): boolean {
+export function showProj(scope: Scope_showProj, card: KanbanCard): boolean {
   return scope.livePlanetId(card) !== null;
 }
 
-export function osThemeId(scope: any): string {
+export function osThemeId(scope: Scope_osThemeId): string {
   return window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "systemDark"
     : "systemLight";
 }
 
-export async function loadState(scope: any) {
+export async function loadState(scope: Scope_loadState) {
   try {
     const s = await scope.invoke<PersistedState>("load_state");
     // "" means the rail follows the OS; retired ids (clear/liquidGlass)

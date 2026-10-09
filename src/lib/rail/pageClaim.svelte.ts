@@ -1,6 +1,378 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function titleFor(scope: any, w: WindowInfo): string {
+
+import type { ActionShortcut, AgentRun, AgentShortcut, CardTombstone, Claim, CompanionSlice, DrawerSlice, KanbanCard, PersistedState, PointsEntry, Project, SkySlice, StarsSlice, Tag, TitleOverride, TodoTree, WindowInfo, WindowTags } from "../persist";
+import type { BoardCol } from "./habitat";
+import type { CoachStory } from "./coach";
+
+interface AxStatus {
+  trusted: boolean;
+  bundlePath: string;
+  signingLine: string;
+  inBundle: boolean;
+  isAdhoc: boolean;
+}
+
+interface PackInfo {
+  id: string;
+  name: string;
+  license: string | null;
+  warnLicense: boolean;
+  frameCount: number;
+  path: string;
+  role: string;
+}
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_titleFor = {
+  titleOverrides: TitleOverride[];
+};
+
+type Scope_startRename = {
+  renamingId: string | null;
+  renameValue: string;
+  titleOverrides: TitleOverride[];
+};
+
+type Scope_openCtxMenu = {
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+  ctxAssignOpen: boolean;
+  newProjectName: string;
+};
+
+type Scope_ctxWindow = {
+  windows: WindowInfo[];
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+};
+
+type Scope_ctxProject = {
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+  liveClaims: Claim[];
+  projects: Project[];
+};
+
+type Scope_ctxAssign = {
+  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+  claim: (...args: any[]) => any;
+};
+
+type Scope_ctxCreateAndClaim = {
+  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  newProjectName: string;
+  createProject: (...args: any[]) => Project;
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+  claim: (...args: any[]) => any;
+};
+
+type Scope_ctxRename = {
+  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+  startRename: (...args: any[]) => any;
+};
+
+type Scope_ctxMinimize = {
+  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+  stow: (...args: any[]) => Promise<any>;
+};
+
+type Scope_ctxRestore = {
+  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+  restore: (...args: any[]) => Promise<any>;
+};
+
+type Scope_ctxCloseWindow = {
+  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+  invoke: Invoke;
+  tick: (...args: any[]) => Promise<any>;
+};
+
+type Scope_ctxUnclaim = {
+  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+  unclaim: (...args: any[]) => any;
+};
+
+type Scope_commitRename = {
+  renameValue: string;
+  titleOverrides: TitleOverride[];
+  persist: (...args: any[]) => Promise<any>;
+  renamingId: string | null;
+};
+
+type Scope_setWorkspaceRoot = {
+  invoke: Invoke;
+  projects: Project[];
+};
+
+type Scope_persist = {
+  stateLoaded: boolean;
+  windowDragHot: (...args: any[]) => boolean;
+  persistDeferred: boolean;
+  pendingDisk: { kanbanCards: KanbanCard[]; pointsLedger: PointsEntry[]; agentRuns: AgentRun[]; cardTombstones: CardTombstone[] } | null;
+  absorbPendingCards: (...args: any[]) => any;
+  themeChosen: boolean;
+  themeId: string;
+  windowOpacity: number;
+  projects: Project[];
+  liveClaims: Claim[];
+  tags: Tag[];
+  liveWindowTags: WindowTags[];
+  collapsedSectionIds: string[];
+  nudgeSuppressed: string[];
+  kanbanCards: KanbanCard[];
+  cardTombstones: CardTombstone[];
+  pointsLedger: PointsEntry[];
+  titleOverrides: TitleOverride[];
+  autohideRowChrome: boolean;
+  hideTitles: boolean;
+  hideAppIcons: boolean;
+  railBoardCols: BoardCol[];
+  spriteScale: number;
+  marbleDrift: boolean;
+  peerChrome: boolean;
+  planetIdle: string;
+  agentTerminal: string;
+  actionShortcuts: ActionShortcut[];
+  agentShortcuts: AgentShortcut[];
+  agentRuns: AgentRun[];
+  neededSplit: number;
+  previewWidth: number;
+  trackerSplit: number;
+  openSubtaskIds: string[];
+  todoTrees: TodoTree[];
+  treeGrowDays: number;
+  companionState: CompanionSlice;
+  starsState: StarsSlice;
+  skyState: SkySlice;
+  drawersState: Record<string, DrawerSlice>;
+  invoke: Invoke;
+  syncHabitat: (...args: any[]) => Promise<any>;
+};
+
+type Scope_sleeperRowFor = {
+  claimStableKey: (...args: any[]) => string | null;
+};
+
+type Scope_boardCardsFor = {
+  kanbanCards: KanbanCard[];
+  liveClaims: Claim[];
+};
+
+type Scope_habitatEntryFor = {
+  liveClaims: Claim[];
+  kanbanCards: KanbanCard[];
+  ageClass: (...args: any[]) => "fresh" | "fade" | "park" | "gone";
+};
+
+type Scope_runIsSeated = {};
+
+type Scope_goToken = {};
+
+type Scope_goNeededOnPlanet = {
+  goToken: (...args: any[]) => string | null;
+  kanbanCards: KanbanCard[];
+};
+
+type Scope_agentRowsFor = {
+  agentRuns: AgentRun[];
+  runIsSeated: (...args: any[]) => boolean;
+  kanbanCards: KanbanCard[];
+};
+
+type Scope_locateAgent = {
+  invoke: Invoke;
+};
+
+type Scope_agentEntriesFor = {
+  agentRuns: AgentRun[];
+  kanbanCards: KanbanCard[];
+  runIsSeated: (...args: any[]) => boolean;
+  agentShortcuts: AgentShortcut[];
+  goNeededOnPlanet: (...args: any[]) => boolean;
+};
+
+type Scope_habitatPlanetFor = {
+  isCollapsed: (...args: any[]) => boolean;
+  boardCardsFor: (...args: any[]) => any;
+  todoTrees: TodoTree[];
+  kanbanCards: KanbanCard[];
+  habitatEntryFor: (...args: any[]) => any;
+  agentEntriesFor: (...args: any[]) => any;
+};
+
+type Scope_habitatSnapshotPayload = {
+  spriteScale: number;
+  marbleDrift: boolean;
+  projects: Project[];
+  treeGrowDays: number;
+  habitatPlanetFor: (...args: any[]) => { projectId: string; collapsed: boolean; boardCards: any; todoTrees: any; entries: { id: string; minimized: boolean; iconBase64: string | null; age: string; asleep: boolean; spritePackId: string; charSeed: number; charLook: unknown; spriteScale: number; cardStatus: string; cardKind: string; neededState: string; agentSeed: string }[] };
+};
+
+type Scope_syncHabitat = {
+  stateLoaded: boolean;
+  status: AxStatus | null;
+  projects: Project[];
+  liveClaims: Claim[];
+  occupancyOf: (...args: any[]) => string;
+  ageClass: (...args: any[]) => "fresh" | "fade" | "park" | "gone";
+  windows: WindowInfo[];
+  sleeperRowFor: (...args: any[]) => WindowInfo;
+  habitatPlanetFor: (...args: any[]) => { projectId: string; collapsed: boolean; boardCards: any; todoTrees: any; entries: { id: string; minimized: boolean; iconBase64: string | null; age: string; asleep: boolean; spritePackId: string; charSeed: number; charLook: unknown; spriteScale: number; cardStatus: string; cardKind: string; neededState: string; agentSeed: string }[] };
+  packs: PackInfo[];
+  spriteScale: number;
+  marbleDrift: boolean;
+  starterStory: CoachStory;
+  lastHabitatSig: string;
+  invoke: Invoke;
+  habitatSnapshotPayload: (...args: any[]) => any;
+};
+
+type Scope_lastKnownRowFor = {
+  sleeperRowFor: (...args: any[]) => WindowInfo;
+};
+
+type Scope_syncHabitatLastKnown = {
+  stateLoaded: boolean;
+  embedded: boolean;
+  projects: Project[];
+  liveClaims: Claim[];
+  occupancyOf: (...args: any[]) => string;
+  lastKnownRowFor: (...args: any[]) => WindowInfo;
+  habitatPlanetFor: (...args: any[]) => { projectId: string; collapsed: boolean; boardCards: any; todoTrees: any; entries: { id: string; minimized: boolean; iconBase64: string | null; age: string; asleep: boolean; spritePackId: string; charSeed: number; charLook: unknown; spriteScale: number; cardStatus: string; cardKind: string; neededState: string; agentSeed: string }[] };
+  invoke: Invoke;
+  habitatSnapshotPayload: (...args: any[]) => any;
+};
+
+type Scope_flashRow = {
+  locateFlashIds: string[];
+};
+
+type Scope_locateRow = {
+  liveClaims: Claim[];
+  projects: Project[];
+  invoke: Invoke;
+  flashRow: (...args: any[]) => any;
+};
+
+type Scope_stow = {
+  invoke: Invoke;
+  tick: (...args: any[]) => Promise<any>;
+};
+
+type Scope_restore = {
+  invoke: Invoke;
+  touchClaim: (...args: any[]) => any;
+  tick: (...args: any[]) => Promise<any>;
+};
+
+type Scope_wakeSleeper = {
+  wakeNote: { kind: "ok" | "err"; text: string } | null;
+  invoke: Invoke;
+  touchClaim: (...args: any[]) => any;
+  tick: (...args: any[]) => Promise<any>;
+};
+
+type Scope_nudgeClaim = {
+  nudgeFor: string | null;
+  claim: (...args: any[]) => any;
+};
+
+type Scope_nudgeCreate = {
+  nudgeFor: string | null;
+  nudgeNewName: string;
+  createProject: (...args: any[]) => Project;
+  claim: (...args: any[]) => any;
+};
+
+type Scope_clampSpriteScale = {};
+
+type Scope_openKanban = {
+  invoke: Invoke;
+};
+
+type Scope_bringAllFront = {
+  invoke: Invoke;
+};
+
+type Scope_onBannerMouseDown = {
+  wordmarkDidDrag: boolean;
+  startPaneDrag: (...args: any[]) => void;
+};
+
+type Scope_onWordmarkClick = {
+  wordmarkDidDrag: boolean;
+  bringAllFront: (...args: any[]) => Promise<any>;
+};
+
+type Scope_openKanbanFocus = {
+  openKanban: (...args: any[]) => Promise<any>;
+  emitTo: (...args: any[]) => any;
+};
+
+type Scope_launchHermes = {
+  invoke: Invoke;
+  hermesNote: { kind: "ok" | "err"; text: string } | null;
+  rowsFor: (...args: any[]) => WindowInfo[];
+  todosFor: (...args: any[]) => KanbanCard[];
+};
+
+type Scope_toggleSoul = {
+  soulFor: string | null;
+  soulBody: string;
+  soulPath: string;
+  soulMsg: string;
+  invoke: Invoke;
+};
+
+type Scope_saveSoul = {
+  soulFor: string | null;
+  invoke: Invoke;
+  soulBody: string;
+  soulMsg: string;
+};
+
+type Scope_openSoulEditor = {
+  soulFor: string | null;
+  projects: Project[];
+  invoke: Invoke;
+  soulMsg: string;
+};
+
+type Scope_createProject = {
+  projects: Project[];
+  collapsedSectionIds: string[];
+};
+
+type Scope_revealPlanet = {
+  sectionIds: (...args: any[]) => string[];
+  collapsedSectionIds: string[];
+};
+
+type Scope_newCardId = {};
+
+type Scope_isClinicalOrMaster = {
+  tagsFor: (...args: any[]) => Tag[];
+};
+
+type Scope_titleIndexFor = {
+  windows: WindowInfo[];
+};
+
+type Scope_claimStableKey = {};
+
+type Scope_isHermesClass = {};
+
+type Scope_sleeperStamps = {
+  isHermesClass: (...args: any[]) => boolean;
+};
+
+type Scope_rollCharSeed = {};
+
+export function titleFor(scope: Scope_titleFor, w: WindowInfo): string {
   return (
     scope.titleOverrides.find((o) => o.windowId === w.id)?.title ||
     w.title ||
@@ -8,13 +380,13 @@ export function titleFor(scope: any, w: WindowInfo): string {
   );
 }
 
-export function startRename(scope: any, w: WindowInfo) {
+export function startRename(scope: Scope_startRename, w: WindowInfo) {
   scope.renamingId = w.id;
   scope.renameValue =
     scope.titleOverrides.find((o) => o.windowId === w.id)?.title ?? w.title;
 }
 
-export function openCtxMenu(scope: any, e: MouseEvent, w: WindowInfo) {
+export function openCtxMenu(scope: Scope_openCtxMenu, e: MouseEvent, w: WindowInfo) {
   e.preventDefault();
   e.stopPropagation();
   // Clamp inside the rail so the menu never opens under the cursor's edge.
@@ -25,24 +397,24 @@ export function openCtxMenu(scope: any, e: MouseEvent, w: WindowInfo) {
   scope.newProjectName = "";
 }
 
-export function ctxWindow(scope: any): WindowInfo | undefined {
+export function ctxWindow(scope: Scope_ctxWindow): WindowInfo | undefined {
   return scope.windows.find((w) => w.id === scope.ctxMenu?.windowId);
 }
 
-export function ctxProject(scope: any): Project | undefined {
+export function ctxProject(scope: Scope_ctxProject): Project | undefined {
   const id = scope.ctxMenu?.windowId;
   if (!id) return undefined;
   const projectId = scope.liveClaims.find((c) => c.windowId === id)?.projectId;
   return scope.projects.find((p) => p.id === projectId);
 }
 
-export function ctxAssign(scope: any, projectId: string) {
+export function ctxAssign(scope: Scope_ctxAssign, projectId: string) {
   const w = scope.ctxWindow();
   scope.ctxMenu = null;
   if (w) scope.claim(w.id, projectId);
 }
 
-export function ctxCreateAndClaim(scope: any) {
+export function ctxCreateAndClaim(scope: Scope_ctxCreateAndClaim) {
   const w = scope.ctxWindow();
   if (!w || !scope.newProjectName.trim()) return;
   const p = scope.createProject(scope.newProjectName);
@@ -51,13 +423,13 @@ export function ctxCreateAndClaim(scope: any) {
   scope.newProjectName = "";
 }
 
-export function ctxRename(scope: any) {
+export function ctxRename(scope: Scope_ctxRename) {
   const w = scope.ctxWindow();
   scope.ctxMenu = null;
   if (w) scope.startRename(w);
 }
 
-export function ctxMinimize(scope: any) {
+export function ctxMinimize(scope: Scope_ctxMinimize) {
   const w = scope.ctxWindow();
   scope.ctxMenu = null;
   // Claimed → the walker walks its planet; unmapped → Dock only (the
@@ -65,13 +437,13 @@ export function ctxMinimize(scope: any) {
   if (w) scope.stow(w);
 }
 
-export function ctxRestore(scope: any) {
+export function ctxRestore(scope: Scope_ctxRestore) {
   const w = scope.ctxWindow();
   scope.ctxMenu = null;
   if (w) scope.restore(w);
 }
 
-export function ctxCloseWindow(scope: any) {
+export function ctxCloseWindow(scope: Scope_ctxCloseWindow) {
   const w = scope.ctxWindow();
   scope.ctxMenu = null;
   if (!w) return;
@@ -80,13 +452,13 @@ export function ctxCloseWindow(scope: any) {
     .then(() => scope.tick());
 }
 
-export function ctxUnclaim(scope: any) {
+export function ctxUnclaim(scope: Scope_ctxUnclaim) {
   const w = scope.ctxWindow();
   scope.ctxMenu = null;
   if (w) scope.unclaim(w.id);
 }
 
-export function commitRename(scope: any, w: WindowInfo) {
+export function commitRename(scope: Scope_commitRename, w: WindowInfo) {
   const next = scope.renameValue.trim();
   const cur = scope.titleOverrides.find((o) => o.windowId === w.id)?.title ?? "";
   if (next !== cur) {
@@ -101,7 +473,7 @@ export function commitRename(scope: any, w: WindowInfo) {
   scope.renamingId = null;
 }
 
-export async function setWorkspaceRoot(scope: any, projectId: string, path: string) {
+export async function setWorkspaceRoot(scope: Scope_setWorkspaceRoot, projectId: string, path: string) {
   try {
     await scope.invoke("set_workspace_root", { projectId, path });
     scope.projects = scope.projects.map((p) =>
@@ -112,7 +484,7 @@ export async function setWorkspaceRoot(scope: any, projectId: string, path: stri
   }
 }
 
-export async function persist(scope: any) {
+export async function persist(scope: Scope_persist) {
   if (!scope.stateLoaded) return;
   // A drag-hot store may have skipped state:changed. Don't write it.
   // Drop/claim still mutates memory; drag-end flushes after the hot window.
@@ -168,7 +540,7 @@ export async function persist(scope: any) {
   await scope.syncHabitat();
 }
 
-export function sleeperRowFor(scope: any, c: Claim): WindowInfo {
+export function sleeperRowFor(scope: Scope_sleeperRowFor, c: Claim): WindowInfo {
   return {
     id: c.windowId,
     pid: 0,
@@ -184,7 +556,7 @@ export function sleeperRowFor(scope: any, c: Claim): WindowInfo {
   };
 }
 
-export function boardCardsFor(scope: any, p: Project) {
+export function boardCardsFor(scope: Scope_boardCardsFor, p: Project) {
   // ORPHAN-CARDS: a kind:"window" card ticks only while a live claim
   // carries its windowId — an orphan can't be opened from anywhere, so
   // it must not paint the sign. Loose todos still tick.
@@ -208,7 +580,7 @@ export function boardCardsFor(scope: any, p: Project) {
   }));
 }
 
-export function habitatEntryFor(scope: any, w: WindowInfo, p: Project) {
+export function habitatEntryFor(scope: Scope_habitatEntryFor, w: WindowInfo, p: Project) {
   const c = scope.liveClaims.find((x) => x.windowId === w.id);
   // The window's board truth rides the snapshot
   // (one channel — sync_habitat). The window-linked card wins for
@@ -259,18 +631,18 @@ export function habitatEntryFor(scope: any, w: WindowInfo, p: Project) {
   };
 }
 
-export function runIsSeated(scope: any, r: AgentRun): boolean {
+export function runIsSeated(scope: Scope_runIsSeated, r: AgentRun): boolean {
   return (
     !!(r.agentShortcutId || "").trim() || !!(r.herdr?.agentName || "").trim()
   );
 }
 
-export function goToken(scope: any, title: string): string | null {
+export function goToken(scope: Scope_goToken, title: string): string | null {
   const m = title.match(/GO-[A-Z0-9]+(?:-[A-Z0-9]+)*/i);
   return m ? m[0].toUpperCase() : null;
 }
 
-export function goNeededOnPlanet(scope: any, card: KanbanCard | undefined, planetId: string): boolean {
+export function goNeededOnPlanet(scope: Scope_goNeededOnPlanet, card: KanbanCard | undefined, planetId: string): boolean {
   if (!card) return false;
   const go = scope.goToken(card.title);
   if (!go) return false;
@@ -284,7 +656,7 @@ export function goNeededOnPlanet(scope: any, card: KanbanCard | undefined, plane
   );
 }
 
-export function agentRowsFor(scope: any, projectId: string) {
+export function agentRowsFor(scope: Scope_agentRowsFor, projectId: string) {
   return scope.agentRuns.filter(
     (r) =>
       r.planetId === projectId &&
@@ -294,7 +666,7 @@ export function agentRowsFor(scope: any, projectId: string) {
   );
 }
 
-export async function locateAgent(scope: any, r: AgentRun) {
+export async function locateAgent(scope: Scope_locateAgent, r: AgentRun) {
   const entryId = `agent:${r.cardId}`;
   try {
     await scope.invoke("locate_walker", { entryId });
@@ -308,7 +680,7 @@ export async function locateAgent(scope: any, r: AgentRun) {
   }
 }
 
-export function agentEntriesFor(scope: any, p: Project) {
+export function agentEntriesFor(scope: Scope_agentEntriesFor, p: Project) {
   return scope.agentRuns
     .filter(
       (r) =>
@@ -344,7 +716,7 @@ export function agentEntriesFor(scope: any, p: Project) {
     });
 }
 
-export function habitatPlanetFor(scope: any, p: Project, rows: WindowInfo[]) {
+export function habitatPlanetFor(scope: Scope_habitatPlanetFor, p: Project, rows: WindowInfo[]) {
   return {
     projectId: p.id,
     name: p.name,
@@ -370,7 +742,7 @@ export function habitatPlanetFor(scope: any, p: Project, rows: WindowInfo[]) {
   };
 }
 
-export function habitatSnapshotPayload(scope: any, 
+export function habitatSnapshotPayload(scope: Scope_habitatSnapshotPayload, 
   planets: ReturnType<typeof scope.habitatPlanetFor>[],
 ) {
   return {
@@ -382,7 +754,7 @@ export function habitatSnapshotPayload(scope: any,
   };
 }
 
-export async function syncHabitat(scope: any) {
+export async function syncHabitat(scope: Scope_syncHabitat) {
   if (!scope.stateLoaded || !scope.status?.trusted) return;
   const planets = scope.projects
     .map((p) => ({
@@ -455,11 +827,11 @@ export async function syncHabitat(scope: any) {
   }
 }
 
-export function lastKnownRowFor(scope: any, c: Claim): WindowInfo {
+export function lastKnownRowFor(scope: Scope_lastKnownRowFor, c: Claim): WindowInfo {
   return { ...scope.sleeperRowFor(c), sleeping: false };
 }
 
-export async function syncHabitatLastKnown(scope: any) {
+export async function syncHabitatLastKnown(scope: Scope_syncHabitatLastKnown) {
   if (!scope.stateLoaded || scope.embedded) return;
   const planets = scope.projects
     .map((p) => ({
@@ -481,7 +853,7 @@ export async function syncHabitatLastKnown(scope: any) {
   }
 }
 
-export function flashRow(scope: any, windowId: string) {
+export function flashRow(scope: Scope_flashRow, windowId: string) {
   if (scope.locateFlashIds.includes(windowId)) return;
   scope.locateFlashIds = [...scope.locateFlashIds, windowId];
   setTimeout(() => {
@@ -489,7 +861,7 @@ export function flashRow(scope: any, windowId: string) {
   }, 550);
 }
 
-export async function locateRow(scope: any, w: WindowInfo) {
+export async function locateRow(scope: Scope_locateRow, w: WindowInfo) {
   const claim = scope.liveClaims.find((c) => c.windowId === w.id);
   const hasPlanet =
     !!claim && scope.projects.some((p) => p.id === claim.projectId);
@@ -512,7 +884,7 @@ export async function locateRow(scope: any, w: WindowInfo) {
   }
 }
 
-export async function stow(scope: any, w: WindowInfo) {
+export async function stow(scope: Scope_stow, w: WindowInfo) {
   try {
     await scope.invoke("minimize_window", { id: w.id });
   } catch {
@@ -521,7 +893,7 @@ export async function stow(scope: any, w: WindowInfo) {
   await scope.tick();
 }
 
-export async function restore(scope: any, w: WindowInfo) {
+export async function restore(scope: Scope_restore, w: WindowInfo) {
   try {
     await scope.invoke("restore_window", { id: w.id });
   } catch {}
@@ -529,7 +901,7 @@ export async function restore(scope: any, w: WindowInfo) {
   await scope.tick();
 }
 
-export async function wakeSleeper(scope: any, w: WindowInfo) {
+export async function wakeSleeper(scope: Scope_wakeSleeper, w: WindowInfo) {
   scope.wakeNote = null;
   try {
     const msg = await scope.invoke<string>("wake_sleeper", { id: w.id });
@@ -541,13 +913,13 @@ export async function wakeSleeper(scope: any, w: WindowInfo) {
   await scope.tick();
 }
 
-export function nudgeClaim(scope: any, projectId: string) {
+export function nudgeClaim(scope: Scope_nudgeClaim, projectId: string) {
   if (!scope.nudgeFor) return;
   scope.claim(scope.nudgeFor, projectId);
   scope.nudgeFor = null;
 }
 
-export function nudgeCreate(scope: any) {
+export function nudgeCreate(scope: Scope_nudgeCreate) {
   if (!scope.nudgeFor || !scope.nudgeNewName.trim()) return;
   const p = scope.createProject(scope.nudgeNewName);
   scope.claim(scope.nudgeFor, p.id);
@@ -555,12 +927,12 @@ export function nudgeCreate(scope: any) {
   scope.nudgeNewName = "";
 }
 
-export function clampSpriteScale(scope: any, n: number) {
+export function clampSpriteScale(scope: Scope_clampSpriteScale, n: number) {
   if (!Number.isFinite(n)) return 1;
   return Math.min(2.5, Math.max(0.4, n));
 }
 
-export async function openKanban(scope: any) {
+export async function openKanban(scope: Scope_openKanban) {
   try {
     await scope.invoke("open_kanban");
   } catch {
@@ -568,7 +940,7 @@ export async function openKanban(scope: any) {
   }
 }
 
-export async function bringAllFront(scope: any) {
+export async function bringAllFront(scope: Scope_bringAllFront) {
   try {
     await scope.invoke("bring_all_front");
   } catch {
@@ -576,7 +948,7 @@ export async function bringAllFront(scope: any) {
   }
 }
 
-export function onBannerMouseDown(scope: any, e: MouseEvent) {
+export function onBannerMouseDown(scope: Scope_onBannerMouseDown, e: MouseEvent) {
   if (e.button !== 0) return;
   const t = e.target as HTMLElement | null;
   if (t?.closest(".winx, .popout")) return;
@@ -603,12 +975,12 @@ export function onBannerMouseDown(scope: any, e: MouseEvent) {
   scope.startPaneDrag(e);
 }
 
-export function onWordmarkClick(scope: any) {
+export function onWordmarkClick(scope: Scope_onWordmarkClick) {
   if (scope.wordmarkDidDrag) return;
   scope.bringAllFront();
 }
 
-export async function openKanbanFocus(scope: any, cardId: string) {
+export async function openKanbanFocus(scope: Scope_openKanbanFocus, cardId: string) {
   await scope.openKanban();
   scope.emitTo("kanban", "orbitty:focus-card", cardId).catch(() => {});
   setTimeout(
@@ -617,7 +989,7 @@ export async function openKanbanFocus(scope: any, cardId: string) {
   );
 }
 
-export async function launchHermes(scope: any, p: Project) {
+export async function launchHermes(scope: Scope_launchHermes, p: Project) {
   const titles = [
     ...scope.rowsFor(p.id).map((w) =>
       w.title ? `${w.appName} — ${w.title}` : w.appName,
@@ -636,7 +1008,7 @@ export async function launchHermes(scope: any, p: Project) {
   }
 }
 
-export async function toggleSoul(scope: any, p: Project) {
+export async function toggleSoul(scope: Scope_toggleSoul, p: Project) {
   if (scope.soulFor === p.id) {
     scope.soulFor = null;
     return;
@@ -657,7 +1029,7 @@ export async function toggleSoul(scope: any, p: Project) {
   }
 }
 
-export async function saveSoul(scope: any) {
+export async function saveSoul(scope: Scope_saveSoul) {
   if (!scope.soulFor) return;
   try {
     await scope.invoke("save_soul", { projectId: scope.soulFor, body: scope.soulBody });
@@ -670,7 +1042,7 @@ export async function saveSoul(scope: any) {
   }
 }
 
-export async function openSoulEditor(scope: any) {
+export async function openSoulEditor(scope: Scope_openSoulEditor) {
   if (!scope.soulFor) return;
   const p = scope.projects.find((x) => x.id === scope.soulFor);
   try {
@@ -683,7 +1055,7 @@ export async function openSoulEditor(scope: any) {
   }
 }
 
-export function createProject(scope: any, name: string): Project {
+export function createProject(scope: Scope_createProject, name: string): Project {
   const p: Project = {
     id: `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     name: name.trim(),
@@ -696,7 +1068,7 @@ export function createProject(scope: any, name: string): Project {
   return p;
 }
 
-export function revealPlanet(scope: any, projectId: string) {
+export function revealPlanet(scope: Scope_revealPlanet, projectId: string) {
   const ids = scope.sectionIds();
   if (!ids.includes(projectId)) return;
   scope.collapsedSectionIds = [
@@ -705,18 +1077,18 @@ export function revealPlanet(scope: any, projectId: string) {
   ];
 }
 
-export function newCardId(scope: any): string {
+export function newCardId(scope: Scope_newCardId): string {
   return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function isClinicalOrMaster(scope: any, windowId: string): boolean {
+export function isClinicalOrMaster(scope: Scope_isClinicalOrMaster, windowId: string): boolean {
   return scope.tagsFor(windowId).some((t) => {
     const n = t.name.trim().toLowerCase();
     return n === "clinical" || n === "master";
   });
 }
 
-export function titleIndexFor(scope: any, w: WindowInfo): number {
+export function titleIndexFor(scope: Scope_titleIndexFor, w: WindowInfo): number {
   const bundle = w.bundleId || w.appName;
   return (
     scope.windows
@@ -727,17 +1099,17 @@ export function titleIndexFor(scope: any, w: WindowInfo): number {
   );
 }
 
-export function claimStableKey(scope: any, c: Claim): string | null {
+export function claimStableKey(scope: Scope_claimStableKey, c: Claim): string | null {
   const bundle = c.bundleId || c.appName;
   if (!bundle || c.titleAtClaim == null || !c.titleIndex) return null;
   return `${bundle}|${c.titleAtClaim}|${c.titleIndex}`;
 }
 
-export function isHermesClass(scope: any, w: WindowInfo): boolean {
+export function isHermesClass(scope: Scope_isHermesClass, w: WindowInfo): boolean {
   return /hermes/i.test(w.bundleId ?? "") || /hermes/i.test(w.appName);
 }
 
-export function sleeperStamps(scope: any, w: WindowInfo, prev?: Claim): Partial<Claim> {
+export function sleeperStamps(scope: Scope_sleeperStamps, w: WindowInfo, prev?: Claim): Partial<Claim> {
   return {
     filePath: w.documentPath ?? prev?.filePath ?? null,
     hermesProfile: prev?.hermesProfile ?? null,
@@ -751,6 +1123,6 @@ export function sleeperStamps(scope: any, w: WindowInfo, prev?: Claim): Partial<
   };
 }
 
-export function rollCharSeed(scope: any): number {
+export function rollCharSeed(scope: Scope_rollCharSeed): number {
   return Math.floor(Math.random() * 0xffffffff) >>> 0;
 }

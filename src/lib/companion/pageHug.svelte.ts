@@ -1,6 +1,83 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function measureHugHeight(scope: any): number | null {
+
+type HostMode = "off" | "launchpad" | "stars" | "inspector";
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_measureHugHeight = {
+  mainEl: HTMLElement | null;
+  overlayWinH: number;
+};
+
+type Scope_reportHug = {
+  expanded: boolean;
+  hosted: HostMode;
+  sprite: boolean;
+  measureHugHeight: (...args: any[]) => number | null;
+  invoke: Invoke;
+};
+
+type Scope_reportHostHug = {
+  hosted: HostMode;
+  expanded: boolean;
+  tilePre: boolean;
+  tileEnter: boolean;
+  swapPrev: HostMode | null;
+  hugTimer: ReturnType<typeof setTimeout> | undefined;
+  HOST_COMFORT_H: number;
+  lastHostHug: number;
+  invoke: Invoke;
+};
+
+type Scope_actionRowExtra = {
+  cheatSheetHint: boolean;
+  mainEl: HTMLElement | null;
+};
+
+type Scope_reportComposerGrow = {
+  invoke: Invoke;
+  composerExtra: number;
+  overlayExtra: number;
+  actionRowExtra: (...args: any[]) => number;
+};
+
+type Scope_toggleSprite = {
+  sprite: boolean;
+  expanded: boolean;
+  hosted: HostMode;
+  measureHugHeight: (...args: any[]) => number | null;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_toggleCaptions = {
+  captions: boolean;
+  expanded: boolean;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_togglePlanetsHidden = {
+  planetsHidden: boolean;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_setSpeakVolume = {
+  speakVolume: number;
+  invoke: Invoke;
+  speak: boolean;
+  toggleSpeak: (...args: any[]) => Promise<any>;
+  sendNote: string | null;
+};
+
+type Scope_toggleSpeak = {
+  speak: boolean;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+export function measureHugHeight(scope: Scope_measureHugHeight): number | null {
   if (!scope.mainEl) return null;
   const dock = scope.mainEl.querySelector(".ghostdock");
   if (!dock) return null;
@@ -20,13 +97,13 @@ export function measureHugHeight(scope: any): number | null {
   return h < 120 ? 120 : h;
 }
 
-export function reportHug(scope: any) {
+export function reportHug(scope: Scope_reportHug) {
   if (scope.expanded || scope.hosted !== "off" || scope.sprite) return;
   const h = scope.measureHugHeight();
   if (h) scope.invoke("set_companion_sprite", { enabled: false, hugHeight: h }).catch(() => {});
 }
 
-export function reportHostHug(scope: any) {
+export function reportHostHug(scope: Scope_reportHostHug) {
   if (scope.hosted === "off" || scope.expanded || scope.tilePre || scope.tileEnter || scope.swapPrev) return;
   if (scope.hugTimer) clearTimeout(scope.hugTimer);
   scope.hugTimer = setTimeout(() => {
@@ -38,7 +115,7 @@ export function reportHostHug(scope: any) {
   }, 80);
 }
 
-export function actionRowExtra(scope: any): number {
+export function actionRowExtra(scope: Scope_actionRowExtra): number {
   if (!scope.cheatSheetHint || !scope.mainEl) return 0;
   const row = scope.mainEl.querySelector(".actionrow");
   if (!row) return 0;
@@ -46,13 +123,13 @@ export function actionRowExtra(scope: any): number {
   return h > 2 ? Math.round(h) : 0;
 }
 
-export function reportComposerGrow(scope: any) {
+export function reportComposerGrow(scope: Scope_reportComposerGrow) {
   scope.invoke("set_companion_composer_grow", {
     extra: scope.composerExtra + scope.overlayExtra + scope.actionRowExtra(),
   }).catch(() => {});
 }
 
-export async function toggleSprite(scope: any, e: MouseEvent) {
+export async function toggleSprite(scope: Scope_toggleSprite, e: MouseEvent) {
   e.preventDefault();
   const next = !scope.sprite;
   scope.sprite = next;
@@ -68,7 +145,7 @@ export async function toggleSprite(scope: any, e: MouseEvent) {
   }
 }
 
-export async function toggleCaptions(scope: any) {
+export async function toggleCaptions(scope: Scope_toggleCaptions) {
   const next = !scope.captions;
   const wasExpanded = scope.expanded;
   scope.captions = next;
@@ -85,7 +162,7 @@ export async function toggleCaptions(scope: any) {
   }
 }
 
-export async function togglePlanetsHidden(scope: any) {
+export async function togglePlanetsHidden(scope: Scope_togglePlanetsHidden) {
   const next = !scope.planetsHidden;
   scope.planetsHidden = next;
   try {
@@ -96,7 +173,7 @@ export async function togglePlanetsHidden(scope: any) {
   }
 }
 
-export async function setSpeakVolume(scope: any, v: number) {
+export async function setSpeakVolume(scope: Scope_setSpeakVolume, v: number) {
   const vol = Math.max(0, Math.min(1, v));
   scope.speakVolume = vol;
   try {
@@ -107,7 +184,7 @@ export async function setSpeakVolume(scope: any, v: number) {
   }
 }
 
-export async function toggleSpeak(scope: any) {
+export async function toggleSpeak(scope: Scope_toggleSpeak) {
   const next = !scope.speak;
   scope.speak = next;
   try {

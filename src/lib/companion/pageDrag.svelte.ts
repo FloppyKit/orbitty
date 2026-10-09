@@ -1,6 +1,21 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function startCompanionDrag(scope: any, e: MouseEvent) {
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_startCompanionDrag = {
+  invoke: Invoke;
+};
+
+type Scope_onDragMouseDown = {
+  startCompanionDrag: (...args: any[]) => any;
+};
+
+type Scope_onDockMouseDown = {
+  eventElement: (...args: any[]) => Element | null;
+  startCompanionDrag: (...args: any[]) => any;
+};
+
+export function startCompanionDrag(scope: Scope_startCompanionDrag, e: MouseEvent) {
   if (e.button !== 0) return;
   const x0 = e.screenX;
   const y0 = e.screenY;
@@ -18,11 +33,11 @@ export function startCompanionDrag(scope: any, e: MouseEvent) {
   window.addEventListener("mouseup", onUp);
 }
 
-export function onDragMouseDown(scope: any, e: MouseEvent) {
+export function onDragMouseDown(scope: Scope_onDragMouseDown, e: MouseEvent) {
   scope.startCompanionDrag(e);
 }
 
-export function onDockMouseDown(scope: any, e: MouseEvent | PointerEvent) {
+export function onDockMouseDown(scope: Scope_onDockMouseDown, e: MouseEvent | PointerEvent) {
   if (e.button !== 0) return;
   const t = scope.eventElement(e);
   if (

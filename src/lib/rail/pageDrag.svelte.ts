@@ -1,6 +1,137 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function onDragStart(scope: any, e: DragEvent, w: WindowInfo) {
+
+import type { AgentRun, CardTombstone, Claim, KanbanCard, PointsEntry, Project, TitleOverride, WindowInfo, WindowTags } from "../persist";
+
+interface AxStatus {
+  trusted: boolean;
+  bundlePath: string;
+  signingLine: string;
+  inBundle: boolean;
+  isAdhoc: boolean;
+}
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_onDragStart = {
+  dragWindowId: string | null;
+  dragStartedAt: number;
+  ctxMenu: { x: number; y: number; windowId: string } | null;
+};
+
+type Scope_onDragEnd = {
+  dragWindowId: string | null;
+  dropTarget: string | null;
+  pendingDisk: { kanbanCards: KanbanCard[]; pointsLedger: PointsEntry[]; agentRuns: AgentRun[]; cardTombstones: CardTombstone[] } | null;
+  persistDeferred: boolean;
+  dragStartedAt: number;
+  windowDragHot: (...args: any[]) => boolean;
+  absorbPendingCards: (...args: any[]) => any;
+  persist: (...args: any[]) => Promise<any>;
+};
+
+type Scope_isWindowDrag = {
+  dragWindowId: string | null;
+};
+
+type Scope_onSectionDragEnter = {
+  isWindowDrag: (...args: any[]) => boolean;
+  dropTarget: string | null;
+};
+
+type Scope_onSectionDragOver = {
+  isWindowDrag: (...args: any[]) => boolean;
+  dropTarget: string | null;
+};
+
+type Scope_onSectionDragLeave = {
+  dropTarget: string | null;
+};
+
+type Scope_onSectionDrop = {
+  dragWindowId: string | null;
+  claim: (...args: any[]) => any;
+  unclaim: (...args: any[]) => any;
+  dropTarget: string | null;
+};
+
+type Scope_tick = {
+  windowDragHot: (...args: any[]) => boolean;
+  invoke: Invoke;
+  noteAx: (...args: any[]) => any;
+  dragWindowId: string | null;
+  windows: WindowInfo[];
+  refreshedAt: string;
+  windowsPolled: boolean;
+  embedded: boolean;
+  rematchClaims: (...args: any[]) => any;
+  healOrphanWindowCards: (...args: any[]) => boolean;
+  persist: (...args: any[]) => Promise<any>;
+  liveClaims: Claim[];
+  touchClaim: (...args: any[]) => any;
+  checkNudge: (...args: any[]) => any;
+  syncHabitat: (...args: any[]) => Promise<any>;
+};
+
+type Scope_rematchClaims = {
+  stateLoaded: boolean;
+  windows: WindowInfo[];
+  liveClaims: Claim[];
+  titleIndexFor: (...args: any[]) => number;
+  isHermesClass: (...args: any[]) => boolean;
+  claimStableKey: (...args: any[]) => string | null;
+  rewriteWindowId: (...args: any[]) => any;
+  persist: (...args: any[]) => Promise<any>;
+};
+
+type Scope_rewriteWindowId = {
+  nowEpoch: (...args: any[]) => number;
+  claims: Claim[];
+  titleIndexFor: (...args: any[]) => number;
+  isHermesClass: (...args: any[]) => boolean;
+  kanbanCards: KanbanCard[];
+  windowTags: WindowTags[];
+  titleOverrides: TitleOverride[];
+  nudgeSuppressed: string[];
+};
+
+type Scope_healOrphanWindowCards = {
+  stateLoaded: boolean;
+  kanbanCards: KanbanCard[];
+  liveClaims: Claim[];
+  windows: WindowInfo[];
+  projects: Project[];
+  claim: (...args: any[]) => any;
+  windowsPolled: boolean;
+  nowEpoch: (...args: any[]) => number;
+};
+
+type Scope_checkNudge = {
+  stateLoaded: boolean;
+  windows: WindowInfo[];
+  nudgePrimed: boolean;
+  prevMinimized: Set<string>;
+  nudgeSuppressed: string[];
+  persist: (...args: any[]) => Promise<any>;
+  nudgeFor: string | null;
+  liveClaims: Claim[];
+  nudgeNewName: string;
+};
+
+type Scope_openSettings = {
+  invoke: Invoke;
+};
+
+type Scope_retry = {
+  invoke: Invoke;
+  tick: (...args: any[]) => Promise<any>;
+};
+
+type Scope_copyPath = {
+  status: AxStatus | null;
+  copied: boolean;
+};
+
+export function onDragStart(scope: Scope_onDragStart, e: DragEvent, w: WindowInfo) {
   scope.dragWindowId = w.id;
   scope.dragStartedAt = Date.now();
   scope.ctxMenu = null;
@@ -8,7 +139,7 @@ export function onDragStart(scope: any, e: DragEvent, w: WindowInfo) {
   if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
 }
 
-export function onDragEnd(scope: any) {
+export function onDragEnd(scope: Scope_onDragEnd) {
   scope.dragWindowId = null;
   scope.dropTarget = null;
   if (!scope.pendingDisk && !scope.persistDeferred) return;
@@ -20,26 +151,26 @@ export function onDragEnd(scope: any) {
   }, wait);
 }
 
-export function isWindowDrag(scope: any, e: DragEvent): boolean {
+export function isWindowDrag(scope: Scope_isWindowDrag, e: DragEvent): boolean {
   return (
     !!scope.dragWindowId || !!e.dataTransfer?.types?.includes("text/plain")
   );
 }
 
-export function onSectionDragEnter(scope: any, e: DragEvent, key: string) {
+export function onSectionDragEnter(scope: Scope_onSectionDragEnter, e: DragEvent, key: string) {
   if (!scope.isWindowDrag(e)) return;
   e.preventDefault();
   scope.dropTarget = key;
 }
 
-export function onSectionDragOver(scope: any, e: DragEvent, key: string) {
+export function onSectionDragOver(scope: Scope_onSectionDragOver, e: DragEvent, key: string) {
   if (!scope.isWindowDrag(e)) return;
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
   if (scope.dropTarget !== key) scope.dropTarget = key;
 }
 
-export function onSectionDragLeave(scope: any, e: DragEvent, key: string) {
+export function onSectionDragLeave(scope: Scope_onSectionDragLeave, e: DragEvent, key: string) {
   // dragleave fires when moving between children; only clear when the
   // pointer actually leaves the section.
   const next = e.relatedTarget as Node | null;
@@ -52,7 +183,7 @@ export function onSectionDragLeave(scope: any, e: DragEvent, key: string) {
   if (scope.dropTarget === key) scope.dropTarget = null;
 }
 
-export function onSectionDrop(scope: any, e: DragEvent, projectId: string | null) {
+export function onSectionDrop(scope: Scope_onSectionDrop, e: DragEvent, projectId: string | null) {
   e.preventDefault();
   // dataTransfer is authoritative inside drop; Svelte state is the fallback
   // in case the 800ms poll tore down and rebuilt the source row mid-gesture.
@@ -68,7 +199,7 @@ export function onSectionDrop(scope: any, e: DragEvent, projectId: string | null
   scope.dropTarget = null;
 }
 
-export async function tick(scope: any) {
+export async function tick(scope: Scope_tick) {
   // Frozen while a window drag is hot: no AX status, no list_windows, no
   // syncHabitat — mutating the dragged row's DOM cancels the HTML5 drag
   // session in WKWebView, and the sync is what beach-balled the drop.
@@ -104,7 +235,7 @@ export async function tick(scope: any) {
   }
 }
 
-export function rematchClaims(scope: any) {
+export function rematchClaims(scope: Scope_rematchClaims) {
   if (!scope.stateLoaded) return;
   const liveIds = new Set(scope.windows.map((w) => w.id));
   const used = new Set<string>();
@@ -174,7 +305,7 @@ export function rematchClaims(scope: any) {
   if (changed) scope.persist();
 }
 
-export function rewriteWindowId(scope: any, oldId: string, w: WindowInfo) {
+export function rewriteWindowId(scope: Scope_rewriteWindowId, oldId: string, w: WindowInfo) {
   // Rematch / sleeper wake is claim activity — refresh lastTouched so
   // zombie fade dim clears when the walker comes back live.
   const touched = scope.nowEpoch();
@@ -206,7 +337,7 @@ export function rewriteWindowId(scope: any, oldId: string, w: WindowInfo) {
   scope.nudgeSuppressed = scope.nudgeSuppressed.map((id) => (id === oldId ? w.id : id));
 }
 
-export function healOrphanWindowCards(scope: any): boolean {
+export function healOrphanWindowCards(scope: Scope_healOrphanWindowCards): boolean {
   if (!scope.stateLoaded) return false;
   let changed = false;
   const orphans = scope.kanbanCards.filter(
@@ -234,7 +365,7 @@ export function healOrphanWindowCards(scope: any): boolean {
   return changed;
 }
 
-export function checkNudge(scope: any) {
+export function checkNudge(scope: Scope_checkNudge) {
   if (!scope.stateLoaded) return;
   const minimizedNow = new Set(
     scope.windows.filter((w) => w.isMinimized).map((w) => w.id),
@@ -274,20 +405,20 @@ export function checkNudge(scope: any) {
   scope.prevMinimized = minimizedNow;
 }
 
-export async function openSettings(scope: any) {
+export async function openSettings(scope: Scope_openSettings) {
   try {
     await scope.invoke("open_accessibility_settings");
   } catch {}
 }
 
-export async function retry(scope: any) {
+export async function retry(scope: Scope_retry) {
   try {
     await scope.invoke("prompt_accessibility");
   } catch {}
   await scope.tick();
 }
 
-export async function copyPath(scope: any) {
+export async function copyPath(scope: Scope_copyPath) {
   if (!scope.status) return;
   try {
     await navigator.clipboard.writeText(scope.status.bundlePath);

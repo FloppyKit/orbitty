@@ -1,6 +1,209 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function overPainted(scope: any, e: PointerEvent): boolean {
+
+import type { Claim, KanbanCard, Project, WindowInfo } from "../persist";
+import type { MenuRing } from "../menuKeys.svelte";
+import type { ArchLayout, ArchState, BoardFocus, Layer2Item } from "./stageArch";
+import type { ClaimSnap, EdgeHoverEvent, EdgeHoverState } from "./stagePlace";
+import type { BoardCol, RailEdge, StagePrefs } from "./habitat";
+import type { InputIntent } from "./railInput";
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_overPainted = {
+  archPainted: (...args: any[]) => boolean;
+  archLayout: (...args: any[]) => ArchLayout;
+  railEdge: RailEdge;
+  arch: ArchState;
+  stageRevealed: boolean;
+  stageEmbed: null | "settings" | "stars";
+};
+
+type Scope_armEdgeTimer = {
+  edgeTimer: ReturnType<typeof setTimeout> | null;
+  edgeHoverState: EdgeHoverState;
+  EDGE_HIDE_MS: number;
+  EDGE_GRACE_MS: number;
+  applyEdge: (...args: any[]) => any;
+};
+
+type Scope_applyEdge = {
+  edgeHover: (...args: any[]) => { state: EdgeHoverState; act: "reveal" | "park" | null };
+  edgeHoverState: EdgeHoverState;
+  showStage: (...args: any[]) => Promise<any>;
+  maybeAutoHide: (...args: any[]) => any;
+  armEdgeTimer: (...args: any[]) => any;
+};
+
+type Scope_noteClaims = {
+  lastClaimsSeen: ClaimSnap[] | null;
+  claimLanded: (...args: any[]) => { windowId: string; projectId: string } | null;
+  windows: WindowInfo[];
+  titleFor: (...args: any[]) => string;
+  claimFlash: { pid: string; title: string; until: number } | null;
+  CLAIM_FLASH_MS: number;
+  claimFlashTimer: ReturnType<typeof setTimeout> | null;
+  invoke: Invoke;
+};
+
+type Scope_onStagePointerMove = {
+  embedded: boolean;
+  edgePointerSeed: boolean;
+  overPainted: (...args: any[]) => boolean;
+  pointerInside: boolean;
+  stageRevealed: boolean;
+  applyEdge: (...args: any[]) => any;
+};
+
+type Scope_noteWheelSpin = {
+  wheelSpinUntil: number;
+};
+
+type Scope_wheelAnimating = {
+  wheelSpinUntil: number;
+};
+
+type Scope_nearHit = {};
+
+type Scope_focusBoardLanding = {
+  menuRing: MenuRing;
+};
+
+type Scope_goInFromPointer = {
+  arch: ArchState;
+  planetCards: (...args: any[]) => KanbanCard[];
+  enterBoard: (...args: any[]) => { state: ArchState; focus: BoardFocus } | null;
+  archDo: (...args: any[]) => any;
+  walkInto: (...args: any[]) => any;
+  focusBoardLanding: (...args: any[]) => any;
+  menuRing: MenuRing;
+  confirmHabitatStop: (...args: any[]) => any;
+};
+
+type Scope_takeMouseButton = {
+  mouseButtonAt: number;
+  inputIntent: (...args: any[]) => InputIntent;
+  onRailEscape: (...args: any[]) => boolean;
+  goInFromPointer: (...args: any[]) => any;
+};
+
+type Scope_onStagePointerDown = {
+  embedded: boolean;
+  stageRevealed: boolean;
+  pointerDownAt: { x: number; y: number } | null;
+  pointerInside: boolean;
+  nearHit: (...args: any[]) => boolean;
+  overPainted: (...args: any[]) => boolean;
+};
+
+type Scope_onStagePointerUp = {
+  embedded: boolean;
+  stageRevealed: boolean;
+  takeMouseButton: (...args: any[]) => boolean;
+  pointerDownAt: { x: number; y: number } | null;
+  nearHit: (...args: any[]) => boolean;
+  wheelAnimating: (...args: any[]) => boolean;
+  spinClickTarget: (...args: any[]) => "landing" | "item";
+  menuRing: MenuRing;
+  arch: ArchState;
+  confirmLayer2Stop: (...args: any[]) => any;
+  confirmHabitatStop: (...args: any[]) => any;
+  emptyDismiss: (...args: any[]) => boolean;
+  onRailEscape: (...args: any[]) => boolean;
+};
+
+type Scope_onStageAux = {
+  embedded: boolean;
+  stageRevealed: boolean;
+  takeMouseButton: (...args: any[]) => boolean;
+};
+
+type Scope_onStageMouseLeave = {
+  embedded: boolean;
+  edgePointerSeed: boolean;
+  edgeLeaveSide: (...args: any[]) => "edge" | "away";
+  railEdge: RailEdge;
+  pointerInside: boolean;
+  applyEdge: (...args: any[]) => any;
+};
+
+type Scope_onWinBlur = {
+  stageFocus: (...args: any[]) => any;
+};
+
+type Scope_onExpandedFieldEscape = {
+  embedded: boolean;
+  arch: ArchState;
+  layer2For: (...args: any[]) => Layer2Item[];
+};
+
+type Scope_applyStagePrefs = {
+  stagePrefs: (...args: any[]) => StagePrefs;
+  autohideRowChrome: boolean;
+  railEdge: RailEdge;
+  railAutoHideOnBlur: boolean;
+};
+
+type Scope_sheetRowsFor = {
+  windows: WindowInfo[];
+  liveClaims: Claim[];
+};
+
+type Scope_raisePlanet = {
+  invoke: Invoke;
+};
+
+type Scope_onSheetPlanetClick = {
+  sheetSlot: string;
+  raisePlanet: (...args: any[]) => any;
+};
+
+type Scope_onSheetPlanetDblClick = {
+  isCollapsed: (...args: any[]) => boolean;
+  emitTo: (...args: any[]) => any;
+};
+
+type Scope_sheetClaim = {
+  claimPickerFor: string | null;
+  claim: (...args: any[]) => any;
+};
+
+type Scope_sheetFocus = {
+  invoke: Invoke;
+};
+
+type Scope_toggleBoardCol = {
+  railBoardCols: BoardCol[];
+  toggleCol: (...args: any[]) => BoardCol[];
+  persist: (...args: any[]) => Promise<any>;
+};
+
+type Scope_focusRow = {
+  invoke: Invoke;
+  touchClaim: (...args: any[]) => any;
+  tick: (...args: any[]) => Promise<any>;
+};
+
+type Scope_raisePlanetWindows = {
+  raisePlan: (...args: any[]) => { restore: string[]; focus: string[] };
+  rowsFor: (...args: any[]) => WindowInfo[];
+  invoke: Invoke;
+  raisePlanet: (...args: any[]) => any;
+  tick: (...args: any[]) => Promise<any>;
+  parkAfterRaise: (...args: any[]) => any;
+};
+
+type Scope_openPlanetTodos = {
+  openKanban: (...args: any[]) => Promise<any>;
+  emitTo: (...args: any[]) => any;
+};
+
+type Scope_rowById = {
+  projects: Project[];
+  rowsFor: (...args: any[]) => WindowInfo[];
+  windows: WindowInfo[];
+};
+
+export function overPainted(scope: Scope_overPainted, e: PointerEvent): boolean {
   const host = e.currentTarget;
   if (!(host instanceof HTMLElement)) return false;
   const rect = host.getBoundingClientRect();
@@ -18,7 +221,7 @@ export function overPainted(scope: any, e: PointerEvent): boolean {
   );
 }
 
-export function armEdgeTimer(scope: any) {
+export function armEdgeTimer(scope: Scope_armEdgeTimer) {
   if (scope.edgeTimer) clearTimeout(scope.edgeTimer);
   scope.edgeTimer = null;
   if (!scope.edgeHoverState.revealed || scope.edgeHoverState.outsideSince == null) return;
@@ -33,7 +236,7 @@ export function armEdgeTimer(scope: any) {
   }, wait);
 }
 
-export function applyEdge(scope: any, ev: EdgeHoverEvent, now = Date.now()) {
+export function applyEdge(scope: Scope_applyEdge, ev: EdgeHoverEvent, now = Date.now()) {
   const out = scope.edgeHover(scope.edgeHoverState, ev, now);
   scope.edgeHoverState = out.state;
   if (out.act === "reveal") void scope.showStage();
@@ -41,7 +244,7 @@ export function applyEdge(scope: any, ev: EdgeHoverEvent, now = Date.now()) {
   scope.armEdgeTimer();
 }
 
-export function noteClaims(scope: any, next: Claim[]) {
+export function noteClaims(scope: Scope_noteClaims, next: Claim[]) {
   const snap = next.map((c) => ({
     windowId: c.windowId,
     projectId: c.projectId,
@@ -64,7 +267,7 @@ export function noteClaims(scope: any, next: Claim[]) {
   void scope.invoke("locate_planet", { id: hit.projectId }).catch(() => {});
 }
 
-export function onStagePointerMove(scope: any, e: PointerEvent) {
+export function onStagePointerMove(scope: Scope_onStagePointerMove, e: PointerEvent) {
   if (scope.embedded) return;
   if (scope.edgePointerSeed) scope.edgePointerSeed = false;
   const painted = scope.overPainted(e);
@@ -73,15 +276,15 @@ export function onStagePointerMove(scope: any, e: PointerEvent) {
   scope.applyEdge({ kind: "move", painted });
 }
 
-export function noteWheelSpin(scope: any) {
+export function noteWheelSpin(scope: Scope_noteWheelSpin) {
   scope.wheelSpinUntil = Date.now() + 360;
 }
 
-export function wheelAnimating(scope: any): boolean {
+export function wheelAnimating(scope: Scope_wheelAnimating): boolean {
   return Date.now() < scope.wheelSpinUntil;
 }
 
-export function nearHit(scope: any, e: { clientX: number; clientY: number; target: EventTarget | null }): boolean {
+export function nearHit(scope: Scope_nearHit, e: { clientX: number; clientY: number; target: EventTarget | null }): boolean {
   const t = e.target;
   if (t instanceof Element) {
     if (
@@ -108,7 +311,7 @@ export function nearHit(scope: any, e: { clientX: number; clientY: number; targe
   return false;
 }
 
-export function focusBoardLanding(scope: any, focus: BoardFocus) {
+export function focusBoardLanding(scope: Scope_focusBoardLanding, focus: BoardFocus) {
   const id = focus.kind === "card" && focus.id ? `card-${focus.id}` : null;
   requestAnimationFrame(() => {
     const panel = document.querySelector(".l2-expanded .l2-board");
@@ -133,7 +336,7 @@ export function focusBoardLanding(scope: any, focus: BoardFocus) {
   });
 }
 
-export function goInFromPointer(scope: any) {
+export function goInFromPointer(scope: Scope_goInFromPointer) {
   if (scope.arch.front === "board") return;
   if (scope.arch.front === "layer2") {
     const cards = scope.arch.pid ? scope.planetCards(scope.arch.pid) : [];
@@ -148,7 +351,7 @@ export function goInFromPointer(scope: any) {
   if (id) scope.confirmHabitatStop(id);
 }
 
-export function takeMouseButton(scope: any, button: number): boolean {
+export function takeMouseButton(scope: Scope_takeMouseButton, button: number): boolean {
   if (button !== 3 && button !== 4) return false;
   const now = Date.now();
   if (now - scope.mouseButtonAt < 50) return true;
@@ -159,13 +362,13 @@ export function takeMouseButton(scope: any, button: number): boolean {
   return true;
 }
 
-export function onStagePointerDown(scope: any, e: PointerEvent) {
+export function onStagePointerDown(scope: Scope_onStagePointerDown, e: PointerEvent) {
   if (scope.embedded || !scope.stageRevealed) return;
   scope.pointerDownAt = { x: e.clientX, y: e.clientY };
   scope.pointerInside = scope.nearHit(e) || scope.overPainted(e);
 }
 
-export function onStagePointerUp(scope: any, e: PointerEvent) {
+export function onStagePointerUp(scope: Scope_onStagePointerUp, e: PointerEvent) {
   if (scope.embedded || !scope.stageRevealed) return;
   if (scope.takeMouseButton(e.button)) {
     e.preventDefault();
@@ -199,13 +402,13 @@ export function onStagePointerUp(scope: any, e: PointerEvent) {
   if (dismiss) scope.onRailEscape();
 }
 
-export function onStageAux(scope: any, e: MouseEvent) {
+export function onStageAux(scope: Scope_onStageAux, e: MouseEvent) {
   if (scope.embedded || !scope.stageRevealed) return;
   if (!scope.takeMouseButton(e.button)) return;
   e.preventDefault();
 }
 
-export function onStageMouseLeave(scope: any, e: MouseEvent) {
+export function onStageMouseLeave(scope: Scope_onStageMouseLeave, e: MouseEvent) {
   if (scope.embedded) return;
   if (scope.edgePointerSeed) scope.edgePointerSeed = false;
   const host = e.currentTarget;
@@ -222,11 +425,11 @@ export function onStageMouseLeave(scope: any, e: MouseEvent) {
   scope.applyEdge({ kind: "leave", side });
 }
 
-export function onWinBlur(scope: any) {
+export function onWinBlur(scope: Scope_onWinBlur) {
   scope.stageFocus(false);
 }
 
-export function onExpandedFieldEscape(scope: any, e: KeyboardEvent) {
+export function onExpandedFieldEscape(scope: Scope_onExpandedFieldEscape, e: KeyboardEvent) {
   if (e.key !== "Escape" || scope.embedded || scope.arch.front !== "layer2") return;
   const active = document.activeElement;
   if (!(active instanceof HTMLElement) || !active.closest(".l2-expanded")) return;
@@ -240,7 +443,7 @@ export function onExpandedFieldEscape(scope: any, e: KeyboardEvent) {
   e.stopPropagation();
 }
 
-export function applyStagePrefs(scope: any, raw: {
+export function applyStagePrefs(scope: Scope_applyStagePrefs, raw: {
   railEdge?: unknown;
   railAutoHideOnBlur?: unknown;
   autohideRowChrome?: unknown;
@@ -255,44 +458,44 @@ export function applyStagePrefs(scope: any, raw: {
   scope.railAutoHideOnBlur = prefs.railAutoHideOnBlur;
 }
 
-export function sheetRowsFor(scope: any, projectId: string): WindowInfo[] {
+export function sheetRowsFor(scope: Scope_sheetRowsFor, projectId: string): WindowInfo[] {
   return scope.windows.filter((w) =>
     scope.liveClaims.some((c) => c.windowId === w.id && c.projectId === projectId),
   );
 }
 
-export function raisePlanet(scope: any, id: string) {
+export function raisePlanet(scope: Scope_raisePlanet, id: string) {
   scope.invoke("bring_planet_front", { id }).catch(() => {});
   scope.invoke("locate_planet", { id }).catch(() => {});
 }
 
-export function onSheetPlanetClick(scope: any, id: string) {
+export function onSheetPlanetClick(scope: Scope_onSheetPlanetClick, id: string) {
   scope.sheetSlot = id;
   scope.raisePlanet(id);
 }
 
-export function onSheetPlanetDblClick(scope: any, id: string) {
+export function onSheetPlanetDblClick(scope: Scope_onSheetPlanetDblClick, id: string) {
   const collapsed = scope.isCollapsed(id);
   scope.emitTo("main", collapsed ? "habitat:expand" : "habitat:collapse", id).catch(
     () => {},
   );
 }
 
-export function sheetClaim(scope: any, windowId: string, projectId: string) {
+export function sheetClaim(scope: Scope_sheetClaim, windowId: string, projectId: string) {
   scope.claimPickerFor = null;
   scope.claim(windowId, projectId);
 }
 
-export function sheetFocus(scope: any, w: WindowInfo) {
+export function sheetFocus(scope: Scope_sheetFocus, w: WindowInfo) {
   scope.invoke("focus_window", { id: w.id }).catch(() => {});
 }
 
-export function toggleBoardCol(scope: any, col: string) {
+export function toggleBoardCol(scope: Scope_toggleBoardCol, col: string) {
   scope.railBoardCols = scope.toggleCol(scope.railBoardCols, col);
   scope.persist();
 }
 
-export async function focusRow(scope: any, w: WindowInfo) {
+export async function focusRow(scope: Scope_focusRow, w: WindowInfo) {
   try {
     await scope.invoke("focus_window", { id: w.id });
   } catch {
@@ -302,7 +505,7 @@ export async function focusRow(scope: any, w: WindowInfo) {
   await scope.tick();
 }
 
-export async function raisePlanetWindows(scope: any, pid: string) {
+export async function raisePlanetWindows(scope: Scope_raisePlanetWindows, pid: string) {
   const plan = scope.raisePlan(scope.rowsFor(pid));
   for (const id of plan.restore) {
     try {
@@ -326,7 +529,7 @@ export async function raisePlanetWindows(scope: any, pid: string) {
   scope.parkAfterRaise();
 }
 
-export async function openPlanetTodos(scope: any, pid: string) {
+export async function openPlanetTodos(scope: Scope_openPlanetTodos, pid: string) {
   await scope.openKanban();
   scope.emitTo("kanban", "orbitty:focus-project", pid).catch(() => {});
   setTimeout(
@@ -335,7 +538,7 @@ export async function openPlanetTodos(scope: any, pid: string) {
   );
 }
 
-export function rowById(scope: any, id: string): WindowInfo | undefined {
+export function rowById(scope: Scope_rowById, id: string): WindowInfo | undefined {
   for (const p of scope.projects) {
     const hit = scope.rowsFor(p.id).find((w) => w.id === id);
     if (hit) return hit;

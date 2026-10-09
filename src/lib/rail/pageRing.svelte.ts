@@ -1,6 +1,168 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function archDo(scope: any, next: ArchState) {
+
+import type { KanbanCard, Project, WindowInfo, WindowTags } from "../persist";
+import type { MenuRing, RingStop } from "../menuKeys.svelte";
+import type { ArchArrowResult, ArchConfirmAction, ArchState, BoardFocus, Layer2Item } from "./stageArch";
+import type { BesidePick, KeyOwner } from "./stageFocus";
+import type { HabitatConfirm, RailEdge } from "./habitat";
+import type { ArchFrontName, CentreCause } from "./railInput";
+import type { SpinConfirmAction, SpinItem, SpinStop } from "./stageLook";
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_archDo = {
+  arch: ArchState;
+  applyBeside: (...args: any[]) => any;
+  UNMAPPED_KEY: string;
+};
+
+type Scope_planetCards = {
+  kanbanCards: KanbanCard[];
+};
+
+type Scope_layer2For = {
+  UNMAPPED_KEY: string;
+  mirrorItems: (...args: any[]) => Layer2Item[];
+  planetCards: (...args: any[]) => KanbanCard[];
+  rowsFor: (...args: any[]) => WindowInfo[];
+  titleFor: (...args: any[]) => string;
+};
+
+type Scope_focusMirrorBoard = {};
+
+type Scope_confirmLayer2Stop = {
+  layer2For: (...args: any[]) => Layer2Item[];
+  arch: ArchState;
+  armNeededMouth: (...args: any[]) => any;
+  enterBoard: (...args: any[]) => { state: ArchState; focus: BoardFocus } | null;
+  planetCards: (...args: any[]) => KanbanCard[];
+  archDo: (...args: any[]) => any;
+  walkInto: (...args: any[]) => any;
+  focusBoardLanding: (...args: any[]) => any;
+  focusMirrorBoard: (...args: any[]) => any;
+  archConfirm: (...args: any[]) => ArchConfirmAction;
+  rowsFor: (...args: any[]) => WindowInfo[];
+  wakeSleeper: (...args: any[]) => Promise<any>;
+  parkAfterRaise: (...args: any[]) => any;
+  restore: (...args: any[]) => Promise<any>;
+  focusRow: (...args: any[]) => Promise<any>;
+};
+
+type Scope_noteRailAct = {
+  embedded: boolean;
+  lastNoteAct: number;
+  invoke: Invoke;
+};
+
+type Scope_confirmHabitatStop = {
+  spinConfirm: (...args: any[]) => SpinConfirmAction | null;
+  openStageDest: (...args: any[]) => any;
+  creatingProject: boolean;
+  coachClaim: (...args: any[]) => Promise<any>;
+  coachSkip: (...args: any[]) => Promise<any>;
+  applyBeside: (...args: any[]) => any;
+  spinItems: (...args: any[]) => SpinItem[];
+  projects: Project[];
+  UNMAPPED_KEY: string;
+  archDo: (...args: any[]) => any;
+  archEnter: (...args: any[]) => ArchState;
+  arch: ArchState;
+  layer2For: (...args: any[]) => Layer2Item[];
+  raisePlanetWindows: (...args: any[]) => Promise<any>;
+  habitatConfirm: (...args: any[]) => HabitatConfirm | null;
+  toggleBoardCol: (...args: any[]) => any;
+  ensureExpand: (...args: any[]) => any;
+  rowById: (...args: any[]) => WindowInfo | undefined;
+  wakeSleeper: (...args: any[]) => Promise<any>;
+  parkAfterRaise: (...args: any[]) => any;
+  focusRow: (...args: any[]) => Promise<any>;
+  openKanbanFocus: (...args: any[]) => Promise<any>;
+  openPlanetTodos: (...args: any[]) => Promise<any>;
+};
+
+type Scope_takeReselect = {
+  reselectStop: string | null;
+  menuRing: MenuRing;
+  focusMkey: (...args: any[]) => any;
+};
+
+type Scope_syncInspectorRing = {
+  lane: "projects" | "agents";
+  menuRing: MenuRing;
+  embedded: boolean;
+  keyOwner: KeyOwner;
+  arch: ArchState;
+  UNMAPPED_KEY: string;
+  visibleRows: (...args: any[]) => WindowInfo[];
+  unmapped: WindowInfo[];
+  outwardDir: (...args: any[]) => "left" | "right" | "up" | "down";
+  railEdge: RailEdge;
+  walkOut: (...args: any[]) => any;
+  wakeSleeper: (...args: any[]) => Promise<any>;
+  locateRow: (...args: any[]) => Promise<any>;
+  focusMkey: (...args: any[]) => any;
+  spinItems: (...args: any[]) => SpinItem[];
+  projects: Project[];
+  coachIsDue: (...args: any[]) => boolean;
+  spinCenter: number;
+  layer2For: (...args: any[]) => Layer2Item[];
+  archFocusPid: (...args: any[]) => string | null;
+  archArrow: (...args: any[]) => ArchArrowResult | null;
+  planetCards: (...args: any[]) => KanbanCard[];
+  armNeededMouth: (...args: any[]) => any;
+  archDo: (...args: any[]) => any;
+  walkInto: (...args: any[]) => any;
+  focusBoardLanding: (...args: any[]) => any;
+  applyBeside: (...args: any[]) => any;
+  pickFromKind: (...args: any[]) => BesidePick;
+  confirmLayer2Stop: (...args: any[]) => any;
+  spinStops: (...args: any[]) => SpinStop[];
+  confirmHabitatStop: (...args: any[]) => any;
+  takeReselect: (...args: any[]) => any;
+};
+
+type Scope_confirmRingTab = {
+  creatingProject: boolean;
+  sheetSlot: string;
+  onSheetPlanetClick: (...args: any[]) => any;
+};
+
+type Scope_onRailEscape = {
+  claimPickerFor: string | null;
+  creatingProject: boolean;
+  keyOwner: KeyOwner;
+  walkOut: (...args: any[]) => any;
+  stageEmbed: null | "settings" | "stars";
+  closeStageEmbed: (...args: any[]) => any;
+  embedded: boolean;
+  arch: ArchState;
+  layer2For: (...args: any[]) => Layer2Item[];
+  depthOutStop: (...args: any[]) => string | null;
+  reselectStop: string | null;
+  centreCause: CentreCause;
+  depthOut: (...args: any[]) => { front: ArchFrontName; hide: boolean };
+  archDo: (...args: any[]) => any;
+  menuRing: MenuRing;
+  coachSkip: (...args: any[]) => Promise<any>;
+  previewStop: (...args: any[]) => boolean;
+  openSectionId: (...args: any[]) => string | null;
+  stageRevealed: boolean;
+  parkStage: (...args: any[]) => Promise<any>;
+};
+
+type Scope_reclaimRailRing = {
+  detachMenuKeys: (() => void) | undefined;
+  menuRing: MenuRing;
+  onRailEscape: (...args: any[]) => boolean;
+};
+
+type Scope_toggleTag = {
+  liveWindowTags: WindowTags[];
+  windowTags: WindowTags[];
+  persist: (...args: any[]) => Promise<any>;
+};
+
+export function archDo(scope: Scope_archDo, next: ArchState) {
   const pendingSame =
     (next.pending == null && scope.arch.pending == null) ||
     (!!next.pending &&
@@ -22,11 +184,11 @@ export function archDo(scope: any, next: ArchState) {
   }
 }
 
-export function planetCards(scope: any, pid: string): KanbanCard[] {
+export function planetCards(scope: Scope_planetCards, pid: string): KanbanCard[] {
   return scope.kanbanCards.filter((c) => c.projectId === pid);
 }
 
-export function layer2For(scope: any, pid: string | null): Layer2Item[] {
+export function layer2For(scope: Scope_layer2For, pid: string | null): Layer2Item[] {
   if (!pid || pid === scope.UNMAPPED_KEY) return [];
   return scope.mirrorItems({
     pid,
@@ -43,7 +205,7 @@ export function layer2For(scope: any, pid: string | null): Layer2Item[] {
   });
 }
 
-export function focusMirrorBoard(scope: any) {
+export function focusMirrorBoard(scope: Scope_focusMirrorBoard) {
   requestAnimationFrame(() => {
     const panel = document.querySelector(".l2-expanded .l2-board");
     if (!(panel instanceof HTMLElement)) return;
@@ -54,7 +216,7 @@ export function focusMirrorBoard(scope: any) {
   });
 }
 
-export function confirmLayer2Stop(scope: any, id: string) {
+export function confirmLayer2Stop(scope: Scope_confirmLayer2Stop, id: string) {
   const item = scope.layer2For(scope.arch.pid).find((it) => it.stop === id);
   if (!item || !scope.arch.pid) return;
   if (item.kind === "needed") {
@@ -81,7 +243,7 @@ export function confirmLayer2Stop(scope: any, id: string) {
   else void scope.focusRow(w).then(() => scope.parkAfterRaise());
 }
 
-export function noteRailAct(scope: any) {
+export function noteRailAct(scope: Scope_noteRailAct) {
   if (scope.embedded) return;
   const now = Date.now();
   if (now - scope.lastNoteAct < 1000) return;
@@ -89,7 +251,7 @@ export function noteRailAct(scope: any) {
   scope.invoke("starter_note_act").catch(() => {});
 }
 
-export function confirmHabitatStop(scope: any, id: string) {
+export function confirmHabitatStop(scope: Scope_confirmHabitatStop, id: string) {
   const spin = scope.spinConfirm(id);
   if (spin === "stars") {
     scope.openStageDest("stars");
@@ -157,7 +319,7 @@ export function confirmHabitatStop(scope: any, id: string) {
   if (action === "todos") void scope.openPlanetTodos(id.slice("rtodos-".length));
 }
 
-export function takeReselect(scope: any) {
+export function takeReselect(scope: Scope_takeReselect) {
   if (!scope.reselectStop) return;
   const id = scope.reselectStop;
   scope.reselectStop = null;
@@ -165,7 +327,7 @@ export function takeReselect(scope: any) {
   scope.focusMkey(id);
 }
 
-export function syncInspectorRing(scope: any) {
+export function syncInspectorRing(scope: Scope_syncInspectorRing) {
   if (scope.lane !== "projects") {
     scope.menuRing.setStops([]);
     scope.menuRing.onEdge = null;
@@ -287,7 +449,7 @@ export function syncInspectorRing(scope: any) {
   scope.takeReselect();
 }
 
-export function confirmRingTab(scope: any, id: string) {
+export function confirmRingTab(scope: Scope_confirmRingTab, id: string) {
   if (id === "ptab-add") {
     scope.creatingProject = true;
     return;
@@ -299,7 +461,7 @@ export function confirmRingTab(scope: any, id: string) {
   scope.onSheetPlanetClick(id.slice("ptab-".length));
 }
 
-export function onRailEscape(scope: any): boolean {
+export function onRailEscape(scope: Scope_onRailEscape): boolean {
   if (scope.claimPickerFor) {
     scope.claimPickerFor = null;
     return true;
@@ -358,12 +520,12 @@ export function onRailEscape(scope: any): boolean {
   return false;
 }
 
-export function reclaimRailRing(scope: any) {
+export function reclaimRailRing(scope: Scope_reclaimRailRing) {
   scope.detachMenuKeys?.();
   scope.detachMenuKeys = scope.menuRing.attach(scope.onRailEscape);
 }
 
-export function toggleTag(scope: any, windowId: string, tagId: string) {
+export function toggleTag(scope: Scope_toggleTag, windowId: string, tagId: string) {
   const cur =
     scope.liveWindowTags.find((wt) => wt.windowId === windowId)?.tagIds ?? [];
   const next = cur.includes(tagId)

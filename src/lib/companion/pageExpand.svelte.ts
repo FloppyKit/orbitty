@@ -1,6 +1,168 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function toggleExpanded(scope: any) {
+
+import type { CompanionTurn, KanbanCard, PersistedState, StarsSlice } from "../persist";
+
+interface CompanionSheet {
+  dataUrl: string;
+  frameW: number;
+  frameH: number;
+  count: number;
+}
+
+interface CompanionArt {
+  frames: string[];
+  thinkingFrames: string[];
+  bustFrames?: string[];
+  bustThinkingFrames?: string[];
+  sheet: CompanionSheet | null;
+  frameMs: number;
+  smooth?: boolean;
+}
+
+type HostMode = "off" | "launchpad" | "stars" | "inspector";
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_toggleExpanded = {
+  expanded: boolean;
+  captions: boolean;
+  invoke: Invoke;
+};
+
+type Scope_enterHost = {
+  tileGen: number;
+  hosted: HostMode;
+  tileReset: (...args: any[]) => any;
+  DEST_RING: any;
+  swapDir: 1 | -1;
+  wellpaneEl: HTMLElement | null;
+  prismR: number;
+  swapPrev: HostMode | null;
+  invoke: Invoke;
+  sendNote: string | null;
+  TILE_YAW_MS: number;
+  expanded: boolean;
+  sprite: boolean;
+  mainEl: HTMLElement | null;
+  spiritHold: boolean;
+  tilePre: boolean;
+  tick: (...args: any[]) => Promise<any>;
+  tileEnter: boolean;
+  TILE_ENTER_MS: number;
+};
+
+type Scope_dismissHost = {
+  hosted: HostMode;
+  tileLeave: boolean;
+  tileGen: number;
+  tilePre: boolean;
+  tileEnter: boolean;
+  spiritHold: boolean;
+  swapPrev: HostMode | null;
+  TILE_LEAVE_MS: number;
+  lastDest: "launchpad" | "stars" | "inspector" | null;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_refreshDestOpen = {
+  destOpen: { launchpad: boolean; stars: boolean; inspector: boolean };
+  invoke: Invoke;
+  stars: StarsSlice;
+};
+
+type Scope_toggleDest = {
+  hosted: HostMode;
+  dismissHost: (...args: any[]) => Promise<any>;
+  invoke: Invoke;
+  sendNote: string | null;
+  refreshDestOpen: (...args: any[]) => Promise<any>;
+};
+
+type Scope_popoutLaunchpad = {
+  hosted: HostMode;
+  tileGen: number;
+  tileReset: (...args: any[]) => any;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_popoutInspector = {
+  hosted: HostMode;
+  tileGen: number;
+  tileReset: (...args: any[]) => any;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_restartTimer = {
+  timer: ReturnType<typeof setInterval> | undefined;
+  drawFrames: any;
+  frameIdx: number;
+  frameMs: number;
+};
+
+type Scope_sliceSheet = {};
+
+type Scope_loadArt = {
+  bodyId: string;
+  invoke: Invoke;
+  sliceSheet: (...args: any[]) => Promise<string[]>;
+  frameMs: number;
+  artSmooth: boolean;
+  frameIdx: number;
+  restFrames: string[];
+  thinkFrames: string[];
+  restBust: string[];
+  thinkBust: string[];
+  missing: boolean;
+  restartTimer: (...args: any[]) => any;
+  artLoaded: boolean;
+};
+
+type Scope_onGlbFail = {
+  glbFailed: boolean;
+  sendNote: string | null;
+  bodyId: string;
+  invoke: Invoke;
+};
+
+type Scope_loadState = {
+  invoke: Invoke;
+  themeId: string;
+  KNOWN_THEMES: Set<string>;
+  osThemeId: (...args: any[]) => string;
+  windowOpacity: number;
+  clampWindowOpacity: (...args: any[]) => any;
+  sending: boolean;
+  userLine: string;
+  botLine: string;
+  turns: CompanionTurn[];
+  expanded: boolean;
+  speak: boolean;
+  speakVolume: number;
+  figureView: string;
+  sprite: boolean;
+  captions: boolean;
+  planetsHidden: boolean;
+  cheatSheetHint: boolean;
+  maybeGraduatePeerChrome: (...args: any[]) => boolean;
+  peerChrome: boolean;
+  peerChromeOn: (...args: any[]) => boolean;
+  hackLive: boolean;
+  hackWho: string;
+  bodyId: string;
+  glbFailed: boolean;
+  artLoaded: boolean;
+  loadArt: (...args: any[]) => Promise<any>;
+  stars: StarsSlice;
+  prompts: boolean;
+  cards: KanbanCard[];
+  refreshDestOpen: (...args: any[]) => Promise<any>;
+  captionReady: boolean;
+};
+
+export function toggleExpanded(scope: Scope_toggleExpanded) {
   scope.expanded = !scope.expanded;
   // Expanding with bubbles muted would be an empty slab — turn captions
   // back on with the expand.
@@ -14,7 +176,7 @@ export function toggleExpanded(scope: any) {
   // the native host frame (1080×620) stays up.
 }
 
-export async function enterHost(scope: any, mode: "launchpad" | "stars" | "inspector") {
+export async function enterHost(scope: Scope_enterHost, mode: "launchpad" | "stars" | "inspector") {
   const gen = ++scope.tileGen; // a fresh enter/swap supersedes any in-flight leave
   if (scope.hosted !== "off") {
     // Swap dests: re-assert host (no second grow). Same dest does not turn.
@@ -132,7 +294,7 @@ export async function enterHost(scope: any, mode: "launchpad" | "stars" | "inspe
   }
 }
 
-export async function dismissHost(scope: any) {
+export async function dismissHost(scope: Scope_dismissHost) {
   if (scope.hosted === "off" || scope.tileLeave) return;
   // ⌘⌥↑ leftover: remember what is being lowered (written just before
   // `hosted = "off"` below; a superseded leave never completes the
@@ -163,7 +325,7 @@ export async function dismissHost(scope: any) {
   }
 }
 
-export async function refreshDestOpen(scope: any) {
+export async function refreshDestOpen(scope: Scope_refreshDestOpen) {
   try {
     scope.destOpen = await scope.invoke<{
       launchpad: boolean;
@@ -175,7 +337,7 @@ export async function refreshDestOpen(scope: any) {
   }
 }
 
-export async function toggleDest(scope: any, mode: "launchpad" | "stars" | "inspector") {
+export async function toggleDest(scope: Scope_toggleDest, mode: "launchpad" | "stars" | "inspector") {
   if (scope.hosted !== "off") await scope.dismissHost();
   try {
     await scope.invoke("dest_toggle", { dest: mode });
@@ -185,7 +347,7 @@ export async function toggleDest(scope: any, mode: "launchpad" | "stars" | "insp
   await scope.refreshDestOpen();
 }
 
-export async function popoutLaunchpad(scope: any) {
+export async function popoutLaunchpad(scope: Scope_popoutLaunchpad) {
   if (scope.hosted !== "launchpad") return;
   scope.tileGen++; // cancel any in-flight leave; pop-out stays instant
   scope.tileReset();
@@ -198,7 +360,7 @@ export async function popoutLaunchpad(scope: any) {
   }
 }
 
-export async function popoutInspector(scope: any) {
+export async function popoutInspector(scope: Scope_popoutInspector) {
   if (scope.hosted !== "inspector") return;
   scope.tileGen++; // cancel any in-flight leave; pop-out stays instant
   scope.tileReset();
@@ -211,7 +373,7 @@ export async function popoutInspector(scope: any) {
   }
 }
 
-export function restartTimer(scope: any) {
+export function restartTimer(scope: Scope_restartTimer) {
   if (scope.timer) clearInterval(scope.timer);
   // Reduced motion: hold frame 0 of the active set (rest or thinking).
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -221,7 +383,7 @@ export function restartTimer(scope: any) {
   }, scope.frameMs);
 }
 
-export async function sliceSheet(scope: any, sheet: CompanionSheet): Promise<string[]> {
+export async function sliceSheet(scope: Scope_sliceSheet, sheet: CompanionSheet): Promise<string[]> {
   const img = new Image();
   await new Promise<void>((resolve, reject) => {
     img.onload = () => resolve();
@@ -253,7 +415,7 @@ export async function sliceSheet(scope: any, sheet: CompanionSheet): Promise<str
   return out;
 }
 
-export async function loadArt(scope: any) {
+export async function loadArt(scope: Scope_loadArt) {
   const packId =
     scope.bodyId === "spirit" || scope.bodyId === "female"
       ? null
@@ -308,7 +470,7 @@ export async function loadArt(scope: any) {
   scope.artLoaded = true;
 }
 
-export async function onGlbFail(scope: any) {
+export async function onGlbFail(scope: Scope_onGlbFail) {
   if (scope.glbFailed) return;
   scope.glbFailed = true;
   scope.sendNote = "3D body failed; back on Spirit.";
@@ -320,7 +482,7 @@ export async function onGlbFail(scope: any) {
   }
 }
 
-export async function loadState(scope: any) {
+export async function loadState(scope: Scope_loadState) {
   try {
     const s = await scope.invoke<PersistedState>("load_state");
     scope.themeId = scope.KNOWN_THEMES.has(s.themeId) ? s.themeId : scope.osThemeId();

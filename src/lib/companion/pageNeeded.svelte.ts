@@ -1,15 +1,153 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function todayKey(scope: any): string {
+
+import type { CompanionTurn, KanbanCard, StarsSlice } from "../persist";
+
+interface CompanionAgents {
+  agents: string[];
+  selected: string;
+}
+
+interface AttachChip {
+  path: string;
+  name: string;
+  size: number;
+}
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_todayKey = {};
+
+type Scope_toggleNextCard = {
+  invoke: Invoke;
+};
+
+type Scope_togglePrompts = {
+  prompts: boolean;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_ackStrip = {
+  promptAckKey: any;
+  stars: StarsSlice;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_smallestTodo = {
+  cards: KanbanCard[];
+};
+
+type Scope_openSmallestTodo = {
+  smallestTodo: (...args: any[]) => { cardId: string; text: string } | null;
+  ackStrip: (...args: any[]) => Promise<any>;
+  sendNote: string | null;
+  enterHost: (...args: any[]) => Promise<any>;
+  emitTo: (...args: any[]) => any;
+};
+
+type Scope_talkStop = {
+  talking: boolean;
+  fieldEl: HTMLTextAreaElement | null;
+  invoke: Invoke;
+};
+
+type Scope_talkStart = {
+  talking: boolean;
+  fieldEl: HTMLTextAreaElement | null;
+  talkBase: string;
+  draft: string;
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_talkStopOnly = {
+  sendOnTalkEnd: boolean;
+  talkStop: (...args: any[]) => Promise<any>;
+};
+
+type Scope_talkStopSend = {
+  talking: boolean;
+  sendOnTalkEnd: boolean;
+  talkStop: (...args: any[]) => Promise<any>;
+  sendLine: (...args: any[]) => Promise<any>;
+};
+
+type Scope_applyTalkText = {
+  draft: string;
+  talkBase: string;
+  fieldEl: HTMLTextAreaElement | null;
+};
+
+type Scope_onNeededFocus = {
+  neededFocusId: string | null;
+  neededFocusTitle: string | null;
+  mouthHooked: boolean;
+  landCaret: (...args: any[]) => Promise<any>;
+};
+
+type Scope_composerField = {
+  fieldEl: HTMLTextAreaElement | null;
+};
+
+type Scope_focusComposer = {
+  composerField: (...args: any[]) => HTMLTextAreaElement | null;
+};
+
+type Scope_landCaret = {
+  tick: (...args: any[]) => Promise<any>;
+  focusComposer: (...args: any[]) => boolean;
+};
+
+type Scope_onNeededAnswer = {
+  landCaret: (...args: any[]) => Promise<any>;
+};
+
+type Scope_sendLine = {
+  draft: string;
+  attach: AttachChip | null;
+  neededFocusId: string | null;
+  invoke: Invoke;
+  sendNote: string | null;
+  sending: boolean;
+  ackLine: string;
+  pendingAck: string;
+  ackReveal: ReturnType<typeof setTimeout> | undefined;
+  ACK_SPIN_MS: number;
+  turns: CompanionTurn[];
+  userLine: string;
+  botLine: string;
+};
+
+type Scope_loadAgents = {
+  invoke: Invoke;
+  agents: string[];
+  agent: string;
+};
+
+type Scope_stampThin = {
+  invoke: Invoke;
+  sendNote: string | null;
+};
+
+type Scope_onAgentChange = {
+  agent: string;
+  invoke: Invoke;
+  AGENT_MODE: any;
+  sendNote: string | null;
+  loadAgents: (...args: any[]) => Promise<any>;
+};
+
+export function todayKey(scope: Scope_todayKey): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function toggleNextCard(scope: any) {
+export function toggleNextCard(scope: Scope_toggleNextCard) {
   scope.invoke("toggle_next_card_window").catch(() => {});
 }
 
-export async function togglePrompts(scope: any) {
+export async function togglePrompts(scope: Scope_togglePrompts) {
   const next = !scope.prompts;
   scope.prompts = next;
   try {
@@ -20,7 +158,7 @@ export async function togglePrompts(scope: any) {
   }
 }
 
-export async function ackStrip(scope: any) {
+export async function ackStrip(scope: Scope_ackStrip) {
   if (!scope.promptAckKey) return;
   const ack = scope.promptAckKey;
   scope.stars = { ...scope.stars, promptsAck: ack };
@@ -31,14 +169,14 @@ export async function ackStrip(scope: any) {
   }
 }
 
-export function smallestTodo(scope: any): { cardId: string; text: string } | null {
+export function smallestTodo(scope: Scope_smallestTodo): { cardId: string; text: string } | null {
   const card = scope.cards.find((c) => c.status === "doing");
   if (!card) return null;
   const sub = card.subtasks?.find((s) => !s.done);
   return { cardId: card.id, text: sub?.title || card.title };
 }
 
-export async function openSmallestTodo(scope: any) {
+export async function openSmallestTodo(scope: Scope_openSmallestTodo) {
   const t = scope.smallestTodo();
   await scope.ackStrip();
   if (!t) {
@@ -62,7 +200,7 @@ export async function openSmallestTodo(scope: any) {
   }
 }
 
-export async function talkStop(scope: any) {
+export async function talkStop(scope: Scope_talkStop) {
   scope.talking = false;
   scope.fieldEl?.focus();
   try {
@@ -73,7 +211,7 @@ export async function talkStop(scope: any) {
   scope.fieldEl?.focus();
 }
 
-export async function talkStart(scope: any, e: Event) {
+export async function talkStart(scope: Scope_talkStart, e: Event) {
   e.preventDefault();
   if (scope.talking) return;
   scope.fieldEl?.focus();
@@ -89,12 +227,12 @@ export async function talkStart(scope: any, e: Event) {
   }
 }
 
-export async function talkStopOnly(scope: any) {
+export async function talkStopOnly(scope: Scope_talkStopOnly) {
   scope.sendOnTalkEnd = false;
   await scope.talkStop();
 }
 
-export async function talkStopSend(scope: any) {
+export async function talkStopSend(scope: Scope_talkStopSend) {
   if (!scope.talking) return;
   scope.sendOnTalkEnd = true;
   await scope.talkStop();
@@ -105,7 +243,7 @@ export async function talkStopSend(scope: any) {
   }
 }
 
-export function applyTalkText(scope: any, text: string) {
+export function applyTalkText(scope: Scope_applyTalkText, text: string) {
   const spoken = (text ?? "").trim();
   if (!spoken) {
     scope.draft = scope.talkBase;
@@ -117,21 +255,21 @@ export function applyTalkText(scope: any, text: string) {
   scope.fieldEl?.focus();
 }
 
-export function onNeededFocus(scope: any, id: string | null, title: string | null) {
+export function onNeededFocus(scope: Scope_onNeededFocus, id: string | null, title: string | null) {
   scope.neededFocusId = id;
   scope.neededFocusTitle = title;
   scope.mouthHooked = !!id;
   if (id) void scope.landCaret();
 }
 
-export function composerField(scope: any): HTMLTextAreaElement | null {
+export function composerField(scope: Scope_composerField): HTMLTextAreaElement | null {
   return (
     scope.fieldEl ??
     document.querySelector<HTMLTextAreaElement>("textarea.field")
   );
 }
 
-export function focusComposer(scope: any): boolean {
+export function focusComposer(scope: Scope_focusComposer): boolean {
   const el = scope.composerField();
   if (!el) return false;
   el.focus();
@@ -144,7 +282,7 @@ export function focusComposer(scope: any): boolean {
   return document.activeElement === el;
 }
 
-export async function landCaret(scope: any) {
+export async function landCaret(scope: Scope_landCaret) {
   await scope.tick();
   await new Promise<void>((r) =>
     requestAnimationFrame(() => requestAnimationFrame(() => r())),
@@ -156,11 +294,11 @@ export async function landCaret(scope: any) {
   }
 }
 
-export function onNeededAnswer(scope: any) {
+export function onNeededAnswer(scope: Scope_onNeededAnswer) {
   void scope.landCaret();
 }
 
-export async function sendLine(scope: any) {
+export async function sendLine(scope: Scope_sendLine) {
   const line = scope.draft.trim();
   const file = scope.attach;
   if (!line && !file) return;
@@ -244,7 +382,7 @@ export async function sendLine(scope: any) {
   }
 }
 
-export async function loadAgents(scope: any) {
+export async function loadAgents(scope: Scope_loadAgents) {
   try {
     const a = await scope.invoke<CompanionAgents>("companion_agents");
     scope.agents = a.agents.length > 0 ? a.agents : ["default"];
@@ -255,7 +393,7 @@ export async function loadAgents(scope: any) {
   }
 }
 
-export async function stampThin(scope: any) {
+export async function stampThin(scope: Scope_stampThin) {
   try {
     const msg = await scope.invoke<string>("companion_thin");
     scope.sendNote = msg.split("\n")[0] ?? "THIN stamped";
@@ -264,7 +402,7 @@ export async function stampThin(scope: any) {
   }
 }
 
-export async function onAgentChange(scope: any) {
+export async function onAgentChange(scope: Scope_onAgentChange) {
   try {
     scope.agent = await scope.invoke<string>("set_companion_agent", { profile: scope.agent });
     // Same flip switches the JOB (mode law). Transcript stays.

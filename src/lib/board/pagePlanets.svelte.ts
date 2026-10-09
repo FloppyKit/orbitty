@@ -1,15 +1,85 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function raisePlanet(scope: any, id: string) {
+
+import type { PersistedState, Project } from "../persist";
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_raisePlanet = {
+  invoke: Invoke;
+};
+
+type Scope_projectIdList = {
+  projects: Project[];
+};
+
+type Scope_applyFocusProject = {
+  resolveFocus: (...args: any[]) => { selected: string; pending: string | null };
+  selected: string;
+  projectIdList: (...args: any[]) => string[];
+  pendingFocusProject: string | null;
+  projects: Project[];
+  raisePlanet: (...args: any[]) => any;
+};
+
+type Scope_applyPendingFocus = {
+  pendingFocusProject: string | null;
+  resolveFocus: (...args: any[]) => { selected: string; pending: string | null };
+  selected: string;
+  projectIdList: (...args: any[]) => string[];
+  projects: Project[];
+  raisePlanet: (...args: any[]) => any;
+};
+
+type Scope_onPlanetTabClick = {
+  planetDidDrag: boolean;
+  pendingFocusProject: string | null;
+  selected: string;
+  raisePlanet: (...args: any[]) => any;
+};
+
+type Scope_reorderPlanetsLive = {
+  reorderProjects: <T extends { id: string }>(list: readonly T[], fromId: string, beforeId: string | null) => T[];
+  projects: Project[];
+};
+
+type Scope_persistPlanetOrder = {
+  projects: Project[];
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_planetBeforeAt = {
+  beforeIdAt: (...args: any[]) => string | null;
+};
+
+type Scope_onPlanetPointerDown = {
+  planetDidDrag: boolean;
+  planetDragId: string | null;
+  planetBeforeAt: (...args: any[]) => string | null;
+  planetDropId: string | null;
+  reorderPlanetsLive: (...args: any[]) => any;
+  persistPlanetOrder: (...args: any[]) => any;
+};
+
+type Scope_toggleDoneChip = {
+  selected: string;
+  selectedBeforeDone: string;
+};
+
+type Scope_onPlanetTabDblClick = {
+  collapsedSectionIds: string[];
+  emitTo: (...args: any[]) => any;
+};
+
+export function raisePlanet(scope: Scope_raisePlanet, id: string) {
   scope.invoke("bring_planet_front", { id }).catch(() => {});
   scope.invoke("locate_planet", { id }).catch(() => {});
 }
 
-export function projectIdList(scope: any): string[] {
+export function projectIdList(scope: Scope_projectIdList): string[] {
   return scope.projects.map((p) => p.id);
 }
 
-export function applyFocusProject(scope: any, raw: string | null | undefined) {
+export function applyFocusProject(scope: Scope_applyFocusProject, raw: string | null | undefined) {
   const id = (raw ?? "").trim();
   if (!id) return;
   const next = scope.resolveFocus({
@@ -22,7 +92,7 @@ export function applyFocusProject(scope: any, raw: string | null | undefined) {
   if (scope.projects.some((p) => p.id === id)) scope.raisePlanet(id);
 }
 
-export function applyPendingFocus(scope: any) {
+export function applyPendingFocus(scope: Scope_applyPendingFocus) {
   const before = scope.pendingFocusProject;
   const next = scope.resolveFocus({
     pending: before,
@@ -41,7 +111,7 @@ export function applyPendingFocus(scope: any) {
   }
 }
 
-export function onPlanetTabClick(scope: any, id: string) {
+export function onPlanetTabClick(scope: Scope_onPlanetTabClick, id: string) {
   if (scope.planetDidDrag) {
     scope.planetDidDrag = false;
     return;
@@ -52,12 +122,12 @@ export function onPlanetTabClick(scope: any, id: string) {
   scope.raisePlanet(id);
 }
 
-export function reorderPlanetsLive(scope: any, fromId: string, beforeId: string | null) {
+export function reorderPlanetsLive(scope: Scope_reorderPlanetsLive, fromId: string, beforeId: string | null) {
   const next = scope.reorderProjects(scope.projects, fromId, beforeId);
   if (next !== scope.projects) scope.projects = next;
 }
 
-export function persistPlanetOrder(scope: any) {
+export function persistPlanetOrder(scope: Scope_persistPlanetOrder) {
   const order = scope.projects.map((p) => p.id);
   scope.mutate((s) => {
     const byId = new Map((s.projects ?? []).map((p) => [p.id, p]));
@@ -65,7 +135,7 @@ export function persistPlanetOrder(scope: any) {
   });
 }
 
-export function planetBeforeAt(scope: any, clientY: number): string | null {
+export function planetBeforeAt(scope: Scope_planetBeforeAt, clientY: number): string | null {
   const col = document.querySelector(".planet-col");
   if (!col) return null;
   const rows: { id: string; top: number; height: number }[] = [];
@@ -79,7 +149,7 @@ export function planetBeforeAt(scope: any, clientY: number): string | null {
   return scope.beforeIdAt(rows, clientY);
 }
 
-export function onPlanetPointerDown(scope: any, e: PointerEvent, id: string) {
+export function onPlanetPointerDown(scope: Scope_onPlanetPointerDown, e: PointerEvent, id: string) {
   if (e.button !== 0) return;
   if (!(e.currentTarget instanceof HTMLElement)) return;
   e.stopPropagation();
@@ -145,7 +215,7 @@ export function onPlanetPointerDown(scope: any, e: PointerEvent, id: string) {
   tab.addEventListener("pointercancel", onUp);
 }
 
-export function toggleDoneChip(scope: any) {
+export function toggleDoneChip(scope: Scope_toggleDoneChip) {
   if (scope.selected === "done") {
     scope.selected = scope.selectedBeforeDone || "inbox";
   } else {
@@ -154,7 +224,7 @@ export function toggleDoneChip(scope: any) {
   }
 }
 
-export function onPlanetTabDblClick(scope: any, id: string) {
+export function onPlanetTabDblClick(scope: Scope_onPlanetTabDblClick, id: string) {
   const collapsed = scope.collapsedSectionIds.includes(id);
   scope.emitTo("main", collapsed ? "habitat:expand" : "habitat:collapse", id).catch(
     () => {},

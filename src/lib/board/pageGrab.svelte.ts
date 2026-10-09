@@ -1,6 +1,47 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function startGrab(scope: any, card: KanbanCard) {
+
+import type { CardStatus as Status, KanbanCard, PersistedState } from "../persist";
+import type { MenuRing, RingDir } from "../menuKeys.svelte";
+
+type Scope_startGrab = {
+  grabbedId: string | null;
+  grabCol: Status | null;
+  grabIdx: number;
+  boardCols: Record<Status, KanbanCard[]>;
+};
+
+type Scope_grabArrow = {
+  grabbedId: string | null;
+  grabCol: Status | null;
+  COLUMNS: { id: Status; name: string; hint: string }[];
+  grabIdx: number;
+  boardCols: Record<Status, KanbanCard[]>;
+  menuRing: MenuRing;
+};
+
+type Scope_dropGrab = {
+  grabbedId: string | null;
+  grabCol: Status | null;
+  grabIdx: number;
+  grabGhost: { x: number; y: number; w: number; h: number } | null;
+  kanbanCards: KanbanCard[];
+  moveCard: (...args: any[]) => any;
+  persistColumnOrder: (...args: any[]) => any;
+};
+
+type Scope_persistColumnOrder = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  inScope: (...args: any[]) => boolean;
+};
+
+type Scope_ungrab = {
+  grabbedId: string | null;
+  grabCol: Status | null;
+  grabIdx: number;
+  grabGhost: { x: number; y: number; w: number; h: number } | null;
+};
+
+export function startGrab(scope: Scope_startGrab, card: KanbanCard) {
   if (scope.grabbedId) return; // a repeated Shift+Enter is not a re-grab
   scope.grabbedId = card.id;
   scope.grabCol = card.status;
@@ -11,7 +52,7 @@ export function startGrab(scope: any, card: KanbanCard) {
   );
 }
 
-export function grabArrow(scope: any, dir: RingDir) {
+export function grabArrow(scope: Scope_grabArrow, dir: RingDir) {
   if (!scope.grabbedId || !scope.grabCol) return;
   if (dir === "left" || dir === "right") {
     // Column hop, clamped at the ends. Empty columns are legal targets
@@ -30,7 +71,7 @@ export function grabArrow(scope: any, dir: RingDir) {
   scope.menuRing.select(`card-${scope.grabbedId}`);
 }
 
-export function dropGrab(scope: any) {
+export function dropGrab(scope: Scope_dropGrab) {
   const id = scope.grabbedId;
   const target = scope.grabCol;
   const idx = scope.grabIdx;
@@ -47,7 +88,7 @@ export function dropGrab(scope: any) {
   scope.persistColumnOrder(card, target, idx);
 }
 
-export function persistColumnOrder(scope: any, card: KanbanCard, col: Status, toIdx: number) {
+export function persistColumnOrder(scope: Scope_persistColumnOrder, card: KanbanCard, col: Status, toIdx: number) {
   scope.mutate((s) => {
     const cards = s.kanbanCards;
     const match = (c: KanbanCard) =>
@@ -66,7 +107,7 @@ export function persistColumnOrder(scope: any, card: KanbanCard, col: Status, to
   });
 }
 
-export function ungrab(scope: any) {
+export function ungrab(scope: Scope_ungrab) {
   // Esc (pad B): no mutation ever happened — the card is still in its
   // pre-grab column; the held paint just stops.
   scope.grabbedId = null;

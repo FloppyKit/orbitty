@@ -1,6 +1,140 @@
-// @ts-nocheck
 // Moved function bodies. scope fields are the lets each function already closed over.
-export function logEvent(scope: any, eType: string, content: Record<string, unknown>, projectId?: string) {
+
+import type { CardStatus as Status, KanbanCard, PersistedState } from "../persist";
+import type { ColumnMode } from "./planetColumn";
+
+type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+
+type Scope_logEvent = {
+  invoke: Invoke;
+};
+
+type Scope_mutate = {
+  invoke: Invoke;
+  loadState: (...args: any[]) => Promise<any>;
+  errText: (...args: any[]) => string;
+  showLinkToast: (...args: any[]) => any;
+};
+
+type Scope_errText = {};
+
+type Scope_showLinkToast = {
+  linkToast: string;
+  linkToastTimer: ReturnType<typeof setTimeout> | undefined;
+};
+
+type Scope_openCardLink = {
+  showLinkToast: (...args: any[]) => any;
+  requestLink: (...args: any[]) => Promise<void>;
+  linkErrText: (...args: any[]) => string;
+};
+
+type Scope_openUrl = {
+  requestLink: (...args: any[]) => Promise<void>;
+  showLinkToast: (...args: any[]) => any;
+  linkErrText: (...args: any[]) => string;
+};
+
+type Scope_addCardLink = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_removeCardLink = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_completeCard = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  todayKey: (...args: any[]) => string;
+  DAILY_CAP: number;
+  logEvent: (...args: any[]) => any;
+};
+
+type Scope_toggleCard = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  logEvent: (...args: any[]) => any;
+  completeCard: (...args: any[]) => any;
+};
+
+type Scope_moveCard = {
+  completeCard: (...args: any[]) => any;
+  kanbanCards: KanbanCard[];
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  logEvent: (...args: any[]) => any;
+};
+
+type Scope_openDetail = {
+  neededSelectedId: string | null;
+  armNeededMouth: (...args: any[]) => any;
+  detailId: string | null;
+  newTagName: string;
+  previewEdit: boolean;
+  planetDdOpen: boolean;
+};
+
+type Scope_toggleDoing = {
+  moveCard: (...args: any[]) => any;
+  invoke: Invoke;
+  loadState: (...args: any[]) => Promise<any>;
+};
+
+type Scope_skipNeededCard = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  logEvent: (...args: any[]) => any;
+};
+
+type Scope_laterNeededCard = {
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  logEvent: (...args: any[]) => any;
+};
+
+type Scope_onSplitDown = {
+  mailEl: HTMLDivElement | null;
+  neededSplit: number;
+  clampSharedSplit: (...args: any[]) => any;
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_columnWidthNow = {
+  columnPx: (...args: any[]) => number;
+  columnMode: (...args: any[]) => ColumnMode;
+  boardPx: number;
+  planetColPref: "auto" | "open" | "icons" | "hidden";
+};
+
+type Scope_mailMinPx = {
+  columnWidthNow: (...args: any[]) => number;
+};
+
+type Scope_togglePlanetCol = {
+  planetColPref: "auto" | "open" | "icons" | "hidden";
+  planetColMode: any;
+  previewWidth: number;
+  clampPreview: (...args: any[]) => number;
+};
+
+type Scope_previewMinPx = {};
+
+type Scope_clampPreview = {
+  bodyEl: HTMLDivElement | null;
+  previewMinPx: (...args: any[]) => number;
+  mailMinPx: (...args: any[]) => number;
+};
+
+type Scope_onEastSplitDown = {
+  bodyEl: HTMLDivElement | null;
+  previewWidth: number;
+  clampPreview: (...args: any[]) => number;
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+type Scope_resetPreviewWidth = {
+  previewWidth: number;
+  clampPreview: (...args: any[]) => number;
+  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+};
+
+export function logEvent(scope: Scope_logEvent, eType: string, content: Record<string, unknown>, projectId?: string) {
   scope.invoke("log_event", {
     eType,
     content,
@@ -9,7 +143,7 @@ export function logEvent(scope: any, eType: string, content: Record<string, unkn
   }).catch(() => {});
 }
 
-export async function mutate(scope: any, fn: (s: PersistedState) => void) {
+export async function mutate(scope: Scope_mutate, fn: (s: PersistedState) => void) {
   try {
     const s = await scope.invoke<PersistedState>("load_state");
     s.projects ??= [];
@@ -33,13 +167,13 @@ export async function mutate(scope: any, fn: (s: PersistedState) => void) {
   }
 }
 
-export function errText(scope: any, e: unknown): string {
+export function errText(scope: Scope_errText, e: unknown): string {
   if (typeof e === "string") return e;
   if (e instanceof Error) return e.message;
   return "";
 }
 
-export function showLinkToast(scope: any, msg: string) {
+export function showLinkToast(scope: Scope_showLinkToast, msg: string) {
   scope.linkToast = /file not found/i.test(msg) ? "file not found" : msg;
   clearTimeout(scope.linkToastTimer);
   scope.linkToastTimer = setTimeout(() => {
@@ -47,7 +181,7 @@ export function showLinkToast(scope: any, msg: string) {
   }, 4000);
 }
 
-export async function openCardLink(scope: any, card: KanbanCard, index = 0) {
+export async function openCardLink(scope: Scope_openCardLink, card: KanbanCard, index = 0) {
   const url = card.links?.[index]?.url;
   if (!url) {
     scope.showLinkToast("no link");
@@ -60,7 +194,7 @@ export async function openCardLink(scope: any, card: KanbanCard, index = 0) {
   }
 }
 
-export async function openUrl(scope: any, url: string) {
+export async function openUrl(scope: Scope_openUrl, url: string) {
   try {
     await scope.requestLink(url);
   } catch (e) {
@@ -68,7 +202,7 @@ export async function openUrl(scope: any, url: string) {
   }
 }
 
-export function addCardLink(scope: any, card: KanbanCard, url: string, label: string) {
+export function addCardLink(scope: Scope_addCardLink, card: KanbanCard, url: string, label: string) {
   const nextUrl = url.trim();
   if (!nextUrl) return;
   const nextLabel = label.trim();
@@ -86,7 +220,7 @@ export function addCardLink(scope: any, card: KanbanCard, url: string, label: st
   });
 }
 
-export function removeCardLink(scope: any, card: KanbanCard, url: string) {
+export function removeCardLink(scope: Scope_removeCardLink, card: KanbanCard, url: string) {
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) => {
       if (c.id !== card.id) return c;
@@ -100,7 +234,7 @@ export function removeCardLink(scope: any, card: KanbanCard, url: string) {
   });
 }
 
-export function completeCard(scope: any, card: KanbanCard) {
+export function completeCard(scope: Scope_completeCard, card: KanbanCard) {
   const now = Date.now() / 1000;
   scope.mutate((s) => {
     const key = scope.todayKey();
@@ -144,7 +278,7 @@ export function completeCard(scope: any, card: KanbanCard) {
   scope.logEvent("board-move", { from: card.status, to: "done", cardId: card.id }, card.projectId);
 }
 
-export function toggleCard(scope: any, card: KanbanCard) {
+export function toggleCard(scope: Scope_toggleCard, card: KanbanCard) {
   const now = Date.now() / 1000;
   if (card.status === "done") {
     scope.mutate((s) => {
@@ -166,7 +300,7 @@ export function toggleCard(scope: any, card: KanbanCard) {
   scope.completeCard(card);
 }
 
-export function moveCard(scope: any, card: KanbanCard, target: Status) {
+export function moveCard(scope: Scope_moveCard, card: KanbanCard, target: Status) {
   if (card.status === target) return;
   if (target === "done") {
     scope.completeCard(card);
@@ -200,7 +334,7 @@ export function moveCard(scope: any, card: KanbanCard, target: Status) {
   scope.logEvent("board-move", { from: card.status, to: target, cardId: card.id }, card.projectId);
 }
 
-export function openDetail(scope: any, card: KanbanCard) {
+export function openDetail(scope: Scope_openDetail, card: KanbanCard) {
   if (card.kind !== "needed") {
     if (scope.neededSelectedId) scope.armNeededMouth(null, null);
     scope.neededSelectedId = null;
@@ -211,7 +345,7 @@ export function openDetail(scope: any, card: KanbanCard) {
   scope.planetDdOpen = false;
 }
 
-export async function toggleDoing(scope: any, card: KanbanCard, e: MouseEvent) {
+export async function toggleDoing(scope: Scope_toggleDoing, card: KanbanCard, e: MouseEvent) {
   e.preventDefault();
   e.stopPropagation();
   if (card.status === "doing") {
@@ -231,7 +365,7 @@ export async function toggleDoing(scope: any, card: KanbanCard, e: MouseEvent) {
   scope.moveCard(card, "doing");
 }
 
-export function skipNeededCard(scope: any, card: KanbanCard) {
+export function skipNeededCard(scope: Scope_skipNeededCard, card: KanbanCard) {
   const now = Date.now() / 1000;
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) =>
@@ -243,7 +377,7 @@ export function skipNeededCard(scope: any, card: KanbanCard) {
   scope.logEvent("needed-skip", { cardId: card.id }, card.projectId);
 }
 
-export function laterNeededCard(scope: any, card: KanbanCard) {
+export function laterNeededCard(scope: Scope_laterNeededCard, card: KanbanCard) {
   const now = Date.now() / 1000;
   scope.mutate((s) => {
     s.kanbanCards = s.kanbanCards.map((c) =>
@@ -255,7 +389,7 @@ export function laterNeededCard(scope: any, card: KanbanCard) {
   scope.logEvent("needed-later", { cardId: card.id }, card.projectId);
 }
 
-export function onSplitDown(scope: any, e: PointerEvent) {
+export function onSplitDown(scope: Scope_onSplitDown, e: PointerEvent) {
   const el = scope.mailEl;
   if (!el) return;
   e.preventDefault();
@@ -277,20 +411,20 @@ export function onSplitDown(scope: any, e: PointerEvent) {
   window.addEventListener("pointerup", up);
 }
 
-export function columnWidthNow(scope: any): number {
+export function columnWidthNow(scope: Scope_columnWidthNow): number {
   return scope.columnPx(scope.columnMode(scope.boardPx, scope.planetColPref));
 }
 
-export function mailMinPx(scope: any): number {
+export function mailMinPx(scope: Scope_mailMinPx): number {
   return 120 + scope.columnWidthNow();
 }
 
-export function togglePlanetCol(scope: any) {
+export function togglePlanetCol(scope: Scope_togglePlanetCol) {
   scope.planetColPref = scope.planetColMode === "open" ? "icons" : "open";
   scope.previewWidth = scope.clampPreview(scope.previewWidth);
 }
 
-export function previewMinPx(scope: any): number {
+export function previewMinPx(scope: Scope_previewMinPx): number {
   const probe = document.createElement("span");
   probe.style.cssText =
     "position:absolute;left:-9999px;font:400 0.8rem 'SF Pro Text',system-ui,sans-serif;white-space:nowrap";
@@ -301,7 +435,7 @@ export function previewMinPx(scope: any): number {
   return Math.max(160, Math.ceil(text + 11 + 7 + 16));
 }
 
-export function clampPreview(scope: any, px: number): number {
+export function clampPreview(scope: Scope_clampPreview, px: number): number {
   const body = scope.bodyEl;
   const prevMin = scope.previewMinPx();
   if (!body) return Math.max(prevMin, px);
@@ -314,7 +448,7 @@ export function clampPreview(scope: any, px: number): number {
   return Math.min(maxPreview, Math.max(prevMin, px));
 }
 
-export function onEastSplitDown(scope: any, e: PointerEvent) {
+export function onEastSplitDown(scope: Scope_onEastSplitDown, e: PointerEvent) {
   if (!scope.bodyEl) return;
   e.preventDefault();
   (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -335,7 +469,7 @@ export function onEastSplitDown(scope: any, e: PointerEvent) {
   window.addEventListener("pointerup", up);
 }
 
-export function resetPreviewWidth(scope: any) {
+export function resetPreviewWidth(scope: Scope_resetPreviewWidth) {
   scope.previewWidth = scope.clampPreview(280);
   scope.mutate((s) => {
     s.previewWidth = scope.previewWidth;
