@@ -460,7 +460,7 @@ export function lastKnownRowFor(scope: any, c: Claim): WindowInfo {
 }
 
 export async function syncHabitatLastKnown(scope: any) {
-  if (!scope.stateLoaded || embedded) return;
+  if (!scope.stateLoaded || scope.embedded) return;
   const planets = scope.projects
     .map((p) => ({
       p,

@@ -85,7 +85,7 @@ export async function tick(scope: any) {
       // INSPECTOR-HOST: habitat sync / rematch stay on the main rail
       // instance so two mounts don't double-write. Embedded still lists
       // windows so the well stays live.
-      if (embedded) return;
+      if (scope.embedded) return;
       scope.rematchClaims();
       // ORPHAN-CARDS: heal right after rematch — windows is fresh, so
       // live orphans re-claim and dead ones demote on this same pass.

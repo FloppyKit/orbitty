@@ -82,7 +82,7 @@ export function confirmLayer2Stop(scope: any, id: string) {
 }
 
 export function noteRailAct(scope: any) {
-  if (embedded) return;
+  if (scope.embedded) return;
   const now = Date.now();
   if (now - scope.lastNoteAct < 1000) return;
   scope.lastNoteAct = now;
@@ -172,7 +172,7 @@ export function syncInspectorRing(scope: any) {
     return;
   }
   if (
-    !embedded &&
+    !scope.embedded &&
     scope.keyOwner === "unmapped" &&
     scope.arch.front !== "arch" &&
     scope.arch.pid === scope.UNMAPPED_KEY
@@ -316,7 +316,7 @@ export function onRailEscape(scope: any): boolean {
     scope.closeStageEmbed();
     return true;
   }
-  if (!embedded && scope.arch.front === "layer2") {
+  if (!scope.embedded && scope.arch.front === "layer2") {
     const active = document.activeElement;
     if (active instanceof Element && active.closest(".l2-expanded")) {
       const stop = scope.layer2For(scope.arch.pid)[scope.arch.center2]?.stop;
@@ -327,7 +327,7 @@ export function onRailEscape(scope: any): boolean {
       return true;
     }
   }
-  if (!embedded && scope.arch.front !== "arch") {
+  if (!scope.embedded && scope.arch.front !== "arch") {
     if (scope.arch.front === "layer2") {
       const backStop = scope.depthOutStop(scope.arch.pid);
       if (backStop) scope.reselectStop = backStop;
@@ -344,14 +344,14 @@ export function onRailEscape(scope: any): boolean {
     void scope.coachSkip();
     return true;
   }
-  if (!embedded && scope.previewStop(scope.menuRing.activeId)) {
+  if (!scope.embedded && scope.previewStop(scope.menuRing.activeId)) {
     const pid = scope.openSectionId();
     if (pid) {
       scope.menuRing.select(`rhead-${pid}`);
       return true;
     }
   }
-  if (!embedded && scope.stageRevealed && scope.depthOut(scope.arch.front).hide) {
+  if (!scope.embedded && scope.stageRevealed && scope.depthOut(scope.arch.front).hide) {
     void scope.parkStage();
     return true;
   }

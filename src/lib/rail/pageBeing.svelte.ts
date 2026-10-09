@@ -441,7 +441,7 @@ export async function createProjectOnly(scope: any) {
   const p = scope.createProject(scope.newProjectName);
   scope.newProjectName = "";
   scope.creatingProject = false;
-  if (embedded) scope.sheetSlot = p.id;
+  if (scope.embedded) scope.sheetSlot = p.id;
   // Marble is already in the snapshot. Lift it so it is visible when
   // planets are not muted. No locate glow — that pops the name.
   await scope.persist();

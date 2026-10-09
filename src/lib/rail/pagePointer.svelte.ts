@@ -65,7 +65,7 @@ export function noteClaims(scope: any, next: Claim[]) {
 }
 
 export function onStagePointerMove(scope: any, e: PointerEvent) {
-  if (embedded) return;
+  if (scope.embedded) return;
   if (scope.edgePointerSeed) scope.edgePointerSeed = false;
   const painted = scope.overPainted(e);
   scope.pointerInside = painted;
@@ -160,13 +160,13 @@ export function takeMouseButton(scope: any, button: number): boolean {
 }
 
 export function onStagePointerDown(scope: any, e: PointerEvent) {
-  if (embedded || !scope.stageRevealed) return;
+  if (scope.embedded || !scope.stageRevealed) return;
   scope.pointerDownAt = { x: e.clientX, y: e.clientY };
   scope.pointerInside = scope.nearHit(e) || scope.overPainted(e);
 }
 
 export function onStagePointerUp(scope: any, e: PointerEvent) {
-  if (embedded || !scope.stageRevealed) return;
+  if (scope.embedded || !scope.stageRevealed) return;
   if (scope.takeMouseButton(e.button)) {
     e.preventDefault();
     scope.pointerDownAt = null;
@@ -200,13 +200,13 @@ export function onStagePointerUp(scope: any, e: PointerEvent) {
 }
 
 export function onStageAux(scope: any, e: MouseEvent) {
-  if (embedded || !scope.stageRevealed) return;
+  if (scope.embedded || !scope.stageRevealed) return;
   if (!scope.takeMouseButton(e.button)) return;
   e.preventDefault();
 }
 
 export function onStageMouseLeave(scope: any, e: MouseEvent) {
-  if (embedded) return;
+  if (scope.embedded) return;
   if (scope.edgePointerSeed) scope.edgePointerSeed = false;
   const host = e.currentTarget;
   if (!(host instanceof HTMLElement)) return;
@@ -227,7 +227,7 @@ export function onWinBlur(scope: any) {
 }
 
 export function onExpandedFieldEscape(scope: any, e: KeyboardEvent) {
-  if (e.key !== "Escape" || embedded || scope.arch.front !== "layer2") return;
+  if (e.key !== "Escape" || scope.embedded || scope.arch.front !== "layer2") return;
   const active = document.activeElement;
   if (!(active instanceof HTMLElement) || !active.closest(".l2-expanded")) return;
   const tag = active.tagName;

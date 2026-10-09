@@ -533,11 +533,11 @@
   }
 
   function coachIsDue() {
-    return coachIsDueBody({get claims() { return claims; }, set claims(v) { claims = v; }, coachDue, get starterStory() { return starterStory; }, set starterStory(v) { starterStory = v; }, get stateLoaded() { return stateLoaded; }, set stateLoaded(v) { stateLoaded = v; }, get status() { return status; }, set status(v) { status = v; }});
+    return coachIsDueBody({get claims() { return claims; }, set claims(v) { claims = v; }, coachDue, get embedded() { return embedded; }, get starterStory() { return starterStory; }, set starterStory(v) { starterStory = v; }, get stateLoaded() { return stateLoaded; }, set stateLoaded(v) { stateLoaded = v; }, get status() { return status; }, set status(v) { status = v; }});
   }
 
   function maybeRevealCoach() {
-    return maybeRevealCoachBody({get bootParkDone() { return bootParkDone; }, set bootParkDone(v) { bootParkDone = v; }, coachIsDue, get coachRevealed() { return coachRevealed; }, set coachRevealed(v) { coachRevealed = v; }, showStage});
+    return maybeRevealCoachBody({get bootParkDone() { return bootParkDone; }, set bootParkDone(v) { bootParkDone = v; }, coachIsDue, get coachRevealed() { return coachRevealed; }, set coachRevealed(v) { coachRevealed = v; }, get embedded() { return embedded; }, showStage});
   }
 
   function noteAx(s: AxStatus) {
@@ -553,11 +553,11 @@
   }
 
   async function showStage() {
-    return showStageBody({invoke, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
+    return showStageBody({get embedded() { return embedded; }, invoke, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
   }
 
   async function parkStage() {
-    return parkStageBody({invoke, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
+    return parkStageBody({get embedded() { return embedded; }, invoke, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
   }
 
   let graceRecheck: ReturnType<typeof setTimeout> | null = null;
@@ -567,7 +567,7 @@
   }
 
   function maybeAutoHide() {
-    return maybeAutoHideBody({autoHideWanted, get focusInside() { return focusInside; }, set focusInside(v) { focusInside = v; }, parkStage, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get railAutoHideOnBlur() { return railAutoHideOnBlur; }, set railAutoHideOnBlur(v) { railAutoHideOnBlur = v; }, get revealGraceUntil() { return revealGraceUntil; }, set revealGraceUntil(v) { revealGraceUntil = v; }, scheduleGraceRecheck, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
+    return maybeAutoHideBody({autoHideWanted, get embedded() { return embedded; }, get focusInside() { return focusInside; }, set focusInside(v) { focusInside = v; }, parkStage, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get railAutoHideOnBlur() { return railAutoHideOnBlur; }, set railAutoHideOnBlur(v) { railAutoHideOnBlur = v; }, get revealGraceUntil() { return revealGraceUntil; }, set revealGraceUntil(v) { revealGraceUntil = v; }, scheduleGraceRecheck, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
   }
 
   function parkAfterRaise() {
@@ -579,7 +579,7 @@
   }
 
   function stageFocus(inside: boolean) {
-    return stageFocusBody({get focusInside() { return focusInside; }, set focusInside(v) { focusInside = v; }, maybeAutoHide}, inside);
+    return stageFocusBody({get embedded() { return embedded; }, get focusInside() { return focusInside; }, set focusInside(v) { focusInside = v; }, maybeAutoHide}, inside);
   }
 
   function previewStop(id: string | null) {
@@ -608,7 +608,7 @@
   }
 
   function onStagePointerMove(e: PointerEvent) {
-    return onStagePointerMoveBody({applyEdge, get edgePointerSeed() { return edgePointerSeed; }, set edgePointerSeed(v) { edgePointerSeed = v; }, overPainted, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }}, e);
+    return onStagePointerMoveBody({applyEdge, get edgePointerSeed() { return edgePointerSeed; }, set edgePointerSeed(v) { edgePointerSeed = v; }, get embedded() { return embedded; }, overPainted, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }}, e);
   }
 
   let pointerDownAt: { x: number; y: number } | null = null;
@@ -640,19 +640,19 @@
   }
 
   function onStagePointerDown(e: PointerEvent) {
-    return onStagePointerDownBody({nearHit, overPainted, get pointerDownAt() { return pointerDownAt; }, set pointerDownAt(v) { pointerDownAt = v; }, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }}, e);
+    return onStagePointerDownBody({get embedded() { return embedded; }, nearHit, overPainted, get pointerDownAt() { return pointerDownAt; }, set pointerDownAt(v) { pointerDownAt = v; }, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }}, e);
   }
 
   function onStagePointerUp(e: PointerEvent) {
-    return onStagePointerUpBody({get arch() { return arch; }, set arch(v) { arch = v; }, confirmHabitatStop, confirmLayer2Stop, emptyDismiss, menuRing, nearHit, onRailEscape, get pointerDownAt() { return pointerDownAt; }, set pointerDownAt(v) { pointerDownAt = v; }, spinClickTarget, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }, takeMouseButton, wheelAnimating}, e);
+    return onStagePointerUpBody({get arch() { return arch; }, set arch(v) { arch = v; }, confirmHabitatStop, confirmLayer2Stop, get embedded() { return embedded; }, emptyDismiss, menuRing, nearHit, onRailEscape, get pointerDownAt() { return pointerDownAt; }, set pointerDownAt(v) { pointerDownAt = v; }, spinClickTarget, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }, takeMouseButton, wheelAnimating}, e);
   }
 
   function onStageAux(e: MouseEvent) {
-    return onStageAuxBody({get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }, takeMouseButton}, e);
+    return onStageAuxBody({get embedded() { return embedded; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }, takeMouseButton}, e);
   }
 
   function onStageMouseLeave(e: MouseEvent) {
-    return onStageMouseLeaveBody({applyEdge, edgeLeaveSide, get edgePointerSeed() { return edgePointerSeed; }, set edgePointerSeed(v) { edgePointerSeed = v; }, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get railEdge() { return railEdge; }, set railEdge(v) { railEdge = v; }}, e);
+    return onStageMouseLeaveBody({applyEdge, edgeLeaveSide, get edgePointerSeed() { return edgePointerSeed; }, set edgePointerSeed(v) { edgePointerSeed = v; }, get embedded() { return embedded; }, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get railEdge() { return railEdge; }, set railEdge(v) { railEdge = v; }}, e);
   }
 
   function onWinBlur() {
@@ -662,7 +662,7 @@
   // Esc inside a board field is not a ring key (the field owns it). Return
   // focus to the centred layer-2 icon instead of letting the field swallow it.
   function onExpandedFieldEscape(e: KeyboardEvent) {
-    return onExpandedFieldEscapeBody({get arch() { return arch; }, set arch(v) { arch = v; }, layer2For}, e);
+    return onExpandedFieldEscapeBody({get arch() { return arch; }, set arch(v) { arch = v; }, get embedded() { return embedded; }, layer2For}, e);
   }
 
   function applyStagePrefs(raw: {
@@ -777,7 +777,7 @@
 
   let lastNoteAct = 0;
   function noteRailAct() {
-    return noteRailActBody({invoke, get lastNoteAct() { return lastNoteAct; }, set lastNoteAct(v) { lastNoteAct = v; }});
+    return noteRailActBody({get embedded() { return embedded; }, invoke, get lastNoteAct() { return lastNoteAct; }, set lastNoteAct(v) { lastNoteAct = v; }});
   }
 
   function confirmHabitatStop(id: string) {
@@ -789,7 +789,7 @@
   }
 
   function syncInspectorRing() {
-    return syncInspectorRingBody({UNMAPPED_KEY, applyBeside, get arch() { return arch; }, set arch(v) { arch = v; }, archArrow, archDo, archFocusPid, armNeededMouth, coachIsDue, confirmHabitatStop, confirmLayer2Stop, focusBoardLanding, focusMkey, get keyOwner() { return keyOwner; }, set keyOwner(v) { keyOwner = v; }, get lane() { return lane; }, set lane(v) { lane = v; }, layer2For, locateRow, menuRing, outwardDir, pickFromKind, planetCards, get projects() { return projects; }, set projects(v) { projects = v; }, get railEdge() { return railEdge; }, set railEdge(v) { railEdge = v; }, get spinCenter() { return spinCenter; }, set spinCenter(v) { spinCenter = v; }, spinItems, spinStops, takeReselect, get unmapped() { return unmapped; }, set unmapped(v) { unmapped = v; }, visibleRows, wakeSleeper, walkInto, walkOut});
+    return syncInspectorRingBody({UNMAPPED_KEY, applyBeside, get arch() { return arch; }, set arch(v) { arch = v; }, archArrow, archDo, archFocusPid, armNeededMouth, coachIsDue, confirmHabitatStop, confirmLayer2Stop, get embedded() { return embedded; }, focusBoardLanding, focusMkey, get keyOwner() { return keyOwner; }, set keyOwner(v) { keyOwner = v; }, get lane() { return lane; }, set lane(v) { lane = v; }, layer2For, locateRow, menuRing, outwardDir, pickFromKind, planetCards, get projects() { return projects; }, set projects(v) { projects = v; }, get railEdge() { return railEdge; }, set railEdge(v) { railEdge = v; }, get spinCenter() { return spinCenter; }, set spinCenter(v) { spinCenter = v; }, spinItems, spinStops, takeReselect, get unmapped() { return unmapped; }, set unmapped(v) { unmapped = v; }, visibleRows, wakeSleeper, walkInto, walkOut});
   }
 
   function confirmRingTab(id: string) {
@@ -868,7 +868,7 @@
   let detachMenuKeys: (() => void) | undefined;
 
   function onRailEscape() {
-    return onRailEscapeBody({get arch() { return arch; }, set arch(v) { arch = v; }, archDo, get centreCause() { return centreCause; }, set centreCause(v) { centreCause = v; }, get claimPickerFor() { return claimPickerFor; }, set claimPickerFor(v) { claimPickerFor = v; }, closeStageEmbed, coachSkip, get creatingProject() { return creatingProject; }, set creatingProject(v) { creatingProject = v; }, depthOut, depthOutStop, get keyOwner() { return keyOwner; }, set keyOwner(v) { keyOwner = v; }, layer2For, menuRing, openSectionId, parkStage, previewStop, get reselectStop() { return reselectStop; }, set reselectStop(v) { reselectStop = v; }, get stageEmbed() { return stageEmbed; }, set stageEmbed(v) { stageEmbed = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }, walkOut});
+    return onRailEscapeBody({get arch() { return arch; }, set arch(v) { arch = v; }, archDo, get centreCause() { return centreCause; }, set centreCause(v) { centreCause = v; }, get claimPickerFor() { return claimPickerFor; }, set claimPickerFor(v) { claimPickerFor = v; }, closeStageEmbed, coachSkip, get creatingProject() { return creatingProject; }, set creatingProject(v) { creatingProject = v; }, depthOut, depthOutStop, get embedded() { return embedded; }, get keyOwner() { return keyOwner; }, set keyOwner(v) { keyOwner = v; }, layer2For, menuRing, openSectionId, parkStage, previewStop, get reselectStop() { return reselectStop; }, set reselectStop(v) { reselectStop = v; }, get stageEmbed() { return stageEmbed; }, set stageEmbed(v) { stageEmbed = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }, walkOut});
   }
 
   function reclaimRailRing() {
@@ -1035,7 +1035,7 @@
   }
 
   async function syncHabitatLastKnown() {
-    return syncHabitatLastKnownBody({habitatPlanetFor, habitatSnapshotPayload, invoke, lastKnownRowFor, get liveClaims() { return liveClaims; }, set liveClaims(v) { liveClaims = v; }, occupancyOf, get projects() { return projects; }, set projects(v) { projects = v; }, get stateLoaded() { return stateLoaded; }, set stateLoaded(v) { stateLoaded = v; }});
+    return syncHabitatLastKnownBody({get embedded() { return embedded; }, habitatPlanetFor, habitatSnapshotPayload, invoke, lastKnownRowFor, get liveClaims() { return liveClaims; }, set liveClaims(v) { liveClaims = v; }, occupancyOf, get projects() { return projects; }, set projects(v) { projects = v; }, get stateLoaded() { return stateLoaded; }, set stateLoaded(v) { stateLoaded = v; }});
   }
 
   // Row left-click = locate (glow only — never
@@ -1343,7 +1343,7 @@
   }
 
   async function createProjectOnly() {
-    return createProjectOnlyBody({createProject, get creatingProject() { return creatingProject; }, set creatingProject(v) { creatingProject = v; }, invoke, get newProjectName() { return newProjectName; }, set newProjectName(v) { newProjectName = v; }, persist, get sheetSlot() { return sheetSlot; }, set sheetSlot(v) { sheetSlot = v; }});
+    return createProjectOnlyBody({createProject, get creatingProject() { return creatingProject; }, set creatingProject(v) { creatingProject = v; }, get embedded() { return embedded; }, invoke, get newProjectName() { return newProjectName; }, set newProjectName(v) { newProjectName = v; }, persist, get sheetSlot() { return sheetSlot; }, set sheetSlot(v) { sheetSlot = v; }});
   }
 
   // the × on a planet
@@ -1412,7 +1412,7 @@
   }
 
   async function tick() {
-    return tickBody({checkNudge, get dragWindowId() { return dragWindowId; }, set dragWindowId(v) { dragWindowId = v; }, healOrphanWindowCards, invoke, get liveClaims() { return liveClaims; }, set liveClaims(v) { liveClaims = v; }, noteAx, persist, get refreshedAt() { return refreshedAt; }, set refreshedAt(v) { refreshedAt = v; }, rematchClaims, syncHabitat, touchClaim, windowDragHot, get windows() { return windows; }, set windows(v) { windows = v; }, get windowsPolled() { return windowsPolled; }, set windowsPolled(v) { windowsPolled = v; }});
+    return tickBody({checkNudge, get dragWindowId() { return dragWindowId; }, set dragWindowId(v) { dragWindowId = v; }, get embedded() { return embedded; }, healOrphanWindowCards, invoke, get liveClaims() { return liveClaims; }, set liveClaims(v) { liveClaims = v; }, noteAx, persist, get refreshedAt() { return refreshedAt; }, set refreshedAt(v) { refreshedAt = v; }, rematchClaims, syncHabitat, touchClaim, windowDragHot, get windows() { return windows; }, set windows(v) { windows = v; }, get windowsPolled() { return windowsPolled; }, set windowsPolled(v) { windowsPolled = v; }});
   }
 
   // Reboot rematch. Live ids are pid:cgWindowID —

@@ -132,12 +132,12 @@ export function coachIsDue(scope: any): boolean {
     stateLoaded: scope.stateLoaded,
     claimsCount: scope.claims.length,
     story: scope.starterStory,
-    embedded,
+    embedded: scope.embedded,
   });
 }
 
 export function maybeRevealCoach(scope: any) {
-  if (!scope.bootParkDone || scope.coachRevealed || embedded) return;
+  if (!scope.bootParkDone || scope.coachRevealed || scope.embedded) return;
   if (!scope.coachIsDue()) return;
   scope.coachRevealed = true;
   void scope.showStage();
@@ -172,7 +172,7 @@ export async function coachSkip(scope: any) {
 }
 
 export async function showStage(scope: any) {
-  if (embedded) return;
+  if (scope.embedded) return;
   scope.stageRevealed = true;
   try {
     await scope.invoke("rail_stage_set", { revealed: true });
@@ -182,7 +182,7 @@ export async function showStage(scope: any) {
 }
 
 export async function parkStage(scope: any) {
-  if (embedded) return;
+  if (scope.embedded) return;
   scope.stageRevealed = false;
   try {
     await scope.invoke("rail_stage_set", { revealed: false });
@@ -201,7 +201,7 @@ export function scheduleGraceRecheck(scope: any) {
 }
 
 export function maybeAutoHide(scope: any) {
-  if (embedded || !scope.stageRevealed) return;
+  if (scope.embedded || !scope.stageRevealed) return;
   if (Date.now() < scope.revealGraceUntil) {
     scope.scheduleGraceRecheck();
     return;
@@ -221,7 +221,7 @@ export function armNeededMouth(scope: any, item: { kind?: string; id?: string; t
 }
 
 export function stageFocus(scope: any, inside: boolean) {
-  if (embedded) return;
+  if (scope.embedded) return;
   scope.focusInside = inside;
   if (!inside) scope.maybeAutoHide();
 }
