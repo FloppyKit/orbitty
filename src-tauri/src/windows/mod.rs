@@ -8,5 +8,3 @@ pub(crate) mod panes;
 pub(crate) mod tilechords;
 pub(crate) mod window_chrome;
 pub(crate) mod window_thumb;
-#[cfg(target_os = "macos")]
-pub(crate) mod rail_mouse_diag;
