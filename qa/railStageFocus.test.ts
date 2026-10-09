@@ -397,9 +397,12 @@ test("F13 preview card shrinks onto stage tokens", () => {
   assert.equal(maxW, 600);
   assert.match(card.body, /flex:\s*none/);
   assert.match(card.body, /align-self:\s*center/);
-  assert.match(card.body, /var\(\s*--stage-platter/);
+  assert.match(card.body, /background:\s*transparent/);
+  assert.match(card.body, /box-shadow:\s*0 0 0 2px color-mix\(in srgb, var\(--planet, #8a8f98\) 70%, transparent\)/);
+  assert.doesNotMatch(card.body, /--stage-platter/);
   assert.match(card.body, /var\(\s*--stage-ink/);
   assert.doesNotMatch(card.body, /rgba\(\s*248\s*,\s*246\s*,\s*252/);
+  assert.match(css, /\.l2-expanded:has\(> \.l2-window-card\)[\s\S]*?background:\s*transparent/);
   assert.match(list, /Screen Recording needed for previews/);
 });
 
