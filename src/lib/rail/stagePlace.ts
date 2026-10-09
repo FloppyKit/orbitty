@@ -390,6 +390,21 @@ export function archZone(layout: ArchLayout, point: { x: number; y: number }, fr
   return "none";
 }
 
+/** Wheel hit for the whole revealed stage. `archZone` keeps the old bands. */
+export function wheelZone(
+  frame: { w: number; h: number },
+  point: { x: number; y: number },
+  front: ArchFront,
+  unmapped: boolean,
+): ArchZone {
+  if (frame.w <= 0 || frame.h <= 0) return "none";
+  if (point.x < 0 || point.y < 0 || point.x >= frame.w || point.y >= frame.h) return "none";
+  if (front === "board") return "none";
+  if (front === "layer2" && unmapped) return "none";
+  if (front === "arch" || front === "layer2") return front;
+  return "none";
+}
+
 export function archInitial(
   items: readonly SpinItem[],
   centre: number,

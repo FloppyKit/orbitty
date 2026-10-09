@@ -21,6 +21,7 @@ import {
   archSlot,
   archZone,
   claimLanded,
+  wheelZone,
   edgeHover,
   edgeLeaveSide,
   stageContrast,
@@ -385,4 +386,20 @@ test("F10 wiring guards", () => {
   assert.ok(verts.length >= 32, `gear vertices ${verts.length / 2}`);
   assert.equal(list.includes("persist("), false);
   assert.equal(list.includes("save_state"), false);
+});
+
+test("wheelZone is the front layer anywhere inside the frame", () => {
+  const frame = { w: 1040, h: 760 };
+  const lay = archLayout("left", frame.w, frame.h);
+  const archPt = { x: lay.arch.x + 1, y: frame.h / 2 };
+  const gap = { x: lay.layer2.x + lay.layer2.w + 12, y: 8 };
+  assert.equal(archZone(lay, archPt, "layer2"), "arch");
+  assert.equal(archZone(lay, gap, "layer2"), "none");
+  assert.equal(wheelZone(frame, archPt, "layer2", false), "layer2");
+  assert.equal(wheelZone(frame, gap, "layer2", false), "layer2");
+  assert.equal(wheelZone(frame, gap, "arch", false), "arch");
+  assert.equal(wheelZone(frame, { x: -1, y: 10 }, "layer2", false), "none");
+  assert.equal(wheelZone(frame, { x: frame.w, y: 10 }, "arch", false), "none");
+  assert.equal(wheelZone(frame, { x: 10, y: 10 }, "board", false), "none");
+  assert.equal(wheelZone(frame, archPt, "layer2", true), "none");
 });

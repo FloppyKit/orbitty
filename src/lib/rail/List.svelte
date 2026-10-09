@@ -46,6 +46,7 @@
     archSlot,
     archZone,
     mirrorDepth,
+    wheelZone,
     mirrorItems,
     mirrorLayout,
     stagePreviewModel,
@@ -255,31 +256,25 @@
     const el = stageEl;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      const zone = zoneAt(e);
       const front = (rail.arch?.front ?? "arch") as ArchFront;
       const main = stageEl?.closest("main");
       const host = main instanceof HTMLElement ? main : stageEl;
       const rect = host ? host.getBoundingClientRect() : null;
-      const relX = rect ? Math.round(e.clientX - rect.left) : -1;
-      const relY = rect ? Math.round(e.clientY - rect.top) : -1;
+      const relX = rect ? e.clientX - rect.left : -1;
+      const relY = rect ? e.clientY - rect.top : -1;
+      const unmapped = front === "layer2" && rail.arch?.pid === rail.UNMAPPED_KEY;
+      const zone = rect
+        ? wheelZone({ w: rect.width, h: rect.height }, { x: relX, y: relY }, front, unmapped)
+        : "none";
+      const archZ = zoneAt(e);
       const painted =
         e.target instanceof Element &&
         !!e.target.closest(".l2-window-card, .l2-thumb, .l2-card-icon, .l2-hit, .arch-slot, .l2-expanded");
-      const unmapped = zone === "layer2" && front === "layer2" && rail.arch?.pid === rail.UNMAPPED_KEY;
-      const early =
-        zone === "none" ||
-        zone === "board" ||
-        unmapped ||
-        (zone === "arch" && front !== "arch") ||
-        (zone === "layer2" && front !== "layer2");
       railMouseDiag(
-        `wheel zone=${zone} front=${front} early=${early ? 1 : 0} client_x=${Math.round(e.clientX)} client_y=${Math.round(e.clientY)} rel_x=${relX} rel_y=${relY} main_w=${rect ? Math.round(rect.width) : -1} main_h=${rect ? Math.round(rect.height) : -1} over_painted=${painted ? 1 : 0} class=${diagClass(e.target)}`,
+        `wheel zone=${zone} arch=${archZ} front=${front} early=${zone === "none" ? 1 : 0} client_x=${Math.round(e.clientX)} client_y=${Math.round(e.clientY)} rel_x=${Math.round(relX)} rel_y=${Math.round(relY)} main_w=${rect ? Math.round(rect.width) : -1} main_h=${rect ? Math.round(rect.height) : -1} over_painted=${painted ? 1 : 0} class=${diagClass(e.target)}`,
       );
-      if (zone === "none" || zone === "board") return;
-      if (zone === "layer2" && front === "layer2" && rail.arch?.pid === rail.UNMAPPED_KEY) return;
-      // Scroll never changes depth. A wheel over a layer that is not front does nothing.
-      if (zone === "arch" && front !== "arch") return;
-      if (zone === "layer2" && front !== "layer2") return;
+      // Scroll never changes depth. wheelZone is the front layer anywhere inside the frame.
+      if (zone === "none") return;
       e.preventDefault();
       const out = spinStepsCap(
         cap,

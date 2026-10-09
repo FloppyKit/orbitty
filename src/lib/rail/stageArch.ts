@@ -766,4 +766,4 @@ export function windowItem(w: ArchRow): Layer2Item {
  *  Window art is the card fallback (icon, title, app, state) — no capture API. */
 
 // @ts-expect-error Node's test runner needs the .ts suffix; the bundler flag for it is off.
-export { archConfirm, archDepth, archFocusPid, archInitial, archLayout, archPainted, archStart2, archZone, besideRailAdjacent, claimLanded, edgeHover, edgeLeaveSide, mirrorDepth, mirrorItems, mirrorLayout, mirrorSlot, mirrorSlotBox, mirrorStart, placeBesideRail, stageContrast, stagePreviewModel, stageStackLayout, type ClaimSnap, type EdgeHoverEvent, type EdgeHoverState, type MirrorLayout, type StackLayout } from "./stagePlace.ts";
+export { archConfirm, archDepth, archFocusPid, archInitial, archLayout, archPainted, archStart2, archZone, besideRailAdjacent, claimLanded, edgeHover, edgeLeaveSide, mirrorDepth, mirrorItems, mirrorLayout, mirrorSlot, mirrorSlotBox, mirrorStart, placeBesideRail, stageContrast, stagePreviewModel, stageStackLayout, wheelZone, type ClaimSnap, type EdgeHoverEvent, type EdgeHoverState, type MirrorLayout, type StackLayout } from "./stagePlace.ts";
