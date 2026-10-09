@@ -25,6 +25,7 @@ import {
   type CentreCause,
   emptyDismiss,
   hitBox,
+  domButtonFromButtonNumber,
   inputIntent,
   railCrumb,
   spinClickTarget,
@@ -492,6 +493,21 @@ test("B4 mouse Back and Forward bind pointerup and auxclick", () => {
   assert.match(mouse, /inputIntent\(\{\s*kind:\s*"pointer",\s*button\s*\}\)/);
   assert.match(page, /onpointerup=\{onStagePointerUp\}/);
   assert.match(page, /onauxclick=\{onStageAux\}/);
+});
+
+test("mouse buttonNumber 3 and 4 map to DOM 3 and 4 and Forward confirms", () => {
+  assert.equal(domButtonFromButtonNumber(3), 3);
+  assert.equal(domButtonFromButtonNumber(4), 4);
+  assert.equal(domButtonFromButtonNumber(0), null);
+  assert.equal(domButtonFromButtonNumber(1), null);
+  assert.equal(domButtonFromButtonNumber(2), null);
+  assert.equal(domButtonFromButtonNumber(5), null);
+  const mouse = fnBody(page, "takeMouseButton", "onStagePointerDown");
+  assert.match(mouse, /confirmActive\(\)/);
+  assert.equal(mouse.includes("goInFromPointer"), false);
+  const keys = readFileSync(new URL("../src/lib/menuKeys.svelte.ts", import.meta.url), "utf8");
+  assert.match(keys, /if \(verb === "confirm"\) return this\.confirmActive\(\)/);
+  assert.match(page, /listen<number>\("rail:mouse-button"/);
 });
 
 test("B5 depth-out keeps the came-from planet and does not open beside", () => {

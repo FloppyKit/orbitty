@@ -63,7 +63,7 @@
     type KeyOwner,
     type WalkTarget,
   } from "./rail/stageFocus";
-  import { depthOut, depthOutStop, emptyDismiss, inputIntent, spinClickTarget, type CentreCause } from "./rail/railInput";
+  import { depthOut, depthOutStop, domButtonFromButtonNumber, emptyDismiss, inputIntent, spinClickTarget, type CentreCause } from "./rail/railInput";
   import type { BoardFocus } from "./rail/stageArch";
   import {
     applyPlanetOpen,
@@ -102,7 +102,7 @@
   } from "./persist";
   import { nowEpoch as nowEpochBody, todayKey as todayKeyBody, ageClass as ageClassBody, pointsToday as pointsTodayBody, touchClaim as touchClaimBody, windowDragHot as windowDragHotBody, absorbPendingCards as absorbPendingCardsBody, todosFor as todosForBody, rowsFor as rowsForBody, visibleRows as visibleRowsBody, hasTag as hasTagBody, tagsFor as tagsForBody, isCollapsed as isCollapsedBody, toggleCollapse as toggleCollapseBody, sectionIds as sectionIdsBody, openSectionId as openSectionIdBody } from "./rail/pageRows.svelte";
   import { stageRole as stageRoleBody, ensureExpand as ensureExpandBody, collapsePlanet as collapsePlanetBody, currentBeside as currentBesideBody, hideBesidePopouts as hideBesidePopoutsBody, clearArchToFront as clearArchToFrontBody, ownerStop as ownerStopBody, focusMkey as focusMkeyBody, releaseKeysToRail as releaseKeysToRailBody, openStageDest as openStageDestBody, popOutStars as popOutStarsBody, applyBeside as applyBesideBody, walkInto as walkIntoBody, walkOut as walkOutBody, closeStageEmbed as closeStageEmbedBody, popOutSettings as popOutSettingsBody, popOutBoard as popOutBoardBody, coachIsDue as coachIsDueBody, maybeRevealCoach as maybeRevealCoachBody, noteAx as noteAxBody, coachClaim as coachClaimBody, coachSkip as coachSkipBody, showStage as showStageBody, parkStage as parkStageBody, scheduleGraceRecheck as scheduleGraceRecheckBody, maybeAutoHide as maybeAutoHideBody, parkAfterRaise as parkAfterRaiseBody, armNeededMouth as armNeededMouthBody, stageFocus as stageFocusBody, previewStop as previewStopBody } from "./rail/pageStage.svelte";
-  import { overPainted as overPaintedBody, armEdgeTimer as armEdgeTimerBody, applyEdge as applyEdgeBody, noteClaims as noteClaimsBody, onStagePointerMove as onStagePointerMoveBody, noteWheelSpin as noteWheelSpinBody, wheelAnimating as wheelAnimatingBody, nearHit as nearHitBody, focusBoardLanding as focusBoardLandingBody, goInFromPointer as goInFromPointerBody, takeMouseButton as takeMouseButtonBody, onStagePointerDown as onStagePointerDownBody, onStagePointerUp as onStagePointerUpBody, onStageAux as onStageAuxBody, onStageMouseLeave as onStageMouseLeaveBody, onWinBlur as onWinBlurBody, onExpandedFieldEscape as onExpandedFieldEscapeBody, applyStagePrefs as applyStagePrefsBody, sheetRowsFor as sheetRowsForBody, raisePlanet as raisePlanetBody, onSheetPlanetClick as onSheetPlanetClickBody, onSheetPlanetDblClick as onSheetPlanetDblClickBody, sheetClaim as sheetClaimBody, sheetFocus as sheetFocusBody, toggleBoardCol as toggleBoardColBody, focusRow as focusRowBody, raisePlanetWindows as raisePlanetWindowsBody, openPlanetTodos as openPlanetTodosBody, rowById as rowByIdBody } from "./rail/pagePointer.svelte";
+  import { overPainted as overPaintedBody, armEdgeTimer as armEdgeTimerBody, applyEdge as applyEdgeBody, noteClaims as noteClaimsBody, onStagePointerMove as onStagePointerMoveBody, noteWheelSpin as noteWheelSpinBody, wheelAnimating as wheelAnimatingBody, nearHit as nearHitBody, focusBoardLanding as focusBoardLandingBody, takeMouseButton as takeMouseButtonBody, onStagePointerDown as onStagePointerDownBody, onStagePointerUp as onStagePointerUpBody, onStageAux as onStageAuxBody, onStageMouseLeave as onStageMouseLeaveBody, onWinBlur as onWinBlurBody, onExpandedFieldEscape as onExpandedFieldEscapeBody, applyStagePrefs as applyStagePrefsBody, sheetRowsFor as sheetRowsForBody, raisePlanet as raisePlanetBody, onSheetPlanetClick as onSheetPlanetClickBody, onSheetPlanetDblClick as onSheetPlanetDblClickBody, sheetClaim as sheetClaimBody, sheetFocus as sheetFocusBody, toggleBoardCol as toggleBoardColBody, focusRow as focusRowBody, raisePlanetWindows as raisePlanetWindowsBody, openPlanetTodos as openPlanetTodosBody, rowById as rowByIdBody } from "./rail/pagePointer.svelte";
   import { archDo as archDoBody, planetCards as planetCardsBody, layer2For as layer2ForBody, focusMirrorBoard as focusMirrorBoardBody, confirmLayer2Stop as confirmLayer2StopBody, noteRailAct as noteRailActBody, confirmHabitatStop as confirmHabitatStopBody, takeReselect as takeReselectBody, syncInspectorRing as syncInspectorRingBody, confirmRingTab as confirmRingTabBody, onRailEscape as onRailEscapeBody, reclaimRailRing as reclaimRailRingBody, toggleTag as toggleTagBody } from "./rail/pageRing.svelte";
   import { titleFor as titleForBody, startRename as startRenameBody, openCtxMenu as openCtxMenuBody, ctxWindow as ctxWindowBody, ctxProject as ctxProjectBody, ctxAssign as ctxAssignBody, ctxCreateAndClaim as ctxCreateAndClaimBody, ctxRename as ctxRenameBody, ctxMinimize as ctxMinimizeBody, ctxRestore as ctxRestoreBody, ctxCloseWindow as ctxCloseWindowBody, ctxUnclaim as ctxUnclaimBody, commitRename as commitRenameBody, setWorkspaceRoot as setWorkspaceRootBody, persist as persistBody, sleeperRowFor as sleeperRowForBody, boardCardsFor as boardCardsForBody, habitatEntryFor as habitatEntryForBody, runIsSeated as runIsSeatedBody, goToken as goTokenBody, goNeededOnPlanet as goNeededOnPlanetBody, agentRowsFor as agentRowsForBody, locateAgent as locateAgentBody, agentEntriesFor as agentEntriesForBody, habitatPlanetFor as habitatPlanetForBody, habitatSnapshotPayload as habitatSnapshotPayloadBody, syncHabitat as syncHabitatBody, lastKnownRowFor as lastKnownRowForBody, syncHabitatLastKnown as syncHabitatLastKnownBody, flashRow as flashRowBody, locateRow as locateRowBody, stow as stowBody, restore as restoreBody, wakeSleeper as wakeSleeperBody, nudgeClaim as nudgeClaimBody, nudgeCreate as nudgeCreateBody, clampSpriteScale as clampSpriteScaleBody, openKanban as openKanbanBody, bringAllFront as bringAllFrontBody, onBannerMouseDown as onBannerMouseDownBody, onWordmarkClick as onWordmarkClickBody, openKanbanFocus as openKanbanFocusBody, launchHermes as launchHermesBody, toggleSoul as toggleSoulBody, saveSoul as saveSoulBody, openSoulEditor as openSoulEditorBody, createProject as createProjectBody, revealPlanet as revealPlanetBody, newCardId as newCardIdBody, isClinicalOrMaster as isClinicalOrMasterBody, titleIndexFor as titleIndexForBody, claimStableKey as claimStableKeyBody, isHermesClass as isHermesClassBody, sleeperStamps as sleeperStampsBody, rollCharSeed as rollCharSeedBody } from "./rail/pageClaim.svelte";
   import { claim as claimBody, unclaim as unclaimBody, completeWindow as completeWindowBody, completeTodo as completeTodoBody, circleComplete as circleCompleteBody, logEvent as logEventBody, addTodoTo as addTodoToBody, occupancyOf as occupancyOfBody, setSpritePack as setSpritePackBody, beingClaim as beingClaimBody, beingWindow as beingWindowBody, refreshBeingPreview as refreshBeingPreviewBody, commitBeingLook as commitBeingLookBody, openBeingEditor as openBeingEditorBody, closeBeingEditor as closeBeingEditorBody, beingKindIndex as beingKindIndexBody, beingPaletteIndex as beingPaletteIndexBody, cycleKind as cycleKindBody, cyclePalette as cyclePaletteBody, kindLabel as kindLabelBody, paletteLabel as paletteLabelBody, rerollBeing as rerollBeingBody, beingScale as beingScaleBody, onBeingScaleInput as onBeingScaleInputBody, onBeingScaleCommit as onBeingScaleCommitBody, resetBeingScale as resetBeingScaleBody, beingMoveHome as beingMoveHomeBody, beingUnclaim as beingUnclaimBody, createProjectOnly as createProjectOnlyBody, armRemove as armRemoveBody, removeProject as removeProjectBody } from "./rail/pageBeing.svelte";
@@ -631,12 +631,12 @@
     return focusBoardLandingBody({menuRing}, focus);
   }
 
-  function goInFromPointer() {
-    return goInFromPointerBody({get arch() { return arch; }, set arch(v) { arch = v; }, archDo, confirmHabitatStop, enterBoard, focusBoardLanding, menuRing, planetCards, walkInto});
+  function confirmActive() {
+    return menuRing.confirmActive();
   }
 
   function takeMouseButton(button: number) {
-    return takeMouseButtonBody({goInFromPointer, inputIntent, get mouseButtonAt() { return mouseButtonAt; }, set mouseButtonAt(v) { mouseButtonAt = v; }, onRailEscape}, button);
+    return takeMouseButtonBody({confirmActive, inputIntent, get mouseButtonAt() { return mouseButtonAt; }, set mouseButtonAt(v) { mouseButtonAt = v; }, onRailEscape}, button);
   }
 
   function onStagePointerDown(e: PointerEvent) {
@@ -1511,6 +1511,7 @@
   let unlistenBoardTodo: (() => void) | undefined;
   let unlistenCheckin: (() => void) | undefined;
   let unlistenState: (() => void) | undefined;
+  let unlistenMouse: (() => void) | undefined;
   let unlistenTreeMove: (() => void) | undefined;
   let unlistenTreeGone: (() => void) | undefined;
   let unlistenStage: (() => void) | undefined;
@@ -1826,6 +1827,11 @@
     // slices (projects, tags, UI state) stay local. Echoes of our own saves
     // reload identical data — harmless. Skipped mid-drag so a window drag
     // can't be cancelled by a DOM swap.
+    unlistenMouse = await listen<number>("rail:mouse-button", (e) => {
+      const button = domButtonFromButtonNumber(e.payload);
+      if (button == null || embedded || !stageRevealed) return;
+      takeMouseButton(button);
+    });
     unlistenState = await listen("state:changed", async () => {
       if (windowDragHot()) {
         try {
@@ -1958,6 +1964,7 @@
     unlistenBoardTodo?.();
     unlistenCheckin?.();
     unlistenState?.();
+    unlistenMouse?.();
     unlistenTreeMove?.();
     unlistenTreeGone?.();
     unlistenStage?.();

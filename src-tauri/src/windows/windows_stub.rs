@@ -2,6 +2,8 @@
 
 use super::{AccessibilityStatus, WindowInfo};
 
+pub fn install_rail_mouse_buttons() {}
+
 pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
     Ok(vec![])
 }

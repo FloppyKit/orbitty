@@ -46,6 +46,13 @@ export function inputIntent(ev: IntentInput): InputIntent {
   return "none";
 }
 
+/** NSEvent `buttonNumber` → DOM `MouseEvent.button`.
+ *  Phase 0 never saw a device, so 3 stays Back and 4 stays Forward. */
+export function domButtonFromButtonNumber(buttonNumber: number): number | null {
+  if (buttonNumber === 3 || buttonNumber === 4) return buttonNumber;
+  return null;
+}
+
 /** One level out. The arch is the root: hide the rail, do not pop further. */
 export function depthOut(front: ArchFrontName): { front: ArchFrontName; hide: boolean } {
   if (front === "board") return { front: "layer2", hide: false };

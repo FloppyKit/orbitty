@@ -15,8 +15,10 @@ use core_foundation::string::CFString;
 use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
 use std::ffi::c_void;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use tauri::{AppHandle, Emitter};
 
 mod windows_mac_ax;
 use windows_mac_ax::{enumerate, mark_frontmost};
@@ -995,5 +997,96 @@ pub fn prompt_accessibility() -> bool {
         let dict: CFDictionary<CFString, CFBoolean> =
             CFDictionary::from_CFType_pairs(&[(key, CFBoolean::true_value())]);
         AXIsProcessTrustedWithOptions(dict.as_concrete_TypeRef() as CFRef)
+    }
+}
+
+/// Local other-mouse monitor. Phase 0 never saw a device, so NSEvent
+/// buttonNumber 3 and 4 pass through as DOM buttons 3 and 4.
+/// Down stays in the mask; an up (button bit already clear) is the one event.
+static RAIL_MOUSE_APP: OnceLock<AppHandle> = OnceLock::new();
+
+#[repr(C)]
+struct RailMouseBlock {
+    isa: *const c_void,
+    flags: i32,
+    reserved: i32,
+    invoke: extern "C" fn(*const RailMouseBlock, *mut Object) -> *mut Object,
+    descriptor: *const RailMouseBlockDescriptor,
+}
+
+#[repr(C)]
+struct RailMouseBlockDescriptor {
+    reserved: std::os::raw::c_ulong,
+    size: std::os::raw::c_ulong,
+}
+
+extern "C" {
+    #[link_name = "_NSConcreteGlobalBlock"]
+    static RAIL_MOUSE_GLOBAL_BLOCK: c_void;
+}
+
+const RAIL_MOUSE_BLOCK_GLOBAL: i32 = 1 << 28;
+
+static RAIL_MOUSE_BLOCK_DESCRIPTOR: RailMouseBlockDescriptor = RailMouseBlockDescriptor {
+    reserved: 0,
+    size: std::mem::size_of::<RailMouseBlock>() as std::os::raw::c_ulong,
+};
+
+fn rail_mouse_block() -> *const RailMouseBlock {
+    static BLOCK: OnceLock<usize> = OnceLock::new();
+    *BLOCK.get_or_init(|| {
+        Box::into_raw(Box::new(RailMouseBlock {
+            isa: unsafe { &RAIL_MOUSE_GLOBAL_BLOCK as *const c_void },
+            flags: RAIL_MOUSE_BLOCK_GLOBAL,
+            reserved: 0,
+            invoke: rail_mouse_invoke,
+            descriptor: &RAIL_MOUSE_BLOCK_DESCRIPTOR,
+        })) as usize
+    }) as *const RailMouseBlock
+}
+
+extern "C" fn rail_mouse_invoke(_block: *const RailMouseBlock, event: *mut Object) -> *mut Object {
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+        if event.is_null() {
+            return;
+        }
+        let button: isize = msg_send![event, buttonNumber];
+        if button != 3 && button != 4 {
+            return;
+        }
+        let pressed: u64 = msg_send![class!(NSEvent), pressedMouseButtons];
+        let down = pressed & (1u64 << (button as u32)) != 0;
+        if rail_mouse_diag() {
+            eprintln!(
+                "rail-mouse-diag ns_button={button} pressed={} emit={}",
+                down as u8,
+                (!down) as u8
+            );
+        }
+        if down {
+            return;
+        }
+        let Some(app) = RAIL_MOUSE_APP.get() else {
+            return;
+        };
+        let _ = app.emit("rail:mouse-button", button as i32);
+    }));
+    event
+}
+
+pub fn install_rail_mouse_buttons(app: AppHandle) {
+    let _ = RAIL_MOUSE_APP.set(app);
+    static INSTALLED: OnceLock<()> = OnceLock::new();
+    if INSTALLED.set(()).is_err() {
+        return;
+    }
+    unsafe {
+        // NSEventMaskOtherMouseDown | NSEventMaskOtherMouseUp.
+        let monitor: *mut Object = msg_send![class!(NSEvent),
+            addLocalMonitorForEventsMatchingMask: ((1u64 << 25) | (1u64 << 26))
+            handler: rail_mouse_block()];
+        if !monitor.is_null() {
+            let _: *mut Object = msg_send![monitor, retain];
+        }
     }
 }

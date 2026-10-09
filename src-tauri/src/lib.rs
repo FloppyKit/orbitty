@@ -888,6 +888,8 @@ pub fn run() {
             card_links::clear_link_approvals,
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            crate::windows::install_rail_mouse_buttons(app.handle().clone());
             if std::env::var("RAIL_MOUSE_DIAG").ok().as_deref() == Some("1") {
                 use tauri::Listener;
                 app.listen("rail-mouse-diag", |event| {

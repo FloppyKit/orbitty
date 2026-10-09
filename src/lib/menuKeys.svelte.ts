@@ -116,6 +116,14 @@ export class MenuRing {
     };
   }
 
+  /** The active stop's confirm. Enter's confirm verb calls this. */
+  confirmActive(): boolean {
+    const cur = this.current();
+    if (!cur?.confirm) return false;
+    cur.confirm();
+    return true;
+  }
+
   private current(): RingStop | undefined {
     return this.stops.find((s) => s.id === this.activeId);
   }
@@ -184,12 +192,7 @@ export class MenuRing {
       this.move(delta);
       return true;
     }
-    if (verb === "confirm") {
-      const cur = this.current();
-      if (!cur?.confirm) return false;
-      cur.confirm();
-      return true;
-    }
+    if (verb === "confirm") return this.confirmActive();
     return false;
   }
 }

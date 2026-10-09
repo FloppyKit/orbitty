@@ -93,7 +93,7 @@ type Scope_takeMouseButton = {
   mouseButtonAt: number;
   inputIntent: (...args: any[]) => InputIntent;
   onRailEscape: (...args: any[]) => boolean;
-  goInFromPointer: (...args: any[]) => any;
+  confirmActive: () => boolean;
 };
 
 type Scope_onStagePointerDown = {
@@ -369,7 +369,7 @@ export function takeMouseButton(scope: Scope_takeMouseButton, button: number): b
   scope.mouseButtonAt = now;
   const intent = scope.inputIntent({ kind: "pointer", button });
   if (intent === "out") scope.onRailEscape();
-  else if (intent === "in") scope.goInFromPointer();
+  else if (intent === "in") scope.confirmActive();
   return true;
 }
 
