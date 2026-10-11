@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { GLASS_VEIL_ALPHA, isLightSlab, veilAlpha } from "../src/themes/apply.ts";
+import { GLASS_VEIL_ALPHA, isLightSlab, veilAlpha } from "../src/themes/glass.ts";
 import { MAC_SYSTEM_TOKENS } from "../src/themes/host.ts";
 
 function src(rel: string): string {
