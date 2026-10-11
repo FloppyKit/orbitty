@@ -170,7 +170,12 @@ mod imp {
             return;
         };
         unsafe {
-            let found: *mut Object = msg_send![content, viewWithTag: NS_VIEW_TAG];
+            // The effect view sits on the frame, behind the webview parent.
+            // viewWithTag walks descendants, so the frame search still finds
+            // a view that an older apply left inside the content view.
+            let host: *mut Object = msg_send![content, superview];
+            let root = if host.is_null() { content } else { host };
+            let found: *mut Object = msg_send![root, viewWithTag: NS_VIEW_TAG];
             if !found.is_null() {
                 let _: () = msg_send![found, removeFromSuperview];
             }
@@ -188,7 +193,18 @@ mod imp {
         clear(window);
         let material = resolve_material(material);
         unsafe {
-            let bounds: NSRect = msg_send![content, bounds];
+            // Phase 0: the effect view was a sibling under the webview parent,
+            // wantsLayer false, and the desktop blur was not perceptible.
+            // Put it on the frame, behind the webview parent, and give it a layer
+            // before the material is set so behind-window sampling has a view
+            // that is already in the window.
+            let host: *mut Object = msg_send![content, superview];
+            let (parent, anchor) = if host.is_null() {
+                (content, std::ptr::null_mut())
+            } else {
+                (host, content)
+            };
+            let bounds: NSRect = msg_send![parent, bounds];
             let cls = effect_class();
             let view: *mut Object = msg_send![cls, alloc];
             if view.is_null() {
@@ -199,6 +215,15 @@ mod imp {
             if view.is_null() {
                 return false;
             }
+            let _: () = msg_send![view, setWantsLayer: true];
+            // NSWindowBelow = -1. anchor is the webview parent, so the effect
+            // view is behind it. nil anchor (no frame) keeps it at the back.
+            let _: () = msg_send![
+                parent,
+                addSubview: view
+                positioned: -1isize
+                relativeTo: anchor
+            ];
             let _: () = msg_send![view, setMaterial: material as isize];
             // NSVisualEffectBlendingModeBehindWindow = 0
             let _: () = msg_send![view, setBlendingMode: 0isize];
@@ -209,13 +234,6 @@ mod imp {
             if responds {
                 let _: () = msg_send![view, setCornerRadius: radius];
             }
-            // NSWindowBelow = -1, relativeTo nil → back of the content view.
-            let _: () = msg_send![
-                content,
-                addSubview: view
-                positioned: -1isize
-                relativeTo: std::ptr::null_mut::<Object>()
-            ];
         }
         true
     }

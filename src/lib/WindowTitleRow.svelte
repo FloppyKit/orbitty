@@ -109,7 +109,7 @@
     height: var(--wtr-h, 38px);
     padding: 0 10px 0 0;
     box-sizing: border-box;
-    background: var(--bg-fill, var(--bg));
+    background: transparent;
     user-select: none;
     -webkit-user-select: none;
     cursor: default;
