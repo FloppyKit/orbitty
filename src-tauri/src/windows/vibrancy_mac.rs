@@ -11,7 +11,7 @@
 //! `apply_vibrancy` call passed for `main`. It is not a blur strength.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 pub const MATERIAL_HUD_WINDOW: u64 = 13;
 pub const MATERIAL_UNDER_WINDOW_BACKGROUND: u64 = 21;
@@ -63,17 +63,20 @@ pub fn dom_to_view_frame(dom: DomRect, content_x: f64, content_y: f64, content_h
 
 const MAX_CARD_VIEWS: usize = 48;
 
-static CARD_RECTS: Mutex<HashMap<String, Vec<DomRect>>> = Mutex::new(HashMap::new());
+fn card_rects() -> &'static Mutex<HashMap<String, Vec<DomRect>>> {
+    static CARD_RECTS: OnceLock<Mutex<HashMap<String, Vec<DomRect>>>> = OnceLock::new();
+    CARD_RECTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 pub fn store_dom_rects(label: &str, mut rects: Vec<DomRect>) {
     rects.truncate(MAX_CARD_VIEWS);
-    if let Ok(mut g) = CARD_RECTS.lock() {
+    if let Ok(mut g) = card_rects().lock() {
         g.insert(label.to_string(), rects);
     }
 }
 
 pub fn dom_rects_for(label: &str) -> Vec<DomRect> {
-    CARD_RECTS
+    card_rects()
         .lock()
         .ok()
         .and_then(|g| g.get(label).cloned())
@@ -132,7 +135,9 @@ pub fn sync_one(window: &tauri::WebviewWindow) -> bool {
 
 #[cfg(target_os = "macos")]
 fn sync_one_os(window: &tauri::WebviewWindow, enabled: bool, light: bool) -> bool {
-    if !enabled {
+    // NSWorkspace, not the WKWebView media query: that query stayed false
+    // while Reduce transparency was on, and the window-sized view went opaque.
+    if !enabled || imp::reduce_transparency() {
         imp::clear(window);
         return false;
     }
@@ -220,6 +225,23 @@ mod imp {
             return APPEARANCE_BASED;
         }
         appearance
+    }
+
+    pub fn reduce_transparency() -> bool {
+        unsafe {
+            let ws: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+            if ws.is_null() {
+                return false;
+            }
+            let ok: bool = msg_send![
+                ws,
+                respondsToSelector: sel!(accessibilityDisplayShouldReduceTransparency)
+            ];
+            if !ok {
+                return false;
+            }
+            msg_send![ws, accessibilityDisplayShouldReduceTransparency]
+        }
     }
 
     pub fn clear(window: &tauri::WebviewWindow) {

@@ -17,8 +17,12 @@ export function vibrancyWanted(prefersReducedTransparency: boolean): boolean {
   return !prefersReducedTransparency;
 }
 
-/** Solid tiles use the panel's own alpha. Otherwise the slider scales the veil. */
+/**
+ * Tile veil. Reduced transparency stays on this same translucent alpha.
+ * It does not paint an opaque fill. `solid` is kept so the caller still
+ * records the media query; the alpha does not become 1.
+ */
 export function tileFillAlpha(clampedSlider: number, solid: boolean): number {
-  if (solid) return 1;
+  if (solid) return Math.min(0.85, veilAlpha(clampedSlider));
   return veilAlpha(clampedSlider);
 }

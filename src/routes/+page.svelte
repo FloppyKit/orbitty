@@ -332,22 +332,9 @@
 
   /* The webview window is transparent; the rail paints the theme --bg at the
      slider's alpha (S4.2). Text/icons/panels never fade. */
-  /* Vibrancy off: the page root is the theme fill, not a hole.
-     The class is set from the same media query. */
-  @media (prefers-reduced-transparency: reduce) {
-    :global(html.glass-solid .rail),
-    :global(html.glass-solid .rail.stage-shell),
-    :global(html.glass-solid .kanban),
-    :global(html.glass-solid .stars),
-    :global(html.glass-solid .companion),
-    :global(html.glass-solid .settings),
-    :global(html.glass-solid .sky),
-    :global(html.glass-solid main.sheet),
-    :global(html.glass-solid .yardwarn),
-    :global(html.glass-solid .nextwin) {
-      background: var(--bg-fill, var(--bg));
-    }
-  }
+  /* Reduce transparency does not paint the page root. Roots stay clear.
+     The tile tint is --panel-fill, and the native side skips the effect view
+     when NSWorkspace says Reduce transparency is on. */
 
   :global(body) {
     margin: 0;
