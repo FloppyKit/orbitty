@@ -105,18 +105,6 @@
     void tick().then(() => invoke("pane_mounted").catch(() => {}));
   });
 
-  // Phase-0 inventory. Unset is silent. Label and pixel size only.
-  let glassDiagLogged = false;
-  $effect(() => {
-    if (import.meta.env.VITE_GLASS_CARDS_DIAG !== "1" || !labelKnown || !windowLabel || glassDiagLogged) {
-      return;
-    }
-    glassDiagLogged = true;
-    console.info(
-      `glass-cards-diag label=${windowLabel} material=page vibrancy=0 w=${window.innerWidth} h=${window.innerHeight}`,
-    );
-  });
-
 </script>
 
 {#if !labelKnown}

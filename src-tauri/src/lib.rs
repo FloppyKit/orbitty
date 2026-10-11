@@ -597,22 +597,6 @@ pub(crate) fn main_thread_async<F: FnOnce() + Send + 'static>(f: F) {
     }
 }
 
-/// Phase-0 inventory only. Unset is silent. Logs label, material id,
-/// whether vibrancy applied, and pixel size. Never a title, path, or text.
-fn glass_cards_diag(window: &tauri::WebviewWindow, label: &str, material: &str, applied: bool) {
-    if !matches!(std::env::var("GLASS_CARDS_DIAG").as_deref(), Ok("1")) {
-        return;
-    }
-    let (w, h) = window
-        .inner_size()
-        .map(|s| (s.width, s.height))
-        .unwrap_or((0, 0));
-    eprintln!(
-        "glass-cards-diag label={label} material={material} vibrancy={} w={w} h={h}",
-        u8::from(applied)
-    );
-}
-
 /// Re-apply the transparency surgery on the overlay windows. The
 /// frontend invokes this on mount (post-load), so a WKWebView that came up
 /// with the default white backing gets its drawsBackground killed for real.
@@ -656,14 +640,7 @@ fn sync_glass_vibrancy(handle: &tauri::AppHandle) {
         let Some(window) = handle.get_webview_window(label) else {
             continue;
         };
-        let applied = vibrancy_mac::sync_one(&window);
-        let (_enabled, light) = vibrancy_mac::wanted();
-        let material = if applied {
-            vibrancy_mac::material_for_dark(!light).to_string()
-        } else {
-            "none".to_string()
-        };
-        glass_cards_diag(&window, label, &material, applied);
+        let _ = vibrancy_mac::sync_one(&window);
     }
 }
 
