@@ -93,3 +93,11 @@ test("glass vendored vibrancy keeps the window-vibrancy notice and drops the cra
   assert.equal(src("src-tauri/Cargo.toml").includes("window-vibrancy"), false);
   assert.equal(src("src-tauri/src/lib.rs").includes("window_vibrancy"), false);
 });
+
+test("glass titlebar separator style is none", () => {
+  const glass = src("src-tauri/src/windows/glass.rs");
+  assert.match(glass, /NSTitlebarSeparatorStyleNone = 1/);
+  assert.match(glass, /setTitlebarSeparatorStyle: 1usize/);
+  assert.equal(glass.includes("@available"), false);
+  assert.equal(src("src/lib/rail/rail-chrome.css").includes("data-tauri-drag-region"), false);
+});

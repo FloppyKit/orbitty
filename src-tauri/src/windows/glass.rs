@@ -19,6 +19,18 @@ mod imp {
         raw
     }
 
+    /// `NSTitlebarSeparatorStyleNone` is 1. The selector is missing before
+    /// macOS 11, so this checks `respondsToSelector:` instead of an
+    /// availability attribute.
+    unsafe fn clear_titlebar_separator(ns_window: *mut Object) {
+        let responds: bool =
+            msg_send![ns_window, respondsToSelector: sel!(setTitlebarSeparatorStyle:)];
+        if responds {
+            // NSTitlebarSeparatorStyleNone = 1
+            let _: () = msg_send![ns_window, setTitlebarSeparatorStyle: 1usize];
+        }
+    }
+
     /// AppKit view surgery — main thread only (callers guarantee it).
     pub fn ensure_transparent(window: &tauri::WebviewWindow) {
         let Ok(raw) = window.ns_window() else {
@@ -29,6 +41,10 @@ mod imp {
             return;
         }
         unsafe {
+            // NSTitlebarSeparatorStyleNone = 1. Phase 0 did not photograph
+            // the line. This is the missing call on the rail and on titled
+            // Overlay windows. No CSS hairline is removed here.
+            clear_titlebar_separator(ns_window);
             let _: () = msg_send![ns_window, setOpaque: false];
             let clear: *mut Object = msg_send![class!(NSColor), clearColor];
             let _: () = msg_send![ns_window, setBackgroundColor: clear];
@@ -252,6 +268,7 @@ mod imp {
             return;
         };
         unsafe {
+            clear_titlebar_separator(ns_window);
             let _: () = msg_send![ns_window, setTitlebarAppearsTransparent: true];
             // NSWindowTitleHidden = 1
             let _: () = msg_send![ns_window, setTitleVisibility: 1usize];
