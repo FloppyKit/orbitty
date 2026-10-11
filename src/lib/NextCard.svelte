@@ -539,7 +539,7 @@
     display: flex;
     flex-direction: column;
     color: var(--ink);
-    background: var(--bg-fill, var(--panel-fill, var(--panel)));
+    background: transparent;
     border: 1px solid var(--edge);
     border-radius: 12px;
     overflow: hidden;

@@ -106,7 +106,7 @@
     flex-direction: column;
     box-sizing: border-box;
     color: var(--ink);
-    background: var(--bg-fill, var(--bg));
+    background: transparent;
     font-family:
       "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
       BlinkMacSystemFont, "Helvetica Neue", sans-serif;

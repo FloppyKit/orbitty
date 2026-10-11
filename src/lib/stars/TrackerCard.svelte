@@ -151,9 +151,9 @@
     gap: 6px;
     min-width: 0;
     padding: 10px;
-    border-radius: 10px;
+    border-radius: 12px;
     background: var(--panel-fill);
-    border: 1px solid var(--edge);
+    border: 1px solid var(--glass-glow, color-mix(in srgb, var(--accent) 45%, transparent));
     color: var(--ink);
   }
 

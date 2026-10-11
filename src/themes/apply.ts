@@ -8,7 +8,7 @@
 // the slider value, and publishes --bg-fill / --panel-fill. Every painted
 // chrome fill uses those vars; text/icons/buttons/accent never fade.
 
-import { systemTokens } from "./host";
+import { systemTokens } from "./host.ts";
 
 export const HOST_VARS = [
   "--bg",
@@ -25,6 +25,18 @@ export const HOST_VARS = [
 ] as const;
 
 export const MIN_WINDOW_OPACITY = 0.2;
+
+/** Tile veil. The opacity slider scales this. It does not paint the page root. */
+export const GLASS_VEIL_ALPHA = 0.72;
+
+export function veilAlpha(slider: number): number {
+  return clampWindowOpacity(slider) * GLASS_VEIL_ALPHA;
+}
+
+/** A light slab is every channel at least 230 with alpha at least 0.5. */
+export function isLightSlab(r: number, g: number, b: number, a: number): boolean {
+  return a >= 0.5 && r >= 230 && g >= 230 && b >= 230;
+}
 
 export function clampWindowOpacity(v: number): number {
   if (!Number.isFinite(v) || v <= 0) return 1;
@@ -110,7 +122,7 @@ export function applyWindowOpacity(opacity: number) {
     );
   };
   setFill("--bg", "--bg-fill", o);
-  setFill("--panel", "--panel-fill", o);
+  setFill("--panel", "--panel-fill", veilAlpha(o));
   setFill("--bg", "--bg-solid", 1);
   el.classList.toggle("low-fill", o < 0.5);
 }

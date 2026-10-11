@@ -74,8 +74,8 @@
   .ghost .ghostdock,
   .hosting .ghostdock {
     margin: 4px 8px 8px;
-    background: var(--bg-fill, var(--bg));
-    border-color: var(--edge);
+    background: var(--panel-fill, var(--panel));
+    border-color: var(--glass-glow, color-mix(in srgb, var(--accent) 45%, transparent));
     border-radius: 12px;
   }
 

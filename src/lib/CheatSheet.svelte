@@ -121,7 +121,7 @@
     height: 100vh;
     box-sizing: border-box;
     overflow: auto;
-    background: var(--bg-fill, var(--bg));
+    background: transparent;
     color: var(--ink);
     border-radius: 12px;
   }

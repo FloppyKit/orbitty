@@ -161,6 +161,10 @@
   }
   /* S4.4: html paints nothing either — the only fills anywhere are the
      JS-computed --bg-fill/--panel-fill alpha vars. */
+  :global(:root) {
+    --glass-veil: 0.72;
+    --glass-glow: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
   :global(html),
   :global(body) {
     height: 100%;

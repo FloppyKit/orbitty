@@ -1251,10 +1251,25 @@
     flex-direction: column;
     box-sizing: border-box;
     color: var(--ink);
-    background: var(--bg);
+    background: transparent;
     font-family:
       "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
       BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  }
+
+  .stars > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Dim mist behind the text cards. The native blur is the desk. */
+  .stars::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--bg) 36%, transparent);
   }
 
   .stars.embedded {

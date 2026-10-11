@@ -10,7 +10,7 @@
     flex-direction: column;
     box-sizing: border-box;
     color: var(--ink);
-    background: var(--bg-fill, var(--bg));
+    background: transparent;
     border-radius: 0;
     font-family:
       "SF Pro Text", "SF Pro Display", system-ui, -apple-system,
@@ -575,8 +575,8 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--edge);
-    border-radius: 10px;
+    border: 1px solid var(--glass-glow, color-mix(in srgb, var(--accent) 45%, transparent));
+    border-radius: 12px;
     background: var(--panel-fill, var(--panel));
     transition:
       border-color 0.12s,

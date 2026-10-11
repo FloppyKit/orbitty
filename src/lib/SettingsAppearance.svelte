@@ -361,8 +361,8 @@
 <style>
 .panel {
     background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 10px;
+    border: 1px solid var(--glass-glow, color-mix(in srgb, var(--accent) 45%, transparent));
+    border-radius: 12px;
     padding: 10px 12px 12px;
   }
 .block-label {
