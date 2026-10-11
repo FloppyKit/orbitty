@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { nudgePick } from "../src/lib/rail/nudgeTrigger.ts";
 import {
   GLASS_VEIL_ALPHA,
   isLightSlab,
@@ -110,6 +111,25 @@ test("glass mark chip is a circle and the glyph sits in ink", () => {
   assert.match(head, /\.planet-head-count \{[\s\S]*?color:\s*var\(--ink\)/);
   assert.match(head, /<span class="planet-head-mark">\{mark\}<\/span>/);
   assert.equal(head.includes("data-tauri-drag-region"), false);
+});
+
+test("glass Claim chip appears on a new minimize of an unclaimed window", () => {
+  const win = { id: "w1", stableKey: "sk1", isMinimized: true };
+  const none = new Set<string>();
+  assert.equal(nudgePick([win], none, none, [])?.id, "w1");
+  assert.equal(nudgePick([win], new Set(["w1"]), none, []), undefined);
+  assert.equal(nudgePick([win], none, new Set(["w1"]), []), undefined);
+  assert.equal(nudgePick([win], none, none, ["w1"]), undefined);
+  assert.equal(nudgePick([win], none, none, ["sk1"]), undefined);
+  assert.equal(nudgePick([{ ...win, isMinimized: false }], none, none, []), undefined);
+  const drag = src("src/lib/rail/pageDrag.svelte.ts");
+  const fn = drag.slice(
+    drag.indexOf("export function checkNudge"),
+    drag.indexOf("export async function openSettings"),
+  );
+  assert.match(fn, /if \(!scope\.nudgePrimed\)/);
+  assert.match(fn, /nudgePick\(/);
+  assert.equal(fn.includes("flatMap"), false);
 });
 
 test("glass Claim one nudge sits below the overlay strip", () => {

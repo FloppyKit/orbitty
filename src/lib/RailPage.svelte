@@ -1460,10 +1460,9 @@
   // window asks once — pick or create a home, or dismiss. After that the
   // window id is silent forever (persisted). Never auto-claim.
   //
-  // Windows ALREADY minimized on the first poll after
-  // launch never nudge — their ids AND stableKeys go straight to
-  // nudgeSuppressed (the stableKey keeps them silent across reboots too).
-  // After that, only a visible → minimized transition can nudge, once per id.
+  // The first poll never shows a chip. It only records who is already
+  // minimized. A later visible → minimized transition of an unclaimed
+  // window shows the chip once, then that id and stableKey stay silent.
   let nudgePrimed = false;
   let prevMinimized = new Set<string>();
 
