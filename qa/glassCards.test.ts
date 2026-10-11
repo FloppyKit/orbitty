@@ -10,6 +10,15 @@ import {
   vibrancyWanted,
 } from "../src/themes/glass.ts";
 import { MAC_SYSTEM_TOKENS } from "../src/themes/host.ts";
+import {
+  GLASS_MOTION_FRAMES,
+  GLASS_RECT_IDLE_MS,
+  GLASS_RECT_MIN_MS,
+  clipDomRect,
+  nextWatchDelay,
+  rectSignature,
+  shouldSendGlassRects,
+} from "../src/lib/glass/cardFrames.ts";
 
 function src(rel: string): string {
   return readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
@@ -160,11 +169,11 @@ test("glass main window has no native title bar", () => {
 test("glass reduced transparency skips vibrancy and uses a solid tile", () => {
   assert.equal(vibrancyWanted(true), false);
   assert.equal(vibrancyWanted(false), true);
-  assert.equal(tileFillAlpha(1, true), 1);
+  assert.equal(tileFillAlpha(1, true), 0.72);
   assert.equal(tileFillAlpha(0.5, false), 0.36);
   const page = src("src/routes/+page.svelte");
-  assert.match(page, /@media \(prefers-reduced-transparency: reduce\)/);
-  assert.match(page, /html\.glass-solid \.rail/);
+  assert.equal(page.includes("html.glass-solid .rail"), false);
+  assert.match(page, /html\.glass-rt \.row:not\(:hover\):not\(\.front\)/);
   assert.match(src("src/lib/RailPage.svelte"), /prefers-reduced-transparency: reduce/);
   assert.match(src("src/themes/glass.ts"), /prefers-reduced-transparency: reduce/);
   const hit = src("src/lib/rail/rail-arch.css");
@@ -229,7 +238,9 @@ test("glass reduced transparency listens and paints solid roots", () => {
   const rail = src("src/lib/RailPage.svelte");
   assert.match(rail, /mq\.addEventListener\("change", onChange\)/);
   assert.match(src("src/themes/apply.ts"), /classList\.toggle\("glass-solid", solid\)/);
-  assert.match(src("src/routes/+page.svelte"), /html\.glass-solid \.kanban/);
+  const page = src("src/routes/+page.svelte");
+  assert.equal(page.includes("html.glass-solid .kanban"), false);
+  assert.match(page, /:global\(html\),\s*:global\(body\) \{[^}]*background:\s*transparent/);
 });
 
 test("glass tile glow stays on settings, trackers, sky, and the dock", () => {
@@ -251,4 +262,63 @@ test("glass tile glow stays on settings, trackers, sky, and the dock", () => {
     dock,
     /\.ghost \.ghostdock,\s*\.hosting \.ghostdock \{[^}]*background:\s*var\(--panel-fill/,
   );
+});
+
+test("glass outside cards is transparent", () => {
+  const page = src("src/routes/+page.svelte");
+  assert.match(page, /:global\(html\),\s*:global\(body\) \{[^}]*background:\s*transparent/);
+  assert.equal(/html\.glass-solid \.(rail|kanban|stars|companion|settings)/.test(page), false);
+  assert.match(src("src/lib/rail/rail-chrome.css"), /\.rail \{[\s\S]*?background:\s*transparent/);
+  assert.match(src("src/lib/board/board.css"), /\.kanban \{[\s\S]*?background:\s*transparent/);
+});
+
+test("glass card rect ipc coalesces and clips", () => {
+  const clipped = clipDomRect(10, -4, 100, 40, 200, 100);
+  assert.deepEqual(clipped, { x: 10, y: 0, w: 100, h: 36 });
+  assert.equal(clipDomRect(0, 0, 4, 4, 100, 100), null);
+  const tall = clipDomRect(12, 80, 396, 1552, 420, 760);
+  assert.deepEqual(tall, { x: 12, y: 80, w: 396, h: 680 });
+  assert.equal(shouldSendGlassRects("a", "a", 1000, 0, 80), false);
+  assert.equal(shouldSendGlassRects("a", "b", 1000, 950, 80), false);
+  assert.equal(shouldSendGlassRects("a", "b", 1000, 900, 80), true);
+  assert.equal(nextWatchDelay(0), GLASS_RECT_MIN_MS);
+  assert.equal(nextWatchDelay(GLASS_MOTION_FRAMES - 1), GLASS_RECT_MIN_MS);
+  assert.equal(nextWatchDelay(GLASS_MOTION_FRAMES), GLASS_RECT_IDLE_MS);
+  assert.equal(rectSignature([{ x: 1.2, y: 2.2, w: 3.2, h: 4.2 }]), "1:2:3:4");
+});
+
+test("glass card views are removed in a loop and sized to the rect", () => {
+  const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  const clearFn = rust.slice(rust.indexOf("pub fn clear("), rust.indexOf("pub fn frames_for("));
+  assert.match(clearFn, /loop \{[\s\S]*viewWithTag: NS_VIEW_TAG/);
+  const apply = rust.slice(rust.indexOf("pub fn apply("), rust.indexOf("fn content_view("));
+  assert.match(apply, /setAutoresizingMask: 0usize/);
+  assert.equal(apply.includes("msg_send![parent, bounds]"), false);
+  assert.equal(apply.split("msg_send![view, release]").length - 1, 1);
+  assert.match(apply, /clear\(window\);/);
+});
+
+test("glass dom rect maps to a flipped view frame", () => {
+  const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  const body = rust.slice(
+    rust.indexOf("pub fn dom_to_view_frame"),
+    rust.indexOf("const MAX_CARD_VIEWS"),
+  );
+  assert.match(body, /y: content_y \+ content_h - dom\.y - dom\.h/);
+  assert.match(rust, /fn dom_to_view_frame_flips_y/);
+  assert.match(rust, /assert_eq!\(frame\.y, 706\.0\)/);
+});
+
+test("glass reduce transparency tint is translucent and dark", () => {
+  assert.equal(tileFillAlpha(1, true), GLASS_VEIL_ALPHA);
+  assert.ok(tileFillAlpha(1, true) > 0 && tileFillAlpha(1, true) < 1);
+  assert.equal(isLightSlab(44, 44, 46, tileFillAlpha(1, true)), false);
+  const dark = parseCssColor(MAC_SYSTEM_TOKENS.systemDark.panel);
+  assert.equal(isLightSlab(dark[0], dark[1], dark[2], tileFillAlpha(1, true)), false);
+  const page = src("src/routes/+page.svelte");
+  assert.match(page, /html\.glass-rt[\s\S]*?background:\s*var\(--panel-fill/);
+  const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  assert.match(rust, /msg_send!\[ws, accessibilityDisplayShouldReduceTransparency\]/);
+  assert.match(rust, /sel!\(accessibilityDisplayShouldReduceTransparency\)/);
+  assert.match(src("src/lib/board/board.css"), /\.b-card \{[^}]*background:\s*var\(--panel-fill/);
 });
