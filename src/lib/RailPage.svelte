@@ -8,6 +8,7 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import { vibrancyWanted } from "../themes/glass";
   import { systemTokens } from "../themes/host";
   import { planetCss } from "./planetColor";
   import { startPaneDrag } from "./dragPane";
@@ -1490,7 +1491,8 @@
     document.documentElement.dataset.theme = themeId;
     applyHostTokens(themeId);
     const light = systemTokens(themeId)?.colorScheme === "light";
-    invoke("set_vibrancy", { enabled: true, light }).catch(() => {});
+    const reduce = window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
+    invoke("set_vibrancy", { enabled: vibrancyWanted(reduce), light }).catch(() => {});
     // S4.4: re-assert the native transparency surgery (WKWebView
     // drawsBackground can come back up white after load).
     invoke("ensure_glass").catch(() => {});
@@ -1502,6 +1504,18 @@
   $effect(() => {
     if (!themeId) return;
     applyWindowOpacity(windowOpacity);
+  });
+
+  $effect(() => {
+    const mq = window.matchMedia("(prefers-reduced-transparency: reduce)");
+    const onChange = () => {
+      if (!themeId) return;
+      const light = systemTokens(themeId)?.colorScheme === "light";
+      invoke("set_vibrancy", { enabled: vibrancyWanted(mq.matches), light }).catch(() => {});
+      applyWindowOpacity(windowOpacity);
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   });
 
   let timer: ReturnType<typeof setInterval>;

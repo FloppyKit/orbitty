@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { GLASS_VEIL_ALPHA, isLightSlab, veilAlpha } from "../src/themes/glass.ts";
+import {
+  GLASS_VEIL_ALPHA,
+  isLightSlab,
+  tileFillAlpha,
+  veilAlpha,
+  vibrancyWanted,
+} from "../src/themes/glass.ts";
 import { MAC_SYSTEM_TOKENS } from "../src/themes/host.ts";
 
 function src(rel: string): string {
@@ -49,7 +55,7 @@ test("glass veil alpha is 0.72 and the slider scales it", () => {
   assert.equal(veilAlpha(1), 0.72);
   assert.equal(veilAlpha(0.5), 0.36);
   const apply = src("src/themes/apply.ts");
-  assert.match(apply, /setFill\("--panel", "--panel-fill", veilAlpha\(o\)\)/);
+  assert.match(apply, /setFill\("--panel", "--panel-fill", tileFillAlpha\(o, solid\)\)/);
   assert.match(src("src/routes/+page.svelte"), /--glass-veil:\s*0\.72/);
 });
 
@@ -75,8 +81,10 @@ test("glass vibrancy material is HudWindow in dark and UnderWindowBackground in 
     rust,
     /if dark \{\s*MATERIAL_HUD_WINDOW\s*\} else \{\s*MATERIAL_UNDER_WINDOW_BACKGROUND\s*\}/,
   );
-  assert.match(src("src/lib/RailPage.svelte"), /set_vibrancy", \{ enabled: true, light \}/);
-  assert.equal(src("src/lib/RailPage.svelte").includes("enabled: false"), false);
+  assert.match(
+    src("src/lib/RailPage.svelte"),
+    /set_vibrancy", \{ enabled: vibrancyWanted\(reduce\), light \}/,
+  );
 });
 
 test("glass vendored vibrancy keeps the window-vibrancy notice and drops the crate", () => {
@@ -119,4 +127,18 @@ test("glass titlebar separator style is none", () => {
   assert.match(glass, /setTitlebarSeparatorStyle: 1usize/);
   assert.equal(glass.includes("@available"), false);
   assert.equal(src("src/lib/rail/rail-chrome.css").includes("data-tauri-drag-region"), false);
+});
+
+test("glass reduced transparency skips vibrancy and uses a solid tile", () => {
+  assert.equal(vibrancyWanted(true), false);
+  assert.equal(vibrancyWanted(false), true);
+  assert.equal(tileFillAlpha(1, true), 1);
+  assert.equal(tileFillAlpha(0.5, false), 0.36);
+  const page = src("src/routes/+page.svelte");
+  assert.match(page, /@media \(prefers-reduced-transparency: reduce\)/);
+  assert.match(page, /html\.glass-solid \.rail/);
+  assert.match(src("src/lib/RailPage.svelte"), /prefers-reduced-transparency: reduce/);
+  assert.match(src("src/themes/glass.ts"), /prefers-reduced-transparency: reduce/);
+  const hit = src("src/lib/rail/rail-arch.css");
+  assert.match(hit, /\.l2-hit[\s\S]*?backdrop-filter:\s*blur\(18px\)/);
 });

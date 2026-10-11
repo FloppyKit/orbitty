@@ -8,7 +8,7 @@
 // the slider value, and publishes --bg-fill / --panel-fill. Every painted
 // chrome fill uses those vars; text/icons/buttons/accent never fade.
 
-import { veilAlpha } from "./glass";
+import { REDUCED_TRANSPARENCY_QUERY, tileFillAlpha } from "./glass";
 import { systemTokens } from "./host";
 
 export const HOST_VARS = [
@@ -98,6 +98,8 @@ function parseColor(raw: string): [number, number, number, number] | null {
 export function applyWindowOpacity(opacity: number) {
   const o = clampWindowOpacity(opacity);
   const el = document.documentElement;
+  const solid = window.matchMedia(REDUCED_TRANSPARENCY_QUERY).matches;
+  el.classList.toggle("glass-solid", solid);
   el.style.setProperty("--win-opacity", String(o));
   const cs = getComputedStyle(el);
   const setFill = (src: string, dest: string, alpha: number) => {
@@ -113,7 +115,7 @@ export function applyWindowOpacity(opacity: number) {
     );
   };
   setFill("--bg", "--bg-fill", o);
-  setFill("--panel", "--panel-fill", veilAlpha(o));
+  setFill("--panel", "--panel-fill", tileFillAlpha(o, solid));
   setFill("--bg", "--bg-solid", 1);
   el.classList.toggle("low-fill", o < 0.5);
 }
