@@ -121,11 +121,19 @@ test("glass Claim one nudge sits below the overlay strip", () => {
   assert.equal(stage.includes("data-tauri-drag-region"), false);
 });
 
-test("glass titlebar separator style is none", () => {
+test("glass main window has no native title bar", () => {
+  const conf = src("src-tauri/tauri.conf.json");
+  assert.match(conf, /"decorations": false/);
+  assert.equal(conf.includes("titleBarStyle"), false);
   const glass = src("src-tauri/src/windows/glass.rs");
-  assert.match(glass, /NSTitlebarSeparatorStyleNone = 1/);
-  assert.match(glass, /setTitlebarSeparatorStyle: 1usize/);
-  assert.equal(glass.includes("@available"), false);
+  assert.equal(glass.includes("clear_titlebar_separator"), false);
+  assert.equal(glass.includes("setTitlebarSeparatorStyle"), false);
+  const chrome = src("src/lib/rail/rail-chrome.css").match(/\.chrome \{[^}]*\}/);
+  assert.ok(chrome);
+  assert.equal(chrome[0].includes("border-bottom"), false);
+  const wtr = src("src/lib/WindowTitleRow.svelte").match(/\.wtr \{[^}]*\}/);
+  assert.ok(wtr);
+  assert.equal(wtr[0].includes("border-bottom"), false);
   assert.equal(src("src/lib/rail/rail-chrome.css").includes("data-tauri-drag-region"), false);
 });
 
