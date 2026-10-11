@@ -59,6 +59,11 @@
     padding: 0;
   }
 
+  /* Overlay titlebar eats the top ~28px. The Claim-one nudge moves below it. */
+  .rail.stage-shell .nudge {
+    margin-top: 28px;
+  }
+
   .rail.stage-shell .stage-strip,
   .rail.stage-shell .wins,
   .rail.stage-shell .stage-planet,

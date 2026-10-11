@@ -94,6 +94,25 @@ test("glass vendored vibrancy keeps the window-vibrancy notice and drops the cra
   assert.equal(src("src-tauri/src/lib.rs").includes("window_vibrancy"), false);
 });
 
+test("glass mark chip is a circle and the glyph sits in ink", () => {
+  const head = src("src/lib/PlanetHead.svelte");
+  assert.match(head, /\.planet-chip\.mark \{[\s\S]*?border-radius:\s*50%/);
+  assert.match(head, /\.planet-chip\.mark \{[\s\S]*?background:\s*var\(--accent\)/);
+  assert.match(head, /\.planet-head-mark \{[\s\S]*?color:\s*var\(--ink\)/);
+  assert.match(head, /\.planet-head-count \{[\s\S]*?color:\s*var\(--ink\)/);
+  assert.match(head, /<span class="planet-head-mark">\{mark\}<\/span>/);
+  assert.equal(head.includes("data-tauri-drag-region"), false);
+});
+
+test("glass Claim one nudge sits below the overlay strip", () => {
+  const stage = src("src/lib/rail/rail-stage.css");
+  assert.match(stage, /\.rail\.stage-shell \.nudge \{[\s\S]*?margin-top:\s*28px/);
+  const list = src("src/lib/rail/List.svelte");
+  assert.match(list, /Claim\s+one\?/);
+  assert.equal(list.includes("data-tauri-drag-region"), false);
+  assert.equal(stage.includes("data-tauri-drag-region"), false);
+});
+
 test("glass titlebar separator style is none", () => {
   const glass = src("src-tauri/src/windows/glass.rs");
   assert.match(glass, /NSTitlebarSeparatorStyleNone = 1/);

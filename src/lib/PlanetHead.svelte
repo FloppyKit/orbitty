@@ -78,8 +78,11 @@
     class:live
     class:mark={showMark}
     style={chip ? `background: ${chip}; --pglow: ${chip}` : undefined}
-    aria-hidden="true">{#if showMark}{mark}{/if}</span
-  >
+    aria-hidden="true"
+  ></span>
+  {#if showMark}
+    <span class="planet-head-mark">{mark}</span>
+  {/if}
   {#if !compact}
     <span class="planet-head-name">{name}</span>
   {/if}
@@ -139,16 +142,17 @@
   .planet-chip.mark {
     width: 16px;
     height: 16px;
-    border-radius: 4px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+
+  .planet-head-mark {
+    flex-shrink: 0;
     font-size: 0.55rem;
     font-weight: 700;
     line-height: 1;
-    color: var(--dim);
-    background: var(--bg-fill, var(--bg));
-    box-shadow: inset 0 0 0 1px var(--edge);
+    color: var(--ink);
   }
 
   .planet-chip.live {
@@ -202,7 +206,7 @@
     flex-shrink: 0;
     margin-left: auto;
     font-size: 0.64rem;
-    color: var(--dim);
+    color: var(--ink);
     border: 1px solid var(--edge);
     border-radius: 999px;
     padding: 0 0.35rem;
