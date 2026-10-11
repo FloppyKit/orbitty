@@ -445,6 +445,7 @@ mod imp {
         unsafe { msg_send![ns_window, collectionBehavior] }
     }
 
+    include!("glass_fr3_diag.rs");
 }
 
 pub fn ensure_transparent(window: &tauri::WebviewWindow) {
@@ -452,6 +453,51 @@ pub fn ensure_transparent(window: &tauri::WebviewWindow) {
     imp::ensure_transparent(window);
     #[cfg(not(target_os = "macos"))]
     let _ = window;
+}
+
+/// One gated hierarchy dump, then short per-card and mask probes.
+/// Silent unless `GLASS_FR3_DIAG=1`. Removed before the last commit.
+#[cfg(target_os = "macos")]
+pub fn fr3_diag_schedule(app: &tauri::AppHandle) {
+    if std::env::var_os("GLASS_FR3_DIAG").as_deref() != Some(std::ffi::OsStr::new("1")) {
+        return;
+    }
+    static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if ONCE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let hold = std::time::Duration::from_millis(18_000);
+        std::thread::sleep(std::time::Duration::from_millis(3_500));
+        fr3_phase(&app, "baseline", imp::fr3_baseline);
+        std::thread::sleep(hold);
+        fr3_phase(&app, "per-card", imp::fr3_experiment_cards);
+        std::thread::sleep(hold);
+        fr3_phase(&app, "mask", imp::fr3_experiment_mask);
+        std::thread::sleep(hold);
+        fr3_phase(&app, "restored", imp::fr3_experiment_restore);
+        eprintln!("GLASS_FR3_DIAG phases-done");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn fr3_phase(app: &tauri::AppHandle, name: &'static str, work: fn(&tauri::AppHandle)) {
+    let owned = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        eprintln!("GLASS_FR3_DIAG phase={name} t={t}");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&owned)));
+        if ran.is_err() {
+            eprintln!("GLASS_FR3_DIAG phase={name} panic");
+            let _ = std::io::Write::flush(&mut std::io::stderr());
+        }
+    });
 }
 
 /// Undo the stay-visible pin (companion hide paths).
@@ -607,4 +653,3 @@ pub fn collection_behavior(window: &tauri::WebviewWindow) -> usize {
         0
     }
 }
-
