@@ -596,6 +596,22 @@ pub(crate) fn main_thread_async<F: FnOnce() + Send + 'static>(f: F) {
     }
 }
 
+/// Phase-0 inventory only. Unset is silent. Logs label, material id,
+/// whether vibrancy applied, and pixel size. Never a title, path, or text.
+fn glass_cards_diag(window: &tauri::WebviewWindow, label: &str, material: &str, applied: bool) {
+    if !matches!(std::env::var("GLASS_CARDS_DIAG").as_deref(), Ok("1")) {
+        return;
+    }
+    let (w, h) = window
+        .inner_size()
+        .map(|s| (s.width, s.height))
+        .unwrap_or((0, 0));
+    eprintln!(
+        "glass-cards-diag label={label} material={material} vibrancy={} w={w} h={h}",
+        u8::from(applied)
+    );
+}
+
 /// Re-apply the transparency surgery on the overlay windows. The
 /// frontend invokes this on mount (post-load), so a WKWebView that came up
 /// with the default white backing gets its drawsBackground killed for real.
@@ -612,6 +628,7 @@ fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
             for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"] {
                 if let Some(w) = handle.get_webview_window(label) {
                     glass::ensure_transparent(&w);
+                    glass_cards_diag(&w, label, "none", false);
                     window_chrome::apply_lights(&w, label, ctx);
                     // Rail only: planet-panel pin so Show Desktop cannot
                     // tuck it. Chrome drawers are normal windows — unpin
@@ -651,6 +668,8 @@ fn set_vibrancy(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
             };
             // Idempotent: always clear first so repeat applies never stack views.
             let _ = clear_vibrancy(&window);
+            let mut applied = false;
+            let material = if enabled { "13" } else { "none" };
             if enabled {
                 if let Err(e) = apply_vibrancy(
                     &window,
@@ -659,8 +678,11 @@ fn set_vibrancy(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
                     Some(14.0),
                 ) {
                     eprintln!("set_vibrancy: apply failed: {e}");
+                } else {
+                    applied = true;
                 }
             }
+            glass_cards_diag(&window, "main", material, applied);
         })
         .map_err(|e| e.to_string())?;
     }
@@ -931,6 +953,7 @@ pub fn run() {
                         // recipe); drawers never get an opaque slab.
                         let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
                         glass::ensure_transparent(&w);
+                        glass_cards_diag(&w, label, "none", false);
                         window_chrome::apply_lights(&w, label, boot_ctx);
                         if label == "main" {
                             glass::pin_stay_visible(&w);
