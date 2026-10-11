@@ -107,7 +107,7 @@ test("glass mark chip is a circle and the glyph sits in ink", () => {
   const head = src("src/lib/PlanetHead.svelte");
   assert.match(head, /\.planet-chip\.mark \{[\s\S]*?border-radius:\s*50%/);
   assert.match(head, /\.planet-chip\.mark \{[\s\S]*?background:\s*var\(--accent\)/);
-  assert.match(head, /\.planet-head-mark \{[\s\S]*?color:\s*var\(--ink\)/);
+  assert.match(head, /\.planet-head-mark \{[^}]*color:\s*var\(--ink\)/);
   assert.match(head, /\.planet-head-count \{[\s\S]*?color:\s*var\(--ink\)/);
   assert.match(head, /<span class="planet-head-mark">\{mark\}<\/span>/);
   assert.equal(head.includes("data-tauri-drag-region"), false);
@@ -169,4 +169,74 @@ test("glass reduced transparency skips vibrancy and uses a solid tile", () => {
   assert.match(src("src/themes/glass.ts"), /prefers-reduced-transparency: reduce/);
   const hit = src("src/lib/rail/rail-arch.css");
   assert.match(hit, /\.l2-hit[\s\S]*?backdrop-filter:\s*blur\(18px\)/);
+});
+
+test("glass labels are the nine glass windows", () => {
+  const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  assert.match(
+    rust,
+    /GLASS_LABELS: &\[&str\] = &\[\s*"main",\s*"kanban",\s*"companion",\s*"stars",\s*"settings",\s*"sky",\s*"cheatsheet",\s*"yard-warn",\s*"next-card",\s*\]/,
+  );
+});
+
+test("glass set_vibrancy honors enabled", () => {
+  assert.match(src("src-tauri/src/lib.rs"), /set_wanted\(enabled,/);
+});
+
+test("glass window_appearance syncs the material", () => {
+  const chrome = src("src-tauri/src/windows/window_chrome.rs");
+  assert.match(chrome, /set_light\(scheme == "light"\)/);
+  assert.match(chrome, /sync_one\(&window\)/);
+});
+
+test("glass vibrancy apply clears first and releases the effect view", () => {
+  const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  const apply = rust.slice(rust.indexOf("pub fn apply("), rust.indexOf("fn content_view("));
+  assert.match(apply, /clear\(window\);/);
+  assert.match(apply, /addSubview: view[\s\S]*?msg_send!\[view, release\]/);
+  assert.equal(apply.split("msg_send![view, release]").length - 1, 1);
+});
+
+test("glass vibrancy blends behind the window", () => {
+  assert.match(src("src-tauri/src/windows/vibrancy_mac.rs"), /setBlendingMode: 0isize/);
+});
+
+test("glass material_for maps light to UnderWindowBackground", () => {
+  const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  assert.match(rust, /fn material_for\(light: bool\)[\s\S]*?material_for_dark\(!light\)/);
+  assert.match(rust, /material_for\(light\),/);
+});
+
+test("glass RailPage passes the real light flag", () => {
+  const rail = src("src/lib/RailPage.svelte");
+  assert.match(rail, /enabled: vibrancyWanted\(reduce\), light \}/);
+  assert.match(rail, /enabled: vibrancyWanted\(mq\.matches\), light \}/);
+});
+
+test("glass reduced transparency listens and paints solid roots", () => {
+  const rail = src("src/lib/RailPage.svelte");
+  assert.match(rail, /mq\.addEventListener\("change", onChange\)/);
+  assert.match(src("src/themes/apply.ts"), /classList\.toggle\("glass-solid", solid\)/);
+  assert.match(src("src/routes/+page.svelte"), /html\.glass-solid \.kanban/);
+});
+
+test("glass tile glow stays on settings, trackers, sky, and the dock", () => {
+  const panel = src("src/lib/SettingsAppearance.svelte").match(/\.panel \{[^}]*\}/);
+  assert.ok(panel);
+  assert.match(panel[0], /--glass-glow/);
+  assert.equal(panel[0].includes("--edge"), false);
+  const card = src("src/lib/stars/TrackerCard.svelte").match(/\.card \{[^}]*\}/);
+  assert.ok(card);
+  assert.match(card[0], /--glass-glow/);
+  assert.equal(card[0].includes("--edge"), false);
+  assert.match(src("src/lib/SkyPage.svelte"), /\.sky \{[^}]*background:\s*transparent/);
+  assert.match(
+    src("src/lib/StarsPage.svelte"),
+    /\.stars::before \{[^}]*color-mix\(in srgb, var\(--bg\) 36%, transparent\)/,
+  );
+  const dock = src("src/lib/companion/dock.css");
+  assert.match(
+    dock,
+    /\.ghost \.ghostdock,\s*\.hosting \.ghostdock \{[^}]*background:\s*var\(--panel-fill/,
+  );
 });

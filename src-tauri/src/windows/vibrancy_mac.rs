@@ -40,6 +40,11 @@ pub fn material_for_dark(dark: bool) -> u64 {
     }
 }
 
+/// Light theme → UnderWindowBackground. Dark theme → HudWindow.
+pub fn material_for(light: bool) -> u64 {
+    material_for_dark(!light)
+}
+
 struct Wanted {
     enabled: bool,
     light: bool,
@@ -83,7 +88,7 @@ fn sync_one_os(window: &tauri::WebviewWindow, enabled: bool, light: bool) -> boo
     }
     imp::apply(
         window,
-        material_for_dark(!light),
+        material_for(light),
         STATE_ACTIVE,
         CORNER_RADIUS,
     )
@@ -224,6 +229,8 @@ mod imp {
                 positioned: -1isize
                 relativeTo: anchor
             ];
+            // alloc/init is +1. addSubview retains. Release our claim.
+            let _: () = msg_send![view, release];
             let _: () = msg_send![view, setMaterial: material as isize];
             // NSVisualEffectBlendingModeBehindWindow = 0
             let _: () = msg_send![view, setBlendingMode: 0isize];
@@ -257,11 +264,17 @@ mod imp {
 
 #[cfg(test)]
 mod tests {
-    use super::material_for_dark;
+    use super::{material_for, material_for_dark};
 
     #[test]
     fn material_for_dark_is_hud_or_under_window() {
         assert_eq!(material_for_dark(true), 13);
         assert_eq!(material_for_dark(false), 21);
+    }
+
+    #[test]
+    fn material_for_light_is_under_window_and_dark_is_hud() {
+        assert_eq!(material_for(true), 21);
+        assert_eq!(material_for(false), 13);
     }
 }
