@@ -197,6 +197,18 @@ test("glass vibrancy apply clears first and releases the effect view", () => {
   assert.equal(apply.split("msg_send![view, release]").length - 1, 1);
 });
 
+test("glass blur view sits in the frame behind the webview", () => {
+  const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  const clearFn = rust.slice(rust.indexOf("pub fn clear("), rust.indexOf("pub fn apply("));
+  const apply = rust.slice(rust.indexOf("pub fn apply("), rust.indexOf("fn content_view("));
+  assert.match(clearFn, /msg_send!\[content, superview\]/);
+  assert.match(clearFn, /let root = if host\.is_null\(\) \{ content \} else \{ host \};/);
+  assert.match(apply, /msg_send!\[content, superview\]/);
+  assert.match(apply, /\(host, content\)/);
+  assert.match(apply, /setWantsLayer: true/);
+  assert.match(apply, /addSubview: view\s*positioned: -1isize\s*relativeTo: anchor/);
+});
+
 test("glass vibrancy blends behind the window", () => {
   assert.match(src("src-tauri/src/windows/vibrancy_mac.rs"), /setBlendingMode: 0isize/);
 });
