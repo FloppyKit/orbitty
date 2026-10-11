@@ -925,7 +925,6 @@ pub fn run() {
                         // recipe); drawers never get an opaque slab.
                         let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
                         glass::ensure_transparent(&w);
-                        glass_cards_diag(&w, label, "none", false);
                         window_chrome::apply_lights(&w, label, boot_ctx);
                         if label == "main" {
                             glass::pin_stay_visible(&w);
