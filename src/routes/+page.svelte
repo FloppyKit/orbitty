@@ -15,6 +15,7 @@
   import {
     collectGlassCardRects,
     GLASS_RECT_MIN_MS,
+    nextWatchDelay,
     rectSignature,
     shouldSendGlassRects,
   } from "$lib/glass/cardFrames";
@@ -117,18 +118,24 @@
     if (!labelKnown) return;
     let prev = "";
     let last = 0;
+    let streak = 0;
+    let timer = 0;
     const flush = () => {
       const rects = collectGlassCardRects(document, window.innerWidth, window.innerHeight);
       const sig = rectSignature(rects);
       const now = performance.now();
-      if (!shouldSendGlassRects(prev, sig, now, last, GLASS_RECT_MIN_MS)) return;
-      prev = sig;
-      last = now;
-      invoke("set_glass_card_rects", { rects }).catch(() => {});
+      if (shouldSendGlassRects(prev, sig, now, last, GLASS_RECT_MIN_MS)) {
+        prev = sig;
+        last = now;
+        streak = 0;
+        invoke("set_glass_card_rects", { rects }).catch(() => {});
+      } else {
+        streak += 1;
+      }
+      timer = window.setTimeout(flush, nextWatchDelay(streak));
     };
     flush();
-    const id = window.setInterval(flush, GLASS_RECT_MIN_MS);
-    return () => window.clearInterval(id);
+    return () => window.clearTimeout(timer);
   });
 
   // Gated FR3 card-rect dump. Silent unless the dev launch set

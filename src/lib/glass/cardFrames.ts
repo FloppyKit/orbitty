@@ -13,6 +13,8 @@ export const GLASS_CARD_SELECTORS = [
 ] as const;
 
 export const GLASS_RECT_MIN_MS = 80;
+export const GLASS_RECT_IDLE_MS = 240;
+export const GLASS_MOTION_FRAMES = 8;
 export const GLASS_CARD_CAP = 48;
 
 export type GlassDomRect = { x: number; y: number; w: number; h: number };
@@ -45,6 +47,12 @@ export function rectSignature(rects: readonly GlassDomRect[]): string {
 }
 
 /** Skip an IPC send when the rects did not move, or the last send was too recent. */
+/** Fast while rects move (spin or scroll). Idle backs off after a short streak. */
+export function nextWatchDelay(unchangedStreak: number): number {
+  if (unchangedStreak < GLASS_MOTION_FRAMES) return GLASS_RECT_MIN_MS;
+  return GLASS_RECT_IDLE_MS;
+}
+
 export function shouldSendGlassRects(
   prevSig: string,
   nextSig: string,
