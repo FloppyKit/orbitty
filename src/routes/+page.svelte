@@ -340,8 +340,15 @@
   /* The webview window is transparent; the rail paints the theme --bg at the
      slider's alpha (S4.2). Text/icons/panels never fade. */
   /* Reduce transparency does not paint the page root. Roots stay clear.
-     The tile tint is --panel-fill, and the native side skips the effect view
-     when NSWorkspace says Reduce transparency is on. */
+     Rust sets html.glass-rt from NSWorkspace (the webview media query does
+     not match on this Mac). Tiles that are otherwise clear get the veil.
+     Hover and the front row keep their own fills. */
+  :global(html.glass-rt .row:not(:hover):not(.front)),
+  :global(html.glass-rt .l2-window-card),
+  :global(html.glass-rt .l2-needed-card),
+  :global(html.glass-rt .l2-preview) {
+    background: var(--panel-fill, rgba(44, 44, 46, 0.72));
+  }
 
   :global(body) {
     margin: 0;

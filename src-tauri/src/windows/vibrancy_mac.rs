@@ -137,7 +137,12 @@ pub fn sync_one(window: &tauri::WebviewWindow) -> bool {
 fn sync_one_os(window: &tauri::WebviewWindow, enabled: bool, light: bool) -> bool {
     // NSWorkspace, not the WKWebView media query: that query stayed false
     // while Reduce transparency was on, and the window-sized view went opaque.
-    if !enabled || imp::reduce_transparency() {
+    let reduce = imp::reduce_transparency();
+    let flag = if reduce { "true" } else { "false" };
+    let _ = window.eval(format!(
+        "document.documentElement.classList.toggle('glass-rt',{flag})"
+    ));
+    if !enabled || reduce {
         imp::clear(window);
         return false;
     }

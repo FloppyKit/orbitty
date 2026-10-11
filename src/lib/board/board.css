@@ -629,7 +629,7 @@
 
   .b-card {
     padding: 8px 10px;
-    background: var(--bg-fill, var(--bg));
+    background: var(--panel-fill, var(--panel));
     border: 1px solid var(--edge);
     border-radius: 8px;
     cursor: pointer;
