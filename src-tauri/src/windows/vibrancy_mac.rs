@@ -10,6 +10,7 @@
 //! State is Active (1). The corner radius is the same 14pt the old
 //! `apply_vibrancy` call passed for `main`. It is not a blur strength.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 pub const MATERIAL_HUD_WINDOW: u64 = 13;
@@ -30,6 +31,54 @@ pub const GLASS_LABELS: &[&str] = &[
     "yard-warn",
     "next-card",
 ];
+
+/// A DOM rect in CSS pixels, top-left origin, y down.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DomRect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// An AppKit view frame, bottom-left origin, y up, in the content view's superview.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ViewFrame {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// Map one DOM rect into the content view's superview.
+/// `content_h` is the content view's height. `content_x` / `content_y` are its frame origin.
+pub fn dom_to_view_frame(dom: DomRect, content_x: f64, content_y: f64, content_h: f64) -> ViewFrame {
+    ViewFrame {
+        x: content_x + dom.x,
+        y: content_y + content_h - dom.y - dom.h,
+        w: dom.w,
+        h: dom.h,
+    }
+}
+
+const MAX_CARD_VIEWS: usize = 48;
+
+static CARD_RECTS: Mutex<HashMap<String, Vec<DomRect>>> = Mutex::new(HashMap::new());
+
+pub fn store_dom_rects(label: &str, mut rects: Vec<DomRect>) {
+    rects.truncate(MAX_CARD_VIEWS);
+    if let Ok(mut g) = CARD_RECTS.lock() {
+        g.insert(label.to_string(), rects);
+    }
+}
+
+pub fn dom_rects_for(label: &str) -> Vec<DomRect> {
+    CARD_RECTS
+        .lock()
+        .ok()
+        .and_then(|g| g.get(label).cloned())
+        .unwrap_or_default()
+}
 
 /// `true` → HudWindow. `false` → UnderWindowBackground.
 pub fn material_for_dark(dark: bool) -> u64 {
@@ -74,7 +123,8 @@ pub fn wanted() -> (bool, bool) {
     }
 }
 
-/// Clear, then apply one effect view when vibrancy is wanted. Main thread.
+/// Clear, then apply one effect view per stored card rect. Main thread.
+/// An empty list leaves the window clear.
 pub fn sync_one(window: &tauri::WebviewWindow) -> bool {
     let (enabled, light) = wanted();
     sync_one_os(window, enabled, light)
@@ -86,8 +136,10 @@ fn sync_one_os(window: &tauri::WebviewWindow, enabled: bool, light: bool) -> boo
         imp::clear(window);
         return false;
     }
+    let frames = imp::frames_for(window);
     imp::apply(
         window,
+        &frames,
         material_for(light),
         STATE_ACTIVE,
         CORNER_RADIUS,
@@ -175,19 +227,43 @@ mod imp {
             return;
         };
         unsafe {
-            // The effect view sits on the frame, behind the webview parent.
-            // viewWithTag walks descendants, so the frame search still finds
-            // a view that an older apply left inside the content view.
+            // Card views sit on the frame, behind the webview parent.
+            // viewWithTag walks descendants and returns one, so loop until
+            // none remain. A card that went away is removed here.
             let host: *mut Object = msg_send![content, superview];
             let root = if host.is_null() { content } else { host };
-            let found: *mut Object = msg_send![root, viewWithTag: NS_VIEW_TAG];
-            if !found.is_null() {
+            loop {
+                let found: *mut Object = msg_send![root, viewWithTag: NS_VIEW_TAG];
+                if found.is_null() {
+                    break;
+                }
                 let _: () = msg_send![found, removeFromSuperview];
             }
         }
     }
 
-    pub fn apply(window: &tauri::WebviewWindow, material: u64, state: u64, radius: f64) -> bool {
+    pub fn frames_for(window: &tauri::WebviewWindow) -> Vec<super::ViewFrame> {
+        let Some(content) = content_view(window) else {
+            return Vec::new();
+        };
+        let dom = super::dom_rects_for(window.label());
+        unsafe {
+            let cf: NSRect = msg_send![content, frame];
+            dom.into_iter()
+                .filter(|d| d.x.is_finite() && d.y.is_finite() && d.w >= 8.0 && d.h >= 8.0)
+                .map(|d| super::dom_to_view_frame(d, cf.origin.x, cf.origin.y, cf.size.height))
+                .filter(|f| f.w.is_finite() && f.h.is_finite() && f.w >= 8.0 && f.h >= 8.0)
+                .collect()
+        }
+    }
+
+    pub fn apply(
+        window: &tauri::WebviewWindow,
+        frames: &[super::ViewFrame],
+        material: u64,
+        state: u64,
+        radius: f64,
+    ) -> bool {
         let version = unsafe { NSAppKitVersionNumber };
         if version < APPKIT_10_10 {
             return false;
@@ -196,50 +272,61 @@ mod imp {
             return false;
         };
         clear(window);
+        if frames.is_empty() {
+            return false;
+        }
         let material = resolve_material(material);
         unsafe {
-            // Phase 0: the effect view was a sibling under the webview parent,
-            // wantsLayer false, and the desktop blur was not perceptible.
-            // Put it on the frame, behind the webview parent, and give it a layer
-            // before the material is set so behind-window sampling has a view
-            // that is already in the window.
+            // One effect view per card rect, on the frame, behind the webview.
+            // The view frame is the blur. It does not use the window bounds.
             let host: *mut Object = msg_send![content, superview];
             let (parent, anchor) = if host.is_null() {
                 (content, std::ptr::null_mut())
             } else {
                 (host, content)
             };
-            let bounds: NSRect = msg_send![parent, bounds];
             let cls = effect_class();
-            let view: *mut Object = msg_send![cls, alloc];
-            if view.is_null() {
-                return false;
-            }
-            (&mut *view).set_ivar("_orbittyTag", NS_VIEW_TAG);
-            let view: *mut Object = msg_send![view, initWithFrame: bounds];
-            if view.is_null() {
-                return false;
-            }
-            let _: () = msg_send![view, setWantsLayer: true];
-            // NSWindowBelow = -1. anchor is the webview parent, so the effect
-            // view is behind it. nil anchor (no frame) keeps it at the back.
-            let _: () = msg_send![
-                parent,
-                addSubview: view
-                positioned: -1isize
-                relativeTo: anchor
-            ];
-            // alloc/init is +1. addSubview retains. Release our claim.
-            let _: () = msg_send![view, release];
-            let _: () = msg_send![view, setMaterial: material as isize];
-            // NSVisualEffectBlendingModeBehindWindow = 0
-            let _: () = msg_send![view, setBlendingMode: 0isize];
-            let _: () = msg_send![view, setState: state as isize];
-            // NSViewWidthSizable (2) | NSViewHeightSizable (16)
-            let _: () = msg_send![view, setAutoresizingMask: 18usize];
-            let responds: bool = msg_send![view, respondsToSelector: sel!(setCornerRadius:)];
-            if responds {
-                let _: () = msg_send![view, setCornerRadius: radius];
+            for frame in frames {
+                let bounds = NSRect {
+                    origin: NSPoint {
+                        x: frame.x,
+                        y: frame.y,
+                    },
+                    size: NSSize {
+                        width: frame.w,
+                        height: frame.h,
+                    },
+                };
+                let view: *mut Object = msg_send![cls, alloc];
+                if view.is_null() {
+                    continue;
+                }
+                (&mut *view).set_ivar("_orbittyTag", NS_VIEW_TAG);
+                let view: *mut Object = msg_send![view, initWithFrame: bounds];
+                if view.is_null() {
+                    continue;
+                }
+                let _: () = msg_send![view, setWantsLayer: true];
+                // NSWindowBelow = -1. anchor is the webview parent, so each
+                // card view is behind it.
+                let _: () = msg_send![
+                    parent,
+                    addSubview: view
+                    positioned: -1isize
+                    relativeTo: anchor
+                ];
+                // alloc/init is +1. addSubview retains. Release our claim.
+                let _: () = msg_send![view, release];
+                let _: () = msg_send![view, setMaterial: material as isize];
+                // NSVisualEffectBlendingModeBehindWindow = 0
+                let _: () = msg_send![view, setBlendingMode: 0isize];
+                let _: () = msg_send![view, setState: state as isize];
+                // Not sizable: a resize sends new rects. Mask 18 would fill the window.
+                let _: () = msg_send![view, setAutoresizingMask: 0usize];
+                let responds: bool = msg_send![view, respondsToSelector: sel!(setCornerRadius:)];
+                if responds {
+                    let _: () = msg_send![view, setCornerRadius: radius];
+                }
             }
         }
         true
@@ -276,5 +363,24 @@ mod tests {
     fn material_for_light_is_under_window_and_dark_is_hud() {
         assert_eq!(material_for(true), 21);
         assert_eq!(material_for(false), 13);
+    }
+
+    #[test]
+    fn dom_to_view_frame_flips_y() {
+        use super::{dom_to_view_frame, DomRect};
+        let dom = DomRect {
+            x: 264.0,
+            y: 24.0,
+            w: 630.0,
+            h: 30.0,
+        };
+        let frame = dom_to_view_frame(dom, 0.0, 0.0, 760.0);
+        assert_eq!(frame.x, 264.0);
+        assert_eq!(frame.y, 706.0);
+        assert_eq!(frame.w, 630.0);
+        assert_eq!(frame.h, 30.0);
+        let shifted = dom_to_view_frame(dom, 10.0, 32.0, 760.0);
+        assert_eq!(shifted.x, 274.0);
+        assert_eq!(shifted.y, 738.0);
     }
 }

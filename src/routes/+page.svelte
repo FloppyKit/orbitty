@@ -12,6 +12,12 @@
   import CheatSheet from "$lib/CheatSheet.svelte";
   import RailPage from "$lib/RailPage.svelte";
   import LinkPreviewPopover from "$lib/LinkPreviewPopover.svelte";
+  import {
+    collectGlassCardRects,
+    GLASS_RECT_MIN_MS,
+    rectSignature,
+    shouldSendGlassRects,
+  } from "$lib/glass/cardFrames";
 
   // The same SPA bundle serves the separate Kanban/Companion/STARS/Sky
   // windows; each mounts only its own page and never runs the rail
@@ -103,6 +109,26 @@
     if (!labelKnown || reportedMount) return;
     reportedMount = true;
     void tick().then(() => invoke("pane_mounted").catch(() => {}));
+  });
+
+  // Card rects for the native blur. Coalesced: unchanged lists are not sent,
+  // and a moving list (scroll or spin) goes out at most every GLASS_RECT_MIN_MS.
+  $effect(() => {
+    if (!labelKnown) return;
+    let prev = "";
+    let last = 0;
+    const flush = () => {
+      const rects = collectGlassCardRects(document, window.innerWidth, window.innerHeight);
+      const sig = rectSignature(rects);
+      const now = performance.now();
+      if (!shouldSendGlassRects(prev, sig, now, last, GLASS_RECT_MIN_MS)) return;
+      prev = sig;
+      last = now;
+      invoke("set_glass_card_rects", { rects }).catch(() => {});
+    };
+    flush();
+    const id = window.setInterval(flush, GLASS_RECT_MIN_MS);
+    return () => window.clearInterval(id);
   });
 
   // Gated FR3 card-rect dump. Silent unless the dev launch set

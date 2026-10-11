@@ -645,6 +645,50 @@ fn sync_glass_vibrancy(handle: &tauri::AppHandle) {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct GlassCardRect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+/// Card rects in CSS pixels for this window. The native side maps them
+/// and puts one effect view on each. Empty clears the window.
+#[tauri::command]
+fn set_glass_card_rects(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    rects: Vec<GlassCardRect>,
+) -> Result<(), String> {
+    let label = window.label().to_string();
+    vibrancy_mac::store_dom_rects(
+        &label,
+        rects
+            .into_iter()
+            .map(|r| vibrancy_mac::DomRect {
+                x: r.x,
+                y: r.y,
+                w: r.w,
+                h: r.h,
+            })
+            .collect(),
+    );
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            if let Some(w) = handle.get_webview_window(&label) {
+                let _ = vibrancy_mac::sync_one(&w);
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+    Ok(())
+}
+
 /// One native vibrancy view on every glass label. `light` selects
 /// UnderWindowBackground; otherwise HudWindow. Clears first so a repeat
 /// does not stack views. No-op off macOS.
@@ -763,6 +807,7 @@ pub fn run() {
             set_peer_chrome,
             event_log::log_event,
             set_vibrancy,
+            set_glass_card_rects,
             open_kanban,
             open_yard_warn_window,
             yard_start,
