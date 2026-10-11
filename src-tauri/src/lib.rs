@@ -627,7 +627,6 @@ fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
                 }
             }
             sync_glass_vibrancy(&handle);
-            glass::fr3_diag_schedule(&handle);
         })
         .map_err(|e| e.to_string())?;
     }
