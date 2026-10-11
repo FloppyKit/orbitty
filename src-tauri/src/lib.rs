@@ -68,6 +68,7 @@ mod windows;
 pub(crate) use windows::claim_front;
 pub(crate) use windows::drawers;
 pub(crate) use windows::glass;
+pub(crate) use windows::vibrancy_mac;
 pub(crate) use windows::panes;
 pub(crate) use windows::tilechords;
 pub(crate) use windows::window_chrome;
@@ -628,7 +629,6 @@ fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
             for label in ["main", "kanban", "companion", "stars", "settings", "sky", "cheatsheet"] {
                 if let Some(w) = handle.get_webview_window(label) {
                     glass::ensure_transparent(&w);
-                    glass_cards_diag(&w, label, "none", false);
                     window_chrome::apply_lights(&w, label, ctx);
                     // Rail only: planet-panel pin so Show Desktop cannot
                     // tuck it. Chrome drawers are normal windows — unpin
@@ -642,6 +642,7 @@ fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
                     }
                 }
             }
+            sync_glass_vibrancy(&handle);
         })
         .map_err(|e| e.to_string())?;
     }
@@ -650,44 +651,38 @@ fn ensure_glass(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Kept only so the frontend can explicitly clear any vibrancy material
-/// (S4.2 retired the Clear theme; the frontend always passes false).
-/// No-op off macOS.
+fn sync_glass_vibrancy(handle: &tauri::AppHandle) {
+    for label in vibrancy_mac::GLASS_LABELS {
+        let Some(window) = handle.get_webview_window(label) else {
+            continue;
+        };
+        let applied = vibrancy_mac::sync_one(&window);
+        let (_enabled, light) = vibrancy_mac::wanted();
+        let material = if applied {
+            vibrancy_mac::material_for_dark(!light).to_string()
+        } else {
+            "none".to_string()
+        };
+        glass_cards_diag(&window, label, &material, applied);
+    }
+}
+
+/// One native vibrancy view on every glass label. `light` selects
+/// UnderWindowBackground; otherwise HudWindow. Clears first so a repeat
+/// does not stack views. No-op off macOS.
 #[tauri::command]
-fn set_vibrancy(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+fn set_vibrancy(app: tauri::AppHandle, enabled: bool, light: Option<bool>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        use window_vibrancy::{
-            apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
-        };
-        // AppKit view surgery must happen on the main thread.
+        vibrancy_mac::set_wanted(enabled, light.unwrap_or(false));
         let handle = app.clone();
         app.run_on_main_thread(move || {
-            let Some(window) = handle.get_webview_window("main") else {
-                return;
-            };
-            // Idempotent: always clear first so repeat applies never stack views.
-            let _ = clear_vibrancy(&window);
-            let mut applied = false;
-            let material = if enabled { "13" } else { "none" };
-            if enabled {
-                if let Err(e) = apply_vibrancy(
-                    &window,
-                    NSVisualEffectMaterial::HudWindow,
-                    Some(NSVisualEffectState::Active),
-                    Some(14.0),
-                ) {
-                    eprintln!("set_vibrancy: apply failed: {e}");
-                } else {
-                    applied = true;
-                }
-            }
-            glass_cards_diag(&window, "main", material, applied);
+            sync_glass_vibrancy(&handle);
         })
         .map_err(|e| e.to_string())?;
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, enabled);
+    let _ = (app, enabled, light);
     Ok(())
 }
 

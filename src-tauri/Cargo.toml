@@ -69,7 +69,6 @@ tungstenite = { version = "0.24", default-features = false, features = ["handsha
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 objc = "0.2"
-window-vibrancy = "0.6"
 
 [profile.release]
 # Unwind, not abort: habitat wraps its AppKit work in catch_unwind so a

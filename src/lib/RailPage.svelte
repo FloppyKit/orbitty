@@ -8,6 +8,7 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
+  import { systemTokens } from "../themes/host";
   import { planetCss } from "./planetColor";
   import { startPaneDrag } from "./dragPane";
   import { MenuRing, type RingStop } from "./menuKeys.svelte";
@@ -1488,8 +1489,8 @@
     if (!themeId) return;
     document.documentElement.dataset.theme = themeId;
     applyHostTokens(themeId);
-    // S4.2: no Clear material — vibrancy stays off for every theme.
-    invoke("set_vibrancy", { enabled: false }).catch(() => {});
+    const light = systemTokens(themeId)?.colorScheme === "light";
+    invoke("set_vibrancy", { enabled: true, light }).catch(() => {});
     // S4.4: re-assert the native transparency surgery (WKWebView
     // drawsBackground can come back up white after load).
     invoke("ensure_glass").catch(() => {});

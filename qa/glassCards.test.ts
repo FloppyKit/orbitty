@@ -65,3 +65,31 @@ test("glass page roots are clear and tiles keep the veil glow", () => {
   assert.ok(src("src/lib/companion/dock.css").includes("--panel-fill"));
   assert.ok(src("src/routes/+page.svelte").includes("--glass-glow:"));
 });
+
+test("glass vibrancy material is HudWindow in dark and UnderWindowBackground in light", () => {
+  const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  assert.match(rust, /MATERIAL_HUD_WINDOW: u64 = 13/);
+  assert.match(rust, /MATERIAL_UNDER_WINDOW_BACKGROUND: u64 = 21/);
+  assert.match(rust, /STATE_ACTIVE: u64 = 1/);
+  assert.match(
+    rust,
+    /if dark \{\s*MATERIAL_HUD_WINDOW\s*\} else \{\s*MATERIAL_UNDER_WINDOW_BACKGROUND\s*\}/,
+  );
+  assert.match(src("src/lib/RailPage.svelte"), /set_vibrancy", \{ enabled: true, light \}/);
+  assert.equal(src("src/lib/RailPage.svelte").includes("enabled: false"), false);
+});
+
+test("glass vendored vibrancy keeps the window-vibrancy notice and drops the crate", () => {
+  const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  assert.match(rust, /SPDX-License-Identifier: Apache-2\.0/);
+  assert.match(rust, /SPDX-License-Identifier: MIT/);
+  assert.match(rust, /Copyright 2019-2022 Tauri Programme within The Commons Conservancy/);
+  assert.match(rust, /window-vibrancy 0\.6/);
+  const notice = src("third_party/window-vibrancy/NOTICE");
+  assert.match(notice, /window-vibrancy 0\.6/);
+  assert.match(notice, /Tauri Programme within The Commons Conservancy/);
+  assert.ok(src("third_party/window-vibrancy/LICENSE-MIT").includes("MIT License"));
+  assert.ok(src("third_party/window-vibrancy/LICENSE-APACHE").includes("Apache License"));
+  assert.equal(src("src-tauri/Cargo.toml").includes("window-vibrancy"), false);
+  assert.equal(src("src-tauri/src/lib.rs").includes("window_vibrancy"), false);
+});

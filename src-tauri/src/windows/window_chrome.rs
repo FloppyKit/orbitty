@@ -473,6 +473,8 @@ pub fn window_appearance(window: tauri::WebviewWindow, scheme: String) -> Result
         tauri::utils::Theme::Dark
     };
     window.set_theme(Some(theme)).map_err(|e| e.to_string())?;
+    super::vibrancy_mac::set_light(scheme == "light");
+    let _ = super::vibrancy_mac::sync_one(&window);
     let label = window.label();
     if label == "kanban" || label == "stars" || label == "companion" {
         crate::glass::show_and_position_lights(&window, TL_X, ROW_CENTRE);
