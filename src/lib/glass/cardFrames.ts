@@ -65,6 +65,26 @@ export function shouldSendGlassRects(
   return true;
 }
 
+/** True when `inner` sits inside `outer`, including an equal rect. */
+export function rectInside(inner: GlassDomRect, outer: GlassDomRect): boolean {
+  const pad = 1;
+  return (
+    inner.x >= outer.x - pad &&
+    inner.y >= outer.y - pad &&
+    inner.x + inner.w <= outer.x + outer.w + pad &&
+    inner.y + inner.h <= outer.y + outer.h + pad
+  );
+}
+
+/** Keep one frost. A rect inside another is dropped. A later outer rect replaces inners. */
+export function absorbGlassRect(out: GlassDomRect[], next: GlassDomRect): void {
+  if (out.some((have) => rectInside(next, have))) return;
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (rectInside(out[i], next)) out.splice(i, 1);
+  }
+  out.push(next);
+}
+
 export function collectGlassCardRects(doc: Document, vw: number, vh: number): GlassDomRect[] {
   const out: GlassDomRect[] = [];
   for (const sel of GLASS_CARD_SELECTORS) {
@@ -72,7 +92,7 @@ export function collectGlassCardRects(doc: Document, vw: number, vh: number): Gl
       if (out.length >= GLASS_CARD_CAP) return out;
       const b = el.getBoundingClientRect();
       const clipped = clipDomRect(b.x, b.y, b.width, b.height, vw, vh);
-      if (clipped) out.push(clipped);
+      if (clipped) absorbGlassRect(out, clipped);
     }
   }
   return out;

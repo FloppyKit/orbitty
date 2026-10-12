@@ -349,7 +349,8 @@ mod imp {
                 if view.is_null() {
                     continue;
                 }
-                let _: () = msg_send![view, setWantsLayer: true];
+                // No plain layer: it replaces the backdrop sample and the
+                // view draws a flat HudWindow tint.
                 // NSWindowBelow = -1. anchor is the webview parent, so each
                 // card view is behind it.
                 let _: () = msg_send![

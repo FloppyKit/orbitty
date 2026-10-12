@@ -214,7 +214,7 @@ test("glass blur view sits in the frame behind the webview", () => {
   assert.match(clearFn, /let root = if host\.is_null\(\) \{ content \} else \{ host \};/);
   assert.match(apply, /msg_send!\[content, superview\]/);
   assert.match(apply, /\(host, content\)/);
-  assert.match(apply, /setWantsLayer: true/);
+  assert.equal(apply.includes("setWantsLayer"), false);
   assert.match(apply, /addSubview: view\s*positioned: -1isize\s*relativeTo: anchor/);
 });
 
