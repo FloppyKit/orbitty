@@ -670,9 +670,6 @@ fn set_glass_card_rects(
             h: r.h,
         })
         .collect();
-    // GLASS_FR4_DIAG arrival log. Silent unless that env is 1.
-    #[cfg(target_os = "macos")]
-    vibrancy_mac::glass_fr4_diag::on_rects(&label, &dom_rects);
     vibrancy_mac::store_dom_rects(&label, dom_rects);
     #[cfg(target_os = "macos")]
     {

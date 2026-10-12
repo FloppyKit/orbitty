@@ -14,7 +14,6 @@
   import LinkPreviewPopover from "$lib/LinkPreviewPopover.svelte";
   import {
     collectGlassCardRects,
-    GLASS_CARD_SELECTORS,
     GLASS_RECT_MIN_MS,
     nextWatchDelay,
     rectSignature,
@@ -111,116 +110,6 @@
     if (!labelKnown || reportedMount) return;
     reportedMount = true;
     void tick().then(() => invoke("pane_mounted").catch(() => {}));
-  });
-
-  // Gated FR4 dump. Silent unless the dev launch set VITE_GLASS_FR4_DIAG=1.
-  // Selector counts, computed card backgrounds, and opaque ancestors.
-  // No titles, paths, or document text.
-  $effect(() => {
-    if (import.meta.env.VITE_GLASS_FR4_DIAG !== "1") return;
-    if (!labelKnown || !windowLabel) return;
-    const label = windowLabel;
-    const safeBg = (bg: string) => {
-      if (!bg) return "missing";
-      if (bg.includes("url(") || bg.includes("http") || bg.includes("Users")) return "skipped";
-      return bg.slice(0, 80);
-    };
-    const alphaOf = (bg: string): number | null => {
-      if (!bg || bg === "missing" || bg === "skipped") return null;
-      if (bg === "transparent") return 0;
-      const slash = bg.match(/\/\s*([0-9.]+)\s*\)\s*$/);
-      if (slash) return Number(slash[1]);
-      if (bg.startsWith("rgba")) {
-        const m = bg.match(
-          /rgba\(\s*[0-9.]+\s*,\s*[0-9.]+\s*,\s*[0-9.]+\s*,\s*([0-9.]+)\s*\)/,
-        );
-        if (m) return Number(m[1]);
-      }
-      if (bg.startsWith("rgb(")) return 1;
-      return null;
-    };
-    const classToken = (el: Element) => {
-      const raw = (el as HTMLElement).className;
-      const text = typeof raw === "string" ? raw : "";
-      return text
-        .replace(/[^A-Za-z0-9_-]+/g, ".")
-        .replace(/^\.+|\.+$/g, "")
-        .slice(0, 40);
-    };
-    const ancestorsOf = (el: Element) => {
-      const bits: string[] = [];
-      let p = el.parentElement;
-      while (p && p !== document.documentElement && bits.length < 6) {
-        const bg = safeBg(getComputedStyle(p).backgroundColor);
-        const a = alphaOf(bg);
-        const img = getComputedStyle(p).backgroundImage;
-        const imgOn = !!img && img !== "none";
-        if ((a != null && a > 0.02) || imgOn) {
-          const tag = p.tagName.toLowerCase().replace(/[^a-z0-9]/g, "") || "el";
-          const cls = classToken(p);
-          const aText = a == null ? "na" : a.toFixed(3);
-          bits.push(`${tag}${cls ? "." + cls : ""} a=${aText} bg=${bg} img=${imgOn ? 1 : 0}`);
-        }
-        p = p.parentElement;
-      }
-      return bits.length ? bits.join(";") : "none";
-    };
-    const collect = () => {
-      const html = document.documentElement;
-      const htmlBg = safeBg(getComputedStyle(html).backgroundColor);
-      const bodyBg = safeBg(getComputedStyle(document.body).backgroundColor);
-      const htmlA = alphaOf(htmlBg);
-      const bodyA = alphaOf(bodyBg);
-      const theme = (html.getAttribute("data-theme") || "")
-        .replace(/[^A-Za-z0-9_-]/g, "")
-        .slice(0, 32);
-      const panelFill = safeBg(getComputedStyle(html).getPropertyValue("--panel-fill").trim());
-      const rects = collectGlassCardRects(document, window.innerWidth, window.innerHeight);
-      const sample = rects[0]
-        ? `${rects[0].x.toFixed(1)},${rects[0].y.toFixed(1)},${rects[0].w.toFixed(1)}x${rects[0].h.toFixed(1)}`
-        : "none";
-      const rt = html.classList.contains("glass-rt");
-      const lines = [
-        `GLASS_FR4_DIAG css label=${label} rt=${rt} mediaReduce=${window.matchMedia("(prefers-reduced-transparency: reduce)").matches} solidClass=${html.classList.contains("glass-solid")} theme=${theme} collected=${rects.length} sample=${sample} vw=${Math.round(window.innerWidth)} vh=${Math.round(window.innerHeight)} html=${htmlBg} htmlA=${htmlA == null ? "na" : htmlA.toFixed(3)} body=${bodyBg} bodyA=${bodyA == null ? "na" : bodyA.toFixed(3)} panelFill=${panelFill || "missing"}`,
-      ];
-      for (const sel of GLASS_CARD_SELECTORS) {
-        const nodes = Array.from(document.querySelectorAll(sel)).slice(0, 48);
-        let firstBg = "missing";
-        let firstA: number | null = null;
-        let maxA = 0;
-        let solidN = 0;
-        let ancestors = "none";
-        nodes.forEach((el, i) => {
-          const bg = safeBg(getComputedStyle(el).backgroundColor);
-          const a = alphaOf(bg);
-          if (i === 0) {
-            firstBg = bg;
-            firstA = a;
-            ancestors = ancestorsOf(el);
-          }
-          if (a != null && a > maxA) maxA = a;
-          if (a != null && a >= 0.85) solidN += 1;
-        });
-        const alpha = nodes.length === 0 || firstA == null ? "na" : firstA.toFixed(3);
-        const maxAlpha = nodes.length === 0 ? "na" : maxA.toFixed(3);
-        lines.push(
-          `GLASS_FR4_DIAG css-card label=${label} rt=${rt} sel=${sel} n=${document.querySelectorAll(sel).length} bg=${firstBg} alpha=${alpha} maxAlpha=${maxAlpha} solidN=${solidN} ancestors=${ancestors}`,
-        );
-      }
-      return { lines };
-    };
-    (window as unknown as { __glassFr4Collect?: () => { lines: string[] } }).__glassFr4Collect =
-      collect;
-    const timers = [2000, 8000].map((ms) =>
-      window.setTimeout(() => {
-        for (const line of collect().lines) console.log(line);
-      }, ms),
-    );
-    return () => {
-      for (const t of timers) window.clearTimeout(t);
-      delete (window as unknown as { __glassFr4Collect?: () => { lines: string[] } })
-        .__glassFr4Collect;
-    };
   });
 
   // Card rects for the native blur. Coalesced: unchanged lists are not sent,

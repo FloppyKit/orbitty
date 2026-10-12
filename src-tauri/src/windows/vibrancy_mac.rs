@@ -126,18 +126,11 @@ pub fn wanted() -> (bool, bool) {
     }
 }
 
-#[cfg(target_os = "macos")]
-#[path = "glass_fr4_diag.rs"]
-pub(crate) mod glass_fr4_diag;
-
 /// Clear, then apply one effect view per stored card rect. Main thread.
 /// An empty list leaves the window clear.
 pub fn sync_one(window: &tauri::WebviewWindow) -> bool {
     let (enabled, light) = wanted();
-    let applied = sync_one_os(window, enabled, light);
-    #[cfg(target_os = "macos")]
-    glass_fr4_diag::after_sync(window);
-    applied
+    sync_one_os(window, enabled, light)
 }
 
 #[cfg(target_os = "macos")]
@@ -149,20 +142,11 @@ fn sync_one_os(window: &tauri::WebviewWindow, enabled: bool, light: bool) -> boo
     let _ = window.eval(format!(
         "document.documentElement.classList.toggle('glass-rt',{flag})"
     ));
-    glass_fr4_diag::note(window.label(), enabled, light, reduce, false, 0);
     if !enabled || reduce {
         imp::clear(window);
         return false;
     }
     let frames = imp::frames_for(window);
-    glass_fr4_diag::note(
-        window.label(),
-        enabled,
-        light,
-        reduce,
-        true,
-        frames.len(),
-    );
     imp::apply(
         window,
         &frames,
