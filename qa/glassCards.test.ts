@@ -15,6 +15,7 @@ import {
   GLASS_MOTION_FRAMES,
   GLASS_RECT_IDLE_MS,
   GLASS_RECT_MIN_MS,
+  absorbGlassRect,
   clipDomRect,
   nextWatchDelay,
   rectSignature,
@@ -298,12 +299,17 @@ test("glass card rect ipc coalesces and clips", () => {
 test("glass card views are removed in a loop and sized to the rect", () => {
   const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
   const clearFn = rust.slice(rust.indexOf("pub fn clear("), rust.indexOf("pub fn frames_for("));
-  assert.match(clearFn, /loop \{[\s\S]*viewWithTag: NS_VIEW_TAG/);
+  assert.match(
+    clearFn,
+    /loop \{\s*let found: \*mut Object = msg_send!\[root, viewWithTag: NS_VIEW_TAG\];\s*if found\.is_null\(\) \{\s*break;\s*\}\s*let _: \(\) = msg_send!\[found, removeFromSuperview\];\s*\}/,
+  );
   const apply = rust.slice(rust.indexOf("pub fn apply("), rust.indexOf("fn content_view("));
   assert.match(apply, /setAutoresizingMask: 0usize/);
   assert.equal(apply.includes("msg_send![parent, bounds]"), false);
   assert.equal(apply.split("msg_send![view, release]").length - 1, 1);
   assert.match(apply, /clear\(window\);/);
+  assert.equal(apply.includes("retain]"), false);
+  assert.equal(apply.includes("autorelease]"), false);
 });
 
 test("glass dom rect maps to a flipped view frame", () => {
@@ -326,7 +332,47 @@ test("glass reduce transparency tint is translucent and dark", () => {
   const page = src("src/routes/+page.svelte");
   assert.match(page, /html\.glass-rt[\s\S]*?background:\s*var\(--panel-fill/);
   const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
+  const osStart = rust.indexOf("fn sync_one_os");
+  const os = rust.slice(osStart, rust.indexOf("fn sync_one_os", osStart + 1));
+  assert.match(os, /let flag = if reduce \{ "true" \} else \{ "false" \};/);
+  assert.match(os, /classList\.toggle\('glass-rt',\{flag\}\)/);
+  assert.match(os, /if !enabled \|\| reduce \{\s*imp::clear\(window\);\s*return false;/);
   assert.match(rust, /msg_send!\[ws, accessibilityDisplayShouldReduceTransparency\]/);
   assert.match(rust, /sel!\(accessibilityDisplayShouldReduceTransparency\)/);
   assert.match(src("src/lib/board/board.css"), /\.b-card \{[^}]*background:\s*var\(--panel-fill/);
+});
+
+test("glass nested card rects do not stack a second frost", () => {
+  const outer = { x: 12, y: 48, w: 168, h: 640 };
+  const inner = { x: 16, y: 52, w: 159, h: 28 };
+  const covered = [outer];
+  absorbGlassRect(covered, inner);
+  assert.equal(covered.length, 1);
+  assert.deepEqual(covered[0], outer);
+  const replaced: typeof covered = [];
+  absorbGlassRect(replaced, inner);
+  absorbGlassRect(replaced, outer);
+  assert.equal(replaced.length, 1);
+  assert.deepEqual(replaced[0], outer);
+  const rows: typeof covered = [];
+  absorbGlassRect(rows, { x: 264, y: 24, w: 628, h: 30 });
+  absorbGlassRect(rows, { x: 264, y: 56, w: 628, h: 30 });
+  assert.equal(rows.length, 2);
+});
+
+test("glass card tint stays in range and the dark edge is quiet", () => {
+  assert.ok(GLASS_CARD_TINT_ALPHA >= 0.35 && GLASS_CARD_TINT_ALPHA <= 0.55);
+  assert.equal(isLightSlab(44, 44, 46, GLASS_CARD_TINT_ALPHA), false);
+  assert.equal(isLightSlab(18, 32, 26, GLASS_CARD_TINT_ALPHA), false);
+  assert.equal(isLightSlab(0, 0, 0, 0.4), false);
+  const page = src("src/routes/+page.svelte");
+  assert.match(page, /--glass-card-tint:\s*0\.45/);
+  assert.match(page, /--glass-edge:\s*rgba\(0,\s*0,\s*0,\s*0\.40\)/);
+  assert.match(page, /color-mix\(in srgb, var\(--panel\) 45%, transparent\)/);
+  assert.equal(page.includes("--glass-glow"), false);
+  const panel = src("src/lib/SettingsAppearance.svelte").match(/\.panel \{[^}]*\}/);
+  assert.ok(panel);
+  assert.match(panel[0], /rgba\(0,\s*0,\s*0,\s*0\.40\)/);
+  assert.equal(panel[0].includes("#fff"), false);
+  assert.equal(panel[0].includes("255, 255, 255"), false);
 });
