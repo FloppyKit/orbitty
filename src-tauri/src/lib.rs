@@ -661,18 +661,19 @@ fn set_glass_card_rects(
     rects: Vec<GlassCardRect>,
 ) -> Result<(), String> {
     let label = window.label().to_string();
-    vibrancy_mac::store_dom_rects(
-        &label,
-        rects
-            .into_iter()
-            .map(|r| vibrancy_mac::DomRect {
-                x: r.x,
-                y: r.y,
-                w: r.w,
-                h: r.h,
-            })
-            .collect(),
-    );
+    let dom_rects: Vec<vibrancy_mac::DomRect> = rects
+        .into_iter()
+        .map(|r| vibrancy_mac::DomRect {
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
+        })
+        .collect();
+    // GLASS_FR4_DIAG arrival log. Silent unless that env is 1.
+    #[cfg(target_os = "macos")]
+    vibrancy_mac::glass_fr4_diag::on_rects(&label, &dom_rects);
+    vibrancy_mac::store_dom_rects(&label, dom_rects);
     #[cfg(target_os = "macos")]
     {
         let handle = app.clone();
