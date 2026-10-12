@@ -361,7 +361,7 @@
 <style>
 .panel {
     background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--glass-glow, color-mix(in srgb, var(--accent) 45%, transparent));
+    border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     border-radius: 12px;
     padding: 10px 12px 12px;
   }

@@ -295,7 +295,11 @@
      JS-computed --bg-fill/--panel-fill alpha vars. */
   :global(:root) {
     --glass-veil: 0.72;
-    --glass-glow: color-mix(in srgb, var(--accent) 45%, transparent);
+    --glass-card-tint: 0.45;
+    --glass-edge: rgba(0, 0, 0, 0.40);
+  }
+  :global(:root[data-theme="systemLight"]) {
+    --glass-edge: rgba(0, 0, 0, 0.16);
   }
   :global(html),
   :global(body) {
@@ -325,6 +329,27 @@
   :global(html.glass-rt .l2-needed-card),
   :global(html.glass-rt .l2-preview) {
     background: var(--panel-fill, rgba(44, 44, 46, 0.72));
+  }
+
+  /* Non-RT tint over the per-card blur. 45% of the theme panel:
+     systemDark #2C2C2E, terminal #12201a, systemLight #FFFFFF.
+     Terminal tracker cards stay transparent (their own rule wins).
+     The stage unmapped well is clear so the row gaps are not a slab. */
+  :global(html:not(.glass-rt) .row:not(:hover):not(.front):not(.on)),
+  :global(html:not(.glass-rt) .b-card),
+  :global(html:not(.glass-rt) .planet-col),
+  :global(html:not(.glass-rt) .card),
+  :global(html:not(.glass-rt) .ghostdock),
+  :global(html:not(.glass-rt) .panel) {
+    background: color-mix(in srgb, var(--panel) 45%, transparent);
+  }
+  :global(html:not(.glass-rt) .row:not(:hover):not(.front):not(.on)) {
+    outline: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
+    outline-offset: -1px;
+  }
+  :global(html:not(.glass-rt) .rail.stage-shell .layer2-unmapped) {
+    background: transparent;
+    box-shadow: none;
   }
 
   :global(body) {

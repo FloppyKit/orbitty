@@ -153,7 +153,7 @@
     padding: 10px;
     border-radius: 12px;
     background: var(--panel-fill);
-    border: 1px solid var(--glass-glow, color-mix(in srgb, var(--accent) 45%, transparent));
+    border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     color: var(--ink);
   }
 

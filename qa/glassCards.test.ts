@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { nudgePick } from "../src/lib/rail/nudgeTrigger.ts";
 import {
+  GLASS_CARD_TINT_ALPHA,
   GLASS_VEIL_ALPHA,
   isLightSlab,
   tileFillAlpha,
@@ -62,6 +63,9 @@ test("glass dark surfaces are not light slabs", () => {
 
 test("glass veil alpha is 0.72 and the slider scales it", () => {
   assert.equal(GLASS_VEIL_ALPHA, 0.72);
+  assert.equal(GLASS_CARD_TINT_ALPHA, 0.45);
+  assert.ok(GLASS_CARD_TINT_ALPHA >= 0.35 && GLASS_CARD_TINT_ALPHA <= 0.55);
+  assert.ok(GLASS_CARD_TINT_ALPHA < GLASS_VEIL_ALPHA);
   assert.equal(veilAlpha(1), 0.72);
   assert.equal(veilAlpha(0.5), 0.36);
   const apply = src("src/themes/apply.ts");
@@ -76,10 +80,13 @@ test("glass page roots are clear and tiles keep the veil glow", () => {
   assert.match(src("src/lib/StarsPage.svelte"), /\.stars \{[\s\S]*?background:\s*transparent/);
   assert.match(src("src/lib/companion/page.css"), /\.companion \{[\s\S]*?background:\s*transparent/);
   assert.match(src("src/lib/SettingsPage.svelte"), /\.settings \{[\s\S]*?background:\s*transparent/);
-  const glow = "color-mix(in srgb, var(--accent) 45%, transparent)";
-  assert.ok(src("src/lib/board/board.css").includes(glow));
+  assert.equal(
+    src("src/lib/board/board.css").includes("color-mix(in srgb, var(--accent) 45%, transparent)"),
+    false,
+  );
   assert.ok(src("src/lib/companion/dock.css").includes("--panel-fill"));
-  assert.ok(src("src/routes/+page.svelte").includes("--glass-glow:"));
+  assert.match(src("src/routes/+page.svelte"), /--glass-card-tint:\s*0\.45/);
+  assert.match(src("src/routes/+page.svelte"), /--glass-edge:\s*rgba\(0,\s*0,\s*0,\s*0\.40\)/);
 });
 
 test("glass vibrancy material is HudWindow in dark and UnderWindowBackground in light", () => {
@@ -246,12 +253,13 @@ test("glass reduced transparency listens and paints solid roots", () => {
 test("glass tile glow stays on settings, trackers, sky, and the dock", () => {
   const panel = src("src/lib/SettingsAppearance.svelte").match(/\.panel \{[^}]*\}/);
   assert.ok(panel);
-  assert.match(panel[0], /--glass-glow/);
-  assert.equal(panel[0].includes("--edge"), false);
+  assert.match(panel[0], /--glass-edge/);
+  assert.equal(panel[0].includes("var(--edge)"), false);
   const card = src("src/lib/stars/TrackerCard.svelte").match(/\.card \{[^}]*\}/);
   assert.ok(card);
-  assert.match(card[0], /--glass-glow/);
-  assert.equal(card[0].includes("--edge"), false);
+  assert.match(card[0], /--glass-edge/);
+  assert.equal(card[0].includes("var(--edge)"), false);
+  assert.equal(card[0].includes("--glass-glow"), false);
   assert.match(src("src/lib/SkyPage.svelte"), /\.sky \{[^}]*background:\s*transparent/);
   assert.match(
     src("src/lib/StarsPage.svelte"),
