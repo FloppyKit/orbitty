@@ -783,3 +783,81 @@ include_str!("merge.rs")
         assert!(!out.contains("history"), "{out}");
         assert!(!out.contains("runningSince"), "{out}");
     }
+
+    /// Synthetic board shaped like a heavy desk: 626 cards, about 650 KB
+    /// on disk. Never built from a real state.json.
+    pub(crate) fn fixture_626() -> PersistedState {
+        let mut st = PersistedState::default();
+        for p in 0..12 {
+            st.projects.push(Project {
+                id: format!("p-{p}"),
+                name: format!("Planet {p}"),
+                trackers: None,
+                workspace_root: None,
+            });
+        }
+        let note = "Synthetic note line for the timing fixture. ".repeat(9);
+        for i in 0..626 {
+            let mut c = touch_card(&format!("c-{i:04}"), i as f64, Some(&note), None);
+            c.title = format!("Synthetic card number {i} with a realistic title");
+            c.project_id = format!("p-{}", i % 12);
+            c.status = ["todo", "doing", "done"][i % 3].into();
+            c.tag_ids = Some(vec!["t-1".into(), "t-2".into()]);
+            c.subtasks = Some(vec![Subtask {
+                id: format!("s-{i}"),
+                title: "Synthetic subtask".into(),
+                done: i % 2 == 0,
+            }]);
+            st.kanban_cards.push(c);
+        }
+        for i in 0..900 {
+            st.points_ledger.push(PointsEntry {
+                id: format!("pt-{i}"),
+                card_id: format!("c-{:04}", i % 626),
+                amount: 1,
+                day: "2026-10-01".into(),
+                at: i as f64,
+                actor: None,
+            });
+        }
+        st
+    }
+
+    fn median_p95(mut ms: Vec<f64>) -> (f64, f64) {
+        ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let p95 = ms[((ms.len() as f64) * 0.95).ceil() as usize - 1];
+        (ms[ms.len() / 2], p95)
+    }
+
+    /// Phase-0 / after timing of the save door on the synthetic fixture.
+    /// `cargo test --lib update_timing_626 -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn update_timing_626_cards() {
+        let path = temp_state();
+        save_path(&path, &fixture_626()).unwrap();
+        let bytes = std::fs::metadata(&path).unwrap().len();
+        let runs = 60;
+        let mut noop = Vec::new();
+        for _ in 0..runs {
+            let t = std::time::Instant::now();
+            update_file(&path, |_| Ok(())).unwrap();
+            noop.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        let mut title = Vec::new();
+        for i in 0..runs {
+            let t = std::time::Instant::now();
+            update_file(&path, |st| {
+                st.kanban_cards[7].title = format!("Renamed {i}");
+                Ok(())
+            })
+            .unwrap();
+            title.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        let (nm, np) = median_p95(noop);
+        let (tm, tp) = median_p95(title);
+        println!("fixture bytes={bytes} cards=626 runs={runs}");
+        println!("noop  median={nm:.2}ms p95={np:.2}ms");
+        println!("title median={tm:.2}ms p95={tp:.2}ms");
+        let _ = std::fs::remove_file(&path);
+    }
