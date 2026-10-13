@@ -165,7 +165,7 @@ fi
 # END mouth-sidecar-config
 
 warn_stale_path_ctl "$DEST/Contents/MacOS/orbittyctl"
-echo "a PATH orbittyctl without --sock drives Stable, not Nightly"
+echo "Stable and Nightly share one socket: orbittyctl drives whichever Orbitty is open (only one runs at a time)"
 
 echo ""
 echo "Done. Dogfood THIS app only:"
