@@ -104,7 +104,7 @@ pub(super) fn big_fixture(tag: &str, cards: usize, planets: usize, history: usiz
     let events = dir.join("events.jsonl");
     let mut st = big_state(cards, planets);
     save_path(&state, &st).unwrap();
-    write_checkpoint_in(&dir, &events, &st, "app", &unsigned).unwrap();
+    write_checkpoint_in(&dir, &events, &st, "app", None, &unsigned).unwrap();
     let noise = json!({
         "id": "noise", "pubkey": "", "created_at": 1, "kind": 31200,
         "tags": [["t", "orbitty"], ["e-type", "board-move"]],
@@ -224,7 +224,7 @@ impl Run {
 
     pub fn checkpoint(&self) -> CheckpointAck {
         let st = load_path(&self.state).unwrap();
-        write_checkpoint_in(&self.dir, &self.events, &st, "app", &unsigned).unwrap()
+        write_checkpoint_in(&self.dir, &self.events, &st, "app", None, &unsigned).unwrap()
     }
 
     pub fn st(&self) -> PersistedState {
@@ -491,4 +491,323 @@ fn read_since_checkpoint_is_the_tail_of_read_lines() {
     assert_eq!(read_since_checkpoint(&run.events).unwrap(), all[from..].to_vec());
     let missing = run.dir.join("nope.jsonl");
     assert!(read_since_checkpoint(&missing).unwrap().is_empty());
+}
+
+fn apply_run(run: &Run, req: &Req) -> Result<Plan, String> {
+    let _g = write_lock();
+    crate::state::with_actor(req.actor(), || {
+        update_at_logged(&run.state, &run.events, |st| {
+            apply_in(st, &run.dir, &run.events, req, &unsigned, crate::state::wall_now_secs())
+        })
+    })
+}
+
+fn rewind_to(to: &str, card: Option<&str>, remove_added: bool) -> Req {
+    Req::Rewind {
+        to: to.into(),
+        card: card.map(str::to_string),
+        remove_added,
+    }
+}
+
+fn view_bytes(b: &Board) -> String {
+    let side = |m: &std::collections::BTreeMap<String, View>| -> serde_json::Value {
+        m.iter()
+            .map(|(k, v)| (k.clone(), serde_json::Value::Object(v.clone())))
+            .collect::<serde_json::Map<_, _>>()
+            .into()
+    };
+    serde_json::to_string(&json!({ "cards": side(&b.cards), "projects": side(&b.projects) })).unwrap()
+}
+
+fn line_of<'a>(lines: &'a [HistoryLine], d: &str, field: &str) -> &'a HistoryLine {
+    lines
+        .iter()
+        .rev()
+        .find(|l| l.d == d && l.content.pointer(&format!("/fields/{field}")).is_some())
+        .unwrap()
+}
+
+#[test]
+fn restore_one_card_changes_only_that_card_in_one_logged_save() {
+    let run = Run::new("one", &start_state());
+    run.checkpoint();
+    run.step(|st| card_mut(st, "c-a").title = "First rename".into());
+    let first = run.lines().last().unwrap().id.clone();
+    run.step(|st| card_mut(st, "c-a").title = "Second rename".into());
+    run.step(|st| card_mut(st, "c-b").title = "Beta moved on".into());
+    let before = run.board();
+    let n = run.lines().len();
+
+    let dry = {
+        let st = run.st();
+        resolve(&st, &run.dir, &run.lines(), &rewind_to(&first, Some("c-a"), false))
+            .unwrap()
+            .plan
+    };
+    assert_eq!(dry.cards.len(), 1);
+    assert_eq!(
+        dry.cards[0].fields,
+        vec![FieldChange {
+            field: "title".into(),
+            from: json!("Second rename"),
+            to: json!("First rename"),
+        }]
+    );
+    assert_eq!(run.lines().len(), n, "a plan writes nothing");
+
+    let plan = apply_run(&run, &rewind_to(&first, Some("c-a"), false)).unwrap();
+    assert_eq!(plan, dry);
+    let after = run.board();
+    assert_eq!(after.cards["c-a"]["title"], "First rename");
+    let mut want = before.clone();
+    want.cards.get_mut("c-a").unwrap().insert("title".into(), json!("First rename"));
+    assert_eq!(after, want, "no other card or field changes");
+
+    let lines = run.lines();
+    let new = &lines[n..];
+    assert_eq!(new.len(), 2, "{new:#?}");
+    assert_eq!(new[0].kind, KIND_CHECKPOINT, "the checkpoint comes first");
+    assert_eq!(new[0].content["reason"], "pre-rewind");
+    assert_eq!(new[0].actor, "rewind");
+    assert_eq!(new[1].kind, KIND_CARD);
+    assert_eq!(new[1].actor, "rewind");
+    assert_eq!(new[1].content["fields"], json!({ "title": "First rename" }));
+    let cp = history::load_checkpoint(&run.dir, new[0].content["file"].as_str().unwrap()).unwrap();
+    assert_eq!(history::board_of(&cp.cards, &[]).cards, before.cards);
+
+    let again = apply_run(&run, &rewind_to(&first, Some("c-a"), false)).unwrap();
+    assert!(again.is_empty());
+    assert_eq!(run.lines().len(), lines.len(), "an empty plan writes no checkpoint");
+}
+
+#[test]
+fn bring_back_a_deleted_card_whole() {
+    let mut start = start_state();
+    {
+        let a = start.kanban_cards.iter_mut().find(|c| c.id == "c-a").unwrap();
+        a.tag_ids = Some(vec!["t-1".into(), "t-2".into()]);
+        a.created_at = 42.0;
+        a.points_awarded = 1;
+    }
+    let run = Run::new("back", &start);
+    run.checkpoint();
+    run.step(|st| {
+        let a = card_mut(st, "c-a");
+        a.notes = Some("last notes".into());
+        a.window_id = Some("w-old".into());
+        a.task_id = Some("task-old".into());
+        a.last_touched_at = 500.0;
+    });
+    run.step(|st| {
+        st.kanban_cards.retain(|c| c.id != "c-a");
+        crate::state::upsert_tombstone(&mut st.card_tombstones, "c-a", 600.0);
+    });
+    let tomb = run.lines().last().unwrap().clone();
+    assert_eq!(tomb.kind, KIND_TOMBSTONE);
+    let plan = apply_run(&run, &rewind_to(&tomb.id, Some("c-a"), false)).unwrap();
+    assert_eq!(
+        plan.revive,
+        vec![Named {
+            id: "c-a".into(),
+            title: "Alpha".into()
+        }]
+    );
+    let st = run.st();
+    let a = st.kanban_cards.iter().find(|c| c.id == "c-a").unwrap();
+    assert_eq!(a.notes.as_deref(), Some("last notes"));
+    assert_eq!(a.tag_ids, Some(vec!["t-1".into(), "t-2".into()]));
+    assert_eq!(a.links.as_ref().unwrap()[0].url, "https://example.com/a");
+    assert_eq!((a.created_at, a.points_awarded), (42.0, 1));
+    assert_eq!((a.window_id.as_deref(), a.task_id.as_deref()), (None, None));
+    assert!(a.last_touched_at > 600.0);
+    assert!(st.card_tombstones.iter().all(|t| t.id != "c-a"));
+    let add = run.lines().last().unwrap().clone();
+    assert_eq!((add.kind, add.actor.as_str()), (KIND_CARD, "rewind"));
+    assert_eq!(add.content["op"], "add");
+}
+
+fn rewind_script(run: &Run) -> String {
+    run.checkpoint();
+    run.step(|st| st.projects.push(planet("p-9", "Pluto")));
+    let point = run.lines().last().unwrap().id.clone();
+    run.step(|st| card_mut(st, "c-a").title = "Alpha later".into());
+    run.step(|st| card_mut(st, "c-b").notes = Some("beta later".into()));
+    run.step(|st| card_mut(st, "c-a").links = None);
+    run.step(|st| st.kanban_cards.retain(|c| c.id != "c-b"));
+    run.step(|st| st.kanban_cards.push(card("c-new", "New since", "p-1")));
+    run.step(|st| st.projects[1].name = "Red".into());
+    run.step(|st| st.projects.retain(|p| p.id != "p-9"));
+    run.step(|st| st.projects.push(planet("p-moon", "Moon")));
+    point
+}
+
+#[test]
+fn rewind_the_board_keeps_added_cards_unless_asked() {
+    let run = Run::new("board", &start_state());
+    let point = rewind_script(&run);
+    let lines = run.lines();
+    let cps = run.checkpoints();
+    let then = board_at(&cps, &lines, &point).unwrap();
+
+    let plan = apply_run(&run, &rewind_to(&point, None, false)).unwrap();
+    assert_eq!(plan.cards.len(), 1, "{plan:#?}");
+    assert_eq!(plan.revive.len(), 1);
+    assert_eq!(plan.added, vec![Named { id: "c-new".into(), title: "New since".into() }]);
+    assert_eq!(plan.planets.len(), 1);
+    assert_eq!(plan.planets_revive.len(), 1);
+    assert_eq!(plan.planets_added.len(), 1);
+    let after = run.board();
+    let mut want = then.clone();
+    want.cards.insert("c-new".into(), after.cards["c-new"].clone());
+    want.projects.insert("p-moon".into(), after.projects["p-moon"].clone());
+    assert_eq!(after, want, "back to the point, plus what was added since");
+
+    let lines = run.lines();
+    let point2 = lines[lines.len() - 1].id.clone();
+    run.step(|st| st.kanban_cards.push(card("c-newer", "Newer", "p-1")));
+    let plan = apply_run(&run, &rewind_to(&point2, None, true)).unwrap();
+    assert_eq!(plan.added, vec![Named { id: "c-newer".into(), title: "Newer".into() }]);
+    let st = run.st();
+    assert!(st.kanban_cards.iter().all(|c| c.id != "c-newer"));
+    assert!(st.card_tombstones.iter().any(|t| t.id == "c-newer"));
+    assert!(st.projects.iter().any(|p| p.id == "p-moon"), "planets added since stay");
+}
+
+#[test]
+fn rewind_then_undo_is_byte_equal() {
+    let run = Run::new("undo", &start_state());
+    let point = rewind_script(&run);
+    run.step(|st| st.kanban_cards.push(card("c-x", "Added before rewind", "p-1")));
+    let before = view_bytes(&run.board());
+    let plan = apply_run(&run, &rewind_to(&point, None, true)).unwrap();
+    assert!(!plan.is_empty());
+    assert!(plan.added.iter().any(|n| n.id == "c-x"));
+    assert_ne!(view_bytes(&run.board()), before);
+
+    run.step(|st| st.kanban_cards.push(card("c-later", "Made after the rewind", "p-1")));
+    run.step(|st| card_mut(st, "c-later").notes = Some("kept".into()));
+    let undo_plan = {
+        let st = run.st();
+        resolve(&st, &run.dir, &run.lines(), &Req::Undo).unwrap().plan
+    };
+    assert!(undo_plan.added.iter().all(|n| n.id != "c-later"), "{undo_plan:#?}");
+    apply_run(&run, &Req::Undo).unwrap();
+    let mut now = run.board();
+    let later = now.cards.remove("c-later").expect("an edit made after the rewind survives undo");
+    assert_eq!(later["notes"], "kept");
+    assert_eq!(view_bytes(&now), before);
+
+    apply_run(&run, &Req::Undo).unwrap();
+    let mut redo = run.board();
+    redo.cards.remove("c-later");
+    assert_ne!(view_bytes(&redo), before, "undo twice redoes the rewind");
+}
+
+#[test]
+fn undo_with_nothing_to_undo_is_an_error() {
+    let run = Run::new("noundo", &start_state());
+    run.checkpoint();
+    run.step(|st| card_mut(st, "c-a").title = "x".into());
+    assert_eq!(apply_run(&run, &Req::Undo).unwrap_err(), "There is no rewind to undo.");
+}
+
+#[test]
+fn cards_with_live_work_are_skipped_and_never_changed() {
+    let mut start = start_state();
+    start.kanban_cards.push(card("c-run", "Agent card", "p-1"));
+    start.kanban_cards.push(card("c-task", "Task card", "p-1"));
+    start.kanban_cards.push(card("c-win", "Window card", "p-1"));
+    let run = Run::new("live", &start);
+    run.checkpoint();
+    let point = run.lines().last().unwrap().id.clone();
+    run.step(|st| {
+        for id in ["c-run", "c-task", "c-win", "c-a"] {
+            card_mut(st, id).title = format!("{id} renamed");
+        }
+        card_mut(st, "c-task").task_id = Some("task-1".into());
+        card_mut(st, "c-win").window_id = Some("w-1".into());
+        st.agent_runs.push(crate::state::AgentRun {
+            card_id: "c-run".into(),
+            planet_id: "p-1".into(),
+            ..Default::default()
+        });
+        st.claims
+            .push(serde_json::from_value(json!({ "windowId": "w-1", "projectId": "p-1" })).unwrap());
+        let mut live_new = card("c-live-new", "Live and new", "p-1");
+        live_new.task_id = Some("task-2".into());
+        st.kanban_cards.push(live_new);
+    });
+    let before = run.st();
+    let plan = apply_run(&run, &rewind_to(&point, None, true)).unwrap();
+    let why: Vec<(&str, &str)> = plan
+        .skipped
+        .iter()
+        .map(|s| (s.id.as_str(), s.why.as_str()))
+        .collect();
+    assert_eq!(
+        why,
+        [
+            ("c-run", "an agent is working on it"),
+            ("c-task", "a task is running"),
+            ("c-win", "it is bound to a claimed window"),
+            ("c-live-new", "a task is running"),
+        ]
+    );
+    let after = run.st();
+    for id in ["c-run", "c-task", "c-win", "c-live-new"] {
+        let find = |st: &PersistedState| {
+            serde_json::to_value(st.kanban_cards.iter().find(|c| c.id == id).unwrap()).unwrap()
+        };
+        assert_eq!(find(&after), find(&before), "{id} untouched");
+    }
+    assert_eq!(card_mut(&mut run.st(), "c-a").title, "Alpha");
+
+    let mut done = run.st();
+    done.agent_runs[0].state = "done".into();
+    done.kanban_cards.iter_mut().find(|c| c.id == "c-task").unwrap().task_reason = Some("done".into());
+    assert_eq!(live_why(&done, done.kanban_cards.iter().find(|c| c.id == "c-run").unwrap()), None);
+    assert_eq!(live_why(&done, done.kanban_cards.iter().find(|c| c.id == "c-task").unwrap()), None);
+}
+
+/// Phase 0 item 1: a window that saves the board it held before the
+/// rewind keeps none of its old rollback fields, because the rewind bumps
+/// every card it touches.
+#[test]
+fn a_stale_window_save_cannot_undo_a_rewind() {
+    let mut start = start_state();
+    start.kanban_cards.push(card("c-still", "Not part of the rewind", "p-1"));
+    let run = Run::new("stale", &start);
+    let point = rewind_script(&run);
+    run.step(|st| st.kanban_cards.push(card("c-x", "Removed by the rewind", "p-1")));
+    let stale = run.st();
+    apply_run(&run, &rewind_to(&point, None, true)).unwrap();
+    let disk = run.st();
+
+    let mut incoming = stale.clone();
+    {
+        let c = incoming.kanban_cards.iter_mut().find(|c| c.id == "c-still").unwrap();
+        c.notes = Some("an edit in the window".into());
+        c.last_touched_at = crate::state::wall_now_secs() + 1.0;
+    }
+    let (merged, _) = crate::state::merge_window_save(&disk, &incoming);
+    let mut want = history::board_of(&disk.kanban_cards, &disk.projects);
+    want.cards
+        .get_mut("c-still")
+        .unwrap()
+        .insert("notes".into(), json!("an edit in the window"));
+    let got = history::board_of(&merged.kanban_cards, &disk.projects);
+    assert_eq!(got.cards, want.cards);
+    assert!(merged.kanban_cards.iter().any(|c| c.id == "c-b"), "a revived card stays");
+    assert!(merged.kanban_cards.iter().all(|c| c.id != "c-x"), "a removed card stays gone");
+
+    let mut unbumped = disk.clone();
+    for c in &mut unbumped.kanban_cards {
+        if let Some(old) = stale.kanban_cards.iter().find(|s| s.id == c.id) {
+            c.last_touched_at = old.last_touched_at;
+        }
+    }
+    let (merged, _) = crate::state::merge_window_save(&unbumped, &incoming);
+    let a = merged.kanban_cards.iter().find(|c| c.id == "c-a").unwrap();
+    assert_eq!(a.title, "Alpha later", "without the bump the tie takes the stale window");
 }

@@ -969,7 +969,7 @@ fn run_tool(
                 .map(to_data)
                 .map_err(tool_err)
         }
-        "history.checkpoint" => crate::relay::history::checkpoint(app)
+        "history.checkpoint" => crate::relay::history::checkpoint(app, None)
             .map(to_data)
             .map_err(tool_err),
         "relay.on" => crate::event_relay::set_enabled(app, true)

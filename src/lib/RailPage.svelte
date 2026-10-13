@@ -1828,7 +1828,9 @@
     });
     // The Lists window writes state.json too (todos, checkbox completes).
     // Adopt its card/ledger writes and any claims it removed; rail-owned
-    // slices (projects, tags, UI state) stay local. Echoes of our own saves
+    // slices (tags, UI state) stay local. Projects are adopted unless a
+    // local planet edit is waiting to persist, so a history rewind of a
+    // planet is not saved back over. Echoes of our own saves
     // reload identical data — harmless. Skipped mid-drag so a window drag
     // can't be cancelled by a DOM swap.
     unlistenMouse = await listen<number>("rail:mouse-button", (e) => {
@@ -1852,8 +1854,10 @@
         return;
       }
       pendingDisk = null;
+      const projectsBefore = projects;
       try {
         const s = await invoke<PersistedState>("load_state");
+        if (!persistDeferred && projects === projectsBefore) projects = s.projects ?? projects;
         kanbanCards = s.kanbanCards ?? [];
         cardTombstones = s.cardTombstones ?? [];
         todoTrees = s.todoTrees ?? [];

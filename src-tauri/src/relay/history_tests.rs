@@ -255,7 +255,7 @@ impl Run {
 
     fn checkpoint(&self) -> CheckpointAck {
         let st = load_path(&self.state).unwrap();
-        write_checkpoint_in(&self.dir, &self.events, &st, "app", &unsigned).unwrap()
+        write_checkpoint_in(&self.dir, &self.events, &st, "app", None, &unsigned).unwrap()
     }
 
     fn board(&self) -> Board {
@@ -666,4 +666,8 @@ fn every_door_names_its_actor() {
     assert!(paint.contains("with_actor(\"agent\", || crate::board::save_with_events("));
     let shift = fn_body(include_str!("../agents/shift.rs"), "pub fn boot(");
     assert!(shift.contains("with_actor(\"shift\", || tick(&handle))"), "{shift}");
+    let rewind = fn_body(include_str!("rewind.rs"), "pub(crate) fn apply(");
+    assert!(rewind.contains("with_actor(req.actor(), ||"), "{rewind}");
+    let undo = crate::relay::rewind::Req::Undo;
+    assert_eq!((undo.actor(), crate::relay::rewind::Req::Repair.actor()), ("rewind", "repair"));
 }

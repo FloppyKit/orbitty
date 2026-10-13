@@ -386,12 +386,14 @@ fn mode(path: &Path, bits: u32) -> Result<(), String> {
 }
 
 /// Writes `<support>/history/checkpoint-<unix>.json` (dir 0700, file
-/// 0600), then its 426 line. The caller holds the save locks.
+/// 0600), then its 426 line. The caller holds the save locks. `reason`
+/// is `pre-rewind`, `pre-repair` or `keep` from a rewind; none otherwise.
 pub(crate) fn write_checkpoint_in(
     support: &Path,
     events: &Path,
     st: &PersistedState,
     actor: &str,
+    reason: Option<&str>,
     ident: Ident,
 ) -> Result<CheckpointAck, String> {
     let dir = support.join(HISTORY_DIR);
@@ -443,16 +445,20 @@ pub(crate) fn write_checkpoint_in(
         cards: st.kanban_cards.len(),
         projects: st.projects.len(),
     };
+    let mut content = json!({
+        "v": 1,
+        "file": ack.file,
+        "sha256": ack.sha256,
+        "cards": ack.cards,
+        "projects": ack.projects,
+    });
+    if let Some(reason) = reason {
+        content["reason"] = json!(reason);
+    }
     let entry = Entry {
         kind: KIND_CHECKPOINT,
         d: name.trim_end_matches(".json").to_string(),
-        content: json!({
-            "v": 1,
-            "file": ack.file,
-            "sha256": ack.sha256,
-            "cards": ack.cards,
-            "projects": ack.projects,
-        }),
+        content,
     };
     write_entries(events, &[entry], actor, ident)?;
     Ok(ack)
@@ -460,7 +466,10 @@ pub(crate) fn write_checkpoint_in(
 
 /// `history.checkpoint`, and the boot checkpoint. Holds the `update` locks
 /// while it reads, so it agrees with a save.
-pub(crate) fn checkpoint(app: &tauri::AppHandle) -> Result<CheckpointAck, String> {
+pub(crate) fn checkpoint(
+    app: &tauri::AppHandle,
+    reason: Option<&str>,
+) -> Result<CheckpointAck, String> {
     crate::state::read_locked(app, |path, st| {
         let support = path.parent().ok_or("state path has no folder")?;
         let events = event_log::events_path(app)?;
@@ -470,6 +479,7 @@ pub(crate) fn checkpoint(app: &tauri::AppHandle) -> Result<CheckpointAck, String
             &events,
             st,
             crate::state::current_actor(),
+            reason,
             &|at, kind, tags, content| event_log::identity_as(app, signed, at, kind, tags, content),
         )
     })
@@ -502,7 +512,7 @@ pub(crate) fn boot_checkpoint(app: &tauri::AppHandle) {
     if has_checkpoint(&support) {
         return;
     }
-    if let Err(e) = checkpoint(app) {
+    if let Err(e) = checkpoint(app, None) {
         warn_once(&e);
     }
 }
