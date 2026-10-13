@@ -51,6 +51,38 @@
     }
 
     #[test]
+    fn history_rewind_verbs_parse() {
+        let call = |a: &[&str]| tool_call(&parse(&argv(a)).unwrap());
+        assert_eq!(call(&["history", "drift"]).unwrap(), ("history.drift", serde_json::json!({})));
+        let (tool, args) = call(&["history", "rewind", "--to", "h-1"]).unwrap();
+        assert_eq!((tool, args), ("history.rewind", serde_json::json!({ "to": "h-1" })));
+        let (_, args) = call(&[
+            "history", "rewind", "--to", "h-1", "--card", "c-1", "--remove-added", "--confirm",
+        ])
+        .unwrap();
+        assert_eq!(
+            args,
+            serde_json::json!({ "to": "h-1", "card": "c-1", "removeAdded": true, "confirm": true })
+        );
+        assert!(call(&["history", "rewind"]).is_err(), "needs --to");
+        for verb in ["repair", "keep"] {
+            let (tool, args) = call(&["history", verb]).unwrap();
+            assert_eq!(tool, format!("history.{verb}"));
+            assert_eq!(args, serde_json::json!({ "confirm": false }));
+            let (_, args) = call(&["history", verb, "--confirm"]).unwrap();
+            assert_eq!(args, serde_json::json!({ "confirm": true }));
+        }
+        for line in [
+            "history drift",
+            "history rewind --to ID [--card C] [--remove-added] [--confirm]",
+            "history repair [--confirm]",
+            "history keep [--confirm]",
+        ] {
+            assert!(USAGE.contains(line), "{line}");
+        }
+    }
+
+    #[test]
     fn stars_log_set_keeps_an_empty_clear() {
         let o = parse(&argv(&[
             "stars", "log", "set", "--win1", "", "--date", "2099-12-31",

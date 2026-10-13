@@ -22,6 +22,8 @@ Map of how data moves. Names are the ones in the tree. This file does not change
 
 `history.rs` appends local-only board history (kinds 423 card add/set, 424 card tombstone, 425 planet, 426 checkpoint) from inside `state::update`, and writes checkpoints to the `history/` folder next to `state.json`. These lines are never published.
 
+`rewind.rs` reads that history back: the board at any line, rewind and bring back (actor `rewind`, undoable), and the launch drift check with repair (actor `repair`) or keep, surfaced in Settings → History, the card preview, and the `history.*` control tools.
+
 ## MCP and the control socket
 
 The MCP bin is `src-tauri/src/bin/orbitty_mcp.rs`. The socket server is `src-tauri/src/agents/control.rs`. The client is `src-tauri/src/bin/orbittyctl/` (`imp::run`).

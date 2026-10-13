@@ -54,6 +54,10 @@ commands:
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
   history list [--card ID] [--project ID] [--limit N]   newest first, default 50, max 500
   history checkpoint                  write a full-board checkpoint (426)
+  history drift                       where the board differs from its history
+  history rewind --to ID [--card C] [--remove-added] [--confirm]   back to just after line ID
+  history repair [--confirm]          put the board back to its history
+  history keep [--confirm]            accept the board as it is (checkpoint, reason keep)
   project add --name N
   claim front                         claim frontmost non-Orbitty window
   claim unclaim --id <windowId>        drop a claim (Layer-0 cleanup)
@@ -174,10 +178,18 @@ Never 0.0.0.0. Write-class ACL (full / named custom).
 
 history list reads the board's local-only history from events.jsonl:
 423 card add/set, 424 card delete, 425 planet, 426 checkpoint. Each line
-carries the new values and the actor (user, ctl, rule, agent, shift, app).
---card and --project filter; read-safe. history checkpoint writes the
-whole board to history/checkpoint-*.json and logs a 426 line; it needs
-full or a custom entry. History is never published.
+carries the new values and the actor (user, ctl, rule, agent, shift, app,
+rewind, repair). --card and --project filter; read-safe. history
+checkpoint writes the whole board to history/checkpoint-*.json and logs a
+426 line; it needs full or a custom entry. History is never published.
+
+history drift is read-safe. history rewind, repair and keep need full or
+a custom entry, and without --confirm they print the plan and write
+nothing. rewind --card restores one card (a deleted card comes back
+whole); without --card the whole board goes back and cards added since
+stay unless --remove-added. Live work (an agent run, a running task, a
+claimed window) is skipped. Each rewind or repair first writes a
+checkpoint, so the Settings → History \"Undo last rewind\" can undo it.
 
 stars checkin / log / journal / reflect / tracker / timer / cloud
 read and write the STARS page through the same state.json save door as

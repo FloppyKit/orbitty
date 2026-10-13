@@ -169,7 +169,7 @@ echo "Stable and Nightly share one socket: orbittyctl drives whichever Orbitty i
 
 echo ""
 echo "Done. Dogfood THIS app only:"
-echo "  1. Quit daily Orbitty (tray → Quit) if both would fight."
+echo "  1. Quit daily Orbitty (tray → Quit) first: only one Orbitty runs at a time, and a second copy shows an alert."
 echo "  2. open \"$DEST\""
 echo "  3. Grant Accessibility for Orbitty Nightly once if prompted."
 echo "  Daily-driver remains: ~/Applications/Orbitty.app (untouched)."

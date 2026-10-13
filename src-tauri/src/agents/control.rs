@@ -346,8 +346,10 @@ const READ_TOOLS: &[&str] = &[
     "go.status",
     "plans.migrate",
     "rail.state",
-    // history.checkpoint writes a file and a 426 line, so it stays off.
+    // history.checkpoint writes a file and a 426 line, so it stays off,
+    // as do history.rewind / repair / keep.
     "history.list",
+    "history.drift",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -506,6 +508,35 @@ fn ok_true() -> Value {
 
 fn to_data<T: serde::Serialize>(v: T) -> Value {
     serde_json::to_value(v).unwrap_or(Value::Null)
+}
+
+/// `history.rewind` / `repair` / `keep`. Without `confirm: true` each
+/// returns what it would do and writes nothing.
+fn history_write(app: &tauri::AppHandle, tool: &str, args: &Value) -> Result<Value, (i32, String)> {
+    use crate::relay::rewind::{self, Req};
+    let confirm = args.get("confirm").and_then(Value::as_bool).unwrap_or(false);
+    let req = match tool {
+        "history.rewind" => Req::Rewind {
+            to: arg_str(args, "to")?,
+            card: arg_opt(args, "card"),
+            remove_added: args.get("removeAdded").and_then(Value::as_bool).unwrap_or(false),
+        },
+        "history.repair" => Req::Repair,
+        _ => {
+            return match confirm {
+                false => rewind::check(app).map(|d| json!({ "dryRun": true, "drift": d })),
+                true => rewind::keep(app).map(|a| json!({ "dryRun": false, "checkpoint": a })),
+            }
+            .map_err(tool_err);
+        }
+    };
+    match (confirm, &req) {
+        (false, _) => rewind::plan(app, &req),
+        (true, Req::Repair) => rewind::repair(app),
+        (true, _) => rewind::apply(app, &req),
+    }
+    .map(|p| json!({ "dryRun": !confirm, "plan": p }))
+    .map_err(tool_err)
 }
 
 /// Stars writes use the same save door as kanban.add: load, mutate the
@@ -972,6 +1003,8 @@ fn run_tool(
         "history.checkpoint" => crate::relay::history::checkpoint(app, None)
             .map(to_data)
             .map_err(tool_err),
+        "history.drift" => crate::relay::rewind::check(app).map(to_data).map_err(tool_err),
+        "history.rewind" | "history.repair" | "history.keep" => history_write(app, tool, args),
         "relay.on" => crate::event_relay::set_enabled(app, true)
             .map_err(tool_err),
         "relay.off" => crate::event_relay::set_enabled(app, false)
@@ -1209,6 +1242,25 @@ mod tests {
         assert!(allowed(&Acl::Full, "history.checkpoint"));
         assert!(allowed(&Acl::Custom(vec!["history.*".into()]), "history.checkpoint"));
         assert!(!allowed(&Acl::Custom(vec!["history.list".into()]), "history.checkpoint"));
+    }
+
+    #[test]
+    fn history_drift_is_read_and_its_writers_are_full_only() {
+        for acl in [Acl::Read, Acl::Companion, Acl::Full] {
+            assert!(allowed(&acl, "history.drift"));
+        }
+        for tool in ["history.rewind", "history.repair", "history.keep"] {
+            assert!(!READ_TOOLS.contains(&tool), "{tool}");
+            assert!(!allowed(&Acl::Read, tool), "{tool}");
+            assert!(!allowed(&Acl::Companion, tool), "{tool}");
+            assert!(allowed(&Acl::Full, tool), "{tool}");
+        }
+        assert!(!allowed(&Acl::Custom(vec!["history.drift".into()]), "history.repair"));
+        let src = include_str!("control.rs");
+        let body = &src[src.find("fn history_write(").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(body.contains("unwrap_or(false)"), "confirm defaults to a dry run");
+        assert!(body.contains("(false, _) => rewind::plan(app, &req)"));
     }
 
     #[test]

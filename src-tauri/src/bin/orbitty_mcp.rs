@@ -128,6 +128,12 @@ const TOOLS: &[ToolDef] = &[
     // list is read-safe; checkpoint writes a file, so full / named custom.
     ToolDef { name: "history.list", description: "Board history lines, newest first: card add/set (423), card delete (424), planet (425), checkpoint (426). Each has id, created_at, kind, actor, content. Local-only, never published.", args: "history_list" },
     ToolDef { name: "history.checkpoint", description: "Write a full-board checkpoint file and its 426 line. Returns file, sha256, cards, projects.", args: "none" },
+    // drift is read-safe; rewind / repair / keep are full / named custom
+    // and only write with confirm: true.
+    ToolDef { name: "history.drift", description: "Where the board on disk differs from its history: cards and planets whose fields differ (history and now values), missing on disk, or never in the history. Read-only.", args: "none" },
+    ToolDef { name: "history.rewind", description: "Rewind the board (or one card with card) to just after history line to. Cards added since stay unless removeAdded. Live work is skipped. Without confirm: true it returns the plan and writes nothing. Undo in Settings → History.", args: "history_rewind" },
+    ToolDef { name: "history.repair", description: "Put the board back to what its history says (actor repair). Without confirm: true it returns the plan and writes nothing.", args: "history_confirm" },
+    ToolDef { name: "history.keep", description: "Accept the board as it is: a checkpoint with reason keep, so drift is empty. Without confirm: true it returns the drift and writes nothing.", args: "history_confirm" },
 ];
 
 fn known_tool(name: &str) -> bool {
@@ -531,6 +537,22 @@ fn input_schema(kind: &str) -> Value {
                 "card": { "type": "string", "description": "Only lines for this card id" },
                 "project": { "type": "string", "description": "Only lines that name this planet id" },
                 "limit": { "type": "integer", "minimum": 1, "maximum": 500, "description": "Max lines. Default 50." }
+            }
+        }),
+        "history_rewind" => json!({
+            "type": "object",
+            "properties": {
+                "to": { "type": "string", "description": "History line id (from history.list)" },
+                "card": { "type": "string", "description": "Only this card id" },
+                "removeAdded": { "type": "boolean", "description": "Also remove cards added since. Default false." },
+                "confirm": { "type": "boolean", "description": "true writes. Default false: plan only." }
+            },
+            "required": ["to"]
+        }),
+        "history_confirm" => json!({
+            "type": "object",
+            "properties": {
+                "confirm": { "type": "boolean", "description": "true writes. Default false: dry run." }
             }
         }),
         _ => json!({ "type": "object", "properties": {} }),
@@ -954,6 +976,26 @@ mod tests {
         assert_eq!(props["project"]["type"], "string");
         assert_eq!(props["limit"]["type"], "integer");
         assert_eq!(props["limit"]["maximum"], 500);
+    }
+
+    #[test]
+    fn history_rewind_tools_match_control_arms() {
+        let control = include_str!("../agents/control.rs");
+        assert!(control.contains("\"history.drift\" =>"));
+        assert!(control.contains("\"history.rewind\" | \"history.repair\" | \"history.keep\" =>"));
+        for name in ["history.drift", "history.rewind", "history.repair", "history.keep"] {
+            assert!(known_tool(name), "{name}");
+        }
+        assert!(required("history.drift").is_empty());
+        assert_eq!(required("history.rewind"), vec!["to"]);
+        let props = &tool("history.rewind")["inputSchema"]["properties"];
+        assert_eq!(props["card"]["type"], "string");
+        assert_eq!(props["removeAdded"]["type"], "boolean");
+        assert_eq!(props["confirm"]["type"], "boolean");
+        for name in ["history.repair", "history.keep"] {
+            assert!(required(name).is_empty(), "{name}");
+            assert_eq!(tool(name)["inputSchema"]["properties"]["confirm"]["type"], "boolean");
+        }
     }
 
     #[test]

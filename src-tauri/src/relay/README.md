@@ -6,4 +6,6 @@ Event log, device key, and publish. Inside the app, not the sidecar bin.
 
 `history.rs` writes the board's local-only history into the same `events.jsonl`, from inside `state::update` after each save: 423 card add/set, 424 card tombstone, 425 planet, 426 checkpoint (full board in `history/checkpoint-*.json`). Every line is tagged `t=local-only` and is never published. `fold` rebuilds a board from a checkpoint and the lines after it.
 
+`rewind.rs` is the read-back side. Pure parts: `board_at` (the board just after a line), `full_card`, `plan_card` / `plan_board`, `drift`, and `rows` (history in plain-word rows). App parts: `apply` writes a checkpoint and then one save under actor `rewind` or `repair`, `launch` runs the drift check on its own thread after setup, and `repair` / `keep` close the drift Needed card without a `needed-answer` line. Tests are in `rewind_tests.rs`.
+
 The process that binds that port is `src/bin/orbitty-relay/`.

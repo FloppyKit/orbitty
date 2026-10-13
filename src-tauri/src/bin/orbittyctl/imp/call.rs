@@ -325,6 +325,21 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             Ok(("history.list", a))
         }
         ["history", "checkpoint"] => Ok(("history.checkpoint", json!({}))),
+        ["history", "drift"] => Ok(("history.drift", json!({}))),
+        ["history", "rewind"] => {
+            let to = opt(&o.to).ok_or("history rewind needs --to ID")?;
+            let mut a = json!({ "to": to });
+            put_opt(&mut a, "card", &o.card);
+            if o.remove_added {
+                a["removeAdded"] = json!(true);
+            }
+            if o.confirm {
+                a["confirm"] = json!(true);
+            }
+            Ok(("history.rewind", a))
+        }
+        ["history", "repair"] => Ok(("history.repair", json!({ "confirm": o.confirm }))),
+        ["history", "keep"] => Ok(("history.keep", json!({ "confirm": o.confirm }))),
         ["relay", "on"] => Ok(("relay.on", json!({}))),
         ["relay", "off"] => Ok(("relay.off", json!({}))),
         ["relay", "replica"] => {

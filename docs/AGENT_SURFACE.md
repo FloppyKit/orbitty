@@ -15,7 +15,7 @@ Orbitty must already be running. The socket is `0600` under the app support dir:
 
 `~/Library/Application Support/space.orbitty.mac/control.sock`
 
-Nightly's bundle id is `space.orbitty.mac.nightly`. `scripts/install-nightly.sh` symlinks that support dir to the stable one when Nightly has no folder of its own, so the default socket path still reaches Nightly. If Nightly has its own real folder, pass `--sock` or `ORBITTY_CONTROL_SOCK`.
+Nightly's bundle id is `space.orbitty.mac.nightly`, but it resolves the same support dir and socket as Stable (with or without the symlink `scripts/install-nightly.sh` makes). Only one Orbitty runs at a time; a second copy shows an alert and exits.
 
 Optional auth: `ORBITTY_CONTROL_TOKEN`, else `control.token` beside the socket. ACL file: `control.json` (`profile`: `full` | `read` | `companion`, or `allow`: an array of tool names). A name may end in `*` (`stars.*`). Missing `control.json` means full.
 
@@ -249,7 +249,7 @@ orbittyctl --json route run -- "gate status"
 
 `spoken` for `gate status` starts with `Gate is`.
 
-Nightly's socket is `~/Library/Application Support/space.orbitty.mac.nightly/control.sock` when that folder is real. Pass `--sock` (or `ORBITTY_CONTROL_SOCK` for MCP). The default socket is Stable's.
+Nightly and Stable use the same socket, `~/Library/Application Support/space.orbitty.mac/control.sock`, because the app resolves its folder from the built-in identifier, not the bundle id. Only one Orbitty runs at a time, so the default socket reaches whichever is open. `--sock` (or `ORBITTY_CONTROL_SOCK` for MCP) is only for a non-default path.
 
 ## History
 
@@ -264,7 +264,7 @@ Every save that changes a logged card or planet field appends history lines to `
 
 A `set` line names only the fields that changed. A cleared field is `null`. Only these card fields are logged: `title`, `status`, `projectId`, `kind`, `notes`, `difficulty`, `subtasks`, `dueAt`, `tagIds`, `neededState`, `neededWhy`, `neededAnswer`, `assignedAgentId`, `parentId`, `rating`, `links`, `completedAt`, `starred`, `goalAligned`, `clinicalOrMaster`. Planet fields are `name` and `workspaceRoot`.
 
-`actor` is `user` (the app's windows), `ctl` (this socket), `rule` (a Needed standing-rule answer), `agent` (pickup, doing-fire, verify close, herdr), `shift` (the shift ticker), or `app` (everything else).
+`actor` is `user` (the app's windows), `ctl` (this socket), `rule` (a Needed standing-rule answer), `agent` (pickup, doing-fire, verify close, herdr), `shift` (the shift ticker), `rewind` (a rewind, bring back, or undo), `repair` (a drift repair), or `app` (everything else).
 
 `history.list` is read-safe (`read` profile allowed). It returns lines newest first, each `{id, created_at, kind, actor, content}`. `card` keeps one card's lines. `project` keeps lines that name that planet. `limit` defaults to 50, max 500. `history.checkpoint` writes the whole board to `history/checkpoint-<time>.json` next to `state.json` (mode 0600) and appends its 426 line. It returns `{file, sha256, cards, projects}`. It needs `full` or a custom `allow` entry. The app writes one checkpoint at boot when none exists.
 
@@ -294,6 +294,37 @@ orbittyctl --json history checkpoint
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"history.checkpoint","arguments":{}}}
+```
+
+### Drift, rewind, repair, keep
+
+`history.drift` is read-safe. It compares the board on disk with what the history says (the newest checkpoint plus the lines after it) and returns `{cards, missing, unknown, planets, planetsMissing, planetsUnknown, missedWrite}`. Each entry in `cards` and `planets` is `{id, title, fields:[{field, history, now}]}`. `missing` is in the history but not on disk; `unknown` is on disk but never in the history. `missedWrite` is true when this run of the app failed to write history at least once, so a difference may be a real change. The app runs the same check once at launch on its own thread; a board that differs opens one Needed card, `Board differs from its history`, on the inbox.
+
+`history.rewind`, `history.repair` and `history.keep` need `full` or a custom `allow` entry. **Without `confirm: true` they write nothing**: rewind and repair return `{dryRun: true, plan}`, keep returns `{dryRun: true, drift}`.
+
+- `history.rewind` args: `to` (a line id from `history.list`), `card?`, `removeAdded?`, `confirm?`. With `card`, only that card goes back to how it was just after `to` (a card deleted since comes back whole; `to` may be its own delete line). Without `card`, every card and planet goes back; cards added since stay unless `removeAdded`, and planets added since always stay. Cards with live work (an agent run that is not done, a running task, a window with a live claim) are skipped and listed in `plan.skipped`. Lines are written with actor `rewind`.
+- `history.repair` puts the drifted fields back, brings missing cards and planets back, and keeps the unknown ones. Lines are written with actor `repair`. The drift Needed card closes with `Repaired from history`.
+- `history.keep` writes a checkpoint with `"reason":"keep"`, so the board as it is becomes the history and drift is empty. The drift Needed card closes with `Kept the board as it is`.
+
+Rewind and repair write a checkpoint (`"reason":"pre-rewind"` / `"pre-repair"`) inside the same save, before their own lines. That is what Settings → History "Undo last rewind" goes back to. A `plan` is `{at, cards, revive, added, removeAdded, planets, planetsRevive, planetsAdded, removePlanets, skipped}`; each change is `{id, title, fields:[{field, from, to}]}`.
+
+```json
+{"v":1,"id":"1","tool":"history.drift","args":{}}
+{"v":1,"id":"2","tool":"history.rewind","args":{"to":"<line id>","card":"c-1","confirm":true}}
+{"v":1,"id":"3","tool":"history.repair","args":{"confirm":true}}
+{"v":1,"id":"4","tool":"history.keep","args":{}}
+```
+
+```
+orbittyctl --json history drift
+orbittyctl --json history rewind --to <line id> --card c-1 --confirm
+orbittyctl --json history rewind --to <line id> --remove-added
+orbittyctl --json history repair --confirm
+orbittyctl --json history keep
+```
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"history.rewind","arguments":{"to":"<line id>","removeAdded":true}}}
 ```
 
 ## Everything else

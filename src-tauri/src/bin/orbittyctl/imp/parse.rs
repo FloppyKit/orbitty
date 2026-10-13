@@ -81,6 +81,8 @@ pub(crate) struct Opts {
     pub(crate) pending: Option<String>,
     /// history list --limit N
     pub(crate) limit: Option<String>,
+    /// history rewind --remove-added
+    pub(crate) remove_added: bool,
 }
 
 pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -147,6 +149,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
         go_id: None,
         pending: None,
         limit: None,
+        remove_added: false,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -249,6 +252,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             "--limit" => o.limit = Some(it.next().ok_or("--limit needs a number")?.clone()),
             "--set" => o.set = Some(it.next().ok_or("--set needs a value")?.clone()),
             "--confirm" => o.confirm = true,
+            "--remove-added" => o.remove_added = true,
             "--append" => o.append = true,
             "--dry-run" => o.dry_run = true,
             "--apply" => o.apply = true,
