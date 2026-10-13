@@ -2,7 +2,9 @@
 # GO-ORBITTY-LOCAL-GATE: one local gate both install scripts run.
 #   cargo test --lib
 #   npm run check vs scripts/gate_baseline.json
+#   node --test qa/*.test.ts (any failure fails the gate)
 #   no new /Users or .buzz literals under src-tauri/src and src
+# --quick runs only the literal scan.
 #   (case-insensitive: /users/, ~/.BUZZ and a bare "/Users" count too)
 # Exit 0 ok, 1 a check failed, 2 a tool or input is missing.
 # Never installs and never uses the network. --quick and --compare-errors write nothing; the full gate's cargo test writes src-tauri/target and npm run check may write .svelte-kit.
@@ -305,6 +307,24 @@ run_npm_check() {
   echo "npm run check: ok ($n errors, baseline $base)"
 }
 
+run_qa() {
+  if ! command -v node >/dev/null 2>&1; then
+    echo "node --test qa: missing node" >&2
+    exit 2
+  fi
+  local -a tests
+  tests=(qa/*.test.ts(N))
+  if (( ${#tests} == 0 )); then
+    echo "node --test qa: no qa/*.test.ts" >&2
+    exit 2
+  fi
+  if ! node --test "${tests[@]}"; then
+    echo "node --test qa: FAIL"
+    exit 1
+  fi
+  echo "node --test qa: ok (${#tests} files)"
+}
+
 if [[ -n "$compare" ]]; then
   run_compare "$compare"
 fi
@@ -312,5 +332,6 @@ fi
 if (( ! quick )); then
   run_cargo
   run_npm_check
+  run_qa
 fi
 run_literal_scan

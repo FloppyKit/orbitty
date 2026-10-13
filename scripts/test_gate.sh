@@ -11,6 +11,8 @@
 # Pins: path check, git-grep errors, node_modules, npm compare, empty substring,
 # last error count, cargo failure, count regex, no first-match break, /Users at
 # end of line, TEMP read from the reason only. Stubs stand in for cargo and npm.
+# qa: full mode runs node --test qa/*.test.ts (stubbed node); a failure or no
+# qa files fails; --quick never runs it.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -44,7 +46,8 @@ make_fixture() {
   local tmp
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/gate-fixture.XXXXXX")
   tmps+=("$tmp")
-  mkdir -p "$tmp/scripts" "$tmp/src/lib" "$tmp/src-tauri/src"
+  mkdir -p "$tmp/scripts" "$tmp/src/lib" "$tmp/src-tauri/src" "$tmp/qa"
+  printf '%s\n' '// fixture qa file' > "$tmp/qa/ok.test.ts"
   cp "$real_gate" "$tmp/scripts/gate.sh"
   chmod +x "$tmp/scripts/gate.sh"
   printf '%s\n' '# fixture allowlist: path<TAB>substring<TAB># reason' > "$tmp/scripts/gate_allowlist.txt"
@@ -376,7 +379,8 @@ tmp=$(make_fixture)
 mkdir -p "$tmp/bin" "$tmp/node_modules"
 printf '%s\n' '#!/bin/zsh' 'exit 0' > "$tmp/bin/cargo"
 printf '%s\n' '#!/bin/zsh' 'echo "svelte-check found 3 errors"' 'exit 0' > "$tmp/bin/npm"
-chmod +x "$tmp/bin/cargo" "$tmp/bin/npm"
+printf '%s\n' '#!/bin/zsh' 'exit 0' > "$tmp/bin/node"
+chmod +x "$tmp/bin/cargo" "$tmp/bin/npm" "$tmp/bin/node"
 rc=0
 out=$(PATH="$tmp/bin:$PATH" "$tmp/scripts/gate.sh" 2>&1) || rc=$?
 if [[ "$rc" == 0 && "$out" == *"npm run check: ok (3 errors, baseline 3)"* ]]; then
@@ -402,7 +406,8 @@ tmp=$(make_fixture)
 mkdir -p "$tmp/bin" "$tmp/node_modules"
 printf '%s\n' '#!/bin/zsh' 'exit 0' > "$tmp/bin/cargo"
 printf '%s\n' '#!/bin/zsh' 'echo "svelte-check found 9 errors"' 'echo "svelte-check found 3 errors"' 'exit 0' > "$tmp/bin/npm"
-chmod +x "$tmp/bin/cargo" "$tmp/bin/npm"
+printf '%s\n' '#!/bin/zsh' 'exit 0' > "$tmp/bin/node"
+chmod +x "$tmp/bin/cargo" "$tmp/bin/npm" "$tmp/bin/node"
 rc=0
 out=$(PATH="$tmp/bin:$PATH" "$tmp/scripts/gate.sh" 2>&1) || rc=$?
 if [[ "$rc" == 0 && "$out" == *"npm run check: ok (3 errors, baseline 3)"* ]]; then
@@ -471,6 +476,60 @@ if [[ "$rc" == 0 && "$out" == *"unmatched: src/lib/nope.ts	TEMP_marker"* && "$ou
   pass "temp_only_in_substring_is_not_temp"
 else
   fail "temp_only_in_substring_is_not_temp (exit $rc)"
+  print -r -- "$out" >&2
+fi
+
+# qa: full mode runs node --test on qa/*.test.ts after npm run check;
+# --quick never runs it.
+qa_fixture() {
+  local tmp
+  tmp=$(make_fixture)
+  mkdir -p "$tmp/bin" "$tmp/node_modules"
+  printf '%s\n' '#!/bin/zsh' 'exit 0' > "$tmp/bin/cargo"
+  printf '%s\n' '#!/bin/zsh' 'echo "svelte-check found 3 errors"' 'exit 0' > "$tmp/bin/npm"
+  printf '%s\n' '#!/bin/zsh' "print -r -- \"\$*\" > \"$tmp/node.args\"" "exit ${1:-0}" > "$tmp/bin/node"
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/npm" "$tmp/bin/node"
+  print -r -- "$tmp"
+}
+
+tmp=$(qa_fixture 0)
+rc=0
+out=$(PATH="$tmp/bin:$PATH" "$tmp/scripts/gate.sh" 2>&1) || rc=$?
+if [[ "$rc" == 0 && "$out" == *"node --test qa: ok (1 files)"* && "$(<"$tmp/node.args")" == "--test qa/ok.test.ts" ]]; then
+  pass "full_runs_qa_tests"
+else
+  fail "full_runs_qa_tests (exit $rc)"
+  print -r -- "$out" >&2
+fi
+
+tmp=$(qa_fixture 1)
+rc=0
+out=$(PATH="$tmp/bin:$PATH" "$tmp/scripts/gate.sh" 2>&1) || rc=$?
+if [[ "$rc" == 1 && "$out" == *"node --test qa: FAIL"* && "$out" != *"literal scan: ok"* ]]; then
+  pass "qa_fail_exits_1"
+else
+  fail "qa_fail_exits_1 (exit $rc)"
+  print -r -- "$out" >&2
+fi
+
+tmp=$(qa_fixture 0)
+rm -f "$tmp/qa/ok.test.ts"
+rc=0
+out=$(PATH="$tmp/bin:$PATH" "$tmp/scripts/gate.sh" 2>&1) || rc=$?
+if [[ "$rc" == 2 && "$out" == *"node --test qa: no qa/*.test.ts"* && ! -e "$tmp/node.args" ]]; then
+  pass "no_qa_tests_exits_2"
+else
+  fail "no_qa_tests_exits_2 (exit $rc)"
+  print -r -- "$out" >&2
+fi
+
+tmp=$(qa_fixture 1)
+rc=0
+out=$(PATH="$tmp/bin:$PATH" "$tmp/scripts/gate.sh" --quick 2>&1) || rc=$?
+if [[ "$rc" == 0 && "$out" != *"node --test qa"* && ! -e "$tmp/node.args" ]]; then
+  pass "quick_skips_qa"
+else
+  fail "quick_skips_qa (exit $rc)"
   print -r -- "$out" >&2
 fi
 
