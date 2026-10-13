@@ -1,6 +1,17 @@
 <script lang="ts">
   import type { KanbanCard, Project } from "../persist";
   import { mdLiteLinkUrl, mdLiteKeyUrl } from "../mdLite";
+  import { invoke } from "@tauri-apps/api/core";
+  import {
+    restoreConfirm,
+    rowWords,
+    skippedWords,
+    when,
+    who,
+    type HistoryPage,
+    type HistoryRow,
+    type Plan,
+  } from "../history/words";
   let linkUrl = $state("");
   let linkLabel = $state("");
   let linkFor = "";
@@ -58,8 +69,52 @@
       linkFor = id;
       linkUrl = "";
       linkLabel = "";
+      histFor = "";
+      histAsk = null;
     }
   });
+
+  let histFor = $state("");
+  let histRows = $state<HistoryRow[]>([]);
+  let histAsk = $state<{ row: string; at: number; plan: Plan } | null>(null);
+  let histErr = $state("");
+
+  async function toggleHistory(card: KanbanCard) {
+    histAsk = null;
+    histErr = "";
+    if (histFor === card.id) {
+      histFor = "";
+      return;
+    }
+    histFor = card.id;
+    try {
+      histRows = (await invoke<HistoryPage>("history_list", { card: card.id, limit: 50 })).rows;
+    } catch (e) {
+      histRows = [];
+      histErr = String(e);
+    }
+  }
+
+  async function askRestore(card: KanbanCard, row: HistoryRow) {
+    histErr = "";
+    try {
+      const plan = await invoke<Plan>("history_plan", { to: row.id, card: card.id, removeAdded: false });
+      histAsk = { row: row.id, at: row.at, plan };
+    } catch (e) {
+      histErr = String(e);
+    }
+  }
+
+  async function restore(card: KanbanCard) {
+    if (!histAsk) return;
+    try {
+      await invoke<Plan>("history_apply", { to: histAsk.row, card: card.id, removeAdded: false });
+      histAsk = null;
+      histRows = (await invoke<HistoryPage>("history_list", { card: card.id, limit: 50 })).rows;
+    } catch (e) {
+      histErr = String(e);
+    }
+  }
 
   function onLiteClick(e: MouseEvent) {
     const url = mdLiteLinkUrl(e.target);
@@ -144,8 +199,34 @@
           {@const due = dueInfo(card)}
           <div class="d-read-top">
             <h3 class="d-need-title">{displayTitle(card)}</h3>
+            <button type="button" class="mini" class:active={histFor === card.id} onclick={() => toggleHistory(card)}>History</button>
             <button type="button" class="mini" onclick={() => (previewEdit = true)}>Edit</button>
           </div>
+          {#if histFor === card.id}
+            <div class="d-links">
+              {#each histRows as row (row.id)}
+                <div class="d-linkrow">
+                  <span class="d-read-line">{when(row.at)} · {who(row.actor)} · {rowWords(row)}</span>
+                  <button type="button" class="mini" onclick={() => askRestore(card, row)}>Restore to this</button>
+                </div>
+                {#if histAsk?.row === row.id}
+                  <p class="d-hint">{restoreConfirm(when(histAsk.at), histAsk.plan)}</p>
+                  {#each histAsk.plan.skipped as s (s.id)}
+                    <p class="d-hint">{skippedWords(s)}</p>
+                  {/each}
+                  <div class="d-linkrow">
+                    <button type="button" class="mini" onclick={() => restore(card)}>Restore</button>
+                    <button type="button" class="mini ghost" onclick={() => (histAsk = null)}>Cancel</button>
+                  </div>
+                {/if}
+              {:else}
+                <p class="d-hint">No history for this card yet.</p>
+              {/each}
+              {#if histErr}
+                <p class="d-hint">{histErr}</p>
+              {/if}
+            </div>
+          {/if}
           {#if pid}
             <p class="d-read-line">
               <span class="planet-chip" style="background: {planetCss(pid)}"></span>

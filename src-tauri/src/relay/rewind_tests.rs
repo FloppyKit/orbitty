@@ -1024,3 +1024,70 @@ fn drift_timing_5k_lines() {
     assert!(ms <= 300.0, "{ms}");
     let _ = std::fs::remove_dir_all(&fx.dir);
 }
+
+#[test]
+fn rows_replay_old_values_and_fold_one_save() {
+    let run = Run::new("rows", &start_state());
+    run.checkpoint();
+    run.step(|st| card_mut(st, "c-a").title = "Alpha 2".into());
+    run.step(|st| {
+        card_mut(st, "c-a").links = None;
+        card_mut(st, "c-b").notes = Some("beta notes".into());
+    });
+    run.step(|st| st.kanban_cards.retain(|c| c.id != "c-b"));
+    run.step(|st| st.projects[1].name = "Red".into());
+    let mut lines = run.lines();
+    assert_eq!(lines.len(), 6);
+    for (l, at) in lines.iter_mut().zip([100, 101, 102, 102, 103, 104]) {
+        l.created_at = at;
+    }
+    let page = rows(&run.checkpoints(), &lines, None, 50);
+    let what: Vec<Vec<&str>> = page
+        .rows
+        .iter()
+        .map(|r| r.events.iter().map(|e| e.what).collect())
+        .collect();
+    assert_eq!(what, [vec!["planet"], vec!["deleted"], vec!["card", "card"], vec!["card"], vec!["checkpoint"]]);
+    let r = &page.rows;
+    assert_eq!(
+        r[0].events[0].changes,
+        vec![FieldChange { field: "name".into(), from: json!("Mars"), to: json!("Red") }]
+    );
+    assert_eq!(r[1].events[0].title, "Beta");
+    assert_eq!(r[2].id, lines[3].id, "a folded row rewinds past its whole save");
+    assert_eq!(r[2].events[0].changes[0].field, "links");
+    assert_eq!(r[2].events[1].changes[0].field, "notes");
+    assert_eq!(
+        r[3].events[0].changes,
+        vec![FieldChange { field: "title".into(), from: json!("Alpha"), to: json!("Alpha 2") }]
+    );
+    assert_eq!((r[3].events[0].title.as_str(), r[3].actor.as_str()), ("Alpha 2", "app"));
+    assert!(!page.more && !page.can_undo);
+
+    let short = rows(&run.checkpoints(), &lines, None, 2);
+    assert_eq!((short.rows.len(), short.more), (2, true));
+    let one = rows(&run.checkpoints(), &lines, Some("c-a"), 50);
+    assert_eq!(one.rows.len(), 2);
+    assert!(one.rows.iter().all(|r| r.events.iter().all(|e| e.target == "c-a")));
+}
+
+#[test]
+fn rows_start_over_at_a_keep_after_an_outside_write() {
+    let run = Run::new("rows-keep", &start_state());
+    run.checkpoint();
+    run.checkpoint();
+    outside_write(&run, |st| card_mut(st, "c-a").title = "Outside".into());
+    let st = run.st();
+    write_checkpoint_in(&run.dir, &run.events, &st, "user", Some(KEEP), &unsigned).unwrap();
+    run.step(|st| card_mut(st, "c-a").title = "After".into());
+    let lines = run.lines();
+    assert_eq!(row_checkpoints(&run.dir, &lines).len(), 2, "the first and the keep");
+    let page = rows(&row_checkpoints(&run.dir, &lines), &lines, Some("c-a"), 50);
+    assert_eq!(page.rows[0].events[0].changes[0].from, json!("Outside"));
+
+    apply_run(&run, &rewind_to(&lines[0].id, None, false)).unwrap();
+    let page = rows(&run.checkpoints(), &run.lines(), None, 50);
+    assert!(page.can_undo);
+    assert_eq!(page.rows[0].actor, "rewind");
+    assert_eq!(page.rows[1].events[0].reason.as_deref(), Some("pre-rewind"));
+}

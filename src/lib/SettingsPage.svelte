@@ -19,6 +19,7 @@
   import SettingsAppearance from "./SettingsAppearance.svelte";
   import SettingsPacks from "./SettingsPacks.svelte";
   import SettingsPlans from "./SettingsPlans.svelte";
+  import SettingsHistory from "./SettingsHistory.svelte";
   import type { PersistedState } from "./persist";
   import { RAIL_EDGES, stagePrefs, type RailEdge } from "./rail/habitat";
   import { maybeGraduatePeerChrome, peerChromeOn } from "./peerChrome";
@@ -95,7 +96,7 @@
   let planetIdle = $state("4h");
   let talkSource = $state<"system" | "hotkey">("system");
   let cheatSheetHint = $state(true);
-  let section = $state<"appearance" | "packs" | "plans">("appearance");
+  let section = $state<"appearance" | "packs" | "plans" | "history">("appearance");
   let plansDir = $state("");
   let plansRunner = $state("");
   let plansModel = $state("");
@@ -660,6 +661,11 @@
       class:on={section === "plans"}
       onclick={() => (section = "plans")}>Plans</button
     >
+    <button
+      class="tab"
+      class:on={section === "history"}
+      onclick={() => (section = "history")}>History</button
+    >
   </nav>
 
   <div class="s-body">
@@ -669,6 +675,8 @@
       <SettingsPacks {packBusy} {importPackFolder} {importPackZip} {importPackImage} {packsDir} {packNote} {packs} {removePack} />
     {:else if section === "plans"}
       <SettingsPlans bind:plansDir {savePlansDir} {revealPlans} bind:plansRunner bind:plansHarness bind:plansModel {saveRunner} {plansNote} />
+    {:else if section === "history"}
+      <SettingsHistory />
     {/if}
   </div>
 </main>

@@ -900,6 +900,13 @@ pub fn run() {
             card_links::list_link_approvals,
             card_links::remove_link_approval,
             card_links::clear_link_approvals,
+            relay::rewind::history_list,
+            relay::rewind::history_drift,
+            relay::rewind::history_plan,
+            relay::rewind::history_apply,
+            relay::rewind::history_repair,
+            relay::rewind::history_keep,
+            relay::rewind::history_undo,
         ]))
         .setup(|app| {
             // Before any boot save, so a fold from it covers every line.

@@ -180,6 +180,7 @@ pub(crate) fn read_since_checkpoint(events: &Path) -> Result<Vec<HistoryLine>, S
 
 /// The checkpoints the given lines name, loaded from `support`. A file
 /// that is gone or unreadable is skipped.
+#[cfg(test)]
 pub(crate) fn load_named(support: &Path, lines: &[HistoryLine]) -> Vec<Checkpoint> {
     lines
         .iter()
@@ -1023,6 +1024,247 @@ pub(crate) fn keep(app: &tauri::AppHandle) -> Result<history::CheckpointAck, Str
     #[cfg(unix)]
     crate::board::needed_close_quiet(app, DRIFT_TITLE, KEPT)?;
     Ok(ack)
+}
+
+/// One change in a history row. `from` values come from replaying the
+/// lines, since a line only carries the new values.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Event {
+    pub id: String,
+    /// `card`, `deleted`, `planet`, `planetGone` or `checkpoint`.
+    pub what: &'static str,
+    /// `add` or `set` for a card or planet, else empty.
+    pub op: String,
+    pub target: String,
+    pub title: String,
+    pub changes: Vec<FieldChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Lines from one save: same second, same actor. `id` is the newest line,
+/// so "Rewind board to here" lands right after the whole save.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Row {
+    pub id: String,
+    pub at: u64,
+    pub actor: String,
+    pub events: Vec<Event>,
+}
+
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Page {
+    pub rows: Vec<Row>,
+    pub more: bool,
+    pub can_undo: bool,
+}
+
+fn event_of(board: &Board, l: &HistoryLine) -> Option<Event> {
+    let c = &l.content;
+    let fields = c.get("fields").and_then(Value::as_object);
+    let op = c.get("op").and_then(Value::as_str).unwrap_or_default();
+    let ev = |what, title: String, changes| Event {
+        id: l.id.clone(),
+        what,
+        op: op.to_string(),
+        target: l.d.clone(),
+        title,
+        changes,
+        reason: None,
+    };
+    let diff = |old: Option<&View>, names: &[&str]| -> Vec<FieldChange> {
+        let Some(fields) = fields else { return Vec::new() };
+        names
+            .iter()
+            .filter_map(|f| {
+                let to = fields.get(*f)?.clone();
+                let from = old.and_then(|v| v.get(*f)).cloned().unwrap_or(Value::Null);
+                (from != to).then(|| FieldChange {
+                    field: f.to_string(),
+                    from,
+                    to,
+                })
+            })
+            .collect()
+    };
+    Some(match (l.kind, op) {
+        (KIND_CARD, "add") => ev(
+            "card",
+            c.pointer("/card/title").and_then(Value::as_str).unwrap_or_default().into(),
+            Vec::new(),
+        ),
+        (KIND_CARD, _) => {
+            let old = board.cards.get(&l.d);
+            let changes = diff(old, CARD_FIELDS);
+            let title = changes
+                .iter()
+                .find(|ch| ch.field == "title")
+                .and_then(|ch| ch.to.as_str())
+                .map(str::to_string)
+                .or_else(|| old.map(|v| text(v, "title")))
+                .unwrap_or_default();
+            ev("card", title, changes)
+        }
+        (KIND_TOMBSTONE, _) => {
+            let title = board.cards.get(&l.d).map(|v| text(v, "title"));
+            let title = title.or_else(|| c.get("title").and_then(Value::as_str).map(str::to_string));
+            ev("deleted", title.unwrap_or_default(), Vec::new())
+        }
+        (KIND_PLANET, "rm") => {
+            let title = board.projects.get(&l.d).map(|v| text(v, "name")).unwrap_or_default();
+            ev("planetGone", title, Vec::new())
+        }
+        (KIND_PLANET, _) => {
+            let old = board.projects.get(&l.d);
+            let changes = if op == "add" { Vec::new() } else { diff(old, PLANET_FIELDS) };
+            let name = fields
+                .and_then(|f| f.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| old.map(|v| text(v, "name")))
+                .unwrap_or_default();
+            ev("planet", name, changes)
+        }
+        (KIND_CHECKPOINT, _) => Event {
+            reason: c.get("reason").and_then(Value::as_str).map(str::to_string),
+            ..ev("checkpoint", String::new(), Vec::new())
+        },
+        _ => return None,
+    })
+}
+
+/// Pure. Rows newest first, at most `limit`. Replays `lines` from the
+/// first checkpoint in `checkpoints`, starting over at each later one it
+/// holds (a keep or a rewind may follow a board that drifted). `card`
+/// keeps only that card's lines, one row each, without checkpoints.
+pub fn rows(checkpoints: &[Checkpoint], lines: &[HistoryLine], card: Option<&str>, limit: usize) -> Page {
+    let mut board = Board::default();
+    let mut rows: Vec<Row> = Vec::new();
+    for l in lines {
+        if let Some(cp) = checkpoint_file(l).and_then(|f| checkpoints.iter().find(|c| c.file == f)) {
+            board = history::fold(cp, &[], None);
+        }
+        let ev = event_of(&board, l);
+        history::apply(&mut board, l);
+        let Some(ev) = ev else { continue };
+        if card.is_some_and(|c| l.d != c || l.kind == KIND_CHECKPOINT) {
+            continue;
+        }
+        if ev.what == "card" && ev.op == "set" && ev.changes.is_empty() {
+            continue;
+        }
+        let joins = card.is_none()
+            && rows.last().is_some_and(|r| {
+            r.at == l.created_at
+                && r.actor == l.actor
+                && l.kind != KIND_CHECKPOINT
+                && r.events.iter().all(|e| e.what != "checkpoint")
+        });
+        if joins {
+            let r = rows.last_mut().expect("joins checked a last row");
+            r.id = l.id.clone();
+            r.events.push(ev);
+        } else {
+            rows.push(Row {
+                id: l.id.clone(),
+                at: l.created_at,
+                actor: l.actor.clone(),
+                events: vec![ev],
+            });
+        }
+    }
+    let more = rows.len() > limit;
+    let rows = rows.into_iter().rev().take(limit).collect();
+    Page {
+        rows,
+        more,
+        can_undo: last_rewind(lines).is_some(),
+    }
+}
+
+/// The checkpoints [`rows`] replays from: the first, and each one written
+/// with a reason.
+fn row_checkpoints(support: &Path, lines: &[HistoryLine]) -> Vec<Checkpoint> {
+    let first = lines.iter().position(|l| checkpoint_file(l).is_some());
+    let picked: Vec<&HistoryLine> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, l)| Some(*i) == first || (checkpoint_file(l).is_some() && l.content.get("reason").is_some()))
+        .map(|(_, l)| l)
+        .collect();
+    picked
+        .into_iter()
+        .filter_map(checkpoint_file)
+        .filter_map(|f| history::load_checkpoint(support, f).ok())
+        .collect()
+}
+
+pub(crate) fn list_rows(app: &tauri::AppHandle, card: Option<&str>, limit: Option<usize>) -> Result<Page, String> {
+    let events = super::event_log::events_path(app)?;
+    let support = support_dir(app)?;
+    let lines = history::read_lines(&events)?;
+    let limit = limit.unwrap_or(history::LIST_DEFAULT).clamp(1, history::LIST_MAX * 20);
+    Ok(rows(&row_checkpoints(&support, &lines), &lines, card, limit))
+}
+
+fn rewind_req(to: String, card: Option<String>, remove_added: Option<bool>) -> Req {
+    Req::Rewind {
+        to,
+        card,
+        remove_added: remove_added.unwrap_or(false),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn history_list(
+    app: tauri::AppHandle,
+    card: Option<String>,
+    limit: Option<usize>,
+) -> Result<Page, String> {
+    list_rows(&app, card.as_deref(), limit)
+}
+
+#[tauri::command]
+pub(crate) async fn history_drift(app: tauri::AppHandle) -> Result<Drift, String> {
+    check(&app)
+}
+
+#[tauri::command]
+pub(crate) async fn history_plan(
+    app: tauri::AppHandle,
+    to: String,
+    card: Option<String>,
+    remove_added: Option<bool>,
+) -> Result<Plan, String> {
+    plan(&app, &rewind_req(to, card, remove_added))
+}
+
+#[tauri::command]
+pub(crate) async fn history_apply(
+    app: tauri::AppHandle,
+    to: String,
+    card: Option<String>,
+    remove_added: Option<bool>,
+) -> Result<Plan, String> {
+    apply(&app, &rewind_req(to, card, remove_added))
+}
+
+#[tauri::command]
+pub(crate) async fn history_repair(app: tauri::AppHandle) -> Result<Plan, String> {
+    repair(&app)
+}
+
+#[tauri::command]
+pub(crate) async fn history_keep(app: tauri::AppHandle) -> Result<history::CheckpointAck, String> {
+    crate::state::with_actor("user", || keep(&app))
+}
+
+#[tauri::command]
+pub(crate) async fn history_undo(app: tauri::AppHandle) -> Result<Plan, String> {
+    apply(&app, &Req::Undo)
 }
 
 #[cfg(test)]

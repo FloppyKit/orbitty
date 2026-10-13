@@ -667,7 +667,7 @@ fn merge_fields(view: &mut View, fields: &Map<String, Value>, allowed: &[&str]) 
     }
 }
 
-fn apply(board: &mut Board, line: &HistoryLine) {
+pub(crate) fn apply(board: &mut Board, line: &HistoryLine) {
     let c = &line.content;
     let id = c.get("id").and_then(Value::as_str);
     let fields = c.get("fields").and_then(Value::as_object);
