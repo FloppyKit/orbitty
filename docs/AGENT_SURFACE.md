@@ -251,6 +251,51 @@ orbittyctl --json route run -- "gate status"
 
 Nightly's socket is `~/Library/Application Support/space.orbitty.mac.nightly/control.sock` when that folder is real. Pass `--sock` (or `ORBITTY_CONTROL_SOCK` for MCP). The default socket is Stable's.
 
+## History
+
+Every save that changes a logged card or planet field appends history lines to `events.jsonl`, with the new values and who made the change. History is local-only and never published. Each line is tagged `t=local-only`, `e-type=history`, `d` (the card or planet id, or the checkpoint name), and `actor`.
+
+| kind | line | content |
+| --- | --- | --- |
+| 423 | card add / set | `{"v":1,"op":"add","card":{…}}` or `{"v":1,"op":"set","id","fields":{…}}` |
+| 424 | card delete (tombstone) | `{"v":1,"id","title"}` |
+| 425 | planet add / set / rm | `{"v":1,"op","id","fields":{"name","workspaceRoot"}}` |
+| 426 | checkpoint | `{"v":1,"file":"history/checkpoint-….json","sha256","cards","projects"}` |
+
+A `set` line names only the fields that changed. A cleared field is `null`. Only these card fields are logged: `title`, `status`, `projectId`, `kind`, `notes`, `difficulty`, `subtasks`, `dueAt`, `tagIds`, `neededState`, `neededWhy`, `neededAnswer`, `assignedAgentId`, `parentId`, `rating`, `links`, `completedAt`, `starred`, `goalAligned`, `clinicalOrMaster`. Planet fields are `name` and `workspaceRoot`.
+
+`actor` is `user` (the app's windows), `ctl` (this socket), `rule` (a Needed standing-rule answer), `agent` (pickup, doing-fire, verify close, herdr), `shift` (the shift ticker), or `app` (everything else).
+
+`history.list` is read-safe (`read` profile allowed). It returns lines newest first, each `{id, created_at, kind, actor, content}`. `card` keeps one card's lines. `project` keeps lines that name that planet. `limit` defaults to 50, max 500. `history.checkpoint` writes the whole board to `history/checkpoint-<time>.json` next to `state.json` (mode 0600) and appends its 426 line. It returns `{file, sha256, cards, projects}`. It needs `full` or a custom `allow` entry. The app writes one checkpoint at boot when none exists.
+
+### history.list
+
+```json
+{"v":1,"id":"1","tool":"history.list","args":{"card":"c-1","limit":12}}
+```
+
+```
+orbittyctl --json history list --card c-1 --limit 12
+```
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"history.list","arguments":{"card":"c-1","limit":12}}}
+```
+
+### history.checkpoint
+
+```json
+{"v":1,"id":"1","tool":"history.checkpoint","args":{}}
+```
+
+```
+orbittyctl --json history checkpoint
+```
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"history.checkpoint","arguments":{}}}
+```
+
 ## Everything else
 
 Windows, companion, kanban, projects, claims, actions, agents, shift, relay, and `state.get` are the same socket. Their names and ACL are the control-plane spec. `orbittyctl` with no command prints the command list. `orbitty-mcp` exposes the same names as MCP tools (`tools/list`).

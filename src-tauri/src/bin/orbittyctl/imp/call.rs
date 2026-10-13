@@ -312,6 +312,19 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         ["shift", "on"] => Ok(("shift.on", json!({}))),
         ["shift", "off"] => Ok(("shift.off", json!({}))),
         ["relay", "status"] => Ok(("relay.status", json!({}))),
+        ["history", "list"] => {
+            let mut a = json!({});
+            put_opt(&mut a, "card", &o.card);
+            put_opt(&mut a, "project", &o.project);
+            if let Some(n) = opt_pos_int(&o.limit, "--limit")? {
+                if n > 500 {
+                    return Err("--limit must be 1-500".into());
+                }
+                a["limit"] = json!(n);
+            }
+            Ok(("history.list", a))
+        }
+        ["history", "checkpoint"] => Ok(("history.checkpoint", json!({}))),
         ["relay", "on"] => Ok(("relay.on", json!({}))),
         ["relay", "off"] => Ok(("relay.off", json!({}))),
         ["relay", "replica"] => {

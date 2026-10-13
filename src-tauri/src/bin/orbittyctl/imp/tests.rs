@@ -28,6 +28,29 @@
     }
 
     #[test]
+    fn history_verbs_parse() {
+        let o = parse(&argv(&[
+            "--json", "history", "list", "--card", "c-1", "--project", "p-1", "--limit", "12",
+        ]))
+        .unwrap();
+        let (tool, args) = tool_call(&o).unwrap();
+        assert_eq!(tool, "history.list");
+        assert_eq!(args, serde_json::json!({ "card": "c-1", "project": "p-1", "limit": 12 }));
+        let (tool, args) = tool_call(&parse(&argv(&["history", "list"])).unwrap()).unwrap();
+        assert_eq!(tool, "history.list");
+        assert_eq!(args, serde_json::json!({}));
+        for bad in ["0", "501", "x"] {
+            let o = parse(&argv(&["history", "list", "--limit", bad])).unwrap();
+            assert!(tool_call(&o).is_err(), "{bad}");
+        }
+        let (tool, args) = tool_call(&parse(&argv(&["history", "checkpoint"])).unwrap()).unwrap();
+        assert_eq!(tool, "history.checkpoint");
+        assert_eq!(args, serde_json::json!({}));
+        assert!(USAGE.contains("history list [--card ID] [--project ID] [--limit N]"));
+        assert!(USAGE.contains("history checkpoint"));
+    }
+
+    #[test]
     fn stars_log_set_keeps_an_empty_clear() {
         let o = parse(&argv(&[
             "stars", "log", "set", "--win1", "", "--date", "2099-12-31",

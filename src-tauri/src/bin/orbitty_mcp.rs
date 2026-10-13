@@ -124,6 +124,10 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "shift.on", description: "Turn the 15s shift ticker on (Work/Hold pickups; Spark/Chat never auto-pickup)", args: "none" },
     ToolDef { name: "shift.off", description: "Turn the 15s shift ticker off", args: "none" },
     ToolDef { name: "kanban.assign", description: "Assign a card to an agent row (agent id or unique name); empty agent unassigns", args: "kanban_assign" },
+    // Local-only board history (kinds 423-426), never published.
+    // list is read-safe; checkpoint writes a file, so full / named custom.
+    ToolDef { name: "history.list", description: "Board history lines, newest first: card add/set (423), card delete (424), planet (425), checkpoint (426). Each has id, created_at, kind, actor, content. Local-only, never published.", args: "history_list" },
+    ToolDef { name: "history.checkpoint", description: "Write a full-board checkpoint file and its 426 line. Returns file, sha256, cards, projects.", args: "none" },
 ];
 
 fn known_tool(name: &str) -> bool {
@@ -520,6 +524,14 @@ fn input_schema(kind: &str) -> Value {
                 "windowId": { "type": "string", "description": "Window id (same key control.rs reads for claim.unclaim)" }
             },
             "required": ["windowId"]
+        }),
+        "history_list" => json!({
+            "type": "object",
+            "properties": {
+                "card": { "type": "string", "description": "Only lines for this card id" },
+                "project": { "type": "string", "description": "Only lines that name this planet id" },
+                "limit": { "type": "integer", "minimum": 1, "maximum": 500, "description": "Max lines. Default 50." }
+            }
         }),
         _ => json!({ "type": "object", "properties": {} }),
     }
@@ -927,6 +939,21 @@ mod tests {
             arms.contains(&"claim.change".to_string()),
             "control.rs claim.change arm missing from the parity set"
         );
+    }
+
+    #[test]
+    fn history_tools_match_control_arms() {
+        let control = include_str!("../agents/control.rs");
+        for name in ["history.list", "history.checkpoint"] {
+            assert!(known_tool(name), "{name}");
+            assert!(control.contains(&format!("\"{name}\" =>")), "{name}");
+        }
+        assert!(required("history.list").is_empty());
+        let props = &tool("history.list")["inputSchema"]["properties"];
+        assert_eq!(props["card"]["type"], "string");
+        assert_eq!(props["project"]["type"], "string");
+        assert_eq!(props["limit"]["type"], "integer");
+        assert_eq!(props["limit"]["maximum"], 500);
     }
 
     #[test]

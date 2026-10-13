@@ -524,6 +524,7 @@ pub struct HistoryLine {
     pub id: String,
     pub created_at: u64,
     pub kind: u64,
+    #[serde(skip)]
     pub d: String,
     pub actor: String,
     pub content: Value,

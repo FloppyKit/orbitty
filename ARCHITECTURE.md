@@ -12,11 +12,15 @@ Map of how data moves. Names are the ones in the tree. This file does not change
 
 ## State
 
-`src-tauri/src/state/io.rs` is the save door: `load_state` and `save_state` read and write `state.json` under the app data dir. The board path that emits `state:changed` is `board::save_with_events` in `src-tauri/src/board/board.rs`.
+`src-tauri/src/state/io.rs` is the save door: `load_state` and `update` read and write `state.json` under the app data dir. The board path that emits `state:changed` is `board::save_with_events` in `src-tauri/src/board/board.rs`.
+
+`update` holds the in-process mutex, then an OS lock on `state.json.lock`, across load, change, and save. `orbitty.instance.lock` (`state/instance.rs`, taken first in `run()`) keeps it to one Orbitty at a time.
 
 ## Relay
 
 `src-tauri/src/relay/event_log.rs` appends `events.jsonl`. A log failure does not fail the click. `event_keys.rs` signs. `event_relay.rs` publishes a best-effort EVENT to `ws://127.0.0.1:13120`.
+
+`history.rs` appends local-only board history (kinds 423 card add/set, 424 card tombstone, 425 planet, 426 checkpoint) from inside `state::update`, and writes checkpoints to the `history/` folder next to `state.json`. These lines are never published.
 
 ## MCP and the control socket
 

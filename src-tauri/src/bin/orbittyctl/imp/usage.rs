@@ -52,6 +52,8 @@ commands:
   route run [--pending ID] -- \"line\"
   relay status
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
+  history list [--card ID] [--project ID] [--limit N]   newest first, default 50, max 500
+  history checkpoint                  write a full-board checkpoint (426)
   project add --name N
   claim front                         claim frontmost non-Orbitty window
   claim unclaim --id <windowId>        drop a claim (Layer-0 cleanup)
@@ -169,6 +171,13 @@ relay status is read-safe. relay replica --url sets the
 optional one-user VPS URL (Tailscale 100.64/10:13120 or
 ws://127.0.0.1:port for SSH -L). Empty URL = local sidecar only.
 Never 0.0.0.0. Write-class ACL (full / named custom).
+
+history list reads the board's local-only history from events.jsonl:
+423 card add/set, 424 card delete, 425 planet, 426 checkpoint. Each line
+carries the new values and the actor (user, ctl, rule, agent, shift, app).
+--card and --project filter; read-safe. history checkpoint writes the
+whole board to history/checkpoint-*.json and logs a 426 line; it needs
+full or a custom entry. History is never published.
 
 stars checkin / log / journal / reflect / tracker / timer / cloud
 read and write the STARS page through the same state.json save door as

@@ -79,6 +79,8 @@ pub(crate) struct Opts {
     pub(crate) go_id: Option<String>,
     /// route run --pending ID (the pendingId a board-add returned)
     pub(crate) pending: Option<String>,
+    /// history list --limit N
+    pub(crate) limit: Option<String>,
 }
 
 pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -144,6 +146,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
         apply: false,
         go_id: None,
         pending: None,
+        limit: None,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -243,6 +246,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.answers = Some(it.next().ok_or("--answers needs a value")?.clone())
             }
             "--by" => o.by = Some(it.next().ok_or("--by needs a value")?.clone()),
+            "--limit" => o.limit = Some(it.next().ok_or("--limit needs a number")?.clone()),
             "--set" => o.set = Some(it.next().ok_or("--set needs a value")?.clone()),
             "--confirm" => o.confirm = true,
             "--append" => o.append = true,

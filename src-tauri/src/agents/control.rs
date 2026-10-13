@@ -346,6 +346,8 @@ const READ_TOOLS: &[&str] = &[
     "go.status",
     "plans.migrate",
     "rail.state",
+    // history.checkpoint writes a file and a 426 line, so it stays off.
+    "history.list",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -953,6 +955,23 @@ fn run_tool(
         "shift.on" => crate::shift::set_on(app, true).map_err(tool_err),
         "shift.off" => crate::shift::set_on(app, false).map_err(tool_err),
         "relay.status" => crate::event_relay::status(app).map_err(tool_err),
+        "history.list" => {
+            let limit = match args.get("limit") {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(v.as_u64().ok_or((
+                    ERR_OTHER,
+                    "history.list: limit must be an integer".to_string(),
+                ))? as usize),
+            };
+            let card = arg_opt(args, "card");
+            let project = arg_opt(args, "project");
+            crate::relay::history::list(app, card.as_deref(), project.as_deref(), limit)
+                .map(to_data)
+                .map_err(tool_err)
+        }
+        "history.checkpoint" => crate::relay::history::checkpoint(app)
+            .map(to_data)
+            .map_err(tool_err),
         "relay.on" => crate::event_relay::set_enabled(app, true)
             .map_err(tool_err),
         "relay.off" => crate::event_relay::set_enabled(app, false)
@@ -1176,6 +1195,20 @@ mod tests {
         assert!(allowed(&Acl::Companion, "route.classify"));
         assert!(!allowed(&Acl::Companion, "route.run"));
         assert!(allowed(&Acl::Full, "route.run"));
+    }
+
+    #[test]
+    fn history_list_is_read_and_checkpoint_is_full_only() {
+        assert!(READ_TOOLS.contains(&"history.list"));
+        assert!(!READ_TOOLS.contains(&"history.checkpoint"));
+        for acl in [Acl::Read, Acl::Companion, Acl::Full] {
+            assert!(allowed(&acl, "history.list"));
+        }
+        assert!(!allowed(&Acl::Read, "history.checkpoint"));
+        assert!(!allowed(&Acl::Companion, "history.checkpoint"));
+        assert!(allowed(&Acl::Full, "history.checkpoint"));
+        assert!(allowed(&Acl::Custom(vec!["history.*".into()]), "history.checkpoint"));
+        assert!(!allowed(&Acl::Custom(vec!["history.list".into()]), "history.checkpoint"));
     }
 
     #[test]
