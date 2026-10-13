@@ -1,5 +1,9 @@
+use super::*;
 use crate::relay::history::*;
-use crate::state::{load_path, save_path, CardLink, KanbanCard, PersistedState, Project, Subtask};
+use crate::state::{
+    load_path, save_path, update_at_logged, write_lock, CardLink, KanbanCard, PersistedState,
+    Project, Subtask,
+};
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -192,4 +196,299 @@ fn rewind_timing_650_cards() {
              fold-to-newest={at_newest:.2}ms full-compare(read+checkpoint+state+fold+board_of+eq)={full:.2}ms"
         );
     }
+}
+
+pub(super) struct Run {
+    pub dir: PathBuf,
+    pub state: PathBuf,
+    pub events: PathBuf,
+}
+
+impl Run {
+    pub fn new(tag: &str, initial: &PersistedState) -> Self {
+        let dir = temp_dir(tag);
+        let state = dir.join("state.json");
+        let events = dir.join("events.jsonl");
+        save_path(&state, initial).unwrap();
+        Self { dir, state, events }
+    }
+
+    pub fn step(&self, f: impl FnOnce(&mut PersistedState)) {
+        let _g = write_lock();
+        update_at_logged(&self.state, &self.events, |st| {
+            f(st);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    pub fn checkpoint(&self) -> CheckpointAck {
+        let st = load_path(&self.state).unwrap();
+        write_checkpoint_in(&self.dir, &self.events, &st, "app", &unsigned).unwrap()
+    }
+
+    pub fn st(&self) -> PersistedState {
+        load_path(&self.state).unwrap()
+    }
+
+    pub fn board(&self) -> Board {
+        let st = self.st();
+        board_of(&st.kanban_cards, &st.projects)
+    }
+
+    pub fn lines(&self) -> Vec<HistoryLine> {
+        read_lines(&self.events).unwrap()
+    }
+
+    pub fn checkpoints(&self) -> Vec<Checkpoint> {
+        load_named(&self.dir, &self.lines())
+    }
+}
+
+impl Drop for Run {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+pub(super) fn card(id: &str, title: &str, project: &str) -> KanbanCard {
+    crate::board::todo_card(id.into(), title, project, "todo", "user", None, 1.0)
+}
+
+pub(super) fn planet(id: &str, name: &str) -> Project {
+    Project {
+        id: id.into(),
+        name: name.into(),
+        trackers: None,
+        workspace_root: None,
+    }
+}
+
+pub(super) fn card_mut<'a>(st: &'a mut PersistedState, id: &str) -> &'a mut KanbanCard {
+    st.kanban_cards.iter_mut().find(|c| c.id == id).unwrap()
+}
+
+pub(super) fn start_state() -> PersistedState {
+    let mut st = PersistedState::default();
+    st.projects.push(planet("p-1", "Home"));
+    st.projects.push(planet("p-2", "Mars"));
+    let mut a = card("c-a", "Alpha", "p-1");
+    a.notes = Some("alpha notes".into());
+    a.links = Some(vec![CardLink {
+        url: "https://example.com/a".into(),
+        label: Some("a".into()),
+    }]);
+    st.kanban_cards.push(a);
+    st.kanban_cards.push(card("c-b", "Beta", "p-2"));
+    st
+}
+
+type Step = Box<dyn Fn(&mut PersistedState)>;
+
+fn script() -> Vec<Step> {
+    vec![
+        Box::new(|st| card_mut(st, "c-a").title = "Alpha 2".into()),
+        Box::new(|st| card_mut(st, "c-b").status = "doing".into()),
+        Box::new(|st| st.kanban_cards.push(card("c-c", "Gamma", "p-1"))),
+        Box::new(|st| card_mut(st, "c-c").notes = Some("gamma".into())),
+        Box::new(|st| st.projects[1].name = "Red".into()),
+        Box::new(|st| card_mut(st, "c-a").links = None),
+        Box::new(|st| st.kanban_cards.retain(|c| c.id != "c-b")),
+        Box::new(|st| card_mut(st, "c-c").tag_ids = Some(vec!["t-1".into()])),
+        Box::new(|st| st.projects.push(planet("p-3", "Moon"))),
+        Box::new(|st| card_mut(st, "c-c").project_id = "p-3".into()),
+        Box::new(|st| card_mut(st, "c-a").status = "done".into()),
+        Box::new(|st| st.kanban_cards.push(card("c-b", "Beta again", "p-1"))),
+        Box::new(|st| card_mut(st, "c-a").title = "Alpha 3".into()),
+        Box::new(|st| st.projects.retain(|p| p.id != "p-3")),
+        Box::new(|st| card_mut(st, "c-c").notes = None),
+    ]
+}
+
+/// The board at every step's last line equals the saved board, across
+/// two later checkpoints. A write with no line just before the second
+/// checkpoint proves the newest checkpoint is the one folded.
+#[test]
+fn board_at_matches_every_saved_step_across_two_checkpoints() {
+    let run = Run::new("at", &start_state());
+    run.checkpoint();
+    let mut at_step: Vec<(usize, Board)> = Vec::new();
+    for (i, s) in script().iter().enumerate() {
+        run.step(|st| s(st));
+        at_step.push((run.lines().len(), run.board()));
+        if i == 4 {
+            run.checkpoint();
+        }
+        if i == 9 {
+            let mut st = run.st();
+            card_mut(&mut st, "c-a").notes = Some("outside writer".into());
+            save_path(&run.state, &st).unwrap();
+            run.checkpoint();
+        }
+    }
+    let lines = run.lines();
+    let cps = run.checkpoints();
+    assert_eq!(cps.len(), 3);
+    assert_eq!(lines.iter().filter(|l| l.kind == KIND_CHECKPOINT).count(), 3);
+    for (i, (n, board)) in at_step.iter().enumerate() {
+        let at = &lines[n - 1].id;
+        assert_eq!(&board_at(&cps, &lines, at).unwrap(), board, "step {i}");
+    }
+    let third = lines.iter().rposition(|l| l.kind == KIND_CHECKPOINT).unwrap();
+    let at_third = board_at(&cps, &lines, &lines[third].id).unwrap();
+    assert_eq!(at_third.cards["c-a"]["notes"], "outside writer");
+    assert_eq!(board_now(&cps, &lines).unwrap(), run.board());
+    assert_eq!(board_now(&cps, &lines).unwrap().cards["c-a"]["notes"], "outside writer");
+    let only_first = &cps[..1];
+    assert_ne!(
+        board_now(only_first, &lines).unwrap(),
+        run.board(),
+        "without the newest checkpoint the outside write is missed"
+    );
+}
+
+#[test]
+fn board_at_errors_on_unknown_ids_and_lines_before_history() {
+    let run = Run::new("err", &start_state());
+    run.step(|st| card_mut(st, "c-a").title = "before any checkpoint".into());
+    run.checkpoint();
+    run.step(|st| card_mut(st, "c-a").title = "after".into());
+    let lines = run.lines();
+    let cps = run.checkpoints();
+    assert_eq!(
+        board_at(&cps, &lines, "nope").unwrap_err(),
+        "That point is not in the history."
+    );
+    let err = board_at(&cps, &lines, &lines[0].id).unwrap_err();
+    assert!(err.starts_with("History starts at "), "{err}");
+    assert!(board_at(&cps, &lines, &lines[1].id).is_ok());
+    assert_eq!(board_now(&cps, &[]).unwrap_err(), "There is no history yet.");
+    assert_eq!(
+        board_at(&[], &lines, &lines[2].id).unwrap_err(),
+        err,
+        "a checkpoint line whose file is not loaded"
+    );
+}
+
+#[test]
+fn full_card_is_the_newest_whole_card_with_later_sets() {
+    let run = Run::new("full", &start_state());
+    run.checkpoint();
+    run.step(|st| {
+        let c = card_mut(st, "c-a");
+        c.title = "Alpha 2".into();
+        c.subtasks = Some(vec![Subtask {
+            id: "s1".into(),
+            title: "one".into(),
+            done: false,
+        }]);
+        c.points_awarded = 2;
+    });
+    run.step(|st| card_mut(st, "c-a").tag_ids = Some(vec!["t-1".into()]));
+    let before_delete = run
+        .st()
+        .kanban_cards
+        .into_iter()
+        .find(|c| c.id == "c-a")
+        .unwrap();
+    run.step(|st| st.kanban_cards.retain(|c| c.id != "c-a"));
+    let lines = run.lines();
+    let cps = run.checkpoints();
+    let tomb = lines.iter().position(|l| l.kind == KIND_TOMBSTONE).unwrap();
+    let whole = full_card("c-a", &cps, &lines[..tomb]).unwrap();
+    let mut want = serde_json::to_value(&before_delete).unwrap();
+    want["pointsAwarded"] = json!(0);
+    assert_eq!(
+        serde_json::to_value(&whole).unwrap(),
+        want,
+        "rollback fields from the lines, the rest from the checkpoint"
+    );
+    assert_eq!(
+        serde_json::to_value(full_card("c-a", &cps, &lines).unwrap()).unwrap(),
+        want,
+        "a tombstone at the end still gives the card as it was"
+    );
+    assert_eq!(
+        history::card_view(&whole),
+        board_at(&cps, &lines, &lines[tomb - 1].id).unwrap().cards["c-a"]
+    );
+    assert!(full_card("c-zzz", &cps, &lines).is_none());
+
+    run.step(|st| {
+        let mut c = card("c-n", "Fresh", "p-1");
+        c.notes = Some("born with notes".into());
+        st.kanban_cards.push(c);
+    });
+    run.step(|st| card_mut(st, "c-n").title = "Fresh 2".into());
+    let lines = run.lines();
+    let fresh = full_card("c-n", &cps, &lines).unwrap();
+    assert_eq!(fresh.title, "Fresh 2");
+    assert_eq!(fresh.notes.as_deref(), Some("born with notes"));
+}
+
+#[test]
+fn set_card_fields_clears_and_ignores_non_rollback_names() {
+    let mut c = card("c-1", "T", "p-1");
+    c.notes = Some("n".into());
+    let fields = json!({
+        "notes": null,
+        "title": "New",
+        "windowId": "w-9",
+        "taskId": "t",
+        "starred": true,
+        "rating": "not a number",
+    });
+    set_card_fields(&mut c, fields.as_object().unwrap());
+    assert_eq!(c.notes, None);
+    assert_eq!(c.title, "New");
+    assert!(c.starred);
+    assert_eq!(c.window_id, None);
+    assert_eq!(c.task_id, None);
+    assert_eq!(c.rating, None, "a bad value is skipped, not fatal");
+}
+
+fn fake_line(i: usize, kind: u64) -> HistoryLine {
+    HistoryLine {
+        id: format!("l-{i}"),
+        created_at: i as u64,
+        kind,
+        d: "c-1".into(),
+        actor: "user".into(),
+        content: if kind == KIND_CHECKPOINT {
+            json!({ "file": format!("history/checkpoint-{i}.json") })
+        } else {
+            json!({ "op": "set", "id": "c-1", "fields": { "title": "x" } })
+        },
+    }
+}
+
+#[test]
+fn auto_checkpoint_after_more_than_two_thousand_lines() {
+    let mut lines = vec![fake_line(0, KIND_CHECKPOINT)];
+    lines.extend((1..=AUTO_CHECKPOINT_LINES).map(|i| fake_line(i, KIND_CARD)));
+    assert_eq!(lines_after_checkpoint(&lines), 2_000);
+    assert!(!needs_checkpoint(&lines));
+    lines.push(fake_line(2_001, KIND_CARD));
+    assert!(needs_checkpoint(&lines));
+    lines.push(fake_line(2_002, KIND_CHECKPOINT));
+    assert_eq!(lines_after_checkpoint(&lines), 0);
+    assert!(!needs_checkpoint(&lines));
+    let bare: Vec<HistoryLine> = (0..2_001).map(|i| fake_line(i, KIND_CARD)).collect();
+    assert!(needs_checkpoint(&bare));
+}
+
+#[test]
+fn read_since_checkpoint_is_the_tail_of_read_lines() {
+    let run = Run::new("tail", &start_state());
+    run.step(|st| card_mut(st, "c-a").title = "one".into());
+    run.checkpoint();
+    run.step(|st| card_mut(st, "c-a").title = "two".into());
+    run.checkpoint();
+    run.step(|st| card_mut(st, "c-a").title = "three".into());
+    run.step(|st| card_mut(st, "c-b").notes = Some("with \"kind\":426 inside".into()));
+    let all = run.lines();
+    let from = all.iter().rposition(|l| l.kind == KIND_CHECKPOINT).unwrap();
+    assert_eq!(read_since_checkpoint(&run.events).unwrap(), all[from..].to_vec());
+    let missing = run.dir.join("nope.jsonl");
+    assert!(read_since_checkpoint(&missing).unwrap().is_empty());
 }
