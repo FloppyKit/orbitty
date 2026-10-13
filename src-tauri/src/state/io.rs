@@ -32,8 +32,9 @@ pub(crate) fn load_path(path: &std::path::Path) -> Result<PersistedState, String
     }
 }
 
-/// Disk write. Every caller goes through [`update`] so a stale snapshot
-/// cannot land between another writer's load and save.
+/// Test seed write. The app writes only through [`update`] so a stale
+/// snapshot cannot land between another writer's load and save.
+#[cfg(test)]
 pub(crate) fn save_path(path: &std::path::Path, state: &PersistedState) -> Result<(), String> {
     write_canonical(path, state.clone()).map(|_| ())
 }

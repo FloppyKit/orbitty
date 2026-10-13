@@ -637,6 +637,7 @@ fn row_view(name: &str, root: &Option<String>) -> View {
 }
 
 /// The rollback view of a saved state. First id wins, like [`diff`].
+#[allow(dead_code)] // No caller until HISTORY-REWIND.
 pub fn board_of(cards: &[KanbanCard], projects: &[Project]) -> Board {
     let mut b = Board::default();
     for p in projects {
