@@ -261,6 +261,69 @@ include_str!("merge.rs")
         let _ = std::fs::remove_file(&path);
     }
 
+    /// H2: a second holder of `<path>.lock` (another process in real life)
+    /// blocks the save until it lets go.
+    #[test]
+    fn update_waits_for_a_second_holder_of_the_file_lock() {
+        let path = temp_state();
+        let _ = std::fs::remove_file(&path);
+        let other = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(lock_path(&path))
+            .unwrap();
+        other.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let writer_path = path.clone();
+        let writer = std::thread::spawn(move || {
+            let out = update_at(&writer_path, |st| {
+                st.kanban_cards.push(touch_card("c-locked", 1.0, None, None));
+                Ok(())
+            });
+            let _ = tx.send(out);
+        });
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(200)).is_err(),
+            "update_at returned while another holder had the file lock"
+        );
+        assert!(load_path(&path).unwrap().kanban_cards.is_empty());
+        other.unlock().unwrap();
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .expect("update_at finishes once the lock is free")
+            .unwrap();
+        writer.join().unwrap();
+        let st = load_path(&path).unwrap();
+        assert!(st.kanban_cards.iter().any(|c| c.id == "c-locked"));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(lock_path(&path));
+    }
+
+    #[test]
+    fn update_releases_the_file_lock_on_err() {
+        let path = temp_state();
+        let err: Result<(), String> = update_at(&path, |_| Err("nope".into()));
+        assert_eq!(err.unwrap_err(), "nope");
+        let probe = std::fs::OpenOptions::new()
+            .write(true)
+            .open(lock_path(&path))
+            .unwrap();
+        probe.try_lock().expect("the Err path released the lock");
+        let _ = std::fs::remove_file(lock_path(&path));
+    }
+
+    #[test]
+    fn update_takes_mutex_then_file_lock() {
+        let src = include_str!("io.rs");
+        let body = fn_body(src, "pub fn update<T>(");
+        let mutex = body.find("write_lock()").expect("mutex");
+        let file = body.find("lock_state_file(").expect("file lock");
+        let load = body.find("load_state(").expect("load");
+        assert!(mutex < file && file < load, "{body}");
+        let at = fn_body(src, "pub(crate) fn update_at<T>(");
+        assert!(at.find("lock_state_file(").unwrap() < at.find("load_path(").unwrap());
+    }
+
     #[test]
     fn pickup_race_keeps_run_row_200() {
         let path = temp_state();

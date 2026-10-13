@@ -60,6 +60,42 @@ pub(crate) fn write_lock() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// `<state file>.lock` — `state.json.lock` beside `state.json`.
+pub(crate) fn lock_path(path: &std::path::Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".lock");
+    PathBuf::from(name)
+}
+
+/// OS file lock on `<path>.lock`, held until drop. The in-process mutex
+/// cannot stop another process; this does. Always taken after `write_lock`.
+pub(crate) struct StateFileLock(std::fs::File);
+
+impl Drop for StateFileLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+pub(crate) fn lock_state_file(path: &std::path::Path) -> Result<StateFileLock, String> {
+    let lock = lock_path(path);
+    if let Some(dir) = lock.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    }
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true).write(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let f = opts
+        .open(&lock)
+        .map_err(|e| format!("open {}: {e}", lock.display()))?;
+    f.lock().map_err(|e| format!("lock {}: {e}", lock.display()))?;
+    Ok(StateFileLock(f))
+}
+
 std::thread_local! {
     static IN_UPDATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -71,9 +107,10 @@ impl Drop for UpdateFlag {
     }
 }
 
-/// The only write helper. Holds the process-wide lock across load, `f`,
-/// and save. `f` must not call `update` again (the lock is not reentrant).
-/// An unchanged state skips the disk write.
+/// The only write helper. Holds the process-wide lock, then the
+/// `state.json.lock` file lock, across load, `f`, and save. `f` must not
+/// call `update` again (the lock is not reentrant). An unchanged state
+/// skips the disk write.
 pub fn update<T>(
     app: &tauri::AppHandle,
     f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
@@ -84,6 +121,7 @@ pub fn update<T>(
     let _guard = write_lock();
     IN_UPDATE.with(|c| c.set(true));
     let _flag = UpdateFlag;
+    let _file = lock_state_file(&state_path(app)?)?;
     let mut st = load_state(app)?;
     let before = serde_json::to_string(&st).ok();
     let out = f(&mut st)?;
@@ -99,6 +137,7 @@ pub(crate) fn update_at<T>(
     path: &std::path::Path,
     f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
 ) -> Result<T, String> {
+    let _file = lock_state_file(path)?;
     let mut st = load_path(path)?;
     let before = serde_json::to_string(&st).ok();
     let out = f(&mut st)?;
