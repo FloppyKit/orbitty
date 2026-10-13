@@ -32,17 +32,19 @@ pub(crate) fn load_path(path: &std::path::Path) -> Result<PersistedState, String
     }
 }
 
-/// Disk write. Private: every caller goes through [`update`] so a stale
-/// snapshot cannot land between another writer's load and save.
-pub(crate) fn save_state(app: &tauri::AppHandle, state: &PersistedState) -> Result<(), String> {
-    let path = state_path(app)?;
-    save_path(&path, state)
+/// Disk write. Every caller goes through [`update`] so a stale snapshot
+/// cannot land between another writer's load and save.
+pub(crate) fn save_path(path: &std::path::Path, state: &PersistedState) -> Result<(), String> {
+    write_canonical(path, state.clone()).map(|_| ())
 }
 
-pub(crate) fn save_path(path: &std::path::Path, state: &PersistedState) -> Result<(), String> {
+/// Returns the state exactly as written, which is what history logs.
+fn write_canonical(
+    path: &std::path::Path,
+    mut state: PersistedState,
+) -> Result<PersistedState, String> {
     // Every writer hits this door. Canonicalize links here so a board
     // window's whole-state save keeps them and a hostile scheme never lands.
-    let mut state = state.clone();
     crate::card_links::canonicalize_state_links(&mut state)?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
@@ -51,7 +53,7 @@ pub(crate) fn save_path(path: &std::path::Path, state: &PersistedState) -> Resul
     let text = serde_json::to_string_pretty(&state).map_err(|e| format!("serialize: {e}"))?;
     std::fs::write(&tmp, text).map_err(|e| format!("write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| format!("rename to {}: {e}", path.display()))?;
-    Ok(())
+    Ok(state)
 }
 
 pub(crate) fn write_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -98,6 +100,7 @@ pub(crate) fn lock_state_file(path: &std::path::Path) -> Result<StateFileLock, S
 
 std::thread_local! {
     static IN_UPDATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static ACTOR: std::cell::Cell<&'static str> = const { std::cell::Cell::new("app") };
 }
 
 pub(crate) struct UpdateFlag;
@@ -107,10 +110,35 @@ impl Drop for UpdateFlag {
     }
 }
 
+/// Saves made by `f` on this thread log `actor` in history. Nests: the
+/// outer actor is back when `f` returns or panics. Default `app`.
+pub fn with_actor<T>(actor: &'static str, f: impl FnOnce() -> T) -> T {
+    let _scope = actor_scope(actor);
+    f()
+}
+
+/// `with_actor` for a whole function body: the actor holds until drop.
+#[must_use]
+pub(crate) struct ActorScope(&'static str);
+impl Drop for ActorScope {
+    fn drop(&mut self) {
+        ACTOR.with(|a| a.set(self.0));
+    }
+}
+
+pub(crate) fn actor_scope(actor: &'static str) -> ActorScope {
+    ActorScope(ACTOR.with(|a| a.replace(actor)))
+}
+
+pub(crate) fn current_actor() -> &'static str {
+    ACTOR.with(|a| a.get())
+}
+
 /// The only write helper. Holds the process-wide lock, then the
-/// `state.json.lock` file lock, across load, `f`, and save. `f` must not
-/// call `update` again (the lock is not reentrant). An unchanged state
-/// skips the disk write.
+/// `state.json.lock` file lock, across load, `f`, save and the history
+/// lines. `f` must not call `update` again (the lock is not reentrant).
+/// An unchanged state skips the disk write. A history failure never fails
+/// the save.
 pub fn update<T>(
     app: &tauri::AppHandle,
     f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
@@ -121,15 +149,49 @@ pub fn update<T>(
     let _guard = write_lock();
     IN_UPDATE.with(|c| c.set(true));
     let _flag = UpdateFlag;
-    let _file = lock_state_file(&state_path(app)?)?;
-    let mut st = load_state(app)?;
-    let before = serde_json::to_string(&st).ok();
-    let out = f(&mut st)?;
-    let after = serde_json::to_string(&st).ok();
-    if before != after {
-        save_state(app, &st)?;
+    let path = state_path(app)?;
+    let _file = lock_state_file(&path)?;
+    let (out, saved) = change_and_save(&path, f)?;
+    if let Some((before, after)) = saved {
+        crate::relay::history::record_best(app, &before, &after);
     }
     Ok(out)
+}
+
+/// Load, change, save. `Some` carries the board before `f` and the state
+/// as written, only when the save happened.
+fn change_and_save<T>(
+    path: &std::path::Path,
+    f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
+) -> Result<(T, Option<(crate::relay::history::Snapshot, PersistedState)>), String> {
+    let mut st = load_path(path)?;
+    let before = serde_json::to_string(&st).ok();
+    let board = crate::relay::history::Snapshot::of(&st);
+    let out = f(&mut st)?;
+    let after = serde_json::to_string(&st).ok();
+    if before == after {
+        return Ok((out, None));
+    }
+    let written = write_canonical(path, st)?;
+    Ok((out, Some((board, written))))
+}
+
+/// Reads `state.json` under the same two locks as [`update`], so `f` sees
+/// a whole save and no save lands while it runs.
+pub(crate) fn read_locked<T>(
+    app: &tauri::AppHandle,
+    f: impl FnOnce(&std::path::Path, &PersistedState) -> Result<T, String>,
+) -> Result<T, String> {
+    if IN_UPDATE.with(|c| c.get()) {
+        return Err("state read re-entered an update".into());
+    }
+    let _guard = write_lock();
+    IN_UPDATE.with(|c| c.set(true));
+    let _flag = UpdateFlag;
+    let path = state_path(app)?;
+    let _file = lock_state_file(&path)?;
+    let st = load_path(&path)?;
+    f(&path, &st)
 }
 
 #[cfg(test)]
@@ -138,12 +200,31 @@ pub(crate) fn update_at<T>(
     f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
 ) -> Result<T, String> {
     let _file = lock_state_file(path)?;
-    let mut st = load_path(path)?;
-    let before = serde_json::to_string(&st).ok();
-    let out = f(&mut st)?;
-    let after = serde_json::to_string(&st).ok();
-    if before != after {
-        save_path(path, &st)?;
+    change_and_save(path, f).map(|(out, _)| out)
+}
+
+/// [`update_at`] plus the history lines `update` writes, unsigned, into
+/// `events`.
+#[cfg(test)]
+pub(crate) fn update_at_logged<T>(
+    path: &std::path::Path,
+    events: &std::path::Path,
+    f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
+) -> Result<T, String> {
+    update_at_signed(path, events, &crate::relay::history::unsigned, f)
+}
+
+#[cfg(test)]
+pub(crate) fn update_at_signed<T>(
+    path: &std::path::Path,
+    events: &std::path::Path,
+    ident: crate::relay::history::Ident,
+    f: impl FnOnce(&mut PersistedState) -> Result<T, String>,
+) -> Result<T, String> {
+    let _file = lock_state_file(path)?;
+    let (out, saved) = change_and_save(path, f)?;
+    if let Some((before, after)) = saved {
+        crate::relay::history::record_at(events, &before, &after, ident);
     }
     Ok(out)
 }

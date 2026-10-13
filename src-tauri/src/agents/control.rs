@@ -235,7 +235,7 @@ fn reply_err(id: &Value, code: i32, msg: &str) -> Value {
 
 fn handle_conn(stream: UnixStream, app: tauri::AppHandle) {
     let reply = match read_request(&stream) {
-        Ok(req) => dispatch(&app, req),
+        Ok(req) => crate::state::with_actor("ctl", || dispatch(&app, req)),
         Err((code, msg)) => reply_err(&Value::Null, code, &msg),
     };
     let mut line = serde_json::to_string(&reply).unwrap_or_else(|_| {

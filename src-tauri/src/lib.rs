@@ -738,6 +738,15 @@ fn set_peer_chrome(app: tauri::AppHandle, on: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Sync commands run inside the handler call, so their saves log `user`.
+/// Async commands and threads they spawn keep the thread's own actor.
+fn as_user<F>(handler: F) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static
+where
+    F: Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static,
+{
+    move |invoke| state::with_actor("user", || handler(invoke))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let context = tauri::generate_context!();
@@ -753,7 +762,7 @@ pub fn run() {
                 drawers::clear_pane_mounted(webview.label());
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(as_user(tauri::generate_handler![
             list_windows,
             focus_window,
             minimize_window,
@@ -891,8 +900,10 @@ pub fn run() {
             card_links::list_link_approvals,
             card_links::remove_link_approval,
             card_links::clear_link_approvals,
-        ])
+        ]))
         .setup(|app| {
+            // Before any boot save, so a fold from it covers every line.
+            crate::relay::history::boot_checkpoint(app.handle());
             #[cfg(target_os = "macos")]
             crate::windows::install_rail_mouse_buttons(app.handle().clone());
             // one-time 0–4 → 1–5 checkin shift

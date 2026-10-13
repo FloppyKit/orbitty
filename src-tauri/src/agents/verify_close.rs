@@ -129,11 +129,13 @@ pub fn arm_launch(app: AppHandle, card_id: String, hint: &LiveHint) {
         .name("orbitty-verify-close".into())
         .spawn(move || {
             let card = guard.0.clone();
-            let verdict = match wait_for(&writer) {
-                Err(why) => Verdict::Fail(why),
-                Ok(()) => run_bot(&app, &card),
-            };
-            finish(&app, &card, verdict);
+            crate::state::with_actor("agent", || {
+                let verdict = match wait_for(&writer) {
+                    Err(why) => Verdict::Fail(why),
+                    Ok(()) => run_bot(&app, &card),
+                };
+                finish(&app, &card, verdict);
+            })
         });
 }
 
@@ -148,11 +150,13 @@ pub fn arm(app: AppHandle, card_id: String, pid_file: Option<PathBuf>) {
         .name("orbitty-verify-close".into())
         .spawn(move || {
             let card = guard.0.clone();
-            let verdict = match wait_writer(pid_file.as_deref()) {
-                Err(why) => Verdict::Fail(why),
-                Ok(()) => run_bot(&app, &card),
-            };
-            finish(&app, &card, verdict);
+            crate::state::with_actor("agent", || {
+                let verdict = match wait_writer(pid_file.as_deref()) {
+                    Err(why) => Verdict::Fail(why),
+                    Ok(()) => run_bot(&app, &card),
+                };
+                finish(&app, &card, verdict);
+            })
         });
 }
 

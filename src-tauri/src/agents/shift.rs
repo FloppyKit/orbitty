@@ -81,7 +81,7 @@ pub fn boot(app: &tauri::AppHandle) {
         .spawn(move || loop {
             std::thread::sleep(Duration::from_secs(TICK_SECS));
             if WANT.load(Ordering::SeqCst) {
-                let _ = tick(&handle);
+                let _ = crate::state::with_actor("shift", || tick(&handle));
             }
         });
 }

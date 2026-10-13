@@ -349,9 +349,11 @@ pub fn spawn_fire_and_attach(
     let _ = std::thread::Builder::new()
         .name("orbitty-doing-fx".into())
         .spawn(move || {
-            fire_on_moves(&app, &before, &after);
-            #[cfg(unix)]
-            crate::agent_runs::attach_on_moves(&app, &before, &after);
+            crate::state::with_actor("agent", || {
+                fire_on_moves(&app, &before, &after);
+                #[cfg(unix)]
+                crate::agent_runs::attach_on_moves(&app, &before, &after);
+            })
         });
 }
 

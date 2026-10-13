@@ -318,10 +318,10 @@ include_str!("merge.rs")
         let body = fn_body(src, "pub fn update<T>(");
         let mutex = body.find("write_lock()").expect("mutex");
         let file = body.find("lock_state_file(").expect("file lock");
-        let load = body.find("load_state(").expect("load");
+        let load = body.find("change_and_save(").expect("load");
         assert!(mutex < file && file < load, "{body}");
         let at = fn_body(src, "pub(crate) fn update_at<T>(");
-        assert!(at.find("lock_state_file(").unwrap() < at.find("load_path(").unwrap());
+        assert!(at.find("lock_state_file(").unwrap() < at.find("change_and_save(").unwrap());
     }
 
     #[test]
@@ -907,20 +907,36 @@ include_str!("merge.rs")
             update_file(&path, |_| Ok(())).unwrap();
             noop.push(t.elapsed().as_secs_f64() * 1000.0);
         }
+        // The app's signed path: key read from disk per line, then sign.
+        let dir = path.parent().unwrap().join(format!(
+            "bench-keys-{}",
+            std::process::id()
+        ));
+        crate::event_keys::load_or_create_in(&dir).unwrap();
+        let events = dir.join("events.jsonl");
+        let sign = |at: u64, kind: u64, tags: &[[String; 2]], content: &str| {
+            let key = crate::event_keys::load_or_create_in(&dir).unwrap();
+            let s = crate::event_keys::sign_with(&key, at, kind, tags, content).unwrap();
+            (s.id, s.pubkey, s.sig)
+        };
         let mut title = Vec::new();
         for i in 0..runs {
             let t = std::time::Instant::now();
-            update_file(&path, |st| {
+            let _g = write_lock();
+            update_at_signed(&path, &events, &sign, |st| {
                 st.kanban_cards[7].title = format!("Renamed {i}");
                 Ok(())
             })
             .unwrap();
             title.push(t.elapsed().as_secs_f64() * 1000.0);
         }
+        let lines = std::fs::read_to_string(&events).unwrap().lines().count();
+        assert_eq!(lines, runs);
         let (nm, np) = median_p95(noop);
         let (tm, tp) = median_p95(title);
-        println!("fixture bytes={bytes} cards=626 runs={runs}");
+        println!("fixture bytes={bytes} cards=626 runs={runs} history lines={lines}");
         println!("noop  median={nm:.2}ms p95={np:.2}ms");
         println!("title median={tm:.2}ms p95={tp:.2}ms");
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
     }

@@ -336,7 +336,9 @@ fn paint(app: &tauri::AppHandle, card_id: Option<&str>, state: &str) {
     if let Some(r) = after.agent_runs.iter_mut().find(|r| r.card_id == cid) {
         r.state = state.into();
     }
-    if crate::board::save_with_events(app, &before, &after).is_ok() {
+    if crate::state::with_actor("agent", || crate::board::save_with_events(app, &before, &after))
+        .is_ok()
+    {
         crate::event_log::append_best(
             app,
             "herdr-watch",

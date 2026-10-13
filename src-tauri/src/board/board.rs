@@ -921,7 +921,11 @@ pub fn needed_open(
     };
     let mut after = before.clone();
     after.kanban_cards.push(card.clone());
-    save_with_events(app, &before, &after)?;
+    if ruled.is_some() {
+        crate::state::with_actor("rule", || save_with_events(app, &before, &after))?;
+    } else {
+        save_with_events(app, &before, &after)?;
+    }
     event_log::append_best(
         app,
         "needed-open",

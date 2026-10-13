@@ -515,6 +515,7 @@ pub fn agent_pickup(
     name: Option<&str>,
     card_id: Option<&str>,
 ) -> Result<Value, String> {
+    let _actor = crate::state::actor_scope("agent");
     let before = crate::state::load_state(app)?;
     let agent = if let Some(id) = id {
         before

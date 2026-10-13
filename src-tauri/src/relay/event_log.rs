@@ -25,7 +25,7 @@ fn warn_once(why: &str) {
     }
 }
 
-fn events_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn events_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_data_dir()
@@ -34,7 +34,7 @@ fn events_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("events.jsonl"))
 }
 
-fn unix_now() -> u64 {
+pub(crate) fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -68,7 +68,7 @@ fn fill_random(buf: &mut [u8]) {
 }
 
 /// uuid-v4 as 32 lowercase hex chars (no dashes, no 0x).
-fn uuid_v4_hex() -> String {
+pub(crate) fn uuid_v4_hex() -> String {
     let mut b = [0u8; 16];
     fill_random(&mut b);
     b[6] = (b[6] & 0x0f) | 0x40; // version 4
@@ -96,6 +96,31 @@ pub struct Appended {
     pub id: String,
     pub created_at: u64,
     pub trace_id: String,
+}
+
+/// One event line through the shared writer, same shape as `append`.
+/// `ident` is (id, pubkey, sig). Returns the id.
+pub(crate) fn write_event(
+    path: &Path,
+    created_at: u64,
+    kind: u64,
+    tags: Vec<[String; 2]>,
+    content: String,
+    ident: (String, String, String),
+) -> Result<String, String> {
+    let (id, pubkey, sig) = ident;
+    let line = EventLine {
+        id,
+        pubkey,
+        created_at,
+        kind,
+        tags,
+        content,
+        sig,
+    };
+    let text = serde_json::to_string(&line).map_err(|e| format!("serialize event: {e}"))?;
+    write_line(path, &text).map_err(|e| format!("append {}: {e}", path.display()))?;
+    Ok(line.id)
 }
 
 fn write_line(path: &Path, line: &str) -> std::io::Result<()> {
@@ -523,7 +548,20 @@ fn identity(
     tags: &[[String; 2]],
     content: &str,
 ) -> (String, String, String) {
-    if !crate::event_keys::signed_locally(app) {
+    identity_as(app, crate::event_keys::signed_locally(app), created_at, kind, tags, content)
+}
+
+/// [`identity`] with the Settings flag already in hand, so a caller that
+/// holds the loaded state does not re-read state.json per line.
+pub(crate) fn identity_as(
+    app: &tauri::AppHandle,
+    signed: bool,
+    created_at: u64,
+    kind: u64,
+    tags: &[[String; 2]],
+    content: &str,
+) -> (String, String, String) {
+    if !signed {
         return (uuid_v4_hex(), String::new(), String::new());
     }
     match crate::event_keys::sign_new(app, created_at, kind, tags, content) {
