@@ -740,6 +740,11 @@ fn set_peer_chrome(app: tauri::AppHandle, on: bool) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    // Must stay first: a second copy exits here before it binds, spawns,
+    // registers or writes anything.
+    #[cfg(not(test))]
+    state::instance::guard(&context.config().identifier);
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -1226,7 +1231,7 @@ pub fn run() {
 
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building Orbitty")
         .run(|app_handle, event| {
             match event {

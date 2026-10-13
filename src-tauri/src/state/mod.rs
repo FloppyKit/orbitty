@@ -11,6 +11,7 @@ mod models_companion;
 mod models_board;
 mod io;
 mod merge;
+pub(crate) mod instance;
 
 pub(crate) use rail_geom::*;
 pub(crate) use models::*;
