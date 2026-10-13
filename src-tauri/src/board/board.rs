@@ -998,6 +998,35 @@ pub fn needed_answer(
     Ok(after.kanban_cards[idx].clone())
 }
 
+/// Answer every open Needed titled `title` with the same two fields as
+/// [`needed_answer`], but log no `needed-answer`: that line is what the
+/// needed-watch dispatches a clerk on, and an app notice has nothing to
+/// dispatch. Returns how many closed.
+pub fn needed_close_quiet(
+    app: &tauri::AppHandle,
+    title: &str,
+    answer: &str,
+) -> Result<usize, String> {
+    let before = crate::state::load_state(app)?;
+    let now = now_secs();
+    let mut after = before.clone();
+    let mut n = 0;
+    for c in after.kanban_cards.iter_mut().filter(|c| {
+        c.kind.as_deref() == Some("needed")
+            && c.needed_state.as_deref() == Some("open")
+            && c.title.trim() == title
+    }) {
+        c.needed_answer = Some(answer.to_string());
+        c.needed_state = Some("answered".into());
+        c.last_touched_at = now;
+        n += 1;
+    }
+    if n > 0 {
+        crate::state::with_actor("app", || save_with_events(app, &before, &after))?;
+    }
+    Ok(n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::dispatch_kanban_open;

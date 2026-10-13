@@ -811,3 +811,216 @@ fn a_stale_window_save_cannot_undo_a_rewind() {
     let a = merged.kanban_cards.iter().find(|c| c.id == "c-a").unwrap();
     assert_eq!(a.title, "Alpha later", "without the bump the tie takes the stale window");
 }
+
+fn drift_of(run: &Run) -> Drift {
+    drift_in(&run.st(), &run.dir, &read_since_checkpoint(&run.events).unwrap()).unwrap()
+}
+
+fn outside_write(run: &Run, f: impl FnOnce(&mut PersistedState)) {
+    let mut st = run.st();
+    f(&mut st);
+    save_path(&run.state, &st).unwrap();
+}
+
+fn named(id: &str, title: &str) -> Named {
+    Named {
+        id: id.into(),
+        title: title.into(),
+    }
+}
+
+#[test]
+fn drift_finds_fields_missing_unknown_and_planets() {
+    let run = Run::new("drift", &start_state());
+    run.checkpoint();
+    run.step(|st| card_mut(st, "c-a").title = "Alpha 2".into());
+    run.step(|st| st.projects.push(planet("p-3", "Moon")));
+    assert!(drift_of(&run).is_empty());
+
+    outside_write(&run, |st| {
+        card_mut(st, "c-a").title = "Outside".into();
+        card_mut(st, "c-a").last_touched_at = 9e9;
+        st.kanban_cards.retain(|c| c.id != "c-b");
+        st.kanban_cards.push(card("c-out", "From outside", "p-1"));
+        st.projects[1].name = "Red".into();
+        st.projects.retain(|p| p.id != "p-3");
+        st.projects.push(planet("p-out", "Elsewhere"));
+    });
+    let d = drift_of(&run);
+    assert_eq!(
+        d.cards,
+        vec![ItemDrift {
+            id: "c-a".into(),
+            title: "Outside".into(),
+            fields: vec![FieldDrift {
+                field: "title".into(),
+                history: json!("Alpha 2"),
+                now: json!("Outside"),
+            }],
+        }],
+        "lastTouchedAt is not a rollback field"
+    );
+    assert_eq!(d.missing, vec![named("c-b", "Beta")]);
+    assert_eq!(d.unknown, vec![named("c-out", "From outside")]);
+    assert_eq!(d.planets[0].fields[0].field, "name");
+    assert_eq!(d.planets_missing, vec![named("p-3", "Moon")]);
+    assert_eq!(d.planets_unknown, vec![named("p-out", "Elsewhere")]);
+    assert_eq!(d.headline(), "3 cards and 3 planets differ from the saved history");
+    assert_eq!(
+        d.counts(),
+        json!({"cards": 1, "missing": 1, "unknown": 1, "planets": 1, "planetsMissing": 1, "planetsUnknown": 1})
+    );
+
+    let one = Drift {
+        missing: vec![named("c-b", "Beta")],
+        ..Drift::default()
+    };
+    assert!(one.why().starts_with("1 card differs from the saved history (for example \"Beta\"). "));
+}
+
+/// The 2026-10-13 shape: 40 cards lose their links to a writer outside
+/// Orbitty, with no history lines.
+#[test]
+fn incident_forty_cards_lose_links_and_repair_restores_them() {
+    let mut start = PersistedState::default();
+    start.projects.push(planet("p-1", "Home"));
+    for i in 0..60 {
+        let mut c = card(&format!("c-{i:02}"), &format!("Card {i:02}"), "p-1");
+        if i < 40 {
+            c.links = Some(vec![
+                CardLink {
+                    url: format!("https://example.com/{i}"),
+                    label: Some(format!("doc {i}")),
+                },
+                CardLink {
+                    url: format!("file:///tmp/notes-{i}.md"),
+                    label: None,
+                },
+            ]);
+        }
+        start.kanban_cards.push(c);
+    }
+    let run = Run::new("incident", &start);
+    run.checkpoint();
+    run.step(|st| card_mut(st, "c-03").notes = Some("edited in the app".into()));
+    run.step(|st| card_mut(st, "c-50").status = "doing".into());
+    let links = |st: &PersistedState| -> Vec<String> {
+        st.kanban_cards
+            .iter()
+            .map(|c| serde_json::to_string(&c.links).unwrap())
+            .collect()
+    };
+    let before = run.st();
+    let before_view = view_bytes(&run.board());
+    let n = run.lines().len();
+
+    outside_write(&run, |st| {
+        for c in &mut st.kanban_cards {
+            c.links = None;
+        }
+    });
+    assert_eq!(run.lines().len(), n, "the outside writer leaves no lines");
+
+    let d = drift_of(&run);
+    let ids: Vec<String> = d.cards.iter().map(|c| c.id.clone()).collect();
+    assert_eq!(ids, (0..40).map(|i| format!("c-{i:02}")).collect::<Vec<_>>());
+    for c in &d.cards {
+        assert_eq!(c.fields.len(), 1);
+        assert_eq!((c.fields[0].field.as_str(), &c.fields[0].now), ("links", &json!(null)));
+    }
+    assert!(d.missing.is_empty() && d.unknown.is_empty());
+    assert!(d.planets.is_empty() && d.planets_missing.is_empty() && d.planets_unknown.is_empty());
+    assert_eq!(DRIFT_TITLE, "Board differs from its history");
+    assert_eq!(
+        d.why(),
+        "40 cards differ from the saved history (for example \"Card 00\", \"Card 01\", \
+         \"Card 02\": links). Something outside Orbitty, or an older Orbitty, wrote the board. \
+         Open Settings → History to repair it or keep it as it is."
+    );
+
+    let plan = apply_run(&run, &Req::Repair).unwrap();
+    assert_eq!(plan.cards.len(), 40);
+    assert!(plan.revive.is_empty() && plan.added.is_empty() && plan.skipped.is_empty());
+    assert_eq!(links(&run.st()), links(&before), "links back byte-equal");
+    assert_eq!(view_bytes(&run.board()), before_view);
+    assert!(drift_of(&run).is_empty(), "the next drift is empty");
+
+    let lines = run.lines();
+    let new = &lines[n..];
+    assert_eq!(new[0].content["reason"], "pre-repair");
+    assert_eq!(new.len(), 41);
+    assert!(new.iter().all(|l| l.actor == "repair"));
+    assert!(new[1..].iter().all(|l| l.content["fields"].as_object().unwrap().keys().eq(["links"])));
+}
+
+#[test]
+fn keep_makes_the_board_the_history() {
+    let run = Run::new("keep", &start_state());
+    run.checkpoint();
+    outside_write(&run, |st| card_mut(st, "c-a").notes = None);
+    assert_eq!(drift_of(&run).cards.len(), 1);
+    let st = run.st();
+    write_checkpoint_in(&run.dir, &run.events, &st, "user", Some(KEEP), &unsigned).unwrap();
+    assert!(drift_of(&run).is_empty());
+    assert_eq!(run.lines().last().unwrap().content["reason"], "keep");
+    assert!(last_rewind(&run.lines()).is_none(), "keep is not a rewind to undo");
+}
+
+#[test]
+fn launch_checkpoints_only_a_board_that_matches() {
+    let fx = big_fixture("launch", 30, 3, AUTO_CHECKPOINT_LINES + 1);
+    let st = load_path(&fx.state).unwrap();
+    let cps = |fx: &Fixture| read_lines(&fx.events).unwrap().iter().filter(|l| l.kind == KIND_CHECKPOINT).count();
+    let (d, wrote) = launch_in(&st, &fx.dir, &fx.events, &unsigned).unwrap();
+    assert!(d.is_empty() && wrote);
+    assert_eq!(cps(&fx), 2);
+    let (_, wrote) = launch_in(&st, &fx.dir, &fx.events, &unsigned).unwrap();
+    assert!(!wrote, "no lines follow the new one");
+
+    let fx = big_fixture("launch-drift", 30, 3, AUTO_CHECKPOINT_LINES + 1);
+    let mut st = load_path(&fx.state).unwrap();
+    st.kanban_cards[0].title = "Changed outside".into();
+    let (d, wrote) = launch_in(&st, &fx.dir, &fx.events, &unsigned).unwrap();
+    assert_eq!((d.cards.len(), wrote), (1, false));
+    assert_eq!(cps(&fx), 1, "a board that differs is never kept without asking");
+    let _ = std::fs::remove_dir_all(&fx.dir);
+}
+
+#[test]
+fn drift_closes_its_card_quietly_and_runs_after_setup() {
+    let board = include_str!("../board/board.rs");
+    let start = board.find("pub fn needed_close_quiet(").unwrap();
+    let body = &board[start..start + board[start..].find("\n}\n").unwrap()];
+    assert!(!body.contains("needed-answer"), "no clerk is dispatched");
+    assert!(body.contains("with_actor(\"app\", || save_with_events("));
+    let me = include_str!("rewind.rs");
+    for (sig, answer) in [("pub(crate) fn repair(", "REPAIRED"), ("pub(crate) fn keep(", "KEPT")] {
+        let start = me.find(sig).unwrap();
+        let body = &me[start..start + me[start..].find("\n}\n").unwrap()];
+        assert!(body.contains(&format!("needed_close_quiet(app, DRIFT_TITLE, {answer})")), "{sig}");
+    }
+    assert!(me.contains("const REPAIRED: &str = \"Repaired from history\";"));
+    assert!(me.contains("const KEPT: &str = \"Kept the board as it is\";"));
+    let launch = &me[me.find("pub(crate) fn launch(").unwrap()..];
+    assert!(launch.contains("std::thread::Builder::new()"));
+    let lib = include_str!("../lib.rs");
+    let setup = &lib[lib.find(".setup(|app| {").unwrap()..];
+    let boot = setup.find("history::boot_checkpoint(app.handle())").unwrap();
+    assert!(boot < setup.find("crate::relay::rewind::launch(app.handle());").unwrap());
+}
+
+/// Gate: the launch check on the 5,000-line fixture, 650 cards.
+/// `cargo test --lib drift_timing -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn drift_timing_5k_lines() {
+    let fx = big_fixture("drift-timing", 650, 19, 5_000);
+    let ms = time(15, || {
+        let st = load_path(&fx.state).unwrap();
+        let (d, _) = launch_in(&st, &fx.dir, &fx.events, &unsigned).unwrap();
+        assert!(d.is_empty());
+    });
+    println!("launch drift check, 5,000 lines: median {ms:.2}ms");
+    assert!(ms <= 300.0, "{ms}");
+    let _ = std::fs::remove_dir_all(&fx.dir);
+}

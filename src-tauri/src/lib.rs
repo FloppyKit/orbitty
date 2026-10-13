@@ -916,6 +916,7 @@ pub fn run() {
             // (never overwrites a note Matt typed). Best-effort.
             board::backfill_go_card_notes(app.handle());
             crate::task::boot(app.handle());
+            crate::relay::rewind::launch(app.handle());
 
             // Local Unix control socket (0600)
             // serving the same handlers as invoke. Bind failure is logged

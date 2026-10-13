@@ -480,6 +480,194 @@ impl Own {
     }
 }
 
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldDrift {
+    pub field: String,
+    pub history: Value,
+    pub now: Value,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemDrift {
+    pub id: String,
+    pub title: String,
+    pub fields: Vec<FieldDrift>,
+}
+
+/// Where the board on disk and its history disagree. `missing` is in the
+/// history but not on disk, `unknown` is on disk but never in the history.
+/// `missed_write` is set when this process failed to write history at
+/// least once, so a difference may be a real change.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Drift {
+    pub cards: Vec<ItemDrift>,
+    pub missing: Vec<Named>,
+    pub unknown: Vec<Named>,
+    pub planets: Vec<ItemDrift>,
+    pub planets_missing: Vec<Named>,
+    pub planets_unknown: Vec<Named>,
+    pub missed_write: bool,
+}
+
+fn count(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+impl Drift {
+    pub fn is_empty(&self) -> bool {
+        self.card_count() == 0 && self.planet_count() == 0
+    }
+
+    fn card_count(&self) -> usize {
+        self.cards.len() + self.missing.len() + self.unknown.len()
+    }
+
+    fn planet_count(&self) -> usize {
+        self.planets.len() + self.planets_missing.len() + self.planets_unknown.len()
+    }
+
+    /// `46 cards differ from the saved history`.
+    pub fn headline(&self) -> String {
+        let (c, p) = (self.card_count(), self.planet_count());
+        let mut parts = Vec::new();
+        if c > 0 {
+            parts.push(count(c, "card", "cards"));
+        }
+        if p > 0 {
+            parts.push(count(p, "planet", "planets"));
+        }
+        let verb = if c + p == 1 { "differs" } else { "differ" };
+        format!("{} {verb} from the saved history", parts.join(" and "))
+    }
+
+    /// The Needed card's why: the headline, up to three example titles and
+    /// the fields that differ, then what to do.
+    pub fn why(&self) -> String {
+        let (items, missing, unknown) = if self.card_count() > 0 {
+            (&self.cards, &self.missing, &self.unknown)
+        } else {
+            (&self.planets, &self.planets_missing, &self.planets_unknown)
+        };
+        let titles: Vec<String> = items
+            .iter()
+            .map(|i| &i.title)
+            .chain(missing.iter().chain(unknown).map(|n| &n.title))
+            .take(3)
+            .map(|t| format!("\"{t}\""))
+            .collect();
+        let names = if self.card_count() > 0 { CARD_FIELDS } else { PLANET_FIELDS };
+        let fields: Vec<&str> = names
+            .iter()
+            .copied()
+            .filter(|f| items.iter().any(|i| i.fields.iter().any(|d| d.field == *f)))
+            .collect();
+        let example = if fields.is_empty() {
+            titles.join(", ")
+        } else {
+            format!("{}: {}", titles.join(", "), fields.join(", "))
+        };
+        format!(
+            "{} (for example {example}). Something outside Orbitty, or an older Orbitty, \
+             wrote the board. Open Settings → History to repair it or keep it as it is.",
+            self.headline()
+        )
+    }
+
+    /// Counts only, for the `history-drift` log line.
+    pub fn counts(&self) -> Value {
+        serde_json::json!({
+            "cards": self.cards.len(),
+            "missing": self.missing.len(),
+            "unknown": self.unknown.len(),
+            "planets": self.planets.len(),
+            "planetsMissing": self.planets_missing.len(),
+            "planetsUnknown": self.planets_unknown.len(),
+        })
+    }
+}
+
+fn field_drift(now: &View, then: &View, names: &[&str]) -> Vec<FieldDrift> {
+    changes(now, then, names)
+        .into_iter()
+        .map(|c| FieldDrift {
+            field: c.field,
+            history: c.to,
+            now: c.from,
+        })
+        .collect()
+}
+
+/// Pure. Rollback fields on disk against `expected`, in disk order.
+pub fn drift(now: &PersistedState, expected: &Board) -> Drift {
+    let disk = history::board_of(&now.kanban_cards, &now.projects);
+    let mut d = Drift::default();
+    let mut seen = BTreeSet::new();
+    for c in &now.kanban_cards {
+        if !seen.insert(c.id.as_str()) {
+            continue;
+        }
+        let named = || Named {
+            id: c.id.clone(),
+            title: c.title.clone(),
+        };
+        match expected.cards.get(&c.id) {
+            Some(then) => {
+                let fields = field_drift(&disk.cards[&c.id], then, CARD_FIELDS);
+                if !fields.is_empty() {
+                    d.cards.push(ItemDrift {
+                        id: c.id.clone(),
+                        title: c.title.clone(),
+                        fields,
+                    });
+                }
+            }
+            None => d.unknown.push(named()),
+        }
+    }
+    for (id, then) in &expected.cards {
+        if !disk.cards.contains_key(id) {
+            d.missing.push(Named {
+                id: id.clone(),
+                title: text(then, "title"),
+            });
+        }
+    }
+    let mut seen = BTreeSet::new();
+    for p in &now.projects {
+        if !seen.insert(p.id.as_str()) {
+            continue;
+        }
+        match expected.projects.get(&p.id) {
+            Some(then) => {
+                let fields = field_drift(&disk.projects[&p.id], then, PLANET_FIELDS);
+                if !fields.is_empty() {
+                    d.planets.push(ItemDrift {
+                        id: p.id.clone(),
+                        title: p.name.clone(),
+                        fields,
+                    });
+                }
+            }
+            None => d.planets_unknown.push(Named {
+                id: p.id.clone(),
+                title: p.name.clone(),
+            }),
+        }
+    }
+    for (id, then) in &expected.projects {
+        if !disk.projects.contains_key(id) {
+            d.planets_missing.push(Named {
+                id: id.clone(),
+                title: text(then, "name"),
+            });
+        }
+    }
+    d
+}
+
 const PRE_REWIND: &str = "pre-rewind";
 const PRE_REPAIR: &str = "pre-repair";
 pub(crate) const KEEP: &str = "keep";
@@ -740,6 +928,101 @@ pub(crate) fn apply(app: &tauri::AppHandle, req: &Req) -> Result<Plan, String> {
         let _ = app.emit("state:changed", ());
     }
     Ok(plan)
+}
+
+pub const DRIFT_TITLE: &str = "Board differs from its history";
+const REPAIRED: &str = "Repaired from history";
+const KEPT: &str = "Kept the board as it is";
+
+/// Drift of `st` from the history that starts at the newest checkpoint in
+/// `lines` (from [`read_since_checkpoint`]). Empty when there is none.
+pub(crate) fn drift_in(st: &PersistedState, support: &Path, lines: &[HistoryLine]) -> Result<Drift, String> {
+    if lines.is_empty() {
+        return Ok(Drift::default());
+    }
+    let cps = load_anchor(support, lines, lines.len() - 1);
+    Ok(drift(st, &board_now(&cps, lines)?))
+}
+
+/// The launch check inside the save locks: drift, and when the board
+/// matches, a checkpoint once more than [`AUTO_CHECKPOINT_LINES`] follow
+/// the newest. A board that differs is never checkpointed here, since
+/// that would keep it without asking.
+pub(crate) fn launch_in(
+    st: &PersistedState,
+    support: &Path,
+    events: &Path,
+    ident: Ident,
+) -> Result<(Drift, bool), String> {
+    let lines = read_since_checkpoint(events)?;
+    let d = drift_in(st, support, &lines)?;
+    let wrote = d.is_empty() && needs_checkpoint(&lines);
+    if wrote {
+        history::write_checkpoint_in(support, events, st, "app", None, ident)?;
+    }
+    Ok((d, wrote))
+}
+
+/// `history.drift` and Settings "Check now".
+pub(crate) fn check(app: &tauri::AppHandle) -> Result<Drift, String> {
+    let events = super::event_log::events_path(app)?;
+    let mut d = crate::state::read_locked(app, |path, st| {
+        let support = path.parent().ok_or("state path has no folder")?;
+        drift_in(st, support, &read_since_checkpoint(&events)?)
+    })?;
+    d.missed_write = history::WARNED.load(std::sync::atomic::Ordering::Relaxed);
+    Ok(d)
+}
+
+/// After setup, on its own thread so the first window never waits. A board
+/// that differs opens one Needed card and logs one `history-drift` line
+/// with counts only.
+pub(crate) fn launch(app: &tauri::AppHandle) {
+    let app = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("history-drift".into())
+        .spawn(move || {
+            if let Err(e) = launch_on(&app) {
+                eprintln!("orbitty: history drift check: {e}");
+            }
+        });
+}
+
+fn launch_on(app: &tauri::AppHandle) -> Result<(), String> {
+    let events = super::event_log::events_path(app)?;
+    let (d, _) = crate::state::with_actor("app", || {
+        crate::state::read_locked(app, |path, st| {
+            let support = path.parent().ok_or("state path has no folder")?;
+            let signed = st.signed_locally;
+            launch_in(st, support, &events, &|at, kind, tags, content| {
+                super::event_log::identity_as(app, signed, at, kind, tags, content)
+            })
+        })
+    })?;
+    if d.is_empty() {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    crate::board::needed_open(app, DRIFT_TITLE, "", Some(&d.why()))?;
+    super::event_log::append_best(app, "history-drift", None, None, Some("app"), true, &d.counts());
+    Ok(())
+}
+
+/// Disk back to the history (actor `repair`), then the drift card closes.
+pub(crate) fn repair(app: &tauri::AppHandle) -> Result<Plan, String> {
+    let plan = apply(app, &Req::Repair)?;
+    #[cfg(unix)]
+    crate::board::needed_close_quiet(app, DRIFT_TITLE, REPAIRED)?;
+    Ok(plan)
+}
+
+/// The board as it is becomes the history: a checkpoint with reason
+/// `keep`, then the drift card closes.
+pub(crate) fn keep(app: &tauri::AppHandle) -> Result<history::CheckpointAck, String> {
+    let ack = history::checkpoint(app, Some(KEEP))?;
+    #[cfg(unix)]
+    crate::board::needed_close_quiet(app, DRIFT_TITLE, KEPT)?;
+    Ok(ack)
 }
 
 #[cfg(test)]

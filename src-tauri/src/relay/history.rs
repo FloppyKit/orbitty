@@ -50,7 +50,7 @@ pub const PLANET_FIELDS: &[&str] = &["name", "workspaceRoot"];
 
 pub(crate) const HISTORY_DIR: &str = "history";
 
-static WARNED: AtomicBool = AtomicBool::new(false);
+pub(crate) static WARNED: AtomicBool = AtomicBool::new(false);
 
 fn warn_once(why: &str) {
     if !WARNED.swap(true, Ordering::Relaxed) {
@@ -517,7 +517,6 @@ pub(crate) fn boot_checkpoint(app: &tauri::AppHandle) {
     }
 }
 
-#[allow(dead_code)] // No caller until HISTORY-REWIND.
 pub fn load_checkpoint(support: &Path, file: &str) -> Result<Checkpoint, String> {
     let path = support.join(file);
     let text =
@@ -647,7 +646,6 @@ fn row_view(name: &str, root: &Option<String>) -> View {
 }
 
 /// The rollback view of a saved state. First id wins, like [`diff`].
-#[allow(dead_code)] // No caller until HISTORY-REWIND.
 pub fn board_of(cards: &[KanbanCard], projects: &[Project]) -> Board {
     let mut b = Board::default();
     for p in projects {
@@ -724,7 +722,6 @@ fn apply(board: &mut Board, line: &HistoryLine) {
 /// `lines`), stopping after the line whose id is `stop_at`. A `stop_at` at
 /// or before the checkpoint line is the checkpoint itself. A tombstoned id
 /// stays gone until a later `add` revives it.
-#[allow(dead_code)] // No caller until HISTORY-REWIND.
 pub fn fold(checkpoint: &Checkpoint, lines: &[HistoryLine], stop_at: Option<&str>) -> Board {
     let mut board = Board::default();
     for p in &checkpoint.projects {
