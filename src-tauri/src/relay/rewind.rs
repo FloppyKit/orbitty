@@ -989,8 +989,16 @@ pub(crate) fn launch(app: &tauri::AppHandle) {
         });
 }
 
+/// A first pass without the save lock, so setup's own saves never wait on
+/// it. Only a board that seems to differ, or a due checkpoint, is checked
+/// again under the lock, where a save cannot land between reads.
 fn launch_on(app: &tauri::AppHandle) -> Result<(), String> {
     let events = super::event_log::events_path(app)?;
+    let lines = read_since_checkpoint(&events)?;
+    let st = crate::state::load_state(app)?;
+    if !needs_checkpoint(&lines) && drift_in(&st, &support_dir(app)?, &lines)?.is_empty() {
+        return Ok(());
+    }
     let (d, _) = crate::state::with_actor("app", || {
         crate::state::read_locked(app, |path, st| {
             let support = path.parent().ok_or("state path has no folder")?;

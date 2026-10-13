@@ -1003,6 +1003,9 @@ fn drift_closes_its_card_quietly_and_runs_after_setup() {
     assert!(me.contains("const KEPT: &str = \"Kept the board as it is\";"));
     let launch = &me[me.find("pub(crate) fn launch(").unwrap()..];
     assert!(launch.contains("std::thread::Builder::new()"));
+    let on = &me[me.find("fn launch_on(").unwrap()..];
+    let unlocked = on.find("crate::state::load_state(app)?").unwrap();
+    assert!(unlocked < on.find("crate::state::read_locked(").unwrap(), "first pass is lock-free");
     let lib = include_str!("../lib.rs");
     let setup = &lib[lib.find(".setup(|app| {").unwrap()..];
     let boot = setup.find("history::boot_checkpoint(app.handle())").unwrap();
