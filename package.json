@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "lint": "eslint src/lib/glass src/routes/+page.svelte",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri"
   },
@@ -27,9 +28,12 @@
     "@tauri-apps/cli": "^2",
     "@tsconfig/svelte": "^5.0.8",
     "@types/three": "^0.170.0",
+    "eslint": "^10.13.0",
+    "eslint-plugin-svelte": "^3.23.1",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "typescript": "~5.6.2",
+    "typescript-eslint": "^8.71.2",
     "vite": "^6.0.3"
   }
 }
