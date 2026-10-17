@@ -241,6 +241,10 @@ test("glass ancestors are not opaque", () => {
   for (const rel of ["src/lib/rail/rail-arch.css", "src/routes/+page.svelte"]) {
     assert.equal(src(rel).includes("rgb(28 28 32 / 0.94)"), false, rel);
   }
+  const page = src("src/routes/+page.svelte");
+  const tintRule = page.match(/:global\(html \[data-glass\]\) \{[^}]*\}/);
+  assert.ok(tintRule, "card tint is not limited to html:not(.glass-rt)");
+  assert.equal(tintRule[0].includes(":not(.glass-rt)"), false);
   const unmapped = subjectBodies(src("src/lib/rail/rail-arch.css"), "layer2-unmapped").join("\n");
   assert.match(unmapped, /background:\s*transparent/);
   assert.match(unmapped, /box-shadow:\s*none/);
@@ -296,6 +300,7 @@ test("glass card tint is the one source", () => {
   assert.equal(tint[0].includes("--panel-fill"), false);
   assert.equal(tint[0].includes("--glass-veil"), false);
   assert.equal(page.includes("color-mix(in srgb, var(--panel) 45%"), false);
+  assert.equal(src("src/lib/rail/rail-arch.css").includes("rgb(28 28 32 / 0.94)"), false);
   const cardRules: [string, string][] = [
     ["src/lib/board/board.css", ".b-card {"],
     ["src/lib/board/board.css", ".planet-col {"],

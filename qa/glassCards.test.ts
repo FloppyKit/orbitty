@@ -98,6 +98,7 @@ test("glass vibrancy material is HudWindow in dark and UnderWindowBackground in 
     rust,
     /if dark \{\s*MATERIAL_HUD_WINDOW\s*\} else \{\s*MATERIAL_UNDER_WINDOW_BACKGROUND\s*\}/,
   );
+  assert.match(rust, /fn material_for\(light: bool\)[\s\S]*?material_for_dark\(!light\)/);
   assert.match(
     src("src/lib/RailPage.svelte"),
     /set_vibrancy", \{ enabled: vibrancyWanted\(reduce\), light \}/,
