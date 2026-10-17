@@ -105,8 +105,7 @@
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
-    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
-    margin-right: 8px;
+    background: var(--panel-fill, var(--panel));
     padding: 4px 4px 8px;
   }
 
@@ -578,7 +577,7 @@
     flex-direction: column;
     border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     border-radius: 12px;
-    background: transparent;
+    background: var(--panel-fill, var(--panel));
     transition:
       border-color 0.12s,
       box-shadow 0.12s;
@@ -630,7 +629,7 @@
 
   .b-card {
     padding: 8px 10px;
-    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
+    background: var(--panel-fill, var(--panel));
     border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     border-radius: 8px;
     cursor: pointer;

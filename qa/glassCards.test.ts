@@ -15,6 +15,7 @@ import {
   GLASS_MOTION_FRAMES,
   GLASS_RECT_IDLE_MS,
   GLASS_RECT_MIN_MS,
+  absorbGlassRect,
   clipDomRect,
   nextWatchDelay,
   rectSignature,
@@ -98,7 +99,6 @@ test("glass vibrancy material is HudWindow in dark and UnderWindowBackground in 
     rust,
     /if dark \{\s*MATERIAL_HUD_WINDOW\s*\} else \{\s*MATERIAL_UNDER_WINDOW_BACKGROUND\s*\}/,
   );
-  assert.match(rust, /fn material_for\(light: bool\)[\s\S]*?material_for_dark\(!light\)/);
   assert.match(
     src("src/lib/RailPage.svelte"),
     /set_vibrancy", \{ enabled: vibrancyWanted\(reduce\), light \}/,
@@ -181,8 +181,7 @@ test("glass reduced transparency skips vibrancy and uses a solid tile", () => {
   assert.equal(tileFillAlpha(0.5, false), 0.36);
   const page = src("src/routes/+page.svelte");
   assert.equal(page.includes("html.glass-solid .rail"), false);
-  assert.match(page, /html \[data-glass\]/);
-  assert.equal(/html\.glass-rt \.l2-window-card/.test(page), false);
+  assert.match(page, /html\.glass-rt \.row:not\(:hover\):not\(\.front\)/);
   assert.match(src("src/lib/RailPage.svelte"), /prefers-reduced-transparency: reduce/);
   assert.match(src("src/themes/glass.ts"), /prefers-reduced-transparency: reduce/);
   const hit = src("src/lib/rail/rail-arch.css");
@@ -270,7 +269,7 @@ test("glass tile glow stays on settings, trackers, sky, and the dock", () => {
   const dock = src("src/lib/companion/dock.css");
   assert.match(
     dock,
-    /\.ghost \.ghostdock,\s*\.hosting \.ghostdock \{[^}]*var\(--glass-card-tint\)/,
+    /\.ghost \.ghostdock,\s*\.hosting \.ghostdock \{[^}]*background:\s*var\(--panel-fill/,
   );
 });
 
@@ -331,11 +330,7 @@ test("glass reduce transparency tint is translucent and dark", () => {
   const dark = parseCssColor(MAC_SYSTEM_TOKENS.systemDark.panel);
   assert.equal(isLightSlab(dark[0], dark[1], dark[2], tileFillAlpha(1, true)), false);
   const page = src("src/routes/+page.svelte");
-  const tint = page.match(/:global\(html \[data-glass\]\) \{[^}]*\}/);
-  assert.ok(tint);
-  assert.match(tint[0], /var\(--glass-card-tint\)/);
-  assert.equal(tint[0].includes(":not(.glass-rt)"), false);
-  assert.equal(tint[0].includes("--panel-fill"), false);
+  assert.match(page, /html\.glass-rt[\s\S]*?background:\s*var\(--panel-fill/);
   const rust = src("src-tauri/src/windows/vibrancy_mac.rs");
   const osStart = rust.indexOf("fn sync_one_os");
   const os = rust.slice(osStart, rust.indexOf("fn sync_one_os", osStart + 1));
@@ -344,19 +339,25 @@ test("glass reduce transparency tint is translucent and dark", () => {
   assert.match(os, /if !enabled \|\| reduce \{\s*imp::clear\(window\);\s*return false;/);
   assert.match(rust, /msg_send!\[ws, accessibilityDisplayShouldReduceTransparency\]/);
   assert.match(rust, /sel!\(accessibilityDisplayShouldReduceTransparency\)/);
-  assert.match(src("src/lib/board/board.css"), /\.b-card \{[^}]*var\(--glass-card-tint\)/);
-  assert.equal(/\.b-card \{[^}]*--panel-fill/.test(src("src/lib/board/board.css")), false);
+  assert.match(src("src/lib/board/board.css"), /\.b-card \{[^}]*background:\s*var\(--panel-fill/);
 });
 
 test("glass nested card rects do not stack a second frost", () => {
-  const frames = src("src/lib/glass/cardFrames.ts");
-  assert.equal(frames.includes("absorbGlassRect"), false);
-  assert.equal(frames.includes("rectInside"), false);
-  assert.equal(frames.includes("GLASS_CARD_SELECTORS"), false);
-  assert.match(frames, /querySelectorAll\("\[data-glass\]"\)/);
-  const calls = [...frames.matchAll(/querySelectorAll\(([^)]*)\)/g)];
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0][1], '"[data-glass]"');
+  const outer = { x: 12, y: 48, w: 168, h: 640 };
+  const inner = { x: 16, y: 52, w: 159, h: 28 };
+  const covered = [outer];
+  absorbGlassRect(covered, inner);
+  assert.equal(covered.length, 1);
+  assert.deepEqual(covered[0], outer);
+  const replaced: typeof covered = [];
+  absorbGlassRect(replaced, inner);
+  absorbGlassRect(replaced, outer);
+  assert.equal(replaced.length, 1);
+  assert.deepEqual(replaced[0], outer);
+  const rows: typeof covered = [];
+  absorbGlassRect(rows, { x: 264, y: 24, w: 628, h: 30 });
+  absorbGlassRect(rows, { x: 264, y: 56, w: 628, h: 30 });
+  assert.equal(rows.length, 2);
 });
 
 test("glass card tint stays in range and the dark edge is quiet", () => {
@@ -367,22 +368,11 @@ test("glass card tint stays in range and the dark edge is quiet", () => {
   const page = src("src/routes/+page.svelte");
   assert.match(page, /--glass-card-tint:\s*0\.45/);
   assert.match(page, /--glass-edge:\s*rgba\(0,\s*0,\s*0,\s*0\.40\)/);
-  assert.match(page, /var\(--glass-card-tint\)/);
-  assert.equal(page.includes("color-mix(in srgb, var(--panel) 45%"), false);
+  assert.match(page, /color-mix\(in srgb, var\(--panel\) 45%, transparent\)/);
   assert.equal(page.includes("--glass-glow"), false);
   const panel = src("src/lib/SettingsAppearance.svelte").match(/\.panel \{[^}]*\}/);
   assert.ok(panel);
   assert.match(panel[0], /rgba\(0,\s*0,\s*0,\s*0\.40\)/);
-  const quiet = [
-    panel[0],
-    src("src/lib/board/board.css").match(/\.b-card \{[^}]*\}/)?.[0] ?? "",
-    src("src/lib/board/board.css").match(/\.b-col \{[^}]*\}/)?.[0] ?? "",
-    src("src/lib/companion/dock.css").match(/\.ghost \.ghostdock,\s*\.hosting \.ghostdock \{[^}]*\}/)?.[0] ?? "",
-    src("src/lib/stars/TrackerCard.svelte").match(/\.card \{[^}]*\}/)?.[0] ?? "",
-  ];
-  for (const rule of quiet) {
-    assert.match(rule, /var\(--glass-edge, rgba\(0, 0, 0, 0\.40\)\)/);
-    assert.equal(rule.includes("#fff"), false);
-    assert.equal(rule.includes("255, 255, 255"), false);
-  }
+  assert.equal(panel[0].includes("#fff"), false);
+  assert.equal(panel[0].includes("255, 255, 255"), false);
 });

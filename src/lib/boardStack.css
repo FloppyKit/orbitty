@@ -89,7 +89,7 @@
   flex-direction: column;
   border: 1px solid var(--edge);
   border-radius: 10px;
-  background: transparent;
+  background: var(--panel-fill, var(--panel));
 }
 
 .mail-needed {

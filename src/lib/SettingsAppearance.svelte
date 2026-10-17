@@ -55,7 +55,7 @@
   } = $props();
 </script>
 
-      <section data-glass class="panel">
+      <section class="panel">
         {#each BLOCKS as block (block)}
           <p class="block-label">{block}</p>
           <div class="theme-grid">
@@ -360,7 +360,7 @@
 
 <style>
 .panel {
-    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
+    background: var(--panel-fill, var(--panel));
     border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     border-radius: 12px;
     padding: 10px 12px 12px;

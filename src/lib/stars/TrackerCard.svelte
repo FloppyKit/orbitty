@@ -58,7 +58,7 @@
   }
 </script>
 
-<article data-glass class="card" class:running={live} tabindex="-1" data-focus-zone="Z4" data-focus-item data-focus-card>
+<article class="card" class:running={live} tabindex="-1" data-focus-zone="Z4" data-focus-item data-focus-card>
   <div class="top">
     <PlanetChip id={projectId} size={10} label={projectName} />
     <span class="lbl">{tracker.label}</span>
@@ -152,13 +152,13 @@
     min-width: 0;
     padding: 10px;
     border-radius: 12px;
-    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
+    background: var(--panel-fill);
     border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     color: var(--ink);
   }
 
   .card:hover {
-    background: color-mix(in srgb, var(--ink) 4%, color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent));
+    background: color-mix(in srgb, var(--ink) 4%, var(--panel-fill));
     transform: translateY(-1px);
   }
 
@@ -314,13 +314,13 @@
   }
 
   :global(:root[data-theme="terminal"]) .card {
-    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
-    border-color: var(--glass-edge, rgba(0, 0, 0, 0.40));
+    background: transparent;
+    border-color: transparent;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   :global(:root[data-theme="terminal"]) .card:hover {
-    background: color-mix(in srgb, var(--ink) 4%, color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent));
+    background: transparent;
     transform: none;
   }
 

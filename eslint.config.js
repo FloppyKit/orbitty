@@ -2,25 +2,10 @@ import svelte from "eslint-plugin-svelte";
 import * as svelteParser from "svelte-eslint-parser";
 import tseslint from "typescript-eslint";
 
-const glassSyntax = [
-  "error",
-  {
-    selector: "Identifier[name='GLASS_CARD_SELECTORS']",
-    message: "Glass collection is the literal [data-glass] query.",
-  },
-  {
-    selector:
-      "CallExpression[callee.property.name='querySelectorAll'][arguments.0.value!='[data-glass]']",
-    message: "querySelectorAll must take the literal [data-glass].",
-  },
-];
-
 export default [
   {
     // qa and the Rust tree are not this rule set. The lint script names
-    // the glass module and the flush page only, so the rest of src is
-    // not parsed: the default parser cannot read it, and this round
-    // does not reformat it.
+    // two paths only; the rest of src is not on the lint path.
     ignores: [
       "node_modules/**",
       "dist/**",
@@ -36,9 +21,6 @@ export default [
       parser: tseslint.parser,
       sourceType: "module",
     },
-    rules: {
-      "no-restricted-syntax": glassSyntax,
-    },
   },
   {
     files: ["src/routes/+page.svelte"],
@@ -50,8 +32,5 @@ export default [
       },
     },
     processor: "svelte/svelte",
-    rules: {
-      "no-restricted-syntax": glassSyntax,
-    },
   },
 ];

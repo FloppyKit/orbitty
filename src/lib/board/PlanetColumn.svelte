@@ -51,7 +51,6 @@
 </script>
 
 <div
-  data-glass
   class="planet-col"
   class:icons={compact}
   style="width: {columnPx(mode)}px"

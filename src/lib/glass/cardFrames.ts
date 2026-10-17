@@ -1,5 +1,17 @@
 /** DOM rects for the per-card blur. CSS pixels, top-left origin, y down. */
 
+export const GLASS_CARD_SELECTORS = [
+  ".l2-window-card",
+  ".l2-needed-card",
+  ".l2-preview",
+  ".b-card",
+  ".planet-col",
+  ".card",
+  ".ghostdock",
+  ".panel",
+  ".row",
+] as const;
+
 export const GLASS_RECT_MIN_MS = 80;
 export const GLASS_RECT_IDLE_MS = 240;
 export const GLASS_MOTION_FRAMES = 8;
@@ -53,13 +65,35 @@ export function shouldSendGlassRects(
   return true;
 }
 
+/** True when `inner` sits inside `outer`, including an equal rect. */
+export function rectInside(inner: GlassDomRect, outer: GlassDomRect): boolean {
+  const pad = 1;
+  return (
+    inner.x >= outer.x - pad &&
+    inner.y >= outer.y - pad &&
+    inner.x + inner.w <= outer.x + outer.w + pad &&
+    inner.y + inner.h <= outer.y + outer.h + pad
+  );
+}
+
+/** Keep one frost. A rect inside another is dropped. A later outer rect replaces inners. */
+export function absorbGlassRect(out: GlassDomRect[], next: GlassDomRect): void {
+  if (out.some((have) => rectInside(next, have))) return;
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (rectInside(out[i], next)) out.splice(i, 1);
+  }
+  out.push(next);
+}
+
 export function collectGlassCardRects(doc: Document, vw: number, vh: number): GlassDomRect[] {
   const out: GlassDomRect[] = [];
-  for (const el of doc.querySelectorAll("[data-glass]")) {
-    if (out.length >= GLASS_CARD_CAP) return out;
-    const b = el.getBoundingClientRect();
-    const clipped = clipDomRect(b.x, b.y, b.width, b.height, vw, vh);
-    if (clipped) out.push(clipped);
+  for (const sel of GLASS_CARD_SELECTORS) {
+    for (const el of doc.querySelectorAll(sel)) {
+      if (out.length >= GLASS_CARD_CAP) return out;
+      const b = el.getBoundingClientRect();
+      const clipped = clipDomRect(b.x, b.y, b.width, b.height, vw, vh);
+      if (clipped) absorbGlassRect(out, clipped);
+    }
   }
   return out;
 }

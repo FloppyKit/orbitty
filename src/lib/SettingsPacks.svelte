@@ -12,7 +12,7 @@
   } = $props();
 </script>
 
-      <section data-glass class="panel">
+      <section class="panel">
         <div class="setting-row">
           <button
             class="mini"
@@ -74,8 +74,8 @@
 
 <style>
 .panel {
-    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
-    border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
     border-radius: 10px;
     padding: 10px 12px 12px;
   }

@@ -11,7 +11,7 @@
   } = $props();
 </script>
 
-      <section data-glass class="panel">
+      <section class="panel">
         <p class="block-label">Plans folder</p>
         <div class="setting-row">
           <input class="plans-path" bind:value={plansDir} spellcheck="false" />
@@ -34,8 +34,8 @@
 
 <style>
 .panel {
-    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
-    border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
+    background: var(--panel-fill, var(--panel));
+    border: 1px solid var(--edge);
     border-radius: 10px;
     padding: 10px 12px 12px;
   }

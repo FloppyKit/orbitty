@@ -209,22 +209,36 @@
 
   /* The webview window is transparent; the rail paints the theme --bg at the
      slider's alpha (S4.2). Text/icons/panels never fade. */
-  /* One card tint in both transparency modes. --glass-card-tint is 0.45
-     of the theme panel. Reduce transparency skips blur and keeps this
-     tint; it does not paint the veil and it does not go solid. */
-  :global(html [data-glass]) {
-    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
-  }
-
-  /* Rows are not glass cards. Reduce transparency keeps the non-card veil.
+  /* Reduce transparency does not paint the page root. Roots stay clear.
+     Rust sets html.glass-rt from NSWorkspace (the webview media query does
+     not match on this Mac). Tiles that are otherwise clear get the veil.
      Hover and the front row keep their own fills. */
-  :global(html.glass-rt .row:not(:hover):not(.front)) {
+  :global(html.glass-rt .row:not(:hover):not(.front)),
+  :global(html.glass-rt .l2-window-card),
+  :global(html.glass-rt .l2-needed-card),
+  :global(html.glass-rt .l2-preview) {
     background: var(--panel-fill, rgba(44, 44, 46, 0.72));
   }
+
+  /* Non-RT tint over the per-card blur. 45% of the theme panel:
+     systemDark #2C2C2E, terminal #12201a, systemLight #FFFFFF.
+     Terminal tracker cards stay transparent (their own rule wins).
+     The stage unmapped well is clear so the row gaps are not a slab. */
+  :global(html:not(.glass-rt) .row:not(:hover):not(.front):not(.on)),
+  :global(html:not(.glass-rt) .b-card),
+  :global(html:not(.glass-rt) .planet-col),
+  :global(html:not(.glass-rt) .card),
+  :global(html:not(.glass-rt) .ghostdock),
+  :global(html:not(.glass-rt) .panel) {
+    background: color-mix(in srgb, var(--panel) 45%, transparent);
+  }
   :global(html:not(.glass-rt) .row:not(:hover):not(.front):not(.on)) {
-    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
     outline: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     outline-offset: -1px;
+  }
+  :global(html:not(.glass-rt) .rail.stage-shell .layer2-unmapped) {
+    background: transparent;
+    box-shadow: none;
   }
 
   :global(body) {
