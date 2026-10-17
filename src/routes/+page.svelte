@@ -223,7 +223,7 @@
   /* Non-RT tint over the per-card blur. 45% of the theme panel:
      systemDark #2C2C2E, terminal #12201a, systemLight #FFFFFF.
      Terminal tracker cards stay transparent (their own rule wins).
-     The stage unmapped well is clear so the row gaps are not a slab. */
+     The stage unmapped well is transparent in rail-arch.css in both modes. */
   :global(html:not(.glass-rt) .row:not(:hover):not(.front):not(.on)),
   :global(html:not(.glass-rt) .b-card),
   :global(html:not(.glass-rt) .planet-col),
@@ -235,10 +235,6 @@
   :global(html:not(.glass-rt) .row:not(:hover):not(.front):not(.on)) {
     outline: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     outline-offset: -1px;
-  }
-  :global(html:not(.glass-rt) .rail.stage-shell .layer2-unmapped) {
-    background: transparent;
-    box-shadow: none;
   }
 
   :global(body) {

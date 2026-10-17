@@ -753,7 +753,7 @@ test("N2 rail backgrounds are dark panel tints", () => {
   assert.match(ruleBody(css, ".rail.stage-shell .stage-board-tile {"), PANEL_TINT);
   assert.match(ruleBody(css, ".rail.stage-shell .stage-board-tile {"), /color:\s*var\(--ink\)/);
   const light = ruleBody(css, ':root[data-theme="systemLight"] .rail.stage-shell .l2-expanded {');
-  assert.match(light, /background:\s*rgb\(28\s+28\s+32\s*\/\s*0\.94\)/);
+  assert.match(light, /background:\s*transparent/);
   assert.match(light, /color:\s*#f5f5f7/);
   assert.doesNotMatch(light, /255\s+255\s+255/);
   assert.deepEqual(lightBackgrounds(css), []);

@@ -165,3 +165,94 @@ test("glass targets do not nest", () => {
   assert.ok(access);
   assert.equal(access[0].includes("data-glass"), false);
 });
+
+function styleText(rel: string): string {
+  const text = src(rel);
+  if (!rel.endsWith(".svelte")) return text;
+  const at = text.indexOf("<style");
+  if (at < 0) return "";
+  return text.slice(at, text.indexOf("</style>", at));
+}
+
+function ruleBodies(css: string): { sel: string; body: string }[] {
+  const out: { sel: string; body: string }[] = [];
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(css))) out.push({ sel: m[1], body: m[2] });
+  return out;
+}
+
+function subjectBodies(css: string, className: string): string[] {
+  const end = new RegExp(`\\.${className}(?![\\w-])(?:[:\\[][^\\s,]*)?\\s*$`);
+  return ruleBodies(css)
+    .filter((rule) => rule.sel.split(",").some((part) => end.test(part.trim())))
+    .map((rule) => rule.body);
+}
+
+function backgroundAlpha(body: string): number | null {
+  const m = body.match(/background(?:-color)?:\s*([^;]+)/);
+  if (!m) return null;
+  const value = m[1].trim();
+  if (value === "transparent" || value === "none") return 0;
+  const slash = value.match(/\/\s*([\d.]+)\s*\)\s*$/);
+  if (slash) return Number(slash[1]);
+  const rgba = value.match(/rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/);
+  if (rgba) return Number(rgba[1]);
+  const mix = value.match(/([\d.]+)%\s*,\s*transparent\s*\)/);
+  if (mix && value.includes("color-mix")) return Number(mix[1]) / 100;
+  if (/^#[0-9a-fA-F]{8}$/.test(value)) return parseInt(value.slice(7), 16) / 255;
+  if (/^#[0-9a-fA-F]{3,6}$/.test(value)) return 1;
+  if (value.includes("--panel-fill") || value.includes("--glass-veil")) return 0.72;
+  if (value.includes("var(--panel)")) return 1;
+  assert.fail(`unparsed background: ${value}`);
+}
+
+test("glass ancestors are not opaque", () => {
+  const containers: [string, string][] = [
+    ["src/lib/rail/rail-arch.css", "layer2-unmapped"],
+    ["src/lib/rail/rail-arch.css", "l2-expanded"],
+    ["src/lib/board/board.css", "kanban"],
+    ["src/lib/board/board.css", "k-main"],
+    ["src/lib/boardStack.css", "k-main"],
+    ["src/lib/SettingsPage.svelte", "settings"],
+    ["src/lib/StarsPage.svelte", "stars"],
+    ["src/lib/companion/page.css", "companion"],
+    ["src/lib/rail/rail-chrome.css", "rail"],
+    ["src/lib/rail/rail-stage.css", "stage-shell"],
+    ["src/routes/+page.svelte", "layer2-unmapped"],
+    ["src/routes/+page.svelte", "l2-expanded"],
+  ];
+  for (const [rel, className] of containers) {
+    for (const body of subjectBodies(styleText(rel), className)) {
+      const alpha = backgroundAlpha(body);
+      if (alpha == null) continue;
+      assert.ok(alpha < 0.9, `${rel} .${className} alpha ${alpha}`);
+    }
+  }
+  for (const rel of ["src/lib/rail/rail-arch.css", "src/routes/+page.svelte"]) {
+    assert.equal(src(rel).includes("rgb(28 28 32 / 0.94)"), false, rel);
+  }
+  const unmapped = subjectBodies(src("src/lib/rail/rail-arch.css"), "layer2-unmapped").join("\n");
+  assert.match(unmapped, /background:\s*transparent/);
+  assert.match(unmapped, /box-shadow:\s*none/);
+  const expanded = subjectBodies(src("src/lib/rail/rail-arch.css"), "l2-expanded");
+  assert.ok(expanded.length >= 2);
+  for (const body of expanded) {
+    assert.match(body, /background:\s*transparent/);
+    assert.match(body, /box-shadow:\s*none/);
+  }
+  const gaps: [string, string][] = [
+    ["src/lib/board/board.css", "b-col"],
+    ["src/lib/boardStack.css", "mail-todo"],
+    ["src/lib/boardStack.css", "mail-needed"],
+  ];
+  for (const [rel, className] of gaps) {
+    const bodies = subjectBodies(styleText(rel), className);
+    const painted = bodies.filter((body) => /background(?:-color)?:/.test(body));
+    assert.ok(painted.length >= 1, `${rel} .${className}`);
+    for (const body of painted) {
+      assert.match(body, /background:\s*transparent/, `${rel} .${className}`);
+      assert.equal(backgroundAlpha(body), 0);
+    }
+  }
+});

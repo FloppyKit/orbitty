@@ -577,7 +577,7 @@
     flex-direction: column;
     border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     border-radius: 12px;
-    background: var(--panel-fill, var(--panel));
+    background: transparent;
     transition:
       border-color 0.12s,
       box-shadow 0.12s;
