@@ -11,7 +11,7 @@
   } = $props();
 </script>
 
-      <section class="panel">
+      <section data-glass class="panel">
         <p class="block-label">Plans folder</p>
         <div class="setting-row">
           <input class="plans-path" bind:value={plansDir} spellcheck="false" />

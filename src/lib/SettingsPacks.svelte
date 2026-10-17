@@ -12,7 +12,7 @@
   } = $props();
 </script>
 
-      <section class="panel">
+      <section data-glass class="panel">
         <div class="setting-row">
           <button
             class="mini"

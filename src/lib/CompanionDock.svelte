@@ -409,6 +409,7 @@
      ghost's outlined bottom slab. × stays a floating corner; ⚙ is on
      the dock after Expand (GEAR-DOCK). -->
 <div
+    data-glass
     class="ghostdock"
     onpointermove={trackPtr}
     class:dragging={dockDragging}

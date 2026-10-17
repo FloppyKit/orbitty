@@ -58,7 +58,7 @@
   }
 </script>
 
-<article class="card" class:running={live} tabindex="-1" data-focus-zone="Z4" data-focus-item data-focus-card>
+<article data-glass class="card" class:running={live} tabindex="-1" data-focus-zone="Z4" data-focus-item data-focus-card>
   <div class="top">
     <PlanetChip id={projectId} size={10} label={projectName} />
     <span class="lbl">{tracker.label}</span>

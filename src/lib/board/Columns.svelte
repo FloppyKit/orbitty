@@ -162,6 +162,7 @@
     title={card.status === "done" ? "Reopen" : "Mark done"}
   >{card.status === "done" ? "✓" : ""}</button>
   <article
+    data-glass
     class="b-card"
     class:dragging={dragCardId === card.id}
     class:held={grabbedId === card.id}

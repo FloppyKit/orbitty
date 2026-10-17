@@ -55,7 +55,7 @@
   } = $props();
 </script>
 
-      <section class="panel">
+      <section data-glass class="panel">
         {#each BLOCKS as block (block)}
           <p class="block-label">{block}</p>
           <div class="theme-grid">

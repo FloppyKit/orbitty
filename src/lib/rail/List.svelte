@@ -1057,6 +1057,7 @@
                   {:else if centred2.kind === "window"}
                     <button
                       type="button"
+                      data-glass
                       class="l2-window-card"
                       data-win-preview={centred2.id}
                       style={previewVars(mirror.expanded)}
@@ -1080,7 +1081,7 @@
                       </span>
                     </button>
                   {:else if centred2.kind === "needed"}
-                    <div class="l2-needed-card">
+                    <div data-glass class="l2-needed-card">
                       <span class="l2-card-title">{centred2.title || "Needed"}</span>
                       {#if centred2.why}<span class="l2-card-why">{centred2.why}</span>{/if}
                       <button type="button" class="mini" onclick={() => rail.armNeededMouth(centred2)}>Answer</button>

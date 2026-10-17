@@ -15,7 +15,6 @@ import {
   GLASS_MOTION_FRAMES,
   GLASS_RECT_IDLE_MS,
   GLASS_RECT_MIN_MS,
-  absorbGlassRect,
   clipDomRect,
   nextWatchDelay,
   rectSignature,
@@ -343,21 +342,14 @@ test("glass reduce transparency tint is translucent and dark", () => {
 });
 
 test("glass nested card rects do not stack a second frost", () => {
-  const outer = { x: 12, y: 48, w: 168, h: 640 };
-  const inner = { x: 16, y: 52, w: 159, h: 28 };
-  const covered = [outer];
-  absorbGlassRect(covered, inner);
-  assert.equal(covered.length, 1);
-  assert.deepEqual(covered[0], outer);
-  const replaced: typeof covered = [];
-  absorbGlassRect(replaced, inner);
-  absorbGlassRect(replaced, outer);
-  assert.equal(replaced.length, 1);
-  assert.deepEqual(replaced[0], outer);
-  const rows: typeof covered = [];
-  absorbGlassRect(rows, { x: 264, y: 24, w: 628, h: 30 });
-  absorbGlassRect(rows, { x: 264, y: 56, w: 628, h: 30 });
-  assert.equal(rows.length, 2);
+  const frames = src("src/lib/glass/cardFrames.ts");
+  assert.equal(frames.includes("absorbGlassRect"), false);
+  assert.equal(frames.includes("rectInside"), false);
+  assert.equal(frames.includes("GLASS_CARD_SELECTORS"), false);
+  assert.match(frames, /querySelectorAll\("\[data-glass\]"\)/);
+  const calls = [...frames.matchAll(/querySelectorAll\(([^)]*)\)/g)];
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1], '"[data-glass]"');
 });
 
 test("glass card tint stays in range and the dark edge is quiet", () => {
