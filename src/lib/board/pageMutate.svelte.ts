@@ -416,7 +416,8 @@ export function columnWidthNow(scope: Scope_columnWidthNow): number {
 }
 
 export function mailMinPx(scope: Scope_mailMinPx): number {
-  return 120 + scope.columnWidthNow();
+  const column = scope.columnWidthNow();
+  return 120 + column + (column > 0 ? 8 : 0);
 }
 
 export function togglePlanetCol(scope: Scope_togglePlanetCol) {
@@ -442,7 +443,7 @@ export function clampPreview(scope: Scope_clampPreview, px: number): number {
   const cs = getComputedStyle(body);
   const pad =
     (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-  // 6px is the east split. mailMinPx already includes the planet column.
+  // 6px is the east split. mailMinPx includes the planet column and the 8px gap when that column is showing.
   const avail = Math.max(body.clientWidth - pad - 6, 1);
   const maxPreview = Math.max(prevMin, avail - scope.mailMinPx());
   return Math.min(maxPreview, Math.max(prevMin, px));

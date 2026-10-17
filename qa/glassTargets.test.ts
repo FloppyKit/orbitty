@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { mailMinPx } from "../src/lib/board/pageMutate.svelte.ts";
 import { GLASS_CARD_TINT_ALPHA, isLightSlab } from "../src/themes/glass.ts";
 import { MAC_SYSTEM_TOKENS } from "../src/themes/host.ts";
 
@@ -334,4 +335,23 @@ test("glass dark themes have no light glass fills", () => {
     assert.equal(isLightSlab(...parseColor(m[1])), false, m[1]);
   }
   assert.match(term, /--ink:\s*#c8f0d0/);
+});
+
+test("planet column gap is 8px", () => {
+  const css = src("src/lib/board/board.css");
+  const at = css.indexOf(".planet-col {");
+  const body = css.slice(at, css.indexOf("}", at));
+  assert.match(body, /margin-right:\s*8px/);
+  const col = src("src/lib/board/planetColumn.ts");
+  assert.match(col, /COLUMN_OPEN_PX = 168/);
+  assert.match(col, /COLUMN_ICONS_PX = 72/);
+  const mutate = src("src/lib/board/pageMutate.svelte.ts");
+  const fn = mutate.slice(mutate.indexOf("export function mailMinPx"), mutate.indexOf("export function togglePlanetCol"));
+  assert.match(fn, /120 \+ column \+ \(column > 0 \? 8 : 0\)/);
+  const clamp = mutate.slice(mutate.indexOf("export function clampPreview"), mutate.indexOf("export function onEastSplitDown"));
+  assert.match(clamp, /mailMinPx\(\)/);
+  assert.match(clamp, /8px/);
+  assert.equal(mailMinPx({ columnWidthNow: () => 168 } as never), 120 + 168 + 8);
+  assert.equal(mailMinPx({ columnWidthNow: () => 72 } as never), 120 + 72 + 8);
+  assert.equal(mailMinPx({ columnWidthNow: () => 0 } as never), 120);
 });

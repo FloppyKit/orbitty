@@ -106,6 +106,7 @@
     overflow: hidden;
     border-right: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
+    margin-right: 8px;
     padding: 4px 4px 8px;
   }
 
