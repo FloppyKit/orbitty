@@ -645,9 +645,9 @@ test("T9b tracker card, bars and chip keep the D-T / D-C values; no glow under t
     assert.ok(at >= 0, sel);
     return css.slice(at, css.indexOf("}", at));
   };
-  assert.match(rule(card, "\n  .card"), /background:\s*var\(--panel-fill\);/);
+  assert.match(rule(card, "\n  .card"), /background:\s*color-mix\(in srgb, var\(--panel\) calc\(var\(--glass-card-tint\) \* 100%\), transparent\);/);
   const hover = rule(card, "\n  .card:hover");
-  assert.match(hover, /background:\s*color-mix\(in srgb,\s*var\(--ink\)\s*4%,\s*var\(--panel-fill\)\);/);
+  assert.match(hover, /background:\s*color-mix\(in srgb,\s*var\(--ink\)\s*4%,\s*color-mix\(in srgb, var\(--panel\) calc\(var\(--glass-card-tint\) \* 100%\), transparent\)\);/);
   for (const m of card.matchAll(/translateY\(\s*(-?[\d.]+)px\s*\)/g)) assert.ok(Math.abs(Number(m[1])) <= 1, "at most 1px lift");
   const bar = rule(card, "\n  .bar");
   assert.match(bar, /background:\s*var\(--dim\);/);
@@ -657,7 +657,7 @@ test("T9b tracker card, bars and chip keep the D-T / D-C values; no glow under t
   assert.match(empty, /background:\s*var\(--dim\);/);
   assert.match(rule(card, "\n  .sess"), /color-mix\(in srgb,\s*var\(--ink\)\s*70%,\s*transparent\)/);
   const term = rule(card, ':global(:root[data-theme="terminal"]) .card');
-  assert.match(term, /background:\s*transparent;/);
+  assert.match(term, /background:\s*color-mix\(in srgb, var\(--panel\) calc\(var\(--glass-card-tint\) \* 100%\), transparent\);/);
   const css = [card, styleOf("src/lib/stars/StarsTrackers.svelte"), styleOf("src/lib/stars/PlanetChip.svelte")].join("\n");
   for (const m of css.matchAll(/box-shadow:\s*([^;]+);/g)) {
     for (const layer of (m[1] ?? "").split(/,(?![^(]*\))/)) {

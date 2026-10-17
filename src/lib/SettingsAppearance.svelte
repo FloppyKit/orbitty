@@ -360,7 +360,7 @@
 
 <style>
 .panel {
-    background: var(--panel-fill, var(--panel));
+    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
     border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     border-radius: 12px;
     padding: 10px 12px 12px;

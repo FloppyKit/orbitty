@@ -105,7 +105,7 @@
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
-    background: var(--panel-fill, var(--panel));
+    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
     padding: 4px 4px 8px;
   }
 
@@ -629,7 +629,7 @@
 
   .b-card {
     padding: 8px 10px;
-    background: var(--panel-fill, var(--panel));
+    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
     border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     border-radius: 8px;
     cursor: pointer;

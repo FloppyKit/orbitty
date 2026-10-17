@@ -152,13 +152,13 @@
     min-width: 0;
     padding: 10px;
     border-radius: 12px;
-    background: var(--panel-fill);
+    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
     border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
     color: var(--ink);
   }
 
   .card:hover {
-    background: color-mix(in srgb, var(--ink) 4%, var(--panel-fill));
+    background: color-mix(in srgb, var(--ink) 4%, color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent));
     transform: translateY(-1px);
   }
 
@@ -314,13 +314,13 @@
   }
 
   :global(:root[data-theme="terminal"]) .card {
-    background: transparent;
-    border-color: transparent;
+    background: color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent);
+    border-color: var(--glass-edge, rgba(0, 0, 0, 0.40));
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   :global(:root[data-theme="terminal"]) .card:hover {
-    background: transparent;
+    background: color-mix(in srgb, var(--ink) 4%, color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent));
     transform: none;
   }
 

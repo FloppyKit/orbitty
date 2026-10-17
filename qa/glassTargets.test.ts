@@ -3,6 +3,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { GLASS_CARD_TINT_ALPHA, isLightSlab } from "../src/themes/glass.ts";
+import { MAC_SYSTEM_TOKENS } from "../src/themes/host.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -24,7 +26,12 @@ function svelteRels(): string[] {
   return out;
 }
 
+function markup(text: string): string {
+  return text.replace(/<script\b[\s\S]*?<\/script>/g, "").replace(/<style\b[\s\S]*?<\/style>/g, "");
+}
+
 function openTagsWithDataGlass(text: string): string[] {
+  text = markup(text);
   const out: string[] = [];
   const re = /\bdata-glass\b/g;
   let m: RegExpExecArray | null;
@@ -45,6 +52,7 @@ function classTokens(tag: string): string[] {
 
 /** Interior of each data-glass element, using matching close tags. */
 function dataGlassInteriors(text: string): string[] {
+  text = markup(text);
   const interiors: string[] = [];
   const re = /\bdata-glass\b/g;
   let m: RegExpExecArray | null;
@@ -255,4 +263,75 @@ test("glass ancestors are not opaque", () => {
       assert.equal(backgroundAlpha(body), 0);
     }
   }
+});
+
+function parseColor(raw: string): [number, number, number, number] {
+  const v = raw.trim();
+  if (v.startsWith("#")) {
+    const h = v.slice(1);
+    const n = h.length <= 4 ? h.split("").map((c) => c + c).join("") : h;
+    const r = parseInt(n.slice(0, 2), 16);
+    const g = parseInt(n.slice(2, 4), 16);
+    const b = parseInt(n.slice(4, 6), 16);
+    const a = n.length === 8 ? parseInt(n.slice(6, 8), 16) / 255 : 1;
+    return [r, g, b, a];
+  }
+  const m = v.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)\s*(?:[,/]\s*([\d.]+)\s*)?\)/);
+  assert.ok(m, v);
+  return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] == null ? 1 : Number(m[4])];
+}
+
+const TINT = "color-mix(in srgb, var(--panel) calc(var(--glass-card-tint) * 100%), transparent)";
+
+test("glass card tint is the one source", () => {
+  assert.equal(GLASS_CARD_TINT_ALPHA, 0.45);
+  const page = src("src/routes/+page.svelte");
+  assert.match(page, /--glass-card-tint:\s*0\.45/);
+  const tint = page.match(/:global\(html \[data-glass\]\) \{[^}]*\}/);
+  assert.ok(tint);
+  assert.equal(tint[0].includes(":not(.glass-rt)"), false);
+  assert.equal(tint[0].includes("html.glass-rt"), false);
+  assert.match(tint[0], /var\(--glass-card-tint\)/);
+  assert.equal(tint[0].includes("--panel-fill"), false);
+  assert.equal(tint[0].includes("--glass-veil"), false);
+  assert.equal(page.includes("color-mix(in srgb, var(--panel) 45%"), false);
+  const cardRules: [string, string][] = [
+    ["src/lib/board/board.css", ".b-card {"],
+    ["src/lib/board/board.css", ".planet-col {"],
+    ["src/lib/stars/TrackerCard.svelte", "\n  .card {"],
+    ["src/lib/SettingsAppearance.svelte", ".panel {"],
+    ["src/lib/SettingsPacks.svelte", ".panel {"],
+    ["src/lib/SettingsPlans.svelte", ".panel {"],
+    ["src/lib/companion/dock.css", ".hosting .ghostdock {"],
+    ["src/lib/rail/rail-arch.css", ".l2-window-card {"],
+    ["src/lib/rail/rail-arch.css", ".l2-needed-card {"],
+  ];
+  for (const [rel, sel] of cardRules) {
+    const text = src(rel);
+    const at = text.indexOf(sel);
+    assert.ok(at >= 0, `${rel} ${sel}`);
+    const body = text.slice(at, text.indexOf("}", at));
+    assert.ok(body.includes(TINT), `${rel} ${sel}`);
+    assert.equal(body.includes("--panel-fill"), false, rel);
+    assert.equal(body.includes("--glass-veil"), false, rel);
+  }
+});
+
+test("glass dark themes have no light glass fills", () => {
+  for (const key of ["bg", "panel"] as const) {
+    assert.equal(isLightSlab(...parseColor(MAC_SYSTEM_TOKENS.systemDark[key])), false, `systemDark ${key}`);
+  }
+  assert.equal(isLightSlab(...parseColor(MAC_SYSTEM_TOKENS.systemLight.panel)), true);
+  const page = src("src/routes/+page.svelte");
+  const termStart = page.indexOf('data-theme="terminal"');
+  const term = page.slice(termStart, page.indexOf("color-scheme: dark", termStart));
+  for (const prop of ["--bg", "--panel"]) {
+    const m = term.match(new RegExp(`${prop}:\\s*([^;]+)`));
+    assert.ok(m, prop);
+    assert.equal(isLightSlab(...parseColor(m[1])), false, `terminal ${prop}`);
+  }
+  for (const m of term.matchAll(/background:\s*([^;]+)/g)) {
+    assert.equal(isLightSlab(...parseColor(m[1])), false, m[1]);
+  }
+  assert.match(term, /--ink:\s*#c8f0d0/);
 });
