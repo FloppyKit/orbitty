@@ -5,7 +5,7 @@ import tseslint from "typescript-eslint";
 export default [
   {
     // qa and the Rust tree are not this rule set. The lint script names
-    // two paths only; the rest of src is not on the lint path.
+    // one path only; the rest of src is not on the lint path.
     ignores: [
       "node_modules/**",
       "dist/**",
@@ -14,13 +14,6 @@ export default [
       "src-tauri/**",
       "qa/**",
     ],
-  },
-  {
-    files: ["src/lib/glass/**/*.ts"],
-    languageOptions: {
-      parser: tseslint.parser,
-      sourceType: "module",
-    },
   },
   {
     files: ["src/routes/+page.svelte"],

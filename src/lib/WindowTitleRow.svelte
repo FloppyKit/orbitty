@@ -109,7 +109,6 @@
     height: var(--wtr-h, 38px);
     padding: 0 10px 0 0;
     box-sizing: border-box;
-    border-bottom: 1px solid var(--edge);
     background: var(--bg-fill, var(--bg));
     user-select: none;
     -webkit-user-select: none;
