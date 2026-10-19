@@ -1,6 +1,7 @@
 // Moved function bodies. scope fields are the lets each function already closed over.
 
 import type { AgentRun, CardTombstone, Claim, KanbanCard, PointsEntry, Project, TitleOverride, WindowInfo, WindowTags } from "../persist";
+import { nudgePick } from "./nudgeTrigger";
 
 interface AxStatus {
   trusted: boolean;
@@ -373,25 +374,18 @@ export function checkNudge(scope: Scope_checkNudge) {
   if (!scope.nudgePrimed) {
     scope.nudgePrimed = true;
     scope.prevMinimized = minimizedNow;
-    const alreadyMin = scope.windows.filter((w) => w.isMinimized);
-    if (alreadyMin.length > 0) {
-      const extra = alreadyMin.flatMap((w) => [w.id, w.stableKey]);
-      scope.nudgeSuppressed = [...new Set([...scope.nudgeSuppressed, ...extra])];
-      scope.persist();
-    }
-    return; // first poll never nudges
+    return; // first poll never nudges; a later restore → minimize still can
   }
   if (scope.nudgeFor && !minimizedNow.has(scope.nudgeFor)) {
     scope.nudgeFor = null; // restored or gone before acting on the banner
   }
   if (!scope.nudgeFor) {
-    const candidate = scope.windows.find(
-      (w) =>
-        w.isMinimized &&
-        !scope.prevMinimized.has(w.id) && // a real visible → minimized transition
-        !scope.liveClaims.some((c) => c.windowId === w.id) &&
-        !scope.nudgeSuppressed.includes(w.id) &&
-        !scope.nudgeSuppressed.includes(w.stableKey),
+    const claimed = new Set(scope.liveClaims.map((c) => c.windowId));
+    const candidate = nudgePick(
+      scope.windows,
+      scope.prevMinimized,
+      claimed,
+      scope.nudgeSuppressed,
     );
     if (candidate) {
       scope.nudgeSuppressed = [

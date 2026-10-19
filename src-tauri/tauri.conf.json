@@ -20,7 +20,7 @@
         "resizable": true,
         "fullscreen": false,
         "transparent": true,
-        "titleBarStyle": "Overlay",
+        "decorations": false,
         "dragDropEnabled": false,
         "maximizable": false,
         "minimizable": false,
