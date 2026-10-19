@@ -693,7 +693,7 @@
     flex-direction: column;
     box-sizing: border-box;
     color: var(--ink);
-    background: transparent;
+    background: var(--bg-fill, var(--bg));
     border-radius: 12px;
     font-family:
       "SF Pro Text", "SF Pro Display", system-ui, -apple-system,

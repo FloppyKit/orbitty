@@ -8,8 +8,6 @@
     applyWindowOpacity,
     clampWindowOpacity,
   } from "../themes/apply";
-  import { vibrancyWanted } from "../themes/glass";
-  import { systemTokens } from "../themes/host";
   import { planetCss } from "./planetColor";
   import { startPaneDrag } from "./dragPane";
   import { MenuRing, type RingStop } from "./menuKeys.svelte";
@@ -1460,9 +1458,10 @@
   // window asks once — pick or create a home, or dismiss. After that the
   // window id is silent forever (persisted). Never auto-claim.
   //
-  // The first poll never shows a chip. It only records who is already
-  // minimized. A later visible → minimized transition of an unclaimed
-  // window shows the chip once, then that id and stableKey stay silent.
+  // Windows ALREADY minimized on the first poll after
+  // launch never nudge — their ids AND stableKeys go straight to
+  // nudgeSuppressed (the stableKey keeps them silent across reboots too).
+  // After that, only a visible → minimized transition can nudge, once per id.
   let nudgePrimed = false;
   let prevMinimized = new Set<string>();
 
@@ -1489,9 +1488,8 @@
     if (!themeId) return;
     document.documentElement.dataset.theme = themeId;
     applyHostTokens(themeId);
-    const light = systemTokens(themeId)?.colorScheme === "light";
-    const reduce = window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
-    invoke("set_vibrancy", { enabled: vibrancyWanted(reduce), light }).catch(() => {});
+    // S4.2: no Clear material — vibrancy stays off for every theme.
+    invoke("set_vibrancy", { enabled: false }).catch(() => {});
     // S4.4: re-assert the native transparency surgery (WKWebView
     // drawsBackground can come back up white after load).
     invoke("ensure_glass").catch(() => {});
@@ -1503,18 +1501,6 @@
   $effect(() => {
     if (!themeId) return;
     applyWindowOpacity(windowOpacity);
-  });
-
-  $effect(() => {
-    const mq = window.matchMedia("(prefers-reduced-transparency: reduce)");
-    const onChange = () => {
-      if (!themeId) return;
-      const light = systemTokens(themeId)?.colorScheme === "light";
-      invoke("set_vibrancy", { enabled: vibrancyWanted(mq.matches), light }).catch(() => {});
-      applyWindowOpacity(windowOpacity);
-    };
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
   });
 
   let timer: ReturnType<typeof setInterval>;

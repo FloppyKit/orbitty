@@ -151,9 +151,9 @@
     gap: 6px;
     min-width: 0;
     padding: 10px;
-    border-radius: 12px;
+    border-radius: 10px;
     background: var(--panel-fill);
-    border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
+    border: 1px solid var(--edge);
     color: var(--ink);
   }
 

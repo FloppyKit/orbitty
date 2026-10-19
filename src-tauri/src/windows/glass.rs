@@ -444,6 +444,7 @@ mod imp {
         };
         unsafe { msg_send![ns_window, collectionBehavior] }
     }
+
 }
 
 pub fn ensure_transparent(window: &tauri::WebviewWindow) {
@@ -606,3 +607,4 @@ pub fn collection_behavior(window: &tauri::WebviewWindow) -> usize {
         0
     }
 }
+

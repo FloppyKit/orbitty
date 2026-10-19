@@ -182,7 +182,7 @@
     min-height: 0;
     overflow: auto;
     padding: 4px;
-    border-right: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
+    border-right: 1px solid var(--edge);
   }
 
   .planet-col:focus-visible {

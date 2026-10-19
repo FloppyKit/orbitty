@@ -154,8 +154,8 @@ test("W8 theme vars and terminal color-scheme", () => {
   assert.equal(/#[0-9a-fA-F]{3,8}/.test(style), false, style);
   assert.equal(/rgb\(/.test(style), false, style);
   assert.match(style, /var\(--ink\)/);
-  assert.match(style, /\.wtr \{[^}]*background:\s*transparent/);
-  assert.doesNotMatch(style, /\.wtr \{[^}]*border-bottom/);
+  assert.match(style, /var\(--edge\)/);
+  assert.match(style, /var\(--bg-fill, var\(--bg\)\)/);
   const page = src("src/routes/+page.svelte");
   const terminal = page.slice(page.indexOf('data-theme="terminal"'), page.indexOf("S4.4"));
   assert.match(terminal, /color-scheme:\s*dark/);

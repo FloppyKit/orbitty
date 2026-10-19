@@ -1,6 +1,0 @@
-window-vibrancy 0.6
-Copyright 2019-2022 Tauri Programme within The Commons Conservancy
-Licensed under the Apache License, Version 2.0 OR the MIT license.
-This tree vendors only the macOS NSVisualEffectView path, translated
-onto the objc 0.2 crate already used by glass.rs. The Windows blur
-module was not copied. See LICENSE-APACHE and LICENSE-MIT.

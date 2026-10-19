@@ -1,7 +1,6 @@
 // Host theme packs. System pair: Tahoe table for bg/panel/ink/dim/edge.
 // Brand triad only on accent / onAccent / mark / focus. Never invent
-// palettes. Tile translucency is windowOpacity times the veil.
-// Desktop blur is the vendored NSVisualEffectView, not this table.
+// palettes. Translucency is windowOpacity, not NSVisualEffect.
 
 export interface HostTokens {
   bg: string;

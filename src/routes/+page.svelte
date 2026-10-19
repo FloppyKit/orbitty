@@ -12,13 +12,6 @@
   import CheatSheet from "$lib/CheatSheet.svelte";
   import RailPage from "$lib/RailPage.svelte";
   import LinkPreviewPopover from "$lib/LinkPreviewPopover.svelte";
-  import {
-    collectGlassCardRects,
-    GLASS_RECT_MIN_MS,
-    nextWatchDelay,
-    rectSignature,
-    shouldSendGlassRects,
-  } from "$lib/glass/cardFrames";
 
   // The same SPA bundle serves the separate Kanban/Companion/STARS/Sky
   // windows; each mounts only its own page and never runs the rail
@@ -112,32 +105,6 @@
     void tick().then(() => invoke("pane_mounted").catch(() => {}));
   });
 
-  // Card rects for the native blur. Coalesced: unchanged lists are not sent,
-  // and a moving list (scroll or spin) goes out at most every GLASS_RECT_MIN_MS.
-  $effect(() => {
-    if (!labelKnown) return;
-    let prev = "";
-    let last = 0;
-    let streak = 0;
-    let timer = 0;
-    const flush = () => {
-      const rects = collectGlassCardRects(document, window.innerWidth, window.innerHeight);
-      const sig = rectSignature(rects);
-      const now = performance.now();
-      if (shouldSendGlassRects(prev, sig, now, last, GLASS_RECT_MIN_MS)) {
-        prev = sig;
-        last = now;
-        streak = 0;
-        invoke("set_glass_card_rects", { rects }).catch(() => {});
-      } else {
-        streak += 1;
-      }
-      timer = window.setTimeout(flush, nextWatchDelay(streak));
-    };
-    flush();
-    return () => window.clearTimeout(timer);
-  });
-
 </script>
 
 {#if !labelKnown}
@@ -182,14 +149,6 @@
   }
   /* S4.4: html paints nothing either — the only fills anywhere are the
      JS-computed --bg-fill/--panel-fill alpha vars. */
-  :global(:root) {
-    --glass-veil: 0.72;
-    --glass-card-tint: 0.45;
-    --glass-edge: rgba(0, 0, 0, 0.40);
-  }
-  :global(:root[data-theme="systemLight"]) {
-    --glass-edge: rgba(0, 0, 0, 0.16);
-  }
   :global(html),
   :global(body) {
     height: 100%;
@@ -209,38 +168,6 @@
 
   /* The webview window is transparent; the rail paints the theme --bg at the
      slider's alpha (S4.2). Text/icons/panels never fade. */
-  /* Reduce transparency does not paint the page root. Roots stay clear.
-     Rust sets html.glass-rt from NSWorkspace (the webview media query does
-     not match on this Mac). Tiles that are otherwise clear get the veil.
-     Hover and the front row keep their own fills. */
-  :global(html.glass-rt .row:not(:hover):not(.front)),
-  :global(html.glass-rt .l2-window-card),
-  :global(html.glass-rt .l2-needed-card),
-  :global(html.glass-rt .l2-preview) {
-    background: var(--panel-fill, rgba(44, 44, 46, 0.72));
-  }
-
-  /* Non-RT tint over the per-card blur. 45% of the theme panel:
-     systemDark #2C2C2E, terminal #12201a, systemLight #FFFFFF.
-     Terminal tracker cards stay transparent (their own rule wins).
-     The stage unmapped well is clear so the row gaps are not a slab. */
-  :global(html:not(.glass-rt) .row:not(:hover):not(.front):not(.on)),
-  :global(html:not(.glass-rt) .b-card),
-  :global(html:not(.glass-rt) .planet-col),
-  :global(html:not(.glass-rt) .card),
-  :global(html:not(.glass-rt) .ghostdock),
-  :global(html:not(.glass-rt) .panel) {
-    background: color-mix(in srgb, var(--panel) 45%, transparent);
-  }
-  :global(html:not(.glass-rt) .row:not(:hover):not(.front):not(.on)) {
-    outline: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.40));
-    outline-offset: -1px;
-  }
-  :global(html:not(.glass-rt) .rail.stage-shell .layer2-unmapped) {
-    background: transparent;
-    box-shadow: none;
-  }
-
   :global(body) {
     margin: 0;
     background: transparent;
