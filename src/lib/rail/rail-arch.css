@@ -254,8 +254,8 @@
     pointer-events: auto;
     border: 0;
     border-radius: 14px;
-    background: transparent;
-    box-shadow: none;
+    background: rgb(28 28 32 / 0.94);
+    box-shadow: var(--stage-shadow);
   }
 
   .rail.stage-shell .arch-list {
