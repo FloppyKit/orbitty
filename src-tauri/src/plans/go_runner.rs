@@ -79,7 +79,7 @@ pub fn builtin_user_settings() -> UserGoSettings {
 }
 
 /// Loader seam. The follow-up reads the signed store here. This GO never
-/// opens `go-user.json` and never writes permissions or approved runners.
+/// opens that file and never writes permissions or approved runners.
 pub fn load_user_settings(_roots: &Roots) -> UserGoSettings {
     builtin_user_settings()
 }
@@ -436,11 +436,11 @@ mod tests {
     #[test]
     fn no_code_path_writes_permissions_or_approved_runners() {
         let src = include_str!("go_runner.rs");
-        assert!(!src.contains("go-user.json"), "must not touch the signed store");
-        assert!(!src.contains("save_settings"));
-        assert!(!src.contains("allow_push ="));
-        assert!(!src.contains("approved_runners ="));
         let prod = src.split("mod tests").next().unwrap();
+        assert!(!prod.contains("go-user.json"), "must not touch the signed store");
+        assert!(!prod.contains("save_settings"));
+        assert!(!prod.contains("allow_push ="));
+        assert!(!prod.contains("approved_runners ="));
         assert_eq!(prod.matches("std::fs::write").count(), 0);
         assert_eq!(prod.matches("File::create").count(), 1, "only the selection temp");
         assert!(prod.contains("only runner or reset"));
@@ -456,7 +456,7 @@ mod tests {
         std::fs::write(&ok, b"#!/bin/zsh\n").unwrap();
         let mut perms = std::fs::metadata(&ok).unwrap().permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(&ok, perms).unwrap();
+        std::fs::set_permissions(&ok, perms.clone()).unwrap();
         assert!(validate_program(&r, &ok.display().to_string(), "cook").is_ok());
         let spaced = format!("{} --flag", ok.display());
         assert!(validate_program(&r, &spaced, "cook")

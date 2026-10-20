@@ -196,7 +196,10 @@
         assert_eq!(tool, "go.run_result");
         assert_eq!(args["run_id"], "r-1");
         for flag in ["--cook", "--allow-push"] {
-            let err = parse(&argv(&["go", "runner", flag])).unwrap_err();
+            let err = match parse(&argv(&["go", "runner", flag])) {
+                Err(e) => e,
+                Ok(_) => panic!("{flag} should be a usage error"),
+            };
             assert!(err.contains("unknown flag"), "{flag}: {err}");
         }
         assert!(USAGE.contains("go runner [--set ID | --reset]"));

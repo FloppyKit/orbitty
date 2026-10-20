@@ -347,7 +347,7 @@ mod tests {
         assert!(heavy_refusal("rust-analyzer cargo metadata").is_none());
         assert!(heavy_refusal("/usr/bin/cargo test --lib").unwrap().contains("cargo"));
         assert!(heavy_refusal("vizdoom -iwad x").unwrap().contains("vizdoom"));
-        assert!(heavy_refusal("python3 /Users/dude/rgl-proofs/job/run.py")
+        assert!(heavy_refusal("python3 rgl-proofs/job/run.py")
             .unwrap()
             .contains("RGL"));
         let home = tmp();
