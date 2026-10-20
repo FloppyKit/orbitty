@@ -11,6 +11,7 @@ mod resolve;
 mod parse;
 mod rules;
 mod go_runner;
+mod go_run;
 #[cfg(test)]
 mod tests;
 
@@ -19,6 +20,7 @@ pub(crate) use locate::*;
 pub(crate) use seal::*;
 pub(crate) use resolve::*;
 pub(crate) use go_runner::*;
+pub(crate) use go_run::*;
 #[allow(unused_imports)]
 pub(crate) use parse::*;
 #[allow(unused_imports)]

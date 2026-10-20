@@ -100,6 +100,10 @@ commands:
   settings plans-dir [--set PATH]
   settings runner [--name N --harness H --model M]
   go status --file PATH | --go GO-ID [--card ID]
+  go start --card ID
+  go run-status --id RUN
+  go run-result --id RUN
+  go runner [--set ID | --reset]
   rail state                          level, alpha, frame, appActive, occludedBy (read-only)
   go seal --file PATH --by NAME --confirm
   plans migrate [--dry-run | --apply]

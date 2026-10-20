@@ -334,6 +334,9 @@ fn launch_assigned(app: &tauri::AppHandle, card: &KanbanCard, go: &str) {
 /// from each kanban-move door. Best-effort — a fire never fails the save.
 pub fn fire_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &PersistedState) {
     for (card, go) in fired(before, after) {
+        if crate::plans::lock_names_live(&card.id) {
+            continue;
+        }
         launch_assigned(app, card, &go);
     }
 }
@@ -395,6 +398,19 @@ mod tests {
             body[capped..go_arm].contains("return;"),
             "caps arm must return before launch"
         );
+    }
+
+    #[test]
+    fn doing_fire_skips_a_card_the_run_lock_names() {
+        let src = include_str!("doing_fire.rs");
+        let start = src.find("pub fn fire_on_moves(").expect("fire_on_moves");
+        let body = &src[start..];
+        let end = body.find("\n}\n").expect("end");
+        let body = &body[..end];
+        let skip = body.find("lock_names_live(").expect("skip");
+        let launch = body.find("launch_assigned(").expect("launch");
+        assert!(skip < launch, "the lock skip runs before launch");
+        assert!(body[skip..launch].contains("continue"));
     }
 
     #[test]

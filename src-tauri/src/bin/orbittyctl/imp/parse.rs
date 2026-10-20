@@ -75,6 +75,8 @@ pub(crate) struct Opts {
     pub(crate) append: bool,
     pub(crate) dry_run: bool,
     pub(crate) apply: bool,
+    /// go runner --reset
+    pub(crate) reset: bool,
     /// go status --go GO-ID
     pub(crate) go_id: Option<String>,
     /// route run --pending ID (the pendingId a board-add returned)
@@ -146,6 +148,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
         append: false,
         dry_run: false,
         apply: false,
+        reset: false,
         go_id: None,
         pending: None,
         limit: None,
@@ -256,6 +259,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             "--append" => o.append = true,
             "--dry-run" => o.dry_run = true,
             "--apply" => o.apply = true,
+            "--reset" => o.reset = true,
             "--go" => o.go_id = Some(it.next().ok_or("--go needs a value")?.clone()),
             "--range" => o.range = Some(it.next().ok_or("--range needs a value")?.clone()),
             "--spokes" => o.spokes = Some(it.next().ok_or("--spokes needs a value")?.clone()),

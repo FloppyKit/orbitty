@@ -595,6 +595,24 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             put_opt(&mut a, "title", &o.title);
             Ok(("go.status", a))
         }
+        ["go", "start"] => {
+            let card = opt(&o.card).ok_or("go start needs --card")?;
+            Ok(("go.start", json!({ "card": card })))
+        }
+        ["go", "run-status"] => Ok(("go.run_status", json!({ "run_id": need_id(o)? }))),
+        ["go", "run-result"] => Ok(("go.run_result", json!({ "run_id": need_id(o)? }))),
+        ["go", "runner"] => {
+            if o.set.is_some() && o.reset {
+                return Err("go runner: pass only one of --set or --reset".into());
+            }
+            if o.reset {
+                Ok(("go.runner_set", json!({ "reset": true })))
+            } else if let Some(id) = opt(&o.set) {
+                Ok(("go.runner_set", json!({ "runner": id })))
+            } else {
+                Ok(("go.runner_get", json!({})))
+            }
+        }
         ["go", "seal"] => {
             let file = opt(&o.file).ok_or("go seal needs --file")?;
             let by = opt(&o.by).ok_or("go seal needs --by")?;

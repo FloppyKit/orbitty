@@ -344,6 +344,9 @@ const READ_TOOLS: &[&str] = &[
     "settings.plans_dir",
     "settings.runner",
     "go.status",
+    "go.run_status",
+    "go.run_result",
+    "go.runner_get",
     "plans.migrate",
     "rail.state",
     // history.checkpoint writes a file and a 426 line, so it stays off,
@@ -1139,6 +1142,28 @@ fn run_tool(
             arg_opt(args, "title").as_deref(),
         )
         .map_err(tool_err),
+        "go.start" => {
+            let card = arg_str(args, "card")?;
+            match crate::plans::prepare_start(&card) {
+                Err(reason) => {
+                    let _ = crate::board::kanban_note_append(app, &card, &reason);
+                    Err(tool_err(reason))
+                }
+                Ok(plan) => crate::plans::spawn_plan(&plan).map_err(tool_err),
+            }
+        }
+        "go.run_status" => {
+            let id = arg_str(args, "run_id")?;
+            crate::plans::read_run_state(&id).map_err(tool_err)
+        }
+        "go.run_result" => {
+            let id = arg_str(args, "run_id")?;
+            crate::plans::run_result_value(&id).map_err(tool_err)
+        }
+        "go.runner_get" => Ok(crate::plans::runner_get_value(&crate::plans::Roots::real())),
+        "go.runner_set" => {
+            crate::plans::apply_runner_set(&crate::plans::Roots::real(), args).map_err(tool_err)
+        }
         "go.seal" => {
             let confirm = args.get("confirm").and_then(Value::as_bool).unwrap_or(false);
             if !confirm {
@@ -1170,7 +1195,7 @@ fn run_tool(
             let roots = crate::plans::Roots::real();
             crate::plans::migrate_apply(&roots).map_err(tool_err)
         }
-        other => Err((ERR_OTHER, format!("unknown tool {other:?}"))),
+        other => Err(unknown_tool(other)),
     }
 }
 
@@ -1272,4 +1297,68 @@ mod tests {
         let src = include_str!("control.rs");
         assert!(src.contains("let run = kanban_open_run_flag(args);"));
     }
+
+    fn dispatch_arms(src: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        for line in src.lines() {
+            let t = line.trim_start();
+            let Some(rest) = t.strip_prefix('"') else {
+                continue;
+            };
+            let Some(end) = rest.find('"') else {
+                continue;
+            };
+            let name = &rest[..end];
+            if !name.contains('.') {
+                continue;
+            }
+            if rest[end + 1..].trim_start().starts_with("=>") {
+                names.push(name.to_string());
+            }
+        }
+        names
+    }
+
+    #[test]
+    fn go_reads_are_read_and_start_and_runner_set_are_not() {
+        for tool in ["go.run_status", "go.run_result", "go.runner_get", "go.status"] {
+            assert!(READ_TOOLS.contains(&tool), "{tool}");
+            assert!(allowed(&Acl::Read, tool), "{tool}");
+            assert!(allowed(&Acl::Companion, tool), "{tool}");
+        }
+        for tool in ["go.start", "go.runner_set"] {
+            assert!(!READ_TOOLS.contains(&tool), "{tool}");
+            assert!(!allowed(&Acl::Read, tool), "{tool}");
+            assert!(!allowed(&Acl::Companion, tool), "{tool}");
+            assert!(allowed(&Acl::Full, tool), "{tool}");
+        }
+    }
+
+    #[test]
+    fn no_arm_writes_permissions_or_approves_a_runner() {
+        let arms = dispatch_arms(include_str!("control.rs"));
+        for name in &arms {
+            let n = name.to_ascii_lowercase();
+            assert!(
+                !n.contains("permission")
+                    && !n.contains("developer")
+                    && !n.contains("approve")
+                    && !n.contains("runner_add"),
+                "{name}"
+            );
+        }
+        let raw = serde_json::json!({"tool": "go.permissions_set"});
+        let tool = raw["tool"].as_str().unwrap();
+        assert!(
+            !arms.iter().any(|a| a == tool),
+            "raw control request {tool} must not match an arm"
+        );
+        let (code, msg) = unknown_tool(tool);
+        assert_eq!(code, ERR_OTHER);
+        assert!(msg.contains("unknown tool"), "{msg}");
+    }
+}
+
+fn unknown_tool(tool: &str) -> (i32, String) {
+    (ERR_OTHER, format!("unknown tool {tool:?}"))
 }

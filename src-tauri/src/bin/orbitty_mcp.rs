@@ -113,6 +113,11 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "settings.runner", description: "Read defaultRunner (Cursor harness, model grok-4.7-high, herdr fallback)", args: "none" },
     ToolDef { name: "settings.runner_set", description: "Set defaultRunner runner, harness, and model", args: "runner_set" },
     ToolDef { name: "go.status", description: "Resolve a GO and report whether it is sealed", args: "go_status" },
+    ToolDef { name: "go.start", description: "Start the kitchen on a sealed todo card. Returns a run id without waiting. Refuses with one card note and no spawn when the GO, base, lock, rig, disk, or runner is not ready.", args: "go_start" },
+    ToolDef { name: "go.run_status", description: "Read a Go run's state.json (stage, tip, permissions, runner).", args: "go_run_id" },
+    ToolDef { name: "go.run_result", description: "Read a Go run's result line, stage, and tip.", args: "go_run_id" },
+    ToolDef { name: "go.runner_get", description: "Read the selected Go runner, the approved list, and the permission flags. Does not write them.", args: "none" },
+    ToolDef { name: "go.runner_set", description: "Pick the Go runner id from the approved list, or reset to the default. Refuses any other key.", args: "go_runner_set" },
     ToolDef { name: "go.seal", description: "Seal a GO file (profile full and confirm). Writes status, sealed_at, sealed_by, and seal_hash.", args: "go_seal" },
     ToolDef { name: "plans.migrate", description: "Dry-run: list files that would copy from the back-compat plans folder into plansDir. Never deletes.", args: "none" },
     ToolDef { name: "plans.migrate_apply", description: "Copy those files into plansDir. Never deletes. Not part of a normal GO run.", args: "none" },
@@ -389,6 +394,30 @@ fn input_schema(kind: &str) -> Value {
                 "confirm": { "type": "boolean", "description": "Must be true" }
             },
             "required": ["file", "by", "confirm"]
+        }),
+        "go_start" => json!({
+            "type": "object",
+            "properties": {
+                "card": { "type": "string", "description": "Todo card id whose sealed GO should run" }
+            },
+            "required": ["card"],
+            "additionalProperties": false
+        }),
+        "go_run_id" => json!({
+            "type": "object",
+            "properties": {
+                "run_id": { "type": "string", "description": "Run id from go.start" }
+            },
+            "required": ["run_id"],
+            "additionalProperties": false
+        }),
+        "go_runner_set" => json!({
+            "type": "object",
+            "properties": {
+                "runner": { "type": "string", "description": "Approved runner id" },
+                "reset": { "type": "boolean", "description": "Clear the selection. Default runner is pi-grok." }
+            },
+            "additionalProperties": false
         }),
         "agent_pickup" => json!({
             "type": "object",
@@ -976,6 +1005,43 @@ mod tests {
         assert_eq!(props["project"]["type"], "string");
         assert_eq!(props["limit"]["type"], "integer");
         assert_eq!(props["limit"]["maximum"], 500);
+    }
+
+    #[test]
+    fn go_tools_match_control_arms() {
+        let control = include_str!("../agents/control.rs");
+        for name in [
+            "go.start",
+            "go.run_status",
+            "go.run_result",
+            "go.runner_get",
+            "go.runner_set",
+        ] {
+            assert!(known_tool(name), "{name}");
+            assert!(control.contains(&format!("\"{name}\" =>")), "{name}");
+        }
+        assert_eq!(required("go.start"), vec!["card"]);
+        assert_eq!(required("go.run_status"), vec!["run_id"]);
+        assert_eq!(required("go.run_result"), vec!["run_id"]);
+        assert!(required("go.runner_get").is_empty());
+        assert!(required("go.runner_set").is_empty());
+        let listed: Vec<&str> = TOOLS.iter().map(|t| t.name).collect();
+        for banned in ["permission", "developer", "approve", "runner_add"] {
+            assert!(
+                !listed.iter().any(|n| n.to_ascii_lowercase().contains(banned)),
+                "{banned}"
+            );
+        }
+        for name in ["go.permissions_set", "go.runner_add"] {
+            let msg = json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": { "name": name, "arguments": {} }
+            });
+            let reply = dispatch(&msg).expect("reply");
+            assert_eq!(reply["error"]["code"], -32602, "{name}");
+        }
     }
 
     #[test]

@@ -167,3 +167,39 @@
             "{\"args\":{\"line\":\"say \\\"hi\\\"\"},\"id\":\"1\",\"tool\":\"companion.route\",\"v\":1}"
         );
     }
+
+    #[test]
+    fn go_runner_verbs_parse_and_refuse_permission_flags() {
+        let (tool, args) = tool_call(&parse(&argv(&["go", "runner"])).unwrap()).unwrap();
+        assert_eq!(tool, "go.runner_get");
+        assert_eq!(args, serde_json::json!({}));
+        let (tool, args) =
+            tool_call(&parse(&argv(&["go", "runner", "--set", "pi-grok"])).unwrap()).unwrap();
+        assert_eq!(tool, "go.runner_set");
+        assert_eq!(args, serde_json::json!({"runner": "pi-grok"}));
+        let (tool, args) = tool_call(&parse(&argv(&["go", "runner", "--reset"])).unwrap()).unwrap();
+        assert_eq!(tool, "go.runner_set");
+        assert_eq!(args, serde_json::json!({"reset": true}));
+        assert!(tool_call(
+            &parse(&argv(&["go", "runner", "--set", "pi-grok", "--reset"])).unwrap()
+        )
+        .is_err());
+        let (tool, args) =
+            tool_call(&parse(&argv(&["go", "start", "--card", "c-1"])).unwrap()).unwrap();
+        assert_eq!(tool, "go.start");
+        assert_eq!(args, serde_json::json!({"card": "c-1"}));
+        let (_, args) =
+            tool_call(&parse(&argv(&["go", "run-status", "--id", "r-1"])).unwrap()).unwrap();
+        assert_eq!(args["run_id"], "r-1");
+        let (tool, args) =
+            tool_call(&parse(&argv(&["go", "run-result", "--id", "r-1"])).unwrap()).unwrap();
+        assert_eq!(tool, "go.run_result");
+        assert_eq!(args["run_id"], "r-1");
+        for flag in ["--cook", "--allow-push"] {
+            let err = parse(&argv(&["go", "runner", flag])).unwrap_err();
+            assert!(err.contains("unknown flag"), "{flag}: {err}");
+        }
+        assert!(USAGE.contains("go runner [--set ID | --reset]"));
+        assert!(!USAGE.contains("--allow-push"));
+        assert!(!USAGE.contains("--cook"));
+    }
