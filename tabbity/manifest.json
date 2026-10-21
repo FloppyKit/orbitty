@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Tabbity",
+  "version": "0.1.0",
+  "description": "Claim browser tabs onto Orbitty planets.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkRAT96ngeXQRG97UTyNgd0uh2gJVT1xAs/rB6UBAn6wF5KqAPdvzkU+3O0pbWzMbk5kMh+GWwCVLm5Ewd4FRcscXJY3DS4C0v5m2dOeeAlE/FxYM/ZWhyxNTUw23DizPiwaX6rVI4lT2Qng0jGbuOxoAbwQ1U8e7PX0DpRloviHinIXYi6FnjNwRaZxyttDvfz5NYxExMqK+dLgVS7q5bvdpQwdmvpM1q+GOMnQmAUP0NSqfABsGuHpMrsdSH1PalmmEU+YLF0Pcmfo6w5ibAfmRNKXoQF71hvkJkFW/GUZ5IsohmrMT2OZk/98ac8EegzxdI/bH88TqN4JyNXo3PwIDAQAB",
+  "permissions": ["nativeMessaging", "storage", "tabs"],
+  "incognito": "not_allowed",
+  "background": {
+    "service_worker": "sw.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Tabbity"
+  }
+}
