@@ -2,7 +2,7 @@
 
 import type { AgentRun, CardTombstone, Claim, KanbanCard, PointsEntry, Project, TitleOverride, WindowInfo, WindowTags } from "../persist";
 import { nudgePick } from "./nudgeTrigger";
-import { isTabClaim, rematchPick } from "./tabbityRows";
+import { isTabClaim, rematchPick, setTabLive } from "./tabbityRows";
 
 interface AxStatus {
   trusted: boolean;
@@ -206,6 +206,13 @@ export async function tick(scope: Scope_tick) {
   // syncHabitat — mutating the dragged row's DOM cancels the HTML5 drag
   // session in WKWebView, and the sync is what beach-balled the drop.
   if (scope.windowDragHot()) return;
+  try {
+    const live = await scope.invoke<{ id: string; live: boolean }[]>("tabbity_live");
+    setTabLive(live);
+    scope.refreshedAt = new Date().toLocaleTimeString();
+  } catch {
+    // Stable has no tabbity command. Tab rows stay asleep.
+  }
   try {
     const s = await scope.invoke<AxStatus>("accessibility_status");
     scope.noteAx(s);

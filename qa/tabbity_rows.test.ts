@@ -92,4 +92,7 @@ test("tab row is live or asleep and keeps the claim id", () => {
   const restore = look.slice(look.indexOf("export async function restore("));
   assert.match(restore, /restore_window/);
   assert.match(restore, /id: w\.id/);
+  const rows = readFileSync(new URL("../src/lib/rail/pageRows.svelte.ts", import.meta.url), "utf8");
+  assert.match(rows, /tabRow\(c, scope\.windows\)/);
+  assert.match(rows, /!isTabClaim\(c\)/);
 });

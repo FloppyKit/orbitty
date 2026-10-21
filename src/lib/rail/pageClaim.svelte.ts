@@ -3,6 +3,7 @@
 import type { ActionShortcut, AgentRun, AgentShortcut, CardTombstone, Claim, CompanionSlice, DrawerSlice, KanbanCard, PersistedState, PointsEntry, Project, SkySlice, StarsSlice, Tag, TitleOverride, TodoTree, WindowInfo, WindowTags } from "../persist";
 import type { BoardCol } from "./habitat";
 import type { CoachStory } from "./coach";
+import { isTabClaim, tabRow } from "./tabbityRows";
 
 interface AxStatus {
   trusted: boolean;
@@ -541,6 +542,7 @@ export async function persist(scope: Scope_persist) {
 }
 
 export function sleeperRowFor(scope: Scope_sleeperRowFor, c: Claim): WindowInfo {
+  if (isTabClaim(c)) return tabRow(c);
   return {
     id: c.windowId,
     pid: 0,
@@ -828,7 +830,9 @@ export async function syncHabitat(scope: Scope_syncHabitat) {
 }
 
 export function lastKnownRowFor(scope: Scope_lastKnownRowFor, c: Claim): WindowInfo {
-  return { ...scope.sleeperRowFor(c), sleeping: false };
+  const row = scope.sleeperRowFor(c);
+  if (isTabClaim(c)) return row;
+  return { ...row, sleeping: false };
 }
 
 export async function syncHabitatLastKnown(scope: Scope_syncHabitatLastKnown) {

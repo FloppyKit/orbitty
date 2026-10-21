@@ -1506,6 +1506,7 @@
   let unlistenExpand: (() => void) | undefined;
   let unlistenCollapse: (() => void) | undefined;
   let unlistenBeing: (() => void) | undefined;
+  let unlistenTabNote: (() => void) | undefined;
   let unlistenWalkerPack: (() => void) | undefined;
   let unlistenWalkerAssign: (() => void) | undefined;
   let unlistenYardAssign: (() => void) | undefined;
@@ -1676,6 +1677,9 @@
     // locate stroke now).
     unlistenBeing = await listen<string>("habitat:being", (e) => {
       openBeingEditor(e.payload);
+    });
+    unlistenTabNote = await listen<{ kind: "ok" | "err"; text: string }>("tabbity:note", (e) => {
+      wakeNote = e.payload;
     });
     // Walker right-click menu picks land here: import-first verbs run the
     // native picker then skin the walker with the new pack; a direct pick
@@ -1963,6 +1967,7 @@
     unlistenExpand?.();
     unlistenCollapse?.();
     unlistenBeing?.();
+    unlistenTabNote?.();
     unlistenWalkerPack?.();
     unlistenWalkerAssign?.();
     unlistenYardAssign?.();

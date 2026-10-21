@@ -1,6 +1,7 @@
 // Moved function bodies. scope fields are the lets each function already closed over.
 
 import type { AgentRun, CardTombstone, Claim, KanbanCard, PointsEntry, Project, Tag, WindowInfo, WindowTags } from "../persist";
+import { isTabClaim, tabRow } from "./tabbityRows";
 
 type Scope_nowEpoch = {};
 
@@ -161,15 +162,17 @@ export function todosFor(scope: Scope_todosFor, projectId: string): KanbanCard[]
 
 export function rowsFor(scope: Scope_rowsFor, projectId: string): WindowInfo[] {
   const live = scope.windows.filter((w) =>
-    scope.liveClaims.some((c) => c.windowId === w.id && c.projectId === projectId),
+    scope.liveClaims.some((c) => c.windowId === w.id && c.projectId === projectId && !isTabClaim(c)),
   );
   // A claimed window that closed stays listed as an
   // asleep row, synthesized from the claim fingerprint (icon may be gone —
   // that's fine). Done/Unclaim is the only way it leaves.
+  // Tab claims are not windows; they get their own rows below.
   const sleepers: WindowInfo[] = scope.liveClaims
     .filter(
       (c) =>
         c.projectId === projectId &&
+        !isTabClaim(c) &&
         !scope.windows.some((w) => w.id === c.windowId),
     )
     .map((c) => ({
@@ -185,7 +188,10 @@ export function rowsFor(scope: Scope_rowsFor, projectId: string): WindowInfo[] {
       documentPath: c.filePath ?? null,
       sleeping: true,
     }));
-  return [...live, ...sleepers];
+  const tabs: WindowInfo[] = scope.liveClaims
+    .filter((c) => c.projectId === projectId && isTabClaim(c))
+    .map((c) => tabRow(c, scope.windows));
+  return [...live, ...sleepers, ...tabs];
 }
 
 export function visibleRows(scope: Scope_visibleRows, rows: WindowInfo[]): WindowInfo[] {
