@@ -530,6 +530,12 @@ fn ack(app: &tauri::AppHandle, args: &serde_json::Value) -> Result<serde_json::V
 }
 
 #[cfg(test)]
+pub fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[cfg(test)]
 pub fn reset_for_test() {
     if let Ok(mut ob) = outbox().lock() {
         ob.boxes.clear();
@@ -705,6 +711,7 @@ mod tests {
 
     #[test]
     fn restore_enqueues_focus_and_does_not_say_bad_window_id() {
+        let _hold = super::test_lock();
         super::reset_for_test();
         let id = "tab:11111111-1111-4111-8111-111111111111";
         super::mark_connected("brave");
@@ -736,6 +743,7 @@ mod tests {
 
     #[test]
     fn outbox_poll_ttl_routing_and_not_connected() {
+        let _hold = super::test_lock();
         super::reset_for_test();
         let missing = crate::windows::restore_window("tab:33333333-3333-4333-8333-333333333333");
         let msg = missing.unwrap_err();
