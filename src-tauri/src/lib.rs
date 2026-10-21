@@ -135,6 +135,11 @@ fn restore_window(id: String) -> Result<(), String> {
     windows::restore_window(&id)
 }
 
+#[tauri::command]
+fn tabbity_live() -> Vec<tabbity::TabLive> {
+    tabbity::live_snapshot()
+}
+
 /// Circle-complete: AX close-button press on the window (never a pid kill).
 /// A refusal bubbles up as Err; the rail completes the card regardless.
 #[tauri::command]
@@ -768,6 +773,7 @@ pub fn run() {
             focus_window,
             minimize_window,
             restore_window,
+            tabbity_live,
             close_window,
             locate_window,
             locate_walker,

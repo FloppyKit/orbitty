@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::board::{self, save_with_events};
-use crate::state::{Claim, PersistedState, Project};
+use crate::state::{Claim, PersistedState, Project, TabRef};
 use crate::windows::WindowInfo;
 
 /// Who armed the pending claim. `User` is the tray, Dock menu, or app.
@@ -45,6 +45,16 @@ struct PendingUndo {
     prev_claim: Option<Claim>,
     written_project_id: String,
     prev_last_claim_project_id: Option<String>,
+    card: Option<CardUndo>,
+    /// Other ids in a tab batch. Undo puts every one back.
+    batch: Vec<BatchUndo>,
+}
+
+#[derive(Clone, Debug)]
+struct BatchUndo {
+    window_id: String,
+    prev_claim: Option<Claim>,
+    written_project_id: String,
     card: Option<CardUndo>,
 }
 
@@ -225,6 +235,66 @@ fn capture_undo(
         written_project_id,
         prev_last_claim_project_id: before.last_claim_project_id.clone(),
         card,
+        batch: Vec::new(),
+    }
+}
+
+fn batch_piece(before: &PersistedState, after: &PersistedState, window_id: &str) -> BatchUndo {
+    let prev_claim = before
+        .claims
+        .iter()
+        .find(|c| c.window_id == window_id)
+        .cloned();
+    let written_project_id = after
+        .claims
+        .iter()
+        .find(|c| c.window_id == window_id)
+        .map(|c| c.project_id.clone())
+        .unwrap_or_default();
+    let card = before
+        .kanban_cards
+        .iter()
+        .find(|c| c.window_id.as_deref() == Some(window_id) && c.status != "done")
+        .map(|c| {
+            let written = after.kanban_cards.iter().find(|a| a.id == c.id);
+            CardUndo {
+                id: c.id.clone(),
+                prev_project_id: c.project_id.clone(),
+                prev_window_id: c.window_id.clone(),
+                prev_title: c.title.clone(),
+                prev_last_touched_at: c.last_touched_at,
+                written_title: written
+                    .map(|a| a.title.clone())
+                    .unwrap_or_else(|| c.title.clone()),
+                written_last_touched_at: written
+                    .map(|a| a.last_touched_at)
+                    .unwrap_or(c.last_touched_at),
+            }
+        });
+    BatchUndo {
+        window_id: window_id.to_string(),
+        prev_claim,
+        written_project_id,
+        card,
+    }
+}
+
+fn arm_ids(before: &PersistedState, after: &PersistedState, ids: &[String], origin: ClaimOrigin) {
+    if ids.is_empty() {
+        return;
+    }
+    let mut pending = capture_undo(
+        before,
+        after,
+        &ids[0],
+        origin,
+        SystemTime::now() + Duration::from_secs(3),
+    );
+    for id in ids.iter().skip(1) {
+        pending.batch.push(batch_piece(before, after, id));
+    }
+    if let Ok(mut slots) = PENDING.lock() {
+        arm_into(&mut slots, pending);
     }
 }
 
@@ -251,26 +321,28 @@ fn check_pending(
     }
 }
 
-/// Put back the claim row this pending armed. Unrelated state stays.
-fn undo_claim_in(st: &mut PersistedState, p: &PendingUndo) -> Result<(), String> {
-    let Some(idx) = st.claims.iter().position(|c| c.window_id == p.window_id) else {
+fn undo_one(
+    st: &mut PersistedState,
+    window_id: &str,
+    written_project_id: &str,
+    prev_claim: &Option<Claim>,
+    card: &Option<CardUndo>,
+) -> Result<(), String> {
+    let Some(idx) = st.claims.iter().position(|c| c.window_id == window_id) else {
         return Err("claim changed since; not undone".into());
     };
-    if st.claims[idx].project_id != p.written_project_id {
+    if st.claims[idx].project_id != written_project_id {
         return Err("claim changed since; not undone".into());
     }
-    match &p.prev_claim {
+    match prev_claim {
         Some(prev) => st.claims[idx] = prev.clone(),
         None => {
             st.claims.remove(idx);
         }
     }
-    if st.last_claim_project_id.as_deref() == Some(p.written_project_id.as_str()) {
-        st.last_claim_project_id = p.prev_last_claim_project_id.clone();
-    }
-    if let Some(cu) = &p.card {
+    if let Some(cu) = card {
         if let Some(card) = st.kanban_cards.iter_mut().find(|c| c.id == cu.id) {
-            if card.project_id == p.written_project_id {
+            if card.project_id == written_project_id {
                 card.project_id = cu.prev_project_id.clone();
                 card.window_id = cu.prev_window_id.clone();
                 if card.title == cu.written_title {
@@ -281,6 +353,31 @@ fn undo_claim_in(st: &mut PersistedState, p: &PendingUndo) -> Result<(), String>
                 }
             }
         }
+    }
+    Ok(())
+}
+
+/// Put back the claim row this pending armed. A tab batch puts every id back.
+/// Unrelated state stays.
+fn undo_claim_in(st: &mut PersistedState, p: &PendingUndo) -> Result<(), String> {
+    undo_one(
+        st,
+        &p.window_id,
+        &p.written_project_id,
+        &p.prev_claim,
+        &p.card,
+    )?;
+    for extra in &p.batch {
+        undo_one(
+            st,
+            &extra.window_id,
+            &extra.written_project_id,
+            &extra.prev_claim,
+            &extra.card,
+        )?;
+    }
+    if st.last_claim_project_id.as_deref() == Some(p.written_project_id.as_str()) {
+        st.last_claim_project_id = p.prev_last_claim_project_id.clone();
     }
     Ok(())
 }
@@ -415,6 +512,9 @@ pub fn change_planet(
         check_pending(p, caller, SystemTime::now(), "change")?;
         (p.window_id.clone(), p.origin.clone())
     };
+    if window_id.starts_with("tab:") {
+        return change_tab_planet(app, &window_id, project_id, origin);
+    }
     let list = crate::windows::list_windows()?;
     let w = list
         .iter()
@@ -456,6 +556,153 @@ fn claim_window(
     emit_toast(app, &project, &w);
     crate::habitat::bring_planet_front(&project.id);
     Ok(())
+}
+
+fn apply_tab_claims(
+    st: &mut PersistedState,
+    specs: &[crate::tabbity::IncomingTab],
+    project_id: &str,
+) -> Result<(), String> {
+    if specs.is_empty() {
+        return Err("no tabs".into());
+    }
+    if specs.len() > crate::tabbity::BATCH_CAP {
+        return Err("batch too large".into());
+    }
+    let now = now_secs();
+    for browser in ["chrome", "brave"] {
+        let adding = specs
+            .iter()
+            .filter(|s| s.browser == browser && !st.claims.iter().any(|c| c.window_id == s.id))
+            .count();
+        if crate::tabbity::tab_count(st, browser) + adding > crate::tabbity::CLAIM_CAP {
+            return Err("too many tab claims".into());
+        }
+    }
+    for s in specs {
+        if !crate::tabbity::valid_tab_id(&s.id) {
+            return Err("bad tab id".into());
+        }
+        if !crate::tabbity::known_browser(&s.browser) {
+            return Err("unknown browser".into());
+        }
+        crate::tabbity::check_text(&s.url, &s.title)?;
+        let prev = st.claims.iter().find(|c| c.window_id == s.id).cloned();
+        st.claims.retain(|c| c.window_id != s.id);
+        st.claims.push(Claim {
+            window_id: s.id.clone(),
+            project_id: project_id.to_string(),
+            last_touched_at: now,
+            bundle_id: None,
+            app_name: None,
+            title_at_claim: None,
+            title_index: None,
+            sprite_pack_id: prev.as_ref().and_then(|c| c.sprite_pack_id.clone()),
+            char_seed: Some(
+                prev.as_ref()
+                    .and_then(|c| c.char_seed)
+                    .unwrap_or_else(roll_char_seed),
+            ),
+            char_look: prev.as_ref().and_then(|c| c.char_look.clone()),
+            sprite_scale: prev.as_ref().and_then(|c| c.sprite_scale),
+            walker_home: None,
+            file_path: None,
+            hermes_profile: None,
+            hermes_session: None,
+            action_id: None,
+            command: None,
+            cwd: None,
+            tab: Some(TabRef {
+                browser: s.browser.clone(),
+                url: s.url.clone(),
+                title: s.title.clone(),
+                fav_icon_url: crate::tabbity::favicon(s.fav_icon_url.as_deref()),
+                last_seen_at: now,
+            }),
+        });
+        if let Some(open) = st.kanban_cards.iter_mut().find(|c| {
+            c.window_id.as_deref() == Some(s.id.as_str()) && c.status != "done"
+        }) {
+            open.project_id = project_id.to_string();
+            open.last_touched_at = now;
+        }
+    }
+    st.last_claim_project_id = Some(project_id.to_string());
+    Ok(())
+}
+
+/// Tab batch through the same undo slot as a tray claim. One toast.
+pub fn claim_tabs(
+    app: &AppHandle,
+    specs: &[crate::tabbity::IncomingTab],
+    project_id: &str,
+    origin: ClaimOrigin,
+) -> Result<(), String> {
+    let before = crate::state::load_state(app)?;
+    if before.projects.is_empty() {
+        return Err("no planets".into());
+    }
+    let project = before
+        .projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .cloned()
+        .ok_or_else(|| format!("unknown planet {project_id}"))?;
+    let mut after = before.clone();
+    apply_tab_claims(&mut after, specs, &project.id)?;
+    let ids: Vec<String> = specs.iter().map(|s| s.id.clone()).collect();
+    arm_ids(&before, &after, &ids, origin);
+    save_with_events(app, &before, &after)?;
+    let first = &specs[0];
+    let title = if specs.len() == 1 {
+        first.title.clone()
+    } else {
+        format!("{} tabs", specs.len())
+    };
+    emit_toast(
+        app,
+        &project,
+        &crate::windows::WindowInfo {
+            id: first.id.clone(),
+            pid: 0,
+            app_name: crate::tabbity::browser_label(&first.browser).to_string(),
+            title,
+            bundle_id: None,
+            stable_key: String::new(),
+            icon_base64: None,
+            is_frontmost: false,
+            is_minimized: false,
+            document_path: None,
+        },
+    );
+    crate::habitat::bring_planet_front(&project.id);
+    for s in specs {
+        crate::tabbity::remember_claimed(s);
+    }
+    Ok(())
+}
+
+fn change_tab_planet(
+    app: &AppHandle,
+    window_id: &str,
+    project_id: &str,
+    origin: ClaimOrigin,
+) -> Result<(), String> {
+    let before = crate::state::load_state(app)?;
+    let c = before
+        .claims
+        .iter()
+        .find(|c| c.window_id == window_id)
+        .ok_or_else(|| "window gone".to_string())?;
+    let tab = c.tab.clone().ok_or_else(|| "window gone".to_string())?;
+    let spec = crate::tabbity::IncomingTab {
+        id: window_id.to_string(),
+        browser: tab.browser,
+        url: tab.url,
+        title: tab.title,
+        fav_icon_url: tab.fav_icon_url,
+    };
+    claim_tabs(app, &[spec], project_id, origin)
 }
 
 pub fn claim_front(app: &AppHandle, origin: &ClaimOrigin) -> Result<(), String> {
@@ -752,14 +999,12 @@ pub fn install_orbitty_dock_menu(app: AppHandle) {
 pub fn install_orbitty_dock_menu(_app: AppHandle) {}
 
 
-pub fn unclaim_window(app: &AppHandle, window_id: &str) -> Result<(), String> {
-    let before = crate::state::load_state(app)?;
-    if !before.claims.iter().any(|c| c.window_id == window_id) {
+pub(crate) fn unclaim_in(st: &mut PersistedState, window_id: &str) -> Result<(), String> {
+    if !st.claims.iter().any(|c| c.window_id == window_id) {
         return Err("not claimed".into());
     }
-    let mut after = before.clone();
-    after.claims.retain(|c| c.window_id != window_id);
-    for card in after.kanban_cards.iter_mut() {
+    st.claims.retain(|c| c.window_id != window_id);
+    for card in st.kanban_cards.iter_mut() {
         if card.window_id.as_deref() == Some(window_id) {
             card.window_id = None;
             if card.kind.as_deref() == Some("window") {
@@ -767,7 +1012,17 @@ pub fn unclaim_window(app: &AppHandle, window_id: &str) -> Result<(), String> {
             }
         }
     }
+    Ok(())
+}
+
+pub fn unclaim_window(app: &AppHandle, window_id: &str) -> Result<(), String> {
+    let before = crate::state::load_state(app)?;
+    let mut after = before.clone();
+    unclaim_in(&mut after, window_id)?;
     save_with_events(app, &before, &after)?;
+    if window_id.starts_with("tab:") {
+        crate::tabbity::note_unclaimed(window_id);
+    }
     Ok(())
 }
 

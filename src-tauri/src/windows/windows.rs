@@ -52,7 +52,43 @@ mod platform;
 mod platform;
 
 pub use platform::{
-    accessibility_status, close_window, deminiaturize_window, focus_window, frontmost_claimable,
-    install_frontmost_tracker, install_rail_mouse_buttons, list_windows, locate_window, minimize_window, open_accessibility_settings, prompt_accessibility, sync_rail_mouse_keys,
-    restore_window,
+    accessibility_status, deminiaturize_window, frontmost_claimable, install_frontmost_tracker,
+    install_rail_mouse_buttons, list_windows, open_accessibility_settings, prompt_accessibility,
+    sync_rail_mouse_keys,
 };
+
+/// `tab:` ids never reach AX. Asleep tabs reopen; live tabs focus.
+pub fn focus_window(id: &str) -> Result<(), String> {
+    if let Some(done) = crate::tabbity::dispatch_window(id, "focus") {
+        return done;
+    }
+    platform::focus_window(id)
+}
+
+pub fn minimize_window(id: &str) -> Result<(), String> {
+    if let Some(done) = crate::tabbity::dispatch_window(id, "minimize") {
+        return done;
+    }
+    platform::minimize_window(id)
+}
+
+pub fn restore_window(id: &str) -> Result<(), String> {
+    if let Some(done) = crate::tabbity::dispatch_window(id, "restore") {
+        return done;
+    }
+    platform::restore_window(id)
+}
+
+pub fn close_window(id: &str) -> Result<(), String> {
+    if let Some(done) = crate::tabbity::dispatch_window(id, "close") {
+        return done;
+    }
+    platform::close_window(id)
+}
+
+pub fn locate_window(id: &str) -> Result<(), String> {
+    if let Some(done) = crate::tabbity::dispatch_window(id, "locate") {
+        return done;
+    }
+    platform::locate_window(id)
+}

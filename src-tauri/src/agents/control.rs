@@ -353,6 +353,8 @@ const READ_TOOLS: &[&str] = &[
     // as do history.rewind / repair / keep.
     "history.list",
     "history.drift",
+    "tabbity.hello",
+    "tabbity.planets",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -1195,6 +1197,24 @@ fn run_tool(
             let roots = crate::plans::Roots::real();
             crate::plans::migrate_apply(&roots).map_err(tool_err)
         }
+        tool @ ("tabbity.hello"
+        | "tabbity.planets"
+        | "tabbity.claim"
+        | "tabbity.unclaim"
+        | "tabbity.update"
+        | "tabbity.poll"
+        | "tabbity.ack") => {
+            // Nightly only. Stable has no host and answers unknown tool.
+            #[cfg(feature = "dev-thin")]
+            {
+                crate::tabbity::handle(app, tool, args).map_err(tool_err)
+            }
+            #[cfg(not(feature = "dev-thin"))]
+            {
+                let _ = (app, args);
+                Err(unknown_tool(tool))
+            }
+        }
         other => Err(unknown_tool(other)),
     }
 }
@@ -1253,6 +1273,30 @@ mod tests {
         assert!(allowed(&Acl::Companion, "route.classify"));
         assert!(!allowed(&Acl::Companion, "route.run"));
         assert!(allowed(&Acl::Full, "route.run"));
+    }
+
+    #[test]
+    fn tabbity_reads_are_read_and_writes_are_not() {
+        assert!(READ_TOOLS.contains(&"tabbity.hello"));
+        assert!(READ_TOOLS.contains(&"tabbity.planets"));
+        assert!(allowed(&Acl::Read, "tabbity.hello"));
+        assert!(allowed(&Acl::Read, "tabbity.planets"));
+        for tool in [
+            "tabbity.claim",
+            "tabbity.unclaim",
+            "tabbity.update",
+            "tabbity.poll",
+            "tabbity.ack",
+        ] {
+            assert!(!READ_TOOLS.contains(&tool), "{tool}");
+            assert!(!allowed(&Acl::Read, tool), "{tool}");
+            assert!(!allowed(&Acl::Companion, tool), "{tool}");
+            assert!(allowed(&Acl::Full, tool), "{tool}");
+        }
+        let src = include_str!("../tabbity/mod.rs");
+        for bad in ["plans::", "kanban", "companion", "settings", "go_"] {
+            assert!(!src.contains(bad), "{bad}");
+        }
     }
 
     #[test]

@@ -108,6 +108,7 @@
             written_project_id: "P".into(),
             prev_last_claim_project_id: None,
             card: None,
+            batch: Vec::new(),
         }
     }
 
@@ -569,4 +570,69 @@
             !body.contains(".take()"),
             "C13 undo_last must not bare-take the slot:\n{body}"
         );
+    }
+
+    fn tab_spec(id: &str, title: &str) -> crate::tabbity::IncomingTab {
+        crate::tabbity::IncomingTab {
+            id: id.into(),
+            browser: "brave".into(),
+            url: "https://example.test/a".into(),
+            title: title.into(),
+            fav_icon_url: None,
+        }
+    }
+
+    /// claim_tab arms the user slot. undo_last(User) is try_take + undo_claim_in.
+    #[test]
+    fn claim_tab_then_undo_last_user_restores_before() {
+        let id = "tab:11111111-1111-4111-8111-111111111111";
+        let id2 = "tab:22222222-2222-4222-8222-222222222222";
+        let mut before = PersistedState::default();
+        before.projects = vec![project("P", "Planet"), project("Q", "Other")];
+        before.kanban_cards.push(card_of("card", "P", "linked", Some(id), "todo", 1.0));
+        let mut after = before.clone();
+        apply_tab_claims(
+            &mut after,
+            &[tab_spec(id, "One"), tab_spec(id2, "Two")],
+            "Q",
+        )
+        .unwrap();
+        assert_eq!(after.claims.len(), 2);
+        assert!(after.claims.iter().all(|c| c.tab.is_some()));
+        assert!(after.claims.iter().all(|c| c.bundle_id.is_none()));
+        arm_ids(
+            &before,
+            &after,
+            &[id.to_string(), id2.to_string()],
+            ClaimOrigin::User,
+        );
+        {
+            let mut slots = PENDING.lock().unwrap();
+            let now = SystemTime::now();
+            let which = which_pending(&slots, &agent("mcp"), now);
+            assert!(try_take(slot_mut(&mut slots, which), &agent("mcp"), now).is_err());
+        }
+        let pending = {
+            let mut slots = PENDING.lock().unwrap();
+            let now = SystemTime::now();
+            let which = which_pending(&slots, &ClaimOrigin::User, now);
+            try_take(slot_mut(&mut slots, which), &ClaimOrigin::User, now).unwrap()
+        };
+        undo_claim_in(&mut after, &pending).unwrap();
+        assert!(after.claims.is_empty());
+        assert_eq!(after.kanban_cards[0].window_id.as_deref(), Some(id));
+        assert_eq!(after.kanban_cards[0].project_id, "P");
+
+        let mut moved = before.clone();
+        apply_tab_claims(&mut moved, &[tab_spec(id, "One")], "P").unwrap();
+        let seed = moved.claims[0].char_seed;
+        apply_tab_claims(&mut moved, &[tab_spec(id, "One")], "Q").unwrap();
+        assert_eq!(moved.claims[0].project_id, "Q");
+        assert_eq!(moved.claims[0].char_seed, seed);
+        assert!(moved.claims[0].tab.is_some());
+
+        let mut claimed = moved.clone();
+        unclaim_in(&mut claimed, id).unwrap();
+        assert!(claimed.claims.is_empty());
+        assert!(claimed.kanban_cards[0].window_id.is_none());
     }

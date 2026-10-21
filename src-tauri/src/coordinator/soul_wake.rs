@@ -148,6 +148,11 @@ pub(crate) fn wake_sleeper_inner(app: &tauri::AppHandle, id: &str) -> Result<Str
         .cloned()
         .ok_or_else(|| "That sleeper isn't claimed anymore.".to_string())?;
 
+    if crate::tabbity::is_tab_owned(&claim) {
+        crate::windows::restore_window(id)?;
+        return Ok("Asked the browser to show that tab.".into());
+    }
+
     // 1. Live window (reopened between polls, not yet rematched) → focus.
     //    A restore that fails means it died mid-race — fall through.
     if let Ok(wins) = crate::windows::list_windows() {
