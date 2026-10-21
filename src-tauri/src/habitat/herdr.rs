@@ -768,6 +768,7 @@ mod tests {
             action_id: None,
             command: None,
             cwd: cwd.map(str::to_string),
+            tab: None,
         }
     }
 

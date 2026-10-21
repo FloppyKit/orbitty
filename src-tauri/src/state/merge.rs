@@ -76,6 +76,20 @@ pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (P
             }
         }
     }
+    // A rail copy of a tab claim can omit `tab` (a writer that rebuilds
+    // the row field by field). Disk's tab wins when the incoming row for
+    // the same id has none. An incoming tab is kept — url/title updates
+    // ride that row.
+    for c in out.claims.iter_mut() {
+        if c.tab.is_some() {
+            continue;
+        }
+        if let Some(d) = disk.claims.iter().find(|d| d.window_id == c.window_id) {
+            if d.tab.is_some() {
+                c.tab = d.tab.clone();
+            }
+        }
+    }
     (
         out,
         WindowMerge {

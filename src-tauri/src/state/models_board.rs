@@ -13,6 +13,19 @@ pub struct Project {
     pub workspace_root: Option<String>,
 }
 
+/// Live browser tab bound to a walker claim. Session tab ids stay out of
+/// state.json; this is the durable url/title the extension rematches on.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TabRef {
+    pub browser: String,
+    pub url: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fav_icon_url: Option<String>,
+    pub last_seen_at: f64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Claim {
@@ -76,6 +89,9 @@ pub struct Claim {
     pub command: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// Set only on `tab:` claims. Absent on window claims and old saves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<TabRef>,
 }
 
 /// Local Kanban SoT — freeform `kind: "todo"` from Lists, or a todo

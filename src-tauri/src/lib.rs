@@ -65,6 +65,7 @@ pub(crate) use habitat::herdr;
 pub(crate) use habitat::packs;
 mod state;
 mod windows;
+mod tabbity;
 pub(crate) use windows::claim_front;
 pub(crate) use windows::drawers;
 pub(crate) use windows::glass;

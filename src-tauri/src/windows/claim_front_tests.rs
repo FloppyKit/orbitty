@@ -54,6 +54,7 @@
             action_id: None,
             command: None,
             cwd: None,
+            tab: None,
         }
     }
 

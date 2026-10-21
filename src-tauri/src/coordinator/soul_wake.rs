@@ -159,6 +159,9 @@ pub(crate) fn wake_sleeper_inner(app: &tauri::AppHandle, id: &str) -> Result<Str
     // 1b. Rematch candidate already live (title may have drifted since the
     //     claim stamped) → focus it. The rail's rematchClaims rewrites the
     //     claim id on the next poll; wake stays read-only on state.
+    // A tab claim is not a window. Soft bundle rematch must not adopt it
+    // onto the one open Brave window, and a window claim is never a tab.
+    if !crate::tabbity::is_tab_owned(&claim) {
     if let Ok(wins) = crate::windows::list_windows() {
         let claimed: std::collections::HashSet<&str> =
             st.claims.iter().map(|c| c.window_id.as_str()).collect();
@@ -202,6 +205,7 @@ pub(crate) fn wake_sleeper_inner(app: &tauri::AppHandle, id: &str) -> Result<Str
                 return Ok("Woke the rematched window.".into());
             }
         }
+    }
     }
 
     // 2. File sleeper: the stamped AX document path, still on disk.

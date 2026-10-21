@@ -336,6 +336,7 @@
           spritePackId: prev?.spritePackId ?? null,
           charSeed: prev?.charSeed ?? (Math.floor(Math.random() * 0xffffffff) >>> 0),
           walkerHome: null,
+          tab: prev?.tab ?? null,
           ...(w
             ? {
                 bundleId: w.bundleId ?? null,

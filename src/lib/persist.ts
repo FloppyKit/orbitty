@@ -46,10 +46,19 @@ export interface CharLook {
   palette?: number | null;
 }
 
+export interface TabRef {
+  browser: string;
+  url: string;
+  title: string;
+  favIconUrl?: string | null;
+  lastSeenAt: number;
+}
+
 export interface Claim {
   windowId: string;
   projectId: string;
   lastTouchedAt: number;
+  tab?: TabRef | null;
   bundleId?: string | null;
   appName?: string;
   titleAtClaim?: string;

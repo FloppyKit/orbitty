@@ -248,6 +248,9 @@ export function claim(scope: Scope_claim, windowId: string, projectId: string) {
       charSeed: prev?.charSeed ?? scope.rollCharSeed(),
       charLook: prev?.charLook ?? null,
       spriteScale: prev?.spriteScale ?? null,
+      // Walker Assign is this same door. A rebuilt row must keep `tab`
+      // or the claim becomes a dead tab: id with no url.
+      tab: prev?.tab ?? null,
       // Claiming (rail Assign or walker
       // Assign-to-planet — same door) clears any leftover teleport
       // home. Occupancy is projectId only.

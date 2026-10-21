@@ -2,6 +2,7 @@
 
 import type { AgentRun, CardTombstone, Claim, KanbanCard, PointsEntry, Project, TitleOverride, WindowInfo, WindowTags } from "../persist";
 import { nudgePick } from "./nudgeTrigger";
+import { isTabClaim, rematchPick } from "./tabbityRows";
 
 interface AxStatus {
   trusted: boolean;
@@ -245,6 +246,7 @@ export function rematchClaims(scope: Scope_rematchClaims) {
   // so they survive the NEXT reboot too. While a claim is live, refresh
   // its sleeper wake trail (file path / Hermes session) from the window.
   for (const c of scope.liveClaims) {
+    if (isTabClaim(c)) continue;
     if (!liveIds.has(c.windowId)) continue;
     used.add(c.windowId);
     const w = scope.windows.find((x) => x.id === c.windowId);
@@ -267,37 +269,7 @@ export function rematchClaims(scope: Scope_rematchClaims) {
   }
   for (const c of scope.liveClaims) {
     if (liveIds.has(c.windowId)) continue;
-    const key = scope.claimStableKey(c);
-    let pick: WindowInfo | undefined;
-    if (key) pick = scope.windows.find((w) => !used.has(w.id) && w.stableKey === key);
-    if (!pick && (c.bundleId || c.appName) && c.titleAtClaim != null) {
-      const bundle = c.bundleId || c.appName;
-      pick = scope.windows.find(
-        (w) =>
-          !used.has(w.id) &&
-          (w.bundleId || w.appName) === bundle &&
-          w.title === c.titleAtClaim,
-      );
-    }
-    // Document path (Preview / editors): title may drift; the stamped
-    // file is stronger than the AX title.
-    if (!pick && c.filePath) {
-      pick = scope.windows.find(
-        (w) => !used.has(w.id) && w.documentPath === c.filePath,
-      );
-    }
-    // Soft rematch: title often drifts (browser nav, wallet rename,
-    // Finder folder). If exactly one unused live window shares this
-    // claim's bundle, adopt it — otherwise leave the orphan (ambiguous).
-    if (!pick) {
-      const bundle = c.bundleId || c.appName;
-      if (bundle) {
-        const same = scope.windows.filter(
-          (w) => !used.has(w.id) && (w.bundleId || w.appName) === bundle,
-        );
-        if (same.length === 1) pick = same[0];
-      }
-    }
+    const pick = rematchPick(c, scope.windows, used, scope.claimStableKey(c));
     if (!pick) continue; // orphan — waits for its window to return
     used.add(pick.id);
     scope.rewriteWindowId(c.windowId, pick);

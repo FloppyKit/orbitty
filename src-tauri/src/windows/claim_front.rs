@@ -141,6 +141,7 @@ fn apply_claim(st: &mut PersistedState, w: &WindowInfo, project_id: &str, list: 
         action_id: None,
         command: None,
         cwd: None,
+        tab: None,
     });
     st.last_claim_project_id = Some(project_id.to_string());
 
