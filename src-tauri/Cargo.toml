@@ -27,6 +27,11 @@ path = "src/bin/orbittyctl/main.rs"
 name = "orbitty-mcp"
 path = "src/bin/orbitty_mcp.rs"
 
+# Nightly-only native messaging host. std + serde_json. Stable does not ship it.
+[[bin]]
+name = "orbitty-tabbity-host"
+path = "src/bin/tabbity_host.rs"
+
 # GO-ORBITTY-RELAY-SIDECAR: loopback NIP-01 sidecar. Never links the
 # habitat; jsonl SoT stays in the app. No rusqlite in this crate.
 [[bin]]

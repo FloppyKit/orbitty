@@ -41,6 +41,8 @@ echo "==> Building orbittyctl (before tauri build)"
 (cd src-tauri && cargo build --release --bin orbittyctl)
 echo "==> Building orbitty-mcp (before tauri build)"
 (cd src-tauri && cargo build --release --bin orbitty-mcp)
+echo "==> Building orbitty-tabbity-host (before tauri build)"
+(cd src-tauri && cargo build --release --bin orbitty-tabbity-host)
 echo "==> Building release bundle (nightly)"
 # Relay directory is src/bin/orbitty-relay, so Cargo and tauri-bundler
 # both use orbitty-relay. No underscore shim. The rm below keeps a leftover
