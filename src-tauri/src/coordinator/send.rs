@@ -54,7 +54,28 @@ pub async fn companion_send_from(
         true,
         &serde_json::json!({ "n": line.chars().count(), "file": attach.is_some() }),
     );
+    let roots = crate::policy_guard::PolicyRoots::from_app(&app);
+    let snap = crate::policy_guard::Snapshot::take(&roots);
     let out = companion_send_inner(app.clone(), line, attach, origin).await;
+    let out = crate::policy_guard::finish_guard(
+        &snap,
+        &roots,
+        out,
+        |title| {
+            let _ = crate::board::needed_open(&app, title, "", Some(crate::policy_guard::NEEDED_WHY));
+        },
+        |ev| {
+            crate::event_log::append_best(
+                &app,
+                "companion-policy-guard",
+                None,
+                None,
+                Some("agent"),
+                true,
+                ev,
+            );
+        },
+    );
     crate::event_log::append_best(
         &app,
         "companion-reply",

@@ -576,12 +576,33 @@ pub const NEEDED_WHY: &str =
 pub fn apply_guard(
     roots: &PolicyRoots,
     stamp: &str,
-    mut needed: impl FnMut(&str),
-    mut event: impl FnMut(&serde_json::Value),
+    needed: impl FnMut(&str),
+    event: impl FnMut(&serde_json::Value),
     inner: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
     let snap = Snapshot::take(roots);
     let result = inner();
+    finish_guard_at(&snap, roots, stamp, result, needed, event)
+}
+
+pub fn finish_guard(
+    snap: &Snapshot,
+    roots: &PolicyRoots,
+    result: Result<String, String>,
+    needed: impl FnMut(&str),
+    event: impl FnMut(&serde_json::Value),
+) -> Result<String, String> {
+    finish_guard_at(snap, roots, &local_stamp(), result, needed, event)
+}
+
+fn finish_guard_at(
+    snap: &Snapshot,
+    roots: &PolicyRoots,
+    stamp: &str,
+    result: Result<String, String>,
+    mut needed: impl FnMut(&str),
+    mut event: impl FnMut(&serde_json::Value),
+) -> Result<String, String> {
     let reverted = snap.check_and_restore_at(roots, stamp);
     if reverted.is_empty() {
         return result;
