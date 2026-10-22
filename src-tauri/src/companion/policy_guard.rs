@@ -308,11 +308,6 @@ pub fn with_roots<T>(roots: PolicyRoots, f: impl FnOnce() -> T) -> T {
 }
 
 #[cfg(test)]
-pub fn with_sandbox_missing<T>(f: impl FnOnce() -> T) -> T {
-    with_override(None, true, f)
-}
-
-#[cfg(test)]
 pub fn with_override<T>(roots: Option<PolicyRoots>, missing: bool, f: impl FnOnce() -> T) -> T {
     let _g = test_lock();
     SANDBOX_MISSING.store(missing, Ordering::SeqCst);
@@ -589,10 +584,21 @@ pub fn finish_guard(
     snap: &Snapshot,
     roots: &PolicyRoots,
     result: Result<String, String>,
-    needed: impl FnMut(&str),
-    event: impl FnMut(&serde_json::Value),
+    mut needed: impl FnMut(&str),
+    mut event: impl FnMut(&serde_json::Value),
 ) -> Result<String, String> {
-    finish_guard_at(snap, roots, &local_stamp(), result, needed, event)
+    let reverted = snap.check_and_restore(roots);
+    if reverted.is_empty() {
+        return result;
+    }
+    let names: Vec<String> = reverted.into_iter().map(|r| r.name).collect();
+    event(&serde_json::json!({ "files": names, "n": names.len() }));
+    needed(&needed_title(&names));
+    let sentence = correction_sentence(&names);
+    match result {
+        Ok(s) => Ok(format!("{s}\n\n{sentence}")),
+        Err(e) => Err(format!("{e}\n\n{sentence}")),
+    }
 }
 
 fn finish_guard_at(

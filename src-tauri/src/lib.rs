@@ -37,6 +37,8 @@ pub(crate) use companion::companion_desk;
 #[cfg(unix)]
 pub(crate) use companion::companion_go;
 #[cfg(unix)]
+pub(crate) use companion::companion_policy;
+#[cfg(unix)]
 pub(crate) use companion::companion_todo;
 pub(crate) use companion::policy_guard;
 pub(crate) use companion::mouth_ack;

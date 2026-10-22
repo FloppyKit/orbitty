@@ -8,6 +8,8 @@ pub(crate) mod companion_desk;
 #[cfg(unix)]
 pub(crate) mod companion_go;
 #[cfg(unix)]
+pub(crate) mod companion_policy;
+#[cfg(unix)]
 pub(crate) mod companion_todo;
 pub(crate) mod mouth_ack;
 pub(crate) mod mouth_blip;

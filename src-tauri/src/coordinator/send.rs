@@ -123,6 +123,17 @@ pub(crate) async fn companion_send_inner(
         }
     }
 
+    #[cfg(unix)]
+    if !no_intercepts {
+        if let Some(out) = crate::companion_policy::intercept(&app, &line) {
+            let them = match out {
+                Ok(s) => s,
+                Err(e) => e,
+            };
+            return Ok(persist_action_intercept(&app, Some(line.as_str()), &them));
+        }
+    }
+
     // A line naming a Launchpad Action runs it
     // locally — Hermes/Berd never sees it. No match → unchanged send.
     if !no_intercepts {
