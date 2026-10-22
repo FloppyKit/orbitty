@@ -19,4 +19,5 @@ pub(crate) mod mouth_route;
 pub(crate) mod mouth_scan;
 pub(crate) mod mouth_sidecar;
 pub(crate) mod mouth_tools;
+pub(crate) mod policy_guard;
 pub(crate) mod talk;
