@@ -499,7 +499,8 @@ pub(crate) fn run_goose_reply(
         .filter(|s| is_goose_session_id(s))
         .map(str::to_string);
     let first_send = resume_id.is_none();
-    let args = goose_args(soul, line, resume_id.as_deref(), companion_mode_tools(app));
+    let tools_ok = companion_mode_tools(app) && crate::policy_guard::sandbox_ready();
+    let args = goose_args(soul, line, resume_id.as_deref(), tools_ok);
 
     // Config is `smart_approve` and the bubble has no yes/no UI — without
     // always_allow, tool calls would hang or be denied.
@@ -657,12 +658,13 @@ pub(crate) fn run_grok_reply(
     }
 
     let vision_json = vision_path.map(|p| crate::attach_vision::prompt_json(line, p));
+    let tools_ok = companion_mode_tools(app) && crate::policy_guard::sandbox_ready();
     let args = grok_args(
         &sid,
         plug.grok_session_minted,
         soul,
         line,
-        companion_mode_tools(app),
+        tools_ok,
         vision_json.as_deref(),
     );
     // streaming-json: thought/tool lines splash the wait slot;
@@ -688,7 +690,7 @@ pub(crate) fn run_grok_reply(
                 true,
                 soul,
                 line,
-                companion_mode_tools(app),
+                tools_ok,
                 vision_json.as_deref(),
             );
             streamed(
@@ -928,7 +930,7 @@ pub(crate) fn berd_session_snapshot(bin: &Path, session_id: &str) -> Result<Berd
 /// composer forever. stdout under -Q is the reply; stderr is session noise
 /// (resumed/session_id lines) plus any error — surfaced as ONE line.
 pub(crate) fn run_hermes_reply(bin: &Path, args: &[String]) -> Result<String, String> {
-    let mut child = Command::new(bin)
+    let mut child = crate::policy_guard::prepare_hermes(bin)?
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

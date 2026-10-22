@@ -5,7 +5,7 @@
 
 use std::io::BufRead;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -25,8 +25,23 @@ pub fn run_streamed(
     timeout_secs: u64,
     kill_on: Option<&dyn Fn(&str) -> bool>,
 ) -> Result<String, String> {
-    let mut child = Command::new(bin)
-        .args(args)
+    let prepared = crate::policy_guard::prepare_mouth(bin, args);
+    let unsandboxed = prepared.unsandboxed;
+    let result = run_streamed_fenced(app, tool, bin, prepared, timeout_secs, kill_on);
+    crate::policy_guard::note_unsandboxed(result, unsandboxed)
+}
+
+fn run_streamed_fenced(
+    app: &tauri::AppHandle,
+    tool: &str,
+    bin: &Path,
+    mut prepared: crate::policy_guard::PreparedMouth,
+    timeout_secs: u64,
+    kill_on: Option<&dyn Fn(&str) -> bool>,
+) -> Result<String, String> {
+    let mut child = prepared
+        .cmd
+        .args(&prepared.args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

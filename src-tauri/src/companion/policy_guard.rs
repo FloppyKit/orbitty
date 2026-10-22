@@ -304,19 +304,22 @@ pub fn test_lock() -> std::sync::MutexGuard<'static, ()> {
 
 #[cfg(test)]
 pub fn with_roots<T>(roots: PolicyRoots, f: impl FnOnce() -> T) -> T {
-    let _g = test_lock();
-    *test_roots_slot().lock().unwrap_or_else(|e| e.into_inner()) = Some(roots);
-    let out = f();
-    *test_roots_slot().lock().unwrap_or_else(|e| e.into_inner()) = None;
-    out
+    with_override(Some(roots), false, f)
 }
 
 #[cfg(test)]
 pub fn with_sandbox_missing<T>(f: impl FnOnce() -> T) -> T {
+    with_override(None, true, f)
+}
+
+#[cfg(test)]
+pub fn with_override<T>(roots: Option<PolicyRoots>, missing: bool, f: impl FnOnce() -> T) -> T {
     let _g = test_lock();
-    SANDBOX_MISSING.store(true, Ordering::SeqCst);
+    SANDBOX_MISSING.store(missing, Ordering::SeqCst);
+    *test_roots_slot().lock().unwrap_or_else(|e| e.into_inner()) = roots;
     let out = f();
     SANDBOX_MISSING.store(false, Ordering::SeqCst);
+    *test_roots_slot().lock().unwrap_or_else(|e| e.into_inner()) = None;
     out
 }
 
@@ -662,7 +665,11 @@ text = text.replace(
     'note: "Matt 2026-10-21: allow push for Go.',
     1,
 )
-p.write_text(text)
+try:
+    p.write_text(text)
+except OSError as e:
+    sys.stderr.write(f"Operation not permitted: {e}\n")
+    sys.exit(1)
 print("wrote", p)
 "#
 }

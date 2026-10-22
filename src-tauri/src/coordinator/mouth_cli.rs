@@ -71,9 +71,24 @@ pub(crate) fn run_mouth_cli_watched(
     timeout_secs: u64,
     kill_on: Option<&dyn Fn(&str) -> bool>,
 ) -> Result<String, String> {
+    let prepared = crate::policy_guard::prepare_mouth(bin, args);
+    let unsandboxed = prepared.unsandboxed;
+    let result = run_mouth_cli_watched_fenced(tool, bin, prepared, envs, timeout_secs, kill_on);
+    crate::policy_guard::note_unsandboxed(result, unsandboxed)
+}
+
+fn run_mouth_cli_watched_fenced(
+    tool: &str,
+    bin: &Path,
+    mut prepared: crate::policy_guard::PreparedMouth,
+    envs: &[(&str, &str)],
+    timeout_secs: u64,
+    kill_on: Option<&dyn Fn(&str) -> bool>,
+) -> Result<String, String> {
     use std::io::BufRead as _;
-    let mut child = Command::new(bin)
-        .args(args)
+    let mut child = prepared
+        .cmd
+        .args(&prepared.args)
         .envs(envs.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -141,6 +156,142 @@ pub(crate) fn run_mouth_cli_watched(
             }
             Err(e) => return Err(format!("wait on {}: {e}", tool.to_ascii_lowercase())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn write_exe(path: &Path, body: &str) {
+        std::fs::write(path, body).unwrap();
+        let mut perm = std::fs::metadata(path).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(path, perm).unwrap();
+    }
+
+    fn body_of<'a>(src: &'a str, sig: &str) -> &'a str {
+        let at = src.find(sig).unwrap_or_else(|| panic!("missing {sig}"));
+        let rest = &src[at..];
+        &rest[..rest.find("\n}\n").unwrap_or(rest.len())]
+    }
+
+    #[test]
+    fn run_mouth_cli_stub_cannot_write_rules() {
+        let (base, roots) = crate::policy_guard::temp_policy_home("mouthcli");
+        let rules = roots.plans_dir.join("RULES.yaml");
+        std::fs::write(&rules, crate::policy_guard::RULES_FIXTURE).unwrap();
+        let before = std::fs::read(&rules).unwrap();
+        let script = base.join("mouth.py");
+        write_exe(&script, crate::policy_guard::d4_edit_script());
+        let err = crate::policy_guard::with_roots(roots.clone(), || {
+            run_mouth_cli(
+                "Goose",
+                &script,
+                &[rules.display().to_string()],
+                &[],
+                30,
+            )
+        })
+        .unwrap_err();
+        assert!(
+            err.to_ascii_lowercase().contains("not permitted"),
+            "{err}"
+        );
+        assert_eq!(std::fs::read(&rules).unwrap(), before);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn mouth_env_path_bundle_first() {
+        let bundle = crate::coordinator::bundled_orbittyctl()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let ctl = bundle.join("orbittyctl");
+        let created = !ctl.exists();
+        if created {
+            write_exe(&ctl, "#!/bin/sh\necho bundle-ctl\n");
+        }
+        let (base, roots) = crate::policy_guard::temp_policy_home("env");
+        let script = base.join("env.sh");
+        write_exe(
+            &script,
+            "#!/bin/sh\necho \"PATH=$PATH\"\necho \"ORBITTY_CTL=$ORBITTY_CTL\"\necho \"ORBITTY_MCP=$ORBITTY_MCP\"\ncommand -v orbittyctl || true\n",
+        );
+        let out = crate::policy_guard::with_roots(roots, || {
+            run_mouth_cli("Goose", &script, &[], &[], 30)
+        })
+        .unwrap();
+        let bundle_s = bundle.display().to_string();
+        let path = out.lines().find(|l| l.starts_with("PATH=")).unwrap();
+        assert!(
+            path.trim_start_matches("PATH=").starts_with(&bundle_s),
+            "{out}"
+        );
+        assert!(out.contains(&format!("ORBITTY_CTL={bundle_s}/orbittyctl")), "{out}");
+        assert!(out.contains(&format!("ORBITTY_MCP={bundle_s}/orbitty-mcp")), "{out}");
+        let which = out.lines().last().unwrap();
+        assert!(which.starts_with(&bundle_s), "{which}");
+        assert!(!which.contains(".local/bin"), "{which}");
+        if created {
+            let _ = std::fs::remove_file(&ctl);
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn no_sandbox_means_tools_off() {
+        let (base, roots) = crate::policy_guard::temp_policy_home("nosb");
+        let script = base.join("args.sh");
+        write_exe(
+            &script,
+            "#!/bin/sh\nfor a in \"$@\"; do echo \"ARG:$a\"; done\n",
+        );
+        let goose = crate::coordinator::goose_args("soul", "hi", None, true);
+        let gout = crate::policy_guard::with_override(Some(roots.clone()), true, || {
+            run_mouth_cli("Goose", &script, &goose, &[], 30)
+        })
+        .unwrap();
+        assert!(gout.contains("ARG:--no-profile"), "{gout}");
+        assert!(!gout.contains("--with-builtin"), "{gout}");
+        let grok = crate::coordinator::grok_args("sid", false, "soul", "hi", true, None);
+        let kout = crate::policy_guard::with_override(Some(roots.clone()), true, || {
+            run_mouth_cli("Grok", &script, &grok, &[], 30)
+        })
+        .unwrap();
+        assert!(kout.contains("ARG:--disallowed-tools"), "{kout}");
+        assert!(kout.contains("ARG:bash,shell,computer"), "{kout}");
+        let marker = base.join("hermes-ran");
+        let hscript = base.join("hermes.sh");
+        write_exe(
+            &hscript,
+            "#!/bin/sh\ntouch \"$1\"\n",
+        );
+        let err = crate::policy_guard::with_override(Some(roots), true, || {
+            crate::coordinator::run_hermes_reply(&hscript, &[marker.display().to_string()])
+        })
+        .unwrap_err();
+        assert!(
+            err.contains("Hermes tools need the write fence (sandbox-exec missing)"),
+            "{err}"
+        );
+        assert!(!marker.exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn no_raw_mouth_spawn() {
+        let watched = body_of(include_str!("mouth_cli.rs"), "pub(crate) fn run_mouth_cli_watched(");
+        assert!(!watched.contains("Command::new(bin)"), "{watched}");
+        let streamed = body_of(
+            include_str!("../companion/mouth_blip.rs"),
+            "pub fn run_streamed(",
+        );
+        assert!(!streamed.contains("Command::new(bin)"));
+        let hermes = body_of(include_str!("send.rs"), "pub(crate) fn run_hermes_reply(");
+        assert!(!hermes.contains("Command::new(bin)"));
     }
 }
 
