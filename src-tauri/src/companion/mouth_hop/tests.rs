@@ -227,7 +227,7 @@ include_str!("../../coordinator/launch_tests.rs")
         let send = body_of(coord, "async fn companion_send_inner(");
         let calls = send.matches("persist_action_intercept(").count();
         let returned = send.matches("return Ok(persist_action_intercept(").count();
-        assert_eq!(calls, 5, "todo, go, action run, ambiguous, conductor Final");
+        assert_eq!(calls, 6, "todo, go, policy, action run, ambiguous, conductor Final");
         assert_eq!(returned, calls, "a door saves stripped but returns raw text");
         assert!(!send.contains("return Ok(them);"), "raw them returned");
         let intercept = body_of(coord, "fn persist_action_intercept(");
