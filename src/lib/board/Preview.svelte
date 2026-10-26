@@ -15,6 +15,10 @@
   let linkUrl = $state("");
   let linkLabel = $state("");
   let linkFor = "";
+  let goShow = $state(false);
+  let goMsg = $state("");
+  let goBusy = $state(false);
+  let goFor = "";
   let {
     addTagToCard,
     agentName,
@@ -71,8 +75,51 @@
       linkLabel = "";
       histFor = "";
       histAsk = null;
+      goMsg = "";
     }
   });
+
+  $effect(() => {
+    const card = detailCard;
+    const id = card?.id ?? "";
+    const title = card?.title ?? "";
+    const column = card?.status ?? "";
+    if (!id || card?.kind === "needed" || (column !== "todo" && column !== "doing")) {
+      goShow = false;
+      goFor = "";
+      return;
+    }
+    if (!/\bGO-[A-Z0-9][-A-Z0-9]*\b/.test(title.toUpperCase().replace(/\?/g, " "))) {
+      goShow = false;
+      goFor = "";
+      return;
+    }
+    goFor = id;
+    let cancelled = false;
+    invoke<{ show?: boolean }>("go_preview", { card: id, title, column })
+      .then((v) => {
+        if (!cancelled && goFor === id) goShow = !!v.show;
+      })
+      .catch(() => {
+        if (!cancelled) goShow = false;
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  async function startGo(card: { id: string }) {
+    goBusy = true;
+    goMsg = "";
+    try {
+      const v = await invoke<{ run_id?: string }>("go_start", { card: card.id });
+      goMsg = v.run_id ? `run ${v.run_id}` : "started";
+    } catch (e) {
+      goMsg = String(e);
+    } finally {
+      goBusy = false;
+    }
+  }
 
   let histFor = $state("");
   let histRows = $state<HistoryRow[]>([]);
@@ -199,9 +246,15 @@
           {@const due = dueInfo(card)}
           <div class="d-read-top">
             <h3 class="d-need-title">{displayTitle(card)}</h3>
+            {#if goShow}
+              <button type="button" class="mini" disabled={goBusy} onclick={() => startGo(card)}>Go</button>
+            {/if}
             <button type="button" class="mini" class:active={histFor === card.id} onclick={() => toggleHistory(card)}>History</button>
             <button type="button" class="mini" onclick={() => (previewEdit = true)}>Edit</button>
           </div>
+          {#if goMsg}
+            <p class="d-hint">{goMsg}</p>
+          {/if}
           {#if histFor === card.id}
             <div class="d-links">
               {#each histRows as row (row.id)}

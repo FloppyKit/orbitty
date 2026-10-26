@@ -210,6 +210,47 @@ pub fn missing_bundled_ctl() -> Option<String> {
     ctl_missing_reason(&crate::coordinator::bundled_orbittyctl())
 }
 
+fn title_has_go(title: &str) -> bool {
+    let upper = title.to_ascii_uppercase().replace('?', " ");
+    upper.split_whitespace().any(|tok| {
+        let rest = tok.strip_prefix("GO-").unwrap_or("");
+        !rest.is_empty()
+            && rest
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-')
+            && tok
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_uppercase())
+    })
+}
+
+/// Todo, or a doing card that is not the live run. Sealed GO title only.
+pub fn go_button_visible(column: &str, locked: bool, sealed: bool, title: &str) -> bool {
+    if !sealed || !title_has_go(title) {
+        return false;
+    }
+    column == "todo" || (column == "doing" && !locked)
+}
+
+/// What the Preview Go button needs. Does not spawn.
+pub fn preview_go(card: &str, title: &str, column: &str) -> Result<Value, String> {
+    let st = super::status_value(None, None, Some(card), Some(title))?;
+    let sealed = st.get("sealed").and_then(|v| v.as_bool()).unwrap_or(false);
+    let locked = lock_names_live(card);
+    let note = st
+        .get("note")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok(json!({
+        "show": go_button_visible(column, locked, sealed, title),
+        "sealed": sealed,
+        "locked": locked,
+        "note": note,
+    }))
+}
+
 fn conductor_script() -> PathBuf {
     #[cfg(test)]
     if let Ok(p) = std::env::var("ORBITTY_GO_RUN_SH") {
@@ -513,6 +554,29 @@ mod tests {
         }
         assert_eq!(got.trim(), expected.display().to_string());
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn go_button_only_on_a_sealed_go_card() {
+        assert!(go_button_visible("todo", false, true, "Ship GO-ORBITTY-KITCHEN-FIX"));
+        assert!(go_button_visible("doing", false, true, "GO-ORBITTY-X retry"));
+        assert!(!go_button_visible("doing", true, true, "GO-ORBITTY-X live"));
+        assert!(!go_button_visible("done", false, true, "GO-ORBITTY-X"));
+        assert!(!go_button_visible("todo", false, false, "GO-ORBITTY-X draft"));
+        assert!(!go_button_visible("todo", false, true, "no token here"));
+    }
+
+    #[test]
+    fn go_start_notes_the_refusal_before_spawn() {
+        let src = include_str!("../lib.rs");
+        let start = src.find("fn go_start(").expect("go_start");
+        let body = &src[start..];
+        let end = body[1..].find("\nfn ").map(|n| n + 1).unwrap_or(body.len());
+        let body = &body[..end];
+        let note = body.find("kanban_note_append").expect("note");
+        let spawn = body.find("spawn_plan").expect("spawn");
+        let prep = body.find("prepare_start").expect("prepare");
+        assert!(prep < note && note < spawn);
     }
 
 }

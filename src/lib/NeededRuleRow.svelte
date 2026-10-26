@@ -18,6 +18,7 @@
   // without Matt pressing Save.
   import { invoke } from "@tauri-apps/api/core";
   import type { KanbanCard } from "./persist";
+  import { classifyNeeded as classify } from "./neededFlavor";
 
   let {
     card,
@@ -31,46 +32,6 @@
   const PROMPT_KINDS = ["first", "leftover"] as const;
   const ISSUED_VALUES = ["shipped", "running", "absent"] as const;
 
-  // The bus's GO token: \b(GO-[A-Z0-9][-A-Z0-9]*)\b on the uppercased,
-  // de-questioned text.
-  const GO_RE = /\b(GO-[A-Z0-9][-A-Z0-9]*)\b/;
-  function extractGo(text: string): string | null {
-    const m = GO_RE.exec((text || "").toUpperCase().replace(/\?/g, " "));
-    return m ? m[1] : null;
-  }
-  // A fact title with no token (doing-fire) matches go against the why's
-  // go= — same fallback as the matcher.
-  function whyGo(why: string): string {
-    for (const tok of (why || "").split(/\s+/)) {
-      if (tok.startsWith("go=")) {
-        const v = tok.slice(3).trim();
-        if (v) return v.toUpperCase();
-      }
-    }
-    return "";
-  }
-  // Lock table, no model: Dogfood GO-…? / Writer for GO-… leftover? /
-  // Writer for GO-…? / anything else = fact.
-  function classify(title: string, why: string) {
-    const t = (title || "").trim();
-    const low = t.toLowerCase();
-    const go = extractGo(t) || whyGo(why) || null;
-    let flavor: string = "fact";
-    let promptKind: string | null = null;
-    if (t.startsWith("Dogfood ") && go) {
-      flavor = "dogfood";
-      if (low.includes("leftover")) promptKind = "leftover";
-    } else if (t.startsWith("Writer for ") && t.endsWith("?")) {
-      if (low.includes("leftover")) {
-        flavor = "writer-leftover";
-        promptKind = "leftover";
-      } else {
-        flavor = "writer";
-        promptKind = "first";
-      }
-    }
-    return { go, flavor, promptKind };
-  }
   // Trailing RULE: lines are teaching for the watch's from-answer door —
   // never let them leak into the standing answer this row saves.
   function stripRuleLines(text: string): string {

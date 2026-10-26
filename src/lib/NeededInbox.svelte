@@ -48,8 +48,16 @@
   // markdown. Parent owns mutate/logEvent so persist stays one door.
   // selectedId is bindable so the Launchpad
   // ring can walk the pile; ringActiveId paints the one focus ring.
+  import { invoke } from "@tauri-apps/api/core";
   import { planetCss } from "./planetColor";
-  import type { PersistedState } from "./persist";
+  import type { KanbanCard as BoardCard, PersistedState } from "./persist";
+  import {
+    classifyNeeded,
+    failHasText,
+    fixTitle,
+    showPassFail,
+    tip8From,
+  } from "./neededFlavor";
   import "./needed-split.css";
 
   let {
@@ -66,7 +74,7 @@
     onNeededAnswer,
   }: {
     variant: "strip" | "side";
-    cards: KanbanCard[];
+    cards: BoardCard[];
     projects?: Project[];
     projectId?: string;
     mutate: (fn: (s: PersistedState) => void) => void;
@@ -87,12 +95,15 @@
   } = $props();
 
   let newNeeded = $state("");
+  let failFor = $state<string | null>(null);
+  let failText = $state("FAIL: ");
+  let dogfoodErr = $state("");
 
   let neededNow = $derived(neededFor(cards, projectId));
 
   // Planet chip + short name on every row/card — a screenshot of the
   // consolidated Inbox reads which planet each Needed belongs to.
-  function projOf(card: KanbanCard): Project | undefined {
+  function projOf(card: BoardCard): Project | undefined {
     return card.projectId
       ? projects.find((p) => p.id === card.projectId)
       : undefined;
@@ -137,7 +148,7 @@
     addingNeeded = false;
   }
 
-  function skipNeeded(card: KanbanCard) {
+  function skipNeeded(card: BoardCard) {
     const now = Date.now() / 1000;
     mutate((s) => {
       s.kanbanCards = s.kanbanCards.map((c) =>
@@ -153,7 +164,113 @@
     }
   }
 
-  function laterNeeded(card: KanbanCard) {
+  function goCard(go: string): BoardCard | undefined {
+    const hits = cards.filter(
+      (c) => c.kind !== "needed" && (c.title || "").toUpperCase().includes(go),
+    );
+    return hits.find((c) => c.status === "doing") ?? hits[0];
+  }
+
+  function settleGo(card: BoardCard, answer: string, done: boolean) {
+    const go = classifyNeeded(card.title, card.neededWhy ?? "").go;
+    if (!go) return;
+    const target = goCard(go);
+    const now = Date.now() / 1000;
+    const line = done
+      ? `Dogfood PASS (${card.id})`
+      : `Dogfood FAIL (${card.id}): ${answer}`;
+    let minted = "";
+    const tip = tip8From(card.title);
+    const title = fixTitle(go, tip);
+    mutate((s) => {
+      if (target) {
+        s.kanbanCards = s.kanbanCards.map((c) =>
+          c.id === target.id
+            ? {
+                ...c,
+                status: done ? ("done" as const) : c.status,
+                notes: c.notes ? `${c.notes}\n${line}` : line,
+                lastTouchedAt: now,
+                completedAt: done ? now : c.completedAt ?? null,
+              }
+            : c,
+        );
+      }
+      if (!done) {
+        minted = `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const report =
+          (card.links ?? []).find((l) => l.url.startsWith("file:"))?.url ??
+          "";
+        const why = report ? `${answer}\n${report}` : answer;
+        s.kanbanCards = [
+          ...s.kanbanCards,
+          {
+            id: minted,
+            title,
+            projectId: card.projectId,
+            windowId: null,
+            kind: "needed" as const,
+            neededState: "open" as const,
+            neededWhy: why,
+            status: "todo" as const,
+            createdAt: now,
+            lastTouchedAt: now,
+            completedAt: null,
+            goalAligned: false,
+            clinicalOrMaster: false,
+            pointsAwarded: 0,
+            starred: false,
+          },
+        ];
+      }
+    });
+    if (minted) logEvent("needed-open", { cardId: minted, title }, card.projectId);
+  }
+
+  async function passDogfood(card: BoardCard) {
+    dogfoodErr = "";
+    try {
+      await invoke("needed_answer", { id: card.id, answer: "PASS" });
+    } catch (e) {
+      dogfoodErr = String(e);
+      return;
+    }
+    settleGo(card, "PASS", true);
+    if (selectedId === card.id) {
+      selectedId = null;
+      onNeededFocus?.(null, null);
+    }
+  }
+
+  function openFail(card: BoardCard) {
+    dogfoodErr = "";
+    failFor = card.id;
+    failText = "FAIL: ";
+    selectedId = card.id;
+    onNeededFocus?.(card.id, card.title);
+  }
+
+  async function saveFail() {
+    if (!failHasText(failText) || !failFor) return;
+    const card = cards.find((c) => c.id === failFor);
+    if (!card) return;
+    const answer = failText.trim();
+    dogfoodErr = "";
+    try {
+      await invoke("needed_answer", { id: card.id, answer });
+    } catch (e) {
+      dogfoodErr = String(e);
+      return;
+    }
+    settleGo(card, answer, false);
+    failFor = null;
+    if (selectedId === card.id) {
+      selectedId = null;
+      onNeededFocus?.(null, null);
+    }
+  }
+
+  function laterNeeded(card: BoardCard) {
     const now = Date.now() / 1000;
     mutate((s) => {
       s.kanbanCards = s.kanbanCards.map((c) =>
@@ -214,6 +331,24 @@
               ></span>
             {/if}
             <span class="kn-item-title">{card.title}</span>
+            {#if showPassFail(card.kind, card.neededState, card.title, card.neededWhy ?? "")}
+              <button
+                type="button"
+                class="mini ghost kn-act"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  passDogfood(card);
+                }}
+              >Pass</button>
+              <button
+                type="button"
+                class="mini ghost kn-act"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  openFail(card);
+                }}
+              >Fail</button>
+            {/if}
             <button
               type="button"
               class="mini ghost kn-act"
@@ -233,6 +368,24 @@
           </li>
         {/each}
       </ul>
+      {#if failFor}
+        <div class="kn-fail">
+          <input
+            bind:value={failText}
+            aria-label="Fail note"
+            onkeydown={(e) => e.key === "Enter" && saveFail()}
+          />
+          <button
+            type="button"
+            class="mini"
+            disabled={!failHasText(failText)}
+            onclick={saveFail}
+          >Save</button>
+        </div>
+      {/if}
+      {#if dogfoodErr}
+        <p class="kn-err">{dogfoodErr}</p>
+      {/if}
     {/if}
   </section>
 {/if}
@@ -278,6 +431,26 @@
   }
 
   /* Always open — the header is a label, not a toggle. */
+
+  .kn-fail {
+    display: flex;
+    gap: 6px;
+    padding: 4px 8px;
+  }
+
+  .kn-fail input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    color: inherit;
+    border: 1px solid currentColor;
+  }
+
+  .kn-err {
+    margin: 0;
+    padding: 0 8px 4px;
+    color: inherit;
+  }
   .kn-label {
     flex: 1;
     min-width: 0;

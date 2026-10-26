@@ -502,6 +502,24 @@ fn plans_set_runner(
     crate::plans::set_runner_choice(&runner, &harness, &model, permissions.as_deref())
 }
 
+/// Same prepare / spawn / refusal note as the `go.start` control arm.
+#[tauri::command]
+fn go_start(app: tauri::AppHandle, card: String) -> Result<serde_json::Value, String> {
+    match crate::plans::prepare_start(&card) {
+        Err(reason) => {
+            let _ = crate::board::kanban_note_append(&app, &card, &reason);
+            Err(reason)
+        }
+        Ok(plan) => crate::plans::spawn_plan(&plan),
+    }
+}
+
+/// Sealed + lock, for the Preview Go button. Does not spawn.
+#[tauri::command]
+fn go_preview(card: String, title: String, column: String) -> Result<serde_json::Value, String> {
+    crate::plans::preview_go(&card, &title, &column)
+}
+
 #[tauri::command]
 fn agent_pickup(
     app: tauri::AppHandle,
@@ -828,6 +846,8 @@ pub fn run() {
             plans_reveal,
             plans_set_dir,
             plans_set_runner,
+            go_start,
+            go_preview,
             agent_pickup,
             bring_all_front,
             bring_planet_front,
