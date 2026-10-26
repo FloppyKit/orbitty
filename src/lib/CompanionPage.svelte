@@ -16,6 +16,7 @@
   import CaptionPane from "./CaptionPane.svelte";
   import CompanionDock from "./CompanionDock.svelte";
   import CompToast from "./companion/Toast.svelte";
+  import ModelSetup from "./ModelSetup.svelte";
   import CompNotes from "./companion/Notes.svelte";
   import CompSpirit from "./companion/Spirit.svelte";
   import CompWell from "./companion/Well.svelte";
@@ -975,6 +976,7 @@
 </script>
 
 <CompToast bind:claimToast bind:claimToastTimer />
+<ModelSetup cue={botLine} />
 
 
 {#snippet caption(expanded: boolean, hosted: boolean)}

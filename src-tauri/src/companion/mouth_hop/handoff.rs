@@ -7,6 +7,7 @@ use super::openrouter::VisionGate;
 use super::openrouter::compat_chat;
 use super::openrouter::decide_vision_gate;
 use super::openrouter::hop_lane_for;
+#[cfg(not(feature = "alpha"))]
 use super::openrouter::key_path;
 use super::openrouter::lane_cooked;
 use super::openrouter::openrouter_chat;
@@ -152,23 +153,97 @@ pub fn normalize_reply_lane(raw: &str) -> String {
         "openrouter" | "or" => "openrouter".into(),
         "free" | "freemode" | "free-mode" | "free_mode" | "free mode" => "free".into(),
         "compat" => "compat".into(),
+        #[cfg(feature = "alpha")]
+        "none" | "no-model" | "nomodel" => "none".into(),
         _ => "grok".into(),
     }
 }
 
-pub fn effective_reply_lane(app: &tauri::AppHandle) -> String {
-    let Ok(s) = crate::state::load_state(app) else {
-        return "grok".into();
-    };
-    let raw = s.companion.reply_lane.trim();
-    if raw.is_empty() {
-        if s.companion.free_mode {
-            "free".into()
-        } else {
-            "grok".into()
+/// Empty lane. Alpha is "none" (not "grok"). Nightly keeps today's branch.
+pub fn lane_from_fields(raw: &str, free_mode: bool) -> String {
+    #[cfg(feature = "alpha")]
+    {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            return if free_mode {
+                "free".into()
+            } else {
+                "none".into()
+            };
         }
-    } else {
-        normalize_reply_lane(raw)
+        return normalize_reply_lane(raw);
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            if free_mode {
+                "free".into()
+            } else {
+                "grok".into()
+            }
+        } else {
+            normalize_reply_lane(raw)
+        }
+    }
+}
+
+pub const NO_MODEL_LINE: &str =
+    "I don't have a model yet. Click Set up a model to connect one.";
+
+pub fn is_no_model_lane(lane: &str) -> bool {
+    cfg!(feature = "alpha") && lane == "none"
+}
+
+/// No spawn, no HTTP. Saves the fixed line and returns it.
+pub fn block_no_model(app: &tauri::AppHandle, line: &str) -> Option<String> {
+    if !is_no_model_lane(&effective_reply_lane(app)) {
+        return None;
+    }
+    Some(crate::coordinator::persist_action_intercept(
+        app,
+        Some(line),
+        NO_MODEL_LINE,
+    ))
+}
+
+/// Fake spawner / HTTP. A No-model lane returns the fixed line and calls neither.
+pub fn dispatch_model_send(
+    lane: &str,
+    mut spawn: impl FnMut(),
+    mut http: impl FnMut(),
+) -> Result<String, &'static str> {
+    if is_no_model_lane(lane) {
+        return Ok(NO_MODEL_LINE.to_string());
+    }
+    spawn();
+    http();
+    Err("continue")
+}
+
+pub fn effective_reply_lane(app: &tauri::AppHandle) -> String {
+    #[cfg(feature = "alpha")]
+    {
+        let Ok(s) = crate::state::load_state(app) else {
+            return lane_from_fields("", false);
+        };
+        return lane_from_fields(&s.companion.reply_lane, s.companion.free_mode);
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
+        let Ok(s) = crate::state::load_state(app) else {
+            return "grok".into();
+        };
+        let raw = s.companion.reply_lane.trim();
+        if raw.is_empty() {
+            if s.companion.free_mode {
+                "free".into()
+            } else {
+                "grok".into()
+            }
+        } else {
+            normalize_reply_lane(raw)
+        }
     }
 }
 
@@ -209,7 +284,16 @@ fn free_lanes_reply(
             let (base, model) = crate::state::load_state(app)
                 .map(|s| (s.companion.direct_base_url.clone(), s.companion.direct_model.clone()))
                 .unwrap_or_default();
-            match crate::direct_lane::read_secret_file(&crate::direct_lane::direct_key_path()) {
+            match {
+                #[cfg(feature = "alpha")]
+                {
+                    crate::companion::keystore::get("compat")
+                }
+                #[cfg(not(feature = "alpha"))]
+                {
+                    crate::direct_lane::read_secret_file(&crate::direct_lane::direct_key_path())
+                }
+            } {
                 Some(key) => {
                     let msgs = messages.get_or_insert_with(|| {
                         hop_messages(app, &soul, raw_line, prompt, false, include_history)
@@ -654,6 +738,17 @@ pub struct OpenRouterKeyStatus {
 }
 
 fn key_status() -> OpenRouterKeyStatus {
+    #[cfg(feature = "alpha")]
+    {
+        let (set, tail) = crate::companion::keystore::status("openrouter");
+        return OpenRouterKeyStatus {
+            set,
+            source: if set { "keychain".into() } else { String::new() },
+            tail,
+        };
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
     let env = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
     let env = env.trim();
     if !env.is_empty() {
@@ -675,6 +770,7 @@ fn key_status() -> OpenRouterKeyStatus {
             tail: String::new(),
         },
     }
+    }
 }
 
 /// Settings paints this; the key itself never leaves the native side.
@@ -688,6 +784,13 @@ pub fn openrouter_key_status() -> OpenRouterKeyStatus {
 /// are rejected (a pasted blob is never a key).
 #[tauri::command]
 pub fn set_openrouter_key(key: String) -> Result<OpenRouterKeyStatus, String> {
+    #[cfg(feature = "alpha")]
+    {
+        crate::companion::keystore::put("openrouter", &key)?;
+        return Ok(key_status());
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
     let key = key.trim().to_string();
     let path = key_path();
     if key.is_empty() {
@@ -709,5 +812,6 @@ pub fn set_openrouter_key(key: String) -> Result<OpenRouterKeyStatus, String> {
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     }
     Ok(key_status())
+    }
 }
 

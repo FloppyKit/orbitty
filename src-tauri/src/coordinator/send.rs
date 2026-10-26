@@ -94,6 +94,14 @@ pub(crate) async fn companion_send_inner(
     attach: Option<crate::attach::AttachInfo>,
     origin: crate::mouth_route::Origin,
 ) -> Result<String, String> {
+    #[cfg(feature = "alpha")]
+    if let Some(reply) = crate::companion::key_redact::block_send(&app, &line) {
+        return Ok(reply);
+    }
+    #[cfg(feature = "alpha")]
+    if let Some(reply) = crate::mouth_hop::block_no_model(&app, &line) {
+        return Ok(reply);
+    }
     // A chip means the line is for the AI — the local
     // todo:/go:/Action intercepts cannot take a file, so they stand down
     // while one is attached (never a silent drop of the path).

@@ -1,3 +1,4 @@
+#[cfg(not(feature = "alpha"))]
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
@@ -12,21 +13,29 @@ use super::local::openai_chat_content;
 
 // lane 2: OpenRouter free (BYOK, failover — never identity)
 
+#[cfg(not(feature = "alpha"))]
 pub(crate) fn key_path() -> PathBuf {
     crate::coordinator::companions_root().join("openrouter.key")
 }
 
 /// Env first (standard OPENROUTER_API_KEY), then the Settings-saved
-/// file. Trimmed; empty = no key.
+/// file. Trimmed; empty = no key. Alpha reads Keychain only.
 pub(crate) fn openrouter_key() -> Option<String> {
-    let env = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
-    if !env.trim().is_empty() {
-        return Some(env.trim().to_string());
+    #[cfg(feature = "alpha")]
+    {
+        return crate::companion::keystore::get("openrouter");
     }
-    std::fs::read_to_string(key_path())
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    #[cfg(not(feature = "alpha"))]
+    {
+        let env = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
+        if !env.trim().is_empty() {
+            return Some(env.trim().to_string());
+        }
+        std::fs::read_to_string(key_path())
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
 }
 
 pub(crate) fn openrouter_configured() -> bool {
@@ -37,12 +46,19 @@ pub(crate) fn openrouter_configured() -> bool {
 /// ORBITTY_OPENROUTER_MODEL override ONLY when it names an explicit
 /// `:free` id. `openrouter/auto` (any flavor) never passes.
 fn openrouter_model() -> String {
-    let env = std::env::var("ORBITTY_OPENROUTER_MODEL").unwrap_or_default();
-    let m = env.trim();
-    if m == OPENROUTER_FREE_MODEL || m.ends_with(":free") {
-        m.to_string()
-    } else {
-        OPENROUTER_FREE_MODEL.into()
+    #[cfg(feature = "alpha")]
+    {
+        return OPENROUTER_FREE_MODEL.into();
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
+        let env = std::env::var("ORBITTY_OPENROUTER_MODEL").unwrap_or_default();
+        let m = env.trim();
+        if m == OPENROUTER_FREE_MODEL || m.ends_with(":free") {
+            m.to_string()
+        } else {
+            OPENROUTER_FREE_MODEL.into()
+        }
     }
 }
 

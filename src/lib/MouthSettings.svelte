@@ -6,8 +6,9 @@
   import { onMount, onDestroy } from "svelte";
   import type { PersistedState } from "./persist";
   import { linkErrText, requestLink } from "./linkOpen.svelte";
+  import ModelSetup from "./ModelSetup.svelte";
 
-  type ReplyLane = "grok" | "local" | "openrouter" | "free" | "compat";
+  type ReplyLane = "grok" | "local" | "openrouter" | "free" | "compat" | "none";
   type ScannedModel = {
     id: string;
     source: string;
@@ -36,6 +37,7 @@
   const QUICK_MOUTH = "google/gemma-4-e4b";
 
   let replyLane = $state<ReplyLane>("grok");
+  let alphaBuild = $state(false);
   let replyModel = $state("");
   let conductorOn = $state(false);
   let orKeyDraft = $state("");
@@ -80,6 +82,7 @@
       return "free";
     if (s === "compat") return "compat";
     if (s === "grok") return "grok";
+    if (alphaBuild && (s === "" || s === "none" || s === "no-model")) return "none";
     return freeMode ? "free" : "grok";
   }
 
@@ -316,6 +319,11 @@
     if (!document.hidden) rescan();
   };
   onMount(async () => {
+    try {
+      alphaBuild = await invoke<boolean>("alpha_build");
+    } catch {
+      alphaBuild = false;
+    }
     await loadState();
     await loadKeyStatus();
     await loadDirectKey();
@@ -400,6 +408,7 @@
   </div>
 </div>
 
+<ModelSetup alwaysOffer={alphaBuild} />
 <div class="mouth-row">
   <span class="mouth-k">Reply</span>
   <div class="mouth-v">
@@ -614,14 +623,14 @@
         class="mini"
         disabled={orBusy || orKeyDraft.trim().length === 0}
         onclick={saveOrKey}
-        title="Save the key locally — never in state.json"
+        title={alphaBuild ? "Save the key in Keychain — never a file or state.json" : "Save the key locally — never in state.json"}
       >Save</button>
-      {#if orKey.set && orKey.source === "file"}
+      {#if orKey.set && (orKey.source === "file" || orKey.source === "keychain")}
         <button
           class="mini ghost"
           disabled={orBusy}
           onclick={clearOrKey}
-          title="Delete the saved key file"
+          title={orKey.source === "keychain" ? "Delete the Keychain item" : "Delete the saved key file"}
         >Clear</button>
       {/if}
     </div>

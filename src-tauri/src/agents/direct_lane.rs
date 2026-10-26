@@ -236,7 +236,14 @@ pub fn compat_configured(base: &str, model: &str, key_present: bool) -> bool {
 }
 
 pub fn direct_key_path() -> std::path::PathBuf {
-    crate::coordinator::companions_root().join("direct.key")
+    #[cfg(feature = "alpha")]
+    {
+        return std::env::temp_dir().join("orbitty-alpha-unused-direct.key");
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
+        crate::coordinator::companions_root().join("direct.key")
+    }
 }
 
 /// Write or clear a secret file. Tests pass a temp path. Mode 0600.
@@ -309,13 +316,29 @@ pub struct DirectEndpoint {
 
 #[tauri::command]
 pub fn direct_key_status() -> DirectKeyStatus {
-    key_status_at(&direct_key_path())
+    #[cfg(feature = "alpha")]
+    {
+        let (set, tail) = crate::companion::keystore::status("compat");
+        return DirectKeyStatus { set, tail };
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
+        key_status_at(&direct_key_path())
+    }
 }
 
 #[tauri::command]
 pub fn set_direct_key(key: String) -> Result<DirectKeyStatus, String> {
-    write_secret_file(&direct_key_path(), &key)?;
-    Ok(key_status_at(&direct_key_path()))
+    #[cfg(feature = "alpha")]
+    {
+        crate::companion::keystore::put("compat", &key)?;
+        return Ok(direct_key_status());
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
+        write_secret_file(&direct_key_path(), &key)?;
+        Ok(key_status_at(&direct_key_path()))
+    }
 }
 
 #[tauri::command]
@@ -415,7 +438,16 @@ pub async fn send(
     let (base, model) = crate::state::load_state(app)
         .map(|s| (s.companion.direct_base_url, s.companion.direct_model))
         .unwrap_or_default();
-    let key_present = read_secret_file(&direct_key_path()).is_some();
+    let key_present = {
+        #[cfg(feature = "alpha")]
+        {
+            crate::companion::keystore::get("compat").is_some()
+        }
+        #[cfg(not(feature = "alpha"))]
+        {
+            read_secret_file(&direct_key_path()).is_some()
+        }
+    };
     let compat_ok = compat_configured(&base, &model, key_present);
     let or_key = crate::mouth_hop::openrouter_configured();
     let lanes = direct_plan(&settings, local_up, compat_ok, or_key);
