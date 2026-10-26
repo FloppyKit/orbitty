@@ -668,10 +668,23 @@ relaunch() {
   finish_blocked "Nightly did not come back within 60s"
 }
 
+ctl_ok() {
+  if [[ $CTL != /* ]]; then
+    finish_blocked "ctl: not an absolute path ($CTL)"
+  fi
+  if [[ $CTL == $HOME/.local/bin/orbittyctl ]]; then
+    finish_blocked "ctl: stale ~/.local/bin/orbittyctl (talks to Stable)"
+  fi
+  if [[ ! -x $CTL || -d $CTL ]]; then
+    finish_blocked "ctl: not executable ($CTL)"
+  fi
+}
+
 # --- preflight (fixed checks, then runner) ---
 check_disk
 check_rig_ok
 check_heavy
+ctl_ok
 seal_ok
 worktree_ok
 take_lock

@@ -577,6 +577,32 @@ grep -q '2 fix rounds' "$HOME_T/.conductor-out" || bad "pass-then-fail did not t
 ok pass-then-fail
 
 setup
+unset GO_RUN_CTL
+run r-no-ctl
+assert_stage blocked no-ctl
+grep -q 'ctl: not an absolute path' "$HOME_T/.conductor-out" || bad "no-ctl reason: $(<$HOME_T/.conductor-out)"
+[[ ! -f $HOME_T/.cook-argv ]] || bad "no-ctl spawned cook"
+ok no-ctl
+
+setup
+export GO_RUN_CTL=orbittyctl
+run r-path-ctl
+assert_stage blocked path-ctl
+grep -q 'ctl: not an absolute path' "$HOME_T/.conductor-out" || bad "path-ctl reason: $(<$HOME_T/.conductor-out)"
+ok path-ctl
+
+setup
+mkdir -p "$HOME_T/.local/bin"
+cp "$HOME_T/bin/ctl" "$HOME_T/.local/bin/orbittyctl"
+chmod 755 "$HOME_T/.local/bin/orbittyctl"
+export GO_RUN_CTL=$HOME_T/.local/bin/orbittyctl
+run r-stale-ctl
+assert_stage blocked stale-ctl
+grep -q 'stale ~/.local/bin/orbittyctl' "$HOME_T/.conductor-out" || bad "stale-ctl reason: $(<$HOME_T/.conductor-out)"
+[[ ! -f $HOME_T/.cook-argv ]] || bad "stale-ctl spawned cook"
+ok stale-ctl
+
+setup
 print -r -- noreport > "$HOME_T/.verify-mode"
 run r-noreport
 assert_stage blocked noreport

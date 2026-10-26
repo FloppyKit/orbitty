@@ -3,6 +3,7 @@
 //! module does not move a card and does not write permissions.
 
 use serde_json::{json, Value};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -185,6 +186,30 @@ pub struct StartPlan {
     pub script: PathBuf,
 }
 
+fn executable_file(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    meta.is_file() && meta.permissions().mode() & 0o111 != 0
+}
+
+/// `None` when `path` is an executable file. The refusal text is what
+/// `go.start` / `go_start` write on the card. No spawn.
+pub fn ctl_missing_reason(path: &Path) -> Option<String> {
+    if executable_file(path) {
+        None
+    } else {
+        Some(format!(
+            "bundled orbittyctl missing at {}",
+            path.display()
+        ))
+    }
+}
+
+pub fn missing_bundled_ctl() -> Option<String> {
+    ctl_missing_reason(&crate::coordinator::bundled_orbittyctl())
+}
+
 fn conductor_script() -> PathBuf {
     #[cfg(test)]
     if let Ok(p) = std::env::var("ORBITTY_GO_RUN_SH") {
@@ -246,6 +271,9 @@ pub fn prepare_start(card: &str) -> Result<StartPlan, String> {
             script.display()
         ));
     }
+    if let Some(why) = missing_bundled_ctl() {
+        return Err(why);
+    }
     let run_id = mint_run_id();
     let dir = runs_dir(&roots).join(&run_id);
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
@@ -285,6 +313,10 @@ pub fn spawn_detached(script: &Path, args: &[String], log: &Path) -> Result<(), 
         .map_err(|e| format!("log {}: {e}", log.display()))?;
     let mut cmd = Command::new(script);
     cmd.args(args)
+        .env(
+            "GO_RUN_CTL",
+            crate::coordinator::bundled_orbittyctl(),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::from(file))
         .stderr(Stdio::from(err));
@@ -426,6 +458,61 @@ mod tests {
         let runner = body.find("validate_selected(").unwrap();
         assert!(seal < base && base < lock && lock < rig && rig < heavy && heavy < disk && disk < runner);
         assert!(!body.contains("allow_push"), "permissions must not reach the fixed checks");
+        let ctl = body.find("missing_bundled_ctl()").expect("ctl check");
+        let ok_plan = body.rfind("Ok(StartPlan").expect("plan");
+        assert!(ctl < ok_plan, "missing ctl must refuse before a plan is returned");
+    }
+
+    #[test]
+    fn missing_ctl_refuses_with_the_path_and_does_not_spawn() {
+        let home = tmp();
+        let missing = home.join("orbittyctl");
+        let why = ctl_missing_reason(&missing).unwrap();
+        assert!(why.contains("bundled orbittyctl missing at"));
+        assert!(why.contains(&missing.display().to_string()));
+        std::fs::write(&missing, b"#!/bin/zsh\n").unwrap();
+        let mut perms = std::fs::metadata(&missing).unwrap().permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(&missing, perms).unwrap();
+        assert!(ctl_missing_reason(&missing).unwrap().contains("missing"));
+        let mut perms = std::fs::metadata(&missing).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&missing, perms).unwrap();
+        assert!(ctl_missing_reason(&missing).is_none());
+        let src = include_str!("go_run.rs");
+        let spawn = src.split("pub fn spawn_plan(").nth(1).unwrap();
+        let spawn = spawn.split("pub fn spawn_detached(").next().unwrap();
+        assert!(!spawn.contains("Command::new"), "spawn_plan must not spawn itself");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn spawn_sets_go_run_ctl_to_the_bundled_path() {
+        let home = tmp();
+        let script = home.join("s.sh");
+        let out = home.join("env.txt");
+        std::fs::write(
+            &script,
+            format!("#!/bin/zsh\nprint -r -- \"$GO_RUN_CTL\" > {}\n", out.display()),
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+        spawn_detached(&script, &[], &home.join("log")).unwrap();
+        let expected = crate::coordinator::bundled_orbittyctl();
+        let mut got = String::new();
+        for _ in 0..50 {
+            if let Ok(s) = std::fs::read_to_string(&out) {
+                if !s.is_empty() {
+                    got = s;
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(got.trim(), expected.display().to_string());
+        let _ = std::fs::remove_dir_all(&home);
     }
 
 }
