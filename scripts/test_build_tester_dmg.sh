@@ -21,6 +21,14 @@
 #   T14 remove the helper-is-symlink guard
 #   T15 skip check_bundled_ctl.sh
 #   T16 drop the inside-repo --out refusal
+#   T17 drop --config / allow dev-thin / skip the plist identifier check
+#   T18 drop the alpha-feature refusal
+#   T19 hardcode the old three helpers (skip orbitty-tabbity-host)
+#   T20 drop the oxipng-missing refusal
+#   T21 drop the secret scan
+#   T22 drop --target universal-apple-darwin or the per-file lipo check
+#   T23 allow a dirty non-smoke build
+#   T24 allow --out under /Applications or ~/Applications
 set -euo pipefail
 
 here=${0:A:h}
@@ -40,6 +48,12 @@ cp -- "$root/scripts/install_lib.sh" "$sandbox/scripts/install_lib.sh"
 cp -- "$root/scripts/check_bundled_ctl.sh" "$sandbox/scripts/check_bundled_ctl.sh"
 cp -- "$root/docs/TESTER_OPEN_ANYWAY.md" "$sandbox/docs/TESTER_OPEN_ANYWAY.md"
 cp -- "$root/src-tauri/tauri.conf.json" "$sandbox/src-tauri/tauri.conf.json"
+cp -- "$root/src-tauri/tauri.alpha.conf.json" "$sandbox/src-tauri/tauri.alpha.conf.json"
+cat > "$sandbox/src-tauri/Cargo.toml" <<'EOF'
+[features]
+alpha = []
+dev-thin = []
+EOF
 chmod 755 "$sandbox/scripts/build-tester-dmg.sh" "$sandbox/scripts/check_bundled_ctl.sh"
 git -C "$sandbox" init -q
 script="$sandbox/scripts/build-tester-dmg.sh"
@@ -69,10 +83,19 @@ EOF
 
 fixture="$tmp/fixture.app"
 mkdir -p "$fixture/Contents/MacOS"
-for name in orbitty orbittyctl orbitty-mcp orbitty-relay orbitty_relay; do
+for name in orbitty orbittyctl orbitty-mcp orbitty-relay orbitty-tabbity-host orbitty_relay; do
   cp "$tmp/ctl" "$fixture/Contents/MacOS/$name"
   chmod 755 "$fixture/Contents/MacOS/$name"
 done
+cat > "$fixture/Contents/Info.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>space.orbitty.alpha</string>
+  <key>LSMinimumSystemVersion</key><string>15.0</string>
+</dict></plist>
+EOF
+print -r -- "$fixture" > "$STUB_DIR/fixture_path"
 export ORBITTY_TEST_FIXTURE="$fixture"
 
 cat > "$STUB_BIN/git" <<'EOF'
@@ -106,6 +129,16 @@ EOF
 cat > "$STUB_BIN/cargo" <<'EOF'
 #!/bin/zsh
 print -r -- "cargo $*" >> "$STUB_LOG"
+if [[ -n ${OPENROUTER_API_KEY:-} || -n ${SOME_API_KEY:-} ]]; then
+  print -r -- "KEY_SET" >> "$STUB_LOG"
+else
+  print -r -- "KEY_UNSET" >> "$STUB_LOG"
+fi
+if [[ -n ${ORBITTY_LEAK:-} ]]; then
+  print -r -- "ORBITTY_SET" >> "$STUB_LOG"
+else
+  print -r -- "ORBITTY_UNSET" >> "$STUB_LOG"
+fi
 exit 0
 EOF
 
@@ -113,21 +146,52 @@ cat > "$STUB_BIN/npm" <<'EOF'
 #!/bin/zsh
 print -r -- "npm $*" >> "$STUB_LOG"
 dest="src-tauri/target/release/bundle/macos/Orbitty.app"
+if [[ " $* " == *"universal-apple-darwin"* ]]; then
+  dest="src-tauri/target/universal-apple-darwin/release/bundle/macos/Orbitty.app"
+fi
+fixture="${ORBITTY_TEST_FIXTURE:-}"
+if [[ -z $fixture && -f ${STUB_DIR:-}/fixture_path ]]; then
+  fixture="$(<"$STUB_DIR/fixture_path")"
+fi
 rm -rf -- "$dest"
 mkdir -p -- "${dest:h}"
-cp -R -- "$ORBITTY_TEST_FIXTURE" "$dest"
-if [[ -n ${ORBITTY_TEST_EXTRA:-} ]]; then
-  : > "$dest/Contents/MacOS/$ORBITTY_TEST_EXTRA"
+cp -R -- "$fixture" "$dest"
+extra="${ORBITTY_TEST_EXTRA:-}"
+if [[ -z $extra && -f ${STUB_DIR:-}/extra ]]; then
+  extra="$(<"$STUB_DIR/extra")"
 fi
-if [[ -n ${ORBITTY_TEST_SYMLINK_HELPER:-} ]]; then
-  helper="$dest/Contents/MacOS/$ORBITTY_TEST_SYMLINK_HELPER"
+if [[ -n $extra ]]; then
+  : > "$dest/Contents/MacOS/$extra"
+fi
+link="${ORBITTY_TEST_SYMLINK_HELPER:-}"
+if [[ -z $link && -f ${STUB_DIR:-}/symlink_helper ]]; then
+  link="$(<"$STUB_DIR/symlink_helper")"
+fi
+if [[ -n $link ]]; then
+  helper="$dest/Contents/MacOS/$link"
   rm -f -- "$helper"
   ln -s orbitty "$helper"
 fi
-if [[ -n ${ORBITTY_TEST_BAD_CTL:-} ]]; then
+bad="${ORBITTY_TEST_BAD_CTL:-}"
+if [[ -z $bad && -f ${STUB_DIR:-}/bad_ctl ]]; then
+  bad=1
+fi
+if [[ -n $bad ]]; then
   printf '%s\n' '#!/bin/sh' 'exit 0' > "$dest/Contents/MacOS/orbittyctl"
   chmod 755 "$dest/Contents/MacOS/orbittyctl"
 fi
+plant=""
+if [[ -f ${STUB_DIR:-}/plant ]]; then
+  plant="$(<"$STUB_DIR/plant")"
+fi
+mkdir -p -- "$dest/Contents/Resources"
+case $plant in
+  env) print -r -- "nope" > "$dest/Contents/Resources/.env" ;;
+  key) print -r -- "nope" > "$dest/Contents/Resources/x.key" ;;
+  pem) print -r -- "nope" > "$dest/Contents/Resources/x.pem" ;;
+  settings) print -r -- "{}" > "$dest/Contents/Resources/settings.json" ;;
+  secret) print -r -- "sk-or-v1-TESTTESTTESTTESTTEST" > "$dest/Contents/Resources/notes.txt" ;;
+esac
 exit 0
 EOF
 
@@ -206,11 +270,18 @@ macos=os.path.join(src, "Orbitty.app", "Contents", "MacOS")
 names=sorted(os.listdir(macos)) if os.path.isdir(macos) else []
 guide=os.path.join(src, "Open Anyway - read me first.md")
 info=os.path.join(src, "BUILD_INFO.txt")
+plist=os.path.join(src, "Orbitty.app", "Contents", "Info.plist")
 snap={"entries": entries, "macos": names}
 if os.path.isfile(guide):
     snap["guide"]=open(guide, encoding="utf-8").read()
 if os.path.isfile(info):
     snap["info"]=open(info, encoding="utf-8").read()
+if os.path.isfile(plist):
+    import plistlib
+    pl=plistlib.loads(open(plist, "rb").read())
+    snap["plist_id"]=pl.get("CFBundleIdentifier")
+    snap["plist_commit"]=pl.get("OrbittyGitCommit")
+    snap["plist_dirty"]=pl.get("OrbittyGitDirty")
 open(out, "w", encoding="utf-8").write(json.dumps(snap))
 ' "$src" "$STUB_DIR/stage.json"
   mkdir -p -- "${out:h}"
@@ -232,6 +303,13 @@ print -r -- "ln $*" >> "$STUB_LOG"
 exec /bin/ln "$@"
 EOF
 
+cat > "$STUB_BIN/lipo" <<'EOF'
+#!/bin/zsh
+print -r -- "lipo $*" >> "$STUB_LOG"
+print -r -- "${STUB_LIPO_ARCHS:-arm64}"
+exit 0
+EOF
+
 chmod 755 "$STUB_BIN"/*(N)
 
 reset_state() {
@@ -241,11 +319,28 @@ reset_state() {
 }
 
 run_build() {
-  local ec
+  local ec path_use
   reset_state
+  rm -f -- "$STUB_DIR/extra" "$STUB_DIR/symlink_helper" "$STUB_DIR/bad_ctl" "$STUB_DIR/plant"
+  if [[ -n ${ORBITTY_TEST_EXTRA:-} ]]; then
+    print -r -- "$ORBITTY_TEST_EXTRA" > "$STUB_DIR/extra"
+  fi
+  if [[ -n ${ORBITTY_TEST_SYMLINK_HELPER:-} ]]; then
+    print -r -- "$ORBITTY_TEST_SYMLINK_HELPER" > "$STUB_DIR/symlink_helper"
+  fi
+  if [[ -n ${ORBITTY_TEST_BAD_CTL:-} ]]; then
+    print -r -- 1 > "$STUB_DIR/bad_ctl"
+  fi
+  if [[ -n ${STUB_PLANT:-} ]]; then
+    print -r -- "$STUB_PLANT" > "$STUB_DIR/plant"
+  fi
+  path_use="$STUB_BIN:$PATH"
+  if [[ -n ${STUB_NARROW_PATH:-} ]]; then
+    path_use="$STUB_BIN:/usr/bin:/bin:/usr/sbin"
+  fi
   ec=0
   set +e
-  REPLY_OUT="$(PATH="$STUB_BIN:$PATH" "$script" "$@" 2>&1)"
+  REPLY_OUT="$(PATH="$path_use" "$script" "$@" 2>&1)"
   ec=$?
   set -e
   REPLY_EC=$ec
@@ -274,6 +369,12 @@ success_setup() {
   unset STUB_BAD_AUTHORITY_FOR
   unset ORBITTY_TEST_SYMLINK_HELPER
   unset ORBITTY_TEST_BAD_CTL
+  unset STUB_PLANT
+  unset STUB_NARROW_PATH
+  unset STUB_LIPO_ARCHS
+  unset OPENROUTER_API_KEY
+  unset SOME_API_KEY
+  unset ORBITTY_LEAK
 }
 
 sign_lines() {
@@ -355,7 +456,7 @@ fi
 
 export ORBITTY_TEST_EXTRA=""
 run_build --smoke --out "$tmp/t3-smoke"
-smoke_dmg="$tmp/t3-smoke/Orbitty-0.1.0-alpha-bbbbbbb-SMOKE.dmg"
+smoke_dmg="$tmp/t3-smoke/Orbitty-0.1.0-alpha-bbbbbbb-arm64-SMOKE.dmg"
 if (( REPLY_EC != 0 )) || ! cargo_logged || [[ ! -f $smoke_dmg ]]; then
   t3_ok=0
   print -r -- "  T3 smoke did not pass preflight (exit=$REPLY_EC dmg=$([[ -f $smoke_dmg ]] && print yes || print no))" >&2
@@ -424,7 +525,7 @@ for line in lines:
     names.append(base)
 print(" ".join(names))
 ' "$sign_file")
-if [[ $got_order != "orbittyctl orbitty-mcp orbitty-relay Orbitty.app" ]]; then
+if [[ $got_order != "orbitty-mcp orbitty-relay orbitty-tabbity-host orbittyctl Orbitty.app" ]]; then
   t5_ok=0
 fi
 if (( t5_ok )); then
@@ -451,7 +552,7 @@ fi
 success_setup
 run_build --out "$tmp/t7-out"
 t7_ok=1
-expect_dmg="$tmp/t7-out/Orbitty-0.1.0-alpha-abcdef1.dmg"
+expect_dmg="$tmp/t7-out/Orbitty-0.1.0-alpha-abcdef1-arm64.dmg"
 if (( REPLY_EC != 0 )) || [[ ! -s $expect_dmg ]]; then
   t7_ok=0
 fi
@@ -479,7 +580,15 @@ ok = ok and "companion in spirit form only" in guide
 info=d.get("info","")
 ok = ok and "version: 0.1.0" in info and "abcdef1234567890abcdef1234567890abcdef12" in info
 ok = ok and "identity: Orbitty Local Codesign" in info and "alpha, companion in spirit form only (no faces)" in info
-ok = ok and d.get("macos") == ["orbitty", "orbitty-mcp", "orbitty-relay", "orbittyctl"]
+ok = ok and "bundle id: space.orbitty.alpha" in info
+ok = ok and "data dir: ~/Library/Application Support/space.orbitty.alpha" in info
+ok = ok and "architectures: Apple silicon Macs (M1 or newer) only" in info
+ok = ok and "not notarized" in info
+ok = ok and "macos minimum: 15.0" in info
+ok = ok and d.get("macos") == ["orbitty", "orbitty-mcp", "orbitty-relay", "orbitty-tabbity-host", "orbittyctl"]
+ok = ok and d.get("plist_id") == "space.orbitty.alpha"
+ok = ok and d.get("plist_commit") == "abcdef1234567890abcdef1234567890abcdef12"
+ok = ok and d.get("plist_dirty") is False
 print("yes" if ok else "no")
 ' "$STUB_DIR/stage.json")
   if [[ $t7_check != yes ]]; then
@@ -609,7 +718,7 @@ fi
 success_setup
 t13_dir="$tmp/t13-out"
 mkdir -p "$t13_dir"
-t13_dmg="$t13_dir/Orbitty-0.1.0-alpha-abcdef1.dmg"
+t13_dmg="$t13_dir/Orbitty-0.1.0-alpha-abcdef1-arm64.dmg"
 print -r -- "ORIGINAL" > "$t13_dmg"
 t13_before=$(cksum "$t13_dmg")
 run_build --out "$t13_dir"
@@ -698,6 +807,232 @@ if (( t16_ok )); then
   pass T16
 else
   bad T16
+  print -r -- "$REPLY_OUT" >&2
+fi
+
+# --- T17 alpha config on the build line; plist id; no dev-thin ---
+success_setup
+export OPENROUTER_API_KEY="sk-or-v1-SHOULDNOTLEAKSHOULDNOT"
+export SOME_API_KEY="leak"
+export ORBITTY_LEAK="1"
+run_build --out "$tmp/t17-out"
+unset OPENROUTER_API_KEY SOME_API_KEY ORBITTY_LEAK
+t17_ok=1
+if (( REPLY_EC != 0 )); then
+  t17_ok=0
+fi
+if ! log_has "npm --offline run tauri build -- --config "; then
+  t17_ok=0
+  print -r -- "  T17 missing --config" >&2
+fi
+if ! log_has "--features alpha"; then
+  t17_ok=0
+  print -r -- "  T17 missing --features alpha" >&2
+fi
+if log_has "dev-thin"; then
+  t17_ok=0
+  print -r -- "  T17 dev-thin was passed" >&2
+fi
+if ! log_has "KEY_UNSET" || ! log_has "ORBITTY_UNSET" || log_has "KEY_SET" || log_has "ORBITTY_SET"; then
+  t17_ok=0
+  print -r -- "  T17 build env was not scrubbed" >&2
+fi
+if [[ ! -f $STUB_DIR/stage.json ]]; then
+  t17_ok=0
+else
+  t17_plist=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("plist_id"), d.get("plist_commit"), d.get("plist_dirty"))' "$STUB_DIR/stage.json")
+  if [[ $t17_plist != "space.orbitty.alpha abcdef1234567890abcdef1234567890abcdef12 False" ]]; then
+    t17_ok=0
+    print -r -- "  T17 plist fields: [$t17_plist]" >&2
+  fi
+fi
+if (( t17_ok )); then
+  pass T17
+else
+  bad T17
+  print -r -- "$REPLY_OUT" >&2
+fi
+
+# --- T18 refuse without alpha unless --smoke ---
+success_setup
+cat > "$sandbox/src-tauri/Cargo.toml" <<'EOF'
+[features]
+dev-thin = []
+EOF
+run_build --out "$tmp/t18-out"
+t18_ok=1
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t18_ok=0
+  print -r -- "  T18 non-smoke without alpha did not refuse (exit=$REPLY_EC)" >&2
+fi
+run_build --smoke --out "$tmp/t18-smoke"
+if (( REPLY_EC != 0 )) || ! cargo_logged; then
+  t18_ok=0
+  print -r -- "  T18 smoke without alpha did not build (exit=$REPLY_EC)" >&2
+  print -r -- "$REPLY_OUT" >&2
+fi
+cat > "$sandbox/src-tauri/Cargo.toml" <<'EOF'
+[features]
+alpha = []
+dev-thin = []
+EOF
+if (( t18_ok )); then
+  pass T18
+else
+  bad T18
+fi
+
+# --- T19 tabbity-host is signed (glob, not the old three names) ---
+success_setup
+run_build --out "$tmp/t19-out"
+if (( REPLY_EC == 0 )) && log_has "Contents/MacOS/orbitty-tabbity-host"; then
+  pass T19
+else
+  bad T19
+  print -r -- "  exit=$REPLY_EC" >&2
+  print -r -- "$REPLY_OUT" >&2
+fi
+
+# --- T20 oxipng missing refuses a non-smoke build ---
+success_setup
+export STUB_NARROW_PATH=1
+run_build --out "$tmp/t20-out"
+t20_ok=1
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t20_ok=0
+  print -r -- "  T20 non-smoke with oxipng missing did not refuse (exit=$REPLY_EC)" >&2
+fi
+run_build --smoke --out "$tmp/t20-smoke"
+if (( REPLY_EC != 0 )) || ! cargo_logged; then
+  t20_ok=0
+  print -r -- "  T20 smoke should still build without oxipng (exit=$REPLY_EC)" >&2
+  print -r -- "$REPLY_OUT" >&2
+fi
+unset STUB_NARROW_PATH
+if (( t20_ok )); then
+  pass T20
+else
+  bad T20
+fi
+
+# --- T21 planted secret names and a key-shaped string are refused ---
+success_setup
+t21_ok=1
+for plant in env key secret; do
+  export STUB_PLANT="$plant"
+  run_build --out "$tmp/t21-$plant"
+  signed=0
+  if grep -E -q '^codesign .*--sign ' "$STUB_LOG"; then
+    signed=1
+  fi
+  if (( REPLY_EC == 0 )) || cargo_logged && (( signed == 1 )); then
+    :
+  fi
+  if (( REPLY_EC == 0 )) || (( signed != 0 )); then
+    t21_ok=0
+    print -r -- "  T21 $plant exit=$REPLY_EC signed=$signed" >&2
+    print -r -- "$REPLY_OUT" >&2
+  fi
+done
+unset STUB_PLANT
+if [[ $REPLY_OUT == *TESTTESTTESTTESTTEST* ]]; then
+  t21_ok=0
+  print -r -- "  T21 printed the planted key body" >&2
+fi
+if [[ $REPLY_OUT != *prefix=sk-or-v1-* ]]; then
+  t21_ok=0
+  print -r -- "  T21 did not print the key prefix" >&2
+fi
+if (( t21_ok )); then
+  pass T21
+else
+  bad T21
+fi
+
+# --- T22 universal passes --target and lipo-checks each MacOS file ---
+success_setup
+export STUB_LIPO_ARCHS="x86_64 arm64"
+run_build --arch universal --out "$tmp/t22-out"
+t22_ok=1
+uni="$tmp/t22-out/Orbitty-0.1.0-alpha-abcdef1-universal.dmg"
+if (( REPLY_EC != 0 )) || [[ ! -f $uni ]]; then
+  t22_ok=0
+  print -r -- "  T22 exit=$REPLY_EC" >&2
+  print -r -- "$REPLY_OUT" >&2
+fi
+if ! log_has "--target universal-apple-darwin"; then
+  t22_ok=0
+  print -r -- "  T22 missing --target universal-apple-darwin" >&2
+fi
+lipo_n=$(grep -c '^lipo ' "$STUB_LOG" || true)
+if (( lipo_n != 5 )); then
+  t22_ok=0
+  print -r -- "  T22 lipo calls=$lipo_n want 5" >&2
+fi
+if [[ -f $STUB_DIR/stage.json ]]; then
+  if ! python3 -c 'import json,sys; info=json.load(open(sys.argv[1])).get("info",""); raise SystemExit(0 if "architectures: x86_64 arm64" in info else 1)' "$STUB_DIR/stage.json"; then
+    t22_ok=0
+    print -r -- "  T22 BUILD_INFO missing universal line" >&2
+  fi
+else
+  t22_ok=0
+fi
+export STUB_LIPO_ARCHS="arm64"
+run_build --arch universal --out "$tmp/t22-bad"
+if (( REPLY_EC == 0 )); then
+  t22_ok=0
+  print -r -- "  T22 thin binary was accepted as universal" >&2
+fi
+unset STUB_LIPO_ARCHS
+if (( t22_ok )); then
+  pass T22
+else
+  bad T22
+fi
+
+# --- T23 dirty tree: non-smoke refused, smoke allowed ---
+success_setup
+export STUB_PORCELAIN=" M scripts/build-tester-dmg.sh"
+run_build --out "$tmp/t23-dirty"
+t23_ok=1
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t23_ok=0
+  print -r -- "  T23 dirty non-smoke did not refuse" >&2
+fi
+run_build --smoke --out "$tmp/t23-smoke"
+if (( REPLY_EC != 0 )) || ! cargo_logged; then
+  t23_ok=0
+  print -r -- "  T23 dirty smoke did not build (exit=$REPLY_EC)" >&2
+  print -r -- "$REPLY_OUT" >&2
+fi
+export STUB_PORCELAIN=""
+if (( t23_ok )); then
+  pass T23
+else
+  bad T23
+fi
+
+# --- T24 /Applications and ~/Applications refused, including --dry-run ---
+success_setup
+t24_ok=1
+run_build --dry-run --smoke --out "/Applications/orbitty-tester-nope"
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t24_ok=0
+  print -r -- "  T24 /Applications did not refuse (exit=$REPLY_EC)" >&2
+fi
+run_build --dry-run --smoke --out "$HOME/Applications/orbitty-tester-nope"
+if (( REPLY_EC == 0 )) || cargo_logged; then
+  t24_ok=0
+  print -r -- "  T24 ~/Applications did not refuse (exit=$REPLY_EC)" >&2
+fi
+if [[ -e /Applications/orbitty-tester-nope || -e "$HOME/Applications/orbitty-tester-nope" ]]; then
+  t24_ok=0
+  print -r -- "  T24 created a refused destination" >&2
+fi
+if (( t24_ok )); then
+  pass T24
+else
+  bad T24
   print -r -- "$REPLY_OUT" >&2
 fi
 
