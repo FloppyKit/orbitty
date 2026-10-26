@@ -55,34 +55,57 @@ EOF
 print -r -- "$*" >> "$HOME/.cook-argv"
 mode=ok
 [[ -f $HOME/.cook-mode ]] && mode=$(<"$HOME/.cook-mode")
+cook_done() {
+  git -C "$2" commit --allow-empty -q -m cook
+  local tip
+  tip=$(git -C "$2" rev-parse --short=8 HEAD)
+  print -r -- "DONE: $1 $tip"
+  print -r -- "EXIT 0 tip=$tip"
+}
 case $mode in
-  blocked) print -r -- "BLOCKED: $1 nope"; exit 1 ;;
-  rig) print -r -- "RIG BLOCKER: $1 disk"; exit 1 ;;
+  blocked) print -r -- "BLOCKED: $1 nope"; print -r -- "EXIT 0 tip=none"; exit 1 ;;
+  rig) print -r -- "RIG BLOCKER: $1 disk"; print -r -- "EXIT 0 tip=none"; exit 1 ;;
+  later-blocked)
+    print -r -- "DONE: $1 early"
+    print -r -- "BLOCKED: $1 later"
+    print -r -- "EXIT 0 tip=none"
+    ;;
+  exit1)
+    git -C "$2" commit --allow-empty -q -m cook
+    tip=$(git -C "$2" rev-parse --short=8 HEAD)
+    print -r -- "DONE: $1 $tip"
+    print -r -- "EXIT 1 tip=$tip"
+    ;;
   remote)
     git -C "$2" commit --allow-empty -q -m cook
     git -C "$2" update-ref refs/remotes/origin/go/test HEAD
-    print -r -- "DONE: $1 $(git -C "$2" rev-parse --short=8 HEAD)"
+    tip=$(git -C "$2" rev-parse --short=8 HEAD)
+    print -r -- "DONE: $1 $tip"
+    print -r -- "EXIT 0 tip=$tip"
     ;;
   main)
     git -C "$2" commit --allow-empty -q -m cook
     git -C "$2" branch -f main HEAD
-    print -r -- "DONE: $1 $(git -C "$2" rev-parse --short=8 HEAD)"
+    tip=$(git -C "$2" rev-parse --short=8 HEAD)
+    print -r -- "DONE: $1 $tip"
+    print -r -- "EXIT 0 tip=$tip"
     ;;
   stable)
     git -C "$2" commit --allow-empty -q -m cook
     mkdir -p "$HOME/Applications/Orbitty.app/Contents/MacOS"
     print -r -- x >> "$HOME/Applications/Orbitty.app/Contents/MacOS/orbitty"
-    print -r -- "DONE: $1 $(git -C "$2" rev-parse --short=8 HEAD)"
+    tip=$(git -C "$2" rev-parse --short=8 HEAD)
+    print -r -- "DONE: $1 $tip"
+    print -r -- "EXIT 0 tip=$tip"
     ;;
   flip)
     git -C "$2" commit --allow-empty -q -m cook
     print -r -- other > "$HOME/.runner-id"
-    print -r -- "DONE: $1 $(git -C "$2" rev-parse --short=8 HEAD)"
+    tip=$(git -C "$2" rev-parse --short=8 HEAD)
+    print -r -- "DONE: $1 $tip"
+    print -r -- "EXIT 0 tip=$tip"
     ;;
-  *)
-    git -C "$2" commit --allow-empty -q -m cook
-    print -r -- "DONE: $1 $(git -C "$2" rev-parse --short=8 HEAD)"
-    ;;
+  *) cook_done "$1" "$2" ;;
 esac
 EOF
   cat > "$HOME_T/bin/verify-pi.sh" <<'EOF'
@@ -90,20 +113,44 @@ EOF
 print -r -- "$*" >> "$HOME/.verify-argv"
 mode=pass
 [[ -f $HOME/.verify-mode ]] && mode=$(<"$HOME/.verify-mode")
+report="$HOME/Orbitty GOs/VERIFY_GO-TEST_stub.md"
+mkdir -p "$HOME/Orbitty GOs"
+if [[ ! -f $report ]]; then
+  print -r -- $'## DOGFOOD (Matt)\n1. Look. Pass/Fail.\n## END\n' > "$report"
+fi
 case $mode in
   fail)
     print -r -- "RESULT: FAIL"
+    print -r -- "EXIT 0"
     exit 1
     ;;
   fail-then-pass)
     if [[ ! -f $HOME/.verify-failed ]]; then
       touch "$HOME/.verify-failed"
       print -r -- "RESULT: FAIL"
+      print -r -- "EXIT 0"
       exit 1
     fi
-    print -r -- "RESULT: PASS"
+    print -r -- "RESULT: PASS-with-notes stub $report"
+    print -r -- "EXIT 0"
     ;;
-  *) print -r -- "RESULT: PASS-with-notes" ;;
+  pass-then-fail)
+    print -r -- "RESULT: PASS-with-notes stub $report"
+    print -r -- "RESULT: FAIL"
+    print -r -- "EXIT 0"
+    ;;
+  exit1)
+    print -r -- "RESULT: PASS-with-notes stub $report"
+    print -r -- "EXIT 1"
+    ;;
+  noreport)
+    print -r -- "RESULT: PASS-with-notes stub $HOME/Orbitty GOs/VERIFY_missing.md"
+    print -r -- "EXIT 0"
+    ;;
+  *)
+    print -r -- "RESULT: PASS-with-notes stub $report"
+    print -r -- "EXIT 0"
+    ;;
 esac
 EOF
   cat > "$HOME_T/bin/other-cook.sh" <<'EOF'
@@ -115,7 +162,11 @@ EOF
   cat > "$HOME_T/bin/other-verify.sh" <<'EOF'
 #!/bin/zsh
 print -r -- "$*" >> "$HOME/.verify-argv"
-print -r -- "RESULT: PASS"
+report="$HOME/Orbitty GOs/VERIFY_GO-TEST_stub.md"
+mkdir -p "$HOME/Orbitty GOs"
+[[ -f $report ]] || print -r -- $'## DOGFOOD (Matt)\n1. Look.\n## END\n' > "$report"
+print -r -- "RESULT: PASS-with-notes stub $report"
+print -r -- "EXIT 0"
 EOF
   chmod 755 "$HOME_T/bin/"*.sh
   cat > "$HOME_T/bin/ctl" <<'EOF'
@@ -214,6 +265,10 @@ run() {
   local id=$1
   RUN=$id
   zsh "$CONDUCTOR" "$CARD" "$GOFILE" "$id" > "$HOME_T/.conductor-out" 2> "$HOME_T/.conductor-err" || true
+  local dir="$HOME_T/Orbitty GOs/_go-runs/$id"
+  if [[ -d $dir ]]; then
+    cp "$HOME_T/.conductor-out" "$dir/conductor.log"
+  fi
 }
 
 state() { print -r -- "$HOME_T/Orbitty GOs/_go-runs/$RUN/state.json"; }
@@ -472,6 +527,62 @@ assert_stage done stable-running
 grep -q 'not quitting' "$HOME_T/.ctl-log" || bad "stable no skip note"
 assert_no_forbidden_calls stable-running
 ok stable-running
+
+setup
+run r-logs
+assert_stage done logs
+[[ -n $(json_get logs.cook) ]] || bad "logs cook empty"
+[[ -n $(json_get logs.verify) ]] || bad "logs verify empty"
+[[ -n $(json_get logs.audit) ]] || bad "logs audit empty"
+[[ -n $(json_get logs.install) ]] || bad "logs install empty"
+[[ -n $(json_get logs.report) ]] || bad "logs report empty"
+[[ -f $(json_get logs.report) ]] || bad "logs report missing file"
+grep -q 'DOGFOOD ready' "$HOME_T/.ctl-log" || bad "logs no dogfood"
+report=$(json_get logs.report)
+grep -q -- "$report" "$HOME_T/.conductor-out" || bad "dogfood line missing report path"
+if grep -E -q '^i=' "$HOME_T/.conductor-out" "$HOME_T/.conductor-err" "$HOME_T/Orbitty GOs/_go-runs/r-logs/conductor.log" 2>/dev/null; then
+  bad "i= lines in conductor log"
+fi
+grep -q 'os.argv' "$CONDUCTOR" && bad "os.argv still in go-run.sh"
+ok logs
+
+setup
+print -r -- later-blocked > "$HOME_T/.cook-mode"
+run r-later-blocked
+assert_stage blocked later-blocked
+grep -q 'BLOCKED:' "$HOME_T/.conductor-out" || bad "later-blocked no BLOCKED"
+[[ ! -f $HOME_T/.verify-argv ]] || bad "later-blocked ran verify"
+ok later-blocked
+
+setup
+print -r -- exit1 > "$HOME_T/.cook-mode"
+run r-cook-exit
+assert_stage blocked cook-exit
+grep -q 'cook exit 1' "$HOME_T/.conductor-out" || bad "cook-exit reason: $(<$HOME_T/.conductor-out)"
+ok cook-exit
+
+setup
+print -r -- exit1 > "$HOME_T/.verify-mode"
+run r-verify-exit
+assert_stage blocked verify-exit
+grep -q 'verify exit 1' "$HOME_T/.conductor-out" || bad "verify-exit reason: $(<$HOME_T/.conductor-out)"
+[[ ! -f $HOME_T/.install-log ]] || bad "verify-exit installed"
+ok verify-exit
+
+setup
+print -r -- pass-then-fail > "$HOME_T/.verify-mode"
+run r-pass-then-fail
+assert_stage blocked pass-then-fail
+grep -q '2 fix rounds' "$HOME_T/.conductor-out" || bad "pass-then-fail did not treat last RESULT as FAIL"
+ok pass-then-fail
+
+setup
+print -r -- noreport > "$HOME_T/.verify-mode"
+run r-noreport
+assert_stage blocked noreport
+grep -q 'verify report missing' "$HOME_T/.conductor-out" || bad "noreport reason: $(<$HOME_T/.conductor-out)"
+[[ ! -f $HOME_T/.install-log ]] || bad "noreport installed"
+ok noreport
 
 if (( fail )); then
   print -r -- "test_go_run.sh: $fail failed" >&2

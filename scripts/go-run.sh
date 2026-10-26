@@ -215,19 +215,18 @@ proc_lines() {
 }
 
 check_heavy() {
-  local line base next
+  local line base next low i
+  local -a parts
   while IFS= read -r line; do
     [[ -n $line ]] || continue
     if [[ $line == *vizdoom* ]]; then
       finish_blocked "heavy job running (vizdoom)"
     fi
-    local low=${line:l}
+    low=${line:l}
     if [[ $low == *python* && ($low == *rgl-proofs* || $low == *vizdoom*) ]]; then
       finish_blocked "heavy job running (RGL python)"
     fi
-    local -a parts
     parts=(${=line})
-    local i
     for (( i = 1; i <= ${#parts}; i++ )); do
       base=${parts[i]:t}
       if [[ $base == cargo ]]; then
@@ -512,9 +511,68 @@ last_line() {
   tail -n 1 "$f"
 }
 
+# Last line matching re. Wrappers append "EXIT n" after the verdict.
+verdict_line() {
+  local f=$1 re=$2
+  [[ -s $f ]] || return 0
+  grep -E "$re" "$f" | tail -n 1
+}
+
+# Exit code printed after the verdict line. Empty if the wrapper wrote none.
+exit_after_verdict() {
+  local f=$1 verdict=$2
+  python3 - "$f" "$verdict" <<'PY'
+import sys
+path, verdict = sys.argv[1], sys.argv[2]
+try:
+    lines = open(path, errors="replace").read().splitlines()
+except OSError:
+    sys.exit(0)
+idx = None
+for i, line in enumerate(lines):
+    if line == verdict:
+        idx = i
+if idx is None:
+    sys.exit(0)
+code = None
+for line in lines[idx + 1:]:
+    if line.startswith("EXIT "):
+        bits = line.split()
+        if len(bits) >= 2 and bits[1].lstrip("-").isdigit():
+            code = bits[1]
+if code is not None:
+    print(code)
+PY
+}
+
+# Plans dir has a space, so the report is not one token. Last absolute
+# span that ends in .md.
+report_from_line() {
+  python3 - "$1" <<'PY'
+import sys
+parts = sys.argv[1].split()
+found = ""
+i = 0
+while i < len(parts):
+    t = parts[i]
+    if t.startswith("/") or t.startswith("file://"):
+        buf = [t]
+        j = i
+        while j + 1 < len(parts) and not buf[-1].endswith(".md"):
+            j += 1
+            buf.append(parts[j])
+        if buf[-1].endswith(".md"):
+            found = " ".join(buf)
+        i = j + 1
+    else:
+        i += 1
+print(found)
+PY
+}
+
 log_set() {
   local key=$1 val=$2
-  LOGS_JSON=$(LOGS_JSON=$LOGS_JSON python3 -c 'import json,os; d=json.loads(os.environ["LOGS_JSON"]); d[os.argv[1]]=os.argv[2]; print(json.dumps(d))' "$key" "$val")
+  LOGS_JSON=$(LOGS_JSON=$LOGS_JSON python3 -c 'import json,os,sys; d=json.loads(os.environ["LOGS_JSON"]); d[sys.argv[1]]=sys.argv[2]; print(json.dumps(d))' "$key" "$val")
 }
 
 run_cook() {
@@ -532,14 +590,18 @@ run_cook() {
     "$COOK" "$GO_ID" "$WT" "$GOFILE" > "$log" 2>&1 || true
   fi
   log_set cook "$log"
-  local line
-  line=$(last_line "$log")
+  local line code
+  line=$(verdict_line "$log" '^(DONE|BLOCKED|RIG BLOCKER):')
   RESULT_LINE=$line
+  code=$(exit_after_verdict "$log" "$line")
   if [[ $line == "RIG BLOCKER:"* ]]; then
     finish_blocked "cook: $line"
   fi
   if [[ $line != "DONE:"* ]]; then
     finish_blocked "cook: ${line:-no DONE line}"
+  fi
+  if [[ -n $code && $code != 0 ]]; then
+    finish_blocked "cook exit $code"
   fi
   TIP=$(git -C "$WT" rev-parse HEAD)
 }
@@ -552,7 +614,13 @@ run_verify() {
   print -r -- "verify $VERIFY $GO_ID $TIP $WT $GOFILE" >> "$RUN_DIR/argv.log"
   "$VERIFY" "$GO_ID" "$TIP" "$WT" "$GOFILE" > "$log" 2>&1 || true
   log_set verify "$log"
-  RESULT_LINE=$(last_line "$log")
+  local line code
+  line=$(verdict_line "$log" '^RESULT:')
+  RESULT_LINE=$line
+  code=$(exit_after_verdict "$log" "$line")
+  if [[ -n $line && -n $code && $code != 0 ]]; then
+    finish_blocked "verify exit $code"
+  fi
 }
 
 procs_have() {
@@ -658,6 +726,12 @@ if ! handle_verify "$verify_line"; then
   done
 fi
 
+REPORT=$(report_from_line "$verify_line")
+if [[ -z $REPORT || ! -f $REPORT ]]; then
+  finish_blocked "verify report missing"
+fi
+log_set report "$REPORT"
+
 # --- audit ---
 STAGE=auditing
 write_state
@@ -685,8 +759,7 @@ match=${GO_RUN_MATCH:-$WT/scripts/check-install-match.sh}
 # --- relaunch + dogfood ---
 relaunch
 tip8=${TIP:0:8}
-vreport=$RUN_DIR/verify-$ROUND.log
-RESULT_LINE="DOGFOOD ready $tip8 on Nightly: see $vreport ## DOGFOOD (Matt)"
+RESULT_LINE="DOGFOOD ready $tip8 on Nightly: see $REPORT ## DOGFOOD (Matt)"
 STAGE=done
 FINISHED=1
 write_state
