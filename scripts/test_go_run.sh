@@ -166,7 +166,9 @@ EOF
 #!/bin/zsh
 print -r -- "$*" >> "$HOME/.cook-argv"
 git -C "$2" commit --allow-empty -q -m other
-print -r -- "DONE: $1 other"
+tip=$(git -C "$2" rev-parse --short=8 HEAD)
+print -r -- "DONE: $1 $tip"
+print -r -- "EXIT 0 tip=$tip"
 EOF
   cat > "$HOME_T/bin/other-verify.sh" <<'EOF'
 #!/bin/zsh
@@ -231,6 +233,31 @@ PY
     else
       print -r -- '{"sealed":true,"note":"","id":"GO-TEST","found":true}'
     fi
+    ;;
+  state:get)
+    python3 - <<'PY'
+import json, os
+home = os.environ["HOME"]
+proj = "p-test"
+p = os.path.join(home, ".project-id")
+if os.path.exists(p):
+    proj = open(p).read().strip()
+print(json.dumps({"kanbanCards":[{"id":"c-test","projectId":proj,"title":"GO-TEST"}]}))
+PY
+    ;;
+  needed:open)
+    if [[ -f $HOME/.needed-fail ]]; then
+      print -r -- "needed open refused"
+      exit 1
+    fi
+    print -r -- "needed n-stub — $*"
+    ;;
+  kanban:link)
+    if [[ -f $HOME/.link-fail ]]; then
+      print -r -- "link refused"
+      exit 1
+    fi
+    exit 0
     ;;
   *)
     exit 0
@@ -619,6 +646,32 @@ grep -q 'installed commit' "$HOME_T/.conductor-out" || bad "sha reason: $(<$HOME
 grep -q '!= tip' "$HOME_T/.conductor-out" || bad "sha missing tip compare"
 [[ ! -f $HOME_T/.quit-log ]] || bad "sha quit after mismatch"
 ok sha-mismatch
+
+setup
+run r-needed
+assert_stage done needed-open
+grep -q 'needed open --title Dogfood GO-TEST' "$HOME_T/.ctl-log" || bad "needed argv: $(<$HOME_T/.ctl-log)"
+grep -q -- '--project p-test' "$HOME_T/.ctl-log" || bad "needed project"
+grep -q 'kanban link --id n-stub' "$HOME_T/.ctl-log" || bad "link argv"
+grep -q -- '--label Verify report' "$HOME_T/.ctl-log" || bad "link label"
+grep -q 'file://' "$HOME_T/.ctl-log" || bad "link url"
+grep -q 'Needed n-stub' "$HOME_T/.ctl-log" || bad "card note missing needed id"
+grep -q 'Look' "$HOME_T/.ctl-log" || bad "why missing dogfood steps"
+ok needed-open
+
+setup
+touch "$HOME_T/.needed-fail"
+run r-needed-fail
+assert_stage blocked needed-fail
+grep -q 'needed open failed' "$HOME_T/.conductor-out" || bad "needed-fail reason: $(<$HOME_T/.conductor-out)"
+ok needed-fail
+
+setup
+touch "$HOME_T/.link-fail"
+run r-link-fail
+assert_stage blocked link-fail
+grep -q 'kanban link failed' "$HOME_T/.conductor-out" || bad "link-fail reason: $(<$HOME_T/.conductor-out)"
+ok link-fail
 
 setup
 print -r -- noreport > "$HOME_T/.verify-mode"

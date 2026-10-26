@@ -570,6 +570,62 @@ print(found)
 PY
 }
 
+card_project() {
+  local raw rc=0
+  raw=$("$CTL" --json state get 2>>"$RUN_DIR/ctl.out") || rc=$?
+  if (( rc != 0 )); then
+    finish_blocked "card project unreadable (state get exit $rc)"
+  fi
+  STATE_JSON=$raw CARD=$CARD python3 - <<'PY'
+import json, os, sys
+raw = os.environ.get("STATE_JSON") or ""
+try:
+    d = json.loads(raw)
+except Exception as e:
+    print(f"bad state json: {e}")
+    sys.exit(1)
+cards = d.get("kanbanCards") or d.get("kanban_cards") or []
+want = os.environ.get("CARD", "")
+for c in cards:
+    if c.get("id") == want:
+        print(c.get("projectId") or c.get("project_id") or "")
+        sys.exit(0)
+sys.exit(2)
+PY
+}
+
+dogfood_why() {
+  python3 - "$1" <<'PY'
+import sys
+path = sys.argv[1]
+try:
+    lines = open(path, errors="replace").read().splitlines()
+except OSError:
+    print("See the Verify report.")
+    sys.exit(0)
+out = []
+on = False
+for line in lines:
+    if line.startswith("## DOGFOOD (Matt)"):
+        on = True
+        continue
+    if on and line.startswith("## "):
+        break
+    if on:
+        out.append(line)
+text = "\n".join(out).strip()
+if not text:
+    text = "See the Verify report."
+if len(text) > 1500:
+    text = text[:1500].rstrip() + "\n\u2026full list in the report"
+print(text)
+PY
+}
+
+file_url_for() {
+  python3 -c 'from urllib.parse import quote; import sys; print("file://" + quote(sys.argv[1]))' "$1"
+}
+
 installed_commit() {
   if [[ -n ${GO_RUN_HOME:-} ]]; then
     if [[ -f $HOME/.installed-commit ]]; then
@@ -791,6 +847,22 @@ fi
 # --- relaunch + dogfood ---
 relaunch
 tip8=${TIP:0:8}
+proj=$(card_project) || finish_blocked "card project unreadable"
+why=$(dogfood_why "$REPORT")
+need_title="Dogfood $GO_ID ${tip8}?"
+need_out=$RUN_DIR/needed.out
+if ! "$CTL" needed open --title "$need_title" --project "$proj" --why "$why" >"$need_out" 2>>"$RUN_DIR/ctl.out"; then
+  finish_blocked "needed open failed: $(cat "$need_out" 2>/dev/null)"
+fi
+NEED_ID=$(python3 -c 'import re,sys; t=open(sys.argv[1], errors="replace").read(); m=re.search(r"\bn-[A-Za-z0-9._-]+", t); print(m.group(0) if m else "")' "$need_out")
+if [[ -z $NEED_ID ]]; then
+  finish_blocked "needed open failed: $(cat "$need_out" 2>/dev/null)"
+fi
+file_url=$(file_url_for "$REPORT")
+if ! "$CTL" kanban link --id "$NEED_ID" --add "$file_url" --label "Verify report" >>"$RUN_DIR/ctl.out" 2>&1; then
+  finish_blocked "kanban link failed: $(tail -n 5 "$RUN_DIR/ctl.out")"
+fi
+note "GO run $RUN_ID: Needed $NEED_ID"
 RESULT_LINE="DOGFOOD ready $tip8 on Nightly: see $REPORT ## DOGFOOD (Matt)"
 STAGE=done
 FINISHED=1
