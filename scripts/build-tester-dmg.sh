@@ -228,7 +228,7 @@ print_plan() {
   print -r -- "  clean_build_bundle"
   print -r -- "  ${tauri_cmd[*]}"
   print -r -- "  rm Contents/MacOS/orbitty_relay before signing"
-  print -r -- "  oxipng -o 4 --strip safe on staged PNGs"
+  print -r -- "  oxipng -o 4 --strip safe --nb --nc on staged PNGs"
   print -r -- "  codesign --force --sign $IDENTITY --timestamp=none each Contents/MacOS helper (glob, not orbitty)"
   print -r -- "  codesign --force --sign $IDENTITY --timestamp=none Orbitty.app"
   print -r -- "  hdiutil create -volname Orbitty -fs HFS+ -format UDZO -srcfolder <staging> $out"
@@ -347,7 +347,10 @@ print -r -- "==> Checking bundled orbittyctl"
 print -r -- "==> oxipng staged PNGs (lossless)"
 pngs=("$app"/**/*.png(N))
 if (( ${#pngs} )); then
-  oxipng -o 4 --strip safe -- "${pngs[@]}"
+  # --nb --nc: plain --strip safe drops fully opaque alpha (RGBA to RGB).
+  # sips BMP then differs (32-bit vs 24-bit), so that result is not lossless
+  # under the P6 pixel check. Keep bit depth and color type.
+  oxipng -o 4 --strip safe --nb --nc -- "${pngs[@]}"
 fi
 
 print -r -- "==> Scanning staged app for keys and forbidden names"
