@@ -113,6 +113,19 @@ fi
 # GO-ORBITTY-RENAME-MOVE: ditto merge leaves the pre-rename executable behind.
 rm -f "$DEST/Contents/MacOS/orbitty_relay"
 
+# Stamp the build commit before the final re-sign so the signature covers it.
+GIT_COMMIT=$(git rev-parse HEAD)
+if [[ -n $(git status --porcelain --untracked-files=no) ]]; then
+  GIT_DIRTY=true
+else
+  GIT_DIRTY=false
+fi
+PLIST=$DEST/Contents/Info.plist
+/usr/libexec/PlistBuddy -c "Set :OrbittyGitCommit $GIT_COMMIT" "$PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :OrbittyGitCommit string $GIT_COMMIT" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :OrbittyGitDirty $GIT_DIRTY" "$PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :OrbittyGitDirty bool $GIT_DIRTY" "$PLIST"
+
 sign_macos_helpers_then_app "$DEST"
 codesign --verify --deep --strict --verbose=2 "$DEST"
 codesign -dvv "$DEST" 2>&1 | grep -E '^(Identifier|Authority)' || true

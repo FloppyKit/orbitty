@@ -15,6 +15,15 @@ ok() { print -r -- "ok $*"; }
 
 zsh -n "$CONDUCTOR"
 zsh -n "$MATCH"
+zsh -n "$ROOT/scripts/install-nightly.sh"
+python3 - "$ROOT/scripts/install-nightly.sh" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+last = max(i for i, l in enumerate(lines) if 'sign_macos_helpers_then_app "$DEST"' in l)
+commit = next(i for i, l in enumerate(lines) if "OrbittyGitCommit" in l)
+dirty = next(i for i, l in enumerate(lines) if "OrbittyGitDirty" in l)
+assert commit < last and dirty < last, (commit, dirty, last)
+PY
 
 forbidden() {
   local hit
@@ -601,6 +610,15 @@ assert_stage blocked stale-ctl
 grep -q 'stale ~/.local/bin/orbittyctl' "$HOME_T/.conductor-out" || bad "stale-ctl reason: $(<$HOME_T/.conductor-out)"
 [[ ! -f $HOME_T/.cook-argv ]] || bad "stale-ctl spawned cook"
 ok stale-ctl
+
+setup
+print -r -- deadbeefdeadbeefdeadbeefdeadbeefdeadbeef > "$HOME_T/.installed-commit"
+run r-sha
+assert_stage blocked sha-mismatch
+grep -q 'installed commit' "$HOME_T/.conductor-out" || bad "sha reason: $(<$HOME_T/.conductor-out)"
+grep -q '!= tip' "$HOME_T/.conductor-out" || bad "sha missing tip compare"
+[[ ! -f $HOME_T/.quit-log ]] || bad "sha quit after mismatch"
+ok sha-mismatch
 
 setup
 print -r -- noreport > "$HOME_T/.verify-mode"

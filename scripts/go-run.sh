@@ -570,6 +570,19 @@ print(found)
 PY
 }
 
+installed_commit() {
+  if [[ -n ${GO_RUN_HOME:-} ]]; then
+    if [[ -f $HOME/.installed-commit ]]; then
+      tr -d '[:space:]' < "$HOME/.installed-commit"
+    else
+      print -r -- "$TIP"
+    fi
+    return 0
+  fi
+  /usr/libexec/PlistBuddy -c 'Print :OrbittyGitCommit' \
+    "$HOME/Applications/Orbitty Nightly.app/Contents/Info.plist" 2>/dev/null || true
+}
+
 log_set() {
   local key=$1 val=$2
   LOGS_JSON=$(LOGS_JSON=$LOGS_JSON python3 -c 'import json,os,sys; d=json.loads(os.environ["LOGS_JSON"]); d[sys.argv[1]]=sys.argv[2]; print(json.dumps(d))' "$key" "$val")
@@ -768,6 +781,12 @@ fi
 log_set install "$RUN_DIR/install.log"
 match=${GO_RUN_MATCH:-$WT/scripts/check-install-match.sh}
 "$match" > "$RUN_DIR/match.log" 2>&1 || finish_blocked "install match failed"
+installed=$(installed_commit)
+installed=${installed//$'
+'/}
+if [[ $installed != $TIP ]]; then
+  finish_blocked "installed commit ${installed:-missing} != tip $TIP"
+fi
 
 # --- relaunch + dogfood ---
 relaunch
