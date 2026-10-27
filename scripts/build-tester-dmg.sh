@@ -358,7 +358,20 @@ print -r -- "==> Scanning staged app for keys and forbidden names"
 if ! python3 -c 'import os, re, sys
 root = sys.argv[1]
 exact = {"settings.json", "go-runner.json", "mouth-sidecar.json"}
-key_re = re.compile(br"(sk-or-v1-|sk-ant-|sk-proj-|xai-|AIza|gh[pousr]_)([A-Za-z0-9_-]{20,})")
+# Real token shapes, not a 20-char run of the redaction prefix charset.
+# The prefix table is itself [A-Za-z0-9_-], and rodata packs those literals
+# against neighbouring words, so a loose run flags the table. GitHub classic
+# tokens are 36 base62 chars. Google API keys are AIza plus 35. OpenRouter
+# keys are sk-or-v1- plus 64 hex. The other floors sit above the packed
+# prefix table and below published key lengths. Never print the body.
+rules = [
+    re.compile(br"(?<![A-Za-z0-9_-])(gh[pousr]_)([A-Za-z0-9]{36})(?![A-Za-z0-9])"),
+    re.compile(br"(?<![A-Za-z0-9_-])(AIza)([A-Za-z0-9_-]{35})(?![A-Za-z0-9_-])"),
+    re.compile(br"(?<![A-Za-z0-9_-])(sk-or-v1-)([0-9a-fA-F]{64})(?![0-9a-fA-F])"),
+    re.compile(br"(?<![A-Za-z0-9_-])(sk-ant-)([A-Za-z0-9_-]{40,})"),
+    re.compile(br"(?<![A-Za-z0-9_-])(sk-proj-)([A-Za-z0-9_-]{48,})"),
+    re.compile(br"(?<![A-Za-z0-9_-])(xai-)([A-Za-z0-9_-]{32,})"),
+]
 failed = False
 for dirpath, dirnames, filenames in os.walk(root):
     dirnames.sort()
@@ -373,10 +386,11 @@ for dirpath, dirnames, filenames in os.walk(root):
             print("forbidden unreadable: %s" % path, file=sys.stderr)
             failed = True
             continue
-        for m in key_re.finditer(data):
-            prefix = m.group(1).decode("ascii", "replace")
-            print("%s:%d prefix=%s" % (path, m.start(), prefix))
-            failed = True
+        for rule in rules:
+            for m in rule.finditer(data):
+                prefix = m.group(1).decode("ascii", "replace")
+                print("%s:%d prefix=%s" % (path, m.start(), prefix))
+                failed = True
 sys.exit(1 if failed else 0)
 ' "$app"; then
   print -r -- "error: staged app failed the secret scan; refusing to sign" >&2

@@ -3,19 +3,28 @@
 
 use std::path::Path;
 
-pub const KEY_PREFIXES: &[&str] = &[
-    "sk-or-v1-",
-    "sk-ant-",
-    "sk-proj-",
-    "ghp_",
-    "gho_",
-    "ghu_",
-    "ghs_",
-    "ghr_",
-    "xai-",
-    "AIza",
-    "sk-",
+/// Trailing byte is outside `[A-Za-z0-9_-]`. Rodata packs these literals
+/// against neighbouring words; without the break, `ghp_` plus the next
+/// prefixes looks like a GitHub token to the DMG secret scan.
+const PREFIX_BREAK: char = '\u{1}';
+
+const KEY_PREFIX_STORED: &[&str] = &[
+    "sk-or-v1-\u{1}",
+    "sk-ant-\u{1}",
+    "sk-proj-\u{1}",
+    "ghp_\u{1}",
+    "gho_\u{1}",
+    "ghu_\u{1}",
+    "ghs_\u{1}",
+    "ghr_\u{1}",
+    "xai-\u{1}",
+    "AIza\u{1}",
+    "sk-\u{1}",
 ];
+
+fn stored_prefix(stored: &str) -> &str {
+    stored.strip_suffix(PREFIX_BREAK).unwrap_or(stored)
+}
 
 pub const REDACTED: &str = "[redacted key]";
 
@@ -25,7 +34,8 @@ pub fn find_keys(text: &str, stored: &[String]) -> Vec<String> {
     let bytes = text.as_bytes();
     let mut taken = vec![false; bytes.len()];
     let mut out = Vec::new();
-    for prefix in KEY_PREFIXES {
+    for stored in KEY_PREFIX_STORED {
+        let prefix = stored_prefix(stored);
         let pb = prefix.as_bytes();
         let mut i = 0;
         while i + pb.len() <= bytes.len() {
@@ -132,18 +142,26 @@ mod tests {
 
     #[test]
     fn key_prefixes_cover_the_list() {
-        assert!(KEY_PREFIXES.contains(&"sk-or-v1-"));
-        assert!(KEY_PREFIXES.contains(&"sk-ant-"));
-        assert!(KEY_PREFIXES.contains(&"sk-proj-"));
-        assert!(KEY_PREFIXES.contains(&"sk-"));
-        assert!(KEY_PREFIXES.contains(&"xai-"));
-        assert!(KEY_PREFIXES.contains(&"AIza"));
-        assert!(KEY_PREFIXES.contains(&"ghp_"));
-        assert!(KEY_PREFIXES.contains(&"gho_"));
-        assert!(KEY_PREFIXES.contains(&"ghu_"));
-        assert!(KEY_PREFIXES.contains(&"ghs_"));
-        assert!(KEY_PREFIXES.contains(&"ghr_"));
-        assert!(KEY_PREFIXES.iter().position(|p| *p == "sk-or-v1-") < KEY_PREFIXES.iter().position(|p| *p == "sk-"));
+        let prefixes: Vec<&str> = KEY_PREFIX_STORED.iter().copied().map(stored_prefix).collect();
+        assert!(prefixes.contains(&"sk-or-v1-"));
+        assert!(prefixes.contains(&"sk-ant-"));
+        assert!(prefixes.contains(&"sk-proj-"));
+        assert!(prefixes.contains(&"sk-"));
+        assert!(prefixes.contains(&"xai-"));
+        assert!(prefixes.contains(&"AIza"));
+        assert!(prefixes.contains(&"ghp_"));
+        assert!(prefixes.contains(&"gho_"));
+        assert!(prefixes.contains(&"ghu_"));
+        assert!(prefixes.contains(&"ghs_"));
+        assert!(prefixes.contains(&"ghr_"));
+        assert!(prefixes.iter().position(|p| *p == "sk-or-v1-") < prefixes.iter().position(|p| *p == "sk-"));
+        let token = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
+        for stored in KEY_PREFIX_STORED {
+            let bytes = stored.as_bytes();
+            assert_eq!(bytes.last().copied(), Some(1));
+            assert!(!token(bytes[bytes.len() - 1]));
+            assert_eq!(stored_prefix(stored).len() + 1, stored.len());
+        }
     }
 
     #[test]

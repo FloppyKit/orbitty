@@ -29,6 +29,7 @@
 #   T22 drop --target universal-apple-darwin or the per-file lipo check
 #   T23 allow a dirty non-smoke build
 #   T24 allow --out under /Applications or ~/Applications
+#   T25 accept ghp_ plus 36 alnum, or flag the redaction prefix table
 set -euo pipefail
 
 here=${0:A:h}
@@ -190,7 +191,10 @@ case $plant in
   key) print -r -- "nope" > "$dest/Contents/Resources/x.key" ;;
   pem) print -r -- "nope" > "$dest/Contents/Resources/x.pem" ;;
   settings) print -r -- "{}" > "$dest/Contents/Resources/settings.json" ;;
-  secret) print -r -- "sk-or-v1-TESTTESTTESTTESTTEST" > "$dest/Contents/Resources/notes.txt" ;;
+  secret) print -r -- "sk-or-v1-deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" > "$dest/Contents/Resources/notes.txt" ;;
+  ghp) print -r -- "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" > "$dest/Contents/Resources/notes.txt" ;;
+  prefixes) print -r -- "sk-or-v1-sk-ant-sk-proj-ghp_gho_ghu_ghs_ghr_xai-AIzask-" > "$dest/Contents/Resources/notes.txt"
+    print -r -- "ghp_gho_ghu_ghs_ghr_xai-AIzagoal12-b12_bPOST" >> "$dest/Contents/Resources/notes.txt" ;;
 esac
 exit 0
 EOF
@@ -935,7 +939,7 @@ for plant in env key secret; do
   fi
 done
 unset STUB_PLANT
-if [[ $REPLY_OUT == *TESTTESTTESTTESTTEST* ]]; then
+if [[ $REPLY_OUT == *deadbeefdeadbeef* ]]; then
   t21_ok=0
   print -r -- "  T21 printed the planted key body" >&2
 fi
@@ -1034,6 +1038,49 @@ if (( t24_ok )); then
 else
   bad T24
   print -r -- "$REPLY_OUT" >&2
+fi
+
+# --- T25 planted ghp_ + 36 alnum fails; the redaction prefix table passes ---
+success_setup
+t25_ok=1
+export STUB_PLANT="ghp"
+run_build --out "$tmp/t25-ghp"
+signed=0
+if grep -E -q '^codesign .*--sign ' "$STUB_LOG"; then
+  signed=1
+fi
+if (( REPLY_EC == 0 )) || (( signed != 0 )); then
+  t25_ok=0
+  print -r -- "  T25 planted ghp_ token was not refused (exit=$REPLY_EC signed=$signed)" >&2
+fi
+if [[ $REPLY_OUT == *AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA* ]]; then
+  t25_ok=0
+  print -r -- "  T25 printed the planted ghp_ body" >&2
+fi
+if [[ $REPLY_OUT != *prefix=ghp_* ]]; then
+  t25_ok=0
+  print -r -- "  T25 did not print the ghp_ prefix" >&2
+fi
+export STUB_PLANT="prefixes"
+run_build --out "$tmp/t25-prefixes"
+signed=0
+if grep -E -q '^codesign .*--sign ' "$STUB_LOG"; then
+  signed=1
+fi
+if (( REPLY_EC != 0 )) || (( signed == 0 )); then
+  t25_ok=0
+  print -r -- "  T25 redaction prefix table did not pass (exit=$REPLY_EC signed=$signed)" >&2
+  print -r -- "$REPLY_OUT" >&2
+fi
+if [[ $REPLY_OUT == *prefix=* ]]; then
+  t25_ok=0
+  print -r -- "  T25 prefix table scan printed a prefix" >&2
+fi
+unset STUB_PLANT
+if (( t25_ok )); then
+  pass T25
+else
+  bad T25
 fi
 
 exit $fail
