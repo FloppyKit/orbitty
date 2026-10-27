@@ -383,6 +383,13 @@ pub(crate) fn tick(planet: &mut Planet, dt: f64, project_id: &str) -> bool {
         let (tx, ty) = planet.tree_chores[i].target();
         let wid = planet.tree_chores[i].walker_id.clone();
         let Some(roam) = planet.roam.get_mut(&wid) else {
+            // A vanished roam used to skip this chore forever. Build still
+            // finishes (same as the no-walker house path). Plant/harvest stay.
+            if let ChoreKind::Build(kind) = planet.tree_chores[i].kind {
+                finished_build.push(kind);
+                planet.tree_chores.remove(i);
+                continue;
+            }
             i += 1;
             continue;
         };
@@ -520,6 +527,30 @@ mod tests {
         }));
         enqueue_build(&mut planet, "p", Outpost::Comms);
         assert_eq!(planet.tree_chores.len(), 2);
+    }
+
+    #[test]
+    fn build_chore_without_roam_finishes() {
+        let mut planet = awake_planet();
+        enqueue_build(&mut planet, "p", Outpost::Comms);
+        assert_eq!(planet.tree_chores.len(), 1);
+        planet.roam.clear();
+        super::tick(&mut planet, 0.1, "p");
+        assert!(planet.tree_chores.is_empty());
+
+        let mut veteran = awake_planet();
+        let plant = TodoTreeTick {
+            card_id: "c-old".into(),
+            x: 0.1,
+            y: 0.1,
+            planted_at: 1.0,
+            due_at: None,
+            status: "todo".into(),
+        };
+        enqueue(&mut veteran, "p", &plant, ChoreKind::Plant);
+        veteran.roam.clear();
+        super::tick(&mut veteran, 0.1, "p");
+        assert_eq!(veteran.tree_chores.len(), 1);
     }
 }
 

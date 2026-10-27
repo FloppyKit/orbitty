@@ -155,12 +155,14 @@ pub fn plans_dir(roots: &Roots) -> PathBuf {
     if let Some(raw) = nonblank(s.plans_dir.as_deref()) {
         let p = expand_home(roots, &raw);
         if !under_buzz(roots, &p) {
+            #[cfg(not(feature = "alpha"))]
             let _ = std::fs::create_dir_all(&p);
             return p;
         }
         warn_buzz_plans_dir(&raw);
     }
     let p = roots.home.join("Orbitty GOs");
+    #[cfg(not(feature = "alpha"))]
     let _ = std::fs::create_dir_all(&p);
     p
 }

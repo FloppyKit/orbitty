@@ -124,7 +124,14 @@ fn env_url_raw() -> Option<String> {
             return v;
         }
     }
-    std::env::var("ORBITTY_MOUTH_SIDECAR_URL").ok()
+    #[cfg(feature = "alpha")]
+    {
+        return None;
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
+        std::env::var("ORBITTY_MOUTH_SIDECAR_URL").ok()
+    }
 }
 
 fn config_text() -> Option<String> {
@@ -135,12 +142,19 @@ fn config_text() -> Option<String> {
             return v;
         }
     }
-    let home = std::env::var("HOME").ok()?;
-    if home.is_empty() {
+    #[cfg(feature = "alpha")]
+    {
         return None;
     }
-    let path = std::path::PathBuf::from(home).join(".config/orbitty/mouth-sidecar.json");
-    std::fs::read_to_string(path).ok()
+    #[cfg(not(feature = "alpha"))]
+    {
+        let home = std::env::var("HOME").ok()?;
+        if home.is_empty() {
+            return None;
+        }
+        let path = std::path::PathBuf::from(home).join(".config/orbitty/mouth-sidecar.json");
+        return std::fs::read_to_string(path).ok();
+    }
 }
 
 #[derive(Deserialize)]

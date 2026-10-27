@@ -31,7 +31,10 @@ use super::*;
         let roots = temp_roots("a0");
         let p = plans_dir(&roots);
         assert_eq!(p, roots.home.join("Orbitty GOs"));
+        #[cfg(not(feature = "alpha"))]
         assert!(p.is_dir());
+        #[cfg(feature = "alpha")]
+        assert!(!p.exists());
         assert!(!p.to_string_lossy().contains("Library"));
         let bus = bus_dir_in(&roots);
         assert_eq!(bus, roots.home.join(".config/orbitty/needed-bus"));
@@ -69,7 +72,10 @@ use super::*;
             // Hand-edited, not through set_plans_dir.
             write(&settings_path(&roots), &json!({ "plansDir": raw }).to_string());
             assert_eq!(plans_dir(&roots), default, "{raw}");
+            #[cfg(not(feature = "alpha"))]
             assert!(default.is_dir());
+            #[cfg(feature = "alpha")]
+            assert!(!default.exists(), "{raw}");
             assert!(!h.join(".buzz").exists() && !h.join(".BUZZ").exists() && !h.join(".Buzz").exists(), "{raw}");
             assert_eq!(snapshot(&roots)["plansDir"], json!(default.display().to_string()));
         }
@@ -209,6 +215,7 @@ use super::*;
         let target = h.join(".buzz/PLANS/GO-HL.md");
         write(&target, text);
         let link = plans_dir(&roots).join("GO-HL.md");
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
         std::fs::hard_link(&target, &link).unwrap();
         let before = tree_of(&h.join(".buzz"));
         let err = seal_file_in(&roots, &link, "matt").unwrap_err();
@@ -242,6 +249,7 @@ use super::*;
         write(&h.join(".buzz/PLANS/sub/a.md"), "legacy\n");
         std::fs::create_dir_all(h.join(".buzz/OTHER")).unwrap();
         set_plans_dir_in(&roots, &h.join("GOs").display().to_string()).unwrap();
+        std::fs::create_dir_all(h.join("GOs")).unwrap();
         std::os::unix::fs::symlink(h.join(".buzz/OTHER"), h.join("GOs/sub")).unwrap();
         let before = tree_of(&h.join(".buzz"));
         let err = migrate_apply(&roots).unwrap_err();

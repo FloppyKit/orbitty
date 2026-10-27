@@ -123,7 +123,14 @@ pub fn validate_companion_backend(raw: &str) -> Result<String, String> {
 }
 
 fn read_env() -> String {
-    std::env::var("ORBITTY_COMPANION_BACKEND").unwrap_or_default()
+    #[cfg(feature = "alpha")]
+    {
+        return String::new();
+    }
+    #[cfg(not(feature = "alpha"))]
+    {
+        std::env::var("ORBITTY_COMPANION_BACKEND").unwrap_or_default()
+    }
 }
 
 pub fn resolve_companion_backend(app: &AppHandle) -> BackendResolve {

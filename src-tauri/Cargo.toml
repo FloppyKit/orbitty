@@ -42,6 +42,8 @@ path = "src/bin/orbitty-relay/main.rs"
 # Matt's THIN debug/testing stamp (⌘⌥T). Debug builds have it anyway;
 # install-nightly.sh builds Nightly with it. Stable/consumer builds never do.
 dev-thin = []
+# Friend alpha. Off for Nightly and Stable. PACKAGING turns it on.
+alpha = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
