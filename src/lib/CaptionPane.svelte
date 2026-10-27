@@ -10,6 +10,7 @@
   import { mdLite, mdLiteLinkUrl, fitPages } from "./mdLite";
   import { requestLink } from "./linkOpen.svelte";
   import type { CompanionTurn } from "./persist";
+  import ModelSetup from "./ModelSetup.svelte";
 
   function fitBlip(text: string): string {
     const max = 360;
@@ -521,6 +522,7 @@
         {@render wait()}
       </div>
     {/if}
+    <ModelSetup cue={botLine} />
   </div>
 {:else}
   <div class="caption" bind:this={rootEl}>
@@ -562,6 +564,7 @@
             <p class="asknote">{askNote}</p>
           {/if}
         </div>
+        <ModelSetup cue={botLine} />
         {#if ccOpen}
           <div
             class="cc-full"

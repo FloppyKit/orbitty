@@ -5,6 +5,9 @@ use std::path::Path;
 
 pub const OLLAMA_DOWNLOAD: &str = "https://ollama.com/download";
 
+pub const LMSTUDIO_OFF_LINE: &str =
+    "LM Studio is installed, but its server is off. In LM Studio choose Developer > Start Server, port 1234, then Look again.";
+
 pub fn probe_urls() -> &'static [&'static str] {
     &[
         "http://127.0.0.1:11434/api/tags",
@@ -111,6 +114,47 @@ pub fn alpha_build() -> bool {
 #[tauri::command]
 pub fn model_setup_probe() -> Vec<ProbeHit> {
     probe_with(&mut http_get_loopback)
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LmStudioStatus {
+    pub installed: bool,
+    pub serving: bool,
+    pub line: String,
+}
+
+pub fn lmstudio_app_installed(home: &Path, exists: impl Fn(&Path) -> bool) -> bool {
+    exists(Path::new("/Applications/LM Studio.app"))
+        || exists(&home.join("Applications/LM Studio.app"))
+}
+
+pub fn lmstudio_status(installed: bool, serving: bool) -> LmStudioStatus {
+    let line = if installed && !serving {
+        LMSTUDIO_OFF_LINE.to_string()
+    } else {
+        String::new()
+    };
+    LmStudioStatus {
+        installed,
+        serving,
+        line,
+    }
+}
+
+fn port_open(port: u16) -> bool {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200)).is_ok()
+}
+
+#[tauri::command]
+pub fn model_setup_lmstudio() -> LmStudioStatus {
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_default();
+    let installed = lmstudio_app_installed(&home, |p| p.is_dir());
+    let serving = port_open(1234);
+    lmstudio_status(installed, serving)
 }
 
 #[tauri::command]
@@ -238,6 +282,21 @@ mod tests {
     #[test]
     fn ollama_download_link() {
         assert_eq!(OLLAMA_DOWNLOAD, "https://ollama.com/download");
+    }
+
+    #[test]
+    fn lmstudio_installed_server_off_says_how_to_start() {
+        let home = Path::new("/tmp/orbitty-lm-home");
+        assert!(lmstudio_app_installed(home, |p| p == Path::new("/Applications/LM Studio.app")));
+        assert!(!lmstudio_app_installed(home, |_| false));
+        let off = lmstudio_status(true, false);
+        assert!(off.installed && !off.serving);
+        assert_eq!(off.line, LMSTUDIO_OFF_LINE);
+        assert!(off.line.contains("Developer > Start Server"));
+        assert!(off.line.contains("1234"));
+        assert!(off.line.contains("Look again"));
+        assert!(lmstudio_status(true, true).line.is_empty());
+        assert!(lmstudio_status(false, false).line.is_empty());
     }
 
     #[test]

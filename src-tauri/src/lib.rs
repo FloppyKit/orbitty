@@ -903,6 +903,7 @@ pub fn run() {
             companion::model_setup::alpha_build,
             companion::model_setup::model_setup_probe,
             companion::model_setup::model_setup_clis,
+            companion::model_setup::model_setup_lmstudio,
             mouth_scan::mouth_scan,
             mouth_scan::pull_mouth_model,
             mouth_ack::set_companion_conductor,

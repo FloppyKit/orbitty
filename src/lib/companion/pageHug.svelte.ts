@@ -83,7 +83,7 @@ export function measureHugHeight(scope: Scope_measureHugHeight): number | null {
   if (!dock) return null;
   const dockR = dock.getBoundingClientRect();
   let top = dockR.top;
-  scope.mainEl.querySelectorAll(".ccrow, .note, .starstrip").forEach((el) => {
+  scope.mainEl.querySelectorAll(".ccrow, .note, .starstrip, .model-setup-card").forEach((el) => {
     const r = el.getBoundingClientRect();
     if (r.height >= 2 && r.top < top) top = r.top;
   });
