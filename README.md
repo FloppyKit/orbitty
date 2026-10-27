@@ -1,50 +1,63 @@
 # Orbitty
 
-Mac habitat for **what is actually running**. A window becomes a sprite only after you claim it onto a project planet. Unclaimed work is nothing — the rail may list it; the desk stays empty.
+A Mac app for the work that is actually on your screen. You claim a window onto a project. A small walker stands there until you are done.
 
-Identifier `space.orbitty.mac`. Apache-2.0. Not an EHR: titles and metadata only, never PHI.
+This copy is for friends trying the alpha. It is signed on a Mac, not by Apple, and it is not notarized. The only promise is that the whole program is local files on your Mac: the app in `/Applications`, and your board in `~/Library/Application Support/space.orbitty.alpha`. A model you connect gets what you send it.
 
-## The loop
+Apple silicon Macs (M1 or newer) only. If `BUILD_INFO.txt` says `architectures: x86_64 arm64`, that disk image is universal and also runs on Intel Macs.
 
-1. **Claim** a window onto a named planet.
-2. A **walker** lives there (open, minimized, or sleeping if the window closed).
-3. Click to locate or restore. Right-click the being to edit it.
-4. **Done** walks off the far rim. Goal-aligned completes can earn capped points.
+Site: [orbitty.space](https://orbitty.space)
 
-That is the product. Everything else is a seat or an inspector.
+## Install
 
-## Companion is a seat
+1. Open the disk image. Read `Open Anyway - read me first` (the same steps are in `docs/TESTER_OPEN_ANYWAY.md` if you have the source).
+2. Drag **Orbitty** onto **Applications**. Copy `BUILD_INFO.txt` before you eject. Do not run the app from the disk image.
+3. Double-click Orbitty in Applications. macOS says it cannot verify the developer. Click **Done**. Do not click Move to Trash.
+4. On macOS 15 or later, right-click then Open no longer gets past that block. Open System Settings → Privacy & Security, and click **Open Anyway**. Once per download.
+5. If Open Anyway does not appear, the guide has one Terminal command that clears the download flag on `/Applications/Orbitty.app`.
+6. Orbitty asks for Accessibility so it can list windows and see which one is focused (titles and metadata only). Turn Orbitty on, go back, and click **Retry**.
 
-The default body is the Spirit flipbook. Orbitty does not host a model and is not a harness — launchers go into Hermes / Goose / Cursor that already exist. `three.js` loads only if you pick a 3D body; it never loads on the rail.
+## The first ten minutes
 
-## Run
+You start with an empty board.
 
-Dogfood is the blessed app, not `tauri dev`:
+1. After Accessibility, the rail shows a short coach line and a **+ Project** tile, even if no windows are open. The orbitty.space link is on that rail.
+2. Claim a window onto a project. Four starter todos appear on that planet. The first one points at Comms.
+3. Click the Comms plot. The walker walks over and the Comms icon appears.
+4. The companion stays hidden until that Comms outpost is built. It is a spirit only (no face). It introduces itself once, then you can open Stars the same way.
+5. Press ⌘⇧O, or hover the screen edge, to raise the wheel.
 
-```bash
-./scripts/install-stable.sh
-open ~/Applications/Orbitty.app
-```
+## Models
 
-Re-grant Accessibility once for `~/Applications/Orbitty.app` (sign identity stays “Orbitty Local Codesign” so later rebuilds keep the grant).
+The alpha starts at **No model**. Nothing of anyone else's setup is in this copy.
 
-**⌘⇧O** raises the companion. Tray left-click does the same; right-click is the remote (Companion, Launchpad, STARS, Settings, Inspector, restore stowed windows, Quit). Quit does not force-restore minimized windows — they stay in the Dock.
+**Set up a model** looks for Ollama or LM Studio on your Mac. If neither is running, it links the Ollama download. Any local, API-key, or signed-in model works once you attach it.
 
-Drive a running app without opening a WebView:
+Keys live in your Mac's Keychain, under names that start with `space.orbitty.alpha.`. They are not written into the app folder. Never paste a key into the chat. If you do, make a new one: the app will not send that message on, and it will tell you to roll the key.
 
-```bash
-orbittyctl status
-orbittyctl windows list
-```
+## What stays on this Mac
 
-`orbitty-mcp` is the same socket over stdio.
+The whole program is local files on your Mac.
 
-## Laws
+- App: `/Applications/Orbitty.app`
+- Board and other app files: `~/Library/Application Support/space.orbitty.alpha`
 
-`docs/THIN_SLICE_LAWS.md` — explicit claim, unmapped = zero sprites, no harness in the engine, FKT stays out, not EHR.
+A model you connect gets what you send it. That is the model's own path, not a promise about this app.
 
-How the pieces sit: `docs/ARCHITECTURE.md`.  
-What is next (ops, not product): `~/.buzz/PLANS/ORBIT_ROADMAP.md`.  
-Closed writer papers: `~/.buzz/PLANS/orbitty-closed/`. A live GO uses `docs/live/` (empty unless one is in flight).
+## Uninstall
 
-The Swift tree (path in git history before GO-ORBITTY-RENAME-MOVE) is archived. Do not launch it. Behavioral reference only: `docs/SWIFT_REFERENCE.md`.
+1. Quit Orbitty.
+2. Drag Orbitty from Applications to the Trash.
+3. Remove `~/Library/Application Support/space.orbitty.alpha`.
+4. In Keychain Access, delete items whose name starts with `space.orbitty.alpha.`.
+
+## Known issues
+
+- The first open of each download is blocked until you use Open Anyway. Right-click Open does not skip that on macOS 15 or later.
+- Accessibility is a separate grant for this copy (`space.orbitty.alpha`).
+- The companion is spirit-only, and it stays hidden until you build the Comms outpost.
+- Apple silicon Macs (M1 or newer) only, unless `BUILD_INFO.txt` says `architectures: x86_64 arm64`.
+
+## Build from source
+
+You do not need this to try the app. The source is at <https://github.com/FloppyKit/orbitty> (Apache-2.0). Friends should use the disk image.
