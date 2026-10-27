@@ -153,6 +153,7 @@ fn live_rail_facts(app: &tauri::AppHandle) -> crate::rail_stage::RailFacts {
         },
         button_down: false,
         auto_hide: crate::rail_edge::cached_auto_hide(),
+        coach_hold: crate::starter::coach_hold(),
     }
 }
 

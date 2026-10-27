@@ -713,6 +713,7 @@ mod poll {
             occluded_ms: occ_since.map(|t| now.saturating_sub(t)).unwrap_or(0),
             button_down: button_down(),
             auto_hide: super::cached_auto_hide(),
+            coach_hold: crate::starter::coach_hold(),
         };
         let (vis, acts) = crate::rail_stage::rail_vis_step(
             crate::rail_stage::RailVis::Revealed,

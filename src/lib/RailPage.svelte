@@ -557,7 +557,7 @@
   }
 
   async function parkStage() {
-    return parkStageBody({get embedded() { return embedded; }, invoke, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
+    return parkStageBody({coachIsDue, get embedded() { return embedded; }, invoke, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
   }
 
   let graceRecheck: ReturnType<typeof setTimeout> | null = null;
@@ -567,7 +567,7 @@
   }
 
   function maybeAutoHide() {
-    return maybeAutoHideBody({autoHideWanted, get embedded() { return embedded; }, get focusInside() { return focusInside; }, set focusInside(v) { focusInside = v; }, parkStage, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get railAutoHideOnBlur() { return railAutoHideOnBlur; }, set railAutoHideOnBlur(v) { railAutoHideOnBlur = v; }, get revealGraceUntil() { return revealGraceUntil; }, set revealGraceUntil(v) { revealGraceUntil = v; }, scheduleGraceRecheck, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
+    return maybeAutoHideBody({autoHideWanted, coachIsDue, get embedded() { return embedded; }, get focusInside() { return focusInside; }, set focusInside(v) { focusInside = v; }, parkStage, get pointerInside() { return pointerInside; }, set pointerInside(v) { pointerInside = v; }, get railAutoHideOnBlur() { return railAutoHideOnBlur; }, set railAutoHideOnBlur(v) { railAutoHideOnBlur = v; }, get revealGraceUntil() { return revealGraceUntil; }, set revealGraceUntil(v) { revealGraceUntil = v; }, scheduleGraceRecheck, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }});
   }
 
   function parkAfterRaise() {

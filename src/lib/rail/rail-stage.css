@@ -99,10 +99,11 @@
     overflow: visible;
   }
 
+  /* Overlay titlebar eats the top ~28px. The sealed line sits just under it. */
   .rail.stage-shell .coach-line {
     position: absolute;
     z-index: 30;
-    top: 0;
+    top: 32px;
     left: 8px;
     right: 8px;
     display: flex;

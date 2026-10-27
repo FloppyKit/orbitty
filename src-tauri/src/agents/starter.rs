@@ -4,7 +4,7 @@
 //! not reentrant, so they never run on the save path or the AppKit thread).
 //! Habitat reads outpost bits from an atomic; it does no state I/O.
 
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -102,7 +102,31 @@ pub fn arm(state: &mut PersistedState) {
     }
 }
 
+static COACH_HOLD: AtomicBool = AtomicBool::new(false);
+
+/// Fresh profile, no claim yet: the coach line stays until the user acts.
+pub fn coach_holds(v: u8, coach_done: bool, skipped: bool, claims_empty: bool) -> bool {
+    v == 1 && !coach_done && !skipped && claims_empty
+}
+
+fn note_coach_hold(state: &PersistedState) {
+    COACH_HOLD.store(
+        coach_holds(
+            state.starter_story.v,
+            state.starter_story.coach_done,
+            state.starter_story.skipped,
+            state.claims.is_empty(),
+        ),
+        Ordering::Relaxed,
+    );
+}
+
+pub fn coach_hold() -> bool {
+    COACH_HOLD.load(Ordering::Relaxed)
+}
+
 pub fn view(state: &PersistedState) -> StarterView {
+    note_coach_hold(state);
     refresh_outposts(state);
     StarterView {
         story: state.starter_story.clone(),
@@ -582,6 +606,8 @@ mod tests {
         assert!(!fresh.starter_story.stars_built);
         assert!(!fresh.starter_story.intro_done);
         assert!(!fresh.companion.visible);
+        assert!(coach_holds(fresh.starter_story.v, false, false, true));
+        assert!(!coach_holds(fresh.starter_story.v, false, false, false));
 
         let mut with_claim = PersistedState::default();
         with_claim.claims.push(claim("w", "p"));

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { habitatConfirm } from "../src/lib/rail/habitat.ts";
 import {
+  COACH_LINE,
   coachDue,
+  coachHoldsRail,
   coachStops,
   emptyDeskShowsWheel,
   normalizeStory,
@@ -39,6 +42,17 @@ function due(over: Partial<Parameters<typeof coachDue>[0]> = {}) {
     ...over,
   });
 }
+
+test("first-run state renders coach line", () => {
+  assert.equal(due(), true);
+  assert.equal(COACH_LINE, "Claim a window to make a walker.");
+  assert.equal(coachHoldsRail(true), true);
+  assert.equal(coachHoldsRail(false), false);
+  const list = readFileSync("src/lib/rail/List.svelte", "utf8");
+  assert.match(list, /\{COACH_LINE\}/);
+  const css = readFileSync("src/lib/rail/rail-stage.css", "utf8");
+  assert.match(css, /\.coach-line \{[^}]*top:\s*32px/);
+});
 
 test("K1 coach due only when trusted", () => {
   assert.equal(due({ trusted: true }), true);

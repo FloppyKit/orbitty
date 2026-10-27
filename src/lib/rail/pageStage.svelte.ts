@@ -167,6 +167,7 @@ type Scope_parkStage = {
   embedded: boolean;
   stageRevealed: boolean;
   invoke: Invoke;
+  coachIsDue?: () => boolean;
 };
 
 type Scope_scheduleGraceRecheck = {
@@ -185,6 +186,7 @@ type Scope_maybeAutoHide = {
   focusInside: boolean;
   pointerInside: boolean;
   parkStage: (...args: any[]) => Promise<any>;
+  coachIsDue?: () => boolean;
 };
 
 type Scope_parkAfterRaise = {
@@ -387,6 +389,7 @@ export async function showStage(scope: Scope_showStage) {
 
 export async function parkStage(scope: Scope_parkStage) {
   if (scope.embedded) return;
+  if (scope.coachIsDue?.()) return;
   scope.stageRevealed = false;
   try {
     await scope.invoke("rail_stage_set", { revealed: false });
@@ -406,6 +409,7 @@ export function scheduleGraceRecheck(scope: Scope_scheduleGraceRecheck) {
 
 export function maybeAutoHide(scope: Scope_maybeAutoHide) {
   if (scope.embedded || !scope.stageRevealed) return;
+  if (scope.coachIsDue?.()) return;
   if (Date.now() < scope.revealGraceUntil) {
     scope.scheduleGraceRecheck();
     return;

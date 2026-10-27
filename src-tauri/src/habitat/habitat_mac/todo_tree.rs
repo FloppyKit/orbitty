@@ -375,8 +375,22 @@ pub(crate) fn tick(planet: &mut Planet, dt: f64, project_id: &str) -> bool {
     let mut finished_harvest: Vec<String> = Vec::new();
     let mut finished_build: Vec<crate::starter::Outpost> = Vec::new();
     let mut moved = false;
+    let build_ids: Vec<String> = planet
+        .tree_chores
+        .iter()
+        .filter(|c| matches!(c.kind, ChoreKind::Build(_)))
+        .map(|c| c.walker_id.clone())
+        .collect();
+    let discs = super::walk_around::tree_discs(
+        &planet.todo_trees.iter().map(|t| (t.x, t.y)).collect::<Vec<_>>(),
+    );
     while i < planet.tree_chores.len() {
         if planet.tree_chores[i].project_id != project_id {
+            i += 1;
+            continue;
+        }
+        let is_build = matches!(planet.tree_chores[i].kind, ChoreKind::Build(_));
+        if !is_build && build_ids.iter().any(|id| id == &planet.tree_chores[i].walker_id) {
             i += 1;
             continue;
         }
@@ -419,11 +433,20 @@ pub(crate) fn tick(planet: &mut Planet, dt: f64, project_id: &str) -> bool {
             i += 1;
             continue;
         }
-        let step = (0.16 * dt).min(dist);
-        roam.x += dx / dist * step;
-        roam.y += dy / dist * step;
-        roam.facing_left = dx < -0.002;
-        roam.facing_dir = droid_pack::dir_from_delta(dx, dy, roam.facing_dir);
+        let aim = super::walk_around::skirt_aim((roam.x, roam.y), (tx, ty), &discs);
+        let adx = aim.0 - roam.x;
+        let ady = aim.1 - roam.y;
+        let adist = (adx * adx + ady * ady).sqrt();
+        let (sx, sy, slen) = if adist < 1e-6 {
+            (0.0, 0.02, 0.02)
+        } else {
+            (adx, ady, adist)
+        };
+        let step = (0.16 * dt).min(slen);
+        roam.x += sx / slen * step;
+        roam.y += sy / slen * step;
+        roam.facing_left = sx < -0.002;
+        roam.facing_dir = droid_pack::dir_from_delta(sx, sy, roam.facing_dir);
         moved = true;
         i += 1;
     }
@@ -551,6 +574,54 @@ mod tests {
         veteran.roam.clear();
         super::tick(&mut veteran, 0.1, "p");
         assert_eq!(veteran.tree_chores.len(), 1);
+    }
+
+    #[test]
+    fn blocked_straight_line_reaches_comms() {
+        let mut planet = awake_planet();
+        planet.todo_trees.push(TodoTreeTick {
+            card_id: "c-block".into(),
+            x: 0.40,
+            y: 0.08,
+            planted_at: 1.0,
+            due_at: None,
+            status: "todo".into(),
+        });
+        planet.roam.insert(
+            "w".into(),
+            super::super::roam::RoamState {
+                x: 0.0,
+                y: 0.05,
+                tx: 0.0,
+                ty: 0.05,
+                pause_end: None,
+                facing_left: false,
+                facing_dir: 0,
+                off_emitted: false,
+                via_board: false,
+                via_home: false,
+                via_checkin: false,
+                checkin_emit_at: None,
+                wander_seed: 0,
+            },
+        );
+        let plant = TodoTreeTick {
+            card_id: ID_COMMS.into(),
+            x: 0.40,
+            y: 0.08,
+            planted_at: 1.0,
+            due_at: None,
+            status: "todo".into(),
+        };
+        enqueue(&mut planet, "p", &plant, ChoreKind::Plant);
+        enqueue_build(&mut planet, "p", Outpost::Comms);
+        for _ in 0..80 {
+            super::tick(&mut planet, 1.0, "p");
+        }
+        assert!(
+            planet.tree_chores.iter().all(|c| !matches!(c.kind, ChoreKind::Build(_))),
+            "build chore still open"
+        );
     }
 }
 

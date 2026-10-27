@@ -58,6 +58,11 @@ export function emptyDeskShowsWheel(input: {
   return input.story.v === 1 && !input.story.skipped;
 }
 
+/** Fresh coach stays up until claim or dismiss. Auto-hide must not park it. */
+export function coachHoldsRail(due: boolean): boolean {
+  return due;
+}
+
 export function coachStops(due: boolean): { id: string; group: "wheel" }[] {
   if (!due) return [];
   return [

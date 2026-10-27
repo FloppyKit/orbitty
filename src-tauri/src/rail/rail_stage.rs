@@ -39,6 +39,8 @@ pub struct RailFacts {
     pub occluded_ms: u64,
     pub button_down: bool,
     pub auto_hide: bool,
+    /// Fresh coach is still due. Tick, hotkey, and park requests must not hide it.
+    pub coach_hold: bool,
 }
 
 impl RailFacts {
@@ -53,14 +55,25 @@ impl RailFacts {
             occluded_ms: 0,
             button_down: false,
             auto_hide: true,
+            coach_hold: false,
         }
     }
+}
+
+fn hold_open(state: RailVis) -> (RailVis, Vec<RailAct>) {
+    if state == RailVis::Parked {
+        return (RailVis::Revealed, vec![RailAct::Raise, RailAct::Emit("coach")]);
+    }
+    (RailVis::Revealed, Vec::new())
 }
 
 /// One step of the reveal / raise machine. `Tick` parks only when auto-hide
 /// is on, Orbitty is inactive, no button is down, and either the cursor has
 /// been outside the frame or the rail has been occluded for `RAIL_AWAY_MS`.
 pub fn rail_vis_step(state: RailVis, event: RailEvent, facts: &RailFacts) -> (RailVis, Vec<RailAct>) {
+    if facts.coach_hold {
+        return hold_open(state);
+    }
     match event {
         RailEvent::EdgeReveal => (RailVis::Revealed, vec![RailAct::Raise, RailAct::Emit("edge")]),
         RailEvent::Expand => (RailVis::Revealed, vec![RailAct::Raise, RailAct::Emit("expand")]),
@@ -149,7 +162,26 @@ mod tests {
             occluded_ms: 0,
             button_down: false,
             auto_hide: true,
+            coach_hold: false,
         }
+    }
+
+    #[test]
+    fn coach_hold_refuses_park() {
+        let mut f = RailFacts::inactive_clear();
+        f.coach_hold = true;
+        f.away_ms = 5_000;
+        f.occluded = true;
+        f.occluded_ms = 5_000;
+        let (vis, acts) = rail_vis_step(RailVis::Revealed, RailEvent::Tick, &f);
+        assert_eq!(vis, RailVis::Revealed);
+        assert!(acts.is_empty());
+        let (hot, hot_acts) = rail_vis_step(RailVis::Revealed, RailEvent::Hotkey, &f);
+        assert_eq!(hot, RailVis::Revealed);
+        assert!(hot_acts.is_empty());
+        let (parked, raise) = rail_vis_step(RailVis::Parked, RailEvent::Tick, &f);
+        assert_eq!(parked, RailVis::Revealed);
+        assert!(plan_has_raise(&raise));
     }
 
     #[test]
