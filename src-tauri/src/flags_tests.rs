@@ -98,6 +98,94 @@ fn auto_sweep_flips_on_pass() {
     assert!(flipped3.is_empty(), "flags auto off stops the sweep");
 }
 
+/// Shape copied from VERIFY_GO-ORBITTY-ALPHA-STORY-FIX-2_79486ae7.md:
+/// a `## Result` heading, the verdict line, then `PASS tip:`.
+const ALPHA_STORY_PASS: &str = "\
+# VERIFY GO-ORBITTY-ALPHA-STORY-FIX-2
+
+## Left running / on disk
+
+- Nothing left running. No Orbitty launch, no cargo process, no data-dir writes.
+
+## Result
+PASS-with-notes
+PASS tip: 79486ae7f698e0a5cf89e22c625e633feac8f27d
+Fails:
+DOGFOOD items: fresh-launch rail edge + hide + no late snap
+Fixes for Ship:
+";
+
+const HEADING_FAIL: &str = "\
+## Result
+FAIL
+PASS tip: cb14e32f92cf9395ee77e0aafb996c90247986c8
+Fails: F4 plant/harvest chore aborts on the Board-stage sign target
+";
+
+#[test]
+fn auto_sweep_reads_real_verify_heading() {
+    assert_eq!(
+        result_of(ALPHA_STORY_PASS).as_deref(),
+        Some("PASS-with-notes")
+    );
+    assert_eq!(result_of(HEADING_FAIL).as_deref(), Some("FAIL"));
+    assert_eq!(
+        result_of("## Result\n\nRIG BLOCKER\nPASS tip: abcd1234\n").as_deref(),
+        Some("RIG BLOCKER")
+    );
+    assert_eq!(result_of("noise\nRESULT: PASS\n").as_deref(), Some("PASS"));
+    assert_eq!(
+        result_of("RESULT: PASS-with-notes abcd1234\n").as_deref(),
+        Some("PASS-with-notes abcd1234")
+    );
+
+    let (dir, _keep) = scratch("heading");
+    let sha = "79486ae7";
+    let go = "GO-ORBITTY-ALPHA-STORY-FIX-2";
+    fs::write(
+        dir.join(format!("VERIFY_{go}_{sha}.md")),
+        ALPHA_STORY_PASS,
+    )
+    .unwrap();
+    let reports = load_reports(&dir, sha);
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].result, "PASS-with-notes");
+    let row = demo("story_auto", go, true);
+    let mut file = FileFlags::empty();
+    let flipped = sweep_defs(&[row], Channel::Nightly, sha, &reports, &mut file);
+    assert_eq!(flipped, vec!["story_auto".to_string()]);
+    assert_eq!(
+        file.src.get("story_auto").map(String::as_str),
+        Some("auto-verify")
+    );
+
+    let (fail_dir, _keep_fail) = scratch("heading-fail");
+    fs::write(fail_dir.join(format!("VERIFY_{go}_{sha}.md")), HEADING_FAIL).unwrap();
+    let fail_reports = load_reports(&fail_dir, sha);
+    assert_eq!(fail_reports[0].result, "FAIL");
+    let mut file_fail = FileFlags::empty();
+    let flipped_fail = sweep_defs(&[row], Channel::Nightly, sha, &fail_reports, &mut file_fail);
+    assert!(flipped_fail.is_empty());
+    assert!(file_fail.on.get("story_auto").is_none());
+
+    let blocker = "\
+## Result
+RIG BLOCKER
+PASS tip: 79486ae7f698e0a5cf89e22c625e633feac8f27d
+";
+    fs::write(fail_dir.join(format!("VERIFY_{go}_{sha}.md")), blocker).unwrap();
+    let blocker_reports = load_reports(&fail_dir, sha);
+    let mut file_block = FileFlags::empty();
+    let flipped_block = sweep_defs(
+        &[row],
+        Channel::Nightly,
+        sha,
+        &blocker_reports,
+        &mut file_block,
+    );
+    assert!(flipped_block.is_empty());
+}
+
 #[test]
 fn manual_off_sticky() {
     let (dir, _keep) = scratch("sticky");

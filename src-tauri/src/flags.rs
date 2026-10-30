@@ -534,17 +534,38 @@ pub(crate) fn report_is_pass(result: &str) -> bool {
     r == "PASS" || r.starts_with("PASS-with-notes")
 }
 
+fn verdict_line(t: &str) -> bool {
+    matches!(t, "PASS" | "PASS-with-notes" | "FAIL" | "RIG BLOCKER")
+}
+
+/// Kitchen reports put the verdict on the first non-empty line under
+/// `## Result` (`PASS`, `PASS-with-notes`, `FAIL`, `RIG BLOCKER`), then a
+/// `PASS tip:` line. Older notes use a `RESULT:` line. Either counts.
 pub(crate) fn result_of(text: &str) -> Option<String> {
-    for line in text.lines() {
-        let t = line.trim();
-        let rest = if let Some(r) = t.strip_prefix("RESULT:") {
-            r.trim()
-        } else if let Some(r) = t.strip_prefix("RESULT ") {
-            r.trim()
-        } else {
-            continue;
-        };
-        return Some(rest.to_string());
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i];
+        if let Some(rest) = t.strip_prefix("RESULT:") {
+            let rest = rest.trim();
+            if !rest.is_empty() {
+                return Some(rest.to_string());
+            }
+        } else if let Some(rest) = t.strip_prefix("RESULT ") {
+            let rest = rest.trim();
+            if !rest.is_empty() {
+                return Some(rest.to_string());
+            }
+        } else if t == "## Result" {
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].is_empty() {
+                j += 1;
+            }
+            if j < lines.len() && verdict_line(lines[j]) {
+                return Some(lines[j].to_string());
+            }
+        }
+        i += 1;
     }
     None
 }
