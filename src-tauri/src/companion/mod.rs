@@ -12,6 +12,7 @@ pub(crate) mod companion_policy;
 #[cfg(unix)]
 pub(crate) mod companion_todo;
 pub(crate) mod mouth_ack;
+pub(crate) mod mouth_archive;
 pub(crate) mod mouth_blip;
 pub(crate) mod mouth_board;
 pub(crate) mod mouth_gist;

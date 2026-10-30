@@ -194,7 +194,7 @@ include_str!("../../coordinator/launch_tests.rs")
         let hist = body_of(gist, "fn history(");
         assert!(hist.contains("clip(&crate::mouth_hop::strip_handoff_marks(&t.text), HIST_N)"), "{hist}");
         let roll = include_str!("../mouth_roll.rs");
-        let prompt = body_of(roll, "pub fn handoff_prompt(");
+        let prompt = body_of(roll, "pub fn handoff_from_turns(");
         assert!(prompt.contains("crate::mouth_hop::strip_handoff_marks(&t.text)"), "{prompt}");
         let me = concat!(include_str!("local.rs"), include_str!("openrouter.rs"), include_str!("handoff.rs"), include_str!("tests.rs"));
         let button = body_of(me, "pub async fn companion_handoff(");

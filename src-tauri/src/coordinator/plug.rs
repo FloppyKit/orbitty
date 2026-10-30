@@ -130,15 +130,18 @@ pub(crate) struct PlugState {
     #[serde(default)]
     pub(crate) grok_session_minted: bool,
     /// Successful Grok mouth sends on the current backend session.
-    /// At GROK_ROLL_EVERY we fork+handoff so resume stays thin; the
-    /// bubble is unchanged (forever mouth).
+    /// Count only. A reset is a dead session, a char budget, thin, or
+    /// manual_test — not a fixed send interval.
     #[serde(default)]
     pub(crate) grok_sends: u32,
+    /// Prompt + reply chars on the current Grok session. Flag on: a
+    /// budget reset fires at `MH_SESSION_BUDGET_CHARS`.
+    #[serde(default)]
+    pub(crate) grok_chars: u64,
+    /// `thin` or `manual_test`, consumed by the next Grok send.
+    #[serde(default)]
+    pub(crate) reset_pending: Option<String>,
 }
-
-/// Backend session roll — not a new bubble. Pocket + last ~6 turns
-/// ride the handoff. Keeps replies fast without dumping leftover map.
-pub(crate) const GROK_ROLL_EVERY: u32 = 16;
 
 pub(crate) fn plug_path() -> PathBuf {
     companions_root().join("plug.json")

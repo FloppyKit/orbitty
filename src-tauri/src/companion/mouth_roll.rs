@@ -68,18 +68,75 @@ pub fn goose_context_dead(err: &str) -> bool {
         || e.contains("invalid")
 }
 
+/// Why a backend session is being replaced. Dead reasons keep today's
+/// handoff sentence. Planned reasons do not say the session died.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResetReason {
+    ContextDead,
+    SessionGone,
+    EmptyResume,
+    Budget,
+    Thin,
+    ManualTest,
+}
+
+impl ResetReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ResetReason::ContextDead => "context_dead",
+            ResetReason::SessionGone => "session_gone",
+            ResetReason::EmptyResume => "empty_resume",
+            ResetReason::Budget => "budget",
+            ResetReason::Thin => "thin",
+            ResetReason::ManualTest => "manual_test",
+        }
+    }
+
+    pub fn is_dead(self) -> bool {
+        matches!(
+            self,
+            ResetReason::ContextDead | ResetReason::SessionGone | ResetReason::EmptyResume
+        )
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "context_dead" => Some(ResetReason::ContextDead),
+            "session_gone" => Some(ResetReason::SessionGone),
+            "empty_resume" => Some(ResetReason::EmptyResume),
+            "budget" => Some(ResetReason::Budget),
+            "thin" => Some(ResetReason::Thin),
+            "manual_test" => Some(ResetReason::ManualTest),
+            _ => None,
+        }
+    }
+}
+
 /// Handoff block for the first prompt on a rolled-over session: the last
 /// ~6 turns of the one companion transcript, then the already
 /// pocket/desk-wrapped user line (mode + now.json + pocket already in
 /// that wrap). Persisted nowhere — the send path saves only the raw
 /// line + reply, so the handoff never becomes a you-row.
 /// No history yet (a first send that died) → the wrapped line unchanged.
-pub fn handoff_prompt(app: &tauri::AppHandle, wrapped_line: &str) -> String {
-    const HANDOFF_TURNS: usize = 6;
-    const HISTORY_CAP: usize = 1200;
+pub fn handoff_prompt(
+    app: &tauri::AppHandle,
+    reason: ResetReason,
+    wrapped_line: &str,
+) -> String {
     let (mode, turns) = crate::state::load_state(app)
         .map(|s| (s.companion.mode.clone(), s.companion.turns.clone()))
         .unwrap_or_else(|_| ("spark".into(), Vec::new()));
+    handoff_from_turns(reason, &mode, &turns, wrapped_line)
+}
+
+pub fn handoff_from_turns(
+    reason: ResetReason,
+    mode: &str,
+    turns: &[crate::state::CompanionTurn],
+    wrapped_line: &str,
+) -> String {
+    const HANDOFF_TURNS: usize = 6;
+    const HISTORY_CAP: usize = 1200;
     if turns.is_empty() || crate::mouth_gist::is_gist(wrapped_line) {
         return wrapped_line.to_string();
     }
@@ -107,12 +164,21 @@ pub fn handoff_prompt(app: &tauri::AppHandle, wrapped_line: &str) -> String {
         lines.push(row);
     }
     lines.reverse();
-    format!(
-        "[handoff — the prior backend session died; this is the same desk thread (mode: {mode}) \
-         on a fresh session. The transcript so far is below. Answer the USER line at the end; \
-         do not greet, do not summarize.]\n{}\n\n{wrapped_line}",
-        lines.join("\n")
-    )
+    let head = if reason.is_dead() {
+        format!(
+            "[handoff — the prior backend session died; this is the same desk thread (mode: {mode}) \
+             on a fresh session. The transcript so far is below. Answer the USER line at the end; \
+             do not greet, do not summarize.]"
+        )
+    } else {
+        format!(
+            "[handoff — fresh backend session ({why}); this is the same desk thread (mode: {mode}) \
+             on a fresh session. The transcript so far is below. Answer the USER line at the end; \
+             do not greet, do not summarize.]",
+            why = reason.as_str()
+        )
+    };
+    format!("{head}\n{}\n\n{wrapped_line}", lines.join("\n"))
 }
 
 /// `grok --single=<handoff> --resume <old> --fork-session -s <new> …`: resume the

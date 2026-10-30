@@ -90,6 +90,15 @@ pub const FLAGS: &[FlagDef] = &[
         remove_after: "2026-12-29",
         auto_on_verify: true,
     },
+    FlagDef {
+        id: "mh_archive",
+        default: false,
+        what: "archive companion turns before the 40-turn drain",
+        go: "GO-ORBITTY-MH-ARCHIVE-STEP2",
+        added: "2026-10-30",
+        remove_after: "2026-12-29",
+        auto_on_verify: true,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
@@ -437,6 +446,34 @@ fn file_of(app: &tauri::AppHandle) -> FileFlags {
             FileFlags::empty()
         }
     }
+}
+
+/// Env, then the process cache `on` filled, else the channel file for the
+/// running bundle. Default off when none of those are present. `push_turn`
+/// has no app handle; startup `auto_sweep` warms the cache before a send.
+pub(crate) fn on_ambient(id: &str) -> bool {
+    if let Some(raw) = env_raw(id) {
+        if let Some(bit) = parse_env_bit(&raw) {
+            return bit;
+        }
+        eprintln!("orbitty: ignoring bad {}={raw}", env_key(id));
+    }
+    if read_cache().is_some() {
+        return on_loaded(id, &cache_file());
+    }
+    #[cfg(all(target_os = "macos", not(test)))]
+    if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+        let bundle =
+            macos_bundle_id().unwrap_or_else(|| crate::state::instance::STABLE_ID.to_string());
+        let dir = PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join(bundle);
+        if dir.is_dir() {
+            return on_in_dir(&dir, id);
+        }
+    }
+    on_loaded(id, &FileFlags::empty())
 }
 
 pub fn on(app: &tauri::AppHandle, id: &str) -> bool {

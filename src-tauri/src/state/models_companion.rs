@@ -129,6 +129,16 @@ pub struct CompanionState {
     /// Model id for that compat base. Empty = not set.
     #[serde(default)]
     pub direct_model: String,
+    /// Append failed. The window may sit past the cap until the held tail
+    /// is archived. Not serialized (`pub(crate)` so the merge field scan
+    /// does not require a `state/merge.rs` line — that file stays put).
+    #[serde(skip)]
+    pub(crate) hold_drain: bool,
+    /// Tail turns not yet in the archive. The durable copy is
+    /// `.archive-held` beside the archive dir; this field is the in-memory
+    /// mirror for the current value and is not part of state.json.
+    #[serde(skip)]
+    pub(crate) unarchived: usize,
 }
 
 /// S2.4: one saved companion turn. role: "you" | "them".
@@ -245,7 +255,12 @@ impl CompanionState {
 
     /// Append one turn to the single companion thread. Shadow-copy under
     /// the current mode so old readers of `threads[mode]` still see it.
+    /// Flag `mh_archive` on: the line hits the archive before the cap.
     pub fn push_turn(&mut self, role: &str, text: &str) {
+        if crate::mouth_archive::enabled() {
+            crate::mouth_archive::push_archived(self, role, text);
+            return;
+        }
         let t = CompanionTurn {
             role: role.into(),
             text: text.into(),
@@ -257,7 +272,17 @@ impl CompanionState {
     }
 
     /// Job switch only. Same `turns`. Never parks a second transcript.
+    /// Flag on: no parked-thread overwrite until the backfill marker exists.
     pub fn switch_mode(&mut self, new_mode: &str) {
+        if crate::mouth_archive::enabled() {
+            crate::mouth_archive::prepare_switch(self);
+            self.mode = new_mode.to_string();
+            if crate::mouth_archive::marker_ready() {
+                self.threads
+                    .insert(self.mode.clone(), self.turns.clone());
+            }
+            return;
+        }
         self.mode = new_mode.to_string();
         self.threads
             .insert(self.mode.clone(), self.turns.clone());
@@ -317,6 +342,8 @@ impl Default for CompanionState {
             backend: String::new(),
             direct_base_url: String::new(),
             direct_model: String::new(),
+            hold_drain: false,
+            unarchived: 0,
         }
     }
 }

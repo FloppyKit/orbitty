@@ -603,6 +603,12 @@ fn log_handoff(app: &tauri::AppHandle, from: &str, to: &str, reason: &str) {
 }
 
 pub(crate) fn persist_them(app: &tauri::AppHandle, reply: &str) {
+    let _pin = crate::mouth_archive::TurnGuard::set(crate::mouth_archive::TurnMeta {
+        lane: "handoff".into(),
+        model: "?".into(),
+        session: None,
+        src: "live".into(),
+    });
     if crate::state::update(app, |st| {
         st.companion.last_bot_line = reply.to_string();
         st.companion.push_turn("them", reply);

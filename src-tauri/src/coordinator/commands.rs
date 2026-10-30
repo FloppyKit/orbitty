@@ -145,6 +145,12 @@ pub fn companion_note(
     if line.is_empty() {
         return Err("companion note needs a line.".into());
     }
+    let _pin = crate::mouth_archive::TurnGuard::set(crate::mouth_archive::TurnMeta {
+        lane: "note".into(),
+        model: "?".into(),
+        session: None,
+        src: "live".into(),
+    });
     let target = crate::state::update(&app, |st| {
         // load_state healed the mode, so st.companion.mode is allowlist-clean.
         let target = match mode.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -170,6 +176,12 @@ pub fn companion_note(
 pub fn companion_thin(app: tauri::AppHandle) -> Result<String, String> {
     // Gate = cfg(any(debug_assertions, feature = "dev-thin")), via the shared const.
     // One nod for the whole attempt (inside thin_flow). The stamp script does not play one.
+    // Flag on: the next Grok send rolls for reason thin. No model call here.
+    if crate::mouth_archive::enabled() {
+        let mut plug = crate::coordinator::load_plug();
+        plug.reset_pending = Some("thin".into());
+        crate::coordinator::save_plug(&plug);
+    }
     crate::thin::thin_flow(
         crate::thin::release_gate(crate::thin::THIN_ENABLED),
         || crate::thin::stamp(&app),

@@ -6,7 +6,7 @@ use super::allowlist::{hermes_profile_dirs, load_companion_session_id, resolve_a
 use super::hermes::{app_data};
 use super::intercept::{ActionIntercept, log_companion_route, match_action_line, persist_action_intercept, persist_companion_you, wrap_with_pocket};
 use super::mouth_cli::{is_goose_session_id, is_uuid, mint_uuid, run_mouth_cli};
-use super::plug::{GROK_ROLL_EVERY, PlugState, berdctl_cmd, companion_soul_text, find_berdctl, find_grok, load_plug, save_plug};
+use super::plug::{PlugState, berdctl_cmd, companion_soul_text, find_berdctl, find_grok, load_plug, save_plug};
 
 /// Companion composer send path.
 /// Harness order: env override, saved companion.backend, legacy goose
@@ -94,6 +94,7 @@ pub(crate) async fn companion_send_inner(
     attach: Option<crate::attach::AttachInfo>,
     origin: crate::mouth_route::Origin,
 ) -> Result<String, String> {
+    let _pin = pin_turn(&app);
     #[cfg(feature = "alpha")]
     if let Some(reply) = crate::companion::key_redact::block_send(&app, &line) {
         return Ok(reply);
@@ -161,6 +162,7 @@ pub(crate) async fn companion_send_inner(
                     .and_then(|r| r);
                 // Same head as the rail's runAction; timeout/spawn errors
                 // land as the them-line string, never an Err to the client.
+                let _pin = pin_turn(&app);
                 let them = match result {
                     Ok(r) => {
                         let out = [r.stdout, r.stderr]
@@ -291,6 +293,7 @@ pub(crate) async fn companion_send_inner(
     if attach.is_none() {
         match crate::mouth_ack::conduct(&app, &line).await {
             Some(crate::mouth_ack::Step::Final(them)) => {
+                let _pin = pin_turn(&app);
                 return Ok(persist_action_intercept(&app, None, &them));
             }
             Some(crate::mouth_ack::Step::Chat(ack)) => {
@@ -366,6 +369,7 @@ pub(crate) async fn companion_send_inner(
             .unwrap_or_default();
         let reply =
             crate::mouth_hop::refuse_or_handoff(&app, &line, &path, &lane).await?;
+        let _pin = pin_turn(&app);
         if crate::state::update(&app, |st| {
             st.companion.last_bot_line = reply.clone();
             let you_already_saved = st
@@ -425,6 +429,7 @@ pub(crate) async fn companion_send_inner(
     let reply = crate::mouth_hop::strip_handoff_marks(&reply);
 
     // You-row already persisted before the model wait. Reply only here.
+    let _pin = pin_turn(&app);
     if crate::state::update(&app, |st| {
         st.companion.last_bot_line = reply.clone();
         let you_already_saved = st
@@ -525,6 +530,113 @@ pub(crate) fn goose_args(
     args
 }
 
+fn pin_turn(app: &tauri::AppHandle) -> crate::mouth_archive::TurnGuard {
+    let (lane, model) = crate::state::load_state(app)
+        .map(|s| {
+            let lane = if s.companion.reply_lane.trim().is_empty() {
+                "?".into()
+            } else {
+                s.companion.reply_lane
+            };
+            let model = if !s.companion.reply_model.trim().is_empty() {
+                s.companion.reply_model
+            } else if !s.companion.direct_model.trim().is_empty() {
+                s.companion.direct_model
+            } else {
+                "?".into()
+            };
+            (lane, model)
+        })
+        .unwrap_or_else(|_| ("?".into(), "?".into()));
+    let plug = load_plug();
+    let session = plug
+        .grok_session_id
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            plug.goose_session_id
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+        });
+    crate::mouth_archive::TurnGuard::set(crate::mouth_archive::TurnMeta {
+        lane,
+        model,
+        session,
+        src: "live".into(),
+    })
+}
+
+fn turn_count(app: &tauri::AppHandle) -> usize {
+    crate::state::load_state(app)
+        .map(|s| s.companion.turns.len())
+        .unwrap_or(0)
+}
+
+fn note_reset(
+    reason: crate::mouth_roll::ResetReason,
+    backend: &str,
+    old: &str,
+    new_id: &str,
+    soul: &str,
+    handoff: &str,
+    turns: usize,
+) {
+    if !crate::mouth_archive::enabled() {
+        return;
+    }
+    let Some(root) = crate::mouth_archive::archive_root() else {
+        return;
+    };
+    let verbatim = handoff
+        .lines()
+        .filter(|l| l.starts_with("you:") || l.starts_with("them:"))
+        .count();
+    let pairs = handoff.lines().filter(|l| l.starts_with("you:")).count();
+    let _ = crate::mouth_archive::log_reset(
+        &root,
+        &crate::mouth_archive::ResetLine {
+            ts: crate::mouth_archive::ct_stamp(chrono::Utc::now()).1,
+            reason: reason.as_str().into(),
+            backend: backend.into(),
+            old: old.into(),
+            new: new_id.into(),
+            carried: crate::mouth_archive::Carried {
+                soul_chars: soul.chars().count(),
+                rules_chars: 0,
+                open_items: 0,
+                dropped_items: turns.saturating_sub(verbatim),
+                verbatim_pairs: pairs,
+                archive_upto: crate::mouth_archive::last_archive_id(&root),
+            },
+        },
+    );
+}
+
+fn finish_grok_reset(
+    app: &tauri::AppHandle,
+    reason: crate::mouth_roll::ResetReason,
+    old: &str,
+    plug: &mut PlugState,
+    soul: &str,
+    handoff: &str,
+    text: &str,
+    line: &str,
+) {
+    plug.grok_sends = 1;
+    plug.grok_chars = line.chars().count() as u64 + text.chars().count() as u64;
+    plug.reset_pending = None;
+    save_plug(plug);
+    note_reset(
+        reason,
+        "grok",
+        old,
+        plug.grok_session_id.as_deref().unwrap_or(""),
+        soul,
+        handoff,
+        turn_count(app),
+    );
+}
+
 pub(crate) fn run_goose_reply(
     bin: &Path,
     soul: &str,
@@ -551,16 +663,40 @@ pub(crate) fn run_goose_reply(
     let reply = match run_mouth_cli("Goose", bin, &args, &[("GOOSE_MODE", "always_allow")], 300) {
         Ok(r) => r,
         Err(e) if !first_send && crate::mouth_roll::goose_context_dead(&e) => {
-            let handoff = crate::mouth_roll::handoff_prompt(app, line);
-            return crate::mouth_roll::goose_rollover(app, bin, soul, &mut plug, &handoff);
+            let old = plug.goose_session_id.clone().unwrap_or_default();
+            let reason = crate::mouth_roll::ResetReason::ContextDead;
+            let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
+            let text = crate::mouth_roll::goose_rollover(app, bin, soul, &mut plug, &handoff)?;
+            note_reset(
+                reason,
+                "goose",
+                &old,
+                plug.goose_session_id.as_deref().unwrap_or(""),
+                soul,
+                &handoff,
+                turn_count(app),
+            );
+            return Ok(text);
         }
         Err(e) => return Err(e),
     };
     if reply.is_empty() {
         // Empty after a resume = a thin/dead session — same rollover.
         if !first_send {
-            let handoff = crate::mouth_roll::handoff_prompt(app, line);
-            return crate::mouth_roll::goose_rollover(app, bin, soul, &mut plug, &handoff);
+            let old = plug.goose_session_id.clone().unwrap_or_default();
+            let reason = crate::mouth_roll::ResetReason::EmptyResume;
+            let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
+            let text = crate::mouth_roll::goose_rollover(app, bin, soul, &mut plug, &handoff)?;
+            note_reset(
+                reason,
+                "goose",
+                &old,
+                plug.goose_session_id.as_deref().unwrap_or(""),
+                soul,
+                &handoff,
+                turn_count(app),
+            );
+            return Ok(text);
         }
         return Err("Goose sent back an empty reply.".into());
     }
@@ -684,13 +820,45 @@ pub(crate) fn run_grok_reply(
     }
     let sid = plug.grok_session_id.clone().unwrap_or_default();
 
-    // Thin the backend every N sends so a week-old resume does not
-    // chew every ping. Bubble + leftovers + soul stay; only Grok's
-    // session id forks (same as death-rollover).
-    if plug.grok_session_minted && plug.grok_sends >= GROK_ROLL_EVERY {
+    // Flag on: budget / thin / manual_test. Flag off: the old every-16
+    // send roll, still a dead-reason handoff, with no resets.jsonl line.
+    if crate::mouth_archive::enabled() {
+        let budget = crate::mouth_archive::session_budget();
+        if let Some(name) = crate::mouth_archive::planned_reason(
+            plug.reset_pending.as_deref(),
+            plug.grok_chars,
+            budget,
+        ) {
+            let reason = crate::mouth_roll::ResetReason::parse(name)
+                .unwrap_or(crate::mouth_roll::ResetReason::Budget);
+            let old = plug.grok_session_id.clone().unwrap_or_default();
+            let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
+            let text =
+                crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff)?;
+            plug.reset_pending = None;
+            plug.grok_sends = 1;
+            plug.grok_chars = line.chars().count() as u64 + text.chars().count() as u64;
+            save_plug(&plug);
+            note_reset(
+                reason,
+                "grok",
+                &old,
+                plug.grok_session_id.as_deref().unwrap_or(""),
+                soul,
+                &handoff,
+                turn_count(app),
+            );
+            return Ok(text);
+        }
+    } else if crate::mouth_archive::legacy_send_roll(false, plug.grok_session_minted, plug.grok_sends)
+    {
         plug.grok_sends = 0;
         save_plug(&plug);
-        let handoff = crate::mouth_roll::handoff_prompt(app, line);
+        let handoff = crate::mouth_roll::handoff_prompt(
+            app,
+            crate::mouth_roll::ResetReason::ContextDead,
+            line,
+        );
         let text = crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff)?;
         plug.grok_sends = 1;
         save_plug(&plug);
@@ -739,27 +907,30 @@ pub(crate) fn run_grok_reply(
             )?
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_session_gone(&e) => {
-            let handoff = crate::mouth_roll::handoff_prompt(app, line);
+            let old = plug.grok_session_id.clone().unwrap_or_default();
+            let reason = crate::mouth_roll::ResetReason::SessionGone;
+            let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
             let text = crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff)?;
-            plug.grok_sends = 1;
-            save_plug(&plug);
+            finish_grok_reset(app, reason, &old, &mut plug, soul, &handoff, &text, line);
             return Ok(text);
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_context_dead(&e) => {
-            let handoff = crate::mouth_roll::handoff_prompt(app, line);
+            let old = plug.grok_session_id.clone().unwrap_or_default();
+            let reason = crate::mouth_roll::ResetReason::ContextDead;
+            let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
             let text = crate::mouth_roll::grok_rollover(app, bin, soul, &mut plug, &handoff)?;
-            plug.grok_sends = 1;
-            save_plug(&plug);
+            finish_grok_reset(app, reason, &old, &mut plug, soul, &handoff, &text, line);
             return Ok(text);
         }
         Err(e) => return Err(e),
     };
     if text.is_empty() && plug.grok_session_minted {
         // Empty after a resume = a thin/dead session — same rollover.
-        let handoff = crate::mouth_roll::handoff_prompt(app, line);
+        let old = plug.grok_session_id.clone().unwrap_or_default();
+        let reason = crate::mouth_roll::ResetReason::EmptyResume;
+        let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
         let text = crate::mouth_roll::grok_rollover(app, bin, soul, &mut plug, &handoff)?;
-        plug.grok_sends = 1;
-        save_plug(&plug);
+        finish_grok_reset(app, reason, &old, &mut plug, soul, &handoff, &text, line);
         return Ok(text);
     }
     if text.is_empty() {
@@ -769,6 +940,11 @@ pub(crate) fn run_grok_reply(
         plug.grok_session_minted = true;
     }
     plug.grok_sends = plug.grok_sends.saturating_add(1);
+    if crate::mouth_archive::enabled() {
+        plug.grok_chars = plug.grok_chars.saturating_add(
+            line.chars().count() as u64 + text.chars().count() as u64,
+        );
+    }
     save_plug(&plug);
     Ok(text)
 }

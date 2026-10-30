@@ -46,6 +46,7 @@ pub(crate) use companion::mouth_blip;
 pub(crate) use companion::mouth_board;
 pub(crate) use companion::mouth_gist;
 pub(crate) use companion::mouth_hop;
+pub(crate) use companion::mouth_archive;
 pub(crate) use companion::mouth_roll;
 pub(crate) use companion::mouth_route;
 pub(crate) use companion::mouth_scan;
