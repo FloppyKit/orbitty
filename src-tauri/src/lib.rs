@@ -70,7 +70,7 @@ mod state;
 mod windows;
 mod tabbity;
 mod flags;
-mod microtags;
+pub mod microtags;
 pub(crate) use windows::claim_front;
 pub(crate) use windows::drawers;
 pub(crate) use windows::glass;
