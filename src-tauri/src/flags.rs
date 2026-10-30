@@ -63,6 +63,15 @@ pub const FLAGS: &[FlagDef] = &[
         remove_after: "2026-12-27",
         auto_on_verify: false,
     },
+    FlagDef {
+        id: "event_seq",
+        default: false,
+        what: "monotonic seq on events.jsonl",
+        go: "GO-ORBITTY-EVENT-SEQ",
+        added: "2026-10-30",
+        remove_after: "2026-12-29",
+        auto_on_verify: true,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
@@ -417,6 +426,21 @@ pub fn on(app: &tauri::AppHandle, id: &str) -> bool {
         return on_loaded(id, &FileFlags::empty());
     }
     on_loaded(id, &file_of(app))
+}
+
+/// Flag bit for a directory that holds `events.jsonl`. Env wins, then the
+/// process cache when it was loaded for this directory, else the channel
+/// file beside the log. The directory name is the bundle id
+/// (`space.orbitty.mac.nightly` → `flags-nightly.json`).
+pub(crate) fn on_in_dir(dir: &Path, id: &str) -> bool {
+    if let Some((path, file)) = read_cache() {
+        if path.parent() == Some(dir) {
+            return on_loaded(id, &file);
+        }
+    }
+    let name = dir.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let (file, _) = read_disk(&flags_path(dir, channel_of(name)));
+    on_loaded(id, &file)
 }
 
 pub fn get(id: &str) -> Result<Effective, String> {
