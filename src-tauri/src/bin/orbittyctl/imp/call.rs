@@ -340,6 +340,20 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
         }
         ["history", "repair"] => Ok(("history.repair", json!({ "confirm": o.confirm }))),
         ["history", "keep"] => Ok(("history.keep", json!({ "confirm": o.confirm }))),
+        ["events", "since", n] => {
+            let after: u64 = n
+                .parse()
+                .map_err(|_| format!("events since needs an integer, got {n:?}"))?;
+            let mut a = json!({ "after": after });
+            if let Some(k) = opt_pos_int(&o.limit, "--limit")? {
+                if k > 500 {
+                    return Err("--limit must be 1-500".into());
+                }
+                a["limit"] = json!(k);
+            }
+            Ok(("events.since", a))
+        }
+        ["events", "since"] => Err(format!("events since needs <n>\n\n{USAGE}")),
         ["relay", "on"] => Ok(("relay.on", json!({}))),
         ["relay", "off"] => Ok(("relay.off", json!({}))),
         ["relay", "replica"] => {

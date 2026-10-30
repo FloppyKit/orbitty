@@ -353,6 +353,8 @@ const READ_TOOLS: &[&str] = &[
     // as do history.rewind / repair / keep.
     "history.list",
     "history.drift",
+    // Local replay cursor. Flag off answers {"enabled":false}.
+    "events.since",
     "tabbity.hello",
     "tabbity.planets",
     // The list is the read face. flags.set stays write-class (socket only).
@@ -1007,6 +1009,39 @@ fn run_tool(
                 .map(to_data)
                 .map_err(tool_err)
         }
+        "events.since" => {
+            if !crate::flags::on(app, "event_seq") {
+                return Ok(json!({ "enabled": false }));
+            }
+            let after = args.get("after").and_then(Value::as_u64).ok_or((
+                ERR_OTHER,
+                "events.since needs integer after".to_string(),
+            ))?;
+            let limit = match args.get("limit") {
+                None | Some(Value::Null) => 500usize,
+                Some(v) => {
+                    let n = v.as_u64().ok_or((
+                        ERR_OTHER,
+                        "events.since: limit must be an integer".to_string(),
+                    ))? as usize;
+                    if n == 0 || n > 500 {
+                        return Err((
+                            ERR_OTHER,
+                            "events.since: limit must be 1-500".to_string(),
+                        ));
+                    }
+                    n
+                }
+            };
+            let path = crate::event_log::events_path(app).map_err(tool_err)?;
+            let (lines, next_after) =
+                crate::relay::event_seq::since(&path, after, limit).map_err(tool_err)?;
+            Ok(json!({
+                "enabled": true,
+                "lines": lines,
+                "next_after": next_after,
+            }))
+        }
         "history.checkpoint" => crate::relay::history::checkpoint(app, None)
             .map(to_data)
             .map_err(tool_err),
@@ -1416,6 +1451,14 @@ mod tests {
         assert!(!allowed(&Acl::Companion, "flags.auto"));
         assert!(allowed(&Acl::Full, "flags.set"));
         assert!(allowed(&Acl::Full, "flags.auto"));
+    }
+
+    #[test]
+    fn events_since_is_read() {
+        assert!(READ_TOOLS.contains(&"events.since"));
+        assert!(allowed(&Acl::Read, "events.since"));
+        assert!(allowed(&Acl::Companion, "events.since"));
+        assert!(allowed(&Acl::Full, "events.since"));
     }
 
     #[test]

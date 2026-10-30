@@ -132,6 +132,7 @@ const TOOLS: &[ToolDef] = &[
     // Local-only board history (kinds 423-426), never published.
     // list is read-safe; checkpoint writes a file, so full / named custom.
     ToolDef { name: "history.list", description: "Board history lines, newest first: card add/set (423), card delete (424), planet (425), checkpoint (426). Each has id, created_at, kind, actor, content. Local-only, never published.", args: "history_list" },
+    ToolDef { name: "events.since", description: "Lines in events.jsonl with seq greater than after, in file order. Flag event_seq off answers enabled false. Seq stays on this machine.", args: "events_since" },
     ToolDef { name: "history.checkpoint", description: "Write a full-board checkpoint file and its 426 line. Returns file, sha256, cards, projects.", args: "none" },
     // drift is read-safe; rewind / repair / keep are full / named custom
     // and only write with confirm: true.
@@ -569,6 +570,14 @@ fn input_schema(kind: &str) -> Value {
                 "project": { "type": "string", "description": "Only lines that name this planet id" },
                 "limit": { "type": "integer", "minimum": 1, "maximum": 500, "description": "Max lines. Default 50." }
             }
+        }),
+        "events_since" => json!({
+            "type": "object",
+            "properties": {
+                "after": { "type": "integer", "minimum": 0, "description": "Return lines with seq greater than this" },
+                "limit": { "type": "integer", "minimum": 1, "maximum": 500, "description": "Max lines. Default 500." }
+            },
+            "required": ["after"]
         }),
         "history_rewind" => json!({
             "type": "object",
@@ -1015,6 +1024,17 @@ mod tests {
         assert_eq!(props["card"]["type"], "string");
         assert_eq!(props["project"]["type"], "string");
         assert_eq!(props["limit"]["type"], "integer");
+        assert_eq!(props["limit"]["maximum"], 500);
+    }
+
+    #[test]
+    fn events_since_tool_matches_control() {
+        let control = include_str!("../agents/control.rs");
+        assert!(known_tool("events.since"));
+        assert!(control.contains("\"events.since\" =>"));
+        assert_eq!(required("events.since"), vec!["after".to_string()]);
+        let props = &tool("events.since")["inputSchema"]["properties"];
+        assert_eq!(props["after"]["type"], "integer");
         assert_eq!(props["limit"]["maximum"], 500);
     }
 

@@ -221,3 +221,22 @@
         assert!(!USAGE.contains("--allow-push"));
         assert!(!USAGE.contains("--cook"));
     }
+
+    #[test]
+    fn events_since_parses() {
+        let (tool, args) = tool_call(&parse(&argv(&["events", "since", "0"])).unwrap()).unwrap();
+        assert_eq!(tool, "events.since");
+        assert_eq!(args, serde_json::json!({ "after": 0 }));
+        let (_, args) =
+            tool_call(&parse(&argv(&["events", "since", "4", "--limit", "2"])).unwrap()).unwrap();
+        assert_eq!(args, serde_json::json!({ "after": 4, "limit": 2 }));
+        assert!(tool_call(&parse(&argv(&["events", "since"])).unwrap()).is_err());
+        assert!(parse(&argv(&["events", "since", "-1"])).is_err());
+        assert!(
+            tool_call(&parse(&argv(&["events", "since", "0", "--limit", "501"])).unwrap()).is_err()
+        );
+        assert!(
+            tool_call(&parse(&argv(&["events", "since", "0", "--limit", "0"])).unwrap()).is_err()
+        );
+        assert!(USAGE.contains("events since <n> [--limit N]"));
+    }

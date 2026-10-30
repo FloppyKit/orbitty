@@ -53,6 +53,7 @@ commands:
   relay status
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
   history list [--card ID] [--project ID] [--limit N]   newest first, default 50, max 500
+  events since <n> [--limit N]       lines with seq > n, file order, max 500
   history checkpoint                  write a full-board checkpoint (426)
   history drift                       where the board differs from its history
   history rewind --to ID [--card C] [--remove-added] [--confirm]   back to just after line ID
@@ -182,6 +183,10 @@ relay status is read-safe. relay replica --url sets the
 optional one-user VPS URL (Tailscale 100.64/10:13120 or
 ws://127.0.0.1:port for SSH -L). Empty URL = local sidecar only.
 Never 0.0.0.0. Write-class ACL (full / named custom).
+
+events since <n> reads events.jsonl lines whose seq is greater than n
+(file order, max 500). Flag event_seq off answers enabled false. Seq is
+local; it is stripped before a line is published. Read-safe.
 
 history list reads the board's local-only history from events.jsonl:
 423 card add/set, 424 card delete, 425 planet, 426 checkpoint. Each line
