@@ -268,6 +268,30 @@
     }
 
     #[test]
+    fn memory_verbs_parse() {
+        let (tool, args) = tool_call(
+            &parse(&argv(&["companion", "recall", "--planet", "p1", "--", "decided"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "companion.recall");
+        assert_eq!(args["query"], "decided");
+        assert_eq!(args["planet"], "p1");
+        let (tool, args) = tool_call(
+            &parse(&argv(&["companion", "tags-propose", "--", "Hello, World"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "companion.tags_propose");
+        assert_eq!(args["names"], "Hello, World");
+        let (tool, args) =
+            tool_call(&parse(&argv(&["companion", "tags-accept", "--planet", "p1"])).unwrap())
+                .unwrap();
+        assert_eq!(tool, "companion.tags_accept");
+        assert_eq!(args["planet"], "p1");
+        assert!(USAGE.contains("companion recall"));
+        assert!(USAGE.contains("companion tags-accept"));
+    }
+
+    #[test]
     fn export_out_outside_home_refused() {
         let home = std::env::temp_dir().join(format!(
             "orbitty-ctl-home-{}-{}",

@@ -49,6 +49,11 @@ pub(crate) fn hop_messages(
     with_tools: bool,
     include_history: bool,
 ) -> Vec<Value> {
+    if crate::companion::memory::enabled(app) && !crate::mouth_gist::is_gist(prompt) {
+        let rendered = crate::companion::memory::prompt_block(app);
+        let none: &[crate::state::CompanionTurn] = &[];
+        return assemble_hop_messages(&rendered, raw_line, prompt, with_tools, none, false);
+    }
     let turns = crate::state::load_state(app)
         .map(|s| s.companion.turns)
         .unwrap_or_default();

@@ -175,7 +175,8 @@ pub(crate) fn save_plug(plug: &PlugState) {
 /// another flag — Matt's spark.md ping died on `---`), and the body
 /// never starts with `-`.
 /// pub(crate): mouth_hop rides the same soul as the system message of a
-/// stateless hop lane (Grok gets it via --rules).
+/// stateless hop lane (Grok gets it via --rules). RAM reads this same
+/// string when `memory_ram` is on. The 4096 cap stays here.
 pub(crate) fn companion_soul_text(app: &tauri::AppHandle) -> String {
     const SOUL_CAP: usize = 4096;
     let persisted = crate::state::load_state(app)

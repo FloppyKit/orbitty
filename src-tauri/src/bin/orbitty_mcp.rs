@@ -62,6 +62,9 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "companion.archive_tail", description: "Last n lines of the companion archive (default 20). Optional date is a CT day YYYY-MM-DD. Read-only.", args: "archive_tail" },
     ToolDef { name: "companion.resets", description: "Last n backend reset lines (default 20). Read-only.", args: "archive_n" },
     ToolDef { name: "companion.roll", description: "Arm a manual_test backend reset for the next Grok send. No model call. Any other reason is refused.", args: "archive_roll" },
+    ToolDef { name: "companion.recall", description: "Search the companion archive, active planet notes, and tabs. Returns at most 8 dated hits. Read-only. Flag memory_ram off returns enabled false.", args: "recall" },
+    ToolDef { name: "companion.tags_propose", description: "Queue up to 5 tag names and open one Approve needed. Writes no tag file until companion.tags_accept.", args: "tags_propose" },
+    ToolDef { name: "companion.tags_accept", description: "Write the queued tag batch into the planet or global tag file. Refuses when nothing is queued.", args: "tags_accept" },
     ToolDef { name: "companion.agents", description: "List companion agent profiles", args: "none" },
     ToolDef { name: "companion.set_agent", description: "Set the companion agent profile", args: "profile" },
     ToolDef { name: "companion.harnesses", description: "List companion harnesses detected on this Mac, plus the current pick", args: "none" },
@@ -618,6 +621,28 @@ fn input_schema(kind: &str) -> Value {
             },
             "required": ["reason"]
         }),
+        "recall" => json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Substring or tag to find" },
+                "planet": { "type": "string", "description": "Planet id. Omitted searches every planet folder." }
+            },
+            "required": ["query"]
+        }),
+        "tags_propose" => json!({
+            "type": "object",
+            "properties": {
+                "names": { "type": "string", "description": "Comma-separated tag names, at most 5 kept" },
+                "planet": { "type": "string", "description": "Planet id. Omitted queues a global batch." }
+            },
+            "required": ["names"]
+        }),
+        "tags_accept" => json!({
+            "type": "object",
+            "properties": {
+                "planet": { "type": "string", "description": "Planet id of the queued batch. Omitted accepts a global batch." }
+            }
+        }),
         "flags_set" => json!({
             "type": "object",
             "properties": {
@@ -1034,6 +1059,22 @@ mod tests {
         );
         assert!(required("companion.archive_tail").is_empty());
         assert!(required("companion.resets").is_empty());
+    }
+
+    #[test]
+    fn recall_is_read_and_tag_writes_are_not() {
+        let control = include_str!("../agents/control.rs");
+        assert!(known_tool("companion.recall"));
+        assert!(control.contains("\"companion.recall\","));
+        assert!(control.contains("\"companion.recall\" =>"));
+        assert!(control.contains("\"companion.tags_propose\" =>"));
+        assert!(control.contains("\"companion.tags_accept\" =>"));
+        assert!(!control.contains("\"companion.tags_propose\","));
+        assert!(!control.contains("\"companion.tags_accept\","));
+        let recall = tool("companion.recall");
+        assert_eq!(recall["inputSchema"]["required"], json!(["query"]));
+        assert_eq!(tool("companion.tags_propose")["inputSchema"]["required"], json!(["names"]));
+        assert!(required("companion.tags_accept").is_empty());
     }
 
     #[test]

@@ -255,6 +255,7 @@ pub(crate) async fn companion_send_inner(
             if spoken != spoken_before {
                 crate::shims::fired(&app, "handoff_strip", crate::shims::ShimCtx { seat: None });
             }
+            let spoken = crate::companion::memory::finish_reply(&app, &spoken);
             if crate::state::update(&app, |st| {
                 st.companion.last_bot_line = spoken.clone();
                 st.companion.push_turn("them", &spoken);
@@ -379,6 +380,7 @@ pub(crate) async fn companion_send_inner(
     if image && crate::attach_vision::vision_gate_applies(&lane, model_vision) {
         let path = attach.as_ref().map(|a| a.path.clone()).unwrap_or_default();
         let reply = crate::mouth_hop::refuse_or_handoff(&app, &line, &path, &lane).await?;
+        let reply = crate::companion::memory::finish_reply(&app, &reply);
         let _pin = pin_turn(&app);
         if crate::state::update(&app, |st| {
             st.companion.last_bot_line = reply.clone();
@@ -429,6 +431,7 @@ pub(crate) async fn companion_send_inner(
     if reply != reply_before {
         crate::shims::fired(&app, "handoff_strip", crate::shims::ShimCtx { seat: None });
     }
+    let reply = crate::companion::memory::finish_reply(&app, &reply);
 
     // You-row already persisted before the model wait. Reply only here.
     let _pin = pin_turn(&app);

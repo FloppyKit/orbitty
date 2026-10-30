@@ -362,6 +362,7 @@ const READ_TOOLS: &[&str] = &[
     // Archive reads. companion.roll stays write-class (manual_test only).
     "companion.archive_tail",
     "companion.resets",
+    "companion.recall",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -477,6 +478,30 @@ fn arg_opt(args: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+fn tag_names(args: &Value) -> Result<Vec<String>, (i32, String)> {
+    if let Some(arr) = args.get("names").and_then(Value::as_array) {
+        let names: Vec<String> = arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect();
+        if names.is_empty() {
+            return Err((ERR_OTHER, "companion.tags_propose: need names".into()));
+        }
+        return Ok(names);
+    }
+    let raw = arg_str(args, "names")?;
+    let names: Vec<String> = raw
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if names.is_empty() {
+        return Err((ERR_OTHER, "companion.tags_propose: need names".into()));
+    }
+    Ok(names)
 }
 
 /// `kanban.add` links: omitted = none. Each item is `{url, label?}`.
@@ -712,6 +737,20 @@ fn run_tool(
             }
             crate::mouth_archive::arm_manual_roll()
                 .map(|_| json!({ "reason": "manual_test", "pending": true }))
+                .map_err(tool_err)
+        }
+        "companion.recall" => {
+            let query = arg_str(args, "query")?;
+            crate::companion::memory::recall_for_app(app, &query, arg_opt(args, "planet").as_deref())
+                .map_err(tool_err)
+        }
+        "companion.tags_propose" => {
+            let names = tag_names(args)?;
+            crate::companion::memory::propose_for_app(app, &names, arg_opt(args, "planet"))
+                .map_err(tool_err)
+        }
+        "companion.tags_accept" => {
+            crate::companion::memory::accept_for_app(app, arg_opt(args, "planet").as_deref())
                 .map_err(tool_err)
         }
         "companion.now" => {

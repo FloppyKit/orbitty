@@ -107,6 +107,27 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             }
             Ok(("companion.roll", json!({ "reason": "manual_test" })))
         }
+        ["companion", "recall"] => {
+            let mut a = json!({ "query": payload(o)? });
+            if let Some(p) = opt(&o.planet) {
+                a["planet"] = json!(p);
+            }
+            Ok(("companion.recall", a))
+        }
+        ["companion", "tags-propose"] => {
+            let mut a = json!({ "names": payload(o)? });
+            if let Some(p) = opt(&o.planet) {
+                a["planet"] = json!(p);
+            }
+            Ok(("companion.tags_propose", a))
+        }
+        ["companion", "tags-accept"] => {
+            let mut a = json!({});
+            if let Some(p) = opt(&o.planet) {
+                a["planet"] = json!(p);
+            }
+            Ok(("companion.tags_accept", a))
+        }
         ["companion", "now"] => {
             let p = payload(o).unwrap_or_default();
             if p.trim().is_empty() {

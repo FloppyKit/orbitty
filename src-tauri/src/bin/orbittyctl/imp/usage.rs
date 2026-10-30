@@ -26,6 +26,9 @@ commands:
   companion archive-tail [-n N] [--date YYYY-MM-DD]
   companion resets [-n N]
   companion roll --reason manual_test
+  companion recall -- \"query\" [--planet P]
+  companion tags-propose [--planet P] -- \"name, name\"
+  companion tags-accept [--planet P]
   companion now [-- '{\"job\":\"…\"}']   current-job packet (now.json)
   companion hack -- on|off [--who cursor] [--project P]
   kanban open

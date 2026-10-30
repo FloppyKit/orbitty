@@ -123,6 +123,9 @@ pub fn handoff_prompt(
     reason: ResetReason,
     wrapped_line: &str,
 ) -> String {
+    if crate::companion::memory::enabled(app) && !crate::mouth_gist::is_gist(wrapped_line) {
+        return crate::companion::memory::handoff_line(app, reason, wrapped_line);
+    }
     let (mode, turns) = crate::state::load_state(app)
         .map(|s| (s.companion.mode.clone(), s.companion.turns.clone()))
         .unwrap_or_else(|_| ("spark".into(), Vec::new()));

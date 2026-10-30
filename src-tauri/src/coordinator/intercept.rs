@@ -254,6 +254,9 @@ pub(crate) fn mode_job_line(mode: &str) -> &'static str {
 }
 
 pub(crate) fn wrap_with_pocket(app: &tauri::AppHandle, line: &str) -> String {
+    if crate::companion::memory::enabled(app) && !crate::mouth_gist::is_gist(line) {
+        return crate::companion::memory::wrap_line(app, line);
+    }
     const PREPEND_CAP: usize = 900;
     const MAX_ITEMS: usize = 5;
     const ITEM_TEXT_CAP: usize = 120;

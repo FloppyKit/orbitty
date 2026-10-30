@@ -745,6 +745,7 @@ pub async fn companion_handoff(app: tauri::AppHandle, id: String) -> Result<Stri
     if answer != answer_before {
         crate::shims::fired(&app, "handoff_strip", crate::shims::ShimCtx { seat: None });
     }
+    let answer = crate::companion::memory::finish_reply(&app, &answer);
     persist_them(&app, &answer);
     Ok(answer)
 }

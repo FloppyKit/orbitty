@@ -19,6 +19,7 @@ pub(crate) mod mouth_gist;
 pub(crate) mod key_redact;
 pub(crate) mod keystore;
 pub(crate) mod model_setup;
+pub(crate) mod memory;
 pub(crate) mod mouth_hop;
 pub(crate) mod mouth_roll;
 pub(crate) mod mouth_route;
