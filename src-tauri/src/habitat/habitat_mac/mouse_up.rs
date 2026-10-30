@@ -276,7 +276,7 @@ pub(crate) unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
             }
             Some(BeingAction::Inspect(id)) => {
                 if let Some(app) = app_handle() {
-                    crate::droid_inspect::focus(&app, &id);
+                    crate::herdr::present(&app, &id);
                 }
             }
             Some(BeingAction::Wake(id)) => {

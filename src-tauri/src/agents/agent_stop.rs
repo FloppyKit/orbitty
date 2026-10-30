@@ -44,7 +44,7 @@ pub fn stop_resets(app: &tauri::AppHandle, before: &PersistedState, drops: &[Str
 }
 
 pub(crate) fn herdr_stop(h: &AgentRunHerdr) {
-    let Some(bin) = crate::coordinator::find_on_path("herdr") else {
+    let Some(bin) = crate::herdr::locate() else {
         return;
     };
     if !h.pane.trim().is_empty() {

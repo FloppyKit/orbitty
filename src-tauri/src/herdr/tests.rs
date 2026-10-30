@@ -1,0 +1,377 @@
+//! Read-side gates. Fake hc only — locate() in tests never reaches a real core.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::MutexGuard;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use super::client;
+use super::core;
+use super::health::{self, Source};
+use super::peek;
+use super::redact;
+use super::tui;
+
+fn gate() -> MutexGuard<'static, ()> {
+    client::TEST_GATE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn hc_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake_hc/hc")
+}
+
+fn scratch(label: &str) -> PathBuf {
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("orbitty-herdr-{label}-{n}"));
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn arm(mode: &str, log: &Path) {
+    let mut perms = fs::metadata(hc_path()).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o755);
+    fs::set_permissions(hc_path(), perms).unwrap();
+    client::force_flag(Some(true));
+    core::set_bin_override(Some(hc_path()));
+    client::set_child_env(vec![
+        ("FAKE_HC_MODE".into(), mode.into()),
+        ("FAKE_HC_LOG".into(), log.display().to_string()),
+    ]);
+}
+
+struct Clean(PathBuf);
+impl Drop for Clean {
+    fn drop(&mut self) {
+        client::reset_overrides();
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn read_gate_flag_on() {
+    let _g = gate();
+    let dir = scratch("gate");
+    let _c = Clean(dir.clone());
+    let hlog = dir.join("herdr.log");
+    let clog = dir.join("hc.log");
+    let herdr = dir.join("herdr");
+    let script = format!("#!/bin/sh\necho \"$@\" >> \"{}\"\nexit 0\n", hlog.display());
+    fs::write(&herdr, script).unwrap();
+    let mut perms = fs::metadata(&herdr).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o755);
+    fs::set_permissions(&herdr, perms).unwrap();
+    tui::set_bin_override(Some(herdr));
+    arm("live", &clog);
+    health::prove_up();
+    let _ = client::alive("t1");
+    let _ = client::status_value();
+    let _ = peek::view(None, "t1", 40, true);
+    let hers = fs::read_to_string(&hlog).unwrap_or_default();
+    assert!(hers.is_empty(), "flag on still called herdr: {hers}");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut bad = Vec::new();
+    visit(&root, &mut bad);
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+fn visit(dir: &Path, bad: &mut Vec<String>) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            visit(&p, bad);
+            continue;
+        }
+        if p.extension().and_then(|s| s.to_str()) != Some("rs") {
+            continue;
+        }
+        let text = fs::read_to_string(&p).unwrap_or_default();
+        let rel = p.display().to_string();
+        let in_tui = rel.ends_with("herdr/tui.rs");
+        let in_herdr = rel.contains("/herdr/");
+        if !in_tui
+            && (text.contains("find_on_path(\"herdr\")") || text.contains("which(\"herdr\")"))
+        {
+            bad.push(format!("herdr lookup outside tui.rs: {rel}"));
+        }
+        if !in_herdr
+            && (text.contains("Command::new(\"herdr\")") || text.contains("Command::new(\"hc\")"))
+        {
+            bad.push(format!("herdr/hc command outside herdr/: {rel}"));
+        }
+    }
+}
+
+#[test]
+fn flag_off_goldens_identical() {
+    let _g = gate();
+    let dir = scratch("golden");
+    let _c = Clean(dir.clone());
+    let log = dir.join("argv.log");
+    let bin = dir.join("herdr");
+    let script = format!(
+        "#!/bin/sh\necho \"$@\" >> \"{}\"\nif [ \"$1\" = \"workspace\" ]; then echo '{{\"result\":{{}}}}'; exit 0; fi\necho '{{\"result\":{{\"agent\":{{\"agent_status\":\"working\"}}}}}}'\nexit 0\n",
+        log.display()
+    );
+    fs::write(&bin, script).unwrap();
+    let mut perms = fs::metadata(&bin).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o755);
+    fs::set_permissions(&bin, perms).unwrap();
+    client::force_flag(Some(false));
+    tui::set_bin_override(Some(bin));
+    let alive = tui::agent_alive("GOLD");
+    assert_eq!(alive, Some(true));
+    let got = fs::read_to_string(&log).unwrap();
+    assert_eq!(got, "workspace list\nagent get GOLD\n");
+}
+
+#[test]
+fn core_probe_maps_exit_codes() {
+    let _g = gate();
+    let dir = scratch("probe");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    health::prove_up();
+    assert_eq!(health::source(), Source::Herdr);
+    arm("not_found", &log);
+    assert_eq!(client::alive("nosuch"), Some(false));
+    health::assume_up();
+    arm("socket", &log);
+    assert_eq!(client::alive("t1"), None);
+    health::assume_up();
+    arm("live", &log);
+    assert_eq!(client::alive("t1"), Some(true));
+}
+
+#[test]
+fn hc_missing_uses_fallback() {
+    let _g = gate();
+    let _c = Clean(scratch("miss"));
+    client::force_flag(Some(true));
+    core::set_bin_override(None);
+    health::reset();
+    assert_eq!(client::alive("t1"), None);
+    assert_eq!(health::source(), Source::Fallback);
+}
+
+#[test]
+fn hc_crash_midstream_down_then_up() {
+    let _g = gate();
+    let dir = scratch("crash");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("crash", &log);
+    health::reset();
+    health::assume_up();
+    health::set_clock_ms(Some(10_000));
+    health::poll();
+    assert_eq!(health::source(), Source::Fallback);
+    assert_eq!(health::events(), vec!["fallback"]);
+    health::set_clock_ms(Some(20_000));
+    health::poll();
+    assert_eq!(health::events(), vec!["fallback"]);
+    arm("live", &log);
+    health::set_clock_ms(Some(40_000));
+    health::poll();
+    assert_eq!(health::source(), Source::Fallback, "one healthy check is not back");
+    health::set_clock_ms(Some(70_000));
+    health::poll();
+    assert_eq!(health::source(), Source::Herdr);
+    assert_eq!(health::events(), vec!["fallback", "herdr"]);
+}
+
+#[test]
+fn down_never_marks_died() {
+    let _g = gate();
+    let dir = scratch("down");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("not_found", &log);
+    health::reset();
+    health::force_fallback(1_000);
+    assert_eq!(client::alive("nosuch"), None);
+}
+
+#[test]
+fn server_start_never_on_hot_path() {
+    let _g = gate();
+    let dir = scratch("hot");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    health::prove_up();
+    let _ = fs::write(&log, "");
+    let bin = hc_path();
+    let _ = client::ensure_server(&bin);
+    let _ = client::status_value();
+    let _ = client::alive("t1");
+    let text = fs::read_to_string(&log).unwrap();
+    assert!(!text.contains("server start"), "{text}");
+    assert!(!text.lines().any(|l| l == "server" || l.starts_with("server start")));
+    for line in text.lines() {
+        if line.starts_with("server") {
+            assert!(line.starts_with("server status"), "{line}");
+        }
+    }
+}
+
+#[test]
+fn peek_caps_lines() {
+    let _g = gate();
+    let dir = scratch("caps");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("huge", &log);
+    health::prove_up();
+    let v = peek::view(None, "t1", 40, true);
+    let lines: Vec<&str> = v.text.lines().collect();
+    assert!(lines.len() <= 200, "{}", lines.len());
+    assert!(v.text.len() <= 16 * 1024, "{}", v.text.len());
+    assert!(lines.iter().all(|l| l.chars().count() <= 400));
+    assert!(v.text.contains("lines hidden"), "{text}", text = v.text);
+    let short = (0..250).map(|i| format!("n{i}")).collect::<Vec<_>>().join("\n");
+    let capped = peek::cap_preview(&short);
+    assert_eq!(capped.lines().count(), 200);
+    assert!(capped.contains("… 51 lines hidden"), "{capped}");
+}
+
+#[test]
+fn peek_redacts_secrets() {
+    let raw = include_str!("../../tests/fake_hc/fixtures/secrets.txt");
+    let out = redact::redact(raw);
+    for needle in [
+        "sk-or-v1-",
+        "sk-abc",
+        "ghp_",
+        "gho_",
+        "github_pat_",
+        "xoxb-",
+        "AKIAIOSFODNN7EXAMPLE",
+        "BEGIN OPENSSH PRIVATE KEY",
+        "supersecretline",
+        "Bearer abcdefghijklmnop",
+        "abcdEFGH123456",
+        "zzzzzzzzzz",
+        "s3cret",
+        "0123456789abcdef0123456789abcdef",
+    ] {
+        assert!(!out.contains(needle), "{needle} survived:\n{out}");
+    }
+    assert!(out.contains("hello world"), "{out}");
+    assert!(out.contains("the quick brown fox"), "{out}");
+    assert_eq!(out, GOLDEN_REDACT);
+}
+
+const GOLDEN_REDACT: &str = "\
+hello world
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+[redacted]
+the quick brown fox
+";
+
+#[test]
+fn peek_unknown_when_down() {
+    let _g = gate();
+    let dir = scratch("unk");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    health::prove_up();
+    let open = peek::view(None, "t1", 40, true);
+    assert_ne!(open.status, "unknown");
+    assert!(!open.text.is_empty(), "{}", open.text);
+    arm("socket", &log);
+    let down = peek::view(None, "t1", 40, true);
+    assert_eq!(down.status, "unknown");
+    assert!(down.text.is_empty(), "{}", down.text);
+    arm("live", &log);
+    let now = health::now_ms();
+    health::set_clock_ms(Some(now + 30_000));
+    health::poll();
+    assert!(health::is_down(), "one healthy check stays down");
+    health::set_clock_ms(Some(now + 60_000));
+    health::poll();
+    assert!(!health::is_down());
+    let back = peek::view(None, "t1", 40, true);
+    assert_ne!(back.status, "unknown");
+    assert!(!back.text.is_empty());
+}
+
+#[test]
+fn peek_read_only() {
+    let _g = gate();
+    let dir = scratch("ro");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    health::prove_up();
+    let _ = fs::write(&log, "");
+    peek::exercise_open("t1", 60_000);
+    peek::hover_get("t1");
+    let text = fs::read_to_string(&log).unwrap();
+    let allowed = ["ls", "get", "read", "events"];
+    let banned = ["send", "keys", "attach", "interrupt", "put", "kill", "rm", "run"];
+    for line in text.lines().filter(|l| !l.is_empty()) {
+        let cmd = line.split_whitespace().next().unwrap();
+        assert!(allowed.contains(&cmd), "{line}");
+        assert!(!banned.contains(&cmd), "{line}");
+    }
+    assert!(text.lines().any(|l| l.starts_with("read")), "{text}");
+    let src = include_str!("peek.rs");
+    for bad in [
+        "\"send\"",
+        "\"keys\"",
+        "\"attach\"",
+        "\"interrupt\"",
+        "\"put\"",
+        "\"kill\"",
+        "\"rm\"",
+        "\"run\"",
+    ] {
+        assert!(!src.contains(bad), "{bad}");
+    }
+}
+
+#[test]
+fn peek_strips_ansi() {
+    let raw = "plain\n\u{1b}[31mred\u{1b}[0m\n\u{1b}]7501;working\u{7}\n\u{1b}]8;;http://example.test\u{7}link\u{1b}]8;;\u{7}\n<b>tag</b>\n";
+    let out = peek::strip_terminal(raw);
+    assert!(!out.contains('\u{1b}'), "{out}");
+    assert!(!out.contains('<'), "{out}");
+    assert!(out.contains("plain"));
+    assert!(out.contains("red"));
+    assert!(out.contains("link"));
+    assert!(out.contains("&lt;b&gt;tag&lt;/b&gt;"), "{out}");
+    assert!(!out.contains("7501"));
+    assert!(!out.contains("http://example.test"));
+}
+
+#[test]
+fn read_gate_script_passes() {
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/check-no-tui-herdr.sh");
+    let out = Command::new("sh").arg(&script).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

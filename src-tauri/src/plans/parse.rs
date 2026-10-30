@@ -250,19 +250,8 @@ pub(crate) fn walk_any(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
 }
 
 pub(crate) fn herdr_bin_present() -> bool {
-    which("herdr")
+    crate::herdr::available()
 }
-
-pub(crate) fn which(bin: &str) -> bool {
-    let path = std::env::var("PATH").unwrap_or_default();
-    for dir in path.split(':') {
-        if Path::new(dir).join(bin).is_file() {
-            return true;
-        }
-    }
-    false
-}
-
 
 pub(crate) fn legacy_token_from_path(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_str()?;

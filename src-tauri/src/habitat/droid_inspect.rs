@@ -4,7 +4,6 @@ use std::process::Stdio;
 
 use tauri::AppHandle;
 
-use crate::coordinator::find_on_path;
 use crate::herdr::{herdr_cmd, run_json};
 
 pub fn card_id_from_entry(entry_id: &str) -> Option<&str> {
@@ -28,7 +27,15 @@ pub fn capsule(app: &AppHandle, entry_id: &str) -> String {
     } else {
         String::new()
     };
-    let Some(bin) = find_on_path("herdr") else {
+    if crate::herdr::core_on() {
+        let line = crate::herdr::capsule_line(app, entry_id);
+        return if line.is_empty() {
+            format!("{status}{spend}")
+        } else {
+            format!("{line}")
+        };
+    }
+    let Some(bin) = crate::herdr::locate() else {
         return format!("{status}{spend}");
     };
     let target = run
@@ -55,7 +62,7 @@ pub fn focus(app: &AppHandle, entry_id: &str) {
     let Some(h) = run.herdr.as_ref() else {
         return;
     };
-    let Some(bin) = find_on_path("herdr") else {
+    let Some(bin) = crate::herdr::locate() else {
         return;
     };
     let _ = run_json(&bin, &["workspace", "focus", &h.workspace], 8_000);

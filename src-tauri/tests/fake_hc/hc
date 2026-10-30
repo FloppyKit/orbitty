@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Fake hc. Replays S0 fixtures. Never talks to a real core."""
+import json
+import os
+import sys
+import time
+
+ARGS = sys.argv[1:]
+MODE = os.environ.get("FAKE_HC_MODE", "live")
+LOG = os.environ.get("FAKE_HC_LOG")
+ROOT = os.path.dirname(os.path.abspath(__file__))
+FIX = os.path.join(ROOT, "fixtures")
+
+
+def log():
+    if not LOG:
+        return
+    with open(LOG, "a", encoding="utf-8") as f:
+        f.write(" ".join(ARGS) + "\n")
+
+
+def load(name):
+    with open(os.path.join(FIX, name), encoding="utf-8") as f:
+        return f.read()
+
+
+def emit(text, rc=0):
+    sys.stdout.write(text)
+    if text and not text.endswith("\n"):
+        sys.stdout.write("\n")
+    sys.exit(rc)
+
+
+log()
+cmd = ARGS[0] if ARGS else ""
+
+if cmd == "server":
+    if "status" not in ARGS:
+        sys.stderr.write("server start is not a read\n")
+        sys.exit(9)
+    if MODE == "down":
+        sys.stderr.write(
+            '{"error":{"kind":"unavailable","message":"core down","hint":""}}\n'
+        )
+        sys.exit(1)
+    emit(load("server_status.json"))
+
+if cmd == "events":
+    if MODE in ("crash", "down"):
+        sys.exit(0)
+    sys.stdout.write("{}\n")
+    sys.stdout.flush()
+    time.sleep(30)
+    sys.exit(0)
+
+if cmd == "get":
+    if MODE == "not_found":
+        sys.stderr.write(load("not_found.json"))
+        if not load("not_found.json").endswith("\n"):
+            sys.stderr.write("\n")
+        sys.exit(3)
+    if MODE == "socket":
+        sys.stderr.write("connection refused\n")
+        sys.exit(1)
+    emit(load("get.json"))
+
+if cmd == "ls":
+    emit(load("ls.json"))
+
+if cmd == "read":
+    if MODE in ("socket", "down"):
+        sys.stderr.write("connection refused\n")
+        sys.exit(1)
+    if MODE == "huge":
+        line = "A" * 1024
+        text = "\n".join([line] * 5000)
+        json.dump({"complete": True, "how": "history", "text": text}, sys.stdout)
+        sys.stdout.write("\n")
+        sys.exit(0)
+    if MODE == "secrets":
+        text = load("secrets.txt")
+        json.dump({"complete": True, "how": "history", "text": text}, sys.stdout)
+        sys.stdout.write("\n")
+        sys.exit(0)
+    if MODE == "ansi":
+        text = load("ansi.txt")
+        json.dump({"complete": True, "how": "history", "text": text}, sys.stdout)
+        sys.stdout.write("\n")
+        sys.exit(0)
+    emit(load("read.json"))
+
+sys.stderr.write("unhandled " + " ".join(ARGS) + "\n")
+sys.exit(9)

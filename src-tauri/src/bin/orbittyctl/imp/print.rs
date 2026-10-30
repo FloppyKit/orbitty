@@ -530,6 +530,23 @@ pub(crate) fn print_human(tool: &str, data: &Value) {
             };
             println!("flags auto {on}");
         }
+        "herdr.status" => {
+            let source = data["source"].as_str().unwrap_or("fallback");
+            let version = data["version"].as_str().unwrap_or("");
+            if data["up"].as_bool() == Some(true) {
+                println!("up/source={source} {version}");
+            } else {
+                println!("unknown/source={source} {version}");
+            }
+        }
+        "herdr.peek" => {
+            let status = data["status"].as_str().unwrap_or("unknown");
+            let text = data["text"].as_str().unwrap_or("");
+            println!("{status}");
+            if !text.is_empty() {
+                println!("{text}");
+            }
+        }
         // state.get and anything else: pretty JSON is the honest human view.
         _ => println!(
             "{}",

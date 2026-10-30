@@ -210,6 +210,14 @@
         let (tool, args) = tool_call(&parse(&argv(&["flags", "auto", "off"])).unwrap()).unwrap();
         assert_eq!(tool, "flags.auto");
         assert_eq!(args, serde_json::json!({"on": false}));
+        let (tool, args) = tool_call(&parse(&argv(&["herdr", "status"])).unwrap()).unwrap();
+        assert_eq!(tool, "herdr.status");
+        assert_eq!(args, serde_json::json!({}));
+        let (tool, args) =
+            tool_call(&parse(&argv(&["herdr", "peek", "c-1", "--limit", "40"])).unwrap()).unwrap();
+        assert_eq!(tool, "herdr.peek");
+        assert_eq!(args["card"], "c-1");
+        assert_eq!(args["lines"], 40);
         for flag in ["--cook", "--allow-push"] {
             let err = match parse(&argv(&["go", "runner", flag])) {
                 Err(e) => e,

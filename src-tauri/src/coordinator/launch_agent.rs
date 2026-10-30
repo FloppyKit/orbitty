@@ -29,7 +29,7 @@ pub fn launch_agent(
             "cursor" => find_on_path("cursor-agent").is_some(),
             "goose" => find_on_path("goose").is_some(),
             "grok" => find_on_path("grok").is_some(),
-            "herdr" => find_on_path("herdr").is_some() || find_on_path("grok").is_some(),
+            "herdr" => crate::herdr::available() || find_on_path("grok").is_some(),
             _ => true,
         };
         g.run = crate::plans::apply_fallback(&g.run, primary_ok);

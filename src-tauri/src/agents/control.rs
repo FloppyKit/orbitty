@@ -363,6 +363,8 @@ const READ_TOOLS: &[&str] = &[
     "companion.archive_tail",
     "companion.resets",
     "companion.recall",
+    "herdr.status",
+    "herdr.peek",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -1322,6 +1324,17 @@ fn run_tool(
         // flags.set is write-class. The mouth child is not a separate caller
         // identity (claim_origin_from always yields Agent), so the fence is
         // this ACL plus policy_paths on the flag files. No new identity.
+        "herdr.status" => Ok(to_data(crate::herdr::status_for(app))),
+        "herdr.peek" => {
+            let card = arg_opt(args, "card")
+                .or_else(|| arg_opt(args, "run"))
+                .unwrap_or_default();
+            let lines = args
+                .get("lines")
+                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(40) as u32;
+            Ok(to_data(crate::herdr::peek_for(app, &card, lines)))
+        }
         "flags.list" => Ok(to_data(crate::flags::list_app(app))),
         "flags.set" => {
             let id = arg_str(args, "id")?;
@@ -1514,6 +1527,15 @@ mod tests {
             assert!(!allowed(&Acl::Read, tool), "{tool}");
             assert!(!allowed(&Acl::Companion, tool), "{tool}");
             assert!(allowed(&Acl::Full, tool), "{tool}");
+        }
+    }
+
+    #[test]
+    fn herdr_reads_are_read() {
+        for tool in ["herdr.status", "herdr.peek"] {
+            assert!(READ_TOOLS.contains(&tool), "{tool}");
+            assert!(allowed(&Acl::Read, tool), "{tool}");
+            assert!(allowed(&Acl::Companion, tool), "{tool}");
         }
     }
 

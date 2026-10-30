@@ -1,0 +1,5 @@
+plain
+[31mred[0m
+]7501;working
+]8;;http://example.testlink]8;;
+<b>tag</b>

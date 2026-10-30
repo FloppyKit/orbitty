@@ -116,6 +116,8 @@ commands:
   flags list
   flags set <id> on|off
   flags auto on|off                 stop or resume auto-on after Verify
+  herdr status                      hc health: up/source and version
+  herdr peek <card> [--limit N]     read-only terminal preview
   ledger export [--out PATH]        shim counts as TSV; --out must stay under $HOME
   plans migrate [--dry-run | --apply]
 

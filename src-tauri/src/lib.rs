@@ -64,8 +64,9 @@ pub(crate) use relay::event_log;
 pub(crate) use relay::event_relay;
 mod plans;
 mod habitat;
+mod herdr;
 pub(crate) use habitat::droid_inspect;
-pub(crate) use habitat::herdr;
+pub(crate) use habitat::herdr as herdr_launch;
 pub(crate) use habitat::packs;
 mod state;
 mod windows;
@@ -172,7 +173,17 @@ fn locate_walker(app: tauri::AppHandle, entry_id: String) -> Result<(), String> 
 
 #[tauri::command]
 fn inspect_droid(app: tauri::AppHandle, entry_id: String) {
-    crate::droid_inspect::focus(&app, &entry_id);
+    crate::herdr::present(&app, &entry_id);
+}
+
+#[tauri::command]
+fn herdr_status(app: tauri::AppHandle) -> serde_json::Value {
+    crate::herdr::status_for(&app)
+}
+
+#[tauri::command]
+fn herdr_peek(app: tauri::AppHandle, card: String, lines: Option<u32>) -> serde_json::Value {
+    crate::herdr::peek_for(&app, &card, lines.unwrap_or(40))
 }
 
 /// Dest-menu find: glow that planet ~1.4s (marble saturn ring / expanded
@@ -807,6 +818,8 @@ pub fn run() {
             locate_window,
             locate_walker,
             inspect_droid,
+            herdr_status,
+            herdr_peek,
             locate_planet,
             project_rm,
             sync_habitat,

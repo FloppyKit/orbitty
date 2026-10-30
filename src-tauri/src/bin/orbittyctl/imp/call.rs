@@ -696,6 +696,15 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             let on = on_off(bit, "flags auto")?;
             Ok(("flags.auto", json!({ "on": on })))
         }
+        ["herdr", "status"] => Ok(("herdr.status", json!({}))),
+        ["herdr", "peek", card] => {
+            let mut a = json!({ "card": card });
+            if let Some(n) = opt(&o.limit) {
+                let lines: u64 = n.parse().unwrap_or(40);
+                a["lines"] = json!(lines);
+            }
+            Ok(("herdr.peek", a))
+        }
         ["plans", "migrate"] => {
             if o.apply && o.dry_run {
                 return Err("plans migrate: pass only one of --dry-run or --apply".into());
