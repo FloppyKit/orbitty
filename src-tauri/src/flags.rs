@@ -81,6 +81,15 @@ pub const FLAGS: &[FlagDef] = &[
         remove_after: "2026-12-29",
         auto_on_verify: false,
     },
+    FlagDef {
+        id: "microtags",
+        default: false,
+        what: "namespaced t tags on board 420-422",
+        go: "GO-ORBITTY-NOSTR-MICROTAGS",
+        added: "2026-10-30",
+        remove_after: "2026-12-29",
+        auto_on_verify: true,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]

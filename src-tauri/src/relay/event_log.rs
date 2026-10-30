@@ -74,8 +74,7 @@ fn fill_random(buf: &mut [u8]) {
     // Fallback stir: time ^ pid ^ counter, xorshifted per byte. Only reached
     // when /dev/urandom is unreadable; uniqueness is best-effort.
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let mut x = unix_now()
-        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    let mut x = unix_now().wrapping_mul(0x9E37_79B9_7F4A_7C15)
         ^ SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.subsec_nanos() as u64)
@@ -274,13 +273,46 @@ pub fn append_best(
     local_only: bool,
     content: &serde_json::Value,
 ) -> Option<Appended> {
-    match append(app, e_type, trace_id, project_id, actor, local_only, content) {
+    match append(
+        app, e_type, trace_id, project_id, actor, local_only, content,
+    ) {
         Ok(a) => Some(a),
         Err(e) => {
             warn_once(&e);
             None
         }
     }
+}
+
+/// Card tag names in tag-id order, plus the project display name.
+/// The name is passed through so the planet slug can ignore a rename.
+/// A missing card or a failed load yields no names; the proof still writes.
+fn board_card_tags(
+    app: &tauri::AppHandle,
+    card_id: &str,
+    project_id: &str,
+) -> (Vec<String>, String) {
+    let Ok(st) = crate::state::load_state(app) else {
+        return (Vec::new(), String::new());
+    };
+    let display = st
+        .projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .map(|p| p.name.clone())
+        .unwrap_or_default();
+    let names = st
+        .kanban_cards
+        .iter()
+        .find(|c| c.id == card_id)
+        .and_then(|c| c.tag_ids.as_ref())
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|id| st.tags.iter().find(|t| t.id == *id).map(|t| t.name.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    (names, display)
 }
 
 /// One board column proof: a mint or move to
@@ -337,9 +369,17 @@ pub fn append_board_proof(
         }
         _ => {}
     }
-    tags.push(["project".into(), project]);
+    tags.push(["project".into(), project.clone()]);
     tags.push(["actor".into(), actor]);
     tags.push(["trace".into(), trace.clone()]);
+    if crate::flags::on(app, "microtags") {
+        let (names, display) = board_card_tags(app, card_id, &project);
+        let refused =
+            crate::microtags::apply_board_microtags(&mut tags, true, &names, &project, &display);
+        for raw in &refused {
+            eprintln!("orbitty: microtag refused: {raw}");
+        }
+    }
     let created_at = unix_now();
     let content = serde_json::to_string(content).unwrap_or_else(|_| "{}".into());
     let (id, pubkey, sig) = identity(app, created_at, kind, &tags, &content);
@@ -481,8 +521,7 @@ pub fn log_event(
         "board-add" => content.get("to").and_then(|v| v.as_str()).or(Some("todo")),
         _ => None,
     };
-    if let (Some(to), Some(card_id)) = (proof_to, content.get("cardId").and_then(|v| v.as_str()))
-    {
+    if let (Some(to), Some(card_id)) = (proof_to, content.get("cardId").and_then(|v| v.as_str())) {
         if matches!(to, "todo" | "doing" | "done") {
             return match append_board_proof(
                 &app,
@@ -613,7 +652,14 @@ fn identity(
     tags: &[[String; 2]],
     content: &str,
 ) -> (String, String, String) {
-    identity_as(app, crate::event_keys::signed_locally(app), created_at, kind, tags, content)
+    identity_as(
+        app,
+        crate::event_keys::signed_locally(app),
+        created_at,
+        kind,
+        tags,
+        content,
+    )
 }
 
 /// [`identity`] with the Settings flag already in hand, so a caller that
@@ -635,5 +681,31 @@ pub(crate) fn identity_as(
             warn_once(&format!("sign failed, writing unsigned: {e}"));
             (uuid_v4_hex(), String::new(), String::new())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn builder_emits_microtags_only_when_the_flag_is_on() {
+        let src = include_str!("event_log.rs");
+        let start = src.find("pub fn append_board_proof(").expect("builder");
+        let end = src[start..]
+            .find("\npub fn ")
+            .map(|i| start + i)
+            .unwrap_or(src.len());
+        let body = &src[start..end];
+        let flag = body.find("flags::on(app, \"microtags\")").expect("flag");
+        let lookup = body.find("board_card_tags(").expect("lookup");
+        let call = body.find("apply_board_microtags(").expect("apply");
+        assert!(
+            flag < lookup && lookup < call,
+            "flag gates lookup and append"
+        );
+        let args = &body[call..];
+        let project = args.find("&project").expect("project id");
+        let display = args.find("&display").expect("display name");
+        assert!(project < display, "slug input is the project id");
+        assert!(body.contains("microtag refused"));
     }
 }
