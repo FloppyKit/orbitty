@@ -11,6 +11,7 @@
   import NextCard from "$lib/NextCard.svelte";
   import CheatSheet from "$lib/CheatSheet.svelte";
   import RailPage from "$lib/RailPage.svelte";
+  import PeekCapsule from "$lib/habitat/PeekCapsule.svelte";
   import LinkPreviewPopover from "$lib/LinkPreviewPopover.svelte";
 
   // The same SPA bundle serves the separate Kanban/Companion/STARS/Sky
@@ -129,6 +130,7 @@
   <CheatSheet />
 {:else}
   <RailPage />
+  <PeekCapsule />
 {/if}
 <LinkPreviewPopover />
 
