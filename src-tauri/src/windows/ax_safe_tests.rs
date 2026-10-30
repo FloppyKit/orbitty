@@ -207,7 +207,7 @@ fn axapp_sets_timeout_when_flag_on() {
     let src = include_str!("windows_mac.rs");
     let body = fn_body(src, "fn set_ax_timeout");
     assert!(
-        body.contains("AXUIElementSetMessagingTimeout"),
+        body.contains("AXUIElementSetMessagingTimeout(el, AX_TIMEOUT_S)"),
         "timeout call missing from set_ax_timeout"
     );
     let rt = include_str!("drawers/rt.rs");
