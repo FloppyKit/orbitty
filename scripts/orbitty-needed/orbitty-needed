@@ -1290,15 +1290,61 @@ def open_writer_signoff(rec: dict, go: str) -> None:
 
 
 def herdr_server_up() -> bool:
-    """True when the Herdr socket answers. Lock: ORBITTY_HERDR_WHEN_PRESENT_LOCK_v0.md."""
+    """True when the herdr read backend answers.
+
+    Flag off keeps today's `herdr status` check. Flag on asks `hc server status`
+    and treats a versioned JSON object with no error as up. Exit codes alone
+    are not a yes.
+    """
+    return _herdr_server_up(ctl, subprocess.run)
+
+
+def _flag_herdr_core(rows) -> bool:
+    if not isinstance(rows, list):
+        return False
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") == "herdr_core":
+            return bool(row.get("on"))
+    return False
+
+
+def _hc_status_up(stdout: str, returncode: int) -> bool:
+    if returncode != 0:
+        return False
     try:
-        p = subprocess.run(
+        data = json.loads(stdout or "")
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(data, dict) or "error" in data:
+        return False
+    version = data.get("version")
+    return isinstance(version, str) and bool(version)
+
+
+def _herdr_server_up(ctl_fn, run_fn) -> bool:
+    try:
+        rows = ctl_fn("flags", "list")
+    except SystemExit:
+        return False
+    if _flag_herdr_core(rows):
+        try:
+            p = run_fn(
+                ["hc", "server", "status", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+        except Exception:
+            return False
+        return _hc_status_up(getattr(p, "stdout", "") or "", getattr(p, "returncode", 1))
+    try:
+        p = run_fn(
             ["herdr", "status"],
             capture_output=True,
             text=True,
             timeout=8,
         )
-        return "status: running" in (p.stdout or "")
+        return "status: running" in (getattr(p, "stdout", "") or "")
     except Exception:
         return False
 

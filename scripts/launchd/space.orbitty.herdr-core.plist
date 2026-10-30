@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>space.orbitty.herdr-core</string>
+	<!-- Template only. Chuck installs after PASS and adopts the running core.
+	     Replace __HOME__. Do not bootstrap a second core beside the one already up. -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>__HOME__/.local/bin/herdr-core</string>
+		<string>server</string>
+		<string>start</string>
+	</array>
+	<key>KeepAlive</key>
+	<true/>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardOutPath</key>
+	<string>__HOME__/.buzz/ops/herdr-core/stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>__HOME__/.buzz/ops/herdr-core/stderr.log</string>
+</dict>
+</plist>
