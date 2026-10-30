@@ -72,6 +72,15 @@ pub const FLAGS: &[FlagDef] = &[
         remove_after: "2026-12-29",
         auto_on_verify: true,
     },
+    FlagDef {
+        id: "ax_safe",
+        default: true,
+        what: "AX timeout and off-main frontmost read",
+        go: "GO-ORBITTY-AX-SAFE",
+        added: "2026-10-30",
+        remove_after: "2026-12-29",
+        auto_on_verify: false,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
@@ -426,6 +435,80 @@ pub fn on(app: &tauri::AppHandle, id: &str) -> bool {
         return on_loaded(id, &FileFlags::empty());
     }
     on_loaded(id, &file_of(app))
+}
+
+// Tests pin ax_safe per thread. None follows the process cache below.
+#[cfg(test)]
+thread_local! {
+    static AX_SAFE_FORCE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Previous value, so a test can restore the thread when it finishes.
+#[cfg(test)]
+pub(crate) fn force_ax_safe(on: Option<bool>) -> Option<bool> {
+    AX_SAFE_FORCE.with(|c| c.replace(on))
+}
+
+/// `ax_safe`, read once per process. The frontmost tracker ticks every
+/// 400 ms and must not hit the flag file on each tick. Env, then the
+/// channel file beside the app-data dir `flags::on` uses, else the
+/// table default (on).
+pub(crate) fn ax_safe_on() -> bool {
+    #[cfg(test)]
+    if let Some(v) = AX_SAFE_FORCE.with(|c| c.get()) {
+        return v;
+    }
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(ax_safe_from_disk)
+}
+
+fn ax_safe_from_disk() -> bool {
+    let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else {
+        return get("ax_safe").map(|e| e.on).unwrap_or(true);
+    };
+    let dir = PathBuf::from(home)
+        .join("Library")
+        .join("Application Support")
+        .join(ax_safe_support_id());
+    on_in_dir(&dir, "ax_safe")
+}
+
+/// Tauri's compiled identifier. Nightly rewrites the installed plist to
+/// `space.orbitty.mac.nightly` but keeps this id (and this support dir),
+/// which is what `flags::on` reads. Alpha is its own identifier.
+fn ax_safe_support_id() -> String {
+    #[cfg(all(target_os = "macos", not(test)))]
+    if let Some(id) = macos_bundle_id() {
+        if id == "space.orbitty.alpha" || id.contains(".alpha") {
+            return id;
+        }
+    }
+    crate::state::instance::STABLE_ID.to_string()
+}
+
+#[cfg(all(target_os = "macos", not(test)))]
+fn macos_bundle_id() -> Option<String> {
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        let bundle: *mut Object = msg_send![class!(NSBundle), mainBundle];
+        if bundle.is_null() {
+            return None;
+        }
+        let id: *mut Object = msg_send![bundle, bundleIdentifier];
+        if id.is_null() {
+            return None;
+        }
+        let utf8: *const std::os::raw::c_char = msg_send![id, UTF8String];
+        if utf8.is_null() {
+            return None;
+        }
+        Some(
+            std::ffi::CStr::from_ptr(utf8)
+                .to_string_lossy()
+                .into_owned(),
+        )
+    }
 }
 
 /// Flag bit for a directory that holds `events.jsonl`. Env wins, then the
