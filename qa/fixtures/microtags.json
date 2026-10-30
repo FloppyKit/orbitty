@@ -1,0 +1,271 @@
+{
+  "reserved": [
+    "orbitty",
+    "local-only",
+    "root",
+    "root-revision"
+  ],
+  "namespaces": [
+    "planet",
+    "kind",
+    "area"
+  ],
+  "kindValues": [
+    "bug",
+    "feature",
+    "chore",
+    "question"
+  ],
+  "rows": [
+    {
+      "id": "hash-bug-fix",
+      "raw": "#Bug Fix",
+      "tag": "bug-fix"
+    },
+    {
+      "id": "kind-bug",
+      "raw": "Kind:Bug",
+      "tag": "kind:bug"
+    },
+    {
+      "id": "collapse-underscores",
+      "raw": "  a__b  ",
+      "tag": "a-b"
+    },
+    {
+      "id": "two-colons",
+      "raw": "a:b:c",
+      "tag": null
+    },
+    {
+      "id": "empty",
+      "raw": "",
+      "tag": null
+    },
+    {
+      "id": "non-ascii",
+      "raw": "é",
+      "tag": null
+    },
+    {
+      "id": "reserved-orbitty",
+      "raw": "orbitty",
+      "tag": null
+    },
+    {
+      "id": "reserved-local-only",
+      "raw": "local-only",
+      "tag": null
+    },
+    {
+      "id": "reserved-root",
+      "raw": "root",
+      "tag": null
+    },
+    {
+      "id": "reserved-root-revision",
+      "raw": "root-revision",
+      "tag": null
+    },
+    {
+      "id": "status-done",
+      "raw": "status:done",
+      "tag": null
+    },
+    {
+      "id": "status-open",
+      "raw": "Status:Open",
+      "tag": null
+    },
+    {
+      "id": "hash-orbitty",
+      "raw": "#Orbitty",
+      "tag": null
+    },
+    {
+      "id": "area-relay",
+      "raw": "area:Relay",
+      "tag": "area:relay"
+    },
+    {
+      "id": "area-ui",
+      "raw": "AREA:UI",
+      "tag": "area:ui"
+    },
+    {
+      "id": "kind-feature",
+      "raw": "kind:feature",
+      "tag": "kind:feature"
+    },
+    {
+      "id": "kind-chore",
+      "raw": "Kind:Chore",
+      "tag": "kind:chore"
+    },
+    {
+      "id": "kind-question",
+      "raw": "kind:Question",
+      "tag": "kind:question"
+    },
+    {
+      "id": "kind-nope",
+      "raw": "kind:nope",
+      "tag": null
+    },
+    {
+      "id": "plain-nostr",
+      "raw": "Nostr",
+      "tag": "nostr"
+    },
+    {
+      "id": "spaces",
+      "raw": "has space",
+      "tag": "has-space"
+    },
+    {
+      "id": "underscore",
+      "raw": "under_score",
+      "tag": "under-score"
+    },
+    {
+      "id": "mixed-sep",
+      "raw": "a - b",
+      "tag": "a-b"
+    },
+    {
+      "id": "many-dashes",
+      "raw": "a---b",
+      "tag": "a-b"
+    },
+    {
+      "id": "leading-dash",
+      "raw": "-bad",
+      "tag": null
+    },
+    {
+      "id": "trailing-dash",
+      "raw": "bad-",
+      "tag": null
+    },
+    {
+      "id": "only-hash",
+      "raw": "#",
+      "tag": null
+    },
+    {
+      "id": "double-hash",
+      "raw": "##ab",
+      "tag": null
+    },
+    {
+      "id": "unknown-ns",
+      "raw": "custom:label",
+      "tag": "custom:label"
+    },
+    {
+      "id": "plain-status",
+      "raw": "status",
+      "tag": "status"
+    },
+    {
+      "id": "kind-empty",
+      "raw": "kind:",
+      "tag": null
+    },
+    {
+      "id": "empty-ns",
+      "raw": ":bug",
+      "tag": null
+    },
+    {
+      "id": "value-trailing-dash",
+      "raw": "area:relay-",
+      "tag": null
+    },
+    {
+      "id": "hash-trim",
+      "raw": "  #Bug Fix  ",
+      "tag": "bug-fix"
+    },
+    {
+      "id": "planet-card",
+      "raw": "planet:Alpha",
+      "tag": "planet:alpha"
+    },
+    {
+      "id": "tab",
+      "raw": "a\tb",
+      "tag": null
+    },
+    {
+      "id": "ligature",
+      "raw": "ﬁ",
+      "tag": null
+    },
+    {
+      "id": "len-64",
+      "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "len-65",
+      "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tag": null
+    },
+    {
+      "id": "root-caps",
+      "raw": "ROOT",
+      "tag": null
+    },
+    {
+      "id": "local-only-caps",
+      "raw": "Local-Only",
+      "tag": null
+    },
+    {
+      "id": "three-colons",
+      "raw": "a:b:c:d",
+      "tag": null
+    },
+    {
+      "id": "plain-question",
+      "raw": "question",
+      "tag": "question"
+    },
+    {
+      "id": "inner-hash",
+      "raw": "bug#fix",
+      "tag": null
+    },
+    {
+      "id": "whitespace-only",
+      "raw": "   ",
+      "tag": null
+    },
+    {
+      "id": "kind-bug-upper",
+      "raw": "kind:BUG",
+      "tag": "kind:bug"
+    },
+    {
+      "id": "area-with-space",
+      "raw": "area:My Area",
+      "tag": "area:my-area"
+    },
+    {
+      "id": "underscores-collapse",
+      "raw": "a__b__c",
+      "tag": "a-b-c"
+    },
+    {
+      "id": "root-cause",
+      "raw": "root-cause",
+      "tag": "root-cause"
+    },
+    {
+      "id": "orbitty-extra",
+      "raw": "orbitty-extra",
+      "tag": "orbitty-extra"
+    }
+  ]
+}
