@@ -1,6 +1,7 @@
-//! hc (herdr-core) reads. Exit codes are never trusted: a bare rc is
+//! hc (herdr-core). Exit codes are never trusted: a bare rc is
 //! transport-unknown. `error.kind` in the JSON is the verdict.
-//! Never `server start|stop|restart`. Never a write subcommand.
+//! Never `server start|stop|restart`. Writes are `run`, `send`, `wait`,
+//! `kill`, `rm` — one `run --bg` per launch, then kill then rm.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -230,4 +231,67 @@ pub(crate) fn map_state(v: &Value) -> String {
         Some(s @ ("live" | "finished")) => s.to_string(),
         _ => String::new(),
     }
+}
+
+/// One `hc run --bg`. Returns the terminal address. Does not retry:
+/// a second run after an id is a duplicate seat.
+pub(crate) fn launch_once(
+    bin: &Path,
+    cwd: &str,
+    card_id: &str,
+    planet_id: &str,
+    kind: &str,
+    extra: &[String],
+) -> Result<String, String> {
+    let card_l = format!("card={card_id}");
+    let planet_l = format!("planet={planet_id}");
+    let mut args: Vec<String> = vec![
+        "run".into(),
+        "--bg".into(),
+        "--json".into(),
+        "--cwd".into(),
+        cwd.into(),
+        "--label".into(),
+        "orbitty=1".into(),
+        "--label".into(),
+        card_l,
+        "--label".into(),
+        planet_l,
+        "--".into(),
+        kind.into(),
+    ];
+    args.extend(extra.iter().cloned());
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let v = run_json(bin, &refs, 45_000)?;
+    match v
+        .get("address")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        Some(addr) => Ok(addr.to_string()),
+        None => Err("run: no address".into()),
+    }
+}
+
+pub(crate) fn send(bin: &Path, terminal: &str, text: &str) -> Result<Value, String> {
+    run_json(bin, &["send", "--json", terminal, text], 15_000)
+}
+
+pub(crate) fn wait(bin: &Path, terminal: &str) -> Result<Value, String> {
+    run_json(bin, &["wait", "--json", "--timeout", "60", terminal], 65_000)
+}
+
+pub(crate) fn kill_term(bin: &Path, terminal: &str) -> Result<Value, String> {
+    run_json(bin, &["kill", "--json", terminal], 8_000)
+}
+
+pub(crate) fn rm_term(bin: &Path, terminal: &str) -> Result<Value, String> {
+    run_json(bin, &["rm", "--json", terminal], 8_000)
+}
+
+/// Kill, then rm. rm only succeeds once the terminal is finished; both
+/// are issued. The exit code is not a verdict.
+pub(crate) fn stop(bin: &Path, terminal: &str) {
+    let _ = kill_term(bin, terminal);
+    let _ = rm_term(bin, terminal);
 }

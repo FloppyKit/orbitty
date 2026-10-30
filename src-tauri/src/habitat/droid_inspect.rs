@@ -1,10 +1,9 @@
 //! Click a droid: status capsule + focus the herdr pane. Not xterm.
-
-use std::process::Stdio;
+//! A core run has no confirmed Herdr.app deep link (TO CONFIRM); focus
+//! is a no-op and the peek capsule is the surface. The last tool line
+//! is `hc read` for a core run and `herdr agent read` for a tui run.
 
 use tauri::AppHandle;
-
-use crate::herdr::{herdr_cmd, run_json};
 
 pub fn card_id_from_entry(entry_id: &str) -> Option<&str> {
     entry_id.strip_prefix("agent:")
@@ -27,6 +26,29 @@ pub fn capsule(app: &AppHandle, entry_id: &str) -> String {
     } else {
         String::new()
     };
+    if let Some(h) = run.and_then(|r| r.herdr.as_ref()).filter(|h| h.backend == "core") {
+        let tool = tool_line(h).unwrap_or_default();
+        if crate::herdr::core_on() {
+            let peek = crate::herdr::capsule_line(app, entry_id);
+            if peek.is_empty() {
+                return if tool.is_empty() {
+                    format!("{status}{spend}")
+                } else {
+                    format!("{status} · {tool}{spend}")
+                };
+            }
+            return if tool.is_empty() {
+                peek
+            } else {
+                format!("{peek} · {tool}")
+            };
+        }
+        return if tool.is_empty() {
+            format!("{status}{spend}")
+        } else {
+            format!("{status} · {tool}{spend}")
+        };
+    }
     if crate::herdr::core_on() {
         let line = crate::herdr::capsule_line(app, entry_id);
         return if line.is_empty() {
@@ -35,14 +57,16 @@ pub fn capsule(app: &AppHandle, entry_id: &str) -> String {
             format!("{line}")
         };
     }
-    let Some(bin) = crate::herdr::locate() else {
+    let Some(bin) = crate::herdr::tui::locate() else {
         return format!("{status}{spend}");
     };
     let target = run
         .and_then(|r| r.herdr.as_ref())
         .map(|h| h.agent_name.as_str())
         .unwrap_or(cid);
-    let tool = last_tool_line(&bin, target);
+    let tool = crate::herdr::tui::agent_read(&bin, target)
+        .ok()
+        .and_then(|text| pick_line(&text));
     match tool {
         Some(t) if !t.is_empty() => format!("{status} · {t}{spend}"),
         _ => format!("{status}{spend}"),
@@ -62,38 +86,16 @@ pub fn focus(app: &AppHandle, entry_id: &str) {
     let Some(h) = run.herdr.as_ref() else {
         return;
     };
-    let Some(bin) = crate::herdr::locate() else {
-        return;
-    };
-    let _ = run_json(&bin, &["workspace", "focus", &h.workspace], 8_000);
-    let _ = run_json(&bin, &["agent", "focus", &h.agent_name], 8_000);
-    let _ = herdr_cmd(&bin)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
+    crate::herdr::client::focus(h);
 }
 
-fn last_tool_line(bin: &std::path::Path, target: &str) -> Option<String> {
-    let out = herdr_cmd(bin)
-        .args(["agent", "read", target, "--source", "recent", "--lines", "16"])
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
-    let raw = String::from_utf8_lossy(&out.stdout);
-    let text = if raw.trim().starts_with('{') {
-        serde_json::from_str::<serde_json::Value>(raw.trim())
-            .ok()
-            .and_then(|v| {
-                v["result"]["text"]
-                    .as_str()
-                    .or_else(|| v["result"]["output"].as_str())
-                    .map(str::to_string)
-            })
-            .unwrap_or_default()
-    } else {
-        raw.into_owned()
-    };
+/// Last tool line for this run's own backend.
+pub(crate) fn tool_line(h: &crate::state::AgentRunHerdr) -> Option<String> {
+    let text = crate::herdr::client::read_recent(h).ok()?;
+    pick_line(&text)
+}
+
+fn pick_line(text: &str) -> Option<String> {
     text.lines()
         .map(str::trim)
         .filter(|l| {

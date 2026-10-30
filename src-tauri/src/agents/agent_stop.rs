@@ -10,7 +10,8 @@ use tauri::Manager;
 
 use crate::state::{AgentRunHerdr, PersistedState};
 
-/// Kill herdr pane/workspace and the Terminal harness pidfile for each
+/// Stop the seat that started the run (core: kill then rm; tui: pane
+/// and workspace close) and the Terminal harness pidfile for each
 /// dropped card, then heal the dock LED from whatever is still seated.
 pub fn stop_resets(app: &tauri::AppHandle, before: &PersistedState, drops: &[String]) {
     if drops.is_empty() {
@@ -44,19 +45,7 @@ pub fn stop_resets(app: &tauri::AppHandle, before: &PersistedState, drops: &[Str
 }
 
 pub(crate) fn herdr_stop(h: &AgentRunHerdr) {
-    let Some(bin) = crate::herdr::locate() else {
-        return;
-    };
-    if !h.pane.trim().is_empty() {
-        let _ = crate::herdr::run_json(&bin, &["pane", "close", h.pane.trim()], 8_000);
-    }
-    if !h.workspace.trim().is_empty() {
-        let _ = crate::herdr::run_json(
-            &bin,
-            &["workspace", "close", h.workspace.trim()],
-            8_000,
-        );
-    }
+    crate::herdr::client::stop(h);
 }
 
 /// End exactly this card's Terminal run. Launchers are per run now

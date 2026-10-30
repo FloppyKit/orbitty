@@ -81,6 +81,24 @@ fn read_gate_flag_on() {
 }
 
 fn visit(dir: &Path, bad: &mut Vec<String>) {
+    let needles = [
+        "&[\"pane\"",
+        "&[\"workspace\"",
+        "&[\"agent\"",
+        ".args([\"agent\"",
+        ".args([\"pane\"",
+        ".args([\"workspace\"",
+        "\"pane\",\"close\"",
+        "\"workspace\",\"close\"",
+        "\"workspace\",\"create\"",
+        "\"workspace\",\"focus\"",
+        "\"workspace\",\"list\"",
+        "\"agent\",\"prompt\"",
+        "\"agent\",\"wait\"",
+        "\"agent\",\"get\"",
+        "\"agent\",\"focus\"",
+        "\"agent\",\"read\"",
+    ];
     let Ok(rd) = fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let p = e.path();
@@ -92,6 +110,7 @@ fn visit(dir: &Path, bad: &mut Vec<String>) {
             continue;
         }
         let text = fs::read_to_string(&p).unwrap_or_default();
+        let compact: String = text.split_whitespace().collect();
         let rel = p.display().to_string();
         let in_tui = rel.ends_with("herdr/tui.rs");
         let in_herdr = rel.contains("/herdr/");
@@ -100,10 +119,23 @@ fn visit(dir: &Path, bad: &mut Vec<String>) {
         {
             bad.push(format!("herdr lookup outside tui.rs: {rel}"));
         }
+        if !in_tui
+            && (text.contains("Command::new(\"herdr\")") || text.contains("Command::new(\"hc\")"))
+        {
+            bad.push(format!("herdr/hc command outside tui.rs: {rel}"));
+        }
         if !in_herdr
             && (text.contains("Command::new(\"herdr\")") || text.contains("Command::new(\"hc\")"))
         {
             bad.push(format!("herdr/hc command outside herdr/: {rel}"));
+        }
+        if !in_tui {
+            for n in needles {
+                if compact.contains(n) {
+                    bad.push(format!("tui argv outside tui.rs: {rel} {n}"));
+                    break;
+                }
+            }
         }
     }
 }
@@ -130,6 +162,34 @@ fn flag_off_goldens_identical() {
     assert_eq!(alive, Some(true));
     let got = fs::read_to_string(&log).unwrap();
     assert_eq!(got, "workspace list\nagent get GOLD\n");
+    fs::write(&log, "").unwrap();
+    let bin = dir.join("herdr");
+    let _ = client::ensure_server(&bin);
+    let _ = client::workspace_create(&bin, "/tmp/orbitty-golden", "orbitty");
+    let _ = client::agent_start(&bin, "c-1", "grok", "p1", &[]);
+    let rec = crate::state::AgentRunHerdr {
+        agent_name: "c-1".into(),
+        pane: "p1".into(),
+        workspace: "ws1".into(),
+        backend: "tui".into(),
+        ..Default::default()
+    };
+    let _ = client::prompt_with(&bin, &rec, "hello");
+    let _ = client::wait_run(&bin, &rec, None);
+    client::stop(&rec);
+    let got = fs::read_to_string(&log).unwrap();
+    assert_eq!(
+        got,
+        "\
+workspace list
+workspace create --cwd /tmp/orbitty-golden --label orbitty
+agent start c-1 --kind grok --pane p1 --timeout 30000
+agent prompt c-1 hello
+agent wait c-1 --until working --until blocked --until done --timeout 60000 --until idle
+pane close p1
+workspace close ws1
+"
+    );
 }
 
 #[test]
@@ -374,4 +434,235 @@ fn read_gate_script_passes() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+fn logging_herdr(dir: &Path, log: &Path) -> PathBuf {
+    let bin = dir.join("herdr");
+    let script = format!("#!/bin/sh\necho \"$@\" >> \"{}\"\necho '{{}}'\nexit 0\n", log.display());
+    fs::write(&bin, script).unwrap();
+    let mut perms = fs::metadata(&bin).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o755);
+    fs::set_permissions(&bin, perms).unwrap();
+    bin
+}
+
+fn core_rec(terminal: &str) -> crate::state::AgentRunHerdr {
+    crate::state::AgentRunHerdr {
+        backend: "core".into(),
+        terminal: terminal.into(),
+        agent_name: "c1".into(),
+        pane: "should-not-close".into(),
+        workspace: "should-not-close".into(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn tui_grep_gate_flag_on() {
+    let _g = gate();
+    let dir = scratch("tui-gate");
+    let _c = Clean(dir.clone());
+    let hlog = dir.join("herdr.log");
+    let clog = dir.join("hc.log");
+    let herdr = logging_herdr(&dir, &hlog);
+    tui::set_bin_override(Some(herdr));
+    arm("live", &clog);
+    health::prove_up();
+    fs::write(&hlog, "").unwrap();
+    fs::write(&clog, "").unwrap();
+    let bin = hc_path();
+    let addr = client::launch_core(&bin, "/tmp/orbitty-golden", "c1", "p1", "grok", &[]).unwrap();
+    assert_eq!(addr, "t1");
+    let rec = core_rec(&addr);
+    client::prompt_with(&bin, &rec, "hello").unwrap();
+    client::wait_run(&bin, &rec, None).unwrap();
+    client::stop(&rec);
+    client::focus(&rec);
+    let _ = crate::droid_inspect::tool_line(&rec);
+    let hers = fs::read_to_string(&hlog).unwrap_or_default();
+    assert!(hers.is_empty(), "flag on still called herdr: {hers}");
+    let hc = fs::read_to_string(&clog).unwrap();
+    assert!(hc.contains("run --bg"), "{hc}");
+    assert!(!hc.contains("pane close") && !hc.contains("workspace"), "{hc}");
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/check-no-tui-herdr.sh");
+    let out = Command::new("sh").arg(&script).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn launch_via_hc_run_bg_labels() {
+    let _g = gate();
+    let dir = scratch("run");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    let addr = core::launch_once(
+        &hc_path(),
+        "/tmp/orbitty-golden",
+        "c1",
+        "p1",
+        "grok",
+        &[],
+    )
+    .unwrap();
+    assert_eq!(addr, "t1");
+    let got = fs::read_to_string(&log).unwrap();
+    assert_eq!(
+        got,
+        "run --bg --json --cwd /tmp/orbitty-golden --label orbitty=1 --label card=c1 --label planet=p1 -- grok\n"
+    );
+}
+
+#[test]
+fn prompt_via_hc_send() {
+    let _g = gate();
+    let dir = scratch("send");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    core::send(&hc_path(), "t1", "hello").unwrap();
+    assert_eq!(fs::read_to_string(&log).unwrap(), "send --json t1 hello\n");
+}
+
+#[test]
+fn wait_via_hc_wait() {
+    let _g = gate();
+    let dir = scratch("wait");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    core::wait(&hc_path(), "t1").unwrap();
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        "wait --json --timeout 60 t1\n"
+    );
+}
+
+#[test]
+fn stop_kills_then_rm() {
+    let _g = gate();
+    let dir = scratch("stop");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    core::stop(&hc_path(), "t1");
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        "kill --json t1\nrm --json t1\n"
+    );
+}
+
+#[test]
+fn droid_read_via_hc_read() {
+    let _g = gate();
+    let dir = scratch("read");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    let line = crate::droid_inspect::tool_line(&core_rec("t1"));
+    assert!(line.is_some(), "fixture text should yield a line");
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        "read --json --lines 16 t1\n"
+    );
+}
+
+#[test]
+fn run_sticks_to_its_backend() {
+    let _g = gate();
+    let dir = scratch("stick");
+    let _c = Clean(dir.clone());
+    let hlog = dir.join("herdr.log");
+    let clog = dir.join("hc.log");
+    let herdr = logging_herdr(&dir, &hlog);
+    tui::set_bin_override(Some(herdr));
+    arm("live", &clog);
+
+    // Core run, flag now off: still kill then rm. No TUI close.
+    client::force_flag(Some(false));
+    client::stop(&core_rec("t1"));
+    assert_eq!(
+        fs::read_to_string(&clog).unwrap(),
+        "kill --json t1\nrm --json t1\n"
+    );
+    assert!(fs::read_to_string(&hlog).unwrap_or_default().is_empty());
+
+    // TUI run, flag now on: still pane close + workspace close. No hc kill.
+    fs::write(&clog, "").unwrap();
+    fs::write(&hlog, "").unwrap();
+    client::force_flag(Some(true));
+    core::set_bin_override(Some(hc_path()));
+    let tui_rec = crate::state::AgentRunHerdr {
+        backend: "tui".into(),
+        pane: "p9".into(),
+        workspace: "w9".into(),
+        agent_name: "c9".into(),
+        ..Default::default()
+    };
+    client::stop(&tui_rec);
+    assert_eq!(
+        fs::read_to_string(&hlog).unwrap(),
+        "pane close p9\nworkspace close w9\n"
+    );
+    assert!(fs::read_to_string(&clog).unwrap_or_default().is_empty());
+}
+
+#[test]
+fn old_save_loads_as_tui() {
+    let raw = r#"{"planetId":"p","workspace":"w","tab":"tb","pane":"pn","agentName":"a","kind":"grok","mystery":"kept"}"#;
+    let h: crate::state::AgentRunHerdr = serde_json::from_str(raw).unwrap();
+    assert_eq!(h.backend, "tui");
+    assert!(h.terminal.is_empty());
+    let back = serde_json::to_value(&h).unwrap();
+    assert_eq!(back["backend"], "tui");
+    assert_eq!(back["mystery"], "kept");
+    assert_eq!(back["agentName"], "a");
+    assert!(back.get("terminal").is_none());
+}
+
+#[test]
+fn hc_missing_launch_uses_fallback_launcher() {
+    let _g = gate();
+    let dir = scratch("miss-launch");
+    let _c = Clean(dir.clone());
+    let hlog = dir.join("herdr.log");
+    let herdr = logging_herdr(&dir, &hlog);
+    client::force_flag(Some(true));
+    core::set_bin_override(None);
+    tui::set_bin_override(Some(herdr));
+    let err = crate::habitat::herdr::require_bin().unwrap_err();
+    let line = crate::habitat::herdr::missing_launcher_line();
+    assert_eq!(err, line);
+    assert!(line.contains("herdr not on PATH"), "{line}");
+    assert!(line.contains("the old launcher fires"), "{line}");
+    assert!(fs::read_to_string(&hlog).unwrap_or_default().is_empty());
+}
+
+#[test]
+fn hc_crash_during_launch_no_duplicate() {
+    let _g = gate();
+    let dir = scratch("die-launch");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    let stamp = dir.join("stamp");
+    arm("live", &log);
+    health::prove_up();
+    client::set_child_env(vec![
+        ("FAKE_HC_MODE".into(), "die_after_run".into()),
+        ("FAKE_HC_LOG".into(), log.display().to_string()),
+        ("FAKE_HC_STAMP".into(), stamp.display().to_string()),
+    ]);
+    fs::write(&log, "").unwrap();
+    let addr = core::launch_once(&hc_path(), "/tmp/orbitty-golden", "c1", "p1", "grok", &[]).unwrap();
+    assert_eq!(addr, "t1");
+    let text = fs::read_to_string(&log).unwrap();
+    let runs = text.lines().filter(|l| l.starts_with("run ")).count();
+    assert_eq!(runs, 1, "second launch after the id:\n{text}");
+    assert_eq!(client::alive("t1"), None, "dead core is unknown, not died");
+    let text = fs::read_to_string(&log).unwrap();
+    assert_eq!(text.lines().filter(|l| l.starts_with("run ")).count(), 1, "{text}");
+    arm("live", &log);
+    health::prove_up();
+    assert_eq!(client::alive("t1"), Some(true));
 }

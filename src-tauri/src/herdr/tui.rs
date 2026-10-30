@@ -221,3 +221,101 @@ pub(crate) fn agent_read(bin: &Path, target: &str) -> Result<String, String> {
     };
     Ok(text)
 }
+
+/// `herdr agent wait` flags. If the pane is already idle (prompt
+/// between turns), omit `--until idle` so wait does not return
+/// immediately and burn the 120-slice cap while the run is still live.
+pub(crate) fn wait_args<'a>(agent_name: &'a str, status: Option<&str>) -> Vec<&'a str> {
+    let mut args = vec![
+        "agent",
+        "wait",
+        agent_name,
+        "--until",
+        "working",
+        "--until",
+        "blocked",
+        "--until",
+        "done",
+        "--timeout",
+        "60000",
+    ];
+    if status != Some("idle") {
+        args.extend(["--until", "idle"]);
+    }
+    args
+}
+
+/// `herdr agent start` argv. `--kind` picks the executable. Anything
+/// after `--` is AGENT_ARG (grok treats the first positional as the
+/// initial prompt) — never the grok binary path.
+pub(crate) fn agent_start_args<'a>(name: &'a str, kind: &'a str, pane: &'a str) -> Vec<&'a str> {
+    vec![
+        "agent",
+        "start",
+        name,
+        "--kind",
+        kind,
+        "--pane",
+        pane,
+        "--timeout",
+        "30000",
+    ]
+}
+
+/// `herdr agent start` plus cursor AGENT_ARGs after `--`.
+pub(crate) fn start_argv(name: &str, kind: &str, pane: &str, extra: &[String]) -> Vec<String> {
+    let mut args: Vec<String> = agent_start_args(name, kind, pane)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    if !extra.is_empty() {
+        args.push("--".into());
+        args.extend(extra.iter().cloned());
+    }
+    args
+}
+
+pub(crate) fn workspace_create(bin: &Path, cwd: &str, label: &str) -> Result<Value, String> {
+    run_json(
+        bin,
+        &["workspace", "create", "--cwd", cwd, "--label", label],
+        15_000,
+    )
+}
+
+pub(crate) fn agent_start(bin: &Path, args: &[&str]) -> Result<Value, String> {
+    run_json(bin, args, 45_000)
+}
+
+pub(crate) fn agent_prompt(bin: &Path, agent_name: &str, text: &str) -> Result<Value, String> {
+    run_json(bin, &["agent", "prompt", agent_name, text], 15_000)
+}
+
+pub(crate) fn agent_wait(bin: &Path, args: &[&str]) -> Result<Value, String> {
+    run_json(bin, args, 65_000)
+}
+
+pub(crate) fn pane_close(bin: &Path, pane: &str) -> Result<Value, String> {
+    run_json(bin, &["pane", "close", pane], 8_000)
+}
+
+pub(crate) fn workspace_close(bin: &Path, workspace: &str) -> Result<Value, String> {
+    run_json(bin, &["workspace", "close", workspace], 8_000)
+}
+
+pub(crate) fn focus_workspace(bin: &Path, workspace: &str) -> Result<Value, String> {
+    run_json(bin, &["workspace", "focus", workspace], 8_000)
+}
+
+pub(crate) fn focus_agent(bin: &Path, agent: &str) -> Result<Value, String> {
+    run_json(bin, &["agent", "focus", agent], 8_000)
+}
+
+/// Bare `herdr` — opens the TUI. Flag-off focus only.
+pub(crate) fn open_tui(bin: &Path) {
+    let _ = herdr_cmd(bin)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+}

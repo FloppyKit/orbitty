@@ -230,6 +230,11 @@ export interface AgentRun {
     pane: string;
     agentName: string;
     kind: string;
+    // "tui" | "core". Absent on an old save means tui. Round-tripped;
+    // the native side owns the value.
+    backend?: string;
+    // hc terminal id when backend is core. Empty on tui.
+    terminal?: string;
   };
 }
 

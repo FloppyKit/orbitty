@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -31,10 +31,12 @@ pub enum Branch {
 /// launch door. `Err` carries `code: message` from the error envelope
 /// (or the honest transport failure) — the caller decides skip vs
 /// blocked; this fn never retries.
+#[allow(dead_code)] // re-exported from herdr/mod.rs for older call sites
 pub(crate) fn herdr_cmd(bin: &Path) -> Command {
     crate::herdr::client::command(bin)
 }
 
+#[allow(dead_code)] // re-exported from herdr/mod.rs for older call sites
 pub(crate) fn run_json(bin: &Path, args: &[&str], timeout_ms: u64) -> Result<Value, String> {
     crate::herdr::client::run_json(bin, args, timeout_ms)
 }
@@ -182,12 +184,6 @@ fn persist_run(app: &tauri::AppHandle, card: Option<&KanbanCard>, rec: AgentRunH
     let _ = crate::board::save_with_events(app, &before, &after);
 }
 
-/// `herdr agent get <target>` → the pane's agent_status. None = gone /
-/// unreadable — the watch's end signal, never a paint.
-fn agent_status(bin: &Path, target: &str) -> Option<String> {
-    crate::herdr::client::agent_status(bin, target)
-}
-
 /// Boot liveness. Flag off is today's TUI probe. Flag on asks hc, and
 /// answers None while herdr-core is DOWN (unknown, never died).
 pub(crate) fn agent_alive(agent_name: &str) -> Option<bool> {
@@ -228,27 +224,8 @@ fn paint(app: &tauri::AppHandle, card_id: Option<&str>, state: &str) {
     }
 }
 
-/// `herdr agent wait` flags. If the pane is already idle (prompt
-/// between turns), omit `--until idle` so wait does not return
-/// immediately and burn the 120-slice cap while the run is still live.
 fn wait_args<'a>(agent_name: &'a str, status: Option<&str>) -> Vec<&'a str> {
-    let mut args = vec![
-        "agent",
-        "wait",
-        agent_name,
-        "--until",
-        "working",
-        "--until",
-        "blocked",
-        "--until",
-        "done",
-        "--timeout",
-        "60000",
-    ];
-    if status != Some("idle") {
-        args.extend(["--until", "idle"]);
-    }
-    args
+    crate::herdr::tui::wait_args(agent_name, status)
 }
 
 /// The watch: block in `agent wait` (60s slices, ~2h cap), then mirror
@@ -258,11 +235,10 @@ fn wait_args<'a>(agent_name: &'a str, status: Option<&str>) -> Vec<&'a str> {
 /// Watch exit heals the dock LED from seated runs (never a blind off —
 /// prompt-idle is still live). Never a retry loop: one wait at a time,
 /// no writes without a transition.
-fn spawn_watch(app: &tauri::AppHandle, bin: &Path, card: Option<&KanbanCard>, agent_name: &str) {
+fn spawn_watch(app: &tauri::AppHandle, bin: &Path, card: Option<&KanbanCard>, rec: AgentRunHerdr) {
     let app = app.clone();
     let bin: PathBuf = bin.to_path_buf();
     let card_id = card.map(|c| c.id.clone());
-    let agent_name = agent_name.to_string();
     std::thread::spawn(move || {
         for _ in 0..120 {
             if let Some(cid) = card_id.as_deref() {
@@ -281,22 +257,39 @@ fn spawn_watch(app: &tauri::AppHandle, bin: &Path, card: Option<&KanbanCard>, ag
                     break;
                 }
             }
-            let status = agent_status(&bin, &agent_name);
-            let args = wait_args(&agent_name, status.as_deref());
-            let waited = run_json(&bin, &args, 65_000);
+            let status = crate::herdr::client::run_status(&bin, &rec);
+            let waited = crate::herdr::client::wait_run(&bin, &rec, status.as_deref());
             match waited {
-                Ok(_) => match agent_status(&bin, &agent_name).as_deref() {
-                    Some("blocked") => paint(&app, card_id.as_deref(), "blocked"),
-                    // idle = at the prompt between turns — the run is
-                    // still live on the disc.
-                    Some("working") | Some("idle") => paint(&app, card_id.as_deref(), "working"),
-                    Some("done") => break,
-                    _ => {}
-                },
+                Ok(_) => {
+                    if rec.backend == "core" {
+                        let id = if rec.terminal.trim().is_empty() {
+                            rec.agent_name.as_str()
+                        } else {
+                            rec.terminal.trim()
+                        };
+                        if crate::herdr::core::terminal(&bin, id)
+                            .ok()
+                            .as_ref()
+                            .map(crate::herdr::core::map_state)
+                            .as_deref()
+                            == Some("finished")
+                        {
+                            break;
+                        }
+                    }
+                    match crate::herdr::client::run_status(&bin, &rec).as_deref() {
+                        Some("blocked") => paint(&app, card_id.as_deref(), "blocked"),
+                        // idle = at the prompt between turns — the run is
+                        // still live on the disc.
+                        Some("working") | Some("idle") => paint(&app, card_id.as_deref(), "working"),
+                        Some("done") | Some("error") => break,
+                        _ => {}
+                    }
+                }
                 // Timeout is the normal still-working case; a gone agent
                 // (or a dead server) ends the watch.
                 Err(_) => {
-                    if agent_status(&bin, &agent_name).is_none() {
+                    if crate::herdr::client::run_status(&bin, &rec).is_none() {
                         break;
                     }
                 }
@@ -306,30 +299,17 @@ fn spawn_watch(app: &tauri::AppHandle, bin: &Path, card: Option<&KanbanCard>, ag
     });
 }
 
-/// `herdr agent start` argv. `--kind` picks the executable. Anything
-/// after `--` is AGENT_ARG (grok treats the first positional as the
-/// initial prompt) — never the grok binary path.
 fn agent_start_args<'a>(name: &'a str, kind: &'a str, pane: &'a str) -> Vec<&'a str> {
-    vec![
-        "agent",
-        "start",
-        name,
-        "--kind",
-        kind,
-        "--pane",
-        pane,
-        "--timeout",
-        "30000",
-    ]
+    crate::herdr::tui::agent_start_args(name, kind, pane)
 }
 
-/// After start is ready, submit the query file. Fail → pane still up,
+/// After start is ready, submit the query file. Fail → seat still up,
 /// one log line, no Terminal dual-launch. Login-wall starts never call this.
 fn submit_query(
     app: &tauri::AppHandle,
     bin: &Path,
     planet_id: &str,
-    agent_name: &str,
+    rec: &AgentRunHerdr,
     query: Option<&Path>,
 ) {
     let Some(path) = query else { return };
@@ -338,7 +318,7 @@ fn submit_query(
     if text.is_empty() {
         return;
     }
-    if let Err(why) = run_json(bin, &["agent", "prompt", agent_name, text], 15_000) {
+    if let Err(why) = crate::herdr::client::prompt_with(bin, rec, text) {
         crate::event_log::append_best(
             app,
             "herdr-prompt-fail",
@@ -347,7 +327,7 @@ fn submit_query(
             Some("agent"),
             true,
             &serde_json::json!({
-                "agent": agent_name,
+                "agent": rec.agent_name,
                 "reason": why,
             }),
         );
@@ -375,17 +355,18 @@ fn kind_law(harness: &str, opencode_on_path: bool) -> Result<&'static str, Strin
     }
 }
 
-/// `herdr agent start` plus cursor AGENT_ARGs after `--`.
 fn start_argv(name: &str, kind: &str, pane: &str, extra: &[String]) -> Vec<String> {
-    let mut args: Vec<String> = agent_start_args(name, kind, pane)
-        .into_iter()
-        .map(str::to_string)
-        .collect();
-    if !extra.is_empty() {
-        args.push("--".into());
-        args.extend(extra.iter().cloned());
-    }
-    args
+    crate::herdr::tui::start_argv(name, kind, pane, extra)
+}
+
+/// The skip line when the chosen binary is missing. Same words as
+/// "herdr not on PATH" so the old launcher still fires.
+pub(crate) fn missing_launcher_line() -> String {
+    format!("herdr not on PATH — {INSTALL_HINT}; the old launcher fires")
+}
+
+pub(crate) fn require_bin() -> Result<PathBuf, String> {
+    crate::herdr::locate().ok_or_else(missing_launcher_line)
 }
 
 /// The Herdr branch of `launch_agent`. One attempt, no retries; every
@@ -411,13 +392,12 @@ pub fn branch(
             return Branch::Skip;
         }
     };
-    let Some(bin) = crate::herdr::locate() else {
-        skip_line(
-            app,
-            shortcut,
-            &format!("herdr not on PATH — {INSTALL_HINT}; the old launcher fires"),
-        );
-        return Branch::Skip;
+    let bin = match require_bin() {
+        Ok(bin) => bin,
+        Err(line) => {
+            skip_line(app, shortcut, &line);
+            return Branch::Skip;
+        }
     };
     if let Err(why) = ensure_server(&bin) {
         skip_line(
@@ -440,10 +420,82 @@ pub fn branch(
         .map(str::trim)
         .filter(|n| !n.is_empty())
         .unwrap_or("orbitty");
+    // The agent's name is the card id when a run row rides (the
+    // skeleton's `<cardId>`), else a stable per-shortcut name.
+    let agent_name = card
+        .as_ref()
+        .map(|c| c.id.clone())
+        .unwrap_or_else(|| format!("orbitty-{}", shortcut.id));
+    let extra = if kind == "cursor" {
+        let model = crate::agents::cursor_model(shortcut.model.as_deref());
+        let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
+        crate::agents::cursor_agent_args(&model, preset)
+    } else {
+        Vec::new()
+    };
 
-    // Pane first, agent second.
+    if crate::herdr::core_on() {
+        let card_id = card.as_ref().map(|c| c.id.as_str()).unwrap_or(agent_name.as_str());
+        // One run. An id in hand is the seat — never a second launch.
+        let addr = match crate::herdr::client::launch_core(
+            &bin,
+            &cwd,
+            card_id,
+            &planet_id,
+            kind,
+            &extra,
+        ) {
+            Ok(addr) => addr,
+            Err(e) => {
+                skip_line(
+                    app,
+                    shortcut,
+                    &format!("hc run failed ({e}); the old launcher fires"),
+                );
+                return Branch::Skip;
+            }
+        };
+        let rec = AgentRunHerdr {
+            planet_id: planet_id.clone(),
+            workspace: String::new(),
+            tab: String::new(),
+            pane: String::new(),
+            agent_name: agent_name.clone(),
+            kind: kind.into(),
+            backend: "core".into(),
+            terminal: addr.clone(),
+            extra: Default::default(),
+        };
+        persist_run(app, card.as_ref(), rec.clone(), "working");
+        crate::coordinator::heal_stuck_hack(app);
+        spawn_watch(app, &bin, card.as_ref(), rec.clone());
+        submit_query(app, &bin, &planet_id, &rec, query);
+        crate::event_log::append_best(
+            app,
+            "herdr-launch",
+            None,
+            Some(&planet_id),
+            Some("agent"),
+            true,
+            &serde_json::json!({
+                "cardId": card.as_ref().map(|c| c.id.clone()),
+                "workspace": "",
+                "pane": "",
+                "terminal": addr,
+                "backend": "core",
+                "agent": agent_name,
+                "kind": kind,
+            }),
+        );
+        return Branch::Up(
+            format!("herdr: agent {agent_name} ({kind}) up in terminal {addr}."),
+            agent_name,
+        );
+    }
+
+    // Pane first, agent second. Flag off: today's TUI argv.
     let (workspace, tab, pane) =
-        match run_json(&bin, &["workspace", "create", "--cwd", &cwd, "--label", label], 15_000) {
+        match crate::herdr::client::workspace_create(&bin, &cwd, label) {
             Ok(v) => {
                 let r = &v["result"];
                 let w = r["workspace"]["workspace_id"].as_str().unwrap_or("").to_string();
@@ -469,12 +521,6 @@ pub fn branch(
             }
         };
 
-    // The agent's name is the card id when a run row rides (the
-    // skeleton's `<cardId>`), else a stable per-shortcut name.
-    let agent_name = card
-        .as_ref()
-        .map(|c| c.id.clone())
-        .unwrap_or_else(|| format!("orbitty-{}", shortcut.id));
     let rec = AgentRunHerdr {
         planet_id: planet_id.clone(),
         workspace: workspace.clone(),
@@ -482,20 +528,14 @@ pub fn branch(
         pane: pane.clone(),
         agent_name: agent_name.clone(),
         kind: kind.into(),
+        backend: "tui".into(),
+        terminal: String::new(),
+        extra: Default::default(),
     };
     std::thread::sleep(Duration::from_millis(400));
-    let extra = if kind == "cursor" {
-        let model = crate::agents::cursor_model(shortcut.model.as_deref());
-        let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
-        crate::agents::cursor_agent_args(&model, preset)
-    } else {
-        Vec::new()
-    };
-    let start_owned = start_argv(&agent_name, kind, &pane, &extra);
-    let start: Vec<&str> = start_owned.iter().map(String::as_str).collect();
     let mut started = Err("agent start not attempted".into());
     for i in 0..5 {
-        started = run_json(&bin, &start, 45_000);
+        started = crate::herdr::client::agent_start(&bin, &agent_name, kind, &pane, &extra);
         if started.is_ok() {
             break;
         }
@@ -504,10 +544,10 @@ pub fn branch(
     match started
     {
         Ok(_) => {
-            persist_run(app, card.as_ref(), rec, "working");
+            persist_run(app, card.as_ref(), rec.clone(), "working");
             crate::coordinator::heal_stuck_hack(app);
-            spawn_watch(app, &bin, card.as_ref(), &agent_name);
-            submit_query(app, &bin, &planet_id, &agent_name, query);
+            spawn_watch(app, &bin, card.as_ref(), rec.clone());
+            submit_query(app, &bin, &planet_id, &rec, query);
             crate::event_log::append_best(
                 app,
                 "herdr-launch",
@@ -519,6 +559,8 @@ pub fn branch(
                     "cardId": card.as_ref().map(|c| c.id.clone()),
                     "workspace": workspace,
                     "pane": pane,
+                    "terminal": "",
+                    "backend": "tui",
                     "agent": agent_name,
                     "kind": kind,
                 }),
@@ -533,9 +575,9 @@ pub fn branch(
             // looks at it. Blocked, no retry loop, no old-launcher
             // dual-fire. The watch still rides: a human clearing the
             // wall flips the walker back to working.
-            persist_run(app, card.as_ref(), rec, "blocked");
+            persist_run(app, card.as_ref(), rec.clone(), "blocked");
             crate::coordinator::heal_stuck_hack(app);
-            spawn_watch(app, &bin, card.as_ref(), &agent_name);
+            spawn_watch(app, &bin, card.as_ref(), rec.clone());
             crate::event_log::append_best(
                 app,
                 "herdr-blocked",
@@ -547,6 +589,8 @@ pub fn branch(
                     "cardId": card.as_ref().map(|c| c.id.clone()),
                     "workspace": workspace,
                     "pane": pane,
+                    "terminal": "",
+                    "backend": "tui",
                     "agent": agent_name,
                     "kind": kind,
                     "error": e,

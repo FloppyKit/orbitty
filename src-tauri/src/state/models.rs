@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use super::models_companion::{CompanionBounds};
+
+fn herdr_backend_tui() -> String {
+    "tui".into()
+}
 
 /// One unbound-todo tree on a planet disc.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -145,6 +150,16 @@ pub struct AgentRunHerdr {
     /// "grok" | "opencode" — opencode is detect-only (on PATH = legal),
     /// never prompt-installed.
     pub kind: String,
+    /// "tui" | "core". Missing on an old save loads as tui. A run is
+    /// driven through the backend that started it, not the live flag.
+    #[serde(default = "herdr_backend_tui")]
+    pub backend: String,
+    /// hc terminal id (`t7`) when `backend` is core. Empty on tui.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub terminal: String,
+    /// Keys this build does not know. Kept so a round-trip does not strip them.
+    #[serde(flatten, default)]
+    pub extra: Map<String, Value>,
 }
 
 impl Default for AgentRun {
