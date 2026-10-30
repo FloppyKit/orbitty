@@ -106,6 +106,9 @@ commands:
   go runner [--set ID | --reset]
   rail state                          level, alpha, frame, appActive, occludedBy (read-only)
   go seal --file PATH --by NAME --confirm
+  flags list
+  flags set <id> on|off
+  flags auto on|off                 stop or resume auto-on after Verify
   plans migrate [--dry-run | --apply]
 
 flags:

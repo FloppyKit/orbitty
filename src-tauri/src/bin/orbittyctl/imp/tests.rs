@@ -195,6 +195,21 @@
             tool_call(&parse(&argv(&["go", "run-result", "--id", "r-1"])).unwrap()).unwrap();
         assert_eq!(tool, "go.run_result");
         assert_eq!(args["run_id"], "r-1");
+        let (tool, args) = tool_call(&parse(&argv(&["flags", "list"])).unwrap()).unwrap();
+        assert_eq!(tool, "flags.list");
+        assert_eq!(args, serde_json::json!({}));
+        let (tool, args) =
+            tool_call(&parse(&argv(&["flags", "set", "go_start", "off"])).unwrap()).unwrap();
+        assert_eq!(tool, "flags.set");
+        assert_eq!(args, serde_json::json!({"id": "go_start", "on": false}));
+        let (tool, args) =
+            tool_call(&parse(&argv(&["flags", "set", "tabbity_bridge", "on"])).unwrap()).unwrap();
+        assert_eq!(tool, "flags.set");
+        assert_eq!(args["on"], true);
+        assert!(tool_call(&parse(&argv(&["flags", "set", "go_start", "maybe"])).unwrap()).is_err());
+        let (tool, args) = tool_call(&parse(&argv(&["flags", "auto", "off"])).unwrap()).unwrap();
+        assert_eq!(tool, "flags.auto");
+        assert_eq!(args, serde_json::json!({"on": false}));
         for flag in ["--cook", "--allow-push"] {
             let err = match parse(&argv(&["go", "runner", flag])) {
                 Err(e) => e,

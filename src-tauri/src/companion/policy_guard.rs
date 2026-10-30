@@ -74,6 +74,10 @@ pub fn policy_paths(roots: &PolicyRoots) -> Vec<PolicyPath> {
     out.push(sub(roots.home.join(".config/orbitty")));
     out.push(file(roots.app_data.join("control.json")));
     out.push(file(roots.app_data.join("control.token")));
+    out.push(file(roots.app_data.join("flags.json")));
+    out.push(file(roots.app_data.join("flags-alpha.json")));
+    out.push(file(roots.app_data.join("flags-nightly.json")));
+    out.push(file(roots.app_data.join("flags-stable.json")));
     out.push(file(roots.home.join("bin/go-run.sh")));
     out.push(file(roots.home.join("bin/cook-pi.sh")));
     out.push(file(roots.home.join("bin/verify-pi.sh")));
@@ -958,6 +962,24 @@ try outside sh -c "printf 'tmp\n' > \"\$1\"" sh "$outside"
         assert_eq!(needed, 0);
         assert_eq!(out, "same");
         assert!(!roots.plans_dir.join("_policy-guard").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn flags_json_is_policy() {
+        let (base, roots) = temp_policy_home("flagsjson");
+        let paths = policy_paths(&roots);
+        for name in [
+            "flags.json",
+            "flags-alpha.json",
+            "flags-nightly.json",
+            "flags-stable.json",
+        ] {
+            assert!(
+                paths.iter().any(|p| p.canonical.ends_with(name)),
+                "{name} missing from policy paths"
+            );
+        }
         let _ = std::fs::remove_dir_all(&base);
     }
 

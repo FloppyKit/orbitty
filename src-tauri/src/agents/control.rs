@@ -355,6 +355,8 @@ const READ_TOOLS: &[&str] = &[
     "history.drift",
     "tabbity.hello",
     "tabbity.planets",
+    // The list is the read face. flags.set stays write-class (socket only).
+    "flags.list",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -1145,6 +1147,12 @@ fn run_tool(
         )
         .map_err(tool_err),
         "go.start" => {
+            if let Some(msg) = crate::flags::blocked(app, "go_start", "go.start") {
+                if let Ok(card) = arg_str(args, "card") {
+                    let _ = crate::board::kanban_note_append(app, &card, &msg);
+                }
+                return Err(tool_err(msg));
+            }
             let card = arg_str(args, "card")?;
             match crate::plans::prepare_start(&card) {
                 Err(reason) => {
@@ -1196,6 +1204,23 @@ fn run_tool(
         "plans.migrate_apply" => {
             let roots = crate::plans::Roots::real();
             crate::plans::migrate_apply(&roots).map_err(tool_err)
+        }
+        // flags.set is write-class. The mouth child is not a separate caller
+        // identity (claim_origin_from always yields Agent), so the fence is
+        // this ACL plus policy_paths on the flag files. No new identity.
+        "flags.list" => Ok(to_data(crate::flags::list_app(app))),
+        "flags.set" => {
+            let id = arg_str(args, "id")?;
+            let on = args.get("on").and_then(Value::as_bool).ok_or_else(|| {
+                (ERR_OTHER, "flags.set needs bool on".to_string())
+            })?;
+            crate::flags::set(app, &id, on).map(to_data).map_err(tool_err)
+        }
+        "flags.auto" => {
+            let on = args.get("on").and_then(Value::as_bool).ok_or_else(|| {
+                (ERR_OTHER, "flags.auto needs bool on".to_string())
+            })?;
+            crate::flags::set_auto(app, on).map(to_data).map_err(tool_err)
         }
         tool @ ("tabbity.hello"
         | "tabbity.planets"
@@ -1376,6 +1401,21 @@ mod tests {
             assert!(!allowed(&Acl::Companion, tool), "{tool}");
             assert!(allowed(&Acl::Full, tool), "{tool}");
         }
+    }
+
+    #[test]
+    fn flags_list_is_read_flags_set_is_not() {
+        assert!(READ_TOOLS.contains(&"flags.list"));
+        assert!(!READ_TOOLS.contains(&"flags.set"));
+        assert!(!READ_TOOLS.contains(&"flags.auto"));
+        assert!(allowed(&Acl::Read, "flags.list"));
+        assert!(allowed(&Acl::Companion, "flags.list"));
+        assert!(!allowed(&Acl::Read, "flags.set"));
+        assert!(!allowed(&Acl::Companion, "flags.set"));
+        assert!(!allowed(&Acl::Read, "flags.auto"));
+        assert!(!allowed(&Acl::Companion, "flags.auto"));
+        assert!(allowed(&Acl::Full, "flags.set"));
+        assert!(allowed(&Acl::Full, "flags.auto"));
     }
 
     #[test]

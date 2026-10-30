@@ -621,6 +621,15 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             }
             Ok(("go.seal", json!({ "file": file, "by": by, "confirm": true })))
         }
+        ["flags", "list"] => Ok(("flags.list", json!({}))),
+        ["flags", "set", id, bit] => {
+            let on = on_off(bit, "flags set")?;
+            Ok(("flags.set", json!({ "id": id, "on": on })))
+        }
+        ["flags", "auto", bit] => {
+            let on = on_off(bit, "flags auto")?;
+            Ok(("flags.auto", json!({ "on": on })))
+        }
         ["plans", "migrate"] => {
             if o.apply && o.dry_run {
                 return Err("plans migrate: pass only one of --dry-run or --apply".into());

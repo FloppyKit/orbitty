@@ -488,6 +488,48 @@ pub(crate) fn print_human(tool: &str, data: &Value) {
                 println!("logged {}", data["id"].as_str().unwrap_or("?"));
             }
         }
+        "flags.list" => {
+            let Some(arr) = data.as_array() else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(data).unwrap_or_else(|_| "null".into())
+                );
+                return;
+            };
+            for row in arr {
+                let id = row["id"].as_str().unwrap_or("?");
+                let on = if row["on"].as_bool().unwrap_or(false) {
+                    "on"
+                } else {
+                    "off"
+                };
+                let source = row["source"].as_str().unwrap_or("");
+                let stale = if row["stale"].as_bool().unwrap_or(false) {
+                    " stale"
+                } else {
+                    ""
+                };
+                println!("{id}  {on}  {source}{stale}");
+            }
+        }
+        "flags.set" => {
+            let id = data["id"].as_str().unwrap_or("?");
+            let on = if data["on"].as_bool().unwrap_or(false) {
+                "on"
+            } else {
+                "off"
+            };
+            let source = data["source"].as_str().unwrap_or("");
+            println!("{id}  {on}  {source}");
+        }
+        "flags.auto" => {
+            let on = if data["auto"].as_bool().unwrap_or(false) {
+                "on"
+            } else {
+                "off"
+            };
+            println!("flags auto {on}");
+        }
         // state.get and anything else: pretty JSON is the honest human view.
         _ => println!(
             "{}",

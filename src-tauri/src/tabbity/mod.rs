@@ -387,6 +387,9 @@ fn parse_spec(v: &serde_json::Value) -> Result<IncomingTab, String> {
 
 /// Popup click is the user. The socket caller stays an agent and cannot undo this.
 pub fn claim(app: &tauri::AppHandle, args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    if let Some(msg) = crate::flags::blocked(app, "tabbity_bridge", "tab claim") {
+        return Err(msg);
+    }
     let origin = crate::claim_front::ClaimOrigin::User;
     let project_id = arg_str(args, "projectId")?;
     let arr = args

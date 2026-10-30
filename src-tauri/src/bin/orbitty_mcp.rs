@@ -139,6 +139,8 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "history.rewind", description: "Rewind the board (or one card with card) to just after history line to. Cards added since stay unless removeAdded. Live work is skipped. Without confirm: true it returns the plan and writes nothing. Undo in Settings → History.", args: "history_rewind" },
     ToolDef { name: "history.repair", description: "Put the board back to what its history says (actor repair). Without confirm: true it returns the plan and writes nothing.", args: "history_confirm" },
     ToolDef { name: "history.keep", description: "Accept the board as it is: a checkpoint with reason keep, so drift is empty. Without confirm: true it returns the drift and writes nothing.", args: "history_confirm" },
+    ToolDef { name: "flags.list", description: "List runtime flags: id, on, source, stale. Read-only.", args: "none" },
+    ToolDef { name: "flags.set", description: "Turn a runtime flag on or off. Write-class. Writes the channel flags file mode 0600.", args: "flags_set" },
 ];
 
 fn known_tool(name: &str) -> bool {
@@ -584,6 +586,15 @@ fn input_schema(kind: &str) -> Value {
                 "confirm": { "type": "boolean", "description": "true writes. Default false: dry run." }
             }
         }),
+        "flags_set" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Flag id from flags.list" },
+                "on": { "type": "boolean", "description": "true on, false off" }
+            },
+            "required": ["id", "on"],
+            "additionalProperties": false
+        }),
         _ => json!({ "type": "object", "properties": {} }),
     }
 }
@@ -1005,6 +1016,21 @@ mod tests {
         assert_eq!(props["project"]["type"], "string");
         assert_eq!(props["limit"]["type"], "integer");
         assert_eq!(props["limit"]["maximum"], 500);
+    }
+
+    #[test]
+    fn flags_tools_match_control_arms() {
+        let control = include_str!("../agents/control.rs");
+        for name in ["flags.list", "flags.set"] {
+            assert!(known_tool(name), "{name}");
+            assert!(control.contains(&format!("\"{name}\" =>")), "{name}");
+        }
+        assert!(required("flags.list").is_empty());
+        assert_eq!(
+            required("flags.set"),
+            vec!["id".to_string(), "on".to_string()]
+        );
+        assert!(!known_tool("flags.auto"));
     }
 
     #[test]
