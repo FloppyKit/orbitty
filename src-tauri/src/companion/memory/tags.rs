@@ -76,11 +76,12 @@ fn live_queue() -> MutexGuard<'static, Vec<AcceptBatch>> {
 }
 
 pub(crate) fn propose_live(
+    app_data: &Path,
     names: &[String],
     planet: Option<String>,
 ) -> Result<NeededDraft, String> {
     let mut queue = live_queue();
-    propose_into(&mut queue, names, planet)
+    propose_into(&mut queue, app_data, names, planet)
 }
 
 pub(crate) fn rollback_live() {
@@ -97,9 +98,13 @@ pub(crate) fn accept_live(
 
 pub(crate) fn propose_into(
     queue: &mut Vec<AcceptBatch>,
+    app_data: &Path,
     names: &[String],
     planet: Option<String>,
 ) -> Result<NeededDraft, String> {
+    // Accept is the only writer. `app_data` is the directory a proposal must
+    // not touch; the test watches it.
+    let _ = app_data;
     let mut kept = Vec::new();
     for raw in names {
         let Some(name) = crate::microtags::normalize(raw) else {

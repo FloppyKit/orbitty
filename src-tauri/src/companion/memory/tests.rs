@@ -9,6 +9,16 @@ use crate::mouth_hop::assemble_hop_messages;
 use crate::mouth_roll::{handoff_from_turns, ResetReason};
 use crate::state::{CompanionTurn, Tag};
 
+fn fn_body<'a>(src: &'a str, sig: &str) -> &'a str {
+    let start = src.find(sig).unwrap_or_else(|| panic!("missing {sig}"));
+    let rest = &src[start..];
+    let end = rest[sig.len()..]
+        .find("\npub(crate) fn ")
+        .map(|i| sig.len() + i)
+        .unwrap_or(rest.len());
+    &rest[..end]
+}
+
 fn turn(role: &str, text: impl AsRef<str>) -> CompanionTurn {
     CompanionTurn {
         role: role.into(),
@@ -131,6 +141,56 @@ fn forget_closed_and_old() {
     assert!(!text.contains("turn-1"));
     assert!(text.contains("turn-2"));
     assert!(text.contains("turn-7"));
+
+    let core = super::fit(&build(&c));
+    let state_turns = c.turns.clone();
+    let handoff = super::handoff_from_core(
+        ResetReason::ManualTest,
+        "spark",
+        &core,
+        &state_turns,
+        "USER:\nping",
+    );
+    assert!(!handoff.contains("turn-0"), "{handoff}");
+    assert!(!handoff.contains("turn-1"), "{handoff}");
+    assert!(handoff.contains("turn-2"), "{handoff}");
+    assert!(handoff.contains("turn-7"), "{handoff}");
+    // handoff_from_turns keeps only the last 6, so this prefix is what makes
+    // an 8-turn re-inject visible. If it disappears, the lock above goes blind.
+    let raw = super::handoff_visible(
+        ResetReason::ManualTest,
+        "spark",
+        &state_turns,
+        "USER:\nping",
+    );
+    assert!(
+        raw.contains("turn-0"),
+        "8-turn slice must show turn-0 or the handoff lock cannot see a re-inject\n{raw}"
+    );
+
+    let src = include_str!("mod.rs");
+    let line_fn = fn_body(src, "pub(crate) fn handoff_line(");
+    assert!(
+        line_fn.contains("handoff_from_core"),
+        "handoff_line must go through handoff_from_core"
+    );
+    assert!(
+        !line_fn.contains("handoff_from_turns"),
+        "handoff_line must not pass turns straight to handoff_from_turns"
+    );
+    let core_fn = fn_body(src, "pub(crate) fn handoff_from_core(");
+    assert!(
+        core_fn.contains("let turns = &core.turns;"),
+        "handoff must speak RAM turns, not the saved transcript"
+    );
+    assert!(
+        core_fn.contains("handoff_visible(reason, mode, turns,"),
+        "handoff_visible must receive the RAM slice"
+    );
+    assert!(
+        !core_fn.contains("state_turns,"),
+        "state_turns must not be passed into the handoff body"
+    );
 }
 
 #[test]
@@ -236,7 +296,7 @@ fn recall_hits_dated_max8() {
 
 #[test]
 fn checked_line_added_when_claim_without_recall() {
-    use super::recall::{apply_checked, needs_checked_line};
+    use super::recall::{apply_checked, clear_cite, needs_checked_line};
     let claim = "We decided to ship the flag.";
     assert!(needs_checked_line(claim, false));
     assert!(!needs_checked_line(claim, true));
@@ -246,6 +306,15 @@ fn checked_line_added_when_claim_without_recall() {
     assert!(stamped.ends_with("\nChecked: none"));
     assert_eq!(apply_checked(claim, true), claim);
     assert_eq!(apply_checked("hello there", false), "hello there");
+
+    clear_cite();
+    let stamped = super::finish_reply(&true, claim);
+    assert!(
+        stamped.ends_with("\nChecked: none"),
+        "finish_reply must stamp a claim with no recall\n{stamped}"
+    );
+    clear_cite();
+    assert_eq!(super::finish_reply(&false, claim), claim);
 }
 
 #[test]
@@ -289,7 +358,7 @@ fn proposals_write_nothing_until_accept() {
     let before = fs::read(&state).unwrap();
     let mut queue = Vec::new();
     let names: Vec<String> = (0..7).map(|i| format!("Hello Tag {i}")).collect();
-    let draft = propose_into(&mut queue, &names, Some("p1".into())).unwrap();
+    let draft = propose_into(&mut queue, &dir, &names, Some("p1".into())).unwrap();
     assert_eq!(draft.kind, "Approve");
     assert!(draft.title.starts_with("Approve:"));
     assert_eq!(draft.names.len(), 5);
@@ -297,6 +366,16 @@ fn proposals_write_nothing_until_accept() {
     assert!(queue.len() == 1);
     assert!(!dir.join("planets").join("p1").join("tags.json").exists());
     assert_eq!(fs::read(&state).unwrap(), before);
+    let tags_src = include_str!("tags.rs");
+    for sig in [
+        "pub(crate) fn propose_live(",
+        "pub(crate) fn propose_into(",
+    ] {
+        let body = fn_body(tags_src, sig);
+        assert!(!body.contains("write_0600"), "{sig} must not write");
+        assert!(!body.contains("std::fs::write"), "{sig} must not write");
+        assert!(!body.contains("fs::write"), "{sig} must not write");
+    }
 
     let wrote = accept_into(&mut queue, &dir, Some("p1")).unwrap();
     assert_eq!(wrote.len(), 5);

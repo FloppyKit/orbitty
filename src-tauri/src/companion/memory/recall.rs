@@ -146,6 +146,11 @@ fn take_cite() -> Option<String> {
     CITE.lock().unwrap_or_else(|p| p.into_inner()).take()
 }
 
+#[cfg(test)]
+pub(crate) fn clear_cite() {
+    *CITE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+}
+
 pub(crate) fn claims_decision(text: &str) -> bool {
     let l = text.to_ascii_lowercase();
     const NEEDLES: &[&str] = &[
@@ -178,8 +183,24 @@ pub(crate) fn apply_checked(reply: &str, recalled: bool) -> String {
     format!("{}\nChecked: none", reply.trim_end())
 }
 
-pub(crate) fn finish_reply(app: &tauri::AppHandle, reply: &str) -> String {
-    if !super::enabled(app) {
+pub(crate) trait ReplyGate {
+    fn memory_on(&self) -> bool;
+}
+
+impl ReplyGate for bool {
+    fn memory_on(&self) -> bool {
+        *self
+    }
+}
+
+impl ReplyGate for tauri::AppHandle {
+    fn memory_on(&self) -> bool {
+        super::enabled(self)
+    }
+}
+
+pub(crate) fn finish_reply(gate: &impl ReplyGate, reply: &str) -> String {
+    if !gate.memory_on() {
         return reply.to_string();
     }
     let cite = take_cite();

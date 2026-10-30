@@ -56,7 +56,8 @@ pub(crate) fn propose_for_app(
     if !enabled(app) {
         return Ok(serde_json::json!({ "enabled": false, "wrote": false }));
     }
-    let draft = tags::propose_live(names, planet.clone())?;
+    let app_data = crate::coordinator::app_data(app).unwrap_or_default();
+    let draft = tags::propose_live(&app_data, names, planet.clone())?;
     #[cfg(unix)]
     {
         let project = planet.as_deref().unwrap_or("");
@@ -98,12 +99,52 @@ pub(crate) fn handoff_line(
         return wrapped_line.to_string();
     }
     let core = fit(&core_for_app(app));
-    let mode = crate::state::load_state(app)
-        .map(|s| s.companion.mode)
-        .unwrap_or_else(|_| "spark".into());
-    let preamble = render(&core);
+    let state = crate::state::load_state(app).ok();
+    let mode = state
+        .as_ref()
+        .map(|s| s.companion.mode.clone())
+        .unwrap_or_else(|| "spark".into());
+    let state_turns = state.map(|s| s.companion.turns).unwrap_or_default();
+    handoff_from_core(reason, &mode, &core, &state_turns, wrapped_line)
+}
+
+/// Flag-on handoff body. `state_turns` is the saved transcript (what
+/// `load_state` would re-inject). Only `core.turns` is spoken.
+pub(crate) fn handoff_from_core(
+    reason: crate::mouth_roll::ResetReason,
+    mode: &str,
+    core: &ram::RamCore,
+    state_turns: &[crate::state::CompanionTurn],
+    wrapped_line: &str,
+) -> String {
+    let preamble = render(core);
     let line = format!("{preamble}\n{wrapped_line}");
-    crate::mouth_roll::handoff_from_turns(reason, &mode, &core.turns, &line)
+    let turns = &core.turns;
+    let _ = state_turns;
+    handoff_visible(reason, mode, turns, &line)
+}
+
+fn handoff_visible(
+    reason: crate::mouth_roll::ResetReason,
+    mode: &str,
+    turns: &[crate::state::CompanionTurn],
+    line: &str,
+) -> String {
+    let body = crate::mouth_roll::handoff_from_turns(reason, mode, turns, line);
+    // The release string is `body`. Tests also prefix every chosen turn so a
+    // slice longer than RAM (the saved transcript) fails the forget assertion.
+    // `handoff_from_turns` keeps only the last 6, which would hide `turn-0`.
+    #[cfg(test)]
+    {
+        let listed = turns
+            .iter()
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        return format!("{listed}\n{body}");
+    }
+    #[cfg(not(test))]
+    body
 }
 
 pub(crate) fn safe_planet(project_id: &str) -> Option<String> {
