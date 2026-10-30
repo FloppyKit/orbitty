@@ -99,6 +99,15 @@ pub const FLAGS: &[FlagDef] = &[
         remove_after: "2026-12-29",
         auto_on_verify: true,
     },
+    FlagDef {
+        id: "shim_ledger",
+        default: false,
+        what: "count model-misbehaviour shims",
+        go: "GO-ORBITTY-SHIM-LEDGER",
+        added: "2026-10-30",
+        remove_after: "2026-12-29",
+        auto_on_verify: true,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]

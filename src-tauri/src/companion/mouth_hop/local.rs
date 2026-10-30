@@ -11,7 +11,6 @@ use serde_json::{json, Value};
 use super::handoff::strip_handoff_marks;
 use super::openrouter::unseen_image_line;
 
-
 /// Hop-packet history budget — same shape as mouth_roll's handoff:
 /// last ~6 turns, ~1200 chars, ack-noise rows skipped.
 const HOP_TURNS: usize = 6;
@@ -53,6 +52,7 @@ pub(crate) fn hop_messages(
     let turns = crate::state::load_state(app)
         .map(|s| s.companion.turns)
         .unwrap_or_default();
+    let _bound = crate::shims::Bind::arm(app);
     assemble_hop_messages(soul, raw_line, prompt, with_tools, &turns, include_history)
 }
 
@@ -80,7 +80,8 @@ pub(crate) fn assemble_hop_messages(
             json!({ "role": "user", "content": prompt }),
         ];
     }
-    let mut messages = vec![json!({ "role": "system", "content": fenced_soul(soul, include_history) })];
+    let mut messages =
+        vec![json!({ "role": "system", "content": fenced_soul(soul, include_history) })];
     if !include_history {
         messages.push(json!({ "role": "user", "content": prompt }));
         return messages;
@@ -122,6 +123,9 @@ pub(crate) fn assemble_hop_messages(
     for t in kept {
         let role = if t.role == "you" { "user" } else { "assistant" };
         let text = strip_handoff_marks(&t.text);
+        if text != t.text {
+            crate::shims::fired_bound("handoff_strip", crate::shims::ShimCtx { seat: None });
+        }
         messages.push(json!({ "role": role, "content": text.replace('\n', " ") }));
     }
     messages.push(json!({ "role": "user", "content": prompt }));
@@ -148,7 +152,10 @@ impl TmpFile {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let p = std::env::temp_dir().join(format!("orbitty-hop-{}-{nanos}{suffix}", std::process::id()));
+        let p = std::env::temp_dir().join(format!(
+            "orbitty-hop-{}-{nanos}{suffix}",
+            std::process::id()
+        ));
         std::fs::write(&p, body).map_err(|e| format!("write {}: {e}", p.display()))?;
         #[cfg(unix)]
         {
@@ -217,7 +224,11 @@ pub(crate) fn curl_json(
         .map_err(|e| format!("launch curl: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        let line = err.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+        let line = err
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("");
         return Err(if line.is_empty() {
             format!("curl exit {}", out.status.code().unwrap_or(-1))
         } else {
@@ -271,8 +282,7 @@ pub(crate) fn ollama_model() -> Result<String, String> {
     if !env.trim().is_empty() {
         return Ok(env.trim().to_string());
     }
-    let (status, body) =
-        curl_json("GET", &format!("{OLLAMA_BASE}/api/tags"), None, None, 3)?;
+    let (status, body) = curl_json("GET", &format!("{OLLAMA_BASE}/api/tags"), None, None, 3)?;
     if !(200..=299).contains(&status) {
         return Err(format!("tags http {status}"));
     }
@@ -531,4 +541,3 @@ pub(crate) fn local_chat(
         None => Err("none found — open Ollama or LM Studio.".into()),
     }
 }
-

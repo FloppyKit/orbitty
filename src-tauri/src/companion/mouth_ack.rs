@@ -51,8 +51,7 @@ fn ollama_up_cached() -> bool {
         }
     }
     let up = crate::mouth_hop::ollama_up();
-    *OLLAMA_PROBE.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some((up, std::time::Instant::now()));
+    *OLLAMA_PROBE.lock().unwrap_or_else(|e| e.into_inner()) = Some((up, std::time::Instant::now()));
     up
 }
 
@@ -123,6 +122,7 @@ fn conduct_blocking(app: &tauri::AppHandle, line: &str, model: &str) -> Step {
         Some(c) => (c.verb, c.ack, "sidecar"),
         None => {
             crate::mouth_sidecar::clear_harness();
+            crate::shims::fired(app, "ack_fallback", crate::shims::ShimCtx { seat: None });
             let (v, a) = fallback_classify(line);
             (v, a, "keywords")
         }
@@ -182,7 +182,8 @@ fn is_yes(line: &str) -> bool {
     let b = bare(line).to_ascii_lowercase();
     matches!(
         b.as_str(),
-        "yes" | "y"
+        "yes"
+            | "y"
             | "yeah"
             | "yep"
             | "yup"
@@ -280,7 +281,14 @@ fn quoted_span(line: &str) -> Option<String> {
 /// `name it X` — one token, slugged. The proposal line shows exactly
 /// what yes would mint, so a rough parse is corrected by a no.
 fn name_after(low: &str) -> Option<String> {
-    for marker in ["as an action", "as a action", "as action", "called", "named", "name it"] {
+    for marker in [
+        "as an action",
+        "as a action",
+        "as action",
+        "called",
+        "named",
+        "name it",
+    ] {
         if let Some(i) = low.find(marker) {
             let rest = &low[i + marker.len()..];
             if let Some(tok) = rest.split_whitespace().next() {
@@ -325,7 +333,8 @@ fn slug(s: &str) -> String {
 // classify: slim local first
 
 #[allow(dead_code)]
-const CONDUCTOR_SYS: &str = "You are Orbitty's conductor — a fast triage layer in front of the mouth. \
+const CONDUCTOR_SYS: &str =
+    "You are Orbitty's conductor — a fast triage layer in front of the mouth. \
 Read Matt's line and answer with EXACTLY one line, no quotes, no explanation:\n\
 VERB|ack\n\
 VERB is one of:\n\
@@ -382,7 +391,10 @@ fn ollama_classify(model: &str, line: &str) -> Option<(&'static str, String)> {
 fn parse_ack(raw: &str) -> Option<(&'static str, String)> {
     let first = raw.lines().map(str::trim).find(|l| !l.is_empty())?;
     let (verb, ack) = match first.split_once('|') {
-        Some((v, a)) => (normalize_verb(v), a.trim().trim_matches('"').trim().to_string()),
+        Some((v, a)) => (
+            normalize_verb(v),
+            a.trim().trim_matches('"').trim().to_string(),
+        ),
         None => ("chat", first.trim_matches('"').trim().to_string()),
     };
     if ack.is_empty() {
@@ -440,9 +452,11 @@ fn fallback_classify(line: &str) -> (&'static str, String) {
     // A GO token + a fire verb in a shape the strict go: intercept
     // missed (it owns the real fire — this ack only points at it).
     if crate::needed_rules::extract_go(line).is_some()
-        && ["run", "start", "fire", "launch", "pick up", "pickup", "take", "send"]
-            .iter()
-            .any(|w| low.contains(w))
+        && [
+            "run", "start", "fire", "launch", "pick up", "pickup", "take", "send",
+        ]
+        .iter()
+        .any(|w| low.contains(w))
     {
         return ("do-go", fixed_ack("do-go"));
     }
@@ -457,9 +471,16 @@ fn fallback_classify(line: &str) -> (&'static str, String) {
     }
     // Hand-off to Cursor / pickup — don't occupy the mouth for 180s.
     if (low.contains("cursor") || low.contains("pickup") || low.contains("pick up"))
-        && ["hand", "open", "take this", "do this", "fix this", "run this"]
-            .iter()
-            .any(|w| low.contains(w))
+        && [
+            "hand",
+            "open",
+            "take this",
+            "do this",
+            "fix this",
+            "run this",
+        ]
+        .iter()
+        .any(|w| low.contains(w))
     {
         return ("do-go", fixed_ack("do-go"));
     }
@@ -472,7 +493,10 @@ fn fallback_classify(line: &str) -> (&'static str, String) {
 fn fixed_ack(verb: &str) -> String {
     match verb {
         "none" => "Heard you.".into(),
-        "do-go" => "That's a go — the board fires it: drag the card to Doing, or say `GO-… cursor` here.".into(),
+        "do-go" => {
+            "That's a go — the board fires it: drag the card to Doing, or say `GO-… cursor` here."
+                .into()
+        }
         "run-action" => {
             "No baked Action matched that — Settings › Launchpad lists them; say the exact name."
                 .into()
@@ -565,10 +589,7 @@ mod tests {
         assert!(matches!(mint_scan("how was your day"), Mint::No));
         // run words are not mint words.
         assert!(matches!(mint_scan("run the build action"), Mint::No));
-        assert!(matches!(
-            mint_scan("save this as an action"),
-            Mint::Unarmed
-        ));
+        assert!(matches!(mint_scan("save this as an action"), Mint::Unarmed));
         match mint_scan("save \"npm run build\" as action build") {
             Mint::Armed(a) => {
                 assert_eq!(a.command, "npm run build");
@@ -614,7 +635,10 @@ mod tests {
         );
         assert_eq!(fallback_classify("run the build action").0, "run-action");
         // A plain mention is not a fire.
-        assert_eq!(fallback_classify("what about GO-ORBITTY-MOUTH-ACK?").0, "chat");
+        assert_eq!(
+            fallback_classify("what about GO-ORBITTY-MOUTH-ACK?").0,
+            "chat"
+        );
     }
 
     #[test]

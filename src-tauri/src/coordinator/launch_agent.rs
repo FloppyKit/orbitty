@@ -1,10 +1,10 @@
+use super::action::find_on_path;
+use super::commands::set_companion_hack;
+use super::cursor_perm::{install_cursor_permissions, launch_refused, open_agent_terminal};
+use super::paths::{terminal_run_paths, write_agent_query, GoLaunch};
+use super::plug::find_grok;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use super::action::{find_on_path};
-use super::commands::{set_companion_hack};
-use super::cursor_perm::{install_cursor_permissions, launch_refused, open_agent_terminal};
-use super::paths::{ GoLaunch, terminal_run_paths, write_agent_query };
-use super::plug::{find_grok};
 
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
 /// writes the query file and hands off — it never runs the model.
@@ -36,7 +36,9 @@ pub fn launch_agent(
         let push_ok = crate::plans::push_decision(&g.run)?;
         let door = crate::plans::door_harness(&g.run.harness);
         if door == "manual" {
-            let _ = std::process::Command::new("open").arg(&g.parsed.path).status();
+            let _ = std::process::Command::new("open")
+                .arg(&g.parsed.path)
+                .status();
             record_go_launch(&app, g);
             return Ok(format!(
                 "Opened {} (harness manual). Nothing launched.",
@@ -57,9 +59,10 @@ pub fn launch_agent(
     let pid = shortcut.project_id.clone().unwrap_or_default();
     let card_id = crate::state::load_state(&app).ok().and_then(|st| {
         titles.first().and_then(|t| {
-            st.kanban_cards.iter().find(|c| {
-                &c.title == t && (pid.is_empty() || c.project_id == pid)
-            }).map(|c| c.id.clone())
+            st.kanban_cards
+                .iter()
+                .find(|c| &c.title == t && (pid.is_empty() || c.project_id == pid))
+                .map(|c| c.id.clone())
         })
     });
     let task_id = if pid.is_empty() {
@@ -70,8 +73,13 @@ pub fn launch_agent(
     let go_text = go_launch
         .as_ref()
         .map(|g| crate::plans::launch_text(&g.parsed, push_ok));
-    let (query, skipped) =
-        write_agent_query(&app, &shortcut, project_name.as_deref(), &titles, go_text.as_deref())?;
+    let (query, skipped) = write_agent_query(
+        &app,
+        &shortcut,
+        project_name.as_deref(),
+        &titles,
+        go_text.as_deref(),
+    )?;
     let skip_note = if skipped > 0 {
         format!(" Skipped {skipped} unreadable md path(s).")
     } else {
@@ -79,13 +87,16 @@ pub fn launch_agent(
     };
     // Boot liveness (task::boot): what we handed off to, per door.
     let mut hint = crate::task::LiveHint::default();
-    let run_tag = task_id.clone().or_else(|| card_id.clone()).unwrap_or_else(|| {
-        let ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        format!("n{ms:x}")
-    });
+    let run_tag = task_id
+        .clone()
+        .or_else(|| card_id.clone())
+        .unwrap_or_else(|| {
+            let ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            format!("n{ms:x}")
+        });
     let context_dir = query
         .parent()
         .map(Path::to_path_buf)
@@ -96,12 +107,12 @@ pub fn launch_agent(
     let workspace = crate::herdr::planet_cwd(ws_state.as_ref(), &pid, project_name.as_deref());
     let planet_for_log = shortcut.project_id.as_deref().filter(|p| !p.is_empty());
     let out: Result<String, String> = (|| {
-    match shortcut.harness.trim().to_ascii_lowercase().as_str() {
+        match shortcut.harness.trim().to_ascii_lowercase().as_str() {
         "cursor" => {
             let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
             // The model reaches herdr argv and a zsh line: refuse, never strip.
             let model = crate::agents::launch_model(&shortcut)
-                .map_err(|why| launch_refused(&app, planet_for_log, "cursor", &why))?;
+                .map_err(|why| refused_model(&app, planet_for_log, &why))?;
             let ws = Path::new(&workspace);
             // Project permissions exist only for a launch that happened.
             // The file is written once a door is chosen: before
@@ -388,10 +399,24 @@ fn record_go_launch(app: &tauri::AppHandle, g: &GoLaunch) {
         }),
     );
     let line = if let Some(why) = g.run.fallback_why.as_deref() {
-        format!("Launched {id} via fallback {} / {} — {why}", g.run.runner, g.run.harness)
+        format!(
+            "Launched {id} via fallback {} / {} — {why}",
+            g.run.runner, g.run.harness
+        )
     } else {
         format!("Launched {id} via {} / {}.", g.run.runner, g.run.harness)
     };
     let _ = crate::board::kanban_note_append(app, &g.card_id, &line);
 }
 
+/// The cursor door refused the row model. Count it, then the same refusal the door already returned.
+fn refused_model(app: &tauri::AppHandle, planet: Option<&str>, why: &str) -> String {
+    crate::shims::fired(
+        app,
+        "model_argv_refuse",
+        crate::shims::ShimCtx {
+            seat: Some("cursor"),
+        },
+    );
+    launch_refused(app, planet, "cursor", why)
+}

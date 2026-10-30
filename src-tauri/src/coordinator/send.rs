@@ -1,12 +1,17 @@
-use std::path::{ Path };
-use std::process::{Command, Stdio};
-use tauri::{ Emitter };
-use super::action::{find_on_path};
+use super::action::find_on_path;
 use super::allowlist::{hermes_profile_dirs, load_companion_session_id, resolve_agent};
-use super::hermes::{app_data};
-use super::intercept::{ActionIntercept, log_companion_route, match_action_line, persist_action_intercept, persist_companion_you, wrap_with_pocket};
+use super::hermes::app_data;
+use super::intercept::{
+    log_companion_route, match_action_line, persist_action_intercept, persist_companion_you,
+    wrap_with_pocket, ActionIntercept,
+};
 use super::mouth_cli::{is_goose_session_id, is_uuid, mint_uuid, run_mouth_cli};
-use super::plug::{PlugState, berdctl_cmd, companion_soul_text, find_berdctl, find_grok, load_plug, save_plug};
+use super::plug::{
+    berdctl_cmd, companion_soul_text, find_berdctl, find_grok, load_plug, save_plug, PlugState,
+};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use tauri::Emitter;
 
 /// Companion composer send path.
 /// Harness order: env override, saved companion.backend, legacy goose
@@ -62,7 +67,8 @@ pub async fn companion_send_from(
         &roots,
         out,
         |title| {
-            let _ = crate::board::needed_open(&app, title, "", Some(crate::policy_guard::NEEDED_WHY));
+            let _ =
+                crate::board::needed_open(&app, title, "", Some(crate::policy_guard::NEEDED_WHY));
         },
         |ev| {
             crate::event_log::append_best(
@@ -147,54 +153,58 @@ pub(crate) async fn companion_send_inner(
     // locally — Hermes/Berd never sees it. No match → unchanged send.
     if !no_intercepts {
         if let Ok(st) = crate::state::load_state(&app) {
-        match match_action_line(&st.action_shortcuts, &line) {
-            Some(ActionIntercept::Run(shortcut, keep_you)) => {
-                let command = shortcut.command.clone();
-                let cwd = shortcut.cwd.clone();
-                let action_name = shortcut.name.clone();
-                let action_app = app.clone();
-                // Same door as the chord and action.run: a thin row goes to companion_thin.
-                let result = tauri::async_runtime::spawn_blocking(move || {
-                    crate::actions::dispatch_action(&action_app, &action_name, command, cwd)
-                })
+            match match_action_line(&st.action_shortcuts, &line) {
+                Some(ActionIntercept::Run(shortcut, keep_you)) => {
+                    let command = shortcut.command.clone();
+                    let cwd = shortcut.cwd.clone();
+                    let action_name = shortcut.name.clone();
+                    let action_app = app.clone();
+                    // Same door as the chord and action.run: a thin row goes to companion_thin.
+                    let result = tauri::async_runtime::spawn_blocking(move || {
+                        crate::actions::dispatch_action(&action_app, &action_name, command, cwd)
+                    })
                     .await
                     .map_err(|e| format!("run task: {e}"))
                     .and_then(|r| r);
-                // Same head as the rail's runAction; timeout/spawn errors
-                // land as the them-line string, never an Err to the client.
-                let _pin = pin_turn(&app);
-                let them = match result {
-                    Ok(r) => {
-                        let out = [r.stdout, r.stderr]
-                            .into_iter()
-                            .filter(|s| !s.is_empty())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        let head = if r.ok {
-                            format!("{}: done", shortcut.name)
-                        } else {
-                            format!(
-                                "{}: exit {}",
-                                shortcut.name,
-                                r.code.map(|c| c.to_string()).unwrap_or_else(|| "?".into())
-                            )
-                        };
-                        if out.is_empty() { head } else { format!("{head}\n{out}") }
-                    }
-                    Err(e) => e,
-                };
-                return Ok(persist_action_intercept(
-                    &app,
-                    keep_you.then_some(line.as_str()),
-                    &them,
-                ));
+                    // Same head as the rail's runAction; timeout/spawn errors
+                    // land as the them-line string, never an Err to the client.
+                    let _pin = pin_turn(&app);
+                    let them = match result {
+                        Ok(r) => {
+                            let out = [r.stdout, r.stderr]
+                                .into_iter()
+                                .filter(|s| !s.is_empty())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            let head = if r.ok {
+                                format!("{}: done", shortcut.name)
+                            } else {
+                                format!(
+                                    "{}: exit {}",
+                                    shortcut.name,
+                                    r.code.map(|c| c.to_string()).unwrap_or_else(|| "?".into())
+                                )
+                            };
+                            if out.is_empty() {
+                                head
+                            } else {
+                                format!("{head}\n{out}")
+                            }
+                        }
+                        Err(e) => e,
+                    };
+                    return Ok(persist_action_intercept(
+                        &app,
+                        keep_you.then_some(line.as_str()),
+                        &them,
+                    ));
+                }
+                Some(ActionIntercept::Ambiguous) => {
+                    let them = "which action? use the Launchpad well.".to_string();
+                    return Ok(persist_action_intercept(&app, None, &them));
+                }
+                None => {}
             }
-            Some(ActionIntercept::Ambiguous) => {
-                let them = "which action? use the Launchpad well.".to_string();
-                return Ok(persist_action_intercept(&app, None, &them));
-            }
-            None => {}
-        }
         }
     }
 
@@ -240,7 +250,11 @@ pub(crate) async fn companion_send_inner(
                 reply_lane: reply_lane.clone(),
             });
             log_companion_route(&app, hit.log_name());
+            let spoken_before = spoken.clone();
             let spoken = crate::mouth_hop::strip_handoff_marks(&spoken);
+            if spoken != spoken_before {
+                crate::shims::fired(&app, "handoff_strip", crate::shims::ShimCtx { seat: None });
+            }
             if crate::state::update(&app, |st| {
                 st.companion.last_bot_line = spoken.clone();
                 st.companion.push_turn("them", &spoken);
@@ -363,12 +377,8 @@ pub(crate) async fn companion_send_inner(
         .as_ref()
         .is_some_and(|a| crate::attach_vision::is_image(&a.path));
     if image && crate::attach_vision::vision_gate_applies(&lane, model_vision) {
-        let path = attach
-            .as_ref()
-            .map(|a| a.path.clone())
-            .unwrap_or_default();
-        let reply =
-            crate::mouth_hop::refuse_or_handoff(&app, &line, &path, &lane).await?;
+        let path = attach.as_ref().map(|a| a.path.clone()).unwrap_or_default();
+        let reply = crate::mouth_hop::refuse_or_handoff(&app, &line, &path, &lane).await?;
         let _pin = pin_turn(&app);
         if crate::state::update(&app, |st| {
             st.companion.last_bot_line = reply.clone();
@@ -397,36 +407,28 @@ pub(crate) async fn companion_send_inner(
         // Free Mode skips paid Grok; a cooked lane hops Ollama →
         // OpenRouter free with the hop packet. Same bubble either way.
         "grok" => {
-            crate::mouth_hop::send_with_hops(
-                &app,
-                &line,
-                &prompt,
-                &hop_ack,
-                vision_path.as_deref(),
-            )
-            .await?
+            crate::mouth_hop::send_with_hops(&app, &line, &prompt, &hop_ack, vision_path.as_deref())
+                .await?
         }
         "direct" => {
-            crate::direct_lane::send(
-                &app,
-                &line,
-                &prompt,
-                &hop_ack,
-                vision_path.as_deref(),
-            )
-            .await?
+            crate::direct_lane::send(&app, &line, &prompt, &hop_ack, vision_path.as_deref()).await?
         }
         "hermes" => companion_send_hermes(&app, &prompt).await?,
         "berd" => companion_send_berd(&prompt).await?,
         other => {
             return Err(crate::companion_backend::unknown_backend_message(
-                other, backend_source,
+                other,
+                backend_source,
             ))
         }
     };
     // No model or agent reply may carry a handoff trailer (a forged
     // "Ask online agent" button). Only the vision gate above adds one.
+    let reply_before = reply.clone();
     let reply = crate::mouth_hop::strip_handoff_marks(&reply);
+    if reply != reply_before {
+        crate::shims::fired(&app, "handoff_strip", crate::shims::ShimCtx { seat: None });
+    }
 
     // You-row already persisted before the model wait. Reply only here.
     let _pin = pin_turn(&app);
@@ -451,9 +453,8 @@ pub(crate) async fn companion_send_inner(
 }
 
 pub(crate) async fn companion_send_berd(line: &str) -> Result<String, String> {
-    let bin = find_berdctl().ok_or(
-        "`berdctl` not found — install Berd.app or put berdctl on PATH.",
-    )?;
+    let bin =
+        find_berdctl().ok_or("`berdctl` not found — install Berd.app or put berdctl on PATH.")?;
     let sid = load_companion_session_id()?;
     let line = line.to_string();
     tauri::async_runtime::spawn_blocking(move || run_berd_reply(&bin, &sid, &line))
@@ -469,7 +470,10 @@ pub(crate) async fn companion_send_berd(line: &str) -> Result<String, String> {
 /// and persisted in plug.json; later sends resume by
 /// `--session-id ID --resume` (`--name` is not a unique resume key).
 /// Honest error when goose is missing — no silent Berd fallback.
-pub(crate) async fn companion_send_goose(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
+pub(crate) async fn companion_send_goose(
+    app: &tauri::AppHandle,
+    line: &str,
+) -> Result<String, String> {
     let bin = find_on_path("goose").ok_or(
         "`goose` not found — install the Goose CLI or put it on PATH (Orbitty.app checks PATH + ~/.local/bin).",
     )?;
@@ -663,6 +667,13 @@ pub(crate) fn run_goose_reply(
     let reply = match run_mouth_cli("Goose", bin, &args, &[("GOOSE_MODE", "always_allow")], 300) {
         Ok(r) => r,
         Err(e) if !first_send && crate::mouth_roll::goose_context_dead(&e) => {
+            crate::shims::fired(
+                app,
+                "goose_context_dead",
+                crate::shims::ShimCtx {
+                    seat: Some("goose"),
+                },
+            );
             let old = plug.goose_session_id.clone().unwrap_or_default();
             let reason = crate::mouth_roll::ResetReason::ContextDead;
             let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
@@ -683,6 +694,13 @@ pub(crate) fn run_goose_reply(
     if reply.is_empty() {
         // Empty after a resume = a thin/dead session — same rollover.
         if !first_send {
+            crate::shims::fired(
+                app,
+                "goose_empty_resume",
+                crate::shims::ShimCtx {
+                    seat: Some("goose"),
+                },
+            );
             let old = plug.goose_session_id.clone().unwrap_or_default();
             let reason = crate::mouth_roll::ResetReason::EmptyResume;
             let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
@@ -833,8 +851,7 @@ pub(crate) fn run_grok_reply(
                 .unwrap_or(crate::mouth_roll::ResetReason::Budget);
             let old = plug.grok_session_id.clone().unwrap_or_default();
             let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
-            let text =
-                crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff)?;
+            let text = crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff)?;
             plug.reset_pending = None;
             plug.grok_sends = 1;
             plug.grok_chars = line.chars().count() as u64 + text.chars().count() as u64;
@@ -850,8 +867,16 @@ pub(crate) fn run_grok_reply(
             );
             return Ok(text);
         }
-    } else if crate::mouth_archive::legacy_send_roll(false, plug.grok_session_minted, plug.grok_sends)
-    {
+    } else if crate::mouth_archive::legacy_send_roll(
+        false,
+        plug.grok_session_minted,
+        plug.grok_sends,
+    ) {
+        crate::shims::fired(
+            app,
+            "grok_context_dead",
+            crate::shims::ShimCtx { seat: Some("grok") },
+        );
         plug.grok_sends = 0;
         save_plug(&plug);
         let handoff = crate::mouth_roll::handoff_prompt(
@@ -882,10 +907,7 @@ pub(crate) fn run_grok_reply(
         crate::mouth_blip::run_streamed(app, "Grok", bin, args, 180, watch)
     };
     let text = match if plug.grok_session_minted {
-        streamed(
-            &args,
-            Some(&crate::mouth_roll::grok_session_gone_line),
-        )
+        streamed(&args, Some(&crate::mouth_roll::grok_session_gone_line))
     } else {
         streamed(&args, None)
     } {
@@ -893,20 +915,15 @@ pub(crate) fn run_grok_reply(
         Err(e) if !plug.grok_session_minted && e.to_ascii_lowercase().contains("session") => {
             plug.grok_session_minted = true;
             save_plug(&plug);
-            let retry = grok_args(
-                &sid,
-                true,
-                soul,
-                line,
-                tools_ok,
-                vision_json.as_deref(),
-            );
-            streamed(
-                &retry,
-                Some(&crate::mouth_roll::grok_session_gone_line),
-            )?
+            let retry = grok_args(&sid, true, soul, line, tools_ok, vision_json.as_deref());
+            streamed(&retry, Some(&crate::mouth_roll::grok_session_gone_line))?
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_session_gone(&e) => {
+            crate::shims::fired(
+                app,
+                "grok_session_gone",
+                crate::shims::ShimCtx { seat: Some("grok") },
+            );
             let old = plug.grok_session_id.clone().unwrap_or_default();
             let reason = crate::mouth_roll::ResetReason::SessionGone;
             let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
@@ -915,6 +932,11 @@ pub(crate) fn run_grok_reply(
             return Ok(text);
         }
         Err(e) if plug.grok_session_minted && crate::mouth_roll::grok_context_dead(&e) => {
+            crate::shims::fired(
+                app,
+                "grok_context_dead",
+                crate::shims::ShimCtx { seat: Some("grok") },
+            );
             let old = plug.grok_session_id.clone().unwrap_or_default();
             let reason = crate::mouth_roll::ResetReason::ContextDead;
             let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
@@ -926,6 +948,11 @@ pub(crate) fn run_grok_reply(
     };
     if text.is_empty() && plug.grok_session_minted {
         // Empty after a resume = a thin/dead session — same rollover.
+        crate::shims::fired(
+            app,
+            "grok_empty_resume",
+            crate::shims::ShimCtx { seat: Some("grok") },
+        );
         let old = plug.grok_session_id.clone().unwrap_or_default();
         let reason = crate::mouth_roll::ResetReason::EmptyResume;
         let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
@@ -941,17 +968,20 @@ pub(crate) fn run_grok_reply(
     }
     plug.grok_sends = plug.grok_sends.saturating_add(1);
     if crate::mouth_archive::enabled() {
-        plug.grok_chars = plug.grok_chars.saturating_add(
-            line.chars().count() as u64 + text.chars().count() as u64,
-        );
+        plug.grok_chars = plug
+            .grok_chars
+            .saturating_add(line.chars().count() as u64 + text.chars().count() as u64);
     }
     save_plug(&plug);
     Ok(text)
 }
 
-pub(crate) async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) -> Result<String, String> {
-    let bin = find_on_path("hermes")
-        .ok_or("`hermes` not found — install Hermes or put it on PATH.")?;
+pub(crate) async fn companion_send_hermes(
+    app: &tauri::AppHandle,
+    line: &str,
+) -> Result<String, String> {
+    let bin =
+        find_on_path("hermes").ok_or("`hermes` not found — install Hermes or put it on PATH.")?;
 
     let dir = app_data(app)?.join("context");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
@@ -986,15 +1016,16 @@ pub(crate) async fn companion_send_hermes(app: &tauri::AppHandle, line: &str) ->
         "orbitty".into(),
     ]);
 
-    tauri::async_runtime::spawn_blocking(move || {
-        match run_hermes_reply(&bin, &args) {
-            Err(e) if hermes_rejects_safe_mode(&e) => {
-                let plain: Vec<String> =
-                    args.iter().filter(|a| a.as_str() != "--safe-mode").cloned().collect();
-                run_hermes_reply(&bin, &plain)
-            }
-            r => r,
+    tauri::async_runtime::spawn_blocking(move || match run_hermes_reply(&bin, &args) {
+        Err(e) if hermes_rejects_safe_mode(&e) => {
+            let plain: Vec<String> = args
+                .iter()
+                .filter(|a| a.as_str() != "--safe-mode")
+                .cloned()
+                .collect();
+            run_hermes_reply(&bin, &plain)
         }
+        r => r,
     })
     .await
     .map_err(|e| format!("send task: {e}"))?
@@ -1115,8 +1146,8 @@ pub(crate) fn berd_session_snapshot(bin: &Path, session_id: &str) -> Result<Berd
             out.status.code(),
         ));
     }
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout)
-        .map_err(|e| format!("berdctl get JSON: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("berdctl get JSON: {e}"))?;
     let is_running = v
         .get("is_running")
         .and_then(|x| x.as_bool())
@@ -1188,7 +1219,12 @@ pub(crate) fn run_hermes_reply(bin: &Path, args: &[String]) -> Result<String, St
 }
 
 /// One honest line from a failed CLI run — never a path dump.
-pub(crate) fn tool_error_line(tool: &str, stderr: &[u8], stdout: &[u8], code: Option<i32>) -> String {
+pub(crate) fn tool_error_line(
+    tool: &str,
+    stderr: &[u8],
+    stdout: &[u8],
+    code: Option<i32>,
+) -> String {
     let text = String::from_utf8_lossy(stderr);
     let out = String::from_utf8_lossy(stdout);
     let line = text
@@ -1211,4 +1247,3 @@ pub(crate) fn tool_error_line(tool: &str, stderr: &[u8], stdout: &[u8], code: Op
         ),
     }
 }
-

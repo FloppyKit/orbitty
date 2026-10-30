@@ -1,6 +1,6 @@
-use std::path::{ PathBuf };
-use tauri::{ Emitter };
-use super::allowlist::{companions_root};
+use super::allowlist::companions_root;
+use std::path::PathBuf;
+use tauri::Emitter;
 
 // A typed line can name a Launchpad Action
 
@@ -48,7 +48,11 @@ pub(crate) fn match_action_line(
     let mut parts = line.splitn(2, char::is_whitespace);
     let head = parts.next().unwrap_or_default();
     let rest = parts.next().unwrap_or("").trim();
-    if matches!(head.to_ascii_lowercase().as_str(), "run" | "/run" | "action") && !rest.is_empty() {
+    if matches!(
+        head.to_ascii_lowercase().as_str(),
+        "run" | "/run" | "action"
+    ) && !rest.is_empty()
+    {
         let by_prefix: Vec<_> = shortcuts
             .iter()
             .filter(|a| a.name.trim().eq_ignore_ascii_case(rest))
@@ -110,9 +114,16 @@ pub(crate) fn persist_companion_you(app: &tauri::AppHandle, line: &str) {
 /// Saves the them-row stripped and returns that same stripped string, so
 /// the live bubble never shows a button the saved row doesn't have.
 #[must_use]
-pub(crate) fn persist_action_intercept(app: &tauri::AppHandle, you: Option<&str>, them: &str) -> String {
+pub(crate) fn persist_action_intercept(
+    app: &tauri::AppHandle,
+    you: Option<&str>,
+    them: &str,
+) -> String {
     // Command output is not allowed to mint a handoff button either.
     let stripped = crate::mouth_hop::strip_handoff_marks(them);
+    if stripped != them {
+        crate::shims::fired(app, "handoff_strip", crate::shims::ShimCtx { seat: None });
+    }
     let them = stripped.as_str();
     if crate::state::update(app, |st| {
         if let Some(you) = you {

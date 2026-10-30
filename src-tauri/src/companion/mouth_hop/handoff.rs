@@ -3,7 +3,6 @@ use tauri::Emitter;
 
 use super::local::hop_messages;
 use super::local::local_chat;
-use super::openrouter::VisionGate;
 use super::openrouter::compat_chat;
 use super::openrouter::decide_vision_gate;
 use super::openrouter::hop_lane_for;
@@ -16,6 +15,7 @@ use super::openrouter::openrouter_paid_chat;
 use super::openrouter::openrouter_quota_cooked;
 use super::openrouter::reply_model;
 use super::openrouter::unseen_image_line;
+use super::openrouter::VisionGate;
 
 pub(crate) const HANDOFF_TOKEN: &str = "[[handoff]]";
 pub(crate) const HANDOFF_MARK: &str = "\n[[handoff]]\n";
@@ -35,9 +35,7 @@ static PENDING_HANDOFFS: std::sync::Mutex<Vec<(String, PendingHandoff)>> =
 pub(crate) const PENDING_HANDOFF_CAP: usize = 16;
 
 fn pending_handoffs() -> std::sync::MutexGuard<'static, Vec<(String, PendingHandoff)>> {
-    PENDING_HANDOFFS
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
+    PENDING_HANDOFFS.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 pub(crate) fn is_handoff_id(id: &str) -> bool {
@@ -100,9 +98,14 @@ pub fn strip_handoff_marks(text: &str) -> String {
     }
     let mut out = text.to_string();
     while let Some(i) = out.find(HANDOFF_TOKEN) {
-        let before = out[..i].trim_end_matches(['\n', '\r', ' ', '\t']).to_string();
+        let before = out[..i]
+            .trim_end_matches(['\n', '\r', ' ', '\t'])
+            .to_string();
         let mut after = out[i + HANDOFF_TOKEN.len()..].trim_start_matches([' ', '\t']);
-        after = after.strip_prefix("\r\n").or_else(|| after.strip_prefix('\n')).unwrap_or(after);
+        after = after
+            .strip_prefix("\r\n")
+            .or_else(|| after.strip_prefix('\n'))
+            .unwrap_or(after);
         let (first, rest) = after.split_once('\n').unwrap_or((after, ""));
         let first_t = first.trim();
         let rest = if first_t.starts_with('{') && serde_json::from_str::<Value>(first_t).is_ok() {
@@ -139,8 +142,16 @@ pub fn split_handoff(text: &str) -> (String, Option<HandoffAction>) {
     let Ok(v) = serde_json::from_str::<Value>(raw.trim()) else {
         return (text.to_string(), None);
     };
-    let reason = v.get("reason").and_then(Value::as_str).unwrap_or("").to_string();
-    let id = v.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+    let reason = v
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let id = v
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     if reason.is_empty() || !is_handoff_id(&id) {
         return (visible.to_string(), None);
     }
@@ -188,8 +199,7 @@ pub fn lane_from_fields(raw: &str, free_mode: bool) -> String {
     }
 }
 
-pub const NO_MODEL_LINE: &str =
-    "I don't have a model yet. Click Set up a model to connect one.";
+pub const NO_MODEL_LINE: &str = "I don't have a model yet. Click Set up a model to connect one.";
 
 pub fn is_no_model_lane(lane: &str) -> bool {
     cfg!(feature = "alpha") && lane == "none"
@@ -282,7 +292,12 @@ fn free_lanes_reply(
             notes.push("compat: text only".into());
         } else {
             let (base, model) = crate::state::load_state(app)
-                .map(|s| (s.companion.direct_base_url.clone(), s.companion.direct_model.clone()))
+                .map(|s| {
+                    (
+                        s.companion.direct_base_url.clone(),
+                        s.companion.direct_model.clone(),
+                    )
+                })
                 .unwrap_or_default();
             match {
                 #[cfg(feature = "alpha")]
@@ -434,15 +449,9 @@ pub async fn send_with_hops(
         crate::mouth_gist::Harness::Job => {
             crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane, false, file)
         }
-        crate::mouth_gist::Harness::Tight => crate::mouth_gist::build(
-            app,
-            raw_line,
-            "chat",
-            hop_ack,
-            hop_lane,
-            !image_on,
-            file,
-        ),
+        crate::mouth_gist::Harness::Tight => {
+            crate::mouth_gist::build(app, raw_line, "chat", hop_ack, hop_lane, !image_on, file)
+        }
         crate::mouth_gist::Harness::Pocket => None,
     };
     let mode = crate::state::load_state(app)
@@ -704,7 +713,11 @@ pub async fn refuse_or_handoff(
         VisionGate::Auto { backend, prefix } => {
             log_handoff(app, from_lane, &backend, "no-vision");
             let answer = dispatch_handoff(app, &backend, line, Some(path)).await?;
+            let answer_before = answer.clone();
             let answer = strip_handoff_marks(&answer);
+            if answer != answer_before {
+                crate::shims::fired(app, "handoff_strip", crate::shims::ShimCtx { seat: None });
+            }
             Ok(format!("{prefix}\n\n{answer}"))
         }
     }
@@ -727,7 +740,11 @@ pub async fn companion_handoff(app: tauri::AppHandle, id: String) -> Result<Stri
     log_handoff(&app, &from, backend.trim(), "no-vision");
     let path = Some(offer.path.as_str()).filter(|p| !p.trim().is_empty());
     let answer = dispatch_handoff(&app, backend.trim(), offer.line.trim(), path).await?;
+    let answer_before = answer.clone();
     let answer = strip_handoff_marks(&answer);
+    if answer != answer_before {
+        crate::shims::fired(&app, "handoff_strip", crate::shims::ShimCtx { seat: None });
+    }
     persist_them(&app, &answer);
     Ok(answer)
 }
@@ -749,33 +766,52 @@ fn key_status() -> OpenRouterKeyStatus {
         let (set, tail) = crate::companion::keystore::status("openrouter");
         return OpenRouterKeyStatus {
             set,
-            source: if set { "keychain".into() } else { String::new() },
+            source: if set {
+                "keychain".into()
+            } else {
+                String::new()
+            },
             tail,
         };
     }
     #[cfg(not(feature = "alpha"))]
     {
-    let env = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
-    let env = env.trim();
-    if !env.is_empty() {
-        return OpenRouterKeyStatus {
-            set: true,
-            source: "env".into(),
-            tail: env.chars().rev().take(4).collect::<String>().chars().rev().collect(),
-        };
-    }
-    match std::fs::read_to_string(key_path()) {
-        Ok(k) if !k.trim().is_empty() => OpenRouterKeyStatus {
-            set: true,
-            source: "file".into(),
-            tail: k.trim().chars().rev().take(4).collect::<String>().chars().rev().collect(),
-        },
-        _ => OpenRouterKeyStatus {
-            set: false,
-            source: String::new(),
-            tail: String::new(),
-        },
-    }
+        let env = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
+        let env = env.trim();
+        if !env.is_empty() {
+            return OpenRouterKeyStatus {
+                set: true,
+                source: "env".into(),
+                tail: env
+                    .chars()
+                    .rev()
+                    .take(4)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect(),
+            };
+        }
+        match std::fs::read_to_string(key_path()) {
+            Ok(k) if !k.trim().is_empty() => OpenRouterKeyStatus {
+                set: true,
+                source: "file".into(),
+                tail: k
+                    .trim()
+                    .chars()
+                    .rev()
+                    .take(4)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect(),
+            },
+            _ => OpenRouterKeyStatus {
+                set: false,
+                source: String::new(),
+                tail: String::new(),
+            },
+        }
     }
 }
 
@@ -797,27 +833,28 @@ pub fn set_openrouter_key(key: String) -> Result<OpenRouterKeyStatus, String> {
     }
     #[cfg(not(feature = "alpha"))]
     {
-    let key = key.trim().to_string();
-    let path = key_path();
-    if key.is_empty() {
-        if path.exists() {
-            std::fs::remove_file(&path).map_err(|e| format!("remove {}: {e}", path.display()))?;
+        let key = key.trim().to_string();
+        let path = key_path();
+        if key.is_empty() {
+            if path.exists() {
+                std::fs::remove_file(&path)
+                    .map_err(|e| format!("remove {}: {e}", path.display()))?;
+            }
+            return Ok(key_status());
         }
-        return Ok(key_status());
-    }
-    if key.chars().any(char::is_whitespace) {
-        return Err("That doesn't look like a key — no spaces or newlines.".into());
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
-    }
-    std::fs::write(&path, format!("{key}\n")).map_err(|e| format!("write {}: {e}", path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
-    Ok(key_status())
+        if key.chars().any(char::is_whitespace) {
+            return Err("That doesn't look like a key — no spaces or newlines.".into());
+        }
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+        }
+        std::fs::write(&path, format!("{key}\n"))
+            .map_err(|e| format!("write {}: {e}", path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(key_status())
     }
 }
-
