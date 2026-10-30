@@ -69,6 +69,7 @@ pub(crate) use habitat::packs;
 mod state;
 mod windows;
 mod tabbity;
+mod flags;
 pub(crate) use windows::claim_front;
 pub(crate) use windows::drawers;
 pub(crate) use windows::glass;
@@ -505,6 +506,9 @@ fn plans_set_runner(
 /// Same prepare / spawn / refusal note as the `go.start` control arm.
 #[tauri::command]
 fn go_start(app: tauri::AppHandle, card: String) -> Result<serde_json::Value, String> {
+    if let Some(msg) = crate::flags::blocked(&app, "go_start", "Go") {
+        return crate::flags::note_refusal(&app, &card, msg);
+    }
     match crate::plans::prepare_start(&card) {
         Err(reason) => {
             let _ = crate::board::kanban_note_append(&app, &card, &reason);
@@ -847,6 +851,9 @@ pub fn run() {
             plans_set_dir,
             plans_set_runner,
             go_start,
+            flags::flags_get,
+            flags::flags_list,
+            flags::flags_set,
             go_preview,
             agent_pickup,
             bring_all_front,
@@ -964,6 +971,7 @@ pub fn run() {
             // once and the app runs on without it.
             #[cfg(unix)]
             control::start(app.handle());
+            crate::flags::auto_sweep(app.handle());
             #[cfg(unix)]
             shift::boot(app.handle());
 
