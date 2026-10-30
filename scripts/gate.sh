@@ -357,5 +357,90 @@ note_stale_flags() {
   return 0
 }
 
+# Shim rows that are at least 14 days old with no fires in the last 14 CT
+# days. A NOTE only — never fails the gate. Missing counts count as zero.
+note_shim_candidates() {
+  local today
+  today=$(TZ=America/Chicago date +%Y-%m-%d 2>/dev/null || date +%Y-%m-%d)
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 - "$root" "$today" <<'PY' || true
+import datetime, json, os, sys
+
+root, today = sys.argv[1], sys.argv[2]
+path = os.path.join(root, "src-tauri", "src", "shims.rs")
+try:
+    src = open(path, encoding="utf-8").read()
+except OSError:
+    sys.exit(0)
+start = src.find("pub const SHIMS:")
+end = src.find("\n];", start)
+if start < 0 or end < 0:
+    sys.exit(0)
+body = src[start:end]
+rows = []
+for block in body.split("ShimDef {")[1:]:
+    def field(key):
+        pat = key + ': "'
+        i = block.find(pat)
+        if i < 0:
+            return ""
+        rest = block[i + len(pat):]
+        j = rest.find('"')
+        return rest[:j] if j >= 0 else ""
+    ident, since = field("id"), field("since")
+    if ident and since:
+        rows.append((ident, since))
+
+def day(s):
+    return datetime.date.fromisoformat(s)
+
+try:
+    t = day(today)
+except ValueError:
+    sys.exit(0)
+old_cut = t - datetime.timedelta(days=14)
+win = t - datetime.timedelta(days=13)
+
+fires = {}
+home = os.environ.get("HOME", "")
+if home:
+    base = os.path.join(home, "Library", "Application Support")
+    names = ("space.orbitty.mac", "space.orbitty.mac.nightly", "space.orbitty.alpha")
+    for name in names:
+        cpath = os.path.join(base, name, "ledger", "shims", "counts.json")
+        try:
+            counts = json.load(open(cpath, encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(counts, dict):
+            continue
+        for ident, row in counts.items():
+            by = row.get("by_day") if isinstance(row, dict) else None
+            if not isinstance(by, dict):
+                continue
+            bucket = fires.setdefault(ident, 0)
+            for d, n in by.items():
+                try:
+                    when = day(d)
+                    n = int(n)
+                except (ValueError, TypeError):
+                    continue
+                if win <= when <= t:
+                    fires[ident] = bucket = bucket + n
+
+for ident, since in sorted(rows):
+    try:
+        born = day(since)
+    except ValueError:
+        continue
+    if born <= old_cut and fires.get(ident, 0) == 0:
+        print(f"NOTE delete-candidate shim {ident}")
+PY
+  return 0
+}
+
 run_literal_scan
 note_stale_flags
+note_shim_candidates
