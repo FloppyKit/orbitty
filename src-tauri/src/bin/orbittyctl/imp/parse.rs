@@ -85,6 +85,8 @@ pub(crate) struct Opts {
     pub(crate) limit: Option<String>,
     /// history rewind --remove-added
     pub(crate) remove_added: bool,
+    /// companion roll --reason manual_test
+    pub(crate) reason: Option<String>,
 }
 
 pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -153,6 +155,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
         pending: None,
         limit: None,
         remove_added: false,
+        reason: None,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -224,7 +227,8 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             "--rm" => o.rm = Some(it.next().ok_or("--rm needs a URL")?.clone()),
             "--label" => o.label = Some(it.next().ok_or("--label needs a value")?.clone()),
             "--clear" => o.clear = true,
-            "--n" => o.n = Some(it.next().ok_or("--n needs a number")?.clone()),
+            "-n" | "--n" => o.n = Some(it.next().ok_or("--n needs a number")?.clone()),
+            "--reason" => o.reason = Some(it.next().ok_or("--reason needs a value")?.clone()),
             "--run" => o.run = true,
             "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
             "--pending" => {
@@ -322,6 +326,9 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             s if s.starts_with("--rm=") => o.rm = Some(s["--rm=".len()..].to_string()),
             s if s.starts_with("--label=") => o.label = Some(s["--label=".len()..].to_string()),
             s if s.starts_with("--n=") => o.n = Some(s["--n=".len()..].to_string()),
+            s if s.starts_with("--reason=") => {
+                o.reason = Some(s["--reason=".len()..].to_string())
+            },
             s if s.starts_with("--url=") => o.url = Some(s["--url=".len()..].to_string()),
             s if s.starts_with("--date=") => o.date = Some(s["--date=".len()..].to_string()),
             s if s.starts_with("--axis=") => o.axis = Some(s["--axis=".len()..].to_string()),

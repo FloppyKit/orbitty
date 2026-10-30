@@ -359,6 +359,9 @@ const READ_TOOLS: &[&str] = &[
     "tabbity.planets",
     // The list is the read face. flags.set stays write-class (socket only).
     "flags.list",
+    // Archive reads. companion.roll stays write-class (manual_test only).
+    "companion.archive_tail",
+    "companion.resets",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -453,6 +456,18 @@ fn arg_str(args: &Value, key: &str) -> Result<String, (i32, String)> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .ok_or_else(|| (ERR_OTHER, format!("missing arg {key:?}")))
+}
+
+fn arg_usize(args: &Value, key: &str, default: usize) -> usize {
+    let Some(v) = args.get(key) else {
+        return default;
+    };
+    if let Some(n) = v.as_u64() {
+        return n as usize;
+    }
+    v.as_str()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(default)
 }
 
 /// Optional string arg: absent / non-string / blank-after-trim = None.
@@ -674,6 +689,31 @@ fn run_tool(
         "companion.thin" => crate::coordinator::companion_thin(app.clone())
             .map(to_data)
             .map_err(tool_err),
+        "companion.archive_tail" => {
+            let n = arg_usize(args, "n", 20);
+            let date = arg_opt(args, "date");
+            let root = crate::coordinator::companions_root();
+            let lines = crate::mouth_archive::tail(&root, n, date.as_deref());
+            Ok(json!({ "lines": lines }))
+        }
+        "companion.resets" => {
+            let n = arg_usize(args, "n", 20);
+            let root = crate::coordinator::companions_root();
+            let lines = crate::mouth_archive::resets_tail(&root, n);
+            Ok(json!({ "lines": lines }))
+        }
+        "companion.roll" => {
+            let reason = arg_str(args, "reason")?;
+            if reason != "manual_test" {
+                return Err((
+                    ERR_OTHER,
+                    "companion.roll: reason must be manual_test".into(),
+                ));
+            }
+            crate::mouth_archive::arm_manual_roll()
+                .map(|_| json!({ "reason": "manual_test", "pending": true }))
+                .map_err(tool_err)
+        }
         "companion.now" => {
             let files = args
                 .get("files")

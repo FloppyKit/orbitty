@@ -59,6 +59,9 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "stars.timer.status", description: "List timer trackers with running state and elapsed seconds.", args: "none" },
     ToolDef { name: "stars.cloud.words", description: "Read the Cloud cover word bag (done cards, tags, planet names, your lines). Not stored. Bot replies are excluded.", args: "stars_cloud" },
     ToolDef { name: "companion.send", description: "Send a line on the companion Berd path", args: "line" },
+    ToolDef { name: "companion.archive_tail", description: "Last n lines of the companion archive (default 20). Optional date is a CT day YYYY-MM-DD. Read-only.", args: "archive_tail" },
+    ToolDef { name: "companion.resets", description: "Last n backend reset lines (default 20). Read-only.", args: "archive_n" },
+    ToolDef { name: "companion.roll", description: "Arm a manual_test backend reset for the next Grok send. No model call. Any other reason is refused.", args: "archive_roll" },
     ToolDef { name: "companion.agents", description: "List companion agent profiles", args: "none" },
     ToolDef { name: "companion.set_agent", description: "Set the companion agent profile", args: "profile" },
     ToolDef { name: "companion.harnesses", description: "List companion harnesses detected on this Mac, plus the current pick", args: "none" },
@@ -595,6 +598,26 @@ fn input_schema(kind: &str) -> Value {
                 "confirm": { "type": "boolean", "description": "true writes. Default false: dry run." }
             }
         }),
+        "archive_tail" => json!({
+            "type": "object",
+            "properties": {
+                "n": { "type": "integer", "minimum": 1, "description": "How many lines. Default 20." },
+                "date": { "type": "string", "description": "CT day YYYY-MM-DD. Omitted = every archive file, newest last." }
+            }
+        }),
+        "archive_n" => json!({
+            "type": "object",
+            "properties": {
+                "n": { "type": "integer", "minimum": 1, "description": "How many lines. Default 20." }
+            }
+        }),
+        "archive_roll" => json!({
+            "type": "object",
+            "properties": {
+                "reason": { "type": "string", "enum": ["manual_test"], "description": "Only manual_test is accepted." }
+            },
+            "required": ["reason"]
+        }),
         "flags_set" => json!({
             "type": "object",
             "properties": {
@@ -991,6 +1014,26 @@ mod tests {
         names.sort();
         names.dedup();
         names
+    }
+
+    #[test]
+    fn archive_verbs_tooldef_arm_match() {
+        let control = include_str!("../agents/control.rs");
+        for name in ["companion.archive_tail", "companion.resets", "companion.roll"] {
+            assert!(known_tool(name), "{name}");
+            assert!(control.contains(&format!("\"{name}\" =>")), "{name}");
+        }
+        assert!(control.contains("\"companion.archive_tail\","));
+        assert!(control.contains("\"companion.resets\","));
+        assert!(!control.contains("\"companion.roll\","));
+        let roll = tool("companion.roll");
+        assert_eq!(roll["inputSchema"]["required"], json!(["reason"]));
+        assert_eq!(
+            roll["inputSchema"]["properties"]["reason"]["enum"],
+            json!(["manual_test"])
+        );
+        assert!(required("companion.archive_tail").is_empty());
+        assert!(required("companion.resets").is_empty());
     }
 
     #[test]

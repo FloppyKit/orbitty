@@ -76,6 +76,37 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             Ok(("companion.note", a))
         }
         ["companion", "thin"] => Ok(("companion.thin", json!({}))),
+        ["companion", "archive-tail"] => {
+            let n = o
+                .n
+                .as_deref()
+                .unwrap_or("20")
+                .parse::<u64>()
+                .map_err(|_| "companion archive-tail: -n must be an integer".to_string())?;
+            let mut a = json!({ "n": n });
+            if let Some(d) = opt(&o.date) {
+                a["date"] = json!(d);
+            }
+            Ok(("companion.archive_tail", a))
+        }
+        ["companion", "resets"] => {
+            let n = o
+                .n
+                .as_deref()
+                .unwrap_or("20")
+                .parse::<u64>()
+                .map_err(|_| "companion resets: -n must be an integer".to_string())?;
+            Ok(("companion.resets", json!({ "n": n })))
+        }
+        ["companion", "roll"] => {
+            let reason = opt(&o.reason).unwrap_or_default();
+            if reason != "manual_test" {
+                return Err(
+                    "companion roll: --reason must be manual_test".into(),
+                );
+            }
+            Ok(("companion.roll", json!({ "reason": "manual_test" })))
+        }
         ["companion", "now"] => {
             let p = payload(o).unwrap_or_default();
             if p.trim().is_empty() {

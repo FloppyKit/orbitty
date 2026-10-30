@@ -595,3 +595,8 @@ pub fn arm_manual_roll() -> Result<(), String> {
     crate::coordinator::save_plug(&plug);
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "mouth_archive_tests.rs"]
+mod tests;
+

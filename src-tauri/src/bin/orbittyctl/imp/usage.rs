@@ -23,6 +23,9 @@ commands:
   companion free-mode -- on|off
   companion note [--mode spark|chat|work|hold] -- \"line\"
   companion thin                    label this chat thin (mouth keeps going)
+  companion archive-tail [-n N] [--date YYYY-MM-DD]
+  companion resets [-n N]
+  companion roll --reason manual_test
   companion now [-- '{\"job\":\"…\"}']   current-job packet (now.json)
   companion hack -- on|off [--who cursor] [--project P]
   kanban open

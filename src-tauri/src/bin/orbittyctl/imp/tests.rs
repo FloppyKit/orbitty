@@ -240,3 +240,29 @@
         );
         assert!(USAGE.contains("events since <n> [--limit N]"));
     }
+
+    #[test]
+    fn archive_verbs_parse() {
+        let (tool, args) =
+            tool_call(&parse(&argv(&["companion", "archive-tail", "-n", "5"])).unwrap()).unwrap();
+        assert_eq!(tool, "companion.archive_tail");
+        assert_eq!(args["n"], 5);
+        let (tool, args) = tool_call(
+            &parse(&argv(&["companion", "resets", "--n", "3", "--date", "2026-10-30"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "companion.resets");
+        assert_eq!(args["n"], 3);
+        let (tool, args) = tool_call(
+            &parse(&argv(&["companion", "roll", "--reason", "manual_test"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "companion.roll");
+        assert_eq!(args["reason"], "manual_test");
+        assert!(
+            tool_call(&parse(&argv(&["companion", "roll", "--reason", "budget"])).unwrap())
+                .is_err()
+        );
+        assert!(USAGE.contains("companion archive-tail"));
+        assert!(USAGE.contains("companion roll --reason manual_test"));
+    }
