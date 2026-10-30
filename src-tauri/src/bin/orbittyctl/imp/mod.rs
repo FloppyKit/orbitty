@@ -4,6 +4,7 @@ use std::os::unix::net::UnixStream;
 use std::process::exit;
 
 mod call;
+mod ledger;
 mod parse;
 mod print;
 mod usage;
@@ -26,6 +27,18 @@ pub fn run() {
             exit(EXIT_OTHER);
         }
     };
+    if opts.words.first().map(String::as_str) == Some("ledger") {
+        match ledger::run(&opts) {
+            Ok(text) => {
+                print!("{text}");
+                exit(0);
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                exit(EXIT_OTHER);
+            }
+        }
+    }
     let (tool, args) = match tool_call(&opts) {
         Ok(t) => t,
         Err(e) => {

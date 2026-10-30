@@ -113,6 +113,7 @@ commands:
   flags list
   flags set <id> on|off
   flags auto on|off                 stop or resume auto-on after Verify
+  ledger export [--out PATH]        shim counts as TSV; --out must stay under $HOME
   plans migrate [--dry-run | --apply]
 
 flags:
@@ -222,4 +223,3 @@ now consults the user-minted standing rules first: a can-run hit is born
 answered (actor \"rule\"); a miss/collide still pings.
 
 exit codes: 0 ok · 2 Orbitty not running · 3 auth · 4 denied · 5 AX · 1 other";
-

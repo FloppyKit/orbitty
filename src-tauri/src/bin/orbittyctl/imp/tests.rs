@@ -266,3 +266,33 @@
         assert!(USAGE.contains("companion archive-tail"));
         assert!(USAGE.contains("companion roll --reason manual_test"));
     }
+
+    #[test]
+    fn export_out_outside_home_refused() {
+        let home = std::env::temp_dir().join(format!(
+            "orbitty-ctl-home-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let err = super::ledger::export_with(
+            &home,
+            &home,
+            Some("/tmp/orbitty-shim-ledger-out.tsv"),
+            "2026-10-30",
+        )
+        .unwrap_err();
+        assert!(err.contains("HOME"), "{err}");
+        let body = super::ledger::export_with(&home, &home, Some("~/ok.tsv"), "2026-10-30").unwrap();
+        assert!(body.starts_with("shim_id\t"));
+        assert!(std::fs::read_to_string(home.join("ok.tsv")).unwrap().starts_with("shim_id\t"));
+        let o = parse(&argv(&["ledger", "export", "--out", "~/ok.tsv"])).unwrap();
+        assert_eq!(o.out.as_deref(), Some("~/ok.tsv"));
+        assert!(super::ledger::run(&parse(&argv(&["ledger", "nope"])).unwrap()).is_err());
+        assert!(USAGE.contains("ledger export [--out PATH]"));
+        let _ = std::fs::remove_dir_all(&home);
+    }

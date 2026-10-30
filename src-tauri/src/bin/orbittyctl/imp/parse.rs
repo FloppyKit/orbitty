@@ -87,6 +87,8 @@ pub(crate) struct Opts {
     pub(crate) remove_added: bool,
     /// companion roll --reason manual_test
     pub(crate) reason: Option<String>,
+    /// ledger export --out PATH
+    pub(crate) out: Option<String>,
 }
 
 pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -156,6 +158,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
         limit: None,
         remove_added: false,
         reason: None,
+        out: None,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -357,6 +360,12 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
                 o.trackers = Some(s["--trackers=".len()..].to_string())
             }
             s if s.starts_with("--cloud=") => o.cloud = Some(s["--cloud=".len()..].to_string()),
+            "--out" => {
+                o.out = Some(it.next().ok_or("--out needs a path")?.clone())
+            }
+            s if s.starts_with("--out=") => {
+                o.out = Some(s["--out=".len()..].to_string())
+            }
             s if s.starts_with('-') && s.len() > 1 => {
                 return Err(format!("unknown flag {s:?}\n\n{USAGE}"))
             }
