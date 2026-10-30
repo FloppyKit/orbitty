@@ -334,4 +334,28 @@ if (( ! quick )); then
   run_npm_check
   run_qa
 fi
+# Flag remove_after dates. A NOTE only — never fails the gate.
+note_stale_flags() {
+  local today f
+  today=$(TZ=America/Chicago date +%Y-%m-%d 2>/dev/null || date +%Y-%m-%d)
+  f="$root/src-tauri/src/flags.rs"
+  [[ -f "$f" ]] || return 0
+  awk -v today="$today" '
+    {
+      if (match($0, /id: "[a-z0-9_]+"/)) {
+        id = substr($0, RSTART + 5, RLENGTH - 5)
+      }
+      if (match($0, /remove_after: "[0-9-]+"/)) {
+        after = substr($0, RSTART + 15, RLENGTH - 15)
+        if (id != "" && after < today) {
+          print "NOTE stale flag " id
+        }
+        id = ""
+      }
+    }
+  ' "$f" || true
+  return 0
+}
+
 run_literal_scan
+note_stale_flags
