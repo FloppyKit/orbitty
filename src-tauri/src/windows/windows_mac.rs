@@ -79,6 +79,7 @@ extern "C" {
     fn AXIsProcessTrustedWithOptions(options: CFRef) -> bool;
     fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
     fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout_s: f32) -> AXError;
     fn AXUIElementCopyAttributeValue(
         element: AXUIElementRef,
         attribute: CFRef,
@@ -238,7 +239,135 @@ unsafe fn activate(app: *mut Object) {
 }
 
 
+/// Messaging timeout for every AX element this GO creates while `ax_safe` is on.
+pub(crate) const AX_TIMEOUT_S: f32 = 0.25;
+
+/// One AX application element. Drop releases it.
+pub(crate) struct AxApp(AXUIElementRef);
+
+impl AxApp {
+    /// Null create → None. Timeout is set only while `ax_safe` is on.
+    pub(crate) fn for_pid(pid: i32) -> Option<AxApp> {
+        let el = unsafe { AXUIElementCreateApplication(pid) };
+        if el.is_null() {
+            return None;
+        }
+        if ax_safe_on() {
+            set_ax_timeout(el);
+        }
+        Some(AxApp(el))
+    }
+
+    pub(crate) fn raw(&self) -> AXUIElementRef {
+        self.0
+    }
+}
+
+impl Drop for AxApp {
+    fn drop(&mut self) {
+        unsafe { CFRelease(self.0) }
+    }
+}
+
+fn set_ax_timeout(el: AXUIElementRef) {
+    let _ = unsafe { AXUIElementSetMessagingTimeout(el, AX_TIMEOUT_S) };
+    #[cfg(test)]
+    test_seam::record(AX_TIMEOUT_S);
+}
+
+#[cfg(test)]
+pub(crate) mod test_seam {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static RECORDED: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub(crate) fn record(v: f32) {
+        RECORDED.with(|c| c.borrow_mut().push(v));
+    }
+
+    pub(crate) fn clear() {
+        RECORDED.with(|c| c.borrow_mut().clear());
+    }
+
+    pub(crate) fn recorded() -> Vec<f32> {
+        RECORDED.with(|c| c.borrow().clone())
+    }
+}
+
+fn ax_safe_on() -> bool {
+    crate::flags::ax_safe_on()
+}
+
+/// Flag on: timed `AxApp`. Flag off: the old create, released on drop.
+fn ax_app_ref(pid: i32) -> Option<AxRef> {
+    if ax_safe_on() {
+        AxApp::for_pid(pid).map(AxRef::Safe)
+    } else {
+        let el = unsafe { AXUIElementCreateApplication(pid) };
+        if el.is_null() {
+            None
+        } else {
+            Some(AxRef::Raw(el))
+        }
+    }
+}
+
+enum AxRef {
+    Safe(AxApp),
+    Raw(AXUIElementRef),
+}
+
+impl AxRef {
+    fn raw(&self) -> AXUIElementRef {
+        match self {
+            AxRef::Safe(app) => app.raw(),
+            AxRef::Raw(el) => *el,
+        }
+    }
+}
+
+impl Drop for AxRef {
+    fn drop(&mut self) {
+        if let AxRef::Raw(el) = self {
+            unsafe { CFRelease(*el) }
+        }
+    }
+}
+
+/// Own process, any Orbitty bundle, or an "Orbitty…" localized name.
+pub(crate) fn is_self_app(
+    bundle: Option<&str>,
+    name: Option<&str>,
+    pid: i32,
+    own_pid: i32,
+) -> bool {
+    if pid == own_pid {
+        return true;
+    }
+    if let Some(bundle) = bundle {
+        if bundle.starts_with("space.orbitty.") {
+            return true;
+        }
+    }
+    if let Some(name) = name {
+        if name == "Orbitty" || name.starts_with("Orbitty ") {
+            return true;
+        }
+    }
+    false
+}
+
 fn is_orbitty_win(w: &WindowInfo) -> bool {
+    if ax_safe_on() {
+        return is_self_app(
+            w.bundle_id.as_deref(),
+            Some(w.app_name.as_str()),
+            w.pid,
+            std::process::id() as i32,
+        );
+    }
     matches!(w.bundle_id.as_deref(), Some("space.orbitty.mac"))
         || w.app_name.eq_ignore_ascii_case("Orbitty")
 }
@@ -264,53 +393,125 @@ fn remember_other_id(id: String) {
     }
 }
 
-/// Global (all displays) last non-Orbitty frontmost — NSWorkspace, not
-/// CG z-order on the tray's screen.
-pub fn note_workspace_frontmost() {
+struct Front {
+    pid: i32,
+    bundle: Option<String>,
+    name: Option<String>,
+}
+
+fn ns_utf8(obj: *mut Object) -> Option<String> {
+    if obj.is_null() {
+        return None;
+    }
+    unsafe {
+        let utf: *const i8 = msg_send![obj, UTF8String];
+        if utf.is_null() {
+            return None;
+        }
+        Some(std::ffi::CStr::from_ptr(utf).to_string_lossy().into_owned())
+    }
+}
+
+/// NSWorkspace frontmost only. Safe to run inside `main_thread_sync`.
+fn read_workspace_front() -> Option<Front> {
     unsafe {
         let ws: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
         if ws.is_null() {
-            return;
+            return None;
         }
         let app: *mut Object = msg_send![ws, frontmostApplication];
         if app.is_null() {
-            return;
+            return None;
         }
         let bundle: *mut Object = msg_send![app, bundleIdentifier];
-        if !bundle.is_null() {
-            let utf: *const i8 = msg_send![bundle, UTF8String];
-            if !utf.is_null() {
-                let s = std::ffi::CStr::from_ptr(utf).to_string_lossy();
-                if s == "space.orbitty.mac" {
-                    return;
-                }
-            }
-        }
         let name: *mut Object = msg_send![app, localizedName];
-        if !name.is_null() {
-            let utf: *const i8 = msg_send![name, UTF8String];
-            if !utf.is_null() {
-                let s = std::ffi::CStr::from_ptr(utf).to_string_lossy();
-                if s.eq_ignore_ascii_case("Orbitty") {
-                    return;
-                }
-            }
-        }
         let pid: i32 = msg_send![app, processIdentifier];
         if pid <= 0 {
+            return None;
+        }
+        Some(Front {
+            pid,
+            bundle: ns_utf8(bundle),
+            name: ns_utf8(name),
+        })
+    }
+}
+
+/// Focused-window id for `pid`. Runs on the caller's thread.
+fn ax_focused_window_id(pid: i32) -> Option<String> {
+    let ax = ax_app_ref(pid)?;
+    unsafe {
+        let focused = ax_copy(ax.raw(), ax_names().focused_window)?;
+        let id = ax_window_id(focused).map(|cg_id| format!("{pid}:{cg_id}"));
+        CFRelease(focused);
+        id
+    }
+}
+
+/// Global (all displays) last non-Orbitty frontmost — NSWorkspace, not
+/// CG z-order on the tray's screen.
+pub fn note_workspace_frontmost() {
+    if ax_safe_on() {
+        let Some(front) = read_workspace_front() else {
+            return;
+        };
+        if is_self_app(
+            front.bundle.as_deref(),
+            front.name.as_deref(),
+            front.pid,
+            std::process::id() as i32,
+        ) {
             return;
         }
-        let ax_app = AXUIElementCreateApplication(pid);
-        if ax_app.is_null() {
-            return;
+        if let Some(id) = ax_focused_window_id(front.pid) {
+            remember_other_id(id);
         }
-        if let Some(focused_win) = ax_copy(ax_app, ax_names().focused_window) {
-            if let Some(cg_id) = ax_window_id(focused_win) {
-                remember_other_id(format!("{pid}:{cg_id}"));
+    } else {
+        unsafe {
+            let ws: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+            if ws.is_null() {
+                return;
             }
-            CFRelease(focused_win);
+            let app: *mut Object = msg_send![ws, frontmostApplication];
+            if app.is_null() {
+                return;
+            }
+            let bundle: *mut Object = msg_send![app, bundleIdentifier];
+            if !bundle.is_null() {
+                let utf: *const i8 = msg_send![bundle, UTF8String];
+                if !utf.is_null() {
+                    let s = std::ffi::CStr::from_ptr(utf).to_string_lossy();
+                    if s == "space.orbitty.mac" {
+                        return;
+                    }
+                }
+            }
+            let name: *mut Object = msg_send![app, localizedName];
+            if !name.is_null() {
+                let utf: *const i8 = msg_send![name, UTF8String];
+                if !utf.is_null() {
+                    let s = std::ffi::CStr::from_ptr(utf).to_string_lossy();
+                    if s.eq_ignore_ascii_case("Orbitty") {
+                        return;
+                    }
+                }
+            }
+            let pid: i32 = msg_send![app, processIdentifier];
+            if pid <= 0 {
+                return;
+            }
+            let ax_app = AXUIElementCreateApplication(pid);
+            if ax_app.is_null() {
+                return;
+            }
+            if let Some(focused_win) = ax_copy(ax_app, ax_names().focused_window) {
+                if let Some(cg_id) = ax_window_id(focused_win) {
+                    remember_other_id(format!("{pid}:{cg_id}"));
+                }
+                CFRelease(focused_win);
+            }
+            CFRelease(ax_app);
         }
-        CFRelease(ax_app);
     }
 }
 
@@ -321,11 +522,33 @@ pub fn install_frontmost_tracker() {
     ONCE.call_once(|| {
         std::thread::Builder::new()
             .name("orbitty-frontmost".into())
-            .spawn(|| loop {
-                let _ = crate::main_thread_sync(|| {
-                    note_workspace_frontmost();
-                });
-                std::thread::sleep(std::time::Duration::from_millis(400));
+            .spawn(|| {
+                let safe = ax_safe_on();
+                loop {
+                    if safe {
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        let _ = crate::main_thread_sync(move || {
+                            let _ = tx.send(read_workspace_front());
+                        });
+                        if let Some(front) = rx.recv().unwrap_or(None) {
+                            if !is_self_app(
+                                front.bundle.as_deref(),
+                                front.name.as_deref(),
+                                front.pid,
+                                std::process::id() as i32,
+                            ) {
+                                if let Some(id) = ax_focused_window_id(front.pid) {
+                                    remember_other_id(id);
+                                }
+                            }
+                        }
+                    } else {
+                        let _ = crate::main_thread_sync(|| {
+                            note_workspace_frontmost();
+                        });
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                }
             })
             .ok();
     });
@@ -403,13 +626,11 @@ pub fn focus_window(id: &str) -> Result<(), String> {
         }
         activate(app);
 
-        let ax_app = AXUIElementCreateApplication(pid);
-        if ax_app.is_null() {
-            return Err("could not attach to app".into());
-        }
-        let result = focus_in_app(ax_app, rest);
-        CFRelease(ax_app);
-        result
+        let ax = match ax_app_ref(pid) {
+            Some(ax) => ax,
+            None => return Err("could not attach to app".into()),
+        };
+        focus_in_app(ax.raw(), rest)
     }
 }
 
@@ -484,13 +705,12 @@ fn set_minimized(id: &str, minimized: bool) -> Result<(), String> {
     }
     let (pid, rest) = parse_id(id)?;
     unsafe {
-        let ax_app = AXUIElementCreateApplication(pid);
-        if ax_app.is_null() {
-            return Err("could not attach to app".into());
-        }
-        let target = find_window(ax_app, rest);
+        let ax = match ax_app_ref(pid) {
+            Some(ax) => ax,
+            None => return Err("could not attach to app".into()),
+        };
+        let target = find_window(ax.raw(), rest);
         if target.is_null() {
-            CFRelease(ax_app);
             return Err("window no longer exists".into());
         }
         let current = ax_bool(target, ax_names().minimized).unwrap_or(false);
@@ -515,7 +735,6 @@ fn set_minimized(id: &str, minimized: bool) -> Result<(), String> {
             }
         }
         CFRelease(target);
-        CFRelease(ax_app);
         result
     }
 }
@@ -546,13 +765,12 @@ pub fn close_window(id: &str) -> Result<(), String> {
     }
     let (pid, rest) = parse_id(id)?;
     unsafe {
-        let ax_app = AXUIElementCreateApplication(pid);
-        if ax_app.is_null() {
-            return Err("could not attach to app".into());
-        }
-        let target = find_window(ax_app, rest);
+        let ax = match ax_app_ref(pid) {
+            Some(ax) => ax,
+            None => return Err("could not attach to app".into()),
+        };
+        let target = find_window(ax.raw(), rest);
         if target.is_null() {
-            CFRelease(ax_app);
             return Err("window no longer exists".into());
         }
         let result = match ax_copy(target, ax_names().close_button) {
@@ -568,7 +786,6 @@ pub fn close_window(id: &str) -> Result<(), String> {
             _ => Err("window has no close button".into()),
         };
         CFRelease(target);
-        CFRelease(ax_app);
         result
     }
 }
@@ -612,13 +829,12 @@ pub fn locate_window(id: &str) -> Result<(), String> {
     }
     let (pid, rest) = parse_id(id)?;
     unsafe {
-        let ax_app = AXUIElementCreateApplication(pid);
-        if ax_app.is_null() {
-            return Err("could not attach to app".into());
-        }
-        let target = find_window(ax_app, rest);
+        let ax = match ax_app_ref(pid) {
+            Some(ax) => ax,
+            None => return Err("could not attach to app".into()),
+        };
+        let target = find_window(ax.raw(), rest);
         if target.is_null() {
-            CFRelease(ax_app);
             return Err("window no longer exists".into());
         }
         let minimized = ax_bool(target, ax_names().minimized).unwrap_or(false);
@@ -630,7 +846,7 @@ pub fn locate_window(id: &str) -> Result<(), String> {
             _ => None,
         };
         CFRelease(target);
-        CFRelease(ax_app);
+        drop(ax);
         if minimized {
             // A minimized window has no on-screen frame to ring; the rail
             // routes minimized claims through the walker stroke instead.
@@ -1293,3 +1509,7 @@ mod rail_mouse_key_tests {
         assert!(!sync.contains("CGEventTapCreate"));
     }
 }
+
+#[cfg(test)]
+#[path = "ax_safe_tests.rs"]
+mod ax_safe_tests;

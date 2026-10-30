@@ -2,7 +2,7 @@
 
 use super::super::WindowInfo;
 use super::{
-    ax_bool, ax_copy, ax_names, ax_size, ax_string, ax_window_id, AXUIElementCreateApplication,
+    ax_app_ref, ax_bool, ax_copy, ax_names, ax_size, ax_string, ax_window_id,
     AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef, AX_SUCCESS, CFArrayGetCount,
     CFArrayGetValueAtIndex, CFGetTypeID, CFRelease, CFStringGetTypeID, CFURLGetString,
     CFURLGetTypeID, CGSize, NSPoint, NSRect,
@@ -355,11 +355,10 @@ unsafe fn running_apps() -> Vec<RunningApp> {
 pub(crate) unsafe fn enumerate() -> Vec<WindowInfo> {
     let mut result = Vec::new();
     for app in running_apps() {
-        let ax_app = AXUIElementCreateApplication(app.pid);
-        if ax_app.is_null() {
+        let Some(ax) = ax_app_ref(app.pid) else {
             continue;
-        }
-        if let Some(windows) = ax_copy(ax_app, ax_names().windows) {
+        };
+        if let Some(windows) = ax_copy(ax.raw(), ax_names().windows) {
             let count = CFArrayGetCount(windows);
             let mut fallback_index = 0u32;
             for i in 0..count {
@@ -403,7 +402,6 @@ pub(crate) unsafe fn enumerate() -> Vec<WindowInfo> {
             }
             CFRelease(windows);
         }
-        CFRelease(ax_app);
     }
     stamp_stable_keys(&mut result);
     result

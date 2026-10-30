@@ -478,6 +478,7 @@ fn ax_window_has_web_area(w: &tauri::WebviewWindow) -> Option<bool> {
     extern "C" {
         fn AXIsProcessTrusted() -> bool;
         fn AXUIElementCreateApplication(pid: i32) -> CFRef;
+        fn AXUIElementSetMessagingTimeout(el: CFRef, timeout_s: f32) -> i32;
         fn AXUIElementCopyAttributeValue(
             element: CFRef,
             attribute: CFRef,
@@ -506,6 +507,12 @@ fn ax_window_has_web_area(w: &tauri::WebviewWindow) -> Option<bool> {
         let ax_app = AXUIElementCreateApplication(std::process::id() as i32);
         if ax_app.is_null() {
             return None;
+        }
+        // Same 0.25s bound as windows_mac::AX_TIMEOUT_S. Inlined: the mac
+        // corral is private to windows.rs, and this site only adds the timeout.
+        const AX_TIMEOUT_S: f32 = 0.25;
+        if crate::flags::ax_safe_on() {
+            let _ = AXUIElementSetMessagingTimeout(ax_app, AX_TIMEOUT_S);
         }
         let key = CFString::new("AXWindows");
         let mut windows: CFRef = std::ptr::null();
