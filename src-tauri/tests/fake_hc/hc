@@ -31,8 +31,49 @@ def emit(text, rc=0):
     sys.exit(rc)
 
 
+def stamp_file():
+    p = os.environ.get("FAKE_HC_STAMP")
+    if p:
+        return p
+    if LOG:
+        return LOG + ".stamp"
+    return None
+
+
+def stamp_n():
+    p = stamp_file()
+    if not p or not os.path.exists(p):
+        return 0
+    try:
+        return int(open(p, encoding="utf-8").read().strip() or "0")
+    except ValueError:
+        return 0
+
+
+def bump_stamp():
+    p = stamp_file()
+    if not p:
+        return
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(str(stamp_n() + 1))
+
+
+def died():
+    return MODE == "die_after_run" and stamp_n() >= 1
+
+
+def refuse():
+    sys.stderr.write("connection refused\n")
+    sys.exit(1)
+
+
 log()
 cmd = ARGS[0] if ARGS else ""
+
+# Core died after `run --bg` returned an id. Later commands refuse.
+# A second `run` is still logged above, then refused.
+if died() and cmd != "run":
+    refuse()
 
 if cmd == "server":
     if "status" not in ARGS:
@@ -88,6 +129,51 @@ if cmd == "read":
         sys.stdout.write("\n")
         sys.exit(0)
     emit(load("read.json"))
+
+if cmd == "run":
+    if died():
+        refuse()
+    if MODE == "die_after_run":
+        bump_stamp()
+    if MODE in ("socket", "down", "crash"):
+        sys.stderr.write("connection refused\n")
+        sys.exit(1)
+    emit(load("run_bg.json"))
+
+if cmd == "send":
+    if MODE in ("socket", "down", "crash"):
+        sys.stderr.write("connection refused\n")
+        sys.exit(1)
+    emit(load("send.json"))
+
+if cmd == "wait":
+    if MODE in ("socket", "down", "crash"):
+        sys.stderr.write("connection refused\n")
+        sys.exit(1)
+    emit(load("wait.json"))
+
+if cmd == "kill":
+    if MODE in ("socket", "down", "crash"):
+        sys.stderr.write("connection refused\n")
+        sys.exit(1)
+    emit(load("kill.json"))
+
+if cmd == "rm":
+    if MODE == "rm_live":
+        sys.stderr.write(load("rm_live.json"))
+        if not load("rm_live.json").endswith("\n"):
+            sys.stderr.write("\n")
+        sys.exit(1)
+    if MODE in ("socket", "down", "crash"):
+        sys.stderr.write("connection refused\n")
+        sys.exit(1)
+    emit(load("rm.json"))
+
+if cmd == "label":
+    if MODE in ("socket", "down", "crash"):
+        sys.stderr.write("connection refused\n")
+        sys.exit(1)
+    emit(load("label.json"))
 
 sys.stderr.write("unhandled " + " ".join(ARGS) + "\n")
 sys.exit(9)
