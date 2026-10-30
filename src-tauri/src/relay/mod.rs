@@ -1,5 +1,10 @@
 pub(crate) mod event_keys;
 pub(crate) mod event_log;
 pub(crate) mod event_relay;
+pub(crate) mod event_seq;
 pub(crate) mod history;
 pub(crate) mod rewind;
+
+#[cfg(test)]
+#[path = "event_seq_tests.rs"]
+mod event_seq_tests;

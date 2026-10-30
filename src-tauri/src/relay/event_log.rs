@@ -19,6 +19,29 @@ pub const KIND_BOARD_DONE: u64 = 422;
 static LOG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static WARNED: AtomicBool = AtomicBool::new(false);
 
+// Tests pin the flag per thread. None follows flags::on_in_dir.
+#[cfg(test)]
+thread_local! {
+    static SEQ_FORCE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn force_event_seq(on: Option<bool>) {
+    SEQ_FORCE.with(|c| c.set(on));
+}
+
+fn event_seq_enabled(path: &Path) -> bool {
+    #[cfg(test)]
+    if let Some(v) = SEQ_FORCE.with(|c| c.get()) {
+        return v;
+    }
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    crate::flags::on_in_dir(dir, "event_seq")
+}
+
 fn warn_once(why: &str) {
     if !WARNED.swap(true, Ordering::Relaxed) {
         eprintln!("orbitty: event log append failed (further failures silent): {why}");
@@ -82,6 +105,11 @@ pub(crate) fn uuid_v4_hex() -> String {
 
 #[derive(Serialize)]
 struct EventLine {
+    /// Local cursor. Omitted when the flag is off, so the bytes match
+    /// the pre-seq line. Not part of the NIP-01 id hash. `write_line`
+    /// inserts it under the log lock when the flag is on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seq: Option<u64>,
     id: String,
     pubkey: String,
     created_at: u64,
@@ -110,6 +138,7 @@ pub(crate) fn write_event(
 ) -> Result<String, String> {
     let (id, pubkey, sig) = ident;
     let line = EventLine {
+        seq: None,
         id,
         pubkey,
         created_at,
@@ -124,10 +153,41 @@ pub(crate) fn write_event(
 }
 
 fn write_line(path: &Path, line: &str) -> std::io::Result<()> {
-    use std::io::Write;
     let _guard = LOG_LOCK
         .lock()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("log lock: {e}")))?;
+    // append and append_board_proof also land here (S0). History uses
+    // write_event, which calls this. One lock, one seq, every writer.
+    if event_seq_enabled(path) {
+        let dir = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let seq = super::event_seq::SeqFile::new(dir).next(path)?;
+        let text = insert_seq(line, seq.seq)?;
+        append_bytes(path, text.as_bytes(), true)?;
+        seq.commit()?;
+        return Ok(());
+    }
+    append_bytes(path, line.as_bytes(), false)
+}
+
+/// `"seq":N` is the first field. The rest of the line is unchanged, so
+/// id/pubkey/sig stay the bytes that were signed.
+fn insert_seq(line: &str, seq: u64) -> std::io::Result<String> {
+    let line = line.trim_end_matches(['\n', '\r']);
+    let rest = line.strip_prefix('{').ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "event line is not a JSON object",
+        )
+    })?;
+    Ok(format!("{{\"seq\":{seq},{rest}"))
+}
+
+fn append_bytes(path: &Path, bytes: &[u8], sync: bool) -> std::io::Result<()> {
+    use std::io::Write;
     let mut opts = std::fs::OpenOptions::new();
     opts.create(true).append(true);
     #[cfg(unix)]
@@ -136,8 +196,11 @@ fn write_line(path: &Path, line: &str) -> std::io::Result<()> {
         opts.mode(0o600);
     }
     let mut f = opts.open(path)?;
-    f.write_all(line.as_bytes())?;
+    f.write_all(bytes)?;
     f.write_all(b"\n")?;
+    if sync {
+        f.sync_data()?;
+    }
     Ok(())
 }
 
@@ -182,6 +245,7 @@ pub fn append(
     let (id, pubkey, sig) = identity(app, created_at, KIND, &tags, &content);
     let _ = local_only;
     let line = EventLine {
+        seq: None,
         id,
         pubkey,
         created_at,
@@ -280,6 +344,7 @@ pub fn append_board_proof(
     let content = serde_json::to_string(content).unwrap_or_else(|_| "{}".into());
     let (id, pubkey, sig) = identity(app, created_at, kind, &tags, &content);
     let line = EventLine {
+        seq: None,
         id,
         pubkey,
         created_at,

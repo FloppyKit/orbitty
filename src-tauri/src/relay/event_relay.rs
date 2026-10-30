@@ -224,7 +224,7 @@ pub fn publish_best(app: &tauri::AppHandle, line: &Value) {
             None
         }
     };
-    let line = line.clone();
+    let line = relay_payload(line);
     if std::thread::Builder::new()
         .name("orbitty-relay-pub".into())
         .spawn(move || {
@@ -245,7 +245,17 @@ pub fn publish_best(app: &tauri::AppHandle, line: &Value) {
     }
 }
 
+/// Seq is a local cursor. Strip it before any bytes leave the machine.
+pub(crate) fn relay_payload(line: &Value) -> Value {
+    let mut v = line.clone();
+    if let Some(obj) = v.as_object_mut() {
+        obj.remove("seq");
+    }
+    v
+}
+
 fn publish_now(dir: &Path, line: &Value, target: &RelayTarget) -> Result<(), String> {
+    let line = relay_payload(line);
     let key = event_keys::load_or_create_in(dir)?;
     let mut ws = connect(target)?;
     let hello = read_json(&mut ws)?;
