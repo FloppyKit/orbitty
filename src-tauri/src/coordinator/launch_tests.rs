@@ -453,7 +453,7 @@ include_str!("launch_tests.rs")
         let (exec, args) = run_door_with_prompt("grok", "grok", crate::agents::grok_exec_line, DASHED);
         assert!(exec.ends_with(" --single=\"$prompt\""), "{exec}");
         assert!(!exec.contains(" -p "), "{exec}");
-        assert_eq!(args, vec![format!("--single={DASHED}")]);
+        assert_eq!(args, vec!["--trust".to_string(), format!("--single={DASHED}")]);
         let mouth = grok_args("sid", false, "soul", DASHED, true, None);
         assert_eq!(mouth[0], format!("--single={DASHED}"));
         assert!(!mouth.iter().any(|a| a == "-p" || a == DASHED));

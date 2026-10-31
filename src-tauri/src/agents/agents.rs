@@ -270,17 +270,19 @@ pub(crate) fn goose_exec_line(bin: &str) -> String {
     )
 }
 
-/// Grok permission argv. Read-only is plan mode (cannot edit). Workspace
-/// write accepts edits. Full-auto adds nothing, which is today's line, so
-/// a config `permission_mode = "always-approve"` still applies only there.
-/// The CLI flag is on the argv, so it wins over that config for the other
-/// two presets. Never the auto-approve flag.
+/// Grok seat argv. Read-only is plan mode (cannot edit). Workspace
+/// write accepts edits. Full-auto adds no permission-mode flag, so a
+/// config `permission_mode` still applies only there. Every preset also
+/// gets `--trust` so the seat does not stall on the folder-trust prompt.
+/// That grant does not change tool approval. Never the auto-approve flag.
 pub(crate) fn grok_permission_args(preset: &str) -> Vec<String> {
-    match normalize_permissions(Some(preset)) {
+    let mut args = match normalize_permissions(Some(preset)) {
         "workspace-write" => vec!["--permission-mode".into(), "acceptEdits".into()],
         "full-auto" => Vec::new(),
         _ => vec!["--permission-mode".into(), "plan".into()],
-    }
+    };
+    args.push("--trust".into());
+    args
 }
 
 /// Grok terminal door: `--single="$prompt"`, attached for the same reason
@@ -812,14 +814,51 @@ mod tests {
     fn grok_args_per_preset() {
         assert_eq!(
             grok_permission_args("read-only"),
-            vec!["--permission-mode".to_string(), "plan".to_string()]
+            vec![
+                "--permission-mode".to_string(),
+                "plan".to_string(),
+                "--trust".to_string(),
+            ]
         );
         assert_eq!(
             grok_permission_args("workspace-write"),
-            vec!["--permission-mode".to_string(), "acceptEdits".to_string()]
+            vec![
+                "--permission-mode".to_string(),
+                "acceptEdits".to_string(),
+                "--trust".to_string(),
+            ]
         );
-        assert!(grok_permission_args("full-auto").is_empty());
+        assert_eq!(grok_permission_args("full-auto"), vec!["--trust".to_string()]);
         assert_eq!(grok_permission_args("nope"), grok_permission_args("read-only"));
+    }
+
+    #[test]
+    fn grok_seat_args_include_trust_every_preset() {
+        let banned = format!("--{}{}", "always", "-approve");
+        let ro = grok_permission_args("read-only");
+        assert!(ro.windows(2).any(|w| w[0] == "--permission-mode" && w[1] == "plan"), "{ro:?}");
+        assert!(ro.iter().any(|a| a == "--trust"), "{ro:?}");
+        let ww = grok_permission_args("workspace-write");
+        assert!(ww.windows(2).any(|w| w[0] == "--permission-mode" && w[1] == "acceptEdits"), "{ww:?}");
+        assert!(ww.iter().any(|a| a == "--trust"), "{ww:?}");
+        let fa = grok_permission_args("full-auto");
+        assert!(fa.iter().any(|a| a == "--trust"), "{fa:?}");
+        assert!(!fa.iter().any(|a| a == "--permission-mode"), "{fa:?}");
+        for preset in ["read-only", "workspace-write", "full-auto"] {
+            let args = grok_permission_args(preset);
+            assert!(!args.iter().any(|a| a == &banned), "{preset}: {args:?}");
+        }
+    }
+
+    #[test]
+    fn companion_grok_args_unchanged() {
+        let send = include_str!("../coordinator/send.rs");
+        let roll = include_str!("../companion/mouth_roll.rs");
+        assert!(send.contains("--always-approve"), "companion door keeps its own flag");
+        assert!(!send.contains("--trust"), "companion send.rs must not gain --trust");
+        assert!(!roll.contains("--trust"), "companion mouth_roll.rs must not gain --trust");
+        assert!(!send.contains("grok_permission_args"));
+        assert!(!roll.contains("grok_permission_args"));
     }
 
     #[test]
@@ -827,13 +866,14 @@ mod tests {
         let line = grok_exec_line_for("/usr/local/bin/grok", "read-only");
         assert!(line.contains("'--permission-mode'"), "{line}");
         assert!(line.contains("'plan'"), "{line}");
+        assert!(line.contains("'--trust'"), "{line}");
         assert!(line.ends_with(" --single=\"$prompt\""), "{line}");
         assert!(!line.contains(&format!("--{}{}", "always", "-approve")), "{line}");
         let ww = grok_exec_line_for("/usr/local/bin/grok", "workspace-write");
         assert!(ww.contains("'acceptEdits'"), "{ww}");
         assert_eq!(
             grok_exec_line("/usr/local/bin/grok"),
-            "'/usr/local/bin/grok' --single=\"$prompt\""
+            "'/usr/local/bin/grok' '--trust' --single=\"$prompt\""
         );
     }
 
