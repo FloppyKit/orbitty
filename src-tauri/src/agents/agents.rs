@@ -270,10 +270,36 @@ pub(crate) fn goose_exec_line(bin: &str) -> String {
     )
 }
 
+/// Grok permission argv. Read-only is plan mode (cannot edit). Workspace
+/// write accepts edits. Full-auto adds nothing, which is today's line, so
+/// a config `permission_mode = "always-approve"` still applies only there.
+/// The CLI flag is on the argv, so it wins over that config for the other
+/// two presets. Never the auto-approve flag.
+pub(crate) fn grok_permission_args(preset: &str) -> Vec<String> {
+    match normalize_permissions(Some(preset)) {
+        "workspace-write" => vec!["--permission-mode".into(), "acceptEdits".into()],
+        "full-auto" => Vec::new(),
+        _ => vec!["--permission-mode".into(), "plan".into()],
+    }
+}
+
 /// Grok terminal door: `--single="$prompt"`, attached for the same reason
-/// (`-p ---x` and `-p -- ---x` both fail in grok 1.0.41).
+/// (`-p ---x` and `-p -- ---x` both fail in grok 1.0.41). Full-auto, so the
+/// one-arg form the existing door test calls stays byte-for-byte the same.
 pub(crate) fn grok_exec_line(bin: &str) -> String {
-    format!("{} --single=\"$prompt\"", crate::coordinator::sq(bin))
+    grok_exec_line_for(bin, "full-auto")
+}
+
+/// Same door with the agent row's permission preset in front of `--single`.
+pub(crate) fn grok_exec_line_for(bin: &str, preset: &str) -> String {
+    use crate::coordinator::sq;
+    let mut line = sq(bin);
+    for arg in grok_permission_args(preset) {
+        line.push(' ');
+        line.push_str(&sq(&arg));
+    }
+    line.push_str(" --single=\"$prompt\"");
+    line
 }
 
 /// Lowercase + allowlist. Unknown = honest error — never a fall-through.
@@ -507,6 +533,17 @@ pub fn kanban_assign(app: &tauri::AppHandle, card_id: &str, agent: &str) -> Resu
     }))
 }
 
+/// Put a pickup that already moved the card back in todo and drop the run
+/// row that attach may have written. The cap refusal never reaches here.
+fn unwind_failed_pickup(app: &tauri::AppHandle, card_id: &str) {
+    let _ = crate::board::kanban_move(app, card_id, "todo");
+    let _ = crate::state::update(app, |st| {
+        st.agent_runs.retain(|r| r.card_id != card_id);
+        Ok(())
+    });
+    let _ = crate::coordinator::set_companion_hack(app.clone(), false, None, None);
+}
+
 /// Pickup one assigned open todo and launch the row's harness.
 /// `card_id` = that card (Start). Absent = oldest assigned (ctl).
 pub fn agent_pickup(
@@ -576,6 +613,13 @@ pub fn agent_pickup(
         }));
     };
 
+    // Cap before the column move. The move's background attach writes the
+    // run row; counting that row refused the last open slot and left the
+    // card in doing with a ghost run. A full cap returns here, card still
+    // todo, no row, no attach.
+    if let Err(e) = crate::gate_caps::check(app) {
+        return Err(e);
+    }
     // Light the dock before the column move. The move's background
     // attach writes the agentRuns row; a hack save that loaded first
     // and wrote second used to wipe that row. Hack is narrow and locked
@@ -609,13 +653,13 @@ pub fn agent_pickup(
     let handoff = match crate::plans::gate_for_card(&card.id, &card.title, &urls) {
         crate::plans::Gate::Refuse { note } => {
             let _ = crate::board::kanban_note_append(app, &card.id, &note);
-            let _ = crate::coordinator::set_companion_hack(app.clone(), false, None, None);
+            unwind_failed_pickup(app, &card.id);
             return Ok(json!({
                 "picked": true,
                 "launched": false,
                 "cardId": card.id,
                 "title": card.title,
-                "status": "doing",
+                "status": "todo",
                 "agentId": agent.id,
                 "agent": agent.name,
                 "note": note,
@@ -644,7 +688,7 @@ pub fn agent_pickup(
         Ok(l) => l,
         Err(e) => {
             let _ = crate::board::kanban_note_append(app, &card.id, &e);
-            let _ = crate::coordinator::set_companion_hack(app.clone(), false, None, None);
+            unwind_failed_pickup(app, &card.id);
             return Err(e);
         }
     };
@@ -699,6 +743,98 @@ mod tests {
         assert!(arm.contains("kanban_note_append"), "refusal must append a note: {arm}");
         assert!(arm.contains("return Ok(") && arm.contains("\"launched\": false"), "{arm}");
         assert!(body[launch..].contains("handoff,"), "the GO must reach launch_agent");
+    }
+
+    /// Cap 2 with 2 live runners refuses before the card moves, so no run
+    /// row is written and the card stays in todo.
+    #[test]
+    fn pickup_cap_full_writes_no_run() {
+        let err = crate::gate_caps::launch_decision(2, 2).unwrap_err();
+        assert_eq!(err, "Paused new runs. 2 of 2 runners live.");
+        let body = fn_body(include_str!("agents.rs"), "pub fn agent_pickup(");
+        let check = body
+            .find("crate::gate_caps::check(")
+            .expect("cap check");
+        let move_at = body
+            .find("crate::board::kanban_move(")
+            .expect("column move");
+        assert!(
+            check < move_at,
+            "the cap check must run before the card leaves todo"
+        );
+        assert!(
+            body[..move_at].contains("return Err"),
+            "a full cap returns before any run row can be attached"
+        );
+        assert!(
+            body.contains("unwind_failed_pickup"),
+            "a later launch failure puts the card back and drops the row"
+        );
+    }
+
+    /// Cap 2 with 1 live runner fits. The seat's own row, once attached,
+    /// is not counted against it.
+    #[test]
+    fn pickup_cap_last_slot_launches() {
+        assert!(crate::gate_caps::launch_decision(1, 2).is_ok());
+        assert_eq!(crate::gate_caps::counted_runners(2, true), 1);
+        assert!(crate::gate_caps::launch_decision(crate::gate_caps::counted_runners(2, true), 2).is_ok());
+        let err = crate::gate_caps::launch_decision(crate::gate_caps::counted_runners(3, true), 2).unwrap_err();
+        assert_eq!(err, "Paused new runs. 2 of 2 runners live.");
+        let src = include_str!("../coordinator/launch_agent.rs");
+        assert!(
+            src.contains("check_launch("),
+            "launch_agent must ignore this seat's own row"
+        );
+        assert!(
+            !src.contains("gate_caps::check("),
+            "a bare check would count the row this pickup just attached"
+        );
+    }
+
+    #[test]
+    fn grok_read_only_never_always_approve() {
+        for preset in ["read-only", "workspace-write", "full-auto", "", "nope"] {
+            let args = grok_permission_args(preset);
+            let banned = format!("--{}{}", "always", "-approve");
+            assert!(!args.iter().any(|a| a == &banned), "{preset}: {args:?}");
+            let line = grok_exec_line_for("/usr/bin/grok", preset);
+            assert!(!line.contains(&banned), "{line}");
+        }
+        let ro = grok_permission_args("read-only");
+        assert!(
+            ro.windows(2).any(|w| w[0] == "--permission-mode" && w[1] == "plan"),
+            "{ro:?}"
+        );
+    }
+
+    #[test]
+    fn grok_args_per_preset() {
+        assert_eq!(
+            grok_permission_args("read-only"),
+            vec!["--permission-mode".to_string(), "plan".to_string()]
+        );
+        assert_eq!(
+            grok_permission_args("workspace-write"),
+            vec!["--permission-mode".to_string(), "acceptEdits".to_string()]
+        );
+        assert!(grok_permission_args("full-auto").is_empty());
+        assert_eq!(grok_permission_args("nope"), grok_permission_args("read-only"));
+    }
+
+    #[test]
+    fn fallback_grok_line_has_permission_arg() {
+        let line = grok_exec_line_for("/usr/local/bin/grok", "read-only");
+        assert!(line.contains("'--permission-mode'"), "{line}");
+        assert!(line.contains("'plan'"), "{line}");
+        assert!(line.ends_with(" --single=\"$prompt\""), "{line}");
+        assert!(!line.contains(&format!("--{}{}", "always", "-approve")), "{line}");
+        let ww = grok_exec_line_for("/usr/local/bin/grok", "workspace-write");
+        assert!(ww.contains("'acceptEdits'"), "{ww}");
+        assert_eq!(
+            grok_exec_line("/usr/local/bin/grok"),
+            "'/usr/local/bin/grok' --single=\"$prompt\""
+        );
     }
 
     #[test]

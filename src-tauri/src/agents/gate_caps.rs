@@ -33,10 +33,39 @@ pub fn roll_day(st: &mut PersistedState) {
 }
 
 fn live_agents(st: &PersistedState) -> u32 {
+    live_agents_except(st, None)
+}
+
+/// Live rows that count against a launch. `own_card` is the card this
+/// launch already moved: its row is the seat being started, not another
+/// runner. A row that is not working, starting, or blocked never counts.
+fn live_agents_except(st: &PersistedState, own_card: Option<&str>) -> u32 {
     st.agent_runs
         .iter()
-        .filter(|r| matches!(r.state.as_str(), "working" | "starting" | "blocked"))
+        .filter(|r| {
+            matches!(r.state.as_str(), "working" | "starting" | "blocked")
+                && own_card != Some(r.card_id.as_str())
+        })
         .count() as u32
+}
+
+/// `own_live` subtracts the row this launch just attached, so the Nth
+/// seat is not refused for counting itself.
+pub(crate) fn counted_runners(live: u32, own_live: bool) -> u32 {
+    if own_live {
+        live.saturating_sub(1)
+    } else {
+        live
+    }
+}
+
+/// The runner-cap sentence. Spend has its own sentence in `check_launch`.
+pub(crate) fn launch_decision(runners: u32, rcap: u32) -> Result<(), String> {
+    if runners >= rcap {
+        Err(format!("Paused new runs. {runners} of {rcap} runners live."))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn in_flight(st: &PersistedState) -> u32 {
@@ -73,6 +102,13 @@ pub fn begin_action() -> ActionGuard {
 /// Refuse new launches when spend or runner caps are hit. Mints at most
 /// one open Needed per title. 80% spend sets companion.state needs_human.
 pub fn check(app: &tauri::AppHandle) -> Result<(), String> {
+    check_launch(app, None)
+}
+
+/// Same gate as `check`, but a live row for `own_card` is this launch's
+/// own seat and is not counted. Pickup checks once before the card moves;
+/// `launch_agent` checks again after attach may have written that row.
+pub(crate) fn check_launch(app: &tauri::AppHandle, own_card: Option<&str>) -> Result<(), String> {
     let before = crate::state::load_state(app)?;
     let mut st = before.clone();
     heal_defaults(&mut st);
@@ -85,10 +121,10 @@ pub fn check(app: &tauri::AppHandle) -> Result<(), String> {
         st.companion.state = "needs_human".into();
     }
 
-    let runners = in_flight(&st);
+    let runners = live_agents_except(&st, own_card).saturating_add(LIVE_ACTIONS.load(Ordering::SeqCst));
     let rcap = st.runner_cap;
     let spend_block = enabled && cap > 0.0 && usd >= cap;
-    let runner_block = runners >= rcap;
+    let runner_block = launch_decision(runners, rcap).is_err();
 
     if st.spend_day != before.spend_day
         || (st.spend_usd - before.spend_usd).abs() > f64::EPSILON
@@ -104,7 +140,7 @@ pub fn check(app: &tauri::AppHandle) -> Result<(), String> {
         return Err(why);
     }
     if runner_block {
-        let why = format!("Paused new runs. {runners} of {rcap} runners live.");
+        let why = launch_decision(runners, rcap).unwrap_err();
         let _ = crate::board::needed_open(app, "Runner cap", "", Some(&why));
         return Err(why);
     }
@@ -155,5 +191,28 @@ mod tests {
         assert_eq!(clamp_runner_cap(0), 1);
         assert_eq!(clamp_runner_cap(2), 2);
         assert_eq!(clamp_runner_cap(9), 4);
+    }
+
+    fn run(card: &str, state: &str) -> crate::state::AgentRun {
+        crate::state::AgentRun {
+            card_id: card.into(),
+            planet_id: "p".into(),
+            agent_shortcut_id: "a".into(),
+            state: state.into(),
+            herdr: None,
+        }
+    }
+
+    #[test]
+    fn own_live_row_does_not_count() {
+        let mut st = PersistedState::default();
+        st.agent_runs.push(run("other", "working"));
+        st.agent_runs.push(run("this", "starting"));
+        st.agent_runs.push(run("finished", "done"));
+        assert_eq!(live_agents_except(&st, None), 2);
+        assert_eq!(live_agents_except(&st, Some("this")), 1);
+        assert!(launch_decision(live_agents_except(&st, Some("this")), 2).is_ok());
+        let err = launch_decision(live_agents_except(&st, None), 2).unwrap_err();
+        assert_eq!(err, "Paused new runs. 2 of 2 runners live.");
     }
 }

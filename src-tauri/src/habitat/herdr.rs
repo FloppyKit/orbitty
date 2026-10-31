@@ -60,12 +60,24 @@ fn expand_home(p: &str) -> String {
     }
 }
 
-/// The planet's cwd for `workspace create`: the newest claim cwd on the
-/// planet (the terminal-class wake trail) when one exists; the Orbitty
-/// repo for the `orbitty` planet when no workspaceRoot is set (there is
-/// no second planet DB — Project is {id, name}); else $HOME.
+/// The planet's cwd for `workspace create`, `hc run --cwd`, and the
+/// fallback terminal. Order: `workspaceRoot` when it is a directory,
+/// then the newest claim cwd on the planet, then the Orbitty repo for
+/// the `orbitty` planet, else $HOME. A root that is missing falls
+/// through; it does not fail the launch.
 pub(crate) fn planet_cwd(st: Option<&PersistedState>, planet_id: &str, project_name: Option<&str>) -> String {
     if let Some(st) = st {
+        if let Some(root) = st.projects.iter().find(|p| p.id == planet_id).and_then(|p| {
+            p.workspace_root
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        }) {
+            let expanded = expand_home(root);
+            if !expanded.is_empty() && Path::new(&expanded).is_dir() {
+                return expanded;
+            }
+        }
         let mut hits: Vec<(f64, String)> = st
             .claims
             .iter()
@@ -426,10 +438,12 @@ pub fn branch(
         .as_ref()
         .map(|c| c.id.clone())
         .unwrap_or_else(|| format!("orbitty-{}", shortcut.id));
+    let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
     let extra = if kind == "cursor" {
         let model = crate::agents::cursor_model(shortcut.model.as_deref());
-        let preset = crate::agents::normalize_permissions(Some(shortcut.permissions.as_str()));
         crate::agents::cursor_agent_args(&model, preset)
+    } else if kind == "grok" {
+        crate::agents::grok_permission_args(preset)
     } else {
         Vec::new()
     };
@@ -723,6 +737,9 @@ mod tests {
         assert!(none.is_none());
     }
 
+    /// Newest live claim cwd wins only when workspaceRoot is unset or is
+    /// not a directory. A real root beats the claim
+    /// (`planet_cwd_workspace_root_wins`).
     #[test]
     fn planet_cwd_newest_live_claim_wins() {
         let mut st = PersistedState::default();
@@ -738,7 +755,7 @@ mod tests {
             claim("p-1", 2.0, Some(&tmp)),
             claim("p-9", 9.0, None),
         ];
-        // Newest EXISTING claim cwd on this planet wins (gone dirs skip).
+        // No workspaceRoot, so the newest EXISTING claim cwd wins (gone dirs skip).
         assert_eq!(planet_cwd(Some(&st), "p-1", Some("orbitty")), tmp);
         // No claim on the planet + the orbitty name → the repo when it
         // exists, else HOME — never invented.
@@ -750,6 +767,46 @@ mod tests {
         assert_eq!(planet_cwd(Some(&st), "p-9", Some("mars")), home);
         // No state at all → HOME.
         assert_eq!(planet_cwd(None, "p-1", Some("mars")), home);
+    }
+
+    #[test]
+    fn planet_cwd_workspace_root_wins() {
+        let mut st = PersistedState::default();
+        let root = std::env::temp_dir();
+        let root_s = root.to_string_lossy().to_string();
+        let home = std::env::var("HOME").unwrap_or_default();
+        assert!(Path::new(&root_s).is_dir());
+        assert!(Path::new(&home).is_dir());
+        assert_ne!(std::path::Path::new(&root_s), std::path::Path::new(&home));
+        st.projects = vec![Project {
+            id: "p-1".into(),
+            name: "kansas".into(),
+            trackers: None,
+            workspace_root: Some(root_s.clone()),
+        }];
+        st.claims = vec![claim("p-1", 99.0, Some(&home))];
+        assert_eq!(planet_cwd(Some(&st), "p-1", Some("kansas")), root_s);
+    }
+
+    #[test]
+    fn planet_cwd_missing_root_falls_back() {
+        let mut st = PersistedState::default();
+        let tmp = std::env::temp_dir().to_string_lossy().to_string();
+        let home = std::env::var("HOME").unwrap_or_default();
+        st.projects = vec![Project {
+            id: "p-1".into(),
+            name: "orbitty".into(),
+            trackers: None,
+            workspace_root: Some("/no/such/orbitty-seat-root".into()),
+        }];
+        st.claims = vec![claim("p-1", 2.0, Some(&tmp))];
+        assert_eq!(planet_cwd(Some(&st), "p-1", Some("orbitty")), tmp);
+        st.claims.clear();
+        let repo = format!("{home}/orbitty");
+        let want = if Path::new(&repo).is_dir() { repo } else { home.clone() };
+        assert_eq!(planet_cwd(Some(&st), "p-1", Some("orbitty")), want);
+        st.projects[0].name = "kansas".into();
+        assert_eq!(planet_cwd(Some(&st), "p-1", Some("kansas")), home);
     }
 
     #[test]

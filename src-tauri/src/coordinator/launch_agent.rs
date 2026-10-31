@@ -6,6 +6,26 @@ use super::plug::find_grok;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+/// Card this launch belongs to, so its run row is not counted as another
+/// runner. The GO handoff names it; otherwise the first title on the planet.
+fn own_launch_card(
+    app: &tauri::AppHandle,
+    shortcut: &crate::state::AgentShortcut,
+    titles: &[String],
+    go_card: Option<&str>,
+) -> Option<String> {
+    if let Some(id) = go_card.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(id.to_string());
+    }
+    let pid = shortcut.project_id.clone().unwrap_or_default();
+    let st = crate::state::load_state(app).ok()?;
+    let title = titles.first()?;
+    st.kanban_cards
+        .iter()
+        .find(|c| &c.title == title && (pid.is_empty() || c.project_id == pid))
+        .map(|c| c.id.clone())
+}
+
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
 /// writes the query file and hands off — it never runs the model.
 /// The harness is per row (cursor | goose | grok
@@ -21,7 +41,17 @@ pub fn launch_agent(
     mut go_launch: Option<GoLaunch>,
 ) -> Result<String, String> {
     #[cfg(unix)]
-    crate::gate_caps::check(&app)?;
+    {
+        // The card's own row may already exist (pickup moved it, attach
+        // raced ahead). That row is this seat, not another runner.
+        let own = own_launch_card(
+            &app,
+            &shortcut,
+            &titles,
+            go_launch.as_ref().map(|g| g.card_id.as_str()),
+        );
+        crate::gate_caps::check_launch(&app, own.as_deref())?;
+    }
     // push_allowed is enforced by the launcher rule in the prompt only; no
     // harness has a push flag. git_push without push_allowed is refused here.
     let push_ok = if let Some(g) = go_launch.as_mut() {
@@ -240,7 +270,10 @@ pub fn launch_agent(
                 &query,
                 &terminal_script,
                 &terminal_pid_file,
-                &crate::agents::grok_exec_line(&bin.display().to_string()),
+                &crate::agents::grok_exec_line_for(
+                    &bin.display().to_string(),
+                    shortcut.permissions.as_str(),
+                ),
                 Some(workspace.as_str()),
                 planet_for_log,
             )?;
