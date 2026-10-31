@@ -174,6 +174,14 @@
         assert_eq!(tool, "go.runner_get");
         assert_eq!(args, serde_json::json!({}));
         let (tool, args) =
+            tool_call(&parse(&argv(&["go", "runner", "--file", "/tmp/GO.md"])).unwrap()).unwrap();
+        assert_eq!(tool, "go.runner_get");
+        assert_eq!(args["file"], "/tmp/GO.md");
+        assert!(tool_call(
+            &parse(&argv(&["go", "runner", "--file", "/tmp/GO.md", "--reset"])).unwrap()
+        )
+        .is_err());
+        let (tool, args) =
             tool_call(&parse(&argv(&["go", "runner", "--set", "pi-grok"])).unwrap()).unwrap();
         assert_eq!(tool, "go.runner_set");
         assert_eq!(args, serde_json::json!({"runner": "pi-grok"}));
@@ -225,7 +233,7 @@
             };
             assert!(err.contains("unknown flag"), "{flag}: {err}");
         }
-        assert!(USAGE.contains("go runner [--set ID | --reset]"));
+        assert!(USAGE.contains("go runner [--set ID | --reset | --file PATH]"));
         assert!(!USAGE.contains("--allow-push"));
         assert!(!USAGE.contains("--cook"));
     }

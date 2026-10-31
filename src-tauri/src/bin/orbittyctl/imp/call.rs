@@ -671,12 +671,17 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             if o.set.is_some() && o.reset {
                 return Err("go runner: pass only one of --set or --reset".into());
             }
+            if o.file.is_some() && (o.set.is_some() || o.reset) {
+                return Err("go runner: --file is only for a read".into());
+            }
             if o.reset {
                 Ok(("go.runner_set", json!({ "reset": true })))
             } else if let Some(id) = opt(&o.set) {
                 Ok(("go.runner_set", json!({ "runner": id })))
             } else {
-                Ok(("go.runner_get", json!({})))
+                let mut a = json!({});
+                put_opt(&mut a, "file", &o.file);
+                Ok(("go.runner_get", a))
             }
         }
         ["go", "seal"] => {

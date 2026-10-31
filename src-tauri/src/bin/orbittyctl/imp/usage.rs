@@ -110,7 +110,7 @@ commands:
   go start --card ID
   go run-status --id RUN
   go run-result --id RUN
-  go runner [--set ID | --reset]
+  go runner [--set ID | --reset | --file PATH]
   rail state                          level, alpha, frame, appActive, occludedBy (read-only)
   go seal --file PATH --by NAME --confirm
   flags list

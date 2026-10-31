@@ -1286,7 +1286,17 @@ fn run_tool(
             let id = arg_str(args, "run_id")?;
             crate::plans::run_result_value(&id).map_err(tool_err)
         }
-        "go.runner_get" => Ok(crate::plans::runner_get_value(&crate::plans::Roots::real())),
+        "go.runner_get" => {
+            let roots = crate::plans::Roots::real();
+            if let Some(file) = arg_opt(args, "file") {
+                Ok(crate::plans::runner_get_for_file(
+                    &roots,
+                    std::path::Path::new(&file),
+                ))
+            } else {
+                Ok(crate::plans::runner_get_value(&roots))
+            }
+        }
         "go.runner_set" => {
             crate::plans::apply_runner_set(&crate::plans::Roots::real(), args).map_err(tool_err)
         }
