@@ -167,9 +167,11 @@ fn write_line(path: &Path, line: &str) -> std::io::Result<()> {
         let text = insert_seq(line, seq.seq)?;
         append_bytes(path, text.as_bytes(), true)?;
         seq.commit()?;
-        return Ok(());
+    } else {
+        append_bytes(path, line.as_bytes(), false)?;
     }
-    append_bytes(path, line.as_bytes(), false)
+    crate::wake::notify();
+    Ok(())
 }
 
 /// `"seq":N` is the first field. The rest of the line is unchanged, so

@@ -65,6 +65,7 @@ pub(crate) use relay::event_relay;
 mod plans;
 mod habitat;
 mod herdr;
+mod wake;
 pub(crate) use habitat::droid_inspect;
 pub(crate) use habitat::herdr as herdr_launch;
 pub(crate) use habitat::packs;
@@ -989,6 +990,7 @@ pub fn run() {
             #[cfg(unix)]
             control::start(app.handle());
             crate::flags::auto_sweep(app.handle());
+            crate::wake::boot(app.handle());
             #[cfg(unix)]
             shift::boot(app.handle());
 

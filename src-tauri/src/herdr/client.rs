@@ -144,6 +144,13 @@ pub(crate) fn agent_status(bin: &Path, target: &str) -> Option<String> {
     }
 }
 
+/// Wake delivery. `hc send` to the seat label. Missing hc is an error, not a launch.
+pub(crate) fn deliver_wake(seat: &str, summary: &str) -> Result<(), String> {
+    let bin = core::locate().ok_or_else(|| "hc missing".to_string())?;
+    let text = summary.chars().take(200).collect::<String>();
+    core::send(&bin, seat, &text).map(|_| ())
+}
+
 pub(crate) fn status_value() -> Value {
     if !core_on() {
         let present = tui::locate().is_some();

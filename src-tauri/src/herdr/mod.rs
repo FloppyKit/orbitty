@@ -4,6 +4,7 @@
 
 pub(crate) mod client;
 pub(crate) mod core;
+pub(crate) mod events;
 pub(crate) mod health;
 pub(crate) mod peek;
 pub(crate) mod redact;

@@ -127,6 +127,24 @@ pub const FLAGS: &[FlagDef] = &[
         // Nightly auto-on waits until 05c-b has also passed. This row stays off.
         auto_on_verify: false,
     },
+    FlagDef {
+        id: "wake_core",
+        default: false,
+        what: "subscribe and wake inbox",
+        go: "GO-ORBITTY-SUBSCRIBE-WAKE-CORE",
+        added: "2026-10-30",
+        remove_after: "2026-12-29",
+        auto_on_verify: true,
+    },
+    FlagDef {
+        id: "herdr_primary",
+        default: false,
+        what: "wake reads hc events first",
+        go: "GO-ORBITTY-SUBSCRIBE-WAKE-CORE",
+        added: "2026-10-30",
+        remove_after: "2026-12-29",
+        auto_on_verify: true,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
