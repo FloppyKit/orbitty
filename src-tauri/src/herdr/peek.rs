@@ -61,10 +61,15 @@ pub(crate) fn view(runs: &[crate::state::AgentRun], card: &str, lines: u32, body
 
 fn core_view(target: &str, lines: u32, body: bool) -> View {
     if health::is_down() {
-        return unknown(target);
+        // One rate-limited sample. A healthy probe clears a cold fault;
+        // still down means unknown. Hover refresh must not stack probes.
+        health::poll();
+        if health::is_down() {
+            return unknown(target);
+        }
     }
     let Some(bin) = core::locate() else {
-        health::force_fallback(health::now_ms());
+        health::force_fallback(health::now_ms(), "transport");
         return unknown(target);
     };
     let term = match core::terminal(&bin, target) {
@@ -79,8 +84,8 @@ fn core_view(target: &str, lines: u32, body: bool) -> View {
                 up: true,
             };
         }
-        Err(_) => {
-            health::force_fallback(health::now_ms());
+        Err(e) => {
+            health::force_fallback(health::now_ms(), health::kind_of(&e));
             return unknown(target);
         }
     };
@@ -90,8 +95,8 @@ fn core_view(target: &str, lines: u32, body: bool) -> View {
         let n = clamp_lines(lines);
         match core::read_text(&bin, target, n) {
             Ok(raw) => finish_text(&raw),
-            Err(_) => {
-                health::force_fallback(health::now_ms());
+            Err(e) => {
+                health::force_fallback(health::now_ms(), health::kind_of(&e));
                 return unknown(target);
             }
         }

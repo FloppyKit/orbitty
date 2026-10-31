@@ -1,8 +1,10 @@
 //! Shared herdr rule: DOWN when the hc binary is missing, `hc server
 //! status` is not ok, or the events stream ends. Recheck every 30s.
-//! Switch back after 2 consecutive healthy checks. At most one switch
-//! per 30s. Each switch records one source name: herdr | fallback.
-//! While DOWN, callers return unknown — never Died.
+//! A cold start (`last_check_ms == 0`) treats the first healthy sample
+//! as proven. Recovery after a sample has already been taken still
+//! needs 2 consecutive healthy checks. At most one switch per 30s.
+//! Each switch records source (herdr | fallback) and, on a forced
+//! fallback, the error kind. While DOWN, callers return unknown — never Died.
 
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,15 +29,26 @@ impl Source {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HealthEvent {
+    pub source: &'static str,
+    pub kind: &'static str,
+}
+
+struct Note {
+    source: &'static str,
+    kind: &'static str,
+}
+
 struct State {
     source: Source,
-    /// A failed read/status. Stays set until 2 healthy checks, even when
-    /// the source switch itself is waiting out the 30s limit.
+    /// A failed read/status. Stays set until enough healthy checks, even
+    /// when the source switch itself is waiting out the 30s limit.
     faulted: bool,
     consecutive_ok: u32,
     last_check_ms: u64,
     last_switch_ms: u64,
-    events: Vec<&'static str>,
+    notes: Vec<Note>,
     logged: usize,
     clock_ms: Option<u64>,
 }
@@ -47,7 +60,7 @@ fn state() -> &'static Mutex<State> {
         consecutive_ok: 0,
         last_check_ms: 0,
         last_switch_ms: 0,
-        events: Vec::new(),
+        notes: Vec::new(),
         logged: 0,
         clock_ms: None,
     });
@@ -79,7 +92,7 @@ pub(crate) fn reset() {
     s.consecutive_ok = 0;
     s.last_check_ms = 0;
     s.last_switch_ms = 0;
-    s.events.clear();
+    s.notes.clear();
     s.logged = 0;
     s.clock_ms = None;
 }
@@ -90,8 +103,19 @@ pub(crate) fn assume_up() {
     s.source = Source::Herdr;
     s.faulted = false;
     s.consecutive_ok = HEALTHY_NEED;
-    s.events.clear();
+    s.notes.clear();
     s.logged = 0;
+}
+
+/// Test: source stays Herdr, but a fault is held so status and peek agree
+/// on down. The sample window is closed so a peek poll cannot clear it.
+pub(crate) fn fault_held(now: u64) {
+    let mut s = lock();
+    s.source = Source::Herdr;
+    s.faulted = true;
+    s.consecutive_ok = 0;
+    s.last_check_ms = now;
+    s.last_switch_ms = now;
 }
 
 pub(crate) fn source() -> Source {
@@ -104,40 +128,90 @@ pub(crate) fn is_down() -> bool {
 }
 
 pub(crate) fn events() -> Vec<&'static str> {
-    lock().events.clone()
+    lock().notes.iter().map(|n| n.source).collect()
 }
 
-pub(crate) fn take_unlogged() -> Vec<&'static str> {
+pub(crate) fn take_unlogged() -> Vec<HealthEvent> {
     let mut s = lock();
-    let out = s.events[s.logged..].to_vec();
-    s.logged = s.events.len();
+    let out = s.notes[s.logged..]
+        .iter()
+        .map(|n| HealthEvent {
+            source: n.source,
+            kind: n.kind,
+        })
+        .collect();
+    s.logged = s.notes.len();
     out
 }
 
-fn switch_to(s: &mut State, next: Source, now: u64) {
+/// Map an hc error string onto socket | timeout | transport | status.
+pub(crate) fn kind_of(err: &str) -> &'static str {
+    let head = err.trim().split([':', ' ']).next().unwrap_or("");
+    match head {
+        "socket" => "socket",
+        "timeout" => "timeout",
+        "transport" => "transport",
+        "status" => "status",
+        _ => {
+            let low = err.to_ascii_lowercase();
+            if low.contains("timeout") {
+                "timeout"
+            } else if low.contains("socket") || low.contains("connection refused") {
+                "socket"
+            } else if low.contains("status") {
+                "status"
+            } else {
+                "transport"
+            }
+        }
+    }
+}
+
+fn switch_to(s: &mut State, next: Source, now: u64) -> bool {
     if s.source == next {
-        return;
+        return false;
     }
     if s.last_switch_ms != 0 && now.saturating_sub(s.last_switch_ms) < RECHECK_MS {
-        return;
+        return false;
     }
     s.source = next;
     s.last_switch_ms = now;
-    s.events.push(next.as_str());
+    s.notes.push(Note {
+        source: next.as_str(),
+        kind: "",
+    });
     if next == Source::Fallback {
         s.consecutive_ok = 0;
         s.faulted = true;
     } else {
         s.faulted = false;
     }
+    true
 }
 
 /// Immediate DOWN (stream ended, binary gone, read failed). Still ≤1 switch / 30s.
-pub(crate) fn force_fallback(now: u64) {
+/// `kind` is socket | timeout | transport | status, stored on the herdr-health note.
+pub(crate) fn force_fallback(now: u64, kind: &'static str) {
     let mut s = lock();
     s.consecutive_ok = 0;
     s.faulted = true;
-    switch_to(&mut s, Source::Fallback, now);
+    let switched = switch_to(&mut s, Source::Fallback, now);
+    if switched {
+        if let Some(n) = s.notes.last_mut() {
+            n.kind = kind;
+        }
+        return;
+    }
+    let stale = match s.notes.last() {
+        None => true,
+        Some(n) => n.kind != kind,
+    };
+    if !kind.is_empty() && stale {
+        s.notes.push(Note {
+            source: Source::Fallback.as_str(),
+            kind,
+        });
+    }
 }
 
 pub(crate) fn observe(ok: bool, now: u64) {
@@ -145,14 +219,19 @@ pub(crate) fn observe(ok: bool, now: u64) {
     if s.last_check_ms != 0 && now.saturating_sub(s.last_check_ms) < RECHECK_MS {
         return;
     }
+    // Cold start has never sampled. One healthy probe is enough. After a
+    // sample exists, recovery still needs two in a row.
+    let cold = s.last_check_ms == 0;
     s.last_check_ms = now;
     if !ok {
         s.consecutive_ok = 0;
+        s.faulted = true;
         switch_to(&mut s, Source::Fallback, now);
         return;
     }
     s.consecutive_ok = s.consecutive_ok.saturating_add(1);
-    if s.consecutive_ok >= HEALTHY_NEED {
+    let need = if cold { 1 } else { HEALTHY_NEED };
+    if s.consecutive_ok >= need {
         s.faulted = false;
         switch_to(&mut s, Source::Herdr, now);
     }

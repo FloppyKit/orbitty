@@ -58,7 +58,7 @@ pub fn peek_for(app: &AppHandle, card: &str, lines: u32) -> serde_json::Value {
 }
 
 fn flush_health(app: &AppHandle) {
-    for source in health::take_unlogged() {
+    for ev in health::take_unlogged() {
         crate::event_log::append_best(
             app,
             "herdr-health",
@@ -66,7 +66,7 @@ fn flush_health(app: &AppHandle) {
             None,
             Some("agent"),
             true,
-            &serde_json::json!({ "source": source }),
+            &serde_json::json!({ "source": ev.source, "kind": ev.kind }),
         );
     }
 }

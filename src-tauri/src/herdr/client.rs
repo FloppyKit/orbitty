@@ -119,14 +119,16 @@ pub(crate) fn alive(name: &str) -> Option<bool> {
         return tui::agent_alive(name);
     }
     if core::locate().is_none() || health::is_down() {
-        health::force_fallback(health::now_ms());
+        if core::locate().is_none() {
+            health::force_fallback(health::now_ms(), "transport");
+        }
         return None;
     }
     let bin = core::locate()?;
     match core::alive(&bin, name) {
         Some(v) => Some(v),
         None => {
-            health::force_fallback(health::now_ms());
+            health::force_fallback(health::now_ms(), "transport");
             None
         }
     }
@@ -153,8 +155,9 @@ pub(crate) fn status_value() -> Value {
         });
     }
     health::poll();
-    let src = health::source();
-    let (up, version) = if src == Source::Herdr {
+    // up/source follow is_down (source AND faulted), never source alone.
+    let down = health::is_down();
+    let (up, version) = if !down {
         if let Some(bin) = core::locate() {
             match core::server_status(&bin) {
                 Ok(v) => (true, v.get("version").and_then(Value::as_str).unwrap_or("").to_string()),
@@ -167,8 +170,8 @@ pub(crate) fn status_value() -> Value {
         (false, String::new())
     };
     json!({
-        "up": up && src == Source::Herdr,
-        "source": src.as_str(),
+        "up": up && !down,
+        "source": if down { Source::Fallback.as_str() } else { Source::Herdr.as_str() },
         "version": version,
         "status": if up { "none" } else { "unknown" },
     })

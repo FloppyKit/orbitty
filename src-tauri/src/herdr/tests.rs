@@ -256,7 +256,7 @@ fn down_never_marks_died() {
     let log = dir.join("hc.log");
     arm("not_found", &log);
     health::reset();
-    health::force_fallback(1_000);
+    health::force_fallback(1_000, "transport");
     assert_eq!(client::alive("nosuch"), None);
 }
 
@@ -739,4 +739,165 @@ fn grok_argv_read_only_is_plan_mode() {
     assert!(src.contains("grok_permission_args"), "both herdr doors take the grok extra");
     let core = include_str!("core.rs");
     assert!(core.contains("args.extend(extra"), "hc run forwards the same extra");
+}
+
+fn core_seat(card: &str, terminal: &str) -> crate::state::AgentRun {
+    herdr_run(card, "core", terminal, card)
+}
+
+#[test]
+fn peek_reports_herdr_on_first_call_after_start() {
+    let _g = gate();
+    let dir = scratch("peek-first");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    health::reset();
+    assert!(health::is_down(), "cold start is down until the first sample");
+    let run = core_seat("card-9", "t2");
+    let v = peek::view(std::slice::from_ref(&run), "card-9", 40, true);
+    assert_eq!(v.source, "herdr", "{v:?}");
+    assert!(v.up, "{v:?}");
+    assert!(!v.text.is_empty(), "{v:?}");
+}
+
+#[test]
+fn status_reports_herdr_on_first_call_after_start() {
+    let _g = gate();
+    let dir = scratch("status-first");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    health::reset();
+    let st = client::status_value();
+    assert_eq!(st["up"], true, "{st}");
+    assert_eq!(st["source"], "herdr", "{st}");
+    assert_eq!(st["version"], "0.1.14", "{st}");
+}
+
+#[test]
+fn status_and_peek_agree_when_faulted() {
+    let _g = gate();
+    let _c = Clean(scratch("agree"));
+    client::force_flag(Some(true));
+    health::reset();
+    health::fault_held(5_000);
+    health::set_clock_ms(Some(5_000));
+    let st = client::status_value();
+    assert_eq!(st["up"], false, "{st}");
+    assert_eq!(st["source"], "fallback", "{st}");
+    let run = core_seat("card-9", "t2");
+    let v = peek::view(std::slice::from_ref(&run), "card-9", 40, true);
+    assert!(!v.up, "{v:?}");
+    assert_eq!(v.source, "fallback", "{v:?}");
+    assert_eq!(v.status, "unknown", "{v:?}");
+}
+
+#[test]
+fn peek_recovers_without_status_call() {
+    let _g = gate();
+    let dir = scratch("peek-recover");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("socket", &log);
+    health::reset();
+    health::assume_up();
+    health::set_clock_ms(Some(10_000));
+    let run = core_seat("card-9", "t2");
+    let down = peek::view(std::slice::from_ref(&run), "card-9", 40, true);
+    assert_eq!(down.source, "fallback", "{down:?}");
+    assert!(!down.up, "one failed read forces fallback");
+    arm("live", &log);
+    health::set_clock_ms(Some(10_000 + 30_000));
+    let back = peek::view(std::slice::from_ref(&run), "card-9", 40, true);
+    assert_eq!(back.source, "herdr", "{back:?}");
+    assert!(back.up, "{back:?}");
+    assert!(!back.text.is_empty(), "{back:?}");
+}
+
+#[test]
+fn force_fallback_logs_kind() {
+    let _g = gate();
+    let dir = scratch("kind");
+    let _c = Clean(dir.clone());
+    let script = dir.join("hc");
+    fs::write(
+        &script,
+        "#!/bin/sh\ncase \" $* \" in\n  *\" read \"*)\n    echo '{\"error\":{\"kind\":\"timeout\",\"message\":\"read\"}}' >&2\n    exit 1\n    ;;\nesac\necho '{\"address\":\"t2\",\"state\":\"live\",\"status\":\"working\"}'\nexit 0\n",
+    )
+    .unwrap();
+    let mut perms = fs::metadata(&script).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o755);
+    fs::set_permissions(&script, perms).unwrap();
+    client::force_flag(Some(true));
+    core::set_bin_override(Some(script));
+    health::reset();
+    health::assume_up();
+    health::set_clock_ms(Some(2_000));
+    let _ = health::take_unlogged();
+    let run = core_seat("card-9", "t2");
+    let v = peek::view(std::slice::from_ref(&run), "card-9", 40, true);
+    assert_eq!(v.source, "fallback", "{v:?}");
+    let notes = health::take_unlogged();
+    assert!(
+        notes.iter().any(|n| n.source == "fallback" && n.kind == "timeout"),
+        "{notes:?}"
+    );
+    let flush = include_str!("mod.rs");
+    assert!(flush.contains("\"kind\": ev.kind"), "herdr-health event carries kind");
+}
+
+#[test]
+fn flag_off_peek_and_status_unchanged() {
+    let _g = gate();
+    let dir = scratch("flag-off");
+    let _c = Clean(dir.clone());
+    let script = dir.join("herdr");
+    fs::write(
+        &script,
+        "#!/bin/sh\nif [ \"$1\" = agent ] && [ \"$2\" = get ]; then\n  echo '{\"result\":{\"agent\":{\"agent_status\":\"working\"}}}'\n  exit 0\nfi\nif [ \"$1\" = agent ] && [ \"$2\" = read ]; then\n  printf '%s\n' 'seat screen'\n  exit 0\nfi\necho '{}'\nexit 0\n",
+    )
+    .unwrap();
+    let mut perms = fs::metadata(&script).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o755);
+    fs::set_permissions(&script, perms).unwrap();
+    tui::set_bin_override(Some(script));
+    client::force_flag(Some(false));
+    health::reset();
+    let st = client::status_value();
+    assert_eq!(st["source"], "tui", "{st}");
+    assert_eq!(st["version"], "", "{st}");
+    assert_eq!(st["up"], true, "{st}");
+    assert_eq!(st["status"], "none", "{st}");
+    let v = peek::view(&[], "card-9", 40, true);
+    assert_eq!(v.source, "tui", "{v:?}");
+    assert!(v.up, "{v:?}");
+    assert!(v.text.contains("seat screen"), "{v:?}");
+}
+
+#[test]
+fn grok_trust_on_all_three_doors() {
+    let _g = gate();
+    let dir = scratch("trust-doors");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    health::prove_up();
+    let extra = crate::agents::grok_permission_args("read-only");
+    let argv = tui::start_argv("c-1", "grok", "p1", &extra);
+    assert!(argv.iter().any(|a| a == "--trust"), "tui door: {argv:?}");
+    let _ = fs::write(&log, "");
+    let addr = client::launch_core(&hc_path(), "/tmp/orbitty-golden", "c1", "p1", "grok", &extra).unwrap();
+    assert_eq!(addr, "t1");
+    let text = fs::read_to_string(&log).unwrap();
+    assert!(text.contains("--trust"), "hc run door:\n{text}");
+    for preset in ["read-only", "workspace-write", "full-auto"] {
+        let line = crate::agents::grok_exec_line_for("/usr/bin/grok", preset);
+        assert!(line.contains("'--trust'"), "{preset}: {line}");
+        assert!(!line.contains("always-approve"), "{line}");
+    }
+    let habitat = include_str!("../habitat/herdr.rs");
+    assert!(habitat.contains("grok_permission_args"), "both herdr doors take the grok extra");
 }
