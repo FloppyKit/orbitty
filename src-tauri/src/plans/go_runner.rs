@@ -54,7 +54,24 @@ pub struct ApprovedRunner {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_model: Option<String>,
+    /// Recorded tier for the Sol backup (`flex` | `full`). pi has no service-tier flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_tier: Option<String>,
+    /// Sol flex, used only when the GLM call fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_backup: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reserve_model: Option<String>,
 }
+
+/// OpenRouter provider object on every or-* call. No route that drops this is allowed.
+pub const OR_PROVIDER_PREFS: &str = r#"{"zdr":true,"data_collection":"deny"}"#;
+
+const VERIFY_MODEL: &str = "z-ai/glm-5.3";
+const VERIFY_BACKUP: &str = "openai/gpt-6.1-sol";
+const RESERVE_OPUS: &str = "anthropic/claude-opus-5.5";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -64,17 +81,47 @@ pub struct UserGoSettings {
     pub approved_runners: Vec<ApprovedRunner>,
 }
 
+fn pi_grok_row() -> ApprovedRunner {
+    ApprovedRunner {
+        id: BUILTIN_ID.into(),
+        cook: "~/bin/cook-pi.sh".into(),
+        verify: "~/bin/verify-pi.sh".into(),
+        model: Some("grok".into()),
+        provider: Some("pi".into()),
+        verify_model: None,
+        verify_tier: None,
+        verify_backup: None,
+        reserve_model: None,
+    }
+}
+
+fn openrouter_row(id: &str, cook_model: &str, reserve: Option<&str>) -> ApprovedRunner {
+    ApprovedRunner {
+        id: id.into(),
+        cook: "~/bin/cook-pi.sh".into(),
+        verify: "~/bin/verify-pi.sh".into(),
+        model: Some(cook_model.into()),
+        provider: Some("openrouter".into()),
+        verify_model: Some(VERIFY_MODEL.into()),
+        verify_tier: Some("flex".into()),
+        verify_backup: Some(VERIFY_BACKUP.into()),
+        reserve_model: reserve.map(str::to_string),
+    }
+}
+
 pub fn builtin_user_settings() -> UserGoSettings {
     UserGoSettings {
         developer_mode: false,
         permissions: GoPermissions::all_off(),
-        approved_runners: vec![ApprovedRunner {
-            id: BUILTIN_ID.into(),
-            cook: "~/bin/cook-pi.sh".into(),
-            verify: "~/bin/verify-pi.sh".into(),
-            model: Some("grok".into()),
-            provider: Some("pi".into()),
-        }],
+        approved_runners: vec![
+            pi_grok_row(),
+            openrouter_row("or-typical", "deepseek/deepseek-v4.1-flash", None),
+            openrouter_row(
+                "or-special",
+                "anthropic/claude-sonnet-5.5",
+                Some(RESERVE_OPUS),
+            ),
+        ],
     }
 }
 
@@ -197,18 +244,22 @@ fn write_selection(roots: &Roots, id: &str) -> Result<(), String> {
     })
 }
 
-pub fn runner_get_value(roots: &Roots) -> Value {
-    let settings = load_user_settings(roots);
-    let sel = read_selection(roots);
-    let entry = find_runner(&settings, &sel.runner);
-    let mut error = sel.error.clone();
-    if error.is_none() && entry.is_none() {
-        error = Some(format!(
-            "runner \"{}\" is not on the approved list (approved: {})",
-            sel.runner,
-            approved_ids(&settings)
-        ));
+fn provider_prefs_value(entry: Option<&ApprovedRunner>) -> Value {
+    match entry {
+        Some(r) if r.provider.as_deref() == Some("openrouter") => {
+            serde_json::from_str(OR_PROVIDER_PREFS).unwrap_or(Value::Null)
+        }
+        _ => Value::Null,
     }
+}
+
+fn runner_value(
+    roots: &Roots,
+    settings: &UserGoSettings,
+    runner_id: &str,
+    entry: Option<&ApprovedRunner>,
+    error: Option<String>,
+) -> Value {
     let (cook, verify, model, provider) = match entry {
         Some(r) => (
             expand_home(roots, &r.cook).display().to_string(),
@@ -219,16 +270,88 @@ pub fn runner_get_value(roots: &Roots) -> Value {
         None => (String::new(), String::new(), None, None),
     };
     json!({
-        "runner": sel.runner,
+        "runner": runner_id,
         "cook": cook,
         "verify": verify,
         "model": model,
         "provider": provider,
+        "verify_model": entry.and_then(|r| r.verify_model.clone()),
+        "verify_tier": entry.and_then(|r| r.verify_tier.clone()),
+        "verify_backup": entry.and_then(|r| r.verify_backup.clone()),
+        "reserve_model": entry.and_then(|r| r.reserve_model.clone()),
+        "provider_prefs": provider_prefs_value(entry),
         "approved": settings.approved_runners,
         "permissions": settings.permissions,
         "developerMode": settings.developer_mode,
         "error": error,
     })
+}
+
+pub fn runner_get_value(roots: &Roots) -> Value {
+    let settings = load_user_settings(roots);
+    let sel = read_selection(roots);
+    let entry = find_runner(&settings, &sel.runner).cloned();
+    let mut error = sel.error.clone();
+    if error.is_none() && entry.is_none() {
+        error = Some(format!(
+            "runner \"{}\" is not on the approved list (approved: {})",
+            sel.runner,
+            approved_ids(&settings)
+        ));
+    }
+    runner_value(roots, &settings, &sel.runner, entry.as_ref(), error)
+}
+
+/// Row for one GO file. `cook-pi` and a missing `runner:` are `pi-grok`.
+/// Anything else must be an approved id. Unknown is an error, never a fallback.
+pub fn runner_for_go<'a>(
+    settings: &'a UserGoSettings,
+    go_yaml: &str,
+) -> Result<&'a ApprovedRunner, String> {
+    let raw = yaml_top_scalar(go_yaml, "runner").unwrap_or_default();
+    let id = if raw.is_empty() || raw == "cook-pi" {
+        BUILTIN_ID
+    } else {
+        raw.as_str()
+    };
+    find_runner(settings, id).ok_or_else(|| format!("runner config: {raw} not approved"))
+}
+
+/// Special GOs move to the Opus reserve on round 3, or when the diff is over
+/// 1500 changed lines. Typical GOs stay on `verify_model`.
+pub fn verify_model_for_round(r: &ApprovedRunner, round: u8, diff_lines: u32) -> String {
+    if r.id == "or-special" && (round >= 3 || diff_lines > 1500) {
+        return r.reserve_model.clone().unwrap_or_default();
+    }
+    r.verify_model.clone().unwrap_or_default()
+}
+
+/// `go runner --file`. Reads the GO yaml and returns the row from `runner_for_go`.
+pub fn runner_get_for_file(roots: &Roots, path: &Path) -> Value {
+    let settings = load_user_settings(roots);
+    let yaml = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            return runner_value(
+                roots,
+                &settings,
+                "",
+                None,
+                Some(format!("runner config: cannot read GO file ({e})")),
+            );
+        }
+    };
+    match runner_for_go(&settings, &yaml) {
+        Ok(r) => {
+            let id = r.id.clone();
+            let owned = r.clone();
+            runner_value(roots, &settings, &id, Some(&owned), None)
+        }
+        Err(e) => {
+            let raw = yaml_top_scalar(&yaml, "runner").unwrap_or_default();
+            runner_value(roots, &settings, &raw, None, Some(e))
+        }
+    }
 }
 
 /// One path, `~/` expanded, no args. Regular file, executable, owned by
@@ -350,11 +473,11 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_all_off_and_pi_grok_only() {
+    fn defaults_are_all_off_and_pi_grok_is_selected() {
         let s = builtin_user_settings();
         assert!(!s.developer_mode);
         assert_eq!(s.permissions, GoPermissions::all_off());
-        assert_eq!(s.approved_runners.len(), 1);
+        assert_eq!(s.approved_runners.len(), 3);
         assert_eq!(s.approved_runners[0].id, "pi-grok");
         assert_eq!(s.approved_runners[0].cook, "~/bin/cook-pi.sh");
         assert_eq!(s.approved_runners[0].verify, "~/bin/verify-pi.sh");
@@ -391,7 +514,7 @@ mod tests {
         let err = apply_runner_set(&r, &json!({"runner": "nope"})).unwrap_err();
         assert_eq!(
             err,
-            "runner \"nope\" is not on the approved list (approved: pi-grok)"
+            "runner \"nope\" is not on the approved list (approved: or-special, or-typical, pi-grok)"
         );
         assert!(!selection_path(&r).exists());
         let _ = std::fs::remove_dir_all(&home);
@@ -477,5 +600,107 @@ mod tests {
         assert_eq!(yaml_top_scalar(yaml, "id").as_deref(), Some("GO-X"));
         assert!(yaml_top_scalar(yaml, "lock").is_none());
         assert_eq!(yaml_top_scalar(yaml, "card_id").as_deref(), Some("c-1"));
+    }
+
+    #[test]
+    fn builtin_has_three_rows() {
+        let s = builtin_user_settings();
+        let ids: Vec<&str> = s.approved_runners.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec!["pi-grok", "or-typical", "or-special"]);
+        let pi = &s.approved_runners[0];
+        let v = serde_json::to_value(pi).unwrap();
+        assert_eq!(
+            v,
+            json!({
+                "id": "pi-grok",
+                "cook": "~/bin/cook-pi.sh",
+                "verify": "~/bin/verify-pi.sh",
+                "model": "grok",
+                "provider": "pi",
+            })
+        );
+        let typical = &s.approved_runners[1];
+        assert_eq!(typical.model.as_deref(), Some("deepseek/deepseek-v4.1-flash"));
+        assert_eq!(typical.verify_model.as_deref(), Some("z-ai/glm-5.3"));
+        assert_eq!(typical.verify_backup.as_deref(), Some("openai/gpt-6.1-sol"));
+        assert_eq!(typical.verify_tier.as_deref(), Some("flex"));
+        assert!(typical.reserve_model.is_none());
+        let special = &s.approved_runners[2];
+        assert_eq!(special.model.as_deref(), Some("anthropic/claude-sonnet-5.5"));
+        assert_eq!(special.verify_model.as_deref(), Some("z-ai/glm-5.3"));
+        assert_eq!(
+            special.reserve_model.as_deref(),
+            Some("anthropic/claude-opus-5.5")
+        );
+    }
+
+    #[test]
+    fn runner_for_go_maps_cook_pi_to_pi_grok() {
+        let s = builtin_user_settings();
+        let cook_pi = "id: GO-X\nrunner: cook-pi\n";
+        let missing = "id: GO-X\nbase: abc\n";
+        assert_eq!(runner_for_go(&s, cook_pi).unwrap().id, "pi-grok");
+        assert_eq!(runner_for_go(&s, missing).unwrap().id, "pi-grok");
+    }
+
+    #[test]
+    fn runner_for_go_unknown_blocks() {
+        let s = builtin_user_settings();
+        let err = runner_for_go(&s, "id: GO-X\nrunner: gpt-yolo\n").unwrap_err();
+        assert!(err.contains("not approved"), "{err}");
+        assert!(err.contains("gpt-yolo"), "{err}");
+    }
+
+    #[test]
+    fn verify_model_escalates_special_only() {
+        let s = builtin_user_settings();
+        let special = find_runner(&s, "or-special").unwrap();
+        let typical = find_runner(&s, "or-typical").unwrap();
+        assert_eq!(
+            verify_model_for_round(special, 3, 0),
+            "anthropic/claude-opus-5.5"
+        );
+        assert_eq!(
+            verify_model_for_round(special, 1, 1501),
+            "anthropic/claude-opus-5.5"
+        );
+        assert_eq!(verify_model_for_round(special, 2, 1500), "z-ai/glm-5.3");
+        assert_eq!(verify_model_for_round(typical, 3, 0), "z-ai/glm-5.3");
+        assert_eq!(verify_model_for_round(typical, 1, 9000), "z-ai/glm-5.3");
+    }
+
+    #[test]
+    fn provider_prefs_constant() {
+        let v: serde_json::Value = serde_json::from_str(OR_PROVIDER_PREFS).unwrap();
+        assert_eq!(v["zdr"], true);
+        assert_eq!(v["data_collection"], "deny");
+    }
+
+    #[test]
+    fn runner_get_for_file_reads_the_header() {
+        let home = tmp();
+        let r = roots(&home);
+        let path = home.join("GO.md");
+        std::fs::write(
+            &path,
+            "---\nid: GO-X\nrunner: or-typical\n---\n",
+        )
+        .unwrap();
+        let got = runner_get_for_file(&r, &path);
+        assert!(got["error"].is_null(), "{got}");
+        assert_eq!(got["runner"], "or-typical");
+        assert_eq!(got["model"], "deepseek/deepseek-v4.1-flash");
+        assert_eq!(got["verify_model"], "z-ai/glm-5.3");
+        assert_eq!(got["verify_tier"], "flex");
+        assert_eq!(got["verify_backup"], "openai/gpt-6.1-sol");
+        assert_eq!(got["provider_prefs"]["zdr"], true);
+        assert_eq!(got["provider_prefs"]["data_collection"], "deny");
+        std::fs::write(&path, "---\nid: GO-X\nrunner: gpt-yolo\n---\n").unwrap();
+        let bad = runner_get_for_file(&r, &path);
+        assert!(
+            bad["error"].as_str().unwrap().contains("not approved"),
+            "{bad}"
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
