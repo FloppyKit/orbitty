@@ -120,13 +120,28 @@ impl ResetReason {
 /// No history yet (a first send that died) → the wrapped line unchanged.
 /// What `coordinator/send.rs` calls after `arm_manual_roll`.
 /// Flag-off sends never reach this (they stay on the every-16 path).
+/// Only this function can mint an `ArmedRoll`. The flag-on handoff seam
+/// takes that token, so a test that hardcodes `ResetReason` cannot load rules.
+#[derive(Clone, Copy, Debug)]
+pub struct ArmedRoll {
+    reason: ResetReason,
+}
+
+impl ArmedRoll {
+    pub fn reason(self) -> ResetReason {
+        self.reason
+    }
+}
+
 pub fn consume_armed_reason(
     pending: Option<&str>,
     chars: u64,
     budget: u64,
-) -> Option<ResetReason> {
+) -> Option<ArmedRoll> {
     let name = crate::mouth_archive::planned_reason(pending, chars, budget)?;
-    Some(ResetReason::parse(name).unwrap_or(ResetReason::Budget))
+    Some(ArmedRoll {
+        reason: ResetReason::parse(name).unwrap_or(ResetReason::Budget),
+    })
 }
 
 pub fn handoff_prompt(

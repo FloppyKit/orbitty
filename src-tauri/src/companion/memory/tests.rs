@@ -602,21 +602,34 @@ fn rule_survives_3_real_rolls() {
                 Some("manual_test"),
                 "arm_manual_roll must set the pending reason the send path reads"
             );
-            let reason = crate::mouth_roll::consume_armed_reason(
+            let armed = crate::mouth_roll::consume_armed_reason(
                 plug.reset_pending.as_deref(),
                 plug.grok_chars,
                 crate::mouth_archive::session_budget(),
             )
             .expect("send path must consume the armed roll");
-            assert_eq!(reason, ResetReason::ManualTest);
-            let mut c = ctx("", "soul");
-            c.user_rules = super::rules::render_text(&app);
-            let core = build(&c);
-            let handoff = super::handoff_from_core(reason, "spark", &core, &[], "USER:\nnext");
+            assert_eq!(armed.reason(), ResetReason::ManualTest);
+            // Do not assign user_rules. The seam reads rules.json the same
+            // way core_for_app does, and it only accepts ArmedRoll.
+            let handoff = super::handoff_after_armed_roll(&app, armed, "spark", "USER:\nnext");
             assert!(handoff.contains("RULE-ROLL-KEEP"), "{handoff}");
+            assert!(
+                handoff.contains("manual_test"),
+                "handoff must carry the consumed roll reason\n{handoff}"
+            );
             let send = include_str!("../../coordinator/send.rs");
             assert!(send.contains("consume_armed_reason"));
+            assert!(send.contains("armed.reason()"));
             assert!(send.contains("handoff_prompt"));
+            let ram = include_str!("ram.rs");
+            let core_fn = fn_body(ram, "pub(crate) fn core_for_app(");
+            assert!(
+                core_fn.contains("user_rules_for_handoff"),
+                "core_for_app must load rules through the handoff seam"
+            );
+            let seam = fn_body(include_str!("mod.rs"), "pub(crate) fn handoff_after_armed_roll(");
+            assert!(seam.contains("user_rules_for_handoff"));
+            assert!(seam.contains("handoff_from_core"));
             let mut st = crate::state::CompanionState::default();
             st.push_turn("you", &format!("roll-turn-{i}"));
         }

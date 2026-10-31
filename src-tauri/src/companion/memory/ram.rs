@@ -478,8 +478,8 @@ pub(crate) fn core_for_app(app: &tauri::AppHandle) -> RamCore {
         .unwrap_or_default();
     let pinned = super::tags::pinned_names(app_data.as_deref(), planet_id.as_deref());
     let user_rules = app_data
-        .as_ref()
-        .map(|d| super::rules::render_text(d))
+        .as_deref()
+        .map(super::user_rules_for_handoff)
         .unwrap_or_default();
     let ctx = RamCtx {
         rules: load_rules(&crate::coordinator::companions_root()),

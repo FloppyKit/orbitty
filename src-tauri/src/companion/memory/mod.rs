@@ -224,6 +224,47 @@ pub(crate) fn links_for_app(
     Ok(serde_json::json!({ "enabled": true, "links": links }))
 }
 
+/// User-rule text for the flag-on handoff. `core_for_app` and the roll
+/// seam both call this. It reads `rules.json`. Callers do not pass the text in.
+pub(crate) fn user_rules_for_handoff(app_data: &Path) -> String {
+    rules::render_text(app_data)
+}
+
+/// Flag-on handoff after `consume_armed_reason`. Rules come only from
+/// `user_rules_for_handoff` (the same loader `core_for_app` / `handoff_line`
+/// use). `armed` is not constructible outside `consume_armed_reason`.
+pub(crate) fn handoff_after_armed_roll(
+    app_data: &Path,
+    armed: crate::mouth_roll::ArmedRoll,
+    mode: &str,
+    wrapped_line: &str,
+) -> String {
+    let reason = armed.reason();
+    let ctx = ram::RamCtx {
+        rules: String::new(),
+        user_rules: user_rules_for_handoff(app_data),
+        soul: String::new(),
+        now: String::new(),
+        model: String::new(),
+        planet_line: None,
+        notes: None,
+        cards: Vec::new(),
+        card_id: None,
+        pinned_tags: Vec::new(),
+        open_asks: Vec::new(),
+        answered: Vec::new(),
+        // One turn so `handoff_from_turns` emits the consumed reason.
+        // Empty turns return the line unchanged and hide the roll.
+        turns: vec![crate::state::CompanionTurn {
+            role: "you".into(),
+            text: "roll-keep".into(),
+        }],
+        now_secs: 0.0,
+    };
+    let core = fit(&build(&ctx));
+    handoff_from_core(reason, mode, &core, &[], wrapped_line)
+}
+
 /// Handoff when the flag is on. A line that already carries the RAM block
 /// is returned unchanged so state turns are not appended. Otherwise the
 /// history is only the turns still in RAM.

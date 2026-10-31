@@ -846,11 +846,12 @@ pub(crate) fn run_grok_reply(
     if crate::mouth_archive::enabled() {
         let budget = crate::mouth_archive::session_budget();
         // planned_reason is inside consume_armed_reason (manual_test / thin / budget).
-        if let Some(reason) = crate::mouth_roll::consume_armed_reason(
+        if let Some(armed) = crate::mouth_roll::consume_armed_reason(
             plug.reset_pending.as_deref(),
             plug.grok_chars,
             budget,
         ) {
+            let reason = armed.reason();
             let old = plug.grok_session_id.clone().unwrap_or_default();
             let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
             let text = crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff)?;

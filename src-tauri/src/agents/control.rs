@@ -377,6 +377,17 @@ fn read_ok(tool: &str) -> bool {
     READ_TOOLS.contains(&tool) || stars_ctl::is_read(tool)
 }
 
+/// Companion profile must not write a rule or drop a pin. Propose stays allowed.
+fn companion_model_cannot_write(tool: &str) -> bool {
+    matches!(
+        tool,
+        "companion.rule_set"
+            | "companion.rule_rm"
+            | "companion.rule_accept"
+            | "companion.tags_unpin"
+    )
+}
+
 /// Classify only. Same ids as `mouth_route::classify`. No state write,
 /// no event log, no window change.
 fn route_classify_value(line: &str) -> Value {
@@ -395,10 +406,13 @@ fn allowed(acl: &Acl, tool: &str) -> bool {
         Acl::Companion => {
             // Spark mints and runs named recipes
             // (action.add / action.run) — never a raw shell, never rm.
-            read_ok(tool)
-                || tool.starts_with("companion.")
-                || tool == "action.run"
-                || tool == "action.add"
+            // Rule writes and unpin are user verbs (Full / orbittyctl).
+            // The model may propose; it may not set, rm, accept, or unpin.
+            !companion_model_cannot_write(tool)
+                && (read_ok(tool)
+                    || tool.starts_with("companion.")
+                    || tool == "action.run"
+                    || tool == "action.add")
         }
         // A custom entry names a tool exactly, or a whole prefix with a
         // trailing `*` (e.g. "action.*" reaches all four action tools).
@@ -1610,6 +1624,30 @@ mod tests {
         assert!(!allowed(&Acl::Companion, "flags.auto"));
         assert!(allowed(&Acl::Full, "flags.set"));
         assert!(allowed(&Acl::Full, "flags.auto"));
+    }
+
+    #[test]
+    fn companion_cannot_write_rules_or_unpin() {
+        assert!(!allowed(&Acl::Companion, "companion.rule_set"));
+        assert!(!allowed(&Acl::Companion, "companion.rule_rm"));
+        assert!(!allowed(&Acl::Companion, "companion.rule_accept"));
+        assert!(!allowed(&Acl::Companion, "companion.tags_unpin"));
+        assert!(allowed(&Acl::Full, "companion.rule_set"));
+        assert!(allowed(&Acl::Full, "companion.rule_rm"));
+        assert!(allowed(&Acl::Full, "companion.rule_accept"));
+        assert!(allowed(&Acl::Full, "companion.tags_unpin"));
+        assert!(!allowed(&Acl::Read, "companion.rule_set"));
+        assert!(!allowed(&Acl::Read, "companion.rule_rm"));
+        assert!(!allowed(&Acl::Read, "companion.rule_accept"));
+        assert!(!allowed(&Acl::Read, "companion.tags_unpin"));
+        assert!(allowed(&Acl::Companion, "companion.rule_propose"));
+        assert!(allowed(&Acl::Companion, "companion.rule_list"));
+        assert!(allowed(&Acl::Companion, "companion.get"));
+        assert!(allowed(&Acl::Companion, "companion.links"));
+        assert!(allowed(&Acl::Full, "companion.rule_propose"));
+        assert!(allowed(&Acl::Full, "companion.rule_list"));
+        assert!(allowed(&Acl::Full, "companion.get"));
+        assert!(allowed(&Acl::Full, "companion.links"));
     }
 
     #[test]
