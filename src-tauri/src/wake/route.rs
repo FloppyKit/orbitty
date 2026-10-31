@@ -433,7 +433,8 @@ pub fn roll_noise(subs: &[Sub], clock: &Clock, state: &mut RouteState) -> Vec<De
 }
 
 fn fold_line(seat: SeatId, sub: &str, summary: &str, clock: &Clock, _id: Option<&str>) -> Decision {
-    let seq = clock.unix;
+    // Placeholder. Persist stamps the events.jsonl tip. Never wall-clock.
+    let seq = 0u64;
     Decision {
         seat,
         deliver: false,

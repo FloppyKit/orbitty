@@ -87,7 +87,8 @@ pub fn fire_due(app_dir: &Path, clock: &Clock) -> Result<Vec<(SeatId, serde_json
             continue;
         }
         state.fired_alarms.push(mark);
-        let seq = clock.unix.max(1);
+        // Same space as events.jsonl. A unix seq hides later board-moves after ack.
+        let seq = store::log_tip(app_dir);
         let line = json!({
             "seq": seq,
             "ts": clock.iso(),

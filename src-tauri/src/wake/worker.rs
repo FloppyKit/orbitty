@@ -189,25 +189,45 @@ fn apply_event(
 }
 
 fn commit_decision(dir: &Path, d: &Decision, bus: &str) -> Result<(), String> {
-    if inbox_has(&d.seat, dir, &d.line) {
+    let line = stamped(dir, d);
+    if inbox_has(&d.seat, dir, &line) {
         return Ok(());
     }
-    store::append_inbox(dir, &d.seat, &d.line)?;
+    store::append_inbox(dir, &d.seat, &line)?;
     let body = json!({
         "seat": d.seat.as_key(),
-        "summary": d.line.get("summary").and_then(Value::as_str).unwrap_or(""),
-        "event_id": d.line.get("event_id").and_then(Value::as_str).unwrap_or(""),
+        "summary": line.get("summary").and_then(Value::as_str).unwrap_or(""),
+        "event_id": line.get("event_id").and_then(Value::as_str).unwrap_or(""),
         "source": bus,
     });
     let _ = store::log_summary(dir, d.e_type_log, &body);
     if d.deliver && bus == "herdr" {
         herdr_bus::deliver(
             &d.seat,
-            d.line.get("summary").and_then(Value::as_str).unwrap_or(""),
+            line.get("summary").and_then(Value::as_str).unwrap_or(""),
         );
     }
-    emit_one(&d.line);
+    emit_one(&line);
     Ok(())
+}
+
+/// Fold lines are not event-log rows. Their inbox seq is the log tip,
+/// so ack cannot jump past a later board-move.
+fn stamped(dir: &Path, d: &Decision) -> Value {
+    if d.e_type_log != "wake-drop" {
+        return d.line.clone();
+    }
+    let mut line = d.line.clone();
+    let seq = store::log_tip(dir);
+    let sub = line
+        .get("sub")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    line["seq"] = json!(seq);
+    line["event_id"] = json!(format!("fold-{sub}-{seq}"));
+    line["dedupe_key"] = json!(format!("fold:{sub}:{seq}"));
+    line
 }
 
 fn inbox_has(seat: &SeatId, dir: &Path, line: &Value) -> bool {

@@ -379,8 +379,9 @@ fn emit(dir: &Path, args: &Value, caller: &Caller) -> Result<Value, String> {
     } else {
         subs.retain(|s| s.trigger.source == "emit");
     }
+    let seq = store::log_tip(dir);
     let ev = EventView {
-        seq: crate::event_log::unix_now(),
+        seq,
         id: crate::event_log::uuid_v4_hex(),
         kind: 0,
         e_type: source.to_string(),
@@ -408,9 +409,22 @@ fn emit(dir: &Path, args: &Value, caller: &Caller) -> Result<Value, String> {
     let mut n = 0;
     for d in decisions {
         if d.line.get("e_type").and_then(Value::as_str) == Some("wake-drop") {
+            let mut line = d.line.clone();
+            line["seq"] = json!(seq);
+            let sub = line
+                .get("sub")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            line["event_id"] = json!(format!("fold-{sub}-{seq}"));
+            line["dedupe_key"] = json!(format!("fold:{sub}:{seq}"));
+            store::append_inbox(dir, &d.seat, &line)?;
+            n += 1;
             continue;
         }
-        store::append_inbox(dir, &d.seat, &d.line)?;
+        let mut line = d.line.clone();
+        line["seq"] = json!(seq);
+        store::append_inbox(dir, &d.seat, &line)?;
         n += 1;
     }
     let _ = store::log_summary(

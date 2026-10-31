@@ -270,7 +270,13 @@ fn cursor_survives_restart() {
     arm(&dir, true, false);
     put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
     append_log(&dir, &(1..=5).collect::<Vec<_>>());
-    run_drain(&dir, &clock(1_700_000_000)).unwrap();
+    // Crash after the cursor file is durable. Save-before-route drops 1..=5.
+    store::crash_after_cursor_save(true);
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = run_drain(&dir, &clock(1_700_000_000));
+    }));
+    store::crash_after_cursor_save(false);
+    assert!(crashed.is_err(), "expected crash at cursor save");
     assert_eq!(store::load_cursor(&dir), 5);
     append_log(&dir, &(6..=10).collect::<Vec<_>>());
     run_drain(&dir, &clock(1_700_000_100)).unwrap();
@@ -280,6 +286,28 @@ fn cursor_survives_restart() {
     seqs.sort();
     seqs.dedup();
     assert_eq!(seqs, (1..=10).collect::<Vec<_>>());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cursor_crash_window_keeps_line() {
+    let dir = scratch_dir("cursor-crash");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    append_log(&dir, &[1]);
+    store::crash_after_cursor_save(true);
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = run_drain(&dir, &clock(1_700_000_000));
+    }));
+    store::crash_after_cursor_save(false);
+    assert!(crashed.is_err(), "expected crash at cursor save");
+    run_drain(&dir, &clock(1_700_000_100)).unwrap();
+    let seat = SeatId::parse("primary").unwrap();
+    let seqs: Vec<u64> = store::read_inbox(&dir, &seat)
+        .iter()
+        .filter_map(|l| l["seq"].as_u64())
+        .collect();
+    assert_eq!(seqs, vec![1], "crash in the cursor window dropped the line");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -421,6 +449,92 @@ fn alarm_fires_once_writes_line_only() {
     let logs = store::summary_lines(&dir);
     assert!(logs.iter().any(|v| store::tag(v, "e-type") == "wake-alarm" && store::tag(v, "t") == "local-only"));
     assert!(logs.iter().all(|v| v["kind"].as_u64() == Some(31200)));
+    let line = &store::read_inbox(&dir, &seat)[0];
+    assert_eq!(line["seq"].as_u64(), Some(store::log_tip(&dir)));
+    assert!(line["seq"].as_u64().unwrap() < 1_000_000_000);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn ack_alarm_does_not_hide_later_move() {
+    let dir = scratch_dir("alarm-ack");
+    arm(&dir, true, false);
+    append_log(&dir, &[1, 2]);
+    let seat = SeatId::parse("primary").unwrap();
+    let at = "2026-10-30T12:00:00-05:00";
+    alarm::set(&dir, &seat, at).unwrap();
+    let c = clock(alarm::unix_of(at).unwrap() + 1);
+    run_drain(&dir, &c).unwrap();
+    let alarm_seq = store::read_inbox(&dir, &seat)
+        .iter()
+        .find(|l| l["e_type"] == "wake-alarm")
+        .and_then(|l| l["seq"].as_u64())
+        .unwrap();
+    assert_eq!(alarm_seq, 2, "alarm seq must be the events.jsonl tip, not unix");
+    ack(&dir, &seat, alarm_seq).unwrap();
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    append_log(&dir, &[3]);
+    run_drain(&dir, &c).unwrap();
+    let left = resume(&dir, &seat, 50);
+    assert!(
+        left.iter().any(|l| l["seq"] == 3 && l["e_type"] == "board-move"),
+        "ack of the alarm hid the later move: {left:?}"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn ack_fold_and_emit_do_not_hide_later_move() {
+    let dir = scratch_dir("fold-ack");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 6, "board-move")).unwrap();
+    append_log(&dir, &(1..=7).collect::<Vec<_>>());
+    let t0 = 1_700_000_000u64;
+    run_drain(&dir, &clock(t0)).unwrap();
+    run_drain(&dir, &clock(t0 + 3600)).unwrap();
+    let seat = SeatId::parse("primary").unwrap();
+    let fold_seq = store::read_inbox(&dir, &seat)
+        .iter()
+        .find(|l| l["e_type"] == "wake-drop")
+        .and_then(|l| l["seq"].as_u64())
+        .expect("fold line");
+    assert_eq!(fold_seq, store::log_tip(&dir));
+    assert!(fold_seq < 1_000_000_000, "fold seq {fold_seq} is wall-clock");
+    ack(&dir, &seat, fold_seq).unwrap();
+    append_log(&dir, &[8]);
+    run_drain(&dir, &clock(t0 + 3600)).unwrap();
+    let left = resume(&dir, &seat, 50);
+    assert!(
+        left.iter().any(|l| l["seq"] == 8),
+        "ack of the fold hid the later move: {left:?}"
+    );
+
+    let mut emit_sub = sub("e", "primary", 0, 6, "ping");
+    emit_sub.trigger.source = "emit".into();
+    put_sub(&dir, emit_sub).unwrap();
+    let tip = store::log_tip(&dir);
+    dispatch(
+        &dir,
+        "wake.emit",
+        &json!({"source":"ping","key":"k","summary":"hi","seat":"primary"}),
+        "ctl:1",
+    )
+    .unwrap();
+    let emit_seq = store::read_inbox(&dir, &seat)
+        .iter()
+        .find(|l| l["e_type"] == "ping")
+        .and_then(|l| l["seq"].as_u64())
+        .expect("emit line");
+    assert_eq!(emit_seq, tip);
+    assert!(emit_seq < 1_000_000_000, "emit seq {emit_seq} is wall-clock");
+    ack(&dir, &seat, emit_seq).unwrap();
+    append_log(&dir, &[9]);
+    run_drain(&dir, &clock(t0 + 3600)).unwrap();
+    let left = resume(&dir, &seat, 50);
+    assert!(
+        left.iter().any(|l| l["seq"] == 9),
+        "ack of the emit hid the later move: {left:?}"
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 

@@ -145,7 +145,39 @@ pub fn save_cursor(app_dir: &Path, seq: u64) -> Result<(), String> {
     ensure_tree(app_dir)?;
     let file = CursorFile { v: 1, seq };
     let bytes = serde_json::to_vec(&file).map_err(|e| format!("cursor: {e}"))?;
-    write_atomic(&wake_dir(app_dir).join("cursor.json"), &bytes)
+    write_atomic(&wake_dir(app_dir).join("cursor.json"), &bytes)?;
+    // Test crash sits after the durable write. A save before routing
+    // then drops the batch; a save after routing does not.
+    #[cfg(test)]
+    if CRASH_AFTER_CURSOR.with(|c| c.get()) {
+        panic!("crash after cursor save");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static CRASH_AFTER_CURSOR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+pub fn crash_after_cursor_save(on: bool) {
+    CRASH_AFTER_CURSOR.with(|c| c.set(on));
+}
+
+/// High-water `seq` already on events.jsonl (or events.seq). Inbox ack
+/// uses this space. Wall-clock is not a seq.
+pub fn log_tip(app_dir: &Path) -> u64 {
+    let path = events_path(app_dir);
+    let from_log = crate::relay::event_seq::recover_max_seq(
+        &path,
+        crate::relay::event_seq::TAIL_BYTES,
+    );
+    let from_file = fs::read_to_string(app_dir.join("events.seq"))
+        .ok()
+        .and_then(|t| t.trim().parse().ok())
+        .unwrap_or(0);
+    from_log.max(from_file)
 }
 
 pub fn load_state(app_dir: &Path) -> RouteState {
