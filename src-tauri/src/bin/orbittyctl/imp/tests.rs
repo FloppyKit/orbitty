@@ -363,3 +363,38 @@
         assert!(USAGE.contains("ledger export [--out PATH]"));
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn wake_verbs_parse() {
+        let (tool, args) = tool_call(
+            &parse(&argv(&[
+                "wake", "sub", "--seat", "primary", "--e-type", "board-move", "--dedupe", "60",
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "wake.subscribe");
+        assert_eq!(args["seat"], "primary");
+        assert_eq!(args["e_types"][0], "board-move");
+        assert_eq!(args["dedupe_s"], 60);
+        let (tool, args) = tool_call(
+            &parse(&argv(&["wake", "ack", "--seat", "primary", "--upto", "9"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "wake.ack");
+        assert_eq!(args["upto_seq"], 9);
+        let (tool, args) = tool_call(
+            &parse(&argv(&["wake", "alarm", "--seat", "primary", "--at", "+2m"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "wake.alarm");
+        assert_eq!(args["at"], "+2m");
+        let (tool, _) = tool_call(&parse(&argv(&["wake", "status", "--seat", "primary"])).unwrap()).unwrap();
+        assert_eq!(tool, "wake.status");
+        let (tool, _) = tool_call(&parse(&argv(&["wake", "resume", "--seat", "primary"])).unwrap()).unwrap();
+        assert_eq!(tool, "wake.resume");
+        assert!(parse(&argv(&["wake", "sub"])).is_ok());
+        assert!(tool_call(&parse(&argv(&["wake", "sub"])).unwrap()).is_err());
+        assert!(USAGE.contains("wake sub --seat"));
+        assert!(USAGE.contains("wake alarm --seat"));
+    }

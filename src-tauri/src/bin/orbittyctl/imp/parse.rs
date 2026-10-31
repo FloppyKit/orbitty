@@ -95,6 +95,20 @@ pub(crate) struct Opts {
     pub(crate) rel: Option<String>,
     /// companion rule-propose --remove
     pub(crate) remove: bool,
+    /// wake --seat
+    pub(crate) seat: Option<String>,
+    /// wake sub --dedupe seconds
+    pub(crate) dedupe: Option<String>,
+    /// wake alarm --at
+    pub(crate) at: Option<String>,
+    /// wake ack --upto
+    pub(crate) upto: Option<String>,
+    /// wake sub --key-prefix
+    pub(crate) key_prefix: Option<String>,
+    /// wake sub --source events|emit
+    pub(crate) source: Option<String>,
+    /// wake sub --kind
+    pub(crate) kind: Option<String>,
 }
 
 pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -168,6 +182,13 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
         text: None,
         rel: None,
         remove: false,
+        seat: None,
+        dedupe: None,
+        at: None,
+        upto: None,
+        key_prefix: None,
+        source: None,
+        kind: None,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -195,7 +216,18 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             }
             "--notes" => o.notes = Some(it.next().ok_or("--notes needs a value")?.clone()),
             "--why" => o.why = Some(it.next().ok_or("--why needs a value")?.clone()),
-            "--type" => o.etype = Some(it.next().ok_or("--type needs a value")?.clone()),
+            "--type" | "--e-type" => {
+                o.etype = Some(it.next().ok_or("--e-type needs a value")?.clone())
+            }
+            "--seat" => o.seat = Some(it.next().ok_or("--seat needs a value")?.clone()),
+            "--dedupe" => o.dedupe = Some(it.next().ok_or("--dedupe needs a value")?.clone()),
+            "--at" => o.at = Some(it.next().ok_or("--at needs a value")?.clone()),
+            "--upto" => o.upto = Some(it.next().ok_or("--upto needs a value")?.clone()),
+            "--key-prefix" => {
+                o.key_prefix = Some(it.next().ok_or("--key-prefix needs a value")?.clone())
+            }
+            "--source" => o.source = Some(it.next().ok_or("--source needs a value")?.clone()),
+            "--kind" => o.kind = Some(it.next().ok_or("--kind needs a value")?.clone()),
             "--actor" => o.actor = Some(it.next().ok_or("--actor needs a value")?.clone()),
             "--name" => o.name = Some(it.next().ok_or("--name needs a value")?.clone()),
             "--cmd" => o.cmd = Some(it.next().ok_or("--cmd needs a value")?.clone()),
@@ -302,6 +334,16 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             s if s.starts_with("--notes=") => o.notes = Some(s["--notes=".len()..].to_string()),
             s if s.starts_with("--why=") => o.why = Some(s["--why=".len()..].to_string()),
             s if s.starts_with("--type=") => o.etype = Some(s["--type=".len()..].to_string()),
+            s if s.starts_with("--e-type=") => o.etype = Some(s["--e-type=".len()..].to_string()),
+            s if s.starts_with("--seat=") => o.seat = Some(s["--seat=".len()..].to_string()),
+            s if s.starts_with("--dedupe=") => o.dedupe = Some(s["--dedupe=".len()..].to_string()),
+            s if s.starts_with("--at=") => o.at = Some(s["--at=".len()..].to_string()),
+            s if s.starts_with("--upto=") => o.upto = Some(s["--upto=".len()..].to_string()),
+            s if s.starts_with("--key-prefix=") => {
+                o.key_prefix = Some(s["--key-prefix=".len()..].to_string())
+            }
+            s if s.starts_with("--source=") => o.source = Some(s["--source=".len()..].to_string()),
+            s if s.starts_with("--kind=") => o.kind = Some(s["--kind=".len()..].to_string()),
             s if s.starts_with("--actor=") => o.actor = Some(s["--actor=".len()..].to_string()),
             s if s.starts_with("--name=") => o.name = Some(s["--name=".len()..].to_string()),
             s if s.starts_with("--cmd=") => o.cmd = Some(s["--cmd=".len()..].to_string()),

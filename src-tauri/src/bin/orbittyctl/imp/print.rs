@@ -530,6 +530,27 @@ pub(crate) fn print_human(tool: &str, data: &Value) {
             };
             println!("flags auto {on}");
         }
+        "wake.list" | "wake.inbox" | "wake.resume" => {
+            let lines = data.get("lines").or_else(|| data.get("subs")).and_then(|v| v.as_array());
+            let n = lines.map(|a| a.len()).unwrap_or(0);
+            println!("{n}");
+        }
+        "wake.status" | "wake.alarm" => {
+            let active = data["active"].as_bool().unwrap_or(false);
+            let at = data["at"].as_str().unwrap_or("null");
+            let unacked = data["unacked"].as_u64().unwrap_or(0);
+            println!("active={active} at={at} unacked={unacked}");
+        }
+        "wake.subscribe" => {
+            println!(
+                "subscribed {} {}",
+                data["id"].as_str().unwrap_or("?"),
+                data["seat"].as_str().unwrap_or("")
+            );
+        }
+        "wake.ack" | "wake.unsubscribe" | "wake.emit" => {
+            println!("{}", serde_json::to_string(data).unwrap_or_else(|_| "ok".into()));
+        }
         "herdr.status" => {
             let source = data["source"].as_str().unwrap_or("fallback");
             let version = data["version"].as_str().unwrap_or("");

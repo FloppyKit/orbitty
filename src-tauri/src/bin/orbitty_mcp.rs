@@ -156,6 +156,15 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "history.keep", description: "Accept the board as it is: a checkpoint with reason keep, so drift is empty. Without confirm: true it returns the drift and writes nothing.", args: "history_confirm" },
     ToolDef { name: "flags.list", description: "List runtime flags: id, on, source, stale. Read-only.", args: "none" },
     ToolDef { name: "flags.set", description: "Turn a runtime flag on or off. Write-class. Writes the channel flags file mode 0600.", args: "flags_set" },
+    ToolDef { name: "wake.list", description: "List wake subscriptions. Read-only. Flag wake_core off refuses.", args: "none" },
+    ToolDef { name: "wake.inbox", description: "Inbox lines for one seat after after_seq. Read-only. Does not launch.", args: "wake_inbox" },
+    ToolDef { name: "wake.status", description: "Wake status for one seat: active, at, unacked. Read-only.", args: "wake_seat" },
+    ToolDef { name: "wake.resume", description: "Unacked inbox lines after the seat ack seq, oldest first, at most 50. Idempotent read.", args: "wake_resume" },
+    ToolDef { name: "wake.subscribe", description: "Subscribe a seat. Write-class, loopback socket only. Does not launch.", args: "wake_sub" },
+    ToolDef { name: "wake.unsubscribe", description: "Remove a subscription by id. Write-class.", args: "wake_id" },
+    ToolDef { name: "wake.ack", description: "Ack inbox lines up to a seq. A lower seq is a no-op. Write-class.", args: "wake_ack" },
+    ToolDef { name: "wake.emit", description: "Emit one key to matching emit subscriptions. Notifies only.", args: "wake_emit" },
+    ToolDef { name: "wake.alarm", description: "Set the one alarm for a seat. Replaces any previous alarm. Writes one inbox line when due. Does not launch.", args: "wake_alarm" },
 ];
 
 fn known_tool(name: &str) -> bool {
@@ -698,6 +707,76 @@ fn input_schema(kind: &str) -> Value {
             },
             "required": ["id"]
         }),
+        "wake_seat" => json!({
+            "type": "object",
+            "properties": {
+                "seat": { "type": "string", "description": "primary | agent:<cardId> | claim:<id> | watch:<id> | remote:<id>" }
+            },
+            "required": ["seat"]
+        }),
+        "wake_inbox" => json!({
+            "type": "object",
+            "properties": {
+                "seat": { "type": "string" },
+                "after_seq": { "type": "integer" },
+                "n": { "type": "integer", "maximum": 50 }
+            },
+            "required": ["seat"]
+        }),
+        "wake_resume" => json!({
+            "type": "object",
+            "properties": {
+                "seat": { "type": "string" },
+                "n": { "type": "integer", "maximum": 50 }
+            },
+            "required": ["seat"]
+        }),
+        "wake_id" => json!({
+            "type": "object",
+            "properties": { "id": { "type": "string" } },
+            "required": ["id"]
+        }),
+        "wake_ack" => json!({
+            "type": "object",
+            "properties": {
+                "seat": { "type": "string" },
+                "upto_seq": { "type": "integer" }
+            },
+            "required": ["seat", "upto_seq"]
+        }),
+        "wake_sub" => json!({
+            "type": "object",
+            "properties": {
+                "seat": { "type": "string" },
+                "source": { "type": "string" },
+                "e_types": { "type": "array", "items": { "type": "string" } },
+                "kinds": { "type": "array", "items": { "type": "integer" } },
+                "project": { "type": "string" },
+                "card": { "type": "string" },
+                "key_prefix": { "type": "string" },
+                "dedupe_s": { "type": "integer" },
+                "max_per_hour": { "type": "integer" }
+            },
+            "required": ["seat"]
+        }),
+        "wake_emit" => json!({
+            "type": "object",
+            "properties": {
+                "source": { "type": "string" },
+                "key": { "type": "string" },
+                "summary": { "type": "string" },
+                "seat": { "type": "string" }
+            },
+            "required": ["source"]
+        }),
+        "wake_alarm" => json!({
+            "type": "object",
+            "properties": {
+                "seat": { "type": "string" },
+                "at": { "type": "string", "description": "ISO-8601 or +2m" }
+            },
+            "required": ["seat", "at"]
+        }),
         "flags_set" => json!({
             "type": "object",
             "properties": {
@@ -1203,6 +1282,28 @@ mod tests {
             vec!["id".to_string(), "on".to_string()]
         );
         assert!(!known_tool("flags.auto"));
+    }
+
+    #[test]
+    fn wake_tools_match_control_arms() {
+        let control = include_str!("../agents/control.rs");
+        for name in [
+            "wake.list",
+            "wake.inbox",
+            "wake.status",
+            "wake.resume",
+            "wake.subscribe",
+            "wake.unsubscribe",
+            "wake.ack",
+            "wake.emit",
+            "wake.alarm",
+        ] {
+            assert!(known_tool(name), "{name}");
+            assert!(control.contains(&format!("\"{name}\"")), "{name}");
+        }
+        assert!(required("wake.list").is_empty());
+        assert_eq!(required("wake.status"), vec!["seat".to_string()]);
+        assert_eq!(required("wake.alarm"), vec!["seat".to_string(), "at".to_string()]);
     }
 
     #[test]

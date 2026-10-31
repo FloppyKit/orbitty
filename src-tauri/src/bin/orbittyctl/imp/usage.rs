@@ -71,6 +71,15 @@ commands:
   relay replica --url ws://100.x:13120   empty --url \"\" = local only
   history list [--card ID] [--project ID] [--limit N]   newest first, default 50, max 500
   events since <n> [--limit N]       lines with seq > n, file order, max 500
+  wake list
+  wake inbox --seat S [--upto N] [--limit N]
+  wake status --seat S
+  wake resume --seat S [--limit N]
+  wake sub --seat S [--e-type T] [--dedupe SEC] [--project P] [--card C] [--kind N] [--key-prefix P] [--source events|emit]
+  wake unsub --id ID
+  wake ack --seat S --upto N
+  wake emit --source S [--key K] [--seat S] -- \"summary\"
+  wake alarm --seat S --at +2m|ISO
   history checkpoint                  write a full-board checkpoint (426)
   history drift                       where the board differs from its history
   history rewind --to ID [--card C] [--remove-added] [--confirm]   back to just after line ID
@@ -203,6 +212,10 @@ relay status is read-safe. relay replica --url sets the
 optional one-user VPS URL (Tailscale 100.64/10:13120 or
 ws://127.0.0.1:port for SSH -L). Empty URL = local sidecar only.
 Never 0.0.0.0. Write-class ACL (full / named custom).
+
+wake list|inbox|status|resume are reads. wake sub|unsub|ack|emit|alarm are
+writes on the loopback socket only. Flag wake_core off refuses in one line
+and does not start the worker. A wake only notifies. It does not launch.
 
 events since <n> reads events.jsonl lines whose seq is greater than n
 (file order, max 500). Flag event_seq off answers enabled false. Seq is

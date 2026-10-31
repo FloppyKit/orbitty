@@ -368,6 +368,10 @@ const READ_TOOLS: &[&str] = &[
     "companion.links",
     "herdr.status",
     "herdr.peek",
+    "wake.list",
+    "wake.inbox",
+    "wake.status",
+    "wake.resume",
 ];
 
 // Stars reads join this list in `read_ok` via stars_ctl::is_read.
@@ -411,6 +415,7 @@ fn allowed(acl: &Acl, tool: &str) -> bool {
             !companion_model_cannot_write(tool)
                 && (read_ok(tool)
                     || tool.starts_with("companion.")
+                    || tool.starts_with("wake.")
                     || tool == "action.run"
                     || tool == "action.add")
         }
@@ -1413,7 +1418,11 @@ fn run_tool(
             let on = args.get("on").and_then(Value::as_bool).ok_or_else(|| {
                 (ERR_OTHER, "flags.set needs bool on".to_string())
             })?;
-            crate::flags::set(app, &id, on).map(to_data).map_err(tool_err)
+            let out = crate::flags::set(app, &id, on).map(to_data).map_err(tool_err);
+            if id == "wake_core" {
+                crate::wake::boot(app);
+            }
+            out
         }
         "flags.auto" => {
             let on = args.get("on").and_then(Value::as_bool).ok_or_else(|| {
@@ -1438,6 +1447,21 @@ fn run_tool(
                 let _ = (app, args);
                 Err(unknown_tool(tool))
             }
+        }
+        "wake.list"
+        | "wake.inbox"
+        | "wake.status"
+        | "wake.resume"
+        | "wake.subscribe"
+        | "wake.unsubscribe"
+        | "wake.ack"
+        | "wake.emit"
+        | "wake.alarm" => {
+            let caller = match origin {
+                crate::claim_front::ClaimOrigin::User => "user",
+                crate::claim_front::ClaimOrigin::Agent(name) => name.as_str(),
+            };
+            crate::wake::call(app, tool, args, caller).map_err(tool_err)
         }
         other => Err(unknown_tool(other)),
     }

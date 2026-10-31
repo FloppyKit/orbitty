@@ -747,6 +747,79 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             let on = on_off(bit, "flags auto")?;
             Ok(("flags.auto", json!({ "on": on })))
         }
+        ["wake", "list"] => Ok(("wake.list", json!({}))),
+        ["wake", "inbox"] => {
+            let seat = opt(&o.seat).ok_or("wake inbox needs --seat")?;
+            let mut a = json!({ "seat": seat });
+            if let Some(n) = opt(&o.upto) {
+                let after: u64 = n.parse().map_err(|_| "wake inbox --upto needs an integer")?;
+                a["after_seq"] = json!(after);
+            }
+            if let Some(n) = opt(&o.limit) {
+                let n: u64 = n.parse().map_err(|_| "wake inbox --limit needs an integer")?;
+                a["n"] = json!(n);
+            }
+            Ok(("wake.inbox", a))
+        }
+        ["wake", "status"] => {
+            let seat = opt(&o.seat).ok_or("wake status needs --seat")?;
+            Ok(("wake.status", json!({ "seat": seat })))
+        }
+        ["wake", "resume"] => {
+            let seat = opt(&o.seat).ok_or("wake resume needs --seat")?;
+            let mut a = json!({ "seat": seat });
+            if let Some(n) = opt(&o.limit) {
+                let n: u64 = n.parse().map_err(|_| "wake resume --limit needs an integer")?;
+                a["n"] = json!(n);
+            }
+            Ok(("wake.resume", a))
+        }
+        ["wake", "sub"] => {
+            let seat = opt(&o.seat).ok_or("wake sub needs --seat")?;
+            let mut a = json!({ "seat": seat, "source": opt(&o.source).unwrap_or_else(|| "events".into()) });
+            if let Some(t) = opt(&o.etype) {
+                a["e_types"] = json!([t]);
+            }
+            if let Some(k) = opt(&o.kind) {
+                let kind: u64 = k.parse().map_err(|_| "wake sub --kind needs an integer")?;
+                a["kinds"] = json!([kind]);
+            }
+            put_opt(&mut a, "project", &o.project);
+            put_opt(&mut a, "card", &o.card);
+            put_opt(&mut a, "key_prefix", &o.key_prefix);
+            if let Some(d) = opt(&o.dedupe) {
+                let n: u64 = d.parse().map_err(|_| "wake sub --dedupe needs seconds")?;
+                a["dedupe_s"] = json!(n);
+            }
+            Ok(("wake.subscribe", a))
+        }
+        ["wake", "unsub"] => {
+            let id = need_id(o).or_else(|_| opt(&o.id).ok_or("wake unsub needs --id"))?;
+            Ok(("wake.unsubscribe", json!({ "id": id })))
+        }
+        ["wake", "ack"] => {
+            let seat = opt(&o.seat).ok_or("wake ack needs --seat")?;
+            let upto = opt(&o.upto).ok_or("wake ack needs --upto")?;
+            let n: u64 = upto.parse().map_err(|_| "wake ack --upto needs an integer")?;
+            Ok(("wake.ack", json!({ "seat": seat, "upto_seq": n })))
+        }
+        ["wake", "emit"] => {
+            let source = opt(&o.source).ok_or("wake emit needs --source")?;
+            let key = opt(&o.name).or_else(|| opt(&o.id)).unwrap_or_default();
+            let summary = if o.tail.is_empty() {
+                opt(&o.text).unwrap_or_default()
+            } else {
+                o.tail.join(" ")
+            };
+            let mut a = json!({ "source": source, "key": key, "summary": summary });
+            put_opt(&mut a, "seat", &o.seat);
+            Ok(("wake.emit", a))
+        }
+        ["wake", "alarm"] => {
+            let seat = opt(&o.seat).ok_or("wake alarm needs --seat")?;
+            let at = opt(&o.at).ok_or("wake alarm needs --at")?;
+            Ok(("wake.alarm", json!({ "seat": seat, "at": at })))
+        }
         ["herdr", "status"] => Ok(("herdr.status", json!({}))),
         ["herdr", "peek", card] => {
             let mut a = json!({ "card": card });
