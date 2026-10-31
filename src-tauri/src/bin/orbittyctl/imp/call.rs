@@ -128,6 +128,52 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             }
             Ok(("companion.tags_accept", a))
         }
+        ["companion", "tags-unpin"] => {
+            let name = opt(&o.name).ok_or("companion tags-unpin: need --name")?;
+            let mut a = json!({ "name": name });
+            if let Some(p) = opt(&o.planet) {
+                a["planet"] = json!(p);
+            }
+            Ok(("companion.tags_unpin", a))
+        }
+        ["companion", "rule-set"] | ["companion", "rule_set"] => {
+            let text = opt(&o.text).ok_or("companion rule-set: need --text")?;
+            let mut a = json!({ "text": text });
+            if let Some(id) = opt(&o.id) {
+                a["id"] = json!(id);
+            }
+            Ok(("companion.rule_set", a))
+        }
+        ["companion", "rule-rm"] | ["companion", "rule_rm"] => {
+            Ok(("companion.rule_rm", json!({ "id": need_id(o)? })))
+        }
+        ["companion", "rule-list"] | ["companion", "rule_list"] => {
+            Ok(("companion.rule_list", json!({})))
+        }
+        ["companion", "rule-propose"] | ["companion", "rule_propose"] => {
+            let mut a = json!({ "remove": o.remove });
+            if let Some(text) = opt(&o.text) {
+                a["text"] = json!(text);
+            }
+            if let Some(id) = opt(&o.id) {
+                a["id"] = json!(id);
+            }
+            if let Some(p) = opt(&o.planet) {
+                a["planet"] = json!(p);
+            }
+            Ok(("companion.rule_propose", a))
+        }
+        ["companion", "rule-accept"] | ["companion", "rule_accept"] => {
+            Ok(("companion.rule_accept", json!({})))
+        }
+        ["companion", "get"] => Ok(("companion.get", json!({ "id": need_id(o)? }))),
+        ["companion", "links"] => {
+            let mut a = json!({ "id": need_id(o)? });
+            if let Some(rel) = opt(&o.rel) {
+                a["rel"] = json!(rel);
+            }
+            Ok(("companion.links", a))
+        }
         ["companion", "now"] => {
             let p = payload(o).unwrap_or_default();
             if p.trim().is_empty() {

@@ -29,6 +29,17 @@ commands:
   companion recall -- \"query\" [--planet P]
   companion tags-propose [--planet P] -- \"name, name\"
   companion tags-accept [--planet P]
+  companion tags-unpin --name N [--planet P]
+  companion rule-set --text \"rule\" [--id ID]
+  companion rule_set --text \"rule\" [--id ID]
+  companion rule-rm --id ID
+  companion rule_rm --id ID
+  companion rule-list
+  companion rule_list
+  companion rule-propose --text \"rule\" [--id ID] [--remove]
+  companion rule-accept
+  companion get --id ID
+  companion links --id ID [--rel REL]
   companion now [-- '{\"job\":\"…\"}']   current-job packet (now.json)
   companion hack -- on|off [--who cursor] [--project P]
   kanban open

@@ -363,6 +363,9 @@ const READ_TOOLS: &[&str] = &[
     "companion.archive_tail",
     "companion.resets",
     "companion.recall",
+    "companion.rule_list",
+    "companion.get",
+    "companion.links",
     "herdr.status",
     "herdr.peek",
 ];
@@ -753,6 +756,51 @@ fn run_tool(
         }
         "companion.tags_accept" => {
             crate::companion::memory::accept_for_app(app, arg_opt(args, "planet").as_deref())
+                .map_err(tool_err)
+        }
+        "companion.tags_unpin" => {
+            let name = arg_str(args, "name")?;
+            crate::companion::memory::tags_unpin_for_app(app, &name, arg_opt(args, "planet").as_deref())
+                .map_err(tool_err)
+        }
+        "companion.rule_list" => {
+            crate::companion::memory::rule_list_for_app(app).map_err(tool_err)
+        }
+        "companion.rule_set" => {
+            let text = arg_str(args, "text")?;
+            crate::companion::memory::rule_set_for_app(app, &text, arg_opt(args, "id").as_deref())
+                .map_err(tool_err)
+        }
+        "companion.rule_rm" => {
+            let id = arg_str(args, "id")?;
+            crate::companion::memory::rule_rm_for_app(app, &id).map_err(tool_err)
+        }
+        "companion.rule_propose" => {
+            let text = args
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let remove = args.get("remove").and_then(|v| v.as_bool()).unwrap_or(false);
+            crate::companion::memory::rule_propose_for_app(
+                app,
+                &text,
+                arg_opt(args, "id"),
+                remove,
+                arg_opt(args, "planet"),
+            )
+            .map_err(tool_err)
+        }
+        "companion.rule_accept" => {
+            crate::companion::memory::rule_accept_for_app(app).map_err(tool_err)
+        }
+        "companion.get" => {
+            let id = arg_str(args, "id")?;
+            crate::companion::memory::get_for_app(app, &id).map_err(tool_err)
+        }
+        "companion.links" => {
+            let id = arg_str(args, "id")?;
+            crate::companion::memory::links_for_app(app, &id, arg_opt(args, "rel").as_deref())
                 .map_err(tool_err)
         }
         "companion.now" => {

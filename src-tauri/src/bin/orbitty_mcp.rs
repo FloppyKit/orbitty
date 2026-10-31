@@ -65,6 +65,14 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "companion.recall", description: "Search the companion archive, active planet notes, and tabs. Returns at most 8 dated hits. Read-only. Flag memory_ram off returns enabled false.", args: "recall" },
     ToolDef { name: "companion.tags_propose", description: "Queue up to 5 tag names and open one Approve needed. Writes no tag file until companion.tags_accept.", args: "tags_propose" },
     ToolDef { name: "companion.tags_accept", description: "Write the queued tag batch into the planet or global tag file. Refuses when nothing is queued.", args: "tags_accept" },
+    ToolDef { name: "companion.tags_unpin", description: "Remove one pinned tag name. Does not delete the tag. Planet omitted unpins the global file.", args: "tags_unpin" },
+    ToolDef { name: "companion.rule_list", description: "List user rules. Read-only. Rules stay until the user changes them. Flag memory_ram off returns enabled false.", args: "none" },
+    ToolDef { name: "companion.rule_set", description: "Add or replace a user rule (same id = replace). User verb. The companion must propose, not call this.", args: "rule_set" },
+    ToolDef { name: "companion.rule_rm", description: "Remove a user rule by id. User verb. The companion must propose a removal, not call this.", args: "rule_rm" },
+    ToolDef { name: "companion.rule_propose", description: "Queue a rule add, replace, or removal and open one Approve needed. Writes no rule file until companion.rule_accept.", args: "rule_propose" },
+    ToolDef { name: "companion.rule_accept", description: "Write the queued rule proposal. Refuses when nothing is queued.", args: "none" },
+    ToolDef { name: "companion.get", description: "Exact graph lookup by id. Returns the node, its links, and archive text for a turn or answer id. Read-only.", args: "graph_id" },
+    ToolDef { name: "companion.links", description: "Graph neighbors of an id. Optional rel filter. Read-only.", args: "graph_links" },
     ToolDef { name: "companion.agents", description: "List companion agent profiles", args: "none" },
     ToolDef { name: "companion.set_agent", description: "Set the companion agent profile", args: "profile" },
     ToolDef { name: "companion.harnesses", description: "List companion harnesses detected on this Mac, plus the current pick", args: "none" },
@@ -643,6 +651,53 @@ fn input_schema(kind: &str) -> Value {
                 "planet": { "type": "string", "description": "Planet id of the queued batch. Omitted accepts a global batch." }
             }
         }),
+        "tags_unpin" => json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Pinned tag name" },
+                "planet": { "type": "string", "description": "Planet id. Omitted unpins the global file." }
+            },
+            "required": ["name"]
+        }),
+        "rule_set" => json!({
+            "type": "object",
+            "properties": {
+                "text": { "type": "string", "description": "Rule text" },
+                "id": { "type": "string", "description": "Existing id replaces. Omitted mints an id." }
+            },
+            "required": ["text"]
+        }),
+        "rule_rm" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Rule id" }
+            },
+            "required": ["id"]
+        }),
+        "rule_propose" => json!({
+            "type": "object",
+            "properties": {
+                "text": { "type": "string", "description": "Rule text. Empty when remove is true." },
+                "id": { "type": "string", "description": "Rule id to replace or remove" },
+                "remove": { "type": "boolean", "description": "true queues a removal" },
+                "planet": { "type": "string", "description": "Planet id for the Approve needed" }
+            }
+        }),
+        "graph_id" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Rule, ask, answer, card, planet, or turn id" }
+            },
+            "required": ["id"]
+        }),
+        "graph_links" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Node id" },
+                "rel": { "type": "string", "description": "Optional link rel" }
+            },
+            "required": ["id"]
+        }),
         "flags_set" => json!({
             "type": "object",
             "properties": {
@@ -1075,6 +1130,19 @@ mod tests {
         assert_eq!(recall["inputSchema"]["required"], json!(["query"]));
         assert_eq!(tool("companion.tags_propose")["inputSchema"]["required"], json!(["names"]));
         assert!(required("companion.tags_accept").is_empty());
+        assert!(known_tool("companion.rule_list"));
+        assert!(known_tool("companion.rule_set"));
+        assert!(known_tool("companion.get"));
+        assert!(known_tool("companion.links"));
+        assert!(control.contains("\"companion.rule_list\","));
+        assert!(control.contains("\"companion.get\","));
+        assert!(control.contains("\"companion.links\","));
+        assert!(!control.contains("\"companion.rule_set\","));
+        assert!(control.contains("\"companion.rule_set\" =>"));
+        assert!(control.contains("\"companion.tags_unpin\" =>"));
+        assert_eq!(tool("companion.rule_set")["inputSchema"]["required"], json!(["text"]));
+        assert_eq!(tool("companion.get")["inputSchema"]["required"], json!(["id"]));
+        assert_eq!(tool("companion.rule_rm")["inputSchema"]["required"], json!(["id"]));
     }
 
     #[test]

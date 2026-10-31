@@ -305,6 +305,33 @@
         assert_eq!(args["planet"], "p1");
         assert!(USAGE.contains("companion recall"));
         assert!(USAGE.contains("companion tags-accept"));
+        let (tool, args) = tool_call(
+            &parse(&argv(&["companion", "rule_set", "--text", "Always answer in CT times"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "companion.rule_set");
+        assert_eq!(args["text"], "Always answer in CT times");
+        let (tool, args) =
+            tool_call(&parse(&argv(&["companion", "rule_rm", "--id", "ur-1"])).unwrap()).unwrap();
+        assert_eq!(tool, "companion.rule_rm");
+        assert_eq!(args["id"], "ur-1");
+        let (tool, _) =
+            tool_call(&parse(&argv(&["companion", "rule_list"])).unwrap()).unwrap();
+        assert_eq!(tool, "companion.rule_list");
+        let (tool, args) = tool_call(
+            &parse(&argv(&["companion", "get", "--id", "t-1"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "companion.get");
+        assert_eq!(args["id"], "t-1");
+        let (tool, args) = tool_call(
+            &parse(&argv(&["companion", "tags-unpin", "--name", "pinned", "--planet", "p1"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "companion.tags_unpin");
+        assert_eq!(args["name"], "pinned");
+        assert!(USAGE.contains("companion rule_set"));
+        assert!(USAGE.contains("companion get --id"));
     }
 
     #[test]

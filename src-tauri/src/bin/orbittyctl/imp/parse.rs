@@ -89,6 +89,12 @@ pub(crate) struct Opts {
     pub(crate) reason: Option<String>,
     /// ledger export --out PATH
     pub(crate) out: Option<String>,
+    /// companion rule-set --text
+    pub(crate) text: Option<String>,
+    /// companion links --rel
+    pub(crate) rel: Option<String>,
+    /// companion rule-propose --remove
+    pub(crate) remove: bool,
 }
 
 pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -159,6 +165,9 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
         remove_added: false,
         reason: None,
         out: None,
+        text: None,
+        rel: None,
+        remove: false,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -232,6 +241,9 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             "--clear" => o.clear = true,
             "-n" | "--n" => o.n = Some(it.next().ok_or("--n needs a number")?.clone()),
             "--reason" => o.reason = Some(it.next().ok_or("--reason needs a value")?.clone()),
+            "--text" => o.text = Some(it.next().ok_or("--text needs a value")?.clone()),
+            "--rel" => o.rel = Some(it.next().ok_or("--rel needs a value")?.clone()),
+            "--remove" => o.remove = true,
             "--run" => o.run = true,
             "--card" => o.card = Some(it.next().ok_or("--card needs a value")?.clone()),
             "--pending" => {
@@ -332,6 +344,8 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             s if s.starts_with("--reason=") => {
                 o.reason = Some(s["--reason=".len()..].to_string())
             },
+            s if s.starts_with("--text=") => o.text = Some(s["--text=".len()..].to_string()),
+            s if s.starts_with("--rel=") => o.rel = Some(s["--rel=".len()..].to_string()),
             s if s.starts_with("--url=") => o.url = Some(s["--url=".len()..].to_string()),
             s if s.starts_with("--date=") => o.date = Some(s["--date=".len()..].to_string()),
             s if s.starts_with("--axis=") => o.axis = Some(s["--axis=".len()..].to_string()),
