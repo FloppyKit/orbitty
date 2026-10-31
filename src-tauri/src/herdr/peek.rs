@@ -2,7 +2,6 @@
 //! Refresh is the caller's timer (2s while open). This module only reads.
 
 use serde::Serialize;
-use tauri::AppHandle;
 
 use super::client;
 use super::core;
@@ -25,10 +24,35 @@ pub struct View {
     pub up: bool,
 }
 
-pub(crate) fn view(app: Option<&AppHandle>, card: &str, lines: u32, body: bool) -> View {
-    let _ = app;
-    let target = card.strip_prefix("agent:").unwrap_or(card).to_string();
-    if client::core_on() {
+/// Which backend a peek reads, and the id it passes. A run row wins over
+/// the live flag: core reads `herdr.terminal`, tui reads the agent name
+/// (today's pane path). No row, or a core row with an empty terminal,
+/// keeps today's flag choice and the card id. An empty terminal is not
+/// sent to hc.
+pub(crate) fn resolve_peek(runs: &[crate::state::AgentRun], card: &str, core_flag: bool) -> (bool, String) {
+    let id = card.strip_prefix("agent:").unwrap_or(card);
+    if let Some(h) = runs
+        .iter()
+        .find(|r| r.card_id == id)
+        .and_then(|r| r.herdr.as_ref())
+    {
+        if h.backend == "core" {
+            let term = h.terminal.trim();
+            if !term.is_empty() {
+                return (true, term.to_string());
+            }
+        } else {
+            let name = h.agent_name.trim();
+            let target = if name.is_empty() { id } else { name };
+            return (false, target.to_string());
+        }
+    }
+    (core_flag, id.to_string())
+}
+
+pub(crate) fn view(runs: &[crate::state::AgentRun], card: &str, lines: u32, body: bool) -> View {
+    let (use_core, target) = resolve_peek(runs, card, client::core_on());
+    if use_core {
         core_view(&target, lines, body)
     } else {
         tui_view(&target, body)
@@ -237,7 +261,7 @@ pub(crate) fn exercise_open(target: &str, duration_ms: u64) {
             }
             last_ls = Some(t);
         }
-        let _ = view(None, target, DEFAULT_LINES, true);
+        let _ = view(&[], target, DEFAULT_LINES, true);
         t += 2_000;
     }
 }

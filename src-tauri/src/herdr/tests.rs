@@ -71,7 +71,7 @@ fn read_gate_flag_on() {
     health::prove_up();
     let _ = client::alive("t1");
     let _ = client::status_value();
-    let _ = peek::view(None, "t1", 40, true);
+    let _ = peek::view(&[], "t1", 40, true);
     let hers = fs::read_to_string(&hlog).unwrap_or_default();
     assert!(hers.is_empty(), "flag on still called herdr: {hers}");
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -291,7 +291,7 @@ fn peek_caps_lines() {
     let log = dir.join("hc.log");
     arm("huge", &log);
     health::prove_up();
-    let v = peek::view(None, "t1", 40, true);
+    let v = peek::view(&[], "t1", 40, true);
     let lines: Vec<&str> = v.text.lines().collect();
     assert!(lines.len() <= 200, "{}", lines.len());
     assert!(v.text.len() <= 16 * 1024, "{}", v.text.len());
@@ -356,11 +356,11 @@ fn peek_unknown_when_down() {
     let log = dir.join("hc.log");
     arm("live", &log);
     health::prove_up();
-    let open = peek::view(None, "t1", 40, true);
+    let open = peek::view(&[], "t1", 40, true);
     assert_ne!(open.status, "unknown");
     assert!(!open.text.is_empty(), "{}", open.text);
     arm("socket", &log);
-    let down = peek::view(None, "t1", 40, true);
+    let down = peek::view(&[], "t1", 40, true);
     assert_eq!(down.status, "unknown");
     assert!(down.text.is_empty(), "{}", down.text);
     arm("live", &log);
@@ -371,7 +371,7 @@ fn peek_unknown_when_down() {
     health::set_clock_ms(Some(now + 60_000));
     health::poll();
     assert!(!health::is_down());
-    let back = peek::view(None, "t1", 40, true);
+    let back = peek::view(&[], "t1", 40, true);
     assert_ne!(back.status, "unknown");
     assert!(!back.text.is_empty());
 }
@@ -665,4 +665,78 @@ fn hc_crash_during_launch_no_duplicate() {
     arm("live", &log);
     health::prove_up();
     assert_eq!(client::alive("t1"), Some(true));
+}
+
+fn herdr_run(card: &str, backend: &str, terminal: &str, agent_name: &str) -> crate::state::AgentRun {
+    crate::state::AgentRun {
+        card_id: card.into(),
+        planet_id: "p".into(),
+        agent_shortcut_id: "a".into(),
+        state: "working".into(),
+        herdr: Some(crate::state::AgentRunHerdr {
+            planet_id: "p".into(),
+            workspace: "w".into(),
+            tab: "tb".into(),
+            pane: "p9".into(),
+            agent_name: agent_name.into(),
+            kind: "grok".into(),
+            backend: backend.into(),
+            terminal: terminal.into(),
+            extra: Default::default(),
+        }),
+    }
+}
+
+#[test]
+fn peek_core_run_reads_terminal_not_card() {
+    let run = herdr_run("card-9", "core", "t1", "card-9");
+    let (use_core, target) = peek::resolve_peek(std::slice::from_ref(&run), "card-9", false);
+    assert!(use_core, "a core run is read through hc even when the flag is off");
+    assert_eq!(target, "t1");
+    assert_ne!(target, "card-9");
+    let empty = herdr_run("card-9", "core", "  ", "card-9");
+    let (use_core, target) = peek::resolve_peek(std::slice::from_ref(&empty), "card-9", false);
+    assert!(!use_core && target == "card-9", "an empty terminal falls back, it is not sent to hc");
+    let (use_core, target) = peek::resolve_peek(&[], "card-9", true);
+    assert!(use_core && target == "card-9", "no row keeps today's flag path");
+    let src = include_str!("peek.rs");
+    let start = src.find("pub(crate) fn view(").expect("view");
+    let body = &src[start..start + src[start..].find("\n}\n").expect("view end")];
+    assert!(body.contains("resolve_peek("), "view follows the run row");
+}
+
+#[test]
+fn peek_tui_run_ignores_flag() {
+    let run = herdr_run("card-9", "tui", "", "card-9");
+    let (use_core, target) = peek::resolve_peek(std::slice::from_ref(&run), "card-9", true);
+    assert!(!use_core, "a tui run stays on the pane path when the core flag is on");
+    assert_eq!(target, "card-9");
+    let named = herdr_run("card-9", "tui", "t1", "seat-name");
+    let (use_core, target) = peek::resolve_peek(std::slice::from_ref(&named), "card-9", true);
+    assert!(!use_core);
+    assert_eq!(target, "seat-name");
+}
+
+#[test]
+fn grok_argv_read_only_is_plan_mode() {
+    let extra = crate::agents::grok_permission_args("read-only");
+    let argv = tui::start_argv("c-1", "grok", "p1", &extra);
+    assert!(
+        argv.windows(2).any(|w| w[0] == "--permission-mode" && w[1] == "plan"),
+        "{argv:?}"
+    );
+    assert!(!argv.iter().any(|a| a.contains("always-approve")), "{argv:?}");
+    let ww = crate::agents::grok_permission_args("workspace-write");
+    let argv = tui::start_argv("c-1", "grok", "p1", &ww);
+    assert!(
+        argv.windows(2).any(|w| w[0] == "--permission-mode" && w[1] == "acceptEdits"),
+        "{argv:?}"
+    );
+    let fa = crate::agents::grok_permission_args("full-auto");
+    let argv = tui::start_argv("c-1", "grok", "p1", &fa);
+    assert!(!argv.iter().any(|a| a == "--permission-mode" || a.contains("always-approve")), "{argv:?}");
+    let src = include_str!("../habitat/herdr.rs");
+    assert!(src.contains("grok_permission_args"), "both herdr doors take the grok extra");
+    let core = include_str!("core.rs");
+    assert!(core.contains("args.extend(extra"), "hc run forwards the same extra");
 }

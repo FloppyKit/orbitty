@@ -29,10 +29,17 @@ pub(crate) use client::status_value;
 
 use tauri::{AppHandle, Emitter};
 
+fn runs_for(app: &AppHandle) -> Vec<crate::state::AgentRun> {
+    crate::state::load_state(app)
+        .map(|st| st.agent_runs)
+        .unwrap_or_default()
+}
+
 pub fn present(app: &AppHandle, entry_id: &str) {
     let _ = crate::flags::on(app, "herdr_core");
     flush_health(app);
-    let v = peek::view(Some(app), entry_id, peek::DEFAULT_LINES, false);
+    let runs = runs_for(app);
+    let v = peek::view(&runs, entry_id, peek::DEFAULT_LINES, false);
     let _ = app.emit("herdr-peek", &v);
 }
 
@@ -45,7 +52,8 @@ pub fn status_for(app: &AppHandle) -> serde_json::Value {
 pub fn peek_for(app: &AppHandle, card: &str, lines: u32) -> serde_json::Value {
     let _ = crate::flags::on(app, "herdr_core");
     flush_health(app);
-    let v = peek::view(Some(app), card, lines, true);
+    let runs = runs_for(app);
+    let v = peek::view(&runs, card, lines, true);
     serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
 }
 
@@ -69,7 +77,8 @@ pub(crate) fn capsule_line(app: &AppHandle, entry_id: &str) -> String {
     if !core_on() {
         return String::new();
     }
-    let v = peek::view(Some(app), cid, 0, false);
+    let runs = runs_for(app);
+    let v = peek::view(&runs, cid, 0, false);
     if v.status == "unknown" {
         format!("unknown{spend}")
     } else if v.state.is_empty() {
