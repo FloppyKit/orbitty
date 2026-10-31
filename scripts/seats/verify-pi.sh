@@ -1,9 +1,10 @@
 #!/bin/zsh
 # Headless Verify seat. Usage: verify-pi.sh <GO_NAME> <TIP_SHA> <WORKTREE> <GO_FILE> [extra notes file]
 # SEAT_VERIFY_MODEL unset: pi's default model, no --model flag.
-# Set: one GLM call. If that call fails, one Sol-flex call, with
-# verify_model_used and fallback_reason in the log. If Sol fails too, STOP
-# exit 3. Never a third call, and never pi-grok.
+# Set: one GLM call. If that call fails (nonzero exit, a timeout line, or a
+# route string), one Sol-flex call, with verify_model_used and fallback_reason
+# in the log. If Sol fails too, STOP exit 3. Never a third call, and never
+# pi-grok.
 set -uo pipefail
 GO="${1:-}"
 TIP="${2:-}"
@@ -36,10 +37,12 @@ zdr_ok() {
   [[ -f "$HOME/.config/orbitty/openrouter-zdr-confirmed" ]]
 }
 
-# Lines from `from` (1-based) onward. Empty if this slice has no route error.
+# Lines from `from` (1-based) onward. Empty if this slice has no route error
+# and no error-shaped timeout (the probe line is "error: request timeout").
+# A bare mention of the word timeout is not a failure; a nonzero exit is.
 route_line_from() {
   local log=$1 from=$2
-  awk -v from="$from" 'NR >= from && /401|402|404|[Mm]odel not found|[Nn]o ZDR provider/ { print; exit }' "$log" || true
+  awk -v from="$from" 'NR >= from && /401|402|404|[Mm]odel not found|[Nn]o ZDR provider|[Rr]equest timeout|[Tt]imed out|error:.*[Tt]imeout/ { print; exit }' "$log" || true
 }
 
 short_reason() {
@@ -49,8 +52,19 @@ short_reason() {
     *401*) print -r -- 401 ;;
     *404*) print -r -- 404 ;;
     *[Mm]odel[[:space:]]not[[:space:]]found*) print -r -- "model not found" ;;
+    *[Tt]imeout*|*[Tt]imed[[:space:]]out*) print -r -- timeout ;;
     *) print -r -- "no ZDR provider" ;;
   esac
+}
+
+# Prefer the route/timeout line. A bare nonzero exit still has a reason.
+fail_reason() {
+  local line=$1 rc=$2
+  if [[ -n $line ]]; then
+    short_reason "$line"
+    return
+  fi
+  print -r -- "exit $rc"
 }
 
 call_pi() {
@@ -91,16 +105,16 @@ if [[ -n ${SEAT_VERIFY_MODEL:-} ]]; then
   mark=$(wc -l < "$LOG" | tr -d '[:space:]')
   call_pi "$SEAT_VERIFY_MODEL" || rc=$?
   hit=$(route_line_from "$LOG" $((mark + 1)))
-  if [[ -n $hit ]]; then
+  if [[ $rc -ne 0 || -n $hit ]]; then
     backup=${SEAT_VERIFY_BACKUP:-openai/gpt-6.1-sol}
-    print -r -- "fallback_reason: $(short_reason "$hit")" >> "$LOG"
+    print -r -- "fallback_reason: $(fail_reason "$hit" "$rc")" >> "$LOG"
     print -r -- "verify_model_used: $backup" >> "$LOG"
     mark2=$(wc -l < "$LOG" | tr -d '[:space:]')
     rc=0
     call_pi "$backup" || rc=$?
     hit2=$(route_line_from "$LOG" $((mark2 + 1)))
-    if [[ -n $hit2 ]]; then
-      print -r -- "STOP $(short_reason "$hit2")" >> "$LOG"
+    if [[ $rc -ne 0 || -n $hit2 ]]; then
+      print -r -- "STOP $(fail_reason "$hit2" "$rc")" >> "$LOG"
       finish_log 3
     fi
   fi

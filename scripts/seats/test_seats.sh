@@ -48,6 +48,18 @@ case $mode in
     print -r -- "RESULT: PASS-with-notes stub"
     exit 0
     ;;
+  glm-timeout)
+    if [[ $* == *glm-5.3* ]]; then
+      print -r -- "error: request timeout"
+      exit 1
+    fi
+    print -r -- "RESULT: PASS-with-notes stub"
+    exit 0
+    ;;
+  both-timeout)
+    print -r -- "error: request timeout"
+    exit 1
+    ;;
   both-fail)
     print -r -- "402 payment required"
     exit 1
@@ -161,6 +173,46 @@ log=$(verify_log)
 grep -q 'verify_model_used: openai/gpt-6.1-sol' "$log" || bad "missing verify_model_used: $(<$log)"
 grep -q 'fallback_reason:' "$log" || bad "missing fallback_reason: $(<$log)"
 ok verify_glm_fail_uses_sol_logged
+
+newhome
+confirm_zdr
+export SEAT_VERIFY_MODEL=z-ai/glm-5.3
+export SEAT_VERIFY_BACKUP=openai/gpt-6.1-sol
+print -r -- glm-timeout > "$HOME/.pi-mode"
+rc=$(run_verify)
+[[ $rc == 0 ]] || bad "timeout rc=$rc out=$(<$HOME/out) err=$(<$HOME/err)"
+[[ $(grep -c '^CALL ' "$HOME/.pi-calls") == 2 ]] || bad "timeout call count: $(<$HOME/.pi-calls)"
+[[ $(grep -c 'glm-5.3' "$HOME/.pi-calls") == 1 ]] || bad "timeout glm calls: $(<$HOME/.pi-calls)"
+[[ $(grep -c 'gpt-6.1-sol' "$HOME/.pi-calls") == 1 ]] || bad "timeout sol calls: $(<$HOME/.pi-calls)"
+log=$(verify_log)
+grep -q 'verify_model_used: openai/gpt-6.1-sol' "$log" || bad "timeout missing verify_model_used: $(<$log)"
+grep -q 'fallback_reason: timeout' "$log" || bad "timeout missing fallback_reason: $(<$log)"
+if grep -q '402' "$log"; then
+  bad "timeout log has 402: $(<$log)"
+fi
+if grep -q 'grok' "$HOME/.pi-calls"; then
+  bad "timeout called grok"
+fi
+ok verify_glm_timeout_uses_sol
+
+newhome
+confirm_zdr
+export SEAT_VERIFY_MODEL=z-ai/glm-5.3
+export SEAT_VERIFY_BACKUP=openai/gpt-6.1-sol
+print -r -- both-timeout > "$HOME/.pi-mode"
+rc=$(run_verify)
+[[ $rc == 3 ]] || bad "both-timeout rc=$rc out=$(<$HOME/out)"
+[[ $(grep -c '^CALL ' "$HOME/.pi-calls") == 2 ]] || bad "both-timeout call count: $(<$HOME/.pi-calls)"
+log=$(verify_log)
+grep -q 'fallback_reason: timeout' "$log" || bad "both-timeout missing fallback_reason: $(<$log)"
+grep -q '^STOP timeout' "$log" || bad "both-timeout missing STOP: $(<$log)"
+if grep -q '402' "$log"; then
+  bad "both-timeout log has 402: $(<$log)"
+fi
+if grep -q 'grok' "$HOME/.pi-calls"; then
+  bad "both-timeout called grok"
+fi
+ok verify_glm_timeout_sol_stops
 
 newhome
 confirm_zdr
