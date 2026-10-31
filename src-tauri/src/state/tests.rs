@@ -940,3 +940,43 @@ include_str!("merge.rs")
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    fn agent_row(id: &str) -> AgentShortcut {
+        AgentShortcut {
+            id: id.into(),
+            name: id.into(),
+            harness: "grok".into(),
+            profile: String::new(),
+            model: None,
+            md_paths: Vec::new(),
+            project_id: None,
+            extra: None,
+            permissions: "read-only".into(),
+        }
+    }
+
+    #[test]
+    fn window_merge_keeps_ctl_added_agent() {
+        let mut disk = PersistedState::default();
+        disk.agent_shortcuts.push(agent_row("agent-a"));
+        let mut incoming = disk.clone();
+        incoming.agent_shortcuts.clear();
+        let (merged, _) = merge_window_save(&disk, &incoming);
+        assert!(
+            merged.agent_shortcuts.iter().any(|a| a.id == "agent-a"),
+            "a ctl-added agent the window never loaded must survive the save"
+        );
+    }
+
+    #[test]
+    fn window_merge_agent_rm_still_removes() {
+        let mut live = PersistedState::default();
+        live.agent_shortcuts.push(agent_row("agent-a"));
+        live.agent_shortcuts.push(agent_row("agent-b"));
+        let before = live.clone();
+        let mut after = before.clone();
+        after.agent_shortcuts.retain(|a| a.id != "agent-a");
+        apply_writer_delta(&mut live, &before, &after);
+        let ids: Vec<_> = live.agent_shortcuts.iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, vec!["agent-b"], "agent.rm still drops its row: {ids:?}");
+    }

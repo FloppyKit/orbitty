@@ -20,6 +20,10 @@ pub struct WindowMerge {
 pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (PersistedState, WindowMerge) {
     let mut out = incoming.clone();
     out.agent_runs = disk.agent_runs.clone();
+    // Agents are Rust-owned, same as runs. A window save echoes whatever
+    // list it loaded; a ctl add that the window has not seen must stay.
+    // agent.rm still drops a row, through apply_writer_delta.
+    out.agent_shortcuts = disk.agent_shortcuts.clone();
     out.companion.hack_live = disk.companion.hack_live;
     out.companion.hack_who = disk.companion.hack_who.clone();
     out.companion.hack_project_id = disk.companion.hack_project_id.clone();
