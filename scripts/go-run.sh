@@ -28,6 +28,12 @@ ROUND=0
 RUNNER_ID=""
 COOK=""
 VERIFY=""
+COOK_MODEL=""
+VERIFY_MODEL=""
+VERIFY_TIER=""
+PROVIDER_PREFS=""
+VERIFY_BACKUP=""
+RESERVE_MODEL=""
 PERMS_JSON='{"allow_push":false,"allow_merge_main":false,"allow_stable_install":false,"allow_send":false}'
 STARTED=""
 RESULT_LINE=""
@@ -65,6 +71,20 @@ header_val() {
       exit
     }
   ' "$GOFILE"
+}
+
+header_runner() {
+  local raw
+  raw=$(header_val runner)
+  raw=${raw%%[[:space:]]#*}
+  print -r -- "$raw"
+}
+
+is_or_runner() {
+  case ${1:-} in
+    or-typical|or-special) return 0 ;;
+  esac
+  return 1
 }
 
 GO_ID=$(header_val id)
@@ -199,11 +219,31 @@ check_disk() {
 }
 
 check_rig_ok() {
-  local f
-  for f in "$HOME"/rgl-proofs/*/logs/RIG_OK(N); do
+  local f base
+  for f in "$HOME"/rgl-proofs/*/logs/RIG_OK(N) "$HOME"/rgl-proofs/*/logs/RIG_OK.*(N); do
     [[ -e $f ]] || continue
+    [[ -f $f ]] || continue
+    base=${f:t}
+    case $base in
+      *.archived|*.used_*) continue ;;
+    esac
     finish_blocked "RIG_OK present ($f); not starting"
   done
+}
+
+rgl_active() {
+  local f="$HOME/Orbitty GOs/RGL_ACTIVE" pid
+  [[ -f $f ]] || return 1
+  pid=$(tr -d '[:space:]' < "$f" 2>/dev/null || true)
+  [[ $pid == <-> ]] || return 1
+  (( pid > 0 )) || return 1
+  builtin 'kill' '-0' "$pid" 2>/dev/null
+}
+
+check_rgl() {
+  if rgl_active; then
+    finish_blocked "heavy job running (RGL active)"
+  fi
 }
 
 proc_lines() {
@@ -223,7 +263,7 @@ check_heavy() {
       finish_blocked "heavy job running (vizdoom)"
     fi
     low=${line:l}
-    if [[ $low == *python* && ($low == *rgl-proofs* || $low == *vizdoom*) ]]; then
+    if [[ $low == *python* && ($low == *rgl-proofs* || $low == *vizdoom* || $low == *r114_run.py* || $low == *rgl-envs*) ]]; then
       finish_blocked "heavy job running (RGL python)"
     fi
     parts=(${=line})
@@ -270,14 +310,42 @@ PY
   esac
 }
 
+clear_seat_env() {
+  unset SEAT_COOK_MODEL SEAT_VERIFY_MODEL SEAT_VERIFY_TIER SEAT_PROVIDER_PREFS SEAT_VERIFY_BACKUP SEAT_RESERVE_MODEL
+}
+
+apply_seat_env() {
+  clear_seat_env
+  case $RUNNER_ID in
+    pi-grok|cook-pi|"") return 0 ;;
+  esac
+  [[ -n $COOK_MODEL ]] && export SEAT_COOK_MODEL=$COOK_MODEL
+  [[ -n $VERIFY_MODEL ]] && export SEAT_VERIFY_MODEL=$VERIFY_MODEL
+  [[ -n $VERIFY_TIER ]] && export SEAT_VERIFY_TIER=$VERIFY_TIER
+  [[ -n $PROVIDER_PREFS ]] && export SEAT_PROVIDER_PREFS=$PROVIDER_PREFS
+  [[ -n $VERIFY_BACKUP ]] && export SEAT_VERIFY_BACKUP=$VERIFY_BACKUP
+  [[ -n $RESERVE_MODEL ]] && export SEAT_RESERVE_MODEL=$RESERVE_MODEL
+}
+
 load_runner() {
-  local raw rc=0
-  raw=$("$CTL" --json go runner 2>>"$RUN_DIR/ctl.out") || rc=$?
+  local raw rc=0 want
+  want=$(header_runner)
+  raw=$("$CTL" --json go runner --file "$GOFILE" 2>>"$RUN_DIR/ctl.out") || rc=$?
   if (( rc != 0 )); then
+    if is_or_runner "$want"; then
+      finish_blocked "runner config: go runner failed (exit $rc); not falling back"
+    fi
     PERMS_JSON='{"allow_push":false,"allow_merge_main":false,"allow_stable_install":false,"allow_send":false}'
     RUNNER_ID=pi-grok
     COOK="$HOME/bin/cook-pi.sh"
     VERIFY="$HOME/bin/verify-pi.sh"
+    COOK_MODEL=""
+    VERIFY_MODEL=""
+    VERIFY_TIER=""
+    PROVIDER_PREFS=""
+    VERIFY_BACKUP=""
+    RESERVE_MODEL=""
+    clear_seat_env
     return 0
   fi
   RUNNER_JSON=$raw python3 - <<'PY' > "$RUN_DIR/runner.parsed"
@@ -299,23 +367,50 @@ for k in ("allow_push", "allow_merge_main", "allow_stable_install", "allow_send"
     if k not in perms:
         perms[k] = False
     perms[k] = bool(perms[k])
+
+def cell(v):
+    if v is None or v == "":
+        return ""
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, separators=(",", ":"))
+    return str(v)
+
 print("OK")
 print(d.get("runner") or "")
 print(d.get("cook") or "")
 print(d.get("verify") or "")
 print(json.dumps({k: bool(perms[k]) for k in ("allow_push", "allow_merge_main", "allow_stable_install", "allow_send")}, separators=(",", ":")))
+print(cell(d.get("model")))
+print(cell(d.get("verify_model")))
+print(cell(d.get("verify_tier")))
+print(cell(d.get("provider_prefs")))
+print(cell(d.get("verify_backup")))
+print(cell(d.get("reserve_model")))
 PY
   local kind msg
   kind=$(sed -n '1p' "$RUN_DIR/runner.parsed")
   if [[ $kind == ERR ]]; then
     msg=$(sed -n '2p' "$RUN_DIR/runner.parsed")
+    if [[ $msg == "runner config:"* ]]; then
+      finish_blocked "$msg"
+    fi
     finish_blocked "runner config: $msg"
   fi
   RUNNER_ID=$(sed -n '2p' "$RUN_DIR/runner.parsed")
   COOK=$(sed -n '3p' "$RUN_DIR/runner.parsed")
   VERIFY=$(sed -n '4p' "$RUN_DIR/runner.parsed")
   PERMS_JSON=$(sed -n '5p' "$RUN_DIR/runner.parsed")
+  COOK_MODEL=$(sed -n '6p' "$RUN_DIR/runner.parsed")
+  VERIFY_MODEL=$(sed -n '7p' "$RUN_DIR/runner.parsed")
+  VERIFY_TIER=$(sed -n '8p' "$RUN_DIR/runner.parsed")
+  PROVIDER_PREFS=$(sed -n '9p' "$RUN_DIR/runner.parsed")
+  VERIFY_BACKUP=$(sed -n '10p' "$RUN_DIR/runner.parsed")
+  RESERVE_MODEL=$(sed -n '11p' "$RUN_DIR/runner.parsed")
   [[ -n $RUNNER_ID && -n $COOK && -n $VERIFY ]] || finish_blocked "runner config: incomplete runner reply"
+  if is_or_runner "$want" && ! is_or_runner "$RUNNER_ID"; then
+    finish_blocked "runner config: $want did not load; not falling back"
+  fi
+  apply_seat_env
 }
 
 seal_ok() {
@@ -374,13 +469,61 @@ worktree_ok() {
   TIP=$head
 }
 
+lock_stale() {
+  [[ -f $LOCK/pid ]] || return 1
+  local pid
+  pid=$(tr -d '[:space:]' < "$LOCK/pid" 2>/dev/null || true)
+  [[ $pid == <-> ]] || return 1
+  if (( pid <= 0 )); then
+    return 0
+  fi
+  if builtin 'kill' '-0' "$pid" 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
 take_lock() {
   mkdir -p "$RUNS"
   if ! mkdir "$LOCK" 2>/dev/null; then
-    finish_blocked "another Go run holds the lock"
+    if lock_stale; then
+      print -r -- "stale lock cleared pid=$(tr -d '[:space:]' < "$LOCK/pid") at $(now)" >> "$RUN_DIR/lock.log"
+      rm -rf -- "$LOCK"
+      if ! mkdir "$LOCK" 2>/dev/null; then
+        finish_blocked "another Go run holds the lock"
+      fi
+    else
+      finish_blocked "another Go run holds the lock"
+    fi
   fi
   LOCK_HELD=1
   print -r -- "$CARD" > "$LOCK/card"
+  print -r -- "$$" > "$LOCK/pid"
+  print -r -- "$(now)" > "$LOCK/started_at"
+}
+
+hangar_guard() {
+  [[ ! -d "$WT/src-tauri" ]] || "$HOME/bin/hangar-target.sh" "$WT" || finish_blocked "RIG BLOCKER: MiniHangar not ready for $WT (hangar-target.sh)"
+}
+
+diff_lines() {
+  git -C "$WT" diff --numstat "$BASE" HEAD 2>/dev/null \
+    | awk 'BEGIN {n=0} { if ($1 ~ /^[0-9]+$/) n+=$1; if ($2 ~ /^[0-9]+$/) n+=$2 } END { print n+0 }'
+}
+
+verify_model_now() {
+  local round_n=$((ROUND + 1)) diff=0
+  diff=$(diff_lines)
+  [[ $diff == <-> ]] || diff=0
+  if [[ $RUNNER_ID == or-special && -n ${SEAT_RESERVE_MODEL:-} ]]; then
+    if (( round_n >= 3 || diff > 1500 )); then
+      print -r -- "$SEAT_RESERVE_MODEL"
+      return 0
+    fi
+  fi
+  if [[ -n ${SEAT_VERIFY_MODEL:-} ]]; then
+    print -r -- "$SEAT_VERIFY_MODEL"
+  fi
 }
 
 perm_on() {
@@ -646,6 +789,8 @@ log_set() {
 
 run_cook() {
   local extra=${1:-} log=$RUN_DIR/cook-$ROUND.log
+  check_heavy
+  check_rgl
   STAGE=cooking
   if (( ROUND > 0 )); then
     STAGE=fixing
@@ -676,12 +821,19 @@ run_cook() {
 }
 
 run_verify() {
-  local log=$RUN_DIR/verify-$ROUND.log
+  local log=$RUN_DIR/verify-$ROUND.log vm
+  check_heavy
+  check_rgl
   STAGE=verifying
   write_state
   note "GO run $RUN_ID: verifying (round $ROUND)"
+  vm=$(verify_model_now)
   print -r -- "verify $VERIFY $GO_ID $TIP $WT $GOFILE" >> "$RUN_DIR/argv.log"
-  "$VERIFY" "$GO_ID" "$TIP" "$WT" "$GOFILE" > "$log" 2>&1 || true
+  if [[ -n $vm ]]; then
+    SEAT_VERIFY_MODEL=$vm "$VERIFY" "$GO_ID" "$TIP" "$WT" "$GOFILE" > "$log" 2>&1 || true
+  else
+    "$VERIFY" "$GO_ID" "$TIP" "$WT" "$GOFILE" > "$log" 2>&1 || true
+  fi
   log_set verify "$log"
   local line code
   line=$(verdict_line "$log" '^RESULT:')
@@ -753,9 +905,11 @@ ctl_ok() {
 check_disk
 check_rig_ok
 check_heavy
+check_rgl
 ctl_ok
 seal_ok
 worktree_ok
+hangar_guard
 take_lock
 load_runner
 validate_prog "$COOK" cook
@@ -825,6 +979,8 @@ log_set audit "$RUN_DIR/audit.log"
 # --- re-check, install, match ---
 check_disk
 check_rig_ok
+check_heavy
+check_rgl
 seal_ok
 STAGE=installing
 write_state

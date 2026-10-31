@@ -61,6 +61,14 @@ body
 EOF
   cat > "$HOME_T/bin/cook-pi.sh" <<'EOF'
 #!/bin/zsh
+{
+  print -r -- "SEAT_COOK_MODEL=${SEAT_COOK_MODEL-<unset>}"
+  print -r -- "SEAT_VERIFY_MODEL=${SEAT_VERIFY_MODEL-<unset>}"
+  print -r -- "SEAT_VERIFY_TIER=${SEAT_VERIFY_TIER-<unset>}"
+  print -r -- "SEAT_PROVIDER_PREFS=${SEAT_PROVIDER_PREFS-<unset>}"
+  print -r -- "SEAT_VERIFY_BACKUP=${SEAT_VERIFY_BACKUP-<unset>}"
+  print -r -- "SEAT_RESERVE_MODEL=${SEAT_RESERVE_MODEL-<unset>}"
+} >> "$HOME/.cook-env"
 print -r -- "$*" >> "$HOME/.cook-argv"
 mode=ok
 [[ -f $HOME/.cook-mode ]] && mode=$(<"$HOME/.cook-mode")
@@ -119,6 +127,12 @@ esac
 EOF
   cat > "$HOME_T/bin/verify-pi.sh" <<'EOF'
 #!/bin/zsh
+{
+  print -r -- "SEAT_COOK_MODEL=${SEAT_COOK_MODEL-<unset>}"
+  print -r -- "SEAT_VERIFY_MODEL=${SEAT_VERIFY_MODEL-<unset>}"
+  print -r -- "SEAT_VERIFY_TIER=${SEAT_VERIFY_TIER-<unset>}"
+  print -r -- "SEAT_PROVIDER_PREFS=${SEAT_PROVIDER_PREFS-<unset>}"
+} >> "$HOME/.verify-env"
 print -r -- "$*" >> "$HOME/.verify-argv"
 mode=pass
 [[ -f $HOME/.verify-mode ]] && mode=$(<"$HOME/.verify-mode")
@@ -191,40 +205,94 @@ case ${1:-}:${2:-} in
     if [[ -f $HOME/.ctl-runner-exit ]]; then
       exit $(<"$HOME/.ctl-runner-exit")
     fi
-    python3 - <<'PY'
+    file=""
+    prev=""
+    for a in "$@"; do
+      if [[ $prev == --file ]]; then
+        file=$a
+      fi
+      prev=$a
+    done
+    RUNNER_FILE=$file python3 - <<'PY'
 import json, os
 home = os.environ["HOME"]
-runner = "pi-grok"
-p = os.path.join(home, ".runner-id")
-if os.path.exists(p):
-    runner = open(p).read().strip()
+cook = os.path.join(home, "bin/cook-pi.sh")
+verify = os.path.join(home, "bin/verify-pi.sh")
+
+def header_runner(path):
+    if not path or not os.path.isfile(path):
+        return ""
+    lines = open(path).read().splitlines()
+    seen = 0
+    for line in lines:
+        if line.strip() == "---":
+            seen += 1
+            if seen >= 2:
+                break
+            continue
+        if seen != 1 or not line.startswith("runner:"):
+            continue
+        rest = line.split(":", 1)[1].strip()
+        if " #" in rest:
+            rest = rest.split(" #", 1)[0].strip()
+        if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in "'\"":
+            rest = rest[1:-1]
+        return rest
+    return ""
+
+file_runner = header_runner(os.environ.get("RUNNER_FILE", ""))
+if file_runner == "cook-pi":
+    file_runner = "pi-grok"
+if file_runner:
+    runner = file_runner
+else:
+    runner = "pi-grok"
+    p = os.path.join(home, ".runner-id")
+    if os.path.exists(p):
+        runner = open(p).read().strip()
 perms = {"allow_push": False, "allow_merge_main": False, "allow_stable_install": False, "allow_send": False}
 pp = os.path.join(home, ".perms.json")
 if os.path.exists(pp):
     perms.update(json.load(open(pp)))
-approved = [{
-    "id": "pi-grok",
-    "cook": os.path.join(home, "bin/cook-pi.sh"),
-    "verify": os.path.join(home, "bin/verify-pi.sh"),
-    "model": "grok",
-    "provider": "pi",
-}]
+prefs = {"zdr": True, "data_collection": "deny"}
+approved = [
+    {"id": "pi-grok", "cook": cook, "verify": verify, "model": "grok", "provider": "pi"},
+    {
+        "id": "or-typical", "cook": cook, "verify": verify,
+        "model": "deepseek/deepseek-v4.1-flash", "provider": "openrouter",
+        "verify_model": "z-ai/glm-5.3", "verify_tier": "flex",
+        "verify_backup": "openai/gpt-6.1-sol", "provider_prefs": prefs,
+    },
+    {
+        "id": "or-special", "cook": cook, "verify": verify,
+        "model": "anthropic/claude-sonnet-5.5", "provider": "openrouter",
+        "verify_model": "z-ai/glm-5.3", "verify_tier": "flex",
+        "verify_backup": "openai/gpt-6.1-sol",
+        "reserve_model": "anthropic/claude-opus-5.5", "provider_prefs": prefs,
+    },
+]
 ap = os.path.join(home, ".approved.json")
 if os.path.exists(ap):
     approved = json.load(open(ap))
 entry = next((a for a in approved if a.get("id") == runner), None)
-err = None if entry else f'runner "{runner}" is not on the approved list (approved: pi-grok)'
-print(json.dumps({
+err = None if entry else f"runner config: {runner} not approved"
+body = {
     "runner": runner,
     "cook": (entry or {}).get("cook", ""),
     "verify": (entry or {}).get("verify", ""),
     "model": (entry or {}).get("model"),
     "provider": (entry or {}).get("provider"),
+    "verify_model": (entry or {}).get("verify_model"),
+    "verify_tier": (entry or {}).get("verify_tier"),
+    "verify_backup": (entry or {}).get("verify_backup"),
+    "reserve_model": (entry or {}).get("reserve_model"),
+    "provider_prefs": (entry or {}).get("provider_prefs"),
     "approved": approved,
     "permissions": perms,
     "developerMode": False,
     "error": err,
-}))
+}
+print(json.dumps(body))
 PY
     ;;
   go:status)
@@ -680,6 +748,136 @@ assert_stage blocked noreport
 grep -q 'verify report missing' "$HOME_T/.conductor-out" || bad "noreport reason: $(<$HOME_T/.conductor-out)"
 [[ ! -f $HOME_T/.install-log ]] || bad "noreport installed"
 ok noreport
+
+set_runner() {
+  python3 - "$GOFILE" "$1" <<'PY'
+import sys
+path, rid = sys.argv[1], sys.argv[2]
+text = open(path).read()
+needle = "id: GO-TEST\n"
+insert = "id: GO-TEST\nrunner: %s\n" % rid
+if needle not in text:
+    raise SystemExit("no id line")
+open(path, "w").write(text.replace(needle, insert, 1))
+PY
+}
+
+dead_pid() {
+  local pid
+  sleep 30 &
+  pid=$!
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  print -r -- "$pid"
+}
+
+setup
+set_runner or-typical
+run r-or-typical
+assert_stage done runner-or-typical
+grep -q 'SEAT_COOK_MODEL=deepseek/deepseek-v4.1-flash' "$HOME_T/.cook-env" || bad "or-typical cook model: $(<$HOME_T/.cook-env)"
+grep -q 'SEAT_VERIFY_MODEL=z-ai/glm-5.3' "$HOME_T/.verify-env" || bad "or-typical verify model: $(<$HOME_T/.verify-env)"
+grep -q 'SEAT_PROVIDER_PREFS=' "$HOME_T/.cook-env" || bad "or-typical prefs missing"
+ok runner_or_typical_exports_models
+
+setup
+run r-pi-exports
+assert_stage done runner-pi-grok-exports
+grep -q 'SEAT_COOK_MODEL=<unset>' "$HOME_T/.cook-env" || bad "pi-grok exported cook model: $(<$HOME_T/.cook-env)"
+grep -q 'SEAT_VERIFY_MODEL=<unset>' "$HOME_T/.verify-env" || bad "pi-grok exported verify model: $(<$HOME_T/.verify-env)"
+grep -q 'SEAT_PROVIDER_PREFS=<unset>' "$HOME_T/.cook-env" || bad "pi-grok exported prefs: $(<$HOME_T/.cook-env)"
+ok runner_pi_grok_exports_nothing
+
+setup
+set_runner gpt-yolo
+run r-yolo
+assert_stage blocked runner-unknown
+grep -q 'not approved' "$HOME_T/.conductor-out" || bad "unknown reason: $(<$HOME_T/.conductor-out)"
+grep -q 'gpt-yolo' "$HOME_T/.conductor-out" || bad "unknown missing value"
+[[ ! -f $HOME_T/.cook-argv ]] || bad "unknown spawned cook"
+ok runner_unknown_blocks
+
+setup
+set_runner or-typical
+print -r -- 2 > "$HOME_T/.ctl-runner-exit"
+run r-or-down
+assert_stage blocked or-ctl-down
+grep -q 'not falling back' "$HOME_T/.conductor-out" || bad "or-down reason: $(<$HOME_T/.conductor-out)"
+[[ ! -f $HOME_T/.cook-argv ]] || bad "or-down fell back to cook"
+ok runner_or_typical_ctl_down_stops
+
+setup
+print -r -- "$(dead_pid)" > "$HOME_T/Orbitty GOs/RGL_ACTIVE"
+run r-rgl-dead
+assert_stage done rgl-dead
+ok rgl-dead-pid
+
+setup
+print -r -- "$$" > "$HOME_T/Orbitty GOs/RGL_ACTIVE"
+run r-rgl-live
+assert_stage blocked rgl-live
+grep -q 'RGL active' "$HOME_T/.conductor-out" || bad "rgl-live reason: $(<$HOME_T/.conductor-out)"
+[[ ! -f $HOME_T/.cook-argv ]] || bad "rgl-live spawned cook"
+ok rgl-live-pid
+
+setup
+print -r -- '/tmp/rgl-envs/bin/python -B r114_run.py resume' > "$HOME_T/.procs"
+run r-r114
+assert_stage blocked r114
+grep -q 'RGL python' "$HOME_T/.conductor-out" || bad "r114 reason: $(<$HOME_T/.conductor-out)"
+[[ ! -f $HOME_T/.cook-argv ]] || bad "r114 spawned cook"
+ok heavy-r114
+
+setup
+mkdir -p "$HOME_T/rgl-proofs/job/logs"
+touch "$HOME_T/rgl-proofs/job/logs/RIG_OK.keep"
+run r-rig-tag
+assert_stage blocked rig-tag
+grep -q 'RIG_OK' "$HOME_T/.conductor-out" || bad "rig-tag reason"
+[[ ! -f $HOME_T/.cook-argv ]] || bad "rig-tag spawned cook"
+ok rig-tag
+
+setup
+mkdir -p "$HOME_T/rgl-proofs/job/logs"
+touch "$HOME_T/rgl-proofs/job/logs/RIG_OK.tag.archived"
+touch "$HOME_T/rgl-proofs/job/logs/RIG_OK.tag.used_1"
+run r-rig-arch
+assert_stage done rig-arch
+ok rig-archived-ignored
+
+setup
+mkdir -p "$HOME_T/Orbitty GOs/_go-runs/LOCK"
+print -r -- other > "$HOME_T/Orbitty GOs/_go-runs/LOCK/card"
+print -r -- "$(dead_pid)" > "$HOME_T/Orbitty GOs/_go-runs/LOCK/pid"
+print -r -- then > "$HOME_T/Orbitty GOs/_go-runs/LOCK/started_at"
+run r-stale-lock
+assert_stage done stale-lock
+grep -q 'stale lock cleared' "$HOME_T/Orbitty GOs/_go-runs/r-stale-lock/lock.log" || bad "stale lock not logged"
+ok stale-lock-dead-pid
+
+setup
+mkdir -p "$WT/src-tauri"
+print -r -- x > "$WT/src-tauri/keep"
+git -C "$WT" add src-tauri/keep
+git -C "$WT" commit -q -m src
+BASE=$(git -C "$WT" rev-parse HEAD)
+python3 - "$GOFILE" "$BASE" <<'PY'
+import sys
+path, base = sys.argv[1], sys.argv[2]
+text = open(path).read().splitlines()
+out = []
+for line in text:
+    if line.startswith("base:"):
+        out.append("base: '%s'" % base)
+    else:
+        out.append(line)
+open(path, "w").write("\n".join(out) + "\n")
+PY
+run r-hangar
+assert_stage blocked hangar
+grep -q 'RIG BLOCKER' "$HOME_T/.conductor-out" || bad "hangar reason: $(<$HOME_T/.conductor-out)"
+[[ ! -f $HOME_T/.cook-argv ]] || bad "hangar spawned cook"
+ok hangar-guard
 
 if (( fail )); then
   print -r -- "test_go_run.sh: $fail failed" >&2
