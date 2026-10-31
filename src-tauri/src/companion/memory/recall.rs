@@ -17,6 +17,9 @@ pub(crate) struct Hit {
     pub date: String,
     pub source: String,
     pub text: String,
+    /// Archive line id (graph id). Empty for notes and tabs.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
 }
 
 static CITE: Mutex<Option<String>> = Mutex::new(None);
@@ -70,6 +73,7 @@ fn hit_line(row: &ArchiveLine, needle: &str) -> Option<Hit> {
         date: date_of_ts(&row.ts),
         source: "archive".into(),
         text: excerpt(&row.text),
+        id: row.id.clone(),
     })
 }
 
@@ -86,6 +90,7 @@ fn hit_file(path: &Path, source: &str, needle: &str) -> Option<Hit> {
         date: date_of_mtime(path),
         source: source.into(),
         text: excerpt(&text),
+        id: String::new(),
     })
 }
 

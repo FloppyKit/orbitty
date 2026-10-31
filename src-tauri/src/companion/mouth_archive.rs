@@ -537,6 +537,17 @@ pub fn last_archive_id(root: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Read-only lookup. Archive line format is unchanged.
+pub fn by_id(root: &Path, id: &str) -> Option<ArchiveLine> {
+    let want = id.trim();
+    if want.is_empty() {
+        return None;
+    }
+    tail(root, usize::MAX, None)
+        .into_iter()
+        .find(|r| r.id == want)
+}
+
 pub fn log_reset(root: &Path, line: &ResetLine) -> io::Result<()> {
     let body = serde_json::to_string(line)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;

@@ -845,13 +845,12 @@ pub(crate) fn run_grok_reply(
     // send roll, still a dead-reason handoff, with no resets.jsonl line.
     if crate::mouth_archive::enabled() {
         let budget = crate::mouth_archive::session_budget();
-        if let Some(name) = crate::mouth_archive::planned_reason(
+        // planned_reason is inside consume_armed_reason (manual_test / thin / budget).
+        if let Some(reason) = crate::mouth_roll::consume_armed_reason(
             plug.reset_pending.as_deref(),
             plug.grok_chars,
             budget,
         ) {
-            let reason = crate::mouth_roll::ResetReason::parse(name)
-                .unwrap_or(crate::mouth_roll::ResetReason::Budget);
             let old = plug.grok_session_id.clone().unwrap_or_default();
             let handoff = crate::mouth_roll::handoff_prompt(app, reason, line);
             let text = crate::mouth_roll::grok_fresh_rollover(app, bin, soul, &mut plug, &handoff)?;

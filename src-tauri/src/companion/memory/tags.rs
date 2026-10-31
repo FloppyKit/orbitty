@@ -177,6 +177,32 @@ pub(crate) fn accept_into(
     Ok(wrote)
 }
 
+/// Drop one pinned name. Planet set: that file only. Else the global file.
+/// Does not delete the tag row. Does not touch state.json.
+pub(crate) fn unpin(app_data: &Path, name: &str, planet: Option<&str>) -> Result<bool, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("need a tag name".into());
+    }
+    let norm = crate::microtags::normalize(name);
+    let path = match planet {
+        Some(id) => planet_tags_path(app_data, id).ok_or("bad planet id")?,
+        None => global_tags_path(app_data),
+    };
+    let mut file = read_tag_file(&path);
+    let before = file.pinned.len();
+    file.pinned.retain(|n| {
+        let n = n.trim();
+        n != name && norm.as_deref() != Some(n) && crate::microtags::normalize(n).as_deref() != Some(name)
+    });
+    if file.pinned.len() == before {
+        return Ok(false);
+    }
+    let body = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+    write_0600(&path, &body).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 pub(crate) fn pinned_names(app_data: Option<&Path>, planet: Option<&str>) -> Vec<String> {
     let Some(app_data) = app_data else {
         return Vec::new();

@@ -1,7 +1,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use super::ram::{AnsweredAsk, CardIn, RamCtx, RAM_CAP};
+use super::ram::{self, AnsweredAsk, CardIn, RamCtx};
 use super::tags::{accept_into, propose_into, AcceptBatch, TagV0};
 use super::{build, read_notes_head, recall, render, write_notes, NOTES_FILE_BYTES, NOTES_RAM_CHARS};
 use crate::mouth_archive::{append, ArchiveLine};
@@ -29,16 +29,20 @@ fn turn(role: &str, text: impl AsRef<str>) -> CompanionTurn {
 fn ctx(rules: &str, soul: &str) -> RamCtx {
     RamCtx {
         rules: rules.into(),
+        user_rules: String::new(),
         soul: soul.into(),
         now: "job: desk".into(),
+        model: String::new(),
         planet_line: Some("planet-orbitty Orbitty".into()),
         notes: None,
         cards: vec![CardIn {
+            id: "card-1".into(),
             title: "OPEN-CARD".into(),
             open: true,
             active: true,
             touched: 10.0,
         }],
+        card_id: Some("card-1".into()),
         pinned_tags: vec!["pinned-tag".into()],
         open_asks: vec![("n1".into(), "ASK-KEEP".into())],
         answered: Vec::new(),
@@ -47,22 +51,36 @@ fn ctx(rules: &str, soul: &str) -> RamCtx {
     }
 }
 
+fn answered(id: &str, ask: &str, turns_since: usize, answer_id: &str, answer: &str, at: f64) -> AnsweredAsk {
+    AnsweredAsk {
+        id: id.into(),
+        ask: ask.into(),
+        at,
+        turns_since,
+        answer_id: answer_id.into(),
+        answer: answer.into(),
+    }
+}
+
 #[test]
 fn ram_cap_6000_truncation_order() {
     let mut big = ctx("RULES-NEVER-CUT", "SOUL-NEVER-CUT");
-    big.open_asks = vec![("a1".into(), "A".repeat(7_000))];
+    big.open_asks = vec![("a1".into(), "A".repeat(20_000))];
     big.pinned_tags = vec!["tag-keep".into()];
-    big.turns = vec![turn("you", format!("TURN-OLD-{}", "x".repeat(3_000))), turn("them", "TURN-NEW")];
+    big.turns = vec![
+        turn("you", format!("TURN-OLD-{}", "x".repeat(20_000))),
+        turn("them", "TURN-NEW"),
+    ];
     let text = render(&build(&big));
-    assert!(text.chars().count() <= RAM_CAP, "{}", text.chars().count());
     assert!(text.contains("RULES-NEVER-CUT"));
     assert!(text.contains("SOUL-NEVER-CUT"));
-    assert!(!text.contains("TURN-OLD-"));
-    assert!(text.contains("tag-keep"), "tags survive until asks are gone\n{text}");
+    assert!(!text.contains("TURN-OLD-"), "oldest turn drops first\n{text}");
+    assert!(text.contains("tag-keep"), "pins are outside the budget\n{text}");
     assert!(
         !text.contains(&"A".repeat(100)),
         "asks drop after turns\n{text}"
     );
+    assert!(text.contains("more asks: a1"), "trimmed ask id stays\n{text}");
 
     let mut rules = "RULE-START-".to_string();
     rules.push_str(&"R".repeat(7_000));
@@ -71,15 +89,16 @@ fn ram_cap_6000_truncation_order() {
     soul.push_str(&"S".repeat(5_000));
     soul.push_str("-SOUL-END");
     let mut over = ctx(&rules, &soul);
-    over.turns = vec![turn("you", "Z".repeat(2_000))];
-    over.open_asks = vec![("a1".into(), "ASK-DROP".into())];
+    over.turns = vec![turn("you", "Z".repeat(20_000))];
+    over.open_asks = vec![("a1".into(), "A".repeat(20_000))];
     let text = render(&build(&over));
     assert!(text.contains("RULE-START-"));
     assert!(text.contains("-RULE-END"));
     assert!(text.contains("SOUL-START-"));
     assert!(text.contains("-SOUL-END"));
-    assert!(!text.contains("ASK-DROP"));
-    assert!(text.chars().count() > RAM_CAP);
+    assert!(!text.contains(&"Z".repeat(100)));
+    assert!(!text.contains(&"A".repeat(100)));
+    assert!(text.chars().count() > 6_000);
 }
 
 #[test]
@@ -113,22 +132,22 @@ fn keep_rules_always_in() {
 fn forget_closed_and_old() {
     let mut c = ctx("rules", "soul");
     c.cards.push(CardIn {
+        id: "closed".into(),
         title: "CLOSED-SECRET".into(),
         open: false,
         active: true,
         touched: 99.0,
     });
     c.answered = vec![
-        AnsweredAsk {
-            id: "old".into(),
-            ask: "STALE-SECRET".into(),
-            at: 1_000_000.0 - (24.0 * 3600.0),
-        },
-        AnsweredAsk {
-            id: "fresh".into(),
-            ask: "FRESH-ASK".into(),
-            at: 1_000_000.0 - (24.0 * 3600.0) + 1.0,
-        },
+        answered("old", "STALE-SECRET", 7, "ans-old", "STALE-BODY", 1_000_000.0),
+        answered(
+            "fresh",
+            "FRESH-ASK",
+            2,
+            "ans-fresh",
+            "",
+            1_000_000.0 - (25.0 * 3600.0),
+        ),
     ];
     c.turns = (0..8).map(|i| turn("you", format!("turn-{i}"))).collect();
     let text = render(&build(&c));
@@ -468,4 +487,350 @@ ping";
         text,
         r#"[{"content":"SOUL","role":"system"},{"content":"hello","role":"user"},{"content":"hi there","role":"assistant"},{"content":"prompt-line","role":"user"}]"#
     );
+}
+
+fn temp_dir(label: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "orbitty-ram-{label}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+struct ArchiveReset;
+impl Drop for ArchiveReset {
+    fn drop(&mut self) {
+        crate::mouth_archive::install_root(None);
+        crate::mouth_archive::force_flag(None);
+    }
+}
+
+#[test]
+fn rules_never_trimmed_even_over_budget() {
+    let mut c = ctx("law", "soul");
+    c.user_rules = format!("USER-RULE-{}", "u".repeat(40_000));
+    c.turns = vec![turn("you", "t".repeat(40_000))];
+    let text = render(&build(&c));
+    assert!(text.contains("USER-RULE-"));
+    assert!(text.contains(&"u".repeat(100)));
+    assert!(!text.contains(&"t".repeat(100)));
+}
+
+#[test]
+fn pins_never_trimmed() {
+    let mut c = ctx("rules", "soul");
+    c.pinned_tags = vec![format!("PIN-ALWAYS-{}", "p".repeat(8_000))];
+    c.turns = vec![turn("you", "t".repeat(40_000))];
+    c.open_asks = vec![("a".into(), "q".repeat(40_000))];
+    let text = render(&build(&c));
+    assert!(text.contains("PIN-ALWAYS-"));
+    assert!(text.contains(&"p".repeat(100)));
+}
+
+#[test]
+fn rule_set_replace_rm_roundtrip() {
+    let dir = temp_dir("rules");
+    let state = dir.join("state.json");
+    fs::write(&state, b"{\"tags\":[]}").unwrap();
+    let before = fs::read(&state).unwrap();
+    let row = super::rules::set(&dir, None, "Always answer in CT times", "user").unwrap();
+    assert!(row.id.starts_with("ur-"));
+    assert_eq!(row.source, "user");
+    let path = super::rules::rules_path(&dir);
+    let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    let folder = fs::metadata(dir.join("companion")).unwrap().permissions().mode() & 0o777;
+    assert_eq!(folder, 0o700);
+    let replaced = super::rules::set(&dir, Some(&row.id), "Always answer in CT", "user").unwrap();
+    assert_eq!(replaced.id, row.id);
+    assert_eq!(replaced.text, "Always answer in CT");
+    assert_eq!(super::rules::list(&dir).len(), 1);
+    assert!(super::rules::rm(&dir, &row.id).unwrap());
+    assert!(super::rules::list(&dir).is_empty());
+    assert_eq!(fs::read(&state).unwrap(), before);
+    assert!(!fs::read_to_string(dir.join("companion").join("rules.json"))
+        .unwrap()
+        .contains("state.json"));
+    let mut queue = Vec::new();
+    let draft = super::rules::propose_into(&mut queue, "Propose CT", None, false).unwrap();
+    assert_eq!(draft.kind, "Approve");
+    assert!(draft.title.starts_with("Approve:"));
+    assert_eq!(super::rules::list(&dir).len(), 0);
+    let wrote = super::rules::accept_into(&mut queue, &dir).unwrap();
+    assert_eq!(wrote["source"], "accepted_proposal");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn rule_survives_restart() {
+    let dir = temp_dir("restart");
+    let row = super::rules::set(&dir, None, "SURVIVE-RESTART", "user").unwrap();
+    let again = super::rules::list(&dir);
+    assert_eq!(again.len(), 1);
+    assert_eq!(again[0].id, row.id);
+    assert_eq!(again[0].text, "SURVIVE-RESTART");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn rule_survives_3_real_rolls() {
+    let app = temp_dir("rolls-app");
+    let agents = temp_dir("rolls-agents");
+    super::rules::set(&app, None, "RULE-ROLL-KEEP", "user").unwrap();
+    crate::mouth_archive::install_root(Some(agents.clone()));
+    crate::mouth_archive::force_flag(Some(true));
+    let _reset = ArchiveReset;
+    let plug_path = crate::coordinator::plug_path();
+    let saved = fs::read(&plug_path).ok();
+    let run = std::panic::catch_unwind(|| {
+        for i in 0..3 {
+            {
+                let mut plug = crate::coordinator::load_plug();
+                plug.reset_pending = None;
+                crate::coordinator::save_plug(&plug);
+            }
+            crate::mouth_archive::arm_manual_roll().unwrap();
+            let plug = crate::coordinator::load_plug();
+            assert_eq!(
+                plug.reset_pending.as_deref(),
+                Some("manual_test"),
+                "arm_manual_roll must set the pending reason the send path reads"
+            );
+            let reason = crate::mouth_roll::consume_armed_reason(
+                plug.reset_pending.as_deref(),
+                plug.grok_chars,
+                crate::mouth_archive::session_budget(),
+            )
+            .expect("send path must consume the armed roll");
+            assert_eq!(reason, ResetReason::ManualTest);
+            let mut c = ctx("", "soul");
+            c.user_rules = super::rules::render_text(&app);
+            let core = build(&c);
+            let handoff = super::handoff_from_core(reason, "spark", &core, &[], "USER:\nnext");
+            assert!(handoff.contains("RULE-ROLL-KEEP"), "{handoff}");
+            let send = include_str!("../../coordinator/send.rs");
+            assert!(send.contains("consume_armed_reason"));
+            assert!(send.contains("handoff_prompt"));
+            let mut st = crate::state::CompanionState::default();
+            st.push_turn("you", &format!("roll-turn-{i}"));
+        }
+    });
+    match saved {
+        Some(bytes) => fs::write(&plug_path, bytes).unwrap(),
+        None => {
+            let _ = fs::remove_file(&plug_path);
+        }
+    }
+    if let Err(payload) = run {
+        std::panic::resume_unwind(payload);
+    }
+    let _ = fs::remove_dir_all(&app);
+    let _ = fs::remove_dir_all(&agents);
+}
+
+#[test]
+fn budget_respects_tokens() {
+    assert_eq!(ram::budget_for_window(8_000), 1_500);
+    assert_eq!(ram::budget_for_window(32_000), 2_560);
+    assert_eq!(ram::budget_for_window(200_000), 12_000);
+    assert_eq!(ram::budget_for_window(2_000_000), 12_000);
+    assert_eq!(ram::budget_tokens(""), 2_560);
+    assert_eq!(ram::budget_tokens("?"), 2_560);
+    assert_eq!(ram::budget_tokens("grok-4.7-high"), 12_000);
+    assert_eq!(ram::budget_tokens("claude-sonnet-4"), 12_000);
+    assert_eq!(ram::budget_tokens("google/gemma-4-e4b"), 1_500);
+    assert_eq!(ram::est_tokens("abcd"), 1);
+    assert_eq!(ram::est_tokens("abcde"), 2);
+    for (window, budget) in [
+        (8_000usize, 1_500usize),
+        (32_000, 2_560),
+        (200_000, 12_000),
+        (2_000_000, 12_000),
+    ] {
+        let mut c = ctx(&"R".repeat(20_000), "soul");
+        c.user_rules = "USER-RULE-ALWAYS".into();
+        c.pinned_tags = vec!["PIN-ALWAYS".into()];
+        c.turns = vec![turn("you", "T".repeat(80_000))];
+        c.open_asks = vec![("ax".into(), "Q".repeat(80_000))];
+        let core = build(&c);
+        let fitted = ram::fit_to(&core, budget);
+        let text = ram::render_with_budget(&core, budget);
+        assert!(
+            ram::est_tokens(&ram::trimmable_text(&fitted)) <= budget,
+            "window {window}"
+        );
+        assert!(text.contains("USER-RULE-ALWAYS"), "{window}");
+        assert!(text.contains("PIN-ALWAYS"), "{window}");
+        assert!(text.contains(&"R".repeat(100)), "{window}");
+    }
+    let mut c = ctx("rules", "soul");
+    c.open_asks.clear();
+    c.turns = vec![turn("you", format!("KEEP-TOKENS-{}", "k".repeat(5_000)))];
+    let text = ram::render_with_budget(&build(&c), 1_500);
+    assert!(
+        text.contains("KEEP-TOKENS-"),
+        "5000 chars is 1250 tokens and must stay under a 1500 token budget\n{text}"
+    );
+}
+
+#[test]
+fn answered_ask_ages_after_6_turns_not_hours() {
+    let mut c = ctx("rules", "soul");
+    c.answered = vec![answered("a", "KEEP-SIX", 6, "ans", "BODY-SIX", 1.0)];
+    let text = render(&build(&c));
+    assert!(text.contains("BODY-SIX"), "{text}");
+    c.answered = vec![answered("a", "DROP-SEVEN", 7, "ans", "BODY-SEVEN", 1.0)];
+    let text = render(&build(&c));
+    assert!(!text.contains("BODY-SEVEN"), "{text}");
+    assert!(text.contains("aged: a -> ans"), "{text}");
+    c.answered = vec![answered(
+        "a",
+        "HOURS-STILL",
+        2,
+        "ans",
+        "BODY-HOURS",
+        1_000_000.0 - (25.0 * 3600.0),
+    )];
+    c.now_secs = 1_000_000.0;
+    let text = render(&build(&c));
+    assert!(text.contains("BODY-HOURS"), "{text}");
+}
+
+#[test]
+fn aged_answer_exact_after_7_turns() {
+    let app = temp_dir("exact-app");
+    let agents = temp_dir("exact-agents");
+    crate::mouth_archive::install_root(Some(agents.clone()));
+    crate::mouth_archive::force_flag(Some(true));
+    let _reset = ArchiveReset;
+    let mut st = crate::state::CompanionState::default();
+    st.push_turn("them", "EXACT-ANSWER-TEXT");
+    let answer_id = crate::mouth_archive::last_archive_id(&agents);
+    assert!(!answer_id.is_empty(), "push_archived must mint an id");
+    let mut c = ctx("rules", "soul");
+    c.answered = vec![answered("ask-1", "did we decide", 0, "", "", 1.0)];
+    let first = super::settle(&app, &agents, &c);
+    let text = render(&first);
+    assert!(text.contains("EXACT-ANSWER-TEXT"), "{text}");
+    for i in 0..7 {
+        st.push_turn("you", &format!("later-{i}"));
+    }
+    let fitted = super::settle(&app, &agents, &c);
+    let text = render(&fitted);
+    assert!(!text.contains("EXACT-ANSWER-TEXT"), "{text}");
+    let (node, arch) = super::graph::get(&app, &agents, &answer_id).expect("graph node");
+    assert_eq!(arch.expect("archive text").text, "EXACT-ANSWER-TEXT");
+    assert!(
+        node.links.iter().any(|l| l.rel == "answers" && l.to == "ask-1"),
+        "{node:?}"
+    );
+    let neighbors = super::graph::links(&app, "ask-1", Some("answers"));
+    assert!(neighbors.iter().any(|l| l.to == answer_id), "{neighbors:?}");
+    let lines = super::graph::line_count(&app);
+    let _ = super::settle(&app, &agents, &c);
+    assert_eq!(super::graph::line_count(&app), lines, "graph writes are idempotent");
+    let _ = fs::remove_dir_all(&app);
+    let _ = fs::remove_dir_all(&agents);
+}
+
+#[test]
+fn graph_write_idempotent() {
+    let app = temp_dir("graph");
+    let node = super::graph::Node {
+        id: "t-1".into(),
+        kind: "turn".into(),
+        ts: "2026-10-31T00:00:00Z".into(),
+        archive_id: Some("t-1".into()),
+        planet: None,
+        card: None,
+        links: vec![super::graph::Link {
+            rel: "next_turn".into(),
+            to: "t-2".into(),
+        }],
+    };
+    super::graph::note_aged(&app, &node).unwrap();
+    super::graph::note_aged(&app, &node).unwrap();
+    assert_eq!(super::graph::line_count(&app), 1);
+    let mode = fs::metadata(super::graph::graph_path(&app)).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    let _ = fs::remove_dir_all(&app);
+}
+
+#[test]
+fn graph_links_answer_to_ask() {
+    let app = temp_dir("links");
+    super::graph::note_aged(
+        &app,
+        &super::graph::Node {
+            id: "ans-9".into(),
+            kind: "answer".into(),
+            ts: "2026-10-31T00:00:00Z".into(),
+            archive_id: Some("ans-9".into()),
+            planet: None,
+            card: None,
+            links: vec![
+                super::graph::Link {
+                    rel: "answers".into(),
+                    to: "ask-9".into(),
+                },
+                super::graph::Link {
+                    rel: "asked_in".into(),
+                    to: "ans-9".into(),
+                },
+            ],
+        },
+    )
+    .unwrap();
+    let links = super::graph::links(&app, "ask-9", Some("answers"));
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].to, "ans-9");
+    let _ = fs::remove_dir_all(&app);
+}
+
+#[test]
+fn open_ask_trimmed_leaves_id_stub() {
+    let mut c = ctx("rules", "soul");
+    c.open_asks = vec![
+        ("ask-old".into(), "Q".repeat(40_000)),
+        ("ask-new".into(), "short ask".into()),
+    ];
+    c.turns.clear();
+    let text = render(&build(&c));
+    assert!(!text.contains(&"Q".repeat(100)), "{text}");
+    assert!(text.contains("more asks: ask-old"), "{text}");
+    assert!(text.contains("ask-new"), "{text}");
+}
+
+#[test]
+fn recall_archive_hit_carries_id() {
+    let root = temp_dir("recall-id");
+    let agents = root.join("agents");
+    let app = root.join("app");
+    fs::create_dir_all(&agents).unwrap();
+    append(
+        &agents,
+        &ArchiveLine {
+            v: 1,
+            id: "arc-keep".into(),
+            ts: "2026-10-31T12:00:00-05:00".into(),
+            role: "them".into(),
+            mode: "spark".into(),
+            lane: "grok".into(),
+            model: "grok-4.7".into(),
+            session: None,
+            text: "decided-widget exact".into(),
+            src: "live".into(),
+        },
+    )
+    .unwrap();
+    let hits = recall(&agents, &app, "decided-widget", None);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, "arc-keep");
+    let _ = fs::remove_dir_all(&root);
 }

@@ -1,8 +1,10 @@
 //! Companion RAM. Flag `memory_ram` off: callers keep today's prompts.
 //! Tests pass temp roots; this module never writes `~/.agents`.
 
+mod graph;
 mod ram;
 mod recall;
+mod rules;
 mod tags;
 
 pub(crate) use ram::{build, core_for_app, fit, render};
@@ -17,6 +19,17 @@ pub(crate) const NOTES_FILE_BYTES: usize = 8 * 1024;
 
 pub(crate) fn enabled(app: &tauri::AppHandle) -> bool {
     crate::flags::on(app, "memory_ram")
+}
+
+/// Side-effecting prompt build. `build` stays pure; age-out notes land here.
+pub(crate) fn settle(app_data: &std::path::Path, archive: &std::path::Path, ctx: &ram::RamCtx) -> ram::RamCore {
+    let ctx = graph::prepare(app_data, archive, ctx);
+    let built = build(&ctx);
+    let fitted = fit(&built);
+    if let Err(e) = graph::note_leaves(app_data, archive, &ctx, &fitted) {
+        eprintln!("orbitty: companion graph: {e}");
+    }
+    fitted
 }
 
 /// Pocket / hop preamble when the flag is on. Turns that survived the cap
@@ -85,6 +98,130 @@ pub(crate) fn accept_for_app(
     let app_data = crate::coordinator::app_data(app)?;
     let wrote = tags::accept_live(&app_data, planet)?;
     Ok(serde_json::json!({ "enabled": true, "wrote": true, "tags": wrote }))
+}
+
+fn off() -> serde_json::Value {
+    serde_json::json!({ "enabled": false })
+}
+
+pub(crate) fn rule_list_for_app(app: &tauri::AppHandle) -> Result<serde_json::Value, String> {
+    if !enabled(app) {
+        return Ok(off());
+    }
+    let app_data = crate::coordinator::app_data(app)?;
+    let rules = rules::list(&app_data);
+    Ok(serde_json::json!({ "enabled": true, "rules": rules }))
+}
+
+pub(crate) fn rule_set_for_app(
+    app: &tauri::AppHandle,
+    text: &str,
+    id: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    if !enabled(app) {
+        return Ok(off());
+    }
+    let app_data = crate::coordinator::app_data(app)?;
+    let row = rules::set(&app_data, id, text, "user").map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "enabled": true, "rule": row }))
+}
+
+pub(crate) fn rule_rm_for_app(app: &tauri::AppHandle, id: &str) -> Result<serde_json::Value, String> {
+    if !enabled(app) {
+        return Ok(off());
+    }
+    let app_data = crate::coordinator::app_data(app)?;
+    let removed = rules::rm(&app_data, id).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "enabled": true, "removed": removed, "id": id }))
+}
+
+pub(crate) fn rule_propose_for_app(
+    app: &tauri::AppHandle,
+    text: &str,
+    id: Option<String>,
+    remove: bool,
+    planet: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if !enabled(app) {
+        return Ok(serde_json::json!({ "enabled": false, "wrote": false }));
+    }
+    let draft = rules::propose_live(text, id, remove)?;
+    #[cfg(unix)]
+    {
+        let project = planet.as_deref().unwrap_or("");
+        if let Err(e) = crate::board::needed_open(app, &draft.title, project, Some(&draft.why)) {
+            rules::rollback_live();
+            return Err(e);
+        }
+    }
+    let _ = planet;
+    Ok(serde_json::json!({
+        "enabled": true,
+        "wrote": false,
+        "kind": draft.kind,
+        "title": draft.title,
+    }))
+}
+
+pub(crate) fn rule_accept_for_app(app: &tauri::AppHandle) -> Result<serde_json::Value, String> {
+    if !enabled(app) {
+        return Ok(serde_json::json!({ "enabled": false, "wrote": false }));
+    }
+    let app_data = crate::coordinator::app_data(app)?;
+    let mut wrote = rules::accept_live(&app_data)?;
+    if let Some(obj) = wrote.as_object_mut() {
+        obj.insert("enabled".into(), serde_json::json!(true));
+        obj.insert("wrote".into(), serde_json::json!(true));
+    }
+    Ok(wrote)
+}
+
+pub(crate) fn tags_unpin_for_app(
+    app: &tauri::AppHandle,
+    name: &str,
+    planet: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    if !enabled(app) {
+        return Ok(off());
+    }
+    let app_data = crate::coordinator::app_data(app)?;
+    let removed = tags::unpin(&app_data, name, planet)?;
+    Ok(serde_json::json!({ "enabled": true, "unpinned": removed, "name": name }))
+}
+
+pub(crate) fn get_for_app(app: &tauri::AppHandle, id: &str) -> Result<serde_json::Value, String> {
+    if !enabled(app) {
+        return Ok(off());
+    }
+    let app_data = crate::coordinator::app_data(app)?;
+    let archive = crate::coordinator::companions_root();
+    match graph::get(&app_data, &archive, id) {
+        None => Ok(serde_json::json!({ "enabled": true, "found": false, "id": id })),
+        Some((node, arch)) => Ok(serde_json::json!({
+            "enabled": true,
+            "found": true,
+            "node": node,
+            "archive": arch.map(|l| serde_json::json!({
+                "id": l.id,
+                "text": l.text,
+                "role": l.role,
+                "ts": l.ts,
+            })),
+        })),
+    }
+}
+
+pub(crate) fn links_for_app(
+    app: &tauri::AppHandle,
+    id: &str,
+    rel: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    if !enabled(app) {
+        return Ok(off());
+    }
+    let app_data = crate::coordinator::app_data(app)?;
+    let links = graph::links(&app_data, id, rel);
+    Ok(serde_json::json!({ "enabled": true, "links": links }))
 }
 
 /// Handoff when the flag is on. A line that already carries the RAM block
