@@ -5,10 +5,14 @@
   import BoardNeeded from "./Needed.svelte";
   import StartDrop from "./StartDrop.svelte";
   import type { CardLink, KanbanCard } from "../persist";
+  import { parseFlagReply } from "../flags";
   import {
     blockedLabel,
+    blockersEnabled,
     openBlockerIds,
+    setBlockersOn,
     setEdges,
+    visibleEdges,
     waitingTitle,
     type EdgeMap,
   } from "./blockers";
@@ -19,19 +23,57 @@
     let dead = false;
     const apply = (next: EdgeMap | null | undefined) => {
       if (dead) return;
-      const map = next && typeof next === "object" ? next : {};
+      const map = visibleEdges(blockersEnabled(), next);
       edges = map;
       setEdges(map);
     };
+    const clear = () => {
+      setBlockersOn(false);
+      apply({});
+    };
+    // Re-read the flag on each pull. `flagOn` memoizes for the page, so a
+    // later `flags set` would stay invisible until the next mount.
+    let pullGen = 0;
     const pull = () => {
-      invoke<EdgeMap>("board_blockers").then(apply).catch(() => apply({}));
+      const gen = ++pullGen;
+      invoke<unknown>("flags_get", { id: "card_blockers" })
+        .then((raw) => {
+          if (dead || gen !== pullGen) return;
+          const on = parseFlagReply(raw).on;
+          setBlockersOn(on);
+          if (!on) {
+            apply({});
+            return;
+          }
+          invoke<EdgeMap>("board_blockers")
+            .then((map) => {
+              if (dead || gen !== pullGen) return;
+              apply(map);
+            })
+            .catch(() => {
+              if (dead || gen !== pullGen) return;
+              clear();
+            });
+        })
+        .catch(() => {
+          if (dead || gen !== pullGen) return;
+          clear();
+        });
     };
     pull();
     const stops: Array<() => void> = [];
-    listen<EdgeMap>("board:blockers", (ev) => apply(ev.payload)).then((un) => stops.push(un));
+    // A link emits this only after the flag gate, so the chip can turn on
+    // without waiting for the next mount.
+    listen<EdgeMap>("board:blockers", (ev) => {
+      setBlockersOn(true);
+      apply(ev.payload);
+    }).then((un) => stops.push(un));
     listen("state:changed", () => pull()).then((un) => stops.push(un));
+    const onFocus = () => pull();
+    window.addEventListener("focus", onFocus);
     return () => {
       dead = true;
+      window.removeEventListener("focus", onFocus);
       for (const un of stops) un();
     };
   });
@@ -150,7 +192,7 @@
   {#if age}
     <span class="k-age" title="Last touched">{age}</span>
   {/if}
-  {#if card.status !== "done"}
+  {#if card.status !== "done" && blockersEnabled()}
     {@const open = openBlockerIds(edges, kanbanCards, card.id)}
     {#if open.length}
       <span class="b-blocked" title={waitingTitle(edges, kanbanCards, card.id)}>{blockedLabel(open.length)}</span>

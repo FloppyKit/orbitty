@@ -145,6 +145,15 @@ pub const FLAGS: &[FlagDef] = &[
         remove_after: "2026-12-29",
         auto_on_verify: true,
     },
+    FlagDef {
+        id: "card_blockers",
+        default: false,
+        what: "card blocker edges and Doing doors",
+        go: "GO-ORBITTY-CARD-BLOCKERS",
+        added: "2026-11-01",
+        remove_after: "2026-12-31",
+        auto_on_verify: true,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]

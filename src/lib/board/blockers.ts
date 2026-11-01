@@ -11,6 +11,7 @@ export type BlockerCard = {
 };
 
 let edges: EdgeMap = {};
+let blockersOn = false;
 
 export function getEdges(): EdgeMap {
   return edges;
@@ -18,6 +19,22 @@ export function getEdges(): EdgeMap {
 
 export function setEdges(next: EdgeMap): void {
   edges = next ?? {};
+}
+
+/** Page-lifetime bit. Off clears stored edges so a drag cannot see them. */
+export function blockersEnabled(): boolean {
+  return blockersOn;
+}
+
+export function setBlockersOn(on: boolean): void {
+  blockersOn = on;
+  if (!on) edges = {};
+}
+
+/** Flag off is an empty sidecar. The chip and the drag both read this. */
+export function visibleEdges(flagOn: boolean, map: EdgeMap | null | undefined): EdgeMap {
+  if (!flagOn || map == null || typeof map !== "object" || Array.isArray(map)) return {};
+  return map;
 }
 
 export function openBlockerIds(

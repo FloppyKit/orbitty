@@ -3,8 +3,13 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   blockedLabel,
+  blockersEnabled,
+  getEdges,
   isBlocked,
   openBlockerIds,
+  setBlockersOn,
+  setEdges,
+  visibleEdges,
   waitingTitle,
   type BlockerCard,
 } from "../src/lib/board/blockers.ts";
@@ -57,5 +62,32 @@ test("the row chip and the doing drag gate", () => {
   const gate = body.indexOf('target === "doing"');
   assert.ok(done !== -1 && gate > done, "done still completes; doing is the gate");
   assert.match(body, /isBlocked\(/);
+  assert.match(body, /blockersEnabled\(/);
   assert.match(body, /return;/);
+});
+
+test("flag off hides edges from the chip and the drag", () => {
+  assert.deepEqual(visibleEdges(false, { c: ["a"] }), {});
+  assert.deepEqual(visibleEdges(true, { c: ["a"] }), { c: ["a"] });
+  assert.deepEqual(visibleEdges(true, null), {});
+  assert.deepEqual(visibleEdges(true, undefined), {});
+  setEdges({ c: ["a"] });
+  setBlockersOn(true);
+  assert.equal(blockersEnabled(), true);
+  assert.deepEqual(getEdges(), { c: ["a"] });
+  setBlockersOn(false);
+  assert.equal(blockersEnabled(), false);
+  assert.deepEqual(getEdges(), {});
+  assert.equal(isBlocked(getEdges(), cards, cards[0]), false);
+
+  const col = src("src/lib/board/Columns.svelte");
+  assert.match(col, /card_blockers/);
+  assert.match(col, /visibleEdges\(/);
+  assert.match(col, /blockersEnabled\(\)/);
+  assert.match(col, /flags_get/);
+  const file = src("src/lib/board/pageMutate.svelte.ts");
+  const start = file.indexOf("export function moveCard(");
+  const next = file.indexOf("\nexport function ", start + 10);
+  const body = file.slice(start, next === -1 ? undefined : next);
+  assert.match(body, /blockersEnabled\(\) && isBlocked\(/);
 });

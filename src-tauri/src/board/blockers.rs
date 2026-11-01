@@ -3,6 +3,9 @@
 //! No `state.json` field. History rewind does not read or write this file.
 //! A missing sidecar is no blockers. Writes are atomic and mode 0600.
 //! Each real write appends one local-only `board-dep` line `{id, blocker, op}`.
+//! Flag `card_blockers` defaults off. Off: `link_dep` / `unlink_dep` return
+//! one plain error and do not write. Doing doors and the chip then see an
+//! empty sidecar. On: the edges enforce.
 
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -26,10 +29,32 @@ pub(crate) fn blockers_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("board").join("blockers.json"))
 }
 
+/// Flag off drops the sidecar. Callers then see no blockers.
+pub(crate) fn edges_if_enabled(enabled: bool, edges: Edges) -> Edges {
+    if enabled {
+        edges
+    } else {
+        Edges::default()
+    }
+}
+
 pub(crate) fn load_app(app: &tauri::AppHandle) -> Edges {
-    blockers_path(app)
-        .map(|p| load_path(&p))
-        .unwrap_or_default()
+    let enabled = crate::flags::on(app, "card_blockers");
+    let loaded = if enabled {
+        blockers_path(app)
+            .map(|p| load_path(&p))
+            .unwrap_or_default()
+    } else {
+        Edges::default()
+    };
+    edges_if_enabled(enabled, loaded)
+}
+
+fn require_card_blockers(app: &tauri::AppHandle, feature: &str) -> Result<(), String> {
+    match crate::flags::blocked(app, "card_blockers", feature) {
+        Some(msg) => Err(msg),
+        None => Ok(()),
+    }
 }
 
 pub(crate) fn load_path(path: &Path) -> Edges {
@@ -294,6 +319,7 @@ fn publish(
 }
 
 pub fn link_dep(app: &tauri::AppHandle, id: &str, blocker: &str) -> Result<Value, String> {
+    require_card_blockers(app, "kanban.link_dep")?;
     let id = id.trim();
     let blocker = blocker.trim();
     let st = crate::state::load_state(app)?;
@@ -312,6 +338,7 @@ pub fn link_dep(app: &tauri::AppHandle, id: &str, blocker: &str) -> Result<Value
 }
 
 pub fn unlink_dep(app: &tauri::AppHandle, id: &str, blocker: &str) -> Result<Value, String> {
+    require_card_blockers(app, "kanban.unlink_dep")?;
     let id = id.trim();
     let blocker = blocker.trim();
     let st = crate::state::load_state(app)?;
@@ -687,5 +714,119 @@ mod tests {
         assert!(!body.contains("&before.kanban_cards"));
         let spawn = include_str!("../agents/doing_fire.rs");
         assert!(spawn.contains("note_ready_on_done("));
+    }
+
+    fn fn_body<'a>(src: &'a str, sig: &str) -> &'a str {
+        let start = src.find(sig).unwrap_or_else(|| panic!("{sig} missing"));
+        let rest = &src[start..];
+        let end = rest.find("\n}\n").unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    /// Q1=B: one new row, default off. Existing defaults stay put.
+    #[test]
+    fn card_blockers_defaults_off() {
+        let prior = [
+            ("tabbity_bridge", true),
+            ("go_start", true),
+            ("event_seq", false),
+            ("ax_safe", true),
+            ("microtags", false),
+            ("mh_archive", false),
+            ("shim_ledger", false),
+            ("memory_ram", false),
+            ("herdr_core", false),
+            ("wake_core", false),
+            ("herdr_primary", false),
+        ];
+        for (id, default) in prior {
+            let def = crate::flags::def_by_id(id).unwrap_or_else(|| panic!("missing {id}"));
+            assert_eq!(def.default, default, "{id}");
+        }
+        let row = crate::flags::def_by_id("card_blockers").expect("card_blockers row");
+        assert!(!row.default, "card_blockers default off");
+        assert_eq!(row.go, "GO-ORBITTY-CARD-BLOCKERS");
+        let (on, source) = crate::flags::resolve(row, None, &crate::flags::FileFlags::empty());
+        assert!(!on);
+        assert_eq!(source, crate::flags::Source::Default);
+        let (on, source) =
+            crate::flags::resolve(row, Some("on"), &crate::flags::FileFlags::empty());
+        assert!(on);
+        assert_eq!(source, crate::flags::Source::Env);
+        let (off, _) = crate::flags::resolve(row, Some("0"), &crate::flags::FileFlags::empty());
+        assert!(!off);
+
+        let flags = include_str!("../flags.rs");
+        let at = flags.find("id: \"card_blockers\"").expect("row text");
+        let window = &flags[at..at + 280];
+        assert!(window.contains("default: false"), "{window}");
+        assert!(!window.contains("default: true"), "{window}");
+    }
+
+    /// Flag off: verbs refuse in one line and do not write. Doors see no edges.
+    #[test]
+    fn flag_off_refuses_verbs_and_hides_edges() {
+        let link_err = crate::flags::refusal("kanban.link_dep", "card_blockers");
+        let unlink_err = crate::flags::refusal("kanban.unlink_dep", "card_blockers");
+        assert_eq!(
+            link_err,
+            "kanban.link_dep is off (flag card_blockers). orbittyctl flags set card_blockers on"
+        );
+        assert_eq!(
+            unlink_err,
+            "kanban.unlink_dep is off (flag card_blockers). orbittyctl flags set card_blockers on"
+        );
+        assert!(!link_err.contains('\n'));
+        assert!(!unlink_err.contains('\n'));
+
+        let cards = vec![card("a", "todo", 1.0), card("c", "todo", 2.0)];
+        let mut edges = Edges::default();
+        edges.map.insert("c".into(), vec!["a".into()]);
+        let hidden = edges_if_enabled(false, edges.clone());
+        assert!(hidden.map.is_empty());
+        assert!(!card_blocked(&hidden, &cards, "c"));
+        assert!(move_refusal(&hidden, &cards, "c", "doing").is_none());
+        assert!(ready_after_done(&hidden, &cards, &["a".into()]).is_empty());
+        let shown = edges_if_enabled(true, edges);
+        let doing = move_refusal(&shown, &cards, "c", "doing").unwrap();
+        assert!(doing.contains("not moving to doing"), "{doing}");
+        assert!(card_blocked(&shown, &cards, "c"));
+
+        let src = include_str!("blockers.rs");
+        let load = fn_body(src, "pub(crate) fn load_app(");
+        let flag_at = load.find("card_blockers").expect("load gate");
+        let read_at = load.find("load_path(").expect("read");
+        assert!(flag_at < read_at, "flag check sits above the sidecar read");
+        assert!(load.contains("edges_if_enabled("));
+        let gate = fn_body(src, "fn require_card_blockers(");
+        assert!(gate.contains("flags::blocked(app, \"card_blockers\", feature)"));
+        for (sig, feature) in [
+            ("pub fn link_dep(", "kanban.link_dep"),
+            ("pub fn unlink_dep(", "kanban.unlink_dep"),
+        ] {
+            let body = fn_body(src, sig);
+            let refuse = body.find("require_card_blockers(").expect(sig);
+            let save = body.find("save_path(").expect("save");
+            assert!(refuse < save, "{feature} must refuse before write");
+            assert!(
+                body[refuse..save].contains(feature),
+                "{feature} missing in the gate call"
+            );
+            assert!(body.find("load_path(").unwrap() > refuse);
+        }
+        let chip = fn_body(src, "pub fn board_blockers(");
+        assert!(chip.contains("load_app("));
+        for door in [
+            include_str!("board.rs"),
+            include_str!("../agents/agents.rs"),
+            include_str!("../agents/shift.rs"),
+            include_str!("../agents/doing_fire.rs"),
+        ] {
+            assert!(door.contains("blockers::load_app"));
+            assert!(
+                !door.contains("blockers::load_path"),
+                "doors must not read the sidecar around the flag"
+            );
+        }
     }
 }
