@@ -640,7 +640,7 @@
       s.kanbanCards = s.kanbanCards.map((c) =>
         isDoingRow(c) ? next[gi++] : c,
       );
-    });
+    }, "background");
   });
 
   function ageLabel(card: KanbanCard) {
@@ -690,8 +690,8 @@
   // Every write goes through here: fresh load, mutate, save. The rail owns
   // the other slices; this window only ever touches kanbanCards / pointsLedger
   // / claims (unclaim on window-card complete or Doing→Todo drag).
-  async function mutate(fn: (s: PersistedState) => void) {
-    return mutateBody({errText, invoke, loadState, showLinkToast}, fn);
+  async function mutate(fn: (s: PersistedState) => void, origin?: string) {
+    return mutateBody({errText, invoke, loadState, showLinkToast}, fn, origin);
   }
 
   function errText(e: unknown) {

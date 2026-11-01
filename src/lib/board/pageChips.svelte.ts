@@ -96,7 +96,7 @@ type Scope_loadState = {
   openSubtaskIds: string[];
   hackProjectId: string | null;
   migratingCardTrackers: boolean;
-  mutate: (fn: (s: PersistedState) => void) => Promise<void>;
+  mutate: (fn: (s: PersistedState) => void, origin?: string) => Promise<void>;
 };
 
 export function sideCount(scope: Scope_sideCount, list: string): number {
@@ -275,7 +275,7 @@ export async function loadState(scope: Scope_loadState) {
         st.kanbanCards = st.kanbanCards.map((c) =>
           c.trackers?.length ? { ...c, trackers: undefined } : c,
         );
-      });
+      }, "background");
       scope.migratingCardTrackers = false;
     }
   } catch {

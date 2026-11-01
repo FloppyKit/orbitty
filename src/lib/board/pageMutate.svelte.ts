@@ -143,7 +143,11 @@ export function logEvent(scope: Scope_logEvent, eType: string, content: Record<s
   }).catch(() => {});
 }
 
-export async function mutate(scope: Scope_mutate, fn: (s: PersistedState) => void) {
+export async function mutate(
+  scope: Scope_mutate,
+  fn: (s: PersistedState) => void,
+  origin?: string,
+) {
   try {
     const s = await scope.invoke<PersistedState>("load_state");
     s.projects ??= [];
@@ -156,7 +160,13 @@ export async function mutate(scope: Scope_mutate, fn: (s: PersistedState) => voi
     s.pointsLedger ??= [];
     s.titleOverrides ??= [];
     fn(s);
-    await scope.invoke("save_state", { state: s });
+    // Origin is an IPC argument only. Omit the key unless a caller passed one,
+    // so every existing board write stays a user save.
+    if (origin !== undefined) {
+      await scope.invoke("save_state", { state: s, origin });
+    } else {
+      await scope.invoke("save_state", { state: s });
+    }
     await scope.loadState();
   } catch (e) {
     // Optimistic column paint already moved the card; reload disk

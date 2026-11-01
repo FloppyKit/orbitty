@@ -73,7 +73,7 @@
       if (s.yardWindows === undefined || s.yardTabs === undefined) {
         s.yardWindows = s.yardWindows ?? true;
         s.yardTabs = s.yardTabs ?? false;
-        invoke("save_state", { state: s }).catch(() => {});
+        invoke("save_state", { state: s, origin: "background" }).catch(() => {});
       }
       yardWindows = s.yardWindows ?? true;
       yardTabs = s.yardTabs ?? false;
