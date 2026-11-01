@@ -255,6 +255,28 @@ pub fn kanban_add_as(
 /// proof — 420/421/422 with `t=orbitty` (never a
 /// 31200 board-move).
 pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<KanbanCard, String> {
+    Ok(kanban_move_full(app, id, target)?.0)
+}
+
+/// Card JSON, plus `readyIds` when this call moved the card to done.
+pub fn kanban_move_response(
+    app: &tauri::AppHandle,
+    id: &str,
+    target: &str,
+) -> Result<serde_json::Value, String> {
+    let (card, ready) = kanban_move_full(app, id, target)?;
+    let mut v = serde_json::to_value(&card).unwrap_or_else(|_| serde_json::json!({ "id": card.id }));
+    if let Some(ids) = ready {
+        v["readyIds"] = serde_json::json!(ids);
+    }
+    Ok(v)
+}
+
+fn kanban_move_full(
+    app: &tauri::AppHandle,
+    id: &str,
+    target: &str,
+) -> Result<(KanbanCard, Option<Vec<String>>), String> {
     let target = match target.trim() {
         "todo" | "doing" | "done" => target.trim(),
         other => {
@@ -271,7 +293,12 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
         .ok_or_else(|| format!("kanban.move: unknown card id {id:?}"))?;
     let from = before.kanban_cards[idx].status.clone();
     if from == target {
-        return Ok(before.kanban_cards[idx].clone());
+        return Ok((before.kanban_cards[idx].clone(), None));
+    }
+    let edges = crate::board::blockers::load_app(app);
+    if let Some(why) = crate::board::blockers::move_refusal(&edges, &before.kanban_cards, id, target)
+    {
+        return Err(why);
     }
     let project_id = before.kanban_cards[idx].project_id.clone();
     let now = now_secs();
@@ -352,10 +379,21 @@ pub fn kanban_move(app: &tauri::AppHandle, id: &str, target: &str) -> Result<Kan
         Some("agent"),
         &serde_json::json!({ "from": from, "to": target, "cardId": id }),
     );
+    let ready_ids = if target == "done" {
+        let done_ids = crate::board::blockers::newly_done_ids(&before, &after);
+        Some(crate::board::blockers::ready_after_done(
+            &edges,
+            &after.kanban_cards,
+            &done_ids,
+        ))
+    } else {
+        None
+    };
+    let card = after.kanban_cards[idx].clone();
     // Doing-fire + walker attach after this move returns (same work,
-    // not on the drop's IPC wait).
-    crate::doing_fire::spawn_fire_and_attach(app, before, after.clone());
-    Ok(after.kanban_cards[idx].clone())
+    // not on the drop's IPC wait). Ready reporting rides the same spawn.
+    crate::doing_fire::spawn_fire_and_attach(app, before, after);
+    Ok((card, ready_ids))
 }
 
 /// `kanban.notes` — set a card's `notes` (the first
