@@ -27,13 +27,13 @@ function pinned(css: string, selector: string, column: number): void {
   );
 }
 
-test("agentrow pins left, dests, and right to columns 1, 2, and 3", () => {
+test("agentrow pins left and right without a dest column", () => {
   const row = ruleBodies(dockCss, ".agentrow").join("\n");
   assert.match(
     row,
-    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s+minmax\(0,\s*1fr\)\s*;/,
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)\s*;/,
   );
   pinned(dockCss, ".agentleft", 1);
-  pinned(dockCss, ".dests", 2);
-  pinned(dockCss, ".agentright", 3);
+  pinned(dockCss, ".agentright", 2);
+  assert.equal(dockCss.includes(".dests"), false);
 });

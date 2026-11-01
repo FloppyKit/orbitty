@@ -4,7 +4,7 @@
   // Full/Head sprite toggle, Expand, ⚙ last after Expand (GEAR-DOCK),
   // composer. Paint + presses only: CompanionPage owns all state, the
   // sends (the field still calls companion_send), and the well. Planets
-  // dest L-click = toggleDest("inspector").
+  // dest L-click used to toggle Planets. Those actions are launcher rows now.
   // No dest right-click menu — planet tabs live in the well / Launchpad.
   // × stays a CompanionPage corner.
   // The live LED sits immediately left of the agent
@@ -16,9 +16,17 @@
   import "./companion/dock.css";
   import DockCheatHint from "./companion/CheatHint.svelte";
   import DockAgentLeft from "./companion/AgentLeft.svelte";
-  import DockDests from "./companion/Dests.svelte";
   import DockAgentRight from "./companion/AgentRight.svelte";
   import DockMouth from "./companion/Mouth.svelte";
+  import DockLauncher from "./companion/Launcher.svelte";
+  import {
+    clearAfterRun,
+    launcherItems,
+    launcherKey,
+    noteRecent,
+    type Action,
+    type LaunchRow,
+  } from "./companion/launcher";
 
   // Chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
@@ -63,7 +71,6 @@
     hackWho,
     prompts,
     hosted,
-    destOpen = { launchpad: false, stars: false, inspector: false },
     speak,
     speakVolume = 1,
     headShowing,
@@ -73,7 +80,13 @@
     viewTitle,
     expanded,
     planetsHidden = false,
-    showDests = false,
+    planets = [],
+    neededId = null,
+    hostBusy = false,
+    smallest = null,
+    captions = true,
+    mode = "",
+    runAction,
     talking,
     neededHint = null,
     draft = $bindable(),
@@ -84,7 +97,6 @@
     onDropAttach,
     onAgentChange,
     togglePrompts,
-    toggleDest,
     nextCount = 0,
     toggleNextCard,
     toggleSpeak,
@@ -93,7 +105,6 @@
     toggleSprite,
     toggleView,
     toggleExpanded,
-    togglePlanetsHidden,
     sendLine,
     talkStart,
     talkStopOnly,
@@ -110,7 +121,6 @@
     hackWho: string;
     prompts: boolean;
     hosted: HostMode;
-    destOpen?: { launchpad: boolean; stars: boolean; inspector: boolean };
     speak: boolean;
     speakVolume?: number;
     headShowing: boolean;
@@ -120,8 +130,13 @@
     viewTitle: string;
     expanded: boolean;
     planetsHidden?: boolean;
-    /** PEER-CHROME: Launchpad/STARS/Planets dest strip. */
-    showDests?: boolean;
+    planets?: { id: string; name: string; dot?: string }[];
+    neededId?: string | null;
+    hostBusy?: boolean;
+    smallest?: { cardId: string; text: string } | null;
+    captions?: boolean;
+    mode?: string;
+    runAction: (action: Action) => Promise<boolean>;
     talking: boolean;
     neededHint?: string | null;
     draft: string;
@@ -137,7 +152,6 @@
     composerExtra?: number;
     onAgentChange: () => void;
     togglePrompts: () => void;
-    toggleDest: (mode: "launchpad" | "stars" | "inspector") => void;
     nextCount?: number;
     toggleNextCard: () => void;
     toggleSpeak: () => void;
@@ -146,7 +160,6 @@
     toggleSprite: (e: MouseEvent) => void;
     toggleView: () => void;
     toggleExpanded: () => void;
-    togglePlanetsHidden: () => void;
     sendLine: () => void;
     talkStart: (e: Event) => void;
     talkStopOnly: () => void;
@@ -170,16 +183,6 @@
     if (sending) return "Spark mouth";
     return "Agent working";
   });
-
-  function onPlanetsClick() {
-    toggleDest("inspector");
-  }
-
-  function onPlanetsRight(e: MouseEvent) {
-    e.preventDefault();
-    togglePlanetsHidden();
-    rehitPointer();
-  }
 
   let agentOpen = $state(false);
   function pickAgent(id: string) {
@@ -245,6 +248,142 @@
     rehitPointer();
   }
 
+  let selected = $state(0);
+  let visibleStart = $state(0);
+  let stash = $state<string | null>(null);
+  let byArrow = $state(false);
+  let recents = $state<string[]>([]);
+  let queryFromKey = false;
+
+  const items = $derived.by((): LaunchRow[] => {
+    if (expanded) return [];
+    return launcherItems(
+      {
+        query: draft,
+        armed: neededId ? { id: neededId, title: neededHint ?? "Needed" } : null,
+        planets,
+        hosted,
+        hostBusy,
+        agent,
+        agents: agents.map((id) => ({ id, label: agentLabel(id) })),
+        mode,
+        speak,
+        sprite,
+        captions,
+        head: headShowing,
+        prompts,
+        nextCount,
+        smallestTodo: smallest,
+        planetsHidden,
+      },
+      recents,
+    );
+  });
+
+  $effect(() => {
+    draft;
+    if (queryFromKey) {
+      queryFromKey = false;
+      return;
+    }
+    selected = 0;
+    visibleStart = 0;
+    byArrow = false;
+    stash = null;
+  });
+
+  $effect(() => {
+    if (selected >= items.length && selected !== 0) selected = 0;
+  });
+
+  const activeId = $derived(
+    !expanded && items.length > 0 ? `companion-launcher-opt-${selected}` : "",
+  );
+
+  async function runIndex(index: number, viaArrow: boolean) {
+    const row = items[index];
+    if (!row) return;
+    const shouldClear = clearAfterRun({
+      kind: row.run.t,
+      query: draft,
+      title: row.title,
+      byArrow: viaArrow && index > 0,
+    });
+    const ok = await runAction(row.run);
+    if (!ok) return;
+    recents = noteRecent(recents, row.id);
+    if (row.run.t !== "send" && row.run.t !== "answer" && shouldClear) {
+      queryFromKey = true;
+      draft = "";
+    }
+    byArrow = false;
+    selected = 0;
+    visibleStart = 0;
+  }
+
+  function onFieldKeydown(e: KeyboardEvent) {
+    if (expanded) {
+      if (e.key !== "Enter" || e.isComposing) return;
+      if (e.shiftKey) return;
+      e.preventDefault();
+      sendLine();
+      return;
+    }
+    const undo = (e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z") && stash !== null;
+    const result = launcherKey(
+      { query: draft, selected, count: items.length, visibleStart, stash },
+      {
+        key: e.key,
+        shift: e.shiftKey,
+        meta: e.metaKey,
+        alt: e.altKey,
+        ctrl: e.ctrlKey,
+        composing: e.isComposing,
+      },
+      items.map((row) => row.title),
+    );
+    selected = result.state.selected;
+    visibleStart = result.state.visibleStart;
+    stash = result.state.stash;
+    if (result.state.query !== draft) {
+      queryFromKey = true;
+      draft = result.state.query;
+    }
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") byArrow = true;
+    if (result.effect === "run") {
+      e.preventDefault();
+      e.stopPropagation();
+      void runIndex(result.runIndex ?? 0, e.key === "Enter" && byArrow);
+      return;
+    }
+    if (result.effect === "newline") return;
+    if (result.effect === "blur") {
+      e.preventDefault();
+      e.stopPropagation();
+      fieldEl?.blur();
+      return;
+    }
+    if (result.effect === "complete") {
+      e.preventDefault();
+      return;
+    }
+    if (result.effect === "ignore") {
+      if (!e.isComposing) e.preventDefault();
+      return;
+    }
+    if (
+      e.key === "Escape" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowDown" ||
+      e.key === "Tab" ||
+      undo ||
+      ((e.metaKey || e.ctrlKey) && /^[1-5]$/.test(e.key))
+    ) {
+      e.preventDefault();
+      if (e.key === "Escape") e.stopPropagation();
+    }
+  }
+
   // COMPOSER-WRAP: the one-line field is a wrapping textarea now (Grok
   // web composer). Enter sends, Shift+Enter newline, ⌘↩/Ctrl+↩ send.
   // Auto-grows from scrollHeight (WKWebView-safe — no field-sizing).
@@ -305,13 +444,6 @@
     }
   }
 
-  function onFieldKeydown(e: KeyboardEvent) {
-    if (e.key !== "Enter" || e.isComposing) return;
-    if (e.shiftKey) return; // Shift+Enter = newline, never sends
-    e.preventDefault(); // Enter / ⌘↩ / Ctrl+↩ = send, no newline
-    sendLine();
-  }
-
   $effect(() => {
     // Grow on every keystroke / talk fill / send-clear; a surface flip
     // re-runs so the 6-line cap re-applies (or releases) in place.
@@ -359,7 +491,7 @@
     }
     const t = eventElement(e);
     const onControl = t?.closest(
-      "button, input, a, select, textarea, option, .field, .fieldwrap, .volpop, .agentbubble, .agentopt",
+      "button, input, a, select, textarea, option, .field, .fieldwrap, .volpop, .agentbubble, .agentopt, .launcher-row",
     );
     if (!onControl) freezeDragHover();
     onDockMouseDown(e);
@@ -433,14 +565,6 @@
       {nextCount}
       {toggleNextCard}
     />
-    <DockDests
-      {showDests}
-      {destOpen}
-      {toggleDest}
-      {planetsHidden}
-      {onPlanetsClick}
-      {onPlanetsRight}
-    />
     <DockAgentRight
       {speak}
       {speakVolume}
@@ -471,6 +595,8 @@
     bind:fieldEl
     {onFieldKeydown}
     {neededHint}
+    listOpen={!expanded}
+    activeDescendant={activeId}
     {talking}
     {talkStopOnly}
     {talkStopSend}
@@ -478,4 +604,14 @@
     {sendLine}
     {fmtSize}
   />
+  {#if !expanded}
+    <DockLauncher
+      rows={items}
+      {selected}
+      {visibleStart}
+      onRun={(index) => void runIndex(index, false)}
+      onHover={(index) => (selected = index)}
+      onScrollStart={(start) => (visibleStart = start)}
+    />
+  {/if}
 </div>

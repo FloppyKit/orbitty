@@ -22,6 +22,8 @@
   import { eventElement } from "./dragPane";
   import WindowTitleRow from "./WindowTitleRow.svelte";
   import { chromeMode, navPlatform, navUa } from "./windowChrome";
+  import { planetCss } from "./planetColor";
+  import type { Action } from "./companion/launcher";
 
   import type {
     CompanionSlice,
@@ -390,7 +392,6 @@
   let planetsHidden = $state(false);
   let cheatSheetHint = $state(true);
   let peerChrome = $state(false);
-  const showDests = $derived(peerChrome);
   async function togglePlanetsHidden() {
     return togglePlanetsHiddenBody({invoke, get planetsHidden() { return planetsHidden; }, set planetsHidden(v) { planetsHidden = v; }, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }});
   }
@@ -428,6 +429,7 @@
 
   let stars = $state<StarsSlice>({ promptsOptIn: false, checkins: {} });
   let cards = $state<KanbanCard[]>([]);
+  let planets = $state<{ id: string; name: string; dot?: string }[]>([]);
   // Quiet dock pip. Count = open/later-due
   // Needed only (not todos). Zero hides the pip; ⌘⇧N still toggles.
   let nextCount = $derived(
@@ -572,6 +574,9 @@
     "chaos-gremlin": "chat",
     "fkt-homie": "hold",
   };
+  const companionMode = $derived(AGENT_MODE[agent] ?? "");
+  const smallest = $derived(smallestTodo());
+  const hostBusy = $derived(tilePre || tileEnter || swapPrev !== null);
 
   async function stampThin() {
     return stampThinBody({invoke, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }});
@@ -613,6 +618,52 @@
   // again shows and orders front.
   async function toggleDest(mode: "launchpad" | "stars" | "inspector") {
     return toggleDestBody({dismissHost, get hosted() { return hosted; }, set hosted(v) { hosted = v; }, invoke, refreshDestOpen, get sendNote() { return sendNote; }, set sendNote(v) { sendNote = v; }}, mode);
+  }
+
+  async function runPage(fn: string, args?: Record<string, unknown>) {
+    if (fn === "openSmallestTodo") return openSmallestTodo();
+    if (fn === "togglePrompts") return togglePrompts();
+    if (fn === "togglePlanetsHidden") return togglePlanetsHidden();
+    if (fn === "toggleExpanded") return toggleExpanded();
+    if (fn === "toggleSpeak") return toggleSpeak();
+    if (fn === "toggleCaptions") return toggleCaptions();
+    if (fn === "toggleView") return toggleView();
+    if (fn === "toggleSprite") {
+      return toggleSprite({ preventDefault() {} } as MouseEvent);
+    }
+    if (fn === "talkStart") return talkStart(new Event("click"));
+    if (fn === "pickAgent") {
+      const id = typeof args?.id === "string" ? args.id : "";
+      if (!id) return;
+      agent = id;
+      return onAgentChange();
+    }
+    throw new Error(`Unknown action ${fn}`);
+  }
+
+  async function runAction(action: Action): Promise<boolean> {
+    try {
+      if (action.t === "send" || action.t === "answer") {
+        await sendLine();
+        return true;
+      }
+      if (action.t === "invoke") {
+        await invoke(action.cmd, action.args ?? {});
+        return true;
+      }
+      if (action.t === "host") {
+        await enterHost(action.mode);
+        return true;
+      }
+      if (action.t === "page") {
+        await runPage(action.fn, action.args);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      sendNote = `${e}`;
+      return false;
+    }
   }
 
   // PLANETS-STRIP: dest L-click toggles the well. Planet tabs in the well
@@ -659,7 +710,27 @@
   }
 
   async function loadState() {
-    return loadStateBody({KNOWN_THEMES, get artLoaded() { return artLoaded; }, set artLoaded(v) { artLoaded = v; }, get bodyId() { return bodyId; }, set bodyId(v) { bodyId = v; }, get botLine() { return botLine; }, set botLine(v) { botLine = v; }, get captionReady() { return captionReady; }, set captionReady(v) { captionReady = v; }, get captions() { return captions; }, set captions(v) { captions = v; }, get cards() { return cards; }, set cards(v) { cards = v; }, get cheatSheetHint() { return cheatSheetHint; }, set cheatSheetHint(v) { cheatSheetHint = v; }, clampWindowOpacity, get expanded() { return expanded; }, set expanded(v) { expanded = v; }, get figureView() { return figureView; }, set figureView(v) { figureView = v; }, get glbFailed() { return glbFailed; }, set glbFailed(v) { glbFailed = v; }, get hackLive() { return hackLive; }, set hackLive(v) { hackLive = v; }, get hackWho() { return hackWho; }, set hackWho(v) { hackWho = v; }, invoke, loadArt, maybeGraduatePeerChrome, osThemeId, get peerChrome() { return peerChrome; }, set peerChrome(v) { peerChrome = v; }, peerChromeOn, get planetsHidden() { return planetsHidden; }, set planetsHidden(v) { planetsHidden = v; }, get prompts() { return prompts; }, set prompts(v) { prompts = v; }, refreshDestOpen, get sending() { return sending; }, set sending(v) { sending = v; }, get speak() { return speak; }, set speak(v) { speak = v; }, get speakVolume() { return speakVolume; }, set speakVolume(v) { speakVolume = v; }, get sprite() { return sprite; }, set sprite(v) { sprite = v; }, get stars() { return stars; }, set stars(v) { stars = v; }, get themeId() { return themeId; }, set themeId(v) { themeId = v; }, get turns() { return turns; }, set turns(v) { turns = v; }, get userLine() { return userLine; }, set userLine(v) { userLine = v; }, get windowOpacity() { return windowOpacity; }, set windowOpacity(v) { windowOpacity = v; }});
+    return loadStateBody({KNOWN_THEMES, get artLoaded() { return artLoaded; }, set artLoaded(v) { artLoaded = v; }, get bodyId() { return bodyId; }, set bodyId(v) { bodyId = v; }, get botLine() { return botLine; }, set botLine(v) { botLine = v; }, get captionReady() { return captionReady; }, set captionReady(v) { captionReady = v; }, get captions() { return captions; }, set captions(v) { captions = v; }, get cards() { return cards; }, set cards(v) { cards = v; }, get cheatSheetHint() { return cheatSheetHint; }, set cheatSheetHint(v) { cheatSheetHint = v; }, clampWindowOpacity, get expanded() { return expanded; }, set expanded(v) { expanded = v; }, get figureView() { return figureView; }, set figureView(v) { figureView = v; }, get glbFailed() { return glbFailed; }, set glbFailed(v) { glbFailed = v; }, get hackLive() { return hackLive; }, set hackLive(v) { hackLive = v; }, get hackWho() { return hackWho; }, set hackWho(v) { hackWho = v; }, invoke: invokeKeepingPlanets, loadArt, maybeGraduatePeerChrome, osThemeId, get peerChrome() { return peerChrome; }, set peerChrome(v) { peerChrome = v; }, peerChromeOn, get planetsHidden() { return planetsHidden; }, set planetsHidden(v) { planetsHidden = v; }, get prompts() { return prompts; }, set prompts(v) { prompts = v; }, refreshDestOpen, get sending() { return sending; }, set sending(v) { sending = v; }, get speak() { return speak; }, set speak(v) { speak = v; }, get speakVolume() { return speakVolume; }, set speakVolume(v) { speakVolume = v; }, get sprite() { return sprite; }, set sprite(v) { sprite = v; }, get stars() { return stars; }, set stars(v) { stars = v; }, get themeId() { return themeId; }, set themeId(v) { themeId = v; }, get turns() { return turns; }, set turns(v) { turns = v; }, get userLine() { return userLine; }, set userLine(v) { userLine = v; }, get windowOpacity() { return windowOpacity; }, set windowOpacity(v) { windowOpacity = v; }});
+  }
+
+  function invokeKeepingPlanets<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    return invoke<T>(cmd, args).then((result) => {
+      if (
+        cmd === "load_state" &&
+        result &&
+        typeof result === "object" &&
+        "projects" in result
+      ) {
+        const projects =
+          (result as { projects?: { id?: string; name?: string }[] }).projects ?? [];
+        planets = projects.flatMap((p) =>
+          p && typeof p.id === "string" && p.id
+            ? [{ id: p.id, name: (p.name ?? "").trim() || "Planet", dot: planetCss(p.id) }]
+            : [],
+        );
+      }
+      return result;
+    });
   }
 
   // GRAB-LAW: collapsed, the spirit RECTANGLE is the drag handle — the
@@ -842,8 +913,8 @@
       if (!visible) onNeededFocus(null, null);
     });
     // Tray Launchpad/STARS raise this pane
-    // native-side and ask the well to open — raise-only via enterHost,
-    // never toggleDest (the dest buttons still own toggling).
+    // native-side and ask the well to open — raise-only via dest_show,
+    // never toggleDest (launcher rows open; ⌘⌥ chords still toggle).
     unlistenEnterHost = await listen<string>("orbitty:enter-host", (e) => {
       const m = e.payload;
       if (m === "launchpad" || m === "stars" || m === "inspector") {
@@ -1010,6 +1081,12 @@
   class:chrome={expanded}
   bind:this={mainEl}
 >
+  {#if !expanded}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="docktitle starstrip" onmousedown={onDockMouseDown}>
+      <WindowTitleRow title="Orbitty" mode="title" label="companion" />
+    </div>
+  {/if}
   {#if expanded}
     <WindowTitleRow
       title="Orbitty"
@@ -1065,37 +1142,46 @@
     {onGlbFail}
   />
 
-  {#if sprite && !expanded && (hosted === "off" || spiritHold)}
-    <CompSpirit
-      {headShowing}
-      {bodyId}
-      {sending}
-      {is3D}
-      {glbFailed}
-      {missing}
-      {drawFrames}
-      {frameIdx}
-      {artSmooth}
-      {onDragMouseDown}
-      {onGlbFail}
+  {#if !expanded}
+    <div class="dockchat">
+      {#if sprite && (hosted === "off" || spiritHold)}
+        <CompSpirit
+          {headShowing}
+          {bodyId}
+          {sending}
+          {is3D}
+          {glbFailed}
+          {missing}
+          {drawFrames}
+          {frameIdx}
+          {artSmooth}
+          {onDragMouseDown}
+          {onGlbFail}
+        />
+      {/if}
+      <div class="dockchat-copy">
+        {#if captions}
+          {@render caption(false, hosted !== "off")}
+        {/if}
+        <CompNotes
+          bind:sendNote
+          {showPromptStrip}
+          {lowestSpoke}
+          {ackStrip}
+          {openSmallestTodo}
+        />
+      </div>
+    </div>
+  {:else}
+    <CompNotes
+      bind:sendNote
+      {showPromptStrip}
+      {lowestSpoke}
+      {ackStrip}
+      {openSmallestTodo}
     />
   {/if}
 
-  {#if !expanded && captions}
-    {@render caption(false, hosted !== "off")}
-  {/if}
-
-  <CompNotes
-    bind:sendNote
-    {showPromptStrip}
-    {lowestSpoke}
-    {ackStrip}
-    {openSmallestTodo}
-  />
-
-  <!-- Agentrow + dests + Speak +
-       sprite/view + Expand + ⚙ + composer live in CompanionDock.svelte.
-       × stays a floating corner here. -->
   <CompanionDock
     {agents}
     bind:agent
@@ -1113,7 +1199,13 @@
     {viewTitle}
     {expanded}
     {planetsHidden}
-    {showDests}
+    {planets}
+    neededId={neededFocusId}
+    {hostBusy}
+    {smallest}
+    {captions}
+    mode={companionMode}
+    {runAction}
     {talking}
     neededHint={neededFocusTitle}
     {cheatSheetHint}
@@ -1129,8 +1221,6 @@
     {onAgentChange}
     onThin={stampThin}
     {togglePrompts}
-    destOpen={destOpen}
-    {toggleDest}
     {nextCount}
     {toggleNextCard}
     {toggleSpeak}
@@ -1139,7 +1229,6 @@
     {toggleSprite}
     {toggleView}
     {toggleExpanded}
-    {togglePlanetsHidden}
     {sendLine}
     {talkStart}
     {talkStopOnly}

@@ -132,13 +132,18 @@
     justify-content: flex-end;
   }
 
-  .companion.tile-pre:not(.hosting) > *:not(.ghostdock):not(.winx):not(.stage) {
+  .companion.tile-pre:not(.hosting) > *:not(.ghostdock):not(.winx):not(.stage):not(.dockchat) {
+    display: none;
+  }
+
+  .companion.tile-pre:not(.hosting) .dockchat-copy {
     display: none;
   }
 
   /* Idle figure pinned through the grow — keep-bottom, so it does not
      vanish or stretch. Hands off to the column FLIP on the next frame. */
-  .companion.spirit-hold > .stage {
+  .companion.spirit-hold > .stage,
+  .companion.spirit-hold .dockchat > .stage {
     position: absolute;
     left: var(--hold-x);
     bottom: var(--hold-b);
@@ -508,8 +513,51 @@
   }
 
   /* Dock styles (.ghostdock, agentrow,
-     dests, icon toggles, gear, composer, talk slot) moved to
+     icon toggles, gear, composer, talk slot) moved to
      CompanionDock.svelte with the markup. */
+
+  /* Docked title is measured with the bar (pageHug looks for .starstrip).
+     The prompt strip keeps its own look; this wrap is only a measure hook. */
+  .docktitle.starstrip {
+    display: block;
+    margin: 0;
+    padding: 0;
+    gap: 0;
+    border: none;
+    background: transparent;
+    border-radius: 0;
+    font-size: inherit;
+    line-height: inherit;
+  }
+
+  .dockchat {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  /* Sprite-on keeps the tall window. The chat row absorbs the leftover
+     so the chips, field, and list stay on the bottom. Sprite-off stays
+     content-sized so the hug can shrink to the title plus the dock. */
+  .companion:not(.spriteoff) .dockchat {
+    flex: 1;
+    align-items: stretch;
+  }
+
+  .companion .dockchat > .stage {
+    flex: none;
+    width: 120px;
+    min-width: 96px;
+    min-height: 0;
+    height: auto;
+  }
+
+  .dockchat-copy {
+    flex: 1;
+    min-width: 0;
+  }
 
   .claim-toast {
     position: fixed;

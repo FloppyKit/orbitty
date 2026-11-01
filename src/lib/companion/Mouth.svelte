@@ -9,6 +9,8 @@
     fieldEl = $bindable(null),
     onFieldKeydown,
     neededHint = null,
+    listOpen = false,
+    activeDescendant = "",
     talking,
     talkStopOnly,
     talkStopSend,
@@ -25,6 +27,8 @@
     fieldEl?: HTMLTextAreaElement | null;
     onFieldKeydown: (e: KeyboardEvent) => void;
     neededHint?: string | null;
+    listOpen?: boolean;
+    activeDescendant?: string;
     talking: boolean;
     talkStopOnly: () => void;
     talkStopSend: () => void;
@@ -110,7 +114,12 @@
         placeholder={neededHint
           ? `answer: ${neededHint}  ·  Rule: … to remember`
           : "type…  ·  todo: buy milk -fkt"}
-        aria-label="Message your companion"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={listOpen}
+        aria-controls={listOpen ? "companion-launcher" : undefined}
+        aria-activedescendant={activeDescendant || undefined}
+        aria-label={neededHint ? `Answer: ${neededHint}` : "Message your companion"}
         autocomplete="off"
         spellcheck="false"
       ></textarea>

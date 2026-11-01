@@ -84,7 +84,7 @@
      the controls never do. */
   .agentrow {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: center;
     gap: 6px;
     padding: 6px 10px 0;
@@ -106,7 +106,7 @@
   .agentright {
     justify-self: end;
     justify-content: flex-end;
-    grid-column: 3;
+    grid-column: 2;
   }
 
   /* The 46% max-width was artificially wide — the
@@ -216,85 +216,6 @@
   .agentopt:focus-visible {
     outline: none;
     box-shadow: none;
-    border-color: var(--focus, #6e4db0);
-  }
-
-  /* DEST-STRIP: the old spacer becomes the destination strip — quiet
-     text (rail .stack-btn energy, scaled down), one line, flex:1 so the
-     cluster holds the spark→speaker gap. At the 280px min the dests give
-     first (type / letter-spacing / gap) — never the icon hit targets,
-     never the agentpick. */
-  .dests {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    white-space: nowrap;
-    position: relative;
-    pointer-events: none;
-    justify-self: center;
-    grid-column: 2;
-  }
-
-  /* Dests wear the same outlined
-     pill as the other dock icon buttons — --panel-fill, 1px --edge,
-     8px radius like .expandbtn — so Expand does not eat the rings. */
-  .dest {
-    flex: none;
-    position: relative;
-    padding: 2px 3px;
-    font: inherit;
-    font-size: 0.6rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-    color: var(--dim);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    cursor: pointer;
-    pointer-events: auto;
-  }
-
-  .dest:hover {
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-  }
-
-  /* DEST-CHROME: CSS hover chip naming the dest (title= never paints on
-     the transparent panel). Opens UP from the button — over the stage /
-     CC / well, never down over the composer. Same 1px --edge ring + 8px
-     radius as the pill; pointer-events none so it never steals the dest's
-     own hover. */
-  .dest::after {
-    content: attr(data-chip);
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 6;
-    padding: 2px 7px;
-    font-size: 0.62rem;
-    color: var(--ink);
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--edge);
-    border-radius: 8px;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .dest:hover::after {
-    opacity: 1;
-  }
-
-  .ghostdock.dragging .dest::after,
-  .ghostdock:not(.hover-armed) .dest:hover::after {
-    opacity: 0;
-  }
-
-  /* HOST-SPLIT: the dest whose well is live. */
-  .dest.on {
-    color: var(--accent);
     border-color: var(--focus, #6e4db0);
   }
 

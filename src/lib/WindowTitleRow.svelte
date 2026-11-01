@@ -14,7 +14,7 @@
     chips,
   }: {
     title: string;
-    mode: "mac" | "custom";
+    mode: "mac" | "custom" | "title";
     label: string;
     dot?: string | null;
     onClose?: () => void;
@@ -39,6 +39,8 @@
   }
 
   onMount(() => {
+    // Title-only dock row must not ask for traffic lights.
+    if (mode === "title") return;
     syncAppearance();
     const obs = new MutationObserver(() => syncAppearance());
     obs.observe(document.documentElement, {
@@ -55,6 +57,8 @@
   });
 
   function onRowMouseDown(e: MouseEvent) {
+    // Docked title uses the companion's own drag, not a second pane drag.
+    if (mode === "title") return;
     startPaneDrag(e);
   }
 
@@ -114,6 +118,10 @@
     -webkit-user-select: none;
     cursor: default;
     color: var(--ink);
+  }
+
+  .wtr[data-chrome="title"] {
+    padding-left: 10px;
   }
 
   .wtr-lights {
