@@ -2,6 +2,7 @@
 //! Timeouts are per-send, never a max-turns cap.
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use crate::coordinator::{
     PlugState, capture_goose_session, goose_args, grok_args, is_uuid, mint_uuid, run_mouth_cli,
@@ -246,10 +247,67 @@ fn grok_fork_args(
     args
 }
 
+/// One post-roll reply waits at most this long. A fork timeout must
+/// not start a second full wait (that was 2 x 180 s).
+pub const POST_ROLL_SECS: u64 = 180;
+const POST_ROLL_SLACK_SECS: u64 = 5;
+pub const POST_ROLL_TIMEOUT: &str = "Grok took longer than 180s after a roll";
+
+#[derive(Debug)]
+enum RollStep {
+    ForkOk(String),
+    /// Fast miss (404 / empty). Fresh may run, but only for the seconds
+    /// still inside the one budget.
+    NeedFresh(u64),
+    Stop,
+}
+
+fn is_stream_timeout(err: &str) -> bool {
+    let e = err.to_ascii_lowercase();
+    e.contains("took longer") || e.contains("after a roll")
+}
+
+/// What the fork result is allowed to do. A timeout, or a fork that
+/// already used the budget, stops. It does not start another 180 s wait.
+fn step_after_fork(fork: Result<String, String>, elapsed: Duration, budget_secs: u64) -> RollStep {
+    let budget = Duration::from_secs(budget_secs);
+    let bound = budget + Duration::from_secs(POST_ROLL_SLACK_SECS);
+    match fork {
+        Ok(text) if !text.is_empty() => RollStep::ForkOk(text),
+        Err(e) if is_stream_timeout(&e) => RollStep::Stop,
+        _ if elapsed >= budget || elapsed >= bound => RollStep::Stop,
+        _ => {
+            let left = budget_secs.saturating_sub(elapsed.as_secs()).max(1);
+            if elapsed + Duration::from_secs(left) > bound {
+                RollStep::Stop
+            } else {
+                RollStep::NeedFresh(left)
+            }
+        }
+    }
+}
+
+fn log_post_roll_timeout(app: &tauri::AppHandle, elapsed_ms: u128, handoff_chars: usize) {
+    crate::event_log::append_best(
+        app,
+        "companion-timeout",
+        None,
+        None,
+        Some("agent"),
+        true,
+        &serde_json::json!({
+            "phase": "post-roll",
+            "elapsed_ms": elapsed_ms,
+            "handoff_chars": handoff_chars,
+        }),
+    );
+}
+
 /// Roll a dead grok mouth onto a fresh session id. Fork when the old id
 /// still resumes (history carries; the handoff re-aims the reply), else a
 /// fresh `-s` where the handoff IS the context. plug.json always lands the
 /// new id, marked minted. One shot — a failing rollover stays an honest Err.
+/// A fork that hits the timeout does not fall through to a second 180 s wait.
 pub fn grok_rollover(
     app: &tauri::AppHandle,
     bin: &Path,
@@ -257,9 +315,10 @@ pub fn grok_rollover(
     plug: &mut PlugState,
     handoff: &str,
 ) -> Result<String, String> {
+    let started = Instant::now();
     let old_sid = plug.grok_session_id.clone().unwrap_or_default();
     let new_sid = mint_uuid()?;
-    if is_uuid(&old_sid) {
+    let step = if is_uuid(&old_sid) {
         let args = grok_fork_args(
             &old_sid,
             &new_sid,
@@ -268,26 +327,33 @@ pub fn grok_rollover(
             crate::coordinator::companion_mode_tools(app),
         );
         // The fork RESUMES the old id — under the watch a corpse 404s in
-        // ~0.5s and falls through to the fresh rollover, instead of
-        // hanging out the 180s first.
-        if let Ok(text) = crate::mouth_blip::run_streamed(
+        // ~0.5s and may still fresh-roll inside the remaining budget.
+        // A slow fork (the 180s kill) stops here. No second wait.
+        let fork = crate::mouth_blip::run_streamed(
             app,
             "Grok",
             bin,
             &args,
-            180,
+            POST_ROLL_SECS,
             Some(&grok_session_gone_line),
-        ) {
-            if !text.is_empty() {
-                plug.grok_session_id = Some(new_sid);
-                plug.grok_session_minted = true;
-                save_plug(plug);
-                return Ok(text);
-            }
+        );
+        step_after_fork(fork, started.elapsed(), POST_ROLL_SECS)
+    } else {
+        RollStep::NeedFresh(POST_ROLL_SECS)
+    };
+    match step {
+        RollStep::ForkOk(text) => {
+            plug.grok_session_id = Some(new_sid);
+            plug.grok_session_minted = true;
+            save_plug(plug);
+            Ok(text)
         }
-        // Fork missed (resume target gone/thin) — fall through to fresh.
+        RollStep::Stop => {
+            log_post_roll_timeout(app, started.elapsed().as_millis(), handoff.chars().count());
+            Err(POST_ROLL_TIMEOUT.into())
+        }
+        RollStep::NeedFresh(secs) => grok_fresh_within(app, bin, soul, plug, handoff, secs),
     }
-    grok_fresh_rollover(app, bin, soul, plug, handoff)
 }
 
 /// Fresh `-s` rollover, no fork attempt: the resume target is known gone
@@ -301,6 +367,18 @@ pub fn grok_fresh_rollover(
     plug: &mut PlugState,
     handoff: &str,
 ) -> Result<String, String> {
+    grok_fresh_within(app, bin, soul, plug, handoff, POST_ROLL_SECS)
+}
+
+fn grok_fresh_within(
+    app: &tauri::AppHandle,
+    bin: &Path,
+    soul: &str,
+    plug: &mut PlugState,
+    handoff: &str,
+    timeout_secs: u64,
+) -> Result<String, String> {
+    let started = Instant::now();
     let new_sid = mint_uuid()?;
     let args = grok_args(
         &new_sid,
@@ -310,7 +388,13 @@ pub fn grok_fresh_rollover(
         crate::coordinator::companion_mode_tools(app),
         None,
     );
-    let text = crate::mouth_blip::run_streamed(app, "Grok", bin, &args, 180, None)?;
+    let text = match crate::mouth_blip::run_streamed(app, "Grok", bin, &args, timeout_secs, None) {
+        Err(e) if is_stream_timeout(&e) => {
+            log_post_roll_timeout(app, started.elapsed().as_millis(), handoff.chars().count());
+            return Err(POST_ROLL_TIMEOUT.into());
+        }
+        other => other?,
+    };
     if text.is_empty() {
         return Err("Grok sent back an empty reply.".into());
     }
@@ -356,5 +440,62 @@ mod tests {
         let args = grok_fork_args("old", "new", "soul", line, true);
         assert_eq!(args[0], format!("--single={line}"));
         assert!(!args.iter().any(|a| a == "-p" || a == line));
+    }
+
+    /// Stub fork that already slept past the timeout. Scaled clock: the
+    /// 180s kill is the whole budget, so a second roll would be 360s.
+    #[test]
+    fn post_roll_single_wait_bound() {
+        let slept = Duration::from_secs(POST_ROLL_SECS);
+        let step = step_after_fork(
+            Err(format!(
+                "Grok took longer than {POST_ROLL_SECS}s — killed. Try again."
+            )),
+            slept,
+            POST_ROLL_SECS,
+        );
+        assert!(matches!(step, RollStep::Stop), "fork timeout must not fresh-roll");
+        let immediate = step_after_fork(
+            Err(format!(
+                "Grok took longer than {POST_ROLL_SECS}s — killed. Try again."
+            )),
+            Duration::from_millis(10),
+            POST_ROLL_SECS,
+        );
+        assert!(
+            matches!(immediate, RollStep::Stop),
+            "a timeout error stops even before the clock hits 180s"
+        );
+        let scaled_ms = slept.as_millis();
+        assert!(
+            scaled_ms <= (POST_ROLL_SECS as u128 + POST_ROLL_SLACK_SECS as u128) * 1000,
+            "scaled elapsed {scaled_ms} ms exceeds 185s"
+        );
+        // A fast 404 still may fresh, but only inside the leftover budget.
+        let fast = step_after_fork(
+            Err("Grok: session get failed: 404 Not Found".into()),
+            Duration::from_millis(500),
+            POST_ROLL_SECS,
+        );
+        match fast {
+            RollStep::NeedFresh(secs) => {
+                assert!(secs <= POST_ROLL_SECS);
+                assert!(secs < POST_ROLL_SECS || POST_ROLL_SECS == 180);
+            }
+            other => panic!("fast miss should fresh inside budget, got {other:?}"),
+        }
+        let body = include_str!("mouth_roll.rs");
+        let start = body.find("pub fn grok_rollover(").expect("rollover");
+        let rest = &body[start..];
+        let end = rest.find("\npub fn grok_fresh_rollover(").expect("fresh");
+        let rollover = &rest[..end];
+        assert!(rollover.contains("step_after_fork"), "{rollover}");
+        assert!(rollover.contains("RollStep::Stop"));
+        assert_eq!(
+            rollover.matches("grok_fresh_within").count(),
+            1,
+            "fork timeout must not add a second full wait"
+        );
+        assert!(!rollover.contains("grok_fresh_rollover("));
     }
 }
