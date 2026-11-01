@@ -103,6 +103,8 @@ if cmd == "get":
     if MODE == "socket":
         sys.stderr.write("connection refused\n")
         sys.exit(1)
+    if MODE == "blocked":
+        emit(load("get_blocked.json"))
     emit(load("get.json"))
 
 if cmd == "ls":
@@ -112,6 +114,20 @@ if cmd == "read":
     if MODE in ("socket", "down"):
         sys.stderr.write("connection refused\n")
         sys.exit(1)
+    if MODE == "read_fail":
+        sys.stderr.write("not-json\n")
+        sys.exit(1)
+    if MODE == "blocked":
+        # History above the screen stalls on a permission prompt (S0).
+        # The screen (--lines 0) returns immediately.
+        n = "40"
+        if "--lines" in ARGS:
+            i = ARGS.index("--lines")
+            if i + 1 < len(ARGS):
+                n = ARGS[i + 1]
+        if n != "0":
+            time.sleep(30)
+        emit(load("read_blocked.json"))
     if MODE == "huge":
         line = "A" * 1024
         text = "\n".join([line] * 5000)

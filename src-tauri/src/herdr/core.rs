@@ -208,8 +208,17 @@ pub(crate) fn list(bin: &Path) -> Result<Value, String> {
 }
 
 pub(crate) fn read_text(bin: &Path, name: &str, lines: u32) -> Result<String, String> {
+    // `--lines N` is history above the screen (hc default 0). History stalls
+    // (~25s) on a permission prompt, past this 2s bound. A timed-out history
+    // read is retried once as the screen. The bound is not raised.
     let n = lines.to_string();
-    let v = run_json(bin, &["read", "--json", "--lines", &n, name], 2_000)?;
+    let v = match run_json(bin, &["read", "--json", "--lines", &n, name], 2_000) {
+        Ok(v) => v,
+        Err(e) if e == "timeout" && lines != 0 => {
+            run_json(bin, &["read", "--json", "--lines", "0", name], 2_000)?
+        }
+        Err(e) => return Err(e),
+    };
     if let Some(t) = v.get("text").and_then(Value::as_str) {
         return Ok(t.to_string());
     }
@@ -220,7 +229,12 @@ pub(crate) fn read_text(bin: &Path, name: &str, lines: u32) -> Result<String, St
 }
 
 pub(crate) fn map_status(v: &Value) -> String {
-    match v.get("status").and_then(Value::as_str) {
+    let word = match v.get("status") {
+        Some(Value::String(s)) => Some(s.as_str()),
+        Some(Value::Object(obj)) => obj.get("state").and_then(Value::as_str),
+        _ => None,
+    };
+    match word {
         Some(s @ ("idle" | "working" | "done" | "blocked" | "error")) => s.to_string(),
         _ => "none".into(),
     }

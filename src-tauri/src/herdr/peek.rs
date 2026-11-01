@@ -92,13 +92,15 @@ fn core_view(target: &str, lines: u32, body: bool) -> View {
     let status = core::map_status(&term);
     let state = core::map_state(&term);
     let text = if body {
-        let n = clamp_lines(lines);
-        match core::read_text(&bin, target, n) {
+        // hc `--lines` is history above the screen. That history stalls on a
+        // permission prompt, so the preview reads the screen. The caller's
+        // count stays clamped; it is not forwarded as history.
+        let _ = clamp_lines(lines);
+        match core::read_text(&bin, target, 0) {
             Ok(raw) => finish_text(&raw),
-            Err(e) => {
-                health::force_fallback(health::now_ms(), health::kind_of(&e));
-                return unknown(target);
-            }
+            // One seat's screen can fail. Empty body, not a global fault.
+            // The next peek still calls hc.
+            Err(_) => String::new(),
         }
     } else {
         String::new()

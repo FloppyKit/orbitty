@@ -817,6 +817,109 @@ fn peek_recovers_without_status_call() {
     assert!(!back.text.is_empty(), "{back:?}");
 }
 
+const BLOCKED_SCREEN: &str = "\
+plan approval
+
+  c:comment  |  y:copy plan  |  a:approve  |  q:quit plan  |  v:select  |  Tab:prompt
+";
+
+#[test]
+fn peek_blocked_seat_reads_text() {
+    let _g = gate();
+    let dir = scratch("blocked-text");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("blocked", &log);
+    health::prove_up();
+    let v = peek::view(&[], "t1", 40, true);
+    assert_eq!(v.status, "blocked", "{v:?}");
+    assert_eq!(v.state, "live", "{v:?}");
+    assert_eq!(v.text, peek::finish_text(BLOCKED_SCREEN), "{v:?}");
+    assert!(v.text.contains("a:approve"), "{v:?}");
+    let logged = fs::read_to_string(&log).unwrap();
+    assert!(
+        logged.lines().any(|l| l == "read --json --lines 0 t1"),
+        "{logged}"
+    );
+    // History still times out; the screen retry must return the prompt.
+    let recovered = core::read_text(&hc_path(), "t1", 40).unwrap();
+    assert!(recovered.contains("a:approve"), "{recovered}");
+}
+
+#[test]
+fn peek_blocked_seat_core_view_up_true() {
+    let _g = gate();
+    let dir = scratch("blocked-up");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("blocked", &log);
+    health::prove_up();
+    let v = peek::view(&[], "t1", 40, true);
+    assert!(v.up, "{v:?}");
+    assert_eq!(v.source, Source::Herdr.as_str(), "{v:?}");
+    assert_ne!(v.source, Source::Fallback.as_str(), "{v:?}");
+    assert!(!health::is_down());
+}
+
+#[test]
+fn peek_read_failure_keeps_status_and_health() {
+    let _g = gate();
+    let dir = scratch("read-fail");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("read_fail", &log);
+    health::prove_up();
+    let _ = health::take_unlogged();
+    let v = peek::view(&[], "t1", 40, true);
+    assert_eq!(v.status, "none", "{v:?}");
+    assert_eq!(v.state, "live", "{v:?}");
+    assert_eq!(v.text, "", "{v:?}");
+    assert!(v.up, "{v:?}");
+    assert_eq!(v.source, "herdr", "{v:?}");
+    assert!(!health::is_down());
+    assert!(
+        !health::events().iter().any(|s| *s == "fallback"),
+        "{:?}",
+        health::events()
+    );
+}
+
+#[test]
+fn peek_get_failure_still_unknown() {
+    let _g = gate();
+    let dir = scratch("get-fail");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("socket", &log);
+    health::prove_up();
+    let v = peek::view(&[], "t1", 40, true);
+    assert_eq!(v.status, "unknown", "{v:?}");
+    assert!(!v.up, "{v:?}");
+    assert_eq!(v.source, "fallback", "{v:?}");
+    assert!(v.text.is_empty(), "{v:?}");
+    assert!(health::is_down());
+}
+
+#[test]
+fn peek_no_latch_after_read_failure() {
+    let _g = gate();
+    let dir = scratch("no-latch");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("read_fail", &log);
+    health::prove_up();
+    let first = peek::view(&[], "t1", 40, true);
+    assert_eq!(first.text, "", "{first:?}");
+    assert!(first.up, "{first:?}");
+    assert!(!health::is_down(), "a read failure must not fault health");
+    arm("live", &log);
+    let second = peek::view(&[], "t1", 40, true);
+    assert!(!second.text.is_empty(), "{second:?}");
+    assert!(second.up, "{second:?}");
+    assert_eq!(second.source, "herdr", "{second:?}");
+    assert!(!health::is_down());
+}
+
 #[test]
 fn force_fallback_logs_kind() {
     let _g = gate();
@@ -840,10 +943,14 @@ fn force_fallback_logs_kind() {
     let _ = health::take_unlogged();
     let run = core_seat("card-9", "t2");
     let v = peek::view(std::slice::from_ref(&run), "card-9", 40, true);
-    assert_eq!(v.source, "fallback", "{v:?}");
+    assert_eq!(v.source, "herdr", "{v:?}");
+    assert!(v.up, "{v:?}");
+    assert_eq!(v.status, "working", "{v:?}");
+    assert_eq!(v.text, "", "{v:?}");
+    assert!(!health::is_down());
     let notes = health::take_unlogged();
     assert!(
-        notes.iter().any(|n| n.source == "fallback" && n.kind == "timeout"),
+        notes.iter().all(|n| n.source != "fallback"),
         "{notes:?}"
     );
     let flush = include_str!("mod.rs");
