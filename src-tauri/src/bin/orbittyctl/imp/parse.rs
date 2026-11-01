@@ -109,6 +109,8 @@ pub(crate) struct Opts {
     pub(crate) source: Option<String>,
     /// wake sub --kind
     pub(crate) kind: Option<String>,
+    /// kanban link-dep / unlink-dep --on <blocker id>
+    pub(crate) on: Option<String>,
 }
 
 pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -189,6 +191,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
         key_prefix: None,
         source: None,
         kind: None,
+        on: None,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -228,6 +231,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             }
             "--source" => o.source = Some(it.next().ok_or("--source needs a value")?.clone()),
             "--kind" => o.kind = Some(it.next().ok_or("--kind needs a value")?.clone()),
+            "--on" => o.on = Some(it.next().ok_or("--on needs a value")?.clone()),
             "--actor" => o.actor = Some(it.next().ok_or("--actor needs a value")?.clone()),
             "--name" => o.name = Some(it.next().ok_or("--name needs a value")?.clone()),
             "--cmd" => o.cmd = Some(it.next().ok_or("--cmd needs a value")?.clone()),
@@ -344,6 +348,7 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             }
             s if s.starts_with("--source=") => o.source = Some(s["--source=".len()..].to_string()),
             s if s.starts_with("--kind=") => o.kind = Some(s["--kind=".len()..].to_string()),
+            s if s.starts_with("--on=") => o.on = Some(s["--on=".len()..].to_string()),
             s if s.starts_with("--actor=") => o.actor = Some(s["--actor=".len()..].to_string()),
             s if s.starts_with("--name=") => o.name = Some(s["--name=".len()..].to_string()),
             s if s.starts_with("--cmd=") => o.cmd = Some(s["--cmd=".len()..].to_string()),

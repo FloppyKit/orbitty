@@ -282,6 +282,14 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
                 Ok(("kanban.link", a))
             }
         }
+        ["kanban", "link-dep"] => Ok((
+            "kanban.link_dep",
+            json!({ "id": need_id(o)?, "blocker": need_flag(&o.on, "--on")? }),
+        )),
+        ["kanban", "unlink-dep"] => Ok((
+            "kanban.unlink_dep",
+            json!({ "id": need_id(o)?, "blocker": need_flag(&o.on, "--on")? }),
+        )),
         ["kanban", "open-link"] => {
             let id = need_id(o)?;
             let mut a = json!({ "id": id });

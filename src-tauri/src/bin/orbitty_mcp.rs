@@ -21,7 +21,7 @@ struct ToolDef {
     name: &'static str,
     description: &'static str,
     /// "none" | "id" | "line" | "route_line" | "route_run" | "profile" | "backend_id" | "clip" | "kanban_add" |
-    /// "kanban_move" | "kanban_notes" | "kanban_link" | "kanban_open_link" |
+    /// "kanban_move" | "kanban_notes" | "kanban_link" | "kanban_dep" | "kanban_open_link" |
     /// "kanban_assign" | "needed_open" |
     /// "log_append" | "action_add" | "action_run" | "action_rm" |
     /// "project_add" | "project_rm" | "project_rename" | "agent_add" |
@@ -90,6 +90,8 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "kanban.notes", description: "Set a card's notes (first line paints as the board-row summary; the drawer edits the rest); empty string clears", args: "kanban_notes" },
     ToolDef { name: "kanban.note_append", description: "Append one line to a card's notes, keeping the existing notes (a repeat of the same line is a no-op). Same write ACL as kanban.notes.", args: "kanban_note_append" },
     ToolDef { name: "kanban.link", description: "Add, remove, or clear a card link (file:// or https:// only, max 8). Same write ACL as kanban.notes. Does not change notes or status.", args: "kanban_link" },
+    ToolDef { name: "kanban.link_dep", description: "Make a todo card wait on another todo card. Not a URL link. Refuses self, unknown, non-todo, cycle, and a 17th blocker. A duplicate is a no-op. Linking onto a card already in Doing is allowed.", args: "kanban_dep" },
+    ToolDef { name: "kanban.unlink_dep", description: "Drop one blocker edge from a card. An absent edge is a no-op. Not a URL link.", args: "kanban_dep" },
     ToolDef { name: "kanban.open_link", description: "Open a card link. Documents, folders, images, and https open. An executable, script, or bundle is revealed in Finder unless run is true or that exact file was already approved in the app. Reads link-approvals.json and never writes it. n defaults to 0. Does not change card status.", args: "kanban_open_link" },
     ToolDef { name: "needed.open", description: "Open a Needed inbox card", args: "needed_open" },
     ToolDef { name: "log.append", description: "Append a local-only event to the Orbitty event log (never fails the caller)", args: "log_append" },
@@ -242,6 +244,14 @@ fn input_schema(kind: &str) -> Value {
                 }
             },
             "required": ["title"]
+        }),
+        "kanban_dep" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "Card that waits" },
+                "blocker": { "type": "string", "description": "Card it waits on" }
+            },
+            "required": ["id", "blocker"]
         }),
         "kanban_link" => json!({
             "type": "object",
@@ -1432,6 +1442,24 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("~3 s"));
+    }
+
+    #[test]
+    fn kanban_dep_tools_are_not_url_links() {
+        assert!(known_tool("kanban.link_dep"));
+        assert!(known_tool("kanban.unlink_dep"));
+        assert_ne!(
+            TOOLS.iter().find(|t| t.name == "kanban.link_dep").map(|t| t.args),
+            Some("kanban_link")
+        );
+        assert_eq!(required("kanban.link_dep"), vec!["id".to_string(), "blocker".to_string()]);
+        assert_eq!(required("kanban.unlink_dep"), vec!["id".to_string(), "blocker".to_string()]);
+        let control = include_str!("../agents/control.rs");
+        assert!(control.contains("\"kanban.link_dep\" =>"));
+        assert!(control.contains("\"kanban.unlink_dep\" =>"));
+        let reads = &control[control.find("const READ_TOOLS").unwrap()..control.find("fn read_ok").unwrap()];
+        assert!(!reads.contains("kanban.link_dep"));
+        assert!(!reads.contains("kanban.unlink_dep"));
     }
 }
 

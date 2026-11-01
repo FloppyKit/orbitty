@@ -398,3 +398,23 @@
         assert!(USAGE.contains("wake sub --seat"));
         assert!(USAGE.contains("wake alarm --seat"));
     }
+
+    #[test]
+    fn kanban_link_dep_parses() {
+        let (tool, args) = tool_call(
+            &parse(&argv(&["kanban", "link-dep", "--id", "c", "--on", "b"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "kanban.link_dep");
+        assert_eq!(args["id"], "c");
+        assert_eq!(args["blocker"], "b");
+        let (tool, args) = tool_call(
+            &parse(&argv(&["kanban", "unlink-dep", "--id", "c", "--on=b"])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tool, "kanban.unlink_dep");
+        assert_eq!(args["blocker"], "b");
+        assert!(tool_call(&parse(&argv(&["kanban", "link-dep", "--id", "c"])).unwrap()).is_err());
+        assert!(USAGE.contains("kanban link-dep"));
+        assert!(USAGE.contains("kanban unlink-dep"));
+    }

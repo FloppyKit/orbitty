@@ -994,6 +994,18 @@ fn run_tool(
                     .map_err(tool_err)
             }
         }
+        // Blocker edges. Not kanban.link (that one is URL links).
+        // Write-class: absent from READ_TOOLS.
+        "kanban.link_dep" => {
+            let id = arg_str(args, "id")?;
+            let blocker = arg_str(args, "blocker")?;
+            crate::board::blockers::link_dep(app, &id, &blocker).map_err(tool_err)
+        }
+        "kanban.unlink_dep" => {
+            let id = arg_str(args, "id")?;
+            let blocker = arg_str(args, "blocker")?;
+            crate::board::blockers::unlink_dep(app, &id, &blocker).map_err(tool_err)
+        }
         "kanban.open_link" => {
             let id = arg_str(args, "id")?;
             let n = match args.get("n") {
@@ -1016,9 +1028,7 @@ fn run_tool(
         "kanban.move" => {
             let id = arg_str(args, "id")?;
             let status = arg_str(args, "status")?;
-            crate::board::kanban_move(app, &id, &status)
-                .map(to_data)
-                .map_err(tool_err)
+            crate::board::kanban_move_response(app, &id, &status).map_err(tool_err)
         }
         // Assign a card to an agent row. `agent`
         // must be present (id or unique name); an empty string unassigns.
@@ -1672,6 +1682,19 @@ mod tests {
         assert!(allowed(&Acl::Full, "companion.rule_list"));
         assert!(allowed(&Acl::Full, "companion.get"));
         assert!(allowed(&Acl::Full, "companion.links"));
+    }
+
+    #[test]
+    fn dep_tools_are_write_class() {
+        for tool in ["kanban.link_dep", "kanban.unlink_dep"] {
+            assert!(!READ_TOOLS.contains(&tool), "{tool}");
+            assert!(!allowed(&Acl::Read, tool), "{tool}");
+            assert!(!allowed(&Acl::Companion, tool), "{tool}");
+            assert!(allowed(&Acl::Full, tool), "{tool}");
+        }
+        let src = include_str!("control.rs");
+        assert!(src.contains("\"kanban.link_dep\" =>"));
+        assert!(src.contains("\"kanban.unlink_dep\" =>"));
     }
 
     #[test]

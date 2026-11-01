@@ -214,11 +214,17 @@ pub(crate) fn print_human(tool: &str, data: &Value) {
             data["id"].as_str().unwrap_or("?"),
             data["title"].as_str().unwrap_or("")
         ),
-        "kanban.move" => println!(
-            "{} → {}",
-            data["id"].as_str().unwrap_or("?"),
-            data["status"].as_str().unwrap_or("?")
-        ),
+        "kanban.move" => {
+            println!(
+                "{} → {}",
+                data["id"].as_str().unwrap_or("?"),
+                data["status"].as_str().unwrap_or("?")
+            );
+            if let Some(ids) = data.get("readyIds").and_then(|v| v.as_array()) {
+                let list: Vec<&str> = ids.iter().filter_map(|v| v.as_str()).collect();
+                println!("readyIds: {}", list.join(" "));
+            }
+        }
         // The reply is the card; notes
         // absent = cleared back to title-only.
         "kanban.notes" | "kanban.note_append" => {

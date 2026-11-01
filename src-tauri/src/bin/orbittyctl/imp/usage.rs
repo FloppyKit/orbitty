@@ -50,6 +50,8 @@ commands:
   kanban notes --id <card> -- \"text\"      empty \"\" clears
   kanban notes --id <card> --append -- \"line\"   adds one line, keeps the rest
   kanban link --id <card> --add URL [--label L] | --rm URL | --clear
+  kanban link-dep --id <card> --on <blocker>
+  kanban unlink-dep --id <card> --on <blocker>
   kanban open-link --id <card> [--n 0] [--run]
   kanban assign --id <card> --agent <agent>   empty --agent \"\" unassigns
   agent list
@@ -155,7 +157,10 @@ companion are denied (exit 4).
 kanban add takes --notes (the board row's one-line
 summary; first line paints, the drawer edits the rest) and kanban notes
 sets/clears it on an existing card — same save door, same write ACL.
-kanban link and kanban open-link use that same ACL. --link is repeatable
+kanban link and kanban open-link use that same ACL. kanban link-dep and
+kanban unlink-dep are blocker edges (a todo waits on another todo), not
+URL links, and they use that same write ACL. A duplicate link and an
+absent unlink are no-ops. --link is repeatable
 (max 8). Only file:// and https:// are accepted; a bare /Users/… path
 is stored as a file URL. open-link opens documents, folders, images, and
 https. An executable, script, or bundle is revealed in Finder unless
