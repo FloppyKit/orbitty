@@ -727,7 +727,8 @@ fn aged_answer_exact_after_7_turns() {
     let answer_id = crate::mouth_archive::last_archive_id(&agents);
     assert!(!answer_id.is_empty(), "push_archived must mint an id");
     let mut c = ctx("rules", "soul");
-    c.answered = vec![answered("ask-1", "did we decide", 0, "", "", 1.0)];
+    // Carry the answer id. Binding must not fall back to the archive tip.
+    c.answered = vec![answered("ask-1", "did we decide", 0, &answer_id, "", 1.0)];
     let first = super::settle(&app, &agents, &c);
     let text = render(&first);
     assert!(text.contains("EXACT-ANSWER-TEXT"), "{text}");
@@ -846,4 +847,182 @@ fn recall_archive_hit_carries_id() {
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].id, "arc-keep");
     let _ = fs::remove_dir_all(&root);
+}
+
+fn stamp(unix: i64) -> String {
+    chrono::DateTime::from_timestamp(unix, 0)
+        .unwrap()
+        .with_timezone(&chrono::FixedOffset::west_opt(6 * 3600).unwrap())
+        .format("%Y-%m-%dT%H:%M:%S%:z")
+        .to_string()
+}
+
+fn arch_line(id: &str, unix: i64, text: &str) -> ArchiveLine {
+    ArchiveLine {
+        v: 1,
+        id: id.into(),
+        ts: stamp(unix),
+        role: "them".into(),
+        mode: "spark".into(),
+        lane: "grok".into(),
+        model: "grok-cli-default".into(),
+        session: None,
+        text: text.into(),
+        src: "live".into(),
+    }
+}
+
+#[test]
+fn answered_asks_not_bound_to_tip() {
+    let app = temp_dir("bind-many");
+    let agents = temp_dir("bind-many-arch");
+    let base = 1_793_400_000i64;
+    for i in 0..150 {
+        let id = format!("t-ask-{i}");
+        append(&agents, &arch_line(&id, base + i * 60, "turn")).unwrap();
+    }
+    let tip_at = base + 150 * 60 + 7200;
+    append(&agents, &arch_line("t-tip", tip_at, "TIP-ONLY")).unwrap();
+    let mut asks = Vec::new();
+    for i in 0..150 {
+        asks.push(answered(
+            &format!("ask-{i}"),
+            "q",
+            0,
+            "",
+            "",
+            (base + i * 60) as f64,
+        ));
+    }
+    // A fresh answer just before the tip still binds to that turn.
+    asks.push(answered(
+        "ask-fresh",
+        "q",
+        0,
+        "",
+        "",
+        (tip_at - 20) as f64,
+    ));
+    let mut c = ctx("rules", "soul");
+    c.answered = asks;
+    let _ = super::settle(&app, &agents, &c);
+    let mut on_tip = 0usize;
+    let mut distinct = std::collections::HashSet::new();
+    for i in 0..150 {
+        let links = super::graph::links(&app, &format!("ask-{i}"), Some("asked_in"));
+        assert_eq!(links.len(), 1, "ask-{i}: {links:?}");
+        assert_ne!(links[0].to, "t-tip", "old ask bound to tip");
+        assert_eq!(links[0].to, format!("t-ask-{i}"));
+        distinct.insert(links[0].to.clone());
+        if links[0].to == "t-tip" {
+            on_tip += 1;
+        }
+    }
+    assert_eq!(distinct.len(), 150);
+    assert_eq!(on_tip, 0);
+    let fresh = super::graph::links(&app, "ask-fresh", Some("asked_in"));
+    assert_eq!(fresh[0].to, "t-tip");
+    let _ = fs::remove_dir_all(&app);
+    let _ = fs::remove_dir_all(&agents);
+}
+
+#[test]
+fn legacy_answered_ask_ages_out_without_tip_binding() {
+    let app = temp_dir("legacy-app");
+    let agents = temp_dir("legacy-arch");
+    let tip_at = 1_793_462_000i64;
+    append(&agents, &arch_line("t-tip", tip_at, "TIP-BODY")).unwrap();
+    let mut c = ctx("rules", "soul");
+    c.answered = vec![answered(
+        "ask-old",
+        "OLD-ASK",
+        0,
+        "",
+        "OLD-ANSWER",
+        (tip_at - 86_400) as f64,
+    )];
+    // Bad first-sight binding, the 21q shape. Repair must append, not rewrite.
+    super::graph::note_aged(
+        &app,
+        &super::graph::Node {
+            id: "ask-old".into(),
+            kind: "ask".into(),
+            ts: "2026-10-31T00:00:00Z".into(),
+            archive_id: Some("t-tip".into()),
+            planet: None,
+            card: None,
+            links: vec![super::graph::Link {
+                rel: "asked_in".into(),
+                to: "t-tip".into(),
+            }],
+        },
+    )
+    .unwrap();
+    let before = fs::read(super::graph::graph_path(&app)).unwrap();
+    let fitted = super::settle(&app, &agents, &c);
+    let text = render(&fitted);
+    assert!(!text.contains("OLD-ANSWER"), "{text}");
+    assert!(!text.contains("t-tip"), "{text}");
+    let links = super::graph::links(&app, "ask-old", Some("asked_in"));
+    assert_eq!(links.len(), 1, "{links:?}");
+    assert_eq!(links[0].to, "legacy");
+    assert_ne!(links[0].to, "t-tip");
+    let after = fs::read(super::graph::graph_path(&app)).unwrap();
+    assert!(after.starts_with(&before), "repair rewrote graph.jsonl");
+    assert!(after.len() > before.len(), "repair must append");
+    let lines = super::graph::line_count(&app);
+    let _ = super::settle(&app, &agents, &c);
+    assert_eq!(super::graph::line_count(&app), lines, "repair is one-time");
+    let _ = fs::remove_dir_all(&app);
+    let _ = fs::remove_dir_all(&agents);
+}
+
+#[test]
+fn graph_newest_node_wins_on_rebind() {
+    let app = temp_dir("newest");
+    super::graph::note_aged(
+        &app,
+        &super::graph::Node {
+            id: "ask-1".into(),
+            kind: "ask".into(),
+            ts: "2026-10-31T00:00:00Z".into(),
+            archive_id: Some("t-old".into()),
+            planet: None,
+            card: None,
+            links: vec![super::graph::Link {
+                rel: "asked_in".into(),
+                to: "t-old".into(),
+            }],
+        },
+    )
+    .unwrap();
+    super::graph::note_aged(
+        &app,
+        &super::graph::Node {
+            id: "ask-1".into(),
+            kind: "ask".into(),
+            ts: "2026-10-31T01:00:00Z".into(),
+            archive_id: Some("t-new".into()),
+            planet: None,
+            card: None,
+            links: vec![super::graph::Link {
+                rel: "asked_in".into(),
+                to: "t-new".into(),
+            }],
+        },
+    )
+    .unwrap();
+    assert_eq!(super::graph::line_count(&app), 2, "append-only");
+    let links = super::graph::links(&app, "ask-1", Some("asked_in"));
+    assert_eq!(links.len(), 1, "{links:?}");
+    assert_eq!(links[0].to, "t-new");
+    let (node, _) = super::graph::get(&app, &app, "ask-1").unwrap();
+    let asked: Vec<_> = node
+        .links
+        .iter()
+        .filter(|l| l.rel == "asked_in")
+        .map(|l| l.to.as_str())
+        .collect();
+    assert_eq!(asked, vec!["t-new"]);
+    let _ = fs::remove_dir_all(&app);
 }
