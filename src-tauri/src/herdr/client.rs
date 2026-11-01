@@ -410,9 +410,10 @@ pub(crate) fn read_recent(h: &crate::state::AgentRunHerdr) -> Result<String, Str
 }
 
 /// TUI focus is today's workspace + agent focus, then the TUI.
-/// Core has no confirmed deep link (TO CONFIRM); focus is a no-op.
+/// A core seat opens that seat's terminal, watch-only.
 pub(crate) fn focus(h: &crate::state::AgentRunHerdr) {
     if is_core(h) {
+        super::jump::focus_core(h);
         return;
     }
     let Some(bin) = tui::locate() else {

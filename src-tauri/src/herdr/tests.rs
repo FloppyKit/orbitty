@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use super::client;
 use super::core;
 use super::health::{self, Source};
+use super::jump;
 use super::peek;
 use super::redact;
 use super::tui;
@@ -1234,4 +1235,305 @@ fn missing_core_line_plain_text() {
     let off = client::status_value();
     assert_eq!(off["source"], "tui", "{off}");
     assert!(off.get("line").is_none(), "{off}");
+}
+
+fn jump_run(state: &str, herdr: Option<crate::state::AgentRunHerdr>) -> crate::state::AgentRun {
+    crate::state::AgentRun {
+        card_id: "c-1".into(),
+        planet_id: "p-1".into(),
+        state: state.into(),
+        herdr,
+        ..Default::default()
+    }
+}
+
+fn jump_herdr(
+    backend: &str,
+    terminal: &str,
+    workspace: &str,
+    agent: &str,
+) -> crate::state::AgentRunHerdr {
+    crate::state::AgentRunHerdr {
+        backend: backend.into(),
+        terminal: terminal.into(),
+        workspace: workspace.into(),
+        agent_name: agent.into(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn jump_plan_core_uses_terminal_then_agent_name() {
+    let _g = gate();
+    let _c = Clean(scratch("jump-plan-core"));
+    client::force_flag(Some(false));
+    let with_term = jump_run("working", Some(jump_herdr("core", "t7", "ws", "seat-a")));
+    match jump::plan(Some(&with_term), jump::Mode::Observe) {
+        jump::Plan::Core { terminal } => assert_eq!(terminal, "t7"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        jump::plan(Some(&with_term), jump::Mode::Observe),
+        jump::plan(Some(&with_term), jump::Mode::Full)
+    );
+    let fallback = jump_run("working", Some(jump_herdr("core", "  ", "ws", "seat-a")));
+    match jump::plan(Some(&fallback), jump::Mode::Full) {
+        jump::Plan::Core { terminal } => assert_eq!(terminal, "seat-a"),
+        other => panic!("{other:?}"),
+    }
+    let empty = jump_run("working", Some(jump_herdr("core", "", "ws", " ")));
+    assert!(matches!(
+        jump::plan(Some(&empty), jump::Mode::Observe),
+        jump::Plan::Refuse { .. }
+    ));
+    client::force_flag(Some(true));
+    let tui = jump_run("working", Some(jump_herdr("tui", "t7", "ws", "seat-a")));
+    assert!(matches!(
+        jump::plan(Some(&tui), jump::Mode::Observe),
+        jump::Plan::Tui { .. }
+    ));
+}
+
+#[test]
+fn jump_plan_tui_uses_workspace_agent() {
+    let run = jump_run(
+        "blocked",
+        Some(jump_herdr("tui", "", "planet-ws", "grok-a")),
+    );
+    match jump::plan(Some(&run), jump::Mode::Observe) {
+        jump::Plan::Tui { workspace, agent } => {
+            assert_eq!(workspace, "planet-ws");
+            assert_eq!(agent, "grok-a");
+        }
+        other => panic!("{other:?}"),
+    }
+    let legacy = jump_run("working", Some(jump_herdr("", "", "old-ws", "old-agent")));
+    assert!(matches!(
+        jump::plan(Some(&legacy), jump::Mode::Full),
+        jump::Plan::Tui { workspace, agent } if workspace == "old-ws" && agent == "old-agent"
+    ));
+}
+
+#[test]
+fn jump_plan_refuses_no_run_no_herdr_finished() {
+    assert!(matches!(
+        jump::plan(None, jump::Mode::Observe),
+        jump::Plan::Refuse { .. }
+    ));
+    let bare = jump_run("working", None);
+    match jump::plan(Some(&bare), jump::Mode::Full) {
+        jump::Plan::Refuse { reason } => assert_eq!(reason, "Nothing to open for this card."),
+        other => panic!("{other:?}"),
+    }
+    let done = jump_run("done", Some(jump_herdr("core", "t1", "ws", "a")));
+    match jump::plan(Some(&done), jump::Mode::Observe) {
+        jump::Plan::Refuse { reason } => assert_eq!(reason, "This seat is finished."),
+        other => panic!("{other:?}"),
+    }
+    let finished = jump_run("finished", Some(jump_herdr("tui", "", "ws", "a")));
+    assert!(matches!(
+        jump::plan(Some(&finished), jump::Mode::Observe),
+        jump::Plan::Refuse { .. }
+    ));
+}
+
+#[test]
+fn jump_script_quotes_every_value() {
+    let id = "t';echo hi";
+    let body = jump::script_text("/opt/bin/hc", id, jump::Mode::Observe);
+    let line = format!(
+        "{} attach --observe {}",
+        crate::coordinator::sq("/opt/bin/hc"),
+        crate::coordinator::sq(id)
+    );
+    assert_eq!(body, format!("#!/bin/zsh\n{line}\n"));
+    assert!(body.contains("\\'"), "{body}");
+    assert!(!body.contains("echo hi\n"), "{body}");
+    let cmds: Vec<_> = body
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with("#!"))
+        .collect();
+    assert_eq!(cmds.len(), 1, "{body}");
+}
+
+#[test]
+fn jump_script_observe_flag_follows_mode() {
+    let watch = jump::script_text("/opt/bin/hc", "t1", jump::Mode::Observe);
+    let full = jump::script_text("/opt/bin/hc", "t1", jump::Mode::Full);
+    assert!(watch.contains("attach --observe "), "{watch}");
+    assert!(!full.contains("--observe"), "{full}");
+    assert!(full.contains("attach "), "{full}");
+    assert_eq!(jump::Mode::from_observe(None), jump::Mode::Observe);
+    assert_eq!(jump::Mode::from_observe(Some(true)), jump::Mode::Observe);
+    assert_eq!(jump::Mode::from_observe(Some(false)), jump::Mode::Full);
+}
+
+#[test]
+fn jump_script_has_no_send_or_keys() {
+    let body = jump::script_text("/opt/bin/hc", "t1", jump::Mode::Observe);
+    let tui = jump::tui_script_text("/opt/bin/herdr");
+    let src = include_str!("jump.rs");
+    for ban in ["send", "keys", "prompt", "interrupt"] {
+        assert!(!body.contains(ban), "{ban} in {body}");
+        assert!(!tui.contains(ban), "{ban} in {tui}");
+        assert!(!src.contains(ban), "{ban} in jump.rs");
+    }
+    assert!(!src.contains("Command::new"), "{src}");
+    assert!(src.contains("spawn_detached"));
+    assert!(src.contains("open_terminal_argv"));
+    assert!(src.contains("focus_workspace"));
+    assert!(src.contains("focus_agent"));
+    assert!(!src.contains("open_tui"));
+}
+
+#[test]
+fn jump_refuses_when_core_missing_or_down() {
+    let _g = gate();
+    let dir = scratch("jump-refuse");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    let run = jump_run("working", Some(jump_herdr("core", "t1", "ws", "seat")));
+    core::set_bin_override(None);
+    client::force_flag(Some(true));
+    health::reset();
+    let missing = jump::prepare(Some(&run), jump::Mode::Observe);
+    assert!(!missing.ok);
+    assert!(missing.body.is_none());
+    assert_eq!(missing.reason.as_deref(), Some(client::missing_core_line()));
+    arm("live", &log);
+    fs::write(&log, "").unwrap();
+    health::fault_held(health::now_ms());
+    let down = jump::prepare(Some(&run), jump::Mode::Full);
+    assert!(!down.ok, "{:?}", down.reason);
+    assert!(down.body.is_none());
+    assert_eq!(
+        down.reason.as_deref(),
+        Some("This seat's terminal isn't available right now.")
+    );
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    assert!(!text.contains("server start"), "{text}");
+}
+
+#[test]
+fn jump_never_runs_server_start() {
+    let src = include_str!("jump.rs");
+    assert!(!src.contains("server start"), "{src}");
+    assert!(!src.contains("boot_server"), "{src}");
+    assert!(!src.contains("[\"server\""), "{src}");
+    let _g = gate();
+    let dir = scratch("jump-up");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    health::prove_up();
+    fs::write(&log, "").unwrap();
+    let run = jump_run("working", Some(jump_herdr("core", "t9", "", "c-1")));
+    let got = jump::prepare(Some(&run), jump::Mode::Observe);
+    assert!(got.ok, "{:?}", got.reason);
+    assert_eq!(got.terminal.as_deref(), Some("t9"));
+    assert_eq!(got.mode, "observe");
+    let body = got.body.unwrap();
+    assert!(body.contains("--observe"), "{body}");
+    assert!(body.contains(&crate::coordinator::sq("t9")), "{body}");
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    assert!(text.is_empty(), "{text}");
+}
+
+#[test]
+fn jump_command_file_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let _g = gate();
+    let dir = scratch("jump-file");
+    let _c = Clean(dir.clone());
+    let id = "t';echo hi";
+    let body = jump::script_text("/opt/bin/hc", id, jump::Mode::Observe);
+    let path = jump::write_command(&dir, "c-1", &body).unwrap();
+    assert_eq!(path.file_name().unwrap(), "jump-c-1.command");
+    assert_eq!(fs::read_to_string(&path).unwrap(), body);
+    let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+    let escaped = jump::write_command(&dir, "../x", &body).unwrap();
+    assert!(escaped.starts_with(&dir));
+    assert_eq!(escaped.file_name().unwrap(), "jump-.._x.command");
+    let argv = jump::terminal_argv("Ghostty", &path);
+    assert_eq!(
+        argv,
+        vec![
+            "-a".to_string(),
+            "Ghostty".to_string(),
+            path.display().to_string()
+        ]
+    );
+}
+
+#[test]
+fn jump_finds_run_by_card_or_terminal() {
+    let mut core = jump_run("working", Some(jump_herdr("core", "t5", "ws", "grok-a")));
+    core.card_id = "c-9".into();
+    let runs = vec![core];
+    assert_eq!(
+        jump::find_run(&runs, "c-9").map(|r| r.card_id.as_str()),
+        Some("c-9")
+    );
+    assert_eq!(
+        jump::find_run(&runs, "agent:c-9").map(|r| r.card_id.as_str()),
+        Some("c-9")
+    );
+    assert_eq!(
+        jump::find_run(&runs, "t5").map(|r| r.card_id.as_str()),
+        Some("c-9")
+    );
+    assert_eq!(
+        jump::find_run(&runs, "grok-a").map(|r| r.card_id.as_str()),
+        Some("c-9")
+    );
+    assert!(jump::find_run(&runs, "c-does-not-exist").is_none());
+    assert!(jump::find_run(&runs, "  ").is_none());
+}
+
+#[test]
+fn jump_focus_core_branch_calls_jump() {
+    let src = include_str!("client.rs");
+    let at = src.find("pub(crate) fn focus").expect("focus");
+    let focus = &src[at..];
+    assert!(focus.contains("jump::focus_core"));
+    assert!(focus.contains("tui::open_tui"));
+    let core = focus.split("tui::locate").next().unwrap();
+    assert!(core.contains("jump::focus_core"));
+    assert!(!core.contains("open_tui"), "{core}");
+}
+
+#[test]
+fn jump_not_in_read_tools() {
+    let control = include_str!("../agents/control.rs");
+    let reads =
+        &control[control.find("const READ_TOOLS").unwrap()..control.find("fn read_ok").unwrap()];
+    assert!(!reads.contains("herdr.jump"), "{reads}");
+    assert!(control.contains("\"herdr.jump\" =>"));
+    assert!(reads.contains("herdr.peek"));
+    assert!(reads.contains("herdr.status"));
+}
+
+#[test]
+fn jump_tui_script_is_the_binary_only() {
+    let _g = gate();
+    let dir = scratch("jump-tui");
+    let _c = Clean(dir.clone());
+    let bin = dir.join("herdr");
+    fs::write(&bin, "#!/bin/sh\nexit 0\n").unwrap();
+    tui::set_bin_override(Some(bin.clone()));
+    let run = jump_run("working", Some(jump_herdr("tui", "", "ws-1", "agent-1")));
+    let got = jump::prepare(Some(&run), jump::Mode::Full);
+    assert!(got.ok, "{:?}", got.reason);
+    assert_eq!(got.backend, "tui");
+    assert_eq!(got.mode, "focus");
+    assert!(got.terminal.is_none());
+    let body = got.body.unwrap();
+    assert_eq!(body, jump::tui_script_text(&bin.display().to_string()));
+    assert!(!body.contains("attach"), "{body}");
+    let cmds: Vec<_> = body
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with("#!"))
+        .collect();
+    assert_eq!(cmds.len(), 1, "{body}");
 }

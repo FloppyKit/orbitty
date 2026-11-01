@@ -6,6 +6,7 @@ pub(crate) mod client;
 pub(crate) mod core;
 pub(crate) mod events;
 pub(crate) mod health;
+pub(crate) mod jump;
 pub(crate) mod peek;
 pub(crate) mod redact;
 pub(crate) mod tui;
@@ -56,6 +57,12 @@ pub fn peek_for(app: &AppHandle, card: &str, lines: u32) -> serde_json::Value {
     let runs = runs_for(app);
     let v = peek::view(&runs, card, lines, true);
     serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
+}
+
+pub fn jump_for(app: &AppHandle, card: &str, observe: Option<bool>) -> serde_json::Value {
+    let v = jump::jump_for(app, card, observe);
+    flush_health(app);
+    v
 }
 
 fn flush_health(app: &AppHandle) {
