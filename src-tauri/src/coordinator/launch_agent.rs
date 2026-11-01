@@ -26,6 +26,34 @@ fn own_launch_card(
         .map(|c| c.id.clone())
 }
 
+/// Header worktree when the GO names one, otherwise the planet cwd string.
+pub(crate) fn launch_workspace(header_wt: Option<&Path>, planet_cwd: &str) -> String {
+    match header_wt {
+        Some(path) => path.display().to_string(),
+        None => planet_cwd.to_string(),
+    }
+}
+
+fn refuse_worktree(app: &tauri::AppHandle, g: &GoLaunch, note: &str) {
+    crate::event_log::append_best(
+        app,
+        "go-launch",
+        None,
+        Some(&g.project_id),
+        Some("agent"),
+        true,
+        &serde_json::json!({
+            "id": g.parsed.id(),
+            "file": g.parsed.path.display().to_string(),
+            "route": g.route,
+            "cardId": g.card_id,
+            "launched": false,
+            "reason": "worktree",
+            "note": note,
+        }),
+    );
+}
+
 /// Launch a user-authored agent shortcut in its external harness. Orbitty
 /// writes the query file and hands off — it never runs the model.
 /// The harness is per row (cursor | goose | grok
@@ -40,6 +68,21 @@ pub fn launch_agent(
     titles: Vec<String>,
     mut go_launch: Option<GoLaunch>,
 ) -> Result<String, String> {
+    // A sealed `worktree:` must already be a git worktree at header base.
+    // Missing or wrong: no launch, and nothing is created. No header: planet cwd.
+    // The caller writes `note` on the card (one note). This event is the
+    // go-launch {launched:false, reason:"worktree"} both doors share.
+    let header_wt = if let Some(g) = go_launch.as_ref() {
+        match g.header_worktree() {
+            Ok(path) => path,
+            Err(note) => {
+                refuse_worktree(&app, g, &note);
+                return Err(note);
+            }
+        }
+    } else {
+        None
+    };
     #[cfg(unix)]
     {
         // The card's own row may already exist (pickup moved it, attach
@@ -134,7 +177,8 @@ pub fn launch_agent(
     let (terminal_script, terminal_pid_file) =
         terminal_run_paths(&context_dir, &shortcut.id, &run_tag);
     let ws_state = crate::state::load_state(&app).ok();
-    let workspace = crate::herdr::planet_cwd(ws_state.as_ref(), &pid, project_name.as_deref());
+    let planet = crate::herdr::planet_cwd(ws_state.as_ref(), &pid, project_name.as_deref());
+    let workspace = launch_workspace(header_wt.as_deref(), &planet);
     let planet_for_log = shortcut.project_id.as_deref().filter(|p| !p.is_empty());
     let out: Result<String, String> = (|| {
         match shortcut.harness.trim().to_ascii_lowercase().as_str() {
@@ -171,7 +215,7 @@ pub fn launch_agent(
             // Herdr door: herdr starts cursor-agent itself, so the file must
             // be there before branch(). A skip takes it back.
             let undo = install();
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), header_wt.as_deref()) {
                 crate::herdr::Branch::Skip => {
                     if let Some(u) = undo {
                         u.rollback();
@@ -217,7 +261,7 @@ pub fn launch_agent(
         // Goose is not a herdr kind. branch() logs the skip, then the
         // terminal door runs. Never a silent hermes.
         "goose" => {
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), header_wt.as_deref()) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
@@ -252,7 +296,7 @@ pub fn launch_agent(
             // pane first, agent second, when herdr is present + up.
             // Skip falls through to the terminal launcher
             // (one skip line was already logged; never a dual-launch).
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), header_wt.as_deref()) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
@@ -290,7 +334,7 @@ pub fn launch_agent(
             // Profile + model reach hermes argv: validated before any door.
             let args = crate::agents::hermes_args(&shortcut, &query)
                 .map_err(|why| launch_refused(&app, planet_for_log, "hermes", &why))?;
-            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+            match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), header_wt.as_deref()) {
                 crate::herdr::Branch::Skip => {}
                 crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                     hint.herdr_agent = Some(agent);
@@ -299,6 +343,7 @@ pub fn launch_agent(
             }
             let spawned = Command::new("hermes")
                 .args(&args)
+                .current_dir(&workspace)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -375,7 +420,7 @@ pub fn launch_agent(
         // — legal with `opencode` on PATH, never prompt-installed, never
         // `opencode serve`d as the mouth. No Terminal door exists for it,
         // so a skip is an honest error, not a fall-through.
-        "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path())) {
+        "opencode" => match crate::herdr::branch(&app, &shortcut, project_name.as_deref(), &titles, Some(query.as_path()), header_wt.as_deref()) {
             crate::herdr::Branch::Up(m, agent) | crate::herdr::Branch::Blocked(m, agent) => {
                 hint.herdr_agent = Some(agent);
                 Ok(format!("{m} Query: {}.{skip_note}", query.display()))

@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use tauri::{ Manager };
 use super::hermes::{app_data, safe_id};
 use super::soul_wake::{sh_quote};
@@ -95,6 +96,64 @@ pub struct GoLaunch {
     pub route: &'static str,
     pub card_id: String,
     pub project_id: String,
+}
+
+impl GoLaunch {
+    /// Header `worktree:` for this launch, already checked.
+    /// `Ok(None)` when the header has no worktree — the caller keeps
+    /// `planet_cwd`. `Ok(Some(path))` when that path is an existing git
+    /// worktree whose HEAD equals header `base` and the tree is clean
+    /// (`worktree_refusal`). `Err` is the one card note. Never creates a
+    /// worktree.
+    pub(crate) fn header_worktree(&self) -> Result<Option<PathBuf>, String> {
+        let wt_raw = crate::plans::yaml_top_scalar(&self.parsed.yaml, "worktree").unwrap_or_default();
+        if wt_raw.is_empty() {
+            return Ok(None);
+        }
+        let base = crate::plans::yaml_top_scalar(&self.parsed.yaml, "base").unwrap_or_default();
+        let path = PathBuf::from(&wt_raw);
+        let sha8: String = base.chars().take(8).collect();
+        let note = format!(
+            "GO worktree {} missing or not at base {sha8}; not launching.",
+            path.display()
+        );
+        if !path.is_dir() || !git_worktree_root(&path) {
+            return Err(note);
+        }
+        match crate::plans::worktree_refusal(&path, &base) {
+            Ok(()) => Ok(Some(path)),
+            Err(_) => Err(note),
+        }
+    }
+}
+
+/// The path itself is a git worktree root, not a folder inside one.
+fn git_worktree_root(wt: &Path) -> bool {
+    let Ok(out) = Command::new("git")
+        .arg("-C")
+        .arg(wt)
+        .args(["rev-parse", "--is-inside-work-tree", "--show-toplevel"])
+        .output()
+    else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut lines = text.lines();
+    let inside = lines.next().unwrap_or("").trim() == "true";
+    let top = lines.next().unwrap_or("").trim();
+    if !inside || top.is_empty() {
+        return false;
+    }
+    let Ok(top) = std::fs::canonicalize(top) else {
+        return false;
+    };
+    let Ok(here) = std::fs::canonicalize(wt) else {
+        return false;
+    };
+    top == here
 }
 
 /// The visible-harness door shared by cursor /

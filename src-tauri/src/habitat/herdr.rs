@@ -103,6 +103,20 @@ pub(crate) fn planet_cwd(st: Option<&PersistedState>, planet_id: &str, project_n
     if home.is_empty() { "/".into() } else { home }
 }
 
+/// Filesystem cwd for a herdr pane. A GO header worktree wins. `None`
+/// is `planet_cwd` (no `worktree:` header, and every non-GO launch).
+pub(crate) fn branch_cwd(
+    st: Option<&PersistedState>,
+    planet_id: &str,
+    project_name: Option<&str>,
+    cwd_override: Option<&Path>,
+) -> String {
+    if let Some(path) = cwd_override {
+        return path.display().to_string();
+    }
+    planet_cwd(st, planet_id, project_name)
+}
+
 fn is_doing(c: &KanbanCard) -> bool {
     c.kind.as_deref() == Some("todo") && c.status == "doing"
 }
@@ -390,6 +404,7 @@ pub fn branch(
     project_name: Option<&str>,
     titles: &[String],
     query: Option<&Path>,
+    cwd_override: Option<&Path>,
 ) -> Branch {
     // Kind law: grok, cursor, and hermes are herdr kinds; opencode is
     // detect-only (on PATH = legal, missing = skip — never prompt-
@@ -427,7 +442,7 @@ pub fn branch(
         .map(|c| c.project_id.clone())
         .or_else(|| shortcut.project_id.clone())
         .unwrap_or_default();
-    let cwd = planet_cwd(st.as_ref(), &planet_id, project_name);
+    let cwd = branch_cwd(st.as_ref(), &planet_id, project_name, cwd_override);
     let label = project_name
         .map(str::trim)
         .filter(|n| !n.is_empty())
@@ -906,6 +921,29 @@ mod tests {
         );
         assert_eq!(alive_from(ok(), Some(err("timeout"))), None);
         assert_eq!(alive_from(ok(), Some(err("some_other_code: y"))), None);
+    }
+
+    #[test]
+    fn herdr_branch_cwd_override() {
+        let over = Path::new("/tmp/orbitty-header-worktree");
+        assert_eq!(
+            branch_cwd(None, "p-9", Some("mars"), None),
+            planet_cwd(None, "p-9", Some("mars"))
+        );
+        assert_eq!(
+            branch_cwd(None, "p-9", Some("mars"), Some(over)),
+            over.display().to_string()
+        );
+        let home = std::env::var("HOME").unwrap_or_default();
+        assert_ne!(branch_cwd(None, "p-9", Some("mars"), Some(over)), home);
+        let src = include_str!("herdr.rs");
+        let start = src.find("pub fn branch(").expect("branch");
+        let body = &src[start..];
+        let body = body.split("\n#[cfg(test)]").next().unwrap();
+        let at = body.find("branch_cwd(").expect("branch must use the override");
+        assert!(at < body.find("launch_core(").expect("launch_core"));
+        assert!(at < body.find("workspace_create(").expect("workspace_create"));
+        assert!(body.contains("cwd_override"));
     }
 
     #[test]
