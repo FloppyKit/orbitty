@@ -119,12 +119,12 @@ pub const FLAGS: &[FlagDef] = &[
     },
     FlagDef {
         id: "herdr_core",
-        default: false,
-        what: "read herdr through herdr-core",
+        default: true,
+        what: "run seats in herdr-core",
         go: "GO-ORBITTY-HERDR-CORE-READ",
         added: "2026-10-30",
         remove_after: "2026-12-29",
-        // Nightly auto-on waits until 05c-b has also passed. This row stays off.
+        // Kill switch stays manual. Env and the flag file still win over this default.
         auto_on_verify: false,
     },
     FlagDef {

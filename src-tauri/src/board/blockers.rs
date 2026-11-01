@@ -735,7 +735,7 @@ mod tests {
             ("mh_archive", false),
             ("shim_ledger", false),
             ("memory_ram", false),
-            ("herdr_core", false),
+            ("herdr_core", true),
             ("wake_core", false),
             ("herdr_primary", false),
         ];

@@ -434,6 +434,35 @@ fn nightly_flip_leaves_stable() {
 }
 
 #[test]
+fn herdr_core_default_on_env_and_file_still_win() {
+    let def = def_by_id("herdr_core").expect("herdr_core row");
+    assert!(def.default, "herdr_core default on");
+    assert!(!def.auto_on_verify, "auto_on_verify stays false");
+    assert_eq!(def.what, "run seats in herdr-core");
+    let (on, source) = resolve(def, None, &FileFlags::empty());
+    assert!(on);
+    assert_eq!(source, Source::Default);
+    let (off, source) = resolve(def, Some("0"), &FileFlags::empty());
+    assert!(!off);
+    assert_eq!(source, Source::Env);
+    let (on_env, source) = resolve(def, Some("on"), &FileFlags::empty());
+    assert!(on_env);
+    assert_eq!(source, Source::Env);
+    let mut file = FileFlags::empty();
+    file.on.insert("herdr_core".into(), false);
+    file.src.insert("herdr_core".into(), "file".into());
+    let (off_file, source) = resolve(def, None, &file);
+    assert!(!off_file, "flag file beats the new default");
+    assert_eq!(source, Source::File);
+    let (env_wins, source) = resolve(def, Some("1"), &file);
+    assert!(env_wins, "env beats the flag file");
+    assert_eq!(source, Source::Env);
+    let (bad_env, source) = resolve(def, Some("nope"), &file);
+    assert!(!bad_env, "invalid env falls through to the file");
+    assert_eq!(source, Source::File);
+}
+
+#[test]
 fn plist_tip_is_sha8() {
     let text = r#"<key>OrbittyGitCommit</key>
 <string>8E017A86D46A1E9E92DC90E006A8DD5B89027163</string>"#;
