@@ -16,6 +16,7 @@
     talkStopSend,
     talkStart,
     sendLine,
+    onSubmit,
     fmtSize,
     variant = "dock",
   }: {
@@ -35,6 +36,8 @@
     talkStopSend: () => void;
     talkStart: () => void;
     sendLine: () => void;
+    /** Dock variant only. The line variant keeps sendLine. */
+    onSubmit?: () => void;
     fmtSize: (n: number) => string;
     variant?: "line" | "dock";
   } = $props();
@@ -46,7 +49,11 @@
     class:line={variant === "line"}
     onsubmit={(e) => {
       e.preventDefault();
-      sendLine();
+      if (variant === "line") {
+        sendLine();
+        return;
+      }
+      onSubmit?.();
     }}
   >
     {#if attach}

@@ -9,7 +9,7 @@
   // × stays a CompanionPage corner.
   // The live LED sits immediately left of the agent
   // pick (sending || hackLive); the pick hugs its labels (46% cap dead).
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { eventElement } from "./dragPane";
@@ -24,6 +24,8 @@
     launcherItems,
     launcherKey,
     noteRecent,
+    pickIndex,
+    refitComposer,
     type Action,
     type LaunchRow,
   } from "./companion/launcher";
@@ -286,7 +288,8 @@
       queryFromKey = false;
       return;
     }
-    selected = 0;
+    const rows = untrack(() => items);
+    selected = pickIndex(draft, rows);
     visibleStart = 0;
     byArrow = false;
     stash = null;
@@ -330,6 +333,7 @@
       return;
     }
     const undo = (e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z") && stash !== null;
+    const field = e.currentTarget instanceof HTMLTextAreaElement ? e.currentTarget : fieldEl;
     const result = launcherKey(
       { query: draft, selected, count: items.length, visibleStart, stash },
       {
@@ -339,6 +343,7 @@
         alt: e.altKey,
         ctrl: e.ctrlKey,
         composing: e.isComposing,
+        hasSelection: !!field && field.selectionStart !== field.selectionEnd,
       },
       items.map((row) => row.title),
     );
@@ -346,8 +351,20 @@
     visibleStart = result.state.visibleStart;
     stash = result.state.stash;
     if (result.state.query !== draft) {
-      queryFromKey = true;
+      // Escape must skip the draft effect so the cleared text stays
+      // stashed for ⌘Z. Tab complete owns its own selection. Undo
+      // (and a native undo) falls through so a one-word query re-picks.
+      if (e.key === "Escape" || result.effect === "complete") queryFromKey = true;
       draft = result.state.query;
+    }
+    if (result.effect === "collapse-selection") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (field) {
+        const end = field.selectionEnd ?? field.selectionStart ?? 0;
+        field.setSelectionRange(end, end);
+      }
+      return;
     }
     if (e.key === "ArrowUp" || e.key === "ArrowDown") byArrow = true;
     if (result.effect === "run") {
@@ -430,15 +447,29 @@
     }
     const border =
       parseFloat(getComputedStyle(el).borderTopWidth) * 2;
-    const needed = el.scrollHeight + border; // border-box target
-    const collapsed = !expanded && hosted === "off";
-    const max =
-      oneLineH > 0 ? oneLineH + MAX_EXTRA_LINES * lineH : needed;
-    const capped = !collapsed && needed > max + 0.5;
-    el.style.height = `${capped ? max : needed}px`;
-    el.style.overflowY = capped ? "auto" : "hidden";
-    composerExtra =
-      collapsed && oneLineH > 0 ? Math.max(0, Math.round(needed - oneLineH)) : 0;
+    // Sprite-on: height auto, same scrollHeight as before. Sprite-off:
+    // a just-ungrown window clips the flex box, and WebKit then reports
+    // that visible height. Measuring from 0px recovers the full draft
+    // so the hug (CompanionPage already watches sprite) fits the window
+    // instead of locking the lines inside a short mouth.
+    let needed = el.scrollHeight + border;
+    if (!sprite) {
+      el.style.height = "0px";
+      const full = el.scrollHeight + border;
+      if (full > needed) needed = full;
+    }
+    const fit = refitComposer({
+      needed,
+      oneLineH,
+      lineH,
+      expanded,
+      hostedOff: hosted === "off",
+      sprite,
+      maxExtraLines: MAX_EXTRA_LINES,
+    });
+    el.style.height = `${fit.height}px`;
+    el.style.overflowY = fit.scroll ? "auto" : "hidden";
+    composerExtra = fit.composerExtra;
     } finally {
       growing = false;
     }
@@ -447,9 +478,12 @@
   $effect(() => {
     // Grow on every keystroke / talk fill / send-clear; a surface flip
     // re-runs so the 6-line cap re-applies (or releases) in place.
+    // Sprite is one of those flips: grow → hug must remeasure the field
+    // or the ungrow resize locks the draft at the clipped height.
     draft;
     expanded;
     hosted;
+    sprite;
     growField();
   });
 
@@ -605,6 +639,7 @@
     {talkStopSend}
     {talkStart}
     {sendLine}
+    onSubmit={() => void runIndex(selected, byArrow)}
     {fmtSize}
   />
   {#if !expanded}
