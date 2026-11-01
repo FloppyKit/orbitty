@@ -583,6 +583,7 @@ pub fn agent_pickup(
                 None => true,
             }
     };
+    let edges = crate::board::blockers::load_app(app);
     let card = if let Some(cid) = card_id.map(str::trim).filter(|s| !s.is_empty()) {
         let c = before
             .kanban_cards
@@ -593,12 +594,22 @@ pub fn agent_pickup(
         if !assigned(&c) {
             return Err("agent.pickup: card is not an open todo assigned to this agent".into());
         }
+        if crate::board::blockers::card_blocked(&edges, &before.kanban_cards, &c.id) {
+            let open = crate::board::blockers::open_blockers(&edges, &before.kanban_cards, &c.id);
+            return Err(format!(
+                "agent.pickup: blocked by {}; not launching",
+                open.join(", ")
+            ));
+        }
         Some(c)
     } else {
         before
             .kanban_cards
             .iter()
-            .filter(|c| assigned(c))
+            .filter(|c| {
+                assigned(c)
+                    && !crate::board::blockers::card_blocked(&edges, &before.kanban_cards, &c.id)
+            })
             .min_by(|a, b| {
                 a.created_at
                     .partial_cmp(&b.created_at)
@@ -1124,5 +1135,31 @@ mod tests {
     fn pi_is_a_named_door() {
         assert_eq!(normalize_harness("Pi").unwrap(), "pi");
         assert!(normalize_harness("claude").is_err());
+    }
+
+    #[test]
+    fn pickup_refuses_explicit_blocked_before_hack() {
+        let body = fn_body(include_str!("agents.rs"), "pub fn agent_pickup(");
+        let hack = body.find("set_companion_hack(").expect("hack");
+        let head = &body[..hack];
+        assert!(
+            head.matches("card_blocked").count() >= 2,
+            "explicit refusal and oldest skip, before the hack"
+        );
+        let oldest = head.rfind(".filter(|c|").expect("oldest filter");
+        assert!(head[oldest..].contains("card_blocked"));
+        let explicit = head[..oldest].rfind("card_blocked").expect("explicit");
+        assert!(head[explicit..oldest].contains("return Err"));
+    }
+
+    #[test]
+    fn pickup_skips_blocked_oldest() {
+        let body = fn_body(include_str!("agents.rs"), "pub fn agent_pickup(");
+        let hack = body.find("set_companion_hack(").expect("hack");
+        let head = &body[..hack];
+        let oldest = head.rfind(".filter(|c|").expect("oldest filter");
+        let filter = &head[oldest..];
+        assert!(filter.contains("card_blocked"), "{filter}");
+        assert!(filter.contains("!crate::board::blockers::card_blocked"));
     }
 }

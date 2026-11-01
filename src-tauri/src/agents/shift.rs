@@ -108,7 +108,8 @@ pub fn status(app: &tauri::AppHandle) -> Result<Value, String> {
             })
         })
         .collect();
-    let next: Vec<Value> = next_pickups(&st)
+    let edges = crate::board::blockers::load_app(app);
+    let next: Vec<Value> = next_pickups(&st, &edges)
         .into_iter()
         .map(|(agent_id, agent, card)| {
             json!({
@@ -234,7 +235,8 @@ pub fn tick(app: &tauri::AppHandle) -> Result<Value, String> {
                     .map(|r| r.agent_shortcut_id.clone())
                     .filter(|s| !s.is_empty())
                     .collect();
-                for (agent_id, agent_name, _card) in next_pickups(&st) {
+                let edges = crate::board::blockers::load_app(app);
+                for (agent_id, agent_name, _card) in next_pickups(&st, &edges) {
                     if live_agents.iter().any(|id| id == &agent_id) {
                         continue;
                     }
@@ -277,7 +279,10 @@ pub fn tick(app: &tauri::AppHandle) -> Result<Value, String> {
     }))
 }
 
-fn next_pickups(st: &PersistedState) -> Vec<(String, String, KanbanCard)> {
+fn next_pickups(
+    st: &PersistedState,
+    edges: &crate::board::blockers::Edges,
+) -> Vec<(String, String, KanbanCard)> {
     let mut out = Vec::new();
     for agent in &st.agent_shortcuts {
         let pin = agent
@@ -296,6 +301,7 @@ fn next_pickups(st: &PersistedState) -> Vec<(String, String, KanbanCard)> {
                         Some(pid) => c.project_id == pid,
                         None => true,
                     }
+                    && !crate::board::blockers::card_blocked(edges, &st.kanban_cards, &c.id)
             })
             .min_by(|a, b| {
                 a.created_at
@@ -350,5 +356,48 @@ mod tests {
         assert!(!mode_continues(&st));
         st.companion.mode = "chat".into();
         assert!(!mode_continues(&st));
+    }
+
+    #[test]
+    fn shift_next_pickups_skips_blocked() {
+        let mut st = PersistedState::default();
+        st.agent_shortcuts.push(crate::state::AgentShortcut {
+            id: "a-1".into(),
+            name: "pi".into(),
+            harness: "pi".into(),
+            profile: String::new(),
+            model: None,
+            md_paths: Vec::new(),
+            project_id: None,
+            extra: None,
+            permissions: "read-only".into(),
+        });
+        let mut old = crate::board::todo_card("c-old".into(), "old", "p", "todo", "user", None, 1.0);
+        old.assigned_agent_id = Some("a-1".into());
+        let mut young = crate::board::todo_card("c-new".into(), "new", "p", "todo", "user", None, 2.0);
+        young.assigned_agent_id = Some("a-1".into());
+        let blocker = crate::board::todo_card("c-block".into(), "block", "p", "todo", "user", None, 0.5);
+        st.kanban_cards = vec![old, young, blocker];
+        let mut edges = crate::board::blockers::Edges::default();
+        edges.map.insert("c-old".into(), vec!["c-block".into()]);
+        let got = next_pickups(&st, &edges);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].2.id, "c-new");
+
+        st.kanban_cards
+            .iter_mut()
+            .find(|c| c.id == "c-block")
+            .unwrap()
+            .status = "done".into();
+        let got = next_pickups(&st, &edges);
+        assert_eq!(got[0].2.id, "c-old");
+
+        st.kanban_cards
+            .iter_mut()
+            .find(|c| c.id == "c-block")
+            .unwrap()
+            .status = "todo".into();
+        edges.map.insert("c-new".into(), vec!["c-block".into()]);
+        assert!(next_pickups(&st, &edges).is_empty());
     }
 }

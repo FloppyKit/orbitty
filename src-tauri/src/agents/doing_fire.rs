@@ -21,7 +21,7 @@ fn touched_secs() -> f64 {
 /// `doing`, and the title carries the bus's GO token
 /// (`needed_rules::extract_go` — the same regex). A card born `doing`
 /// never fired; Neededs and Dogfood cards never mint this question.
-fn fired<'a>(before: &PersistedState, after: &'a PersistedState) -> Vec<(&'a KanbanCard, String)> {
+fn fire_candidates<'a>(before: &PersistedState, after: &'a PersistedState) -> Vec<(&'a KanbanCard, String)> {
     let mut out = Vec::new();
     for card in &after.kanban_cards {
         if card.kind.as_deref() != Some("todo") || card.status != "doing" {
@@ -43,6 +43,21 @@ fn fired<'a>(before: &PersistedState, after: &'a PersistedState) -> Vec<(&'a Kan
         out.push((card, go));
     }
     out
+}
+
+fn fired_edges<'a>(
+    before: &PersistedState,
+    after: &'a PersistedState,
+    edges: &crate::board::blockers::Edges,
+) -> Vec<(&'a KanbanCard, String)> {
+    fire_candidates(before, after)
+        .into_iter()
+        .filter(|(card, _)| !crate::board::blockers::card_blocked(edges, &after.kanban_cards, &card.id))
+        .collect()
+}
+
+fn fired<'a>(before: &PersistedState, after: &'a PersistedState) -> Vec<(&'a KanbanCard, String)> {
+    fired_edges(before, after, &crate::board::blockers::Edges::default())
 }
 
 /// What a todo→doing GO drag should do. Pure so the tests don't need a socket.
@@ -333,7 +348,34 @@ fn launch_assigned(app: &tauri::AppHandle, card: &KanbanCard, go: &str) {
 /// The wire: call with the disk-before snapshot and the just-saved state
 /// from each kanban-move door. Best-effort — a fire never fails the save.
 pub fn fire_on_moves(app: &tauri::AppHandle, before: &PersistedState, after: &PersistedState) {
-    for (card, go) in fired(before, after) {
+    let edges = crate::board::blockers::load_app(app);
+    for (card, go) in fire_candidates(before, after) {
+        if crate::board::blockers::card_blocked(&edges, &after.kanban_cards, &card.id) {
+            let titles = crate::board::blockers::open_blocker_titles(&edges, &after.kanban_cards, &card.id);
+            let shown = if titles.is_empty() {
+                "a card".to_string()
+            } else {
+                titles.join(", ")
+            };
+            let note = format!("Blocked by {shown}; not launching.");
+            let _ = crate::board::kanban_note_append(app, &card.id, &note);
+            crate::event_log::append_best(
+                app,
+                "go-launch",
+                None,
+                Some(&card.project_id),
+                Some("agent"),
+                true,
+                &serde_json::json!({
+                    "id": go,
+                    "cardId": card.id,
+                    "route": "doing",
+                    "launched": false,
+                    "reason": "blocked",
+                }),
+            );
+            continue;
+        }
         if crate::plans::lock_names_live(&card.id) {
             continue;
         }
@@ -353,6 +395,7 @@ pub fn spawn_fire_and_attach(
         .name("orbitty-doing-fx".into())
         .spawn(move || {
             crate::state::with_actor("agent", || {
+                crate::board::blockers::note_ready_on_done(&app, &before, &after);
                 fire_on_moves(&app, &before, &after);
                 #[cfg(unix)]
                 crate::agent_runs::attach_on_moves(&app, &before, &after);
@@ -708,5 +751,38 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0.id, "c-1");
         assert_eq!(hits[0].1, "GO-ORBITTY-RAIL-CLOSE");
+    }
+
+    #[test]
+    fn fired_skips_blocked_go_card() {
+        let mut before = PersistedState::default();
+        before.kanban_cards = vec![
+            card("c-1", "todo", "todo", "GO-ORBITTY-CARD-BLOCKERS"),
+            card("c-b", "todo", "todo", "Alpha"),
+        ];
+        let mut after = before.clone();
+        after.kanban_cards[0].status = "doing".into();
+        let mut edges = crate::board::blockers::Edges::default();
+        edges.map.insert("c-1".into(), vec!["c-b".into()]);
+        assert!(fired_edges(&before, &after, &edges).is_empty());
+        after.kanban_cards[1].status = "done".into();
+        let hits = fired_edges(&before, &after, &edges);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0.id, "c-1");
+        edges.map.insert("c-1".into(), vec!["gone".into()]);
+        assert_eq!(fired_edges(&before, &after, &edges).len(), 1);
+
+        let src = include_str!("doing_fire.rs");
+        let start = src.find("pub fn fire_on_moves(").expect("fire_on_moves");
+        let body = &src[start..];
+        let end = body.find("\n}\n").expect("end");
+        let body = &body[..end];
+        let note = body.find("Blocked by ").expect("note");
+        let launch = body.find("launch_assigned(").expect("launch");
+        assert!(note < launch);
+        assert!(body[note..launch].contains("continue"));
+        assert!(body.contains("not launching"));
+        let reason = body.find("\"reason\"").expect("reason");
+        assert!(body[reason..].contains("\"blocked\""));
     }
 }
