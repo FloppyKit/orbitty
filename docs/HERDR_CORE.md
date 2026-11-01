@@ -14,7 +14,9 @@ The hot path never runs `hc server start`. A launchd job owns the core.
 
 ## Peek
 
-`herdr.status` and `herdr.peek` are read verbs. `orbittyctl herdr status` prints `up/source=herdr` and the hc version when the core is up. `orbittyctl herdr peek <card> [--limit N]` prints a read-only preview. The preview asks for 40 lines by default and never more than 200. After stripping terminal escapes it keeps at most 200 lines, 16 KB, and 400 characters per line. Secrets are replaced with `[redacted]` before the text leaves Rust. The preview element has no input handler.
+`herdr.status` and `herdr.peek` are read verbs. `orbittyctl herdr status` prints `up/source=herdr` and the hc version when the core is up. `orbittyctl herdr peek <card> [--limit N]` prints a read-only preview. The preview is the current screen. After stripping terminal escapes it keeps at most 200 lines, 16 KB, and 400 characters per line. Secrets are replaced with `[redacted]` before the text leaves Rust. The preview element has no input handler.
+
+A blocked seat is live. Peek reports that status, state live, source herdr, and up, with the screen text. hc may return status as a string or as an object whose `state` is that word; both use the same list (idle, working, done, blocked, error). The screen read is `hc read --lines 0`. History above the screen (`--lines` greater than 0) stalls while the seat waits on a permission prompt, past the 2 second read bound, so a history read that times out is retried once as the screen. The bound is not raised. If the screen read still fails, peek keeps the seat's status with an empty body and does not mark herdr down. One unreadable screen is not a down herdr.
 
 Clicking a droid opens that capsule instead of focusing the pane. The focus function is still in the tree for 05c-b.
 
