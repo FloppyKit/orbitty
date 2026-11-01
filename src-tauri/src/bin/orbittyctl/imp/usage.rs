@@ -140,6 +140,7 @@ commands:
   flags auto on|off                 stop or resume auto-on after Verify
   herdr status                      hc health: up/source and version
   herdr peek <card> [--limit N]     read-only terminal preview
+  herdr jump <card> [--observe | --full]   open that seat's terminal (watch-only unless --full)
   ledger export [--out PATH]        shim counts as TSV; --out must stay under $HOME
   plans migrate [--dry-run | --apply]
 

@@ -187,6 +187,11 @@ fn herdr_peek(app: tauri::AppHandle, card: String, lines: Option<u32>) -> serde_
     crate::herdr::peek_for(&app, &card, lines.unwrap_or(40))
 }
 
+#[tauri::command]
+fn herdr_jump(app: tauri::AppHandle, card: String, observe: Option<bool>) -> serde_json::Value {
+    crate::herdr::jump_for(&app, &card, observe)
+}
+
 /// Dest-menu find: glow that planet ~1.4s (marble saturn ring / expanded
 /// rim + center name). Glow only — `bring_planet_front` is a separate raise.
 #[tauri::command]
@@ -821,6 +826,7 @@ pub fn run() {
             inspect_droid,
             herdr_status,
             herdr_peek,
+            herdr_jump,
             locate_planet,
             project_rm,
             sync_habitat,

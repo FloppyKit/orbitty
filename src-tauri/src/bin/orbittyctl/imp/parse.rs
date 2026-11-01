@@ -111,6 +111,10 @@ pub(crate) struct Opts {
     pub(crate) kind: Option<String>,
     /// kanban link-dep / unlink-dep --on <blocker id>
     pub(crate) on: Option<String>,
+    /// herdr jump --observe (watch-only; also the default when neither flag is set)
+    pub(crate) observe: bool,
+    /// herdr jump --full (attach that can type)
+    pub(crate) full: bool,
 }
 
 pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
@@ -192,6 +196,8 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
         source: None,
         kind: None,
         on: None,
+        observe: false,
+        full: false,
     };
     let mut it = argv.iter();
     let mut after_ddash = false;
@@ -315,6 +321,8 @@ pub(crate) fn parse(argv: &[String]) -> Result<Opts, String> {
             "--dry-run" => o.dry_run = true,
             "--apply" => o.apply = true,
             "--reset" => o.reset = true,
+            "--observe" => o.observe = true,
+            "--full" => o.full = true,
             "--go" => o.go_id = Some(it.next().ok_or("--go needs a value")?.clone()),
             "--range" => o.range = Some(it.next().ok_or("--range needs a value")?.clone()),
             "--spokes" => o.spokes = Some(it.next().ok_or("--spokes needs a value")?.clone()),

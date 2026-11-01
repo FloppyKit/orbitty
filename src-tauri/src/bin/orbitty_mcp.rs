@@ -167,6 +167,7 @@ const TOOLS: &[ToolDef] = &[
     ToolDef { name: "wake.ack", description: "Ack inbox lines up to a seq. A lower seq is a no-op. Write-class.", args: "wake_ack" },
     ToolDef { name: "wake.emit", description: "Emit one key to matching emit subscriptions. Notifies only.", args: "wake_emit" },
     ToolDef { name: "wake.alarm", description: "Set the one alarm for a seat. Replaces any previous alarm. Writes one inbox line when due. Does not launch.", args: "wake_alarm" },
+    ToolDef { name: "herdr.jump", description: "Open the terminal window for a card. Watches only unless observe is false.", args: "herdr_jump" },
 ];
 
 fn known_tool(name: &str) -> bool {
@@ -786,6 +787,14 @@ fn input_schema(kind: &str) -> Value {
                 "at": { "type": "string", "description": "ISO-8601 or +2m" }
             },
             "required": ["seat", "at"]
+        }),
+        "herdr_jump" => json!({
+            "type": "object",
+            "properties": {
+                "card": { "type": "string", "description": "Card id" },
+                "observe": { "type": "boolean", "description": "Watch only. Omit or true watches; false can type." }
+            },
+            "required": ["card"]
         }),
         "flags_set" => json!({
             "type": "object",
@@ -1460,6 +1469,18 @@ mod tests {
         let reads = &control[control.find("const READ_TOOLS").unwrap()..control.find("fn read_ok").unwrap()];
         assert!(!reads.contains("kanban.link_dep"));
         assert!(!reads.contains("kanban.unlink_dep"));
+    }
+
+    #[test]
+    fn herdr_jump_requires_card_and_is_not_a_read() {
+        assert!(known_tool("herdr.jump"));
+        assert_eq!(required("herdr.jump"), vec!["card".to_string()]);
+        let tool = tool("herdr.jump");
+        assert_eq!(tool["inputSchema"]["properties"]["observe"]["type"], "boolean");
+        let control = include_str!("../agents/control.rs");
+        assert!(control.contains("\"herdr.jump\" =>"));
+        let reads = &control[control.find("const READ_TOOLS").unwrap()..control.find("fn read_ok").unwrap()];
+        assert!(!reads.contains("herdr.jump"));
     }
 }
 

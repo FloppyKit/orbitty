@@ -583,6 +583,16 @@ pub(crate) fn print_human(tool: &str, data: &Value) {
                 println!("{text}");
             }
         }
+        "herdr.jump" => {
+            if data["ok"].as_bool() == Some(true) {
+                println!("Opened the terminal.");
+            } else {
+                println!(
+                    "{}",
+                    data["reason"].as_str().unwrap_or("Couldn't open the terminal.")
+                );
+            }
+        }
         // state.get and anything else: pretty JSON is the honest human view.
         _ => println!(
             "{}",

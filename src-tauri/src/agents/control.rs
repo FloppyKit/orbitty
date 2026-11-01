@@ -1422,6 +1422,11 @@ fn run_tool(
                 .unwrap_or(40) as u32;
             Ok(to_data(crate::herdr::peek_for(app, &card, lines)))
         }
+        "herdr.jump" => {
+            let card = arg_str(args, "card")?;
+            let observe = args.get("observe").and_then(Value::as_bool);
+            Ok(to_data(crate::herdr::jump_for(app, &card, observe)))
+        }
         "flags.list" => Ok(to_data(crate::flags::list_app(app))),
         "flags.set" => {
             let id = arg_str(args, "id")?;

@@ -837,6 +837,18 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             }
             Ok(("herdr.peek", a))
         }
+        ["herdr", "jump", card] => {
+            if o.observe && o.full {
+                return Err("herdr jump: pass only one of --observe or --full".into());
+            }
+            let mut a = json!({ "card": card });
+            if o.full {
+                a["observe"] = json!(false);
+            } else if o.observe {
+                a["observe"] = json!(true);
+            }
+            Ok(("herdr.jump", a))
+        }
         ["plans", "migrate"] => {
             if o.apply && o.dry_run {
                 return Err("plans migrate: pass only one of --dry-run or --apply".into());

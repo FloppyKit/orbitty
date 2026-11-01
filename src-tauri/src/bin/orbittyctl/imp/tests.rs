@@ -418,3 +418,24 @@
         assert!(USAGE.contains("kanban link-dep"));
         assert!(USAGE.contains("kanban unlink-dep"));
     }
+
+    #[test]
+    fn herdr_jump_parses_card_and_observe() {
+        let (tool, args) = tool_call(&parse(&argv(&["herdr", "jump", "c-1"])).unwrap()).unwrap();
+        assert_eq!(tool, "herdr.jump");
+        assert_eq!(args["card"], "c-1");
+        assert!(args.get("observe").is_none());
+        let (_, args) =
+            tool_call(&parse(&argv(&["herdr", "jump", "c-1", "--observe"])).unwrap()).unwrap();
+        assert_eq!(args["observe"], true);
+        let (_, args) =
+            tool_call(&parse(&argv(&["herdr", "jump", "c-9", "--full"])).unwrap()).unwrap();
+        assert_eq!(args["card"], "c-9");
+        assert_eq!(args["observe"], false);
+        assert!(
+            tool_call(&parse(&argv(&["herdr", "jump", "c-1", "--observe", "--full"])).unwrap())
+                .is_err()
+        );
+        assert!(tool_call(&parse(&argv(&["herdr", "jump"])).unwrap()).is_err());
+        assert!(USAGE.contains("herdr jump <card> [--observe | --full]"));
+    }
