@@ -137,9 +137,14 @@ fn tui_view(target: &str, body: bool) -> View {
 }
 
 fn unknown(card: &str) -> View {
+    let status = if client::core_on() && core::locate().is_none() {
+        client::missing_core_line().to_string()
+    } else {
+        "unknown".into()
+    };
     View {
         card: card.into(),
-        status: "unknown".into(),
+        status,
         state: String::new(),
         text: String::new(),
         source: Source::Fallback.as_str().into(),

@@ -1,6 +1,6 @@
 # herdr-core read side
 
-Orbitty reads herdr through one client (`src-tauri/src/herdr`). The flag `herdr_core` defaults off. Off is today's `herdr` TUI probes, byte for byte. On, those reads use `hc` (herdr-core). Launch, send, wait, stop, and focus stay on the TUI argv until 05c-b.
+Orbitty reads herdr through one client (`src-tauri/src/herdr`). The flag `herdr_core` defaults on. Off is today's `herdr` TUI probes, byte for byte. On, those reads use `hc` (herdr-core). Launch, send, wait, stop, and focus stay on the TUI argv until 05c-b.
 
 ## Health
 
@@ -26,6 +26,14 @@ Clicking a droid opens that capsule instead of focusing the pane. The focus func
 
 Ship the `herdr-core` binary only, with its Apache-2.0 `LICENSE` and `NOTICE`. Re-sign and notarize the app after the binary is inside the bundle. Updates follow the Orbitty update channel; do not point Orbitty at a second updater. End-user bundling build is out of scope here.
 
+## Startup
+
+At launch, off the main thread, Orbitty takes one herdr-core health sample and writes one `herdr-health` event, so status is known before the first peek. A cold start still treats the first healthy sample as up. The 30 second recheck is unchanged.
+
+When `herdr_core` is on and locate found the bundled sibling (`Contents/MacOS/herdr-core`), and server status is not ok, Orbitty runs `herdr-core server start` once, detached. Peek, status, and seat launch do not start a server. If locate found `~/.local/bin/herdr-core` or `ORBITTY_HC`, Orbitty does not start or stop anything. If that start fails, one `herdr-health` fallback event is written and seats use Orbitty's own launcher.
+
+When the flag is on and no herdr-core binary is found, herdr status and the peek bubble say: Agent terminals are off: herdr-core isn't installed. Orbitty will use its own launcher.
+
 ## Flag
 
-`orbittyctl flags set herdr_core off` is the kill switch. Nightly may turn the flag on only after 05c-a and 05c-b both Verify PASS and Matt dogfoods. Until then `auto_on_verify` is false.
+`herdr_core` defaults on. The row text is "run seats in herdr-core". `auto_on_verify` stays false. `ORBITTY_FLAG_HERDR_CORE` and the flag file still win over the default. `orbittyctl flags set herdr_core off` is the kill switch.

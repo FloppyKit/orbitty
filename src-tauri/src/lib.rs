@@ -991,6 +991,15 @@ pub fn run() {
             #[cfg(unix)]
             control::start(app.handle());
             crate::flags::auto_sweep(app.handle());
+            // One herdr sample, and one bundled server start when status is not ok.
+            // Off the main thread: setup does not wait.
+            std::thread::spawn({
+                let app = app.handle().clone();
+                move || {
+                    crate::herdr::client::boot_server();
+                    crate::herdr::health::boot_check(Some(&app));
+                }
+            });
             crate::wake::boot(app.handle());
             #[cfg(unix)]
             shift::boot(app.handle());

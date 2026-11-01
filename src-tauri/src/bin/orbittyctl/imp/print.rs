@@ -563,12 +563,16 @@ pub(crate) fn print_human(tool: &str, data: &Value) {
             println!("{}", serde_json::to_string(data).unwrap_or_else(|_| "ok".into()));
         }
         "herdr.status" => {
-            let source = data["source"].as_str().unwrap_or("fallback");
-            let version = data["version"].as_str().unwrap_or("");
-            if data["up"].as_bool() == Some(true) {
-                println!("up/source={source} {version}");
+            if let Some(line) = data["line"].as_str().filter(|s| !s.is_empty()) {
+                println!("{line}");
             } else {
-                println!("unknown/source={source} {version}");
+                let source = data["source"].as_str().unwrap_or("fallback");
+                let version = data["version"].as_str().unwrap_or("");
+                if data["up"].as_bool() == Some(true) {
+                    println!("up/source={source} {version}");
+                } else {
+                    println!("unknown/source={source} {version}");
+                }
             }
         }
         "herdr.peek" => {

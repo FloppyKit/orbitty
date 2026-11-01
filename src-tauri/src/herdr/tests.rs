@@ -780,6 +780,7 @@ fn status_and_peek_agree_when_faulted() {
     let _g = gate();
     let _c = Clean(scratch("agree"));
     client::force_flag(Some(true));
+    core::set_bin_override(Some(PathBuf::from("/tmp/orbitty-herdr-fault-held")));
     health::reset();
     health::fault_held(5_000);
     health::set_clock_ms(Some(5_000));
@@ -900,4 +901,236 @@ fn grok_trust_on_all_three_doors() {
     }
     let habitat = include_str!("../habitat/herdr.rs");
     assert!(habitat.contains("grok_permission_args"), "both herdr doors take the grok extra");
+}
+
+fn write_boot_script(path: &Path) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(
+        path,
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HC_LOG\"\nif [ \"$1\" = server ] && [ \"$2\" = status ]; then\n  if [ \"$HC_UP\" = 1 ]; then\n    printf '%s\\n' '{\"version\":\"0.1.14\"}'\n    exit 0\n  fi\n  printf '%s\\n' '{\"error\":{\"kind\":\"unavailable\",\"message\":\"down\"}}' >&2\n  exit 1\nfi\nexit 0\n",
+    )
+    .unwrap();
+    let mut perms = fs::metadata(path).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o755);
+    fs::set_permissions(path, perms).unwrap();
+}
+
+fn arm_boot(path: &Path, log: &Path, up: bool) {
+    client::reset_overrides();
+    client::force_flag(Some(true));
+    core::set_bin_override(Some(path.to_path_buf()));
+    client::set_child_env(vec![
+        ("HC_LOG".into(), log.display().to_string()),
+        ("HC_UP".into(), if up { "1".into() } else { "0".into() }),
+    ]);
+}
+
+fn wait_log_contains(log: &Path, needle: &str) -> String {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let text = fs::read_to_string(log).unwrap_or_default();
+        if text.contains(needle) || std::time::Instant::now() >= deadline {
+            return text;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+fn between<'a>(src: &'a str, start: &str, end: &str) -> &'a str {
+    let at = src.find(start).unwrap_or_else(|| panic!("missing {start}"));
+    let rest = &src[at..];
+    let end_at = rest.find(end).unwrap_or_else(|| panic!("missing {end} after {start}"));
+    &rest[..end_at]
+}
+
+#[test]
+fn boot_check_one_sample_cold_up() {
+    let _g = gate();
+    let dir = scratch("boot-up");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    arm("live", &log);
+    health::reset();
+    health::set_clock_ms(Some(1_000));
+    let _ = fs::write(&log, "");
+    health::boot_check(None);
+    assert_eq!(health::source(), Source::Herdr);
+    assert!(!health::is_down());
+    assert_eq!(health::events(), vec!["herdr"]);
+    let text = fs::read_to_string(&log).unwrap();
+    assert_eq!(
+        text.lines().filter(|l| l.starts_with("server status")).count(),
+        1,
+        "{text}"
+    );
+    assert_eq!(text.lines().filter(|l| l.starts_with("events")).count(), 1, "{text}");
+    health::boot_check(None);
+    let text = fs::read_to_string(&log).unwrap();
+    assert_eq!(
+        text.lines().filter(|l| l.starts_with("server status")).count(),
+        1,
+        "second boot_check sampled again:\n{text}"
+    );
+    assert_eq!(health::events(), vec!["herdr"]);
+    let src = include_str!("health.rs");
+    assert!(src.contains("const RECHECK_MS: u64 = 30_000;"));
+    assert!(src.contains("let need = if cold { 1 } else { HEALTHY_NEED };"));
+    let at = src.find("pub(crate) fn boot_check").expect("boot_check");
+    let body = &src[at..];
+    assert!(body.contains("herdr-health"), "{body}");
+    assert!(body.contains("append_best"), "{body}");
+}
+
+#[test]
+fn boot_check_missing_bin_fallback_event() {
+    let _g = gate();
+    let _c = Clean(scratch("boot-miss"));
+    client::force_flag(Some(true));
+    core::set_bin_override(None);
+    health::reset();
+    health::set_clock_ms(Some(2_000));
+    health::boot_check(None);
+    assert_eq!(health::source(), Source::Fallback);
+    assert!(health::is_down());
+    assert_eq!(health::events(), vec!["fallback"]);
+    let notes = health::take_unlogged();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].source, "fallback");
+    assert_eq!(notes[0].kind, "transport");
+    health::boot_check(None);
+    assert!(health::take_unlogged().is_empty(), "boot_check sampled twice");
+}
+
+#[test]
+fn boot_server_only_for_bundled_sibling() {
+    let _g = gate();
+    let dir = scratch("boot-bundle");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    let bin = dir.join("Nightly.app/Contents/MacOS/herdr-core");
+    write_boot_script(&bin);
+    arm_boot(&bin, &log, false);
+    client::boot_server();
+    let text = wait_log_contains(&log, "server start");
+    assert_eq!(
+        text.lines().filter(|l| l.contains("server start")).count(),
+        1,
+        "{text}"
+    );
+    assert!(text.contains("server status"), "{text}");
+    let _ = fs::write(&log, "");
+    client::force_flag(Some(false));
+    client::boot_server();
+    let off = fs::read_to_string(&log).unwrap_or_default();
+    assert!(off.is_empty(), "flag off started a server: {off}");
+    client::force_flag(Some(true));
+    let bad = dir.join("Other.app/Contents/MacOS/herdr-core");
+    fs::create_dir_all(bad.parent().unwrap()).unwrap();
+    fs::write(&bad, "not a binary").unwrap();
+    let mut perms = fs::metadata(&bad).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o644);
+    fs::set_permissions(&bad, perms).unwrap();
+    core::set_bin_override(Some(bad));
+    health::reset();
+    client::boot_server();
+    let notes = health::take_unlogged();
+    assert!(
+        notes.iter().any(|n| n.source == "fallback"),
+        "start failure wrote no fallback event: {notes:?}"
+    );
+}
+
+#[test]
+fn boot_server_noop_when_status_ok() {
+    let _g = gate();
+    let dir = scratch("boot-ok");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    let bin = dir.join("App.app/Contents/MacOS/herdr-core");
+    write_boot_script(&bin);
+    arm_boot(&bin, &log, true);
+    client::boot_server();
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    assert!(text.contains("server status"), "{text}");
+    assert!(!text.contains("server start"), "{text}");
+}
+
+#[test]
+fn boot_server_never_for_local_bin_or_override() {
+    let _g = gate();
+    let dir = scratch("boot-rig");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    let _ = fs::write(&log, "");
+    let local = dir.join(".local/bin/herdr-core");
+    write_boot_script(&local);
+    arm_boot(&local, &log, false);
+    client::boot_server();
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    assert!(text.is_empty(), "local bin was touched: {text}");
+    let bundled = dir.join("Nightly.app/Contents/MacOS/herdr-core");
+    write_boot_script(&bundled);
+    arm_boot(&bundled, &log, false);
+    client::force_located_override(Some(bundled.clone()));
+    client::boot_server();
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    assert!(text.is_empty(), "ORBITTY_HC override was touched: {text}");
+}
+
+#[test]
+fn ensure_server_status_only_scan() {
+    let src = include_str!("client.rs");
+    let ensure = between(src, "pub(crate) fn ensure_server", "fn found_via_override");
+    assert!(!ensure.contains("server start"), "{ensure}");
+    assert!(!ensure.contains("[\"server\", \"start\"]"), "{ensure}");
+    assert!(ensure.contains("server_status"), "{ensure}");
+    assert!(!ensure.contains("boot_server"), "{ensure}");
+    let boot = between(src, "pub(crate) fn boot_server", "pub(crate) fn alive");
+    assert!(boot.contains("server start"), "{boot}");
+    assert!(boot.contains("[\"server\", \"start\"]"), "{boot}");
+    assert_eq!(src.matches("[\"server\", \"start\"]").count(), 1);
+    let lib = include_str!("../lib.rs");
+    let at = lib.find("health::boot_check").expect("boot_check spawn");
+    let window = &lib[at.saturating_sub(500)..at];
+    assert!(window.contains("std::thread::spawn"), "{window}");
+    assert!(window.contains("client::boot_server"), "{window}");
+}
+
+#[test]
+fn missing_core_line_plain_text() {
+    let _g = gate();
+    let _c = Clean(scratch("missing-line"));
+    client::force_flag(Some(true));
+    core::set_bin_override(None);
+    health::reset();
+    let line = client::missing_core_line();
+    assert_eq!(
+        line,
+        "Agent terminals are off: herdr-core isn't installed. Orbitty will use its own launcher."
+    );
+    for ban in ["rail", "hc", "fallback"] {
+        assert!(!line.to_ascii_lowercase().contains(ban), "{ban} in {line}");
+    }
+    let st = client::status_value();
+    assert_eq!(st["line"], line, "{st}");
+    assert_eq!(st["up"], false, "{st}");
+    let v = peek::view(&[], "card-9", 40, true);
+    assert_eq!(v.status, line, "{v:?}");
+    assert!(v.text.is_empty(), "{v:?}");
+    for ban in ["rail", "hc", "fallback"] {
+        assert!(!v.status.to_ascii_lowercase().contains(ban), "{v:?}");
+    }
+    let peek_src = include_str!("peek.rs");
+    assert!(peek_src.contains("missing_core_line"));
+    let print_src = include_str!("../bin/orbittyctl/imp/print.rs");
+    assert!(print_src.contains("data[\"line\"]"));
+    client::force_flag(Some(false));
+    health::reset();
+    let off = client::status_value();
+    assert_eq!(off["source"], "tui", "{off}");
+    assert!(off.get("line").is_none(), "{off}");
 }

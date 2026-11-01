@@ -269,3 +269,43 @@ pub(crate) fn prove_up() {
     set_clock_ms(Some(1_000 + RECHECK_MS));
     poll();
 }
+
+/// One sample at process start. The cold rule is unchanged: the first
+/// healthy sample proves up. A second call does not sample again.
+/// When `app` is set, flushes the one herdr-health note this sample queued.
+pub(crate) fn boot_check(app: Option<&tauri::AppHandle>) {
+    if lock().last_check_ms != 0 {
+        return;
+    }
+    let now = now_ms();
+    let ok = probe_ok();
+    observe(ok, now);
+    if !ok {
+        let kind = if core::locate().is_none() {
+            "transport"
+        } else {
+            "status"
+        };
+        let already = {
+            let s = lock();
+            s.notes.iter().any(|n| n.source == "fallback")
+        };
+        if !already {
+            force_fallback(now, kind);
+        }
+    }
+    let Some(app) = app else {
+        return;
+    };
+    for ev in take_unlogged() {
+        crate::event_log::append_best(
+            app,
+            "herdr-health",
+            None,
+            None,
+            Some("agent"),
+            true,
+            &serde_json::json!({ "source": ev.source, "kind": ev.kind }),
+        );
+    }
+}

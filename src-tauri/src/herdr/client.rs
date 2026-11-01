@@ -2,8 +2,8 @@
 //! Flag on + DOWN → fallback (unknown, never Died). Hot path never
 //! spawns a server.
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::{Component, Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
@@ -16,6 +16,23 @@ static FLAG: Mutex<Option<bool>> = Mutex::new(None);
 static CHILD_ENV: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
 pub(crate) static TEST_GATE: Mutex<()> = Mutex::new(());
+
+/// Plain line when the flag is on and no herdr-core binary was found.
+pub(crate) const MISSING_CORE_LINE: &str =
+    "Agent terminals are off: herdr-core isn't installed. Orbitty will use its own launcher.";
+
+pub(crate) fn missing_core_line() -> &'static str {
+    MISSING_CORE_LINE
+}
+
+/// Test stand-in for `ORBITTY_HC`: this path was an override, not the bundle.
+#[cfg(test)]
+static LOCATED_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) fn force_located_override(path: Option<PathBuf>) {
+    *LOCATED_OVERRIDE.lock().unwrap_or_else(|e| e.into_inner()) = path;
+}
 
 pub(crate) fn force_flag(on: Option<bool>) {
     *FLAG.lock().unwrap_or_else(|e| e.into_inner()) = on;
@@ -31,6 +48,8 @@ pub(crate) fn reset_overrides() {
     tui::set_bin_override(None);
     core::set_bin_override(None);
     health::reset();
+    #[cfg(test)]
+    force_located_override(None);
 }
 
 /// Apply test child env (fake hc mode and log) onto a command we built.
@@ -114,6 +133,76 @@ pub(crate) fn ensure_server(bin: &Path) -> Result<(), String> {
     }
 }
 
+fn found_via_override(path: &Path) -> bool {
+    #[cfg(test)]
+    {
+        if let Some(forced) = LOCATED_OVERRIDE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        {
+            if forced == path {
+                return true;
+            }
+        }
+    }
+    std::env::var_os("ORBITTY_HC").is_some_and(|over| Path::new(&over) == path)
+}
+
+fn is_local_bin(path: &Path) -> bool {
+    let c: Vec<Component> = path.components().collect();
+    let n = c.len();
+    n >= 3
+        && matches!(c[n - 3], Component::Normal(s) if s == ".local")
+        && matches!(c[n - 2], Component::Normal(s) if s == "bin")
+        && matches!(c[n - 1], Component::Normal(s) if s == "herdr-core")
+}
+
+fn is_bundled_sibling(path: &Path) -> bool {
+    path.file_name().is_some_and(|n| n == "herdr-core")
+        && path
+            .parent()
+            .and_then(|p| p.file_name())
+            .is_some_and(|n| n == "MacOS")
+}
+
+/// End-user boot. `herdr-core server start` once, detached, only when
+/// locate found the bundled Contents/MacOS sibling and status is not ok.
+/// `~/.local/bin/herdr-core` and an `ORBITTY_HC` override are never started
+/// or stopped. The hot path (`ensure_server`) does not call this.
+pub(crate) fn boot_server() {
+    if !core_on() {
+        return;
+    }
+    let Some(bin) = core::locate() else {
+        return;
+    };
+    if found_via_override(&bin) || is_local_bin(&bin) || !is_bundled_sibling(&bin) {
+        return;
+    }
+    if core::server_status(&bin).is_ok() {
+        return;
+    }
+    // herdr-core server start, once, detached. The exit code is not a verdict.
+    let child = match core::command(&bin)
+        .args(["server", "start"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => {
+            health::force_fallback(health::now_ms(), "transport");
+            return;
+        }
+    };
+    std::thread::spawn(move || {
+        let mut child = child;
+        let _ = child.wait();
+    });
+}
+
 pub(crate) fn alive(name: &str) -> Option<bool> {
     if !core_on() {
         return tui::agent_alive(name);
@@ -176,11 +265,17 @@ pub(crate) fn status_value() -> Value {
     } else {
         (false, String::new())
     };
+    let line = if core::locate().is_none() {
+        missing_core_line()
+    } else {
+        ""
+    };
     json!({
         "up": up && !down,
         "source": if down { Source::Fallback.as_str() } else { Source::Herdr.as_str() },
         "version": version,
         "status": if up { "none" } else { "unknown" },
+        "line": line,
     })
 }
 
