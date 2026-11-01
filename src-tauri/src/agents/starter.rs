@@ -196,12 +196,12 @@ pub enum SaveOrigin {
 }
 
 /// Rail persists tag themselves `"rail"` (the 30s touch save included).
-/// A missing tag, or any other tag, is a user save.
+/// Board and Yard automatic saves tag themselves `"background"`.
+/// A missing tag, or any other tag, is a user save. Unknown tags stay User.
 pub fn save_origin(tag: Option<&str>) -> SaveOrigin {
-    if matches!(tag, Some("rail")) {
-        SaveOrigin::Background
-    } else {
-        SaveOrigin::User
+    match tag {
+        Some("rail") | Some("background") => SaveOrigin::Background,
+        _ => SaveOrigin::User,
     }
 }
 
@@ -906,6 +906,7 @@ mod tests {
         let mut last = 0_u64;
         last = last_act_after_save(last, 30_000, save_origin(Some("rail")));
         last = last_act_after_save(last, 60_000, save_origin(Some("rail")));
+        last = last_act_after_save(last, 45_000, save_origin(Some("background")));
         last = last_act_after_save(last, 60_000, SaveOrigin::Background);
         assert_eq!(last, 0);
         assert_eq!(
@@ -928,6 +929,30 @@ mod tests {
         );
         assert_eq!(save_origin(Some("rail")), SaveOrigin::Background);
         assert_eq!(save_origin(None), SaveOrigin::User);
+    }
+
+    #[test]
+    fn save_origin_background_tag() {
+        assert_eq!(save_origin(Some("background")), SaveOrigin::Background);
+        assert_eq!(save_origin(Some("rail")), SaveOrigin::Background);
+        assert_eq!(save_origin(None), SaveOrigin::User);
+        assert_eq!(save_origin(Some("x")), SaveOrigin::User);
+        assert_eq!(save_origin(Some("")), SaveOrigin::User);
+    }
+
+    #[test]
+    fn idle_clock_kept_on_background_save() {
+        let mut last = 0_u64;
+        last = last_act_after_save(last, 30_000, save_origin(Some("rail")));
+        last = last_act_after_save(last, 60_000, save_origin(Some("rail")));
+        last = last_act_after_save(last, 60_000, SaveOrigin::Background);
+        assert_eq!(last, 0);
+        last = last_act_after_save(last, 75_000, save_origin(Some("background")));
+        assert_eq!(last, 0);
+        last = last_act_after_save(last, 90_000, save_origin(Some("x")));
+        assert_eq!(last, 90_000);
+        last = last_act_after_save(last, 120_000, save_origin(None));
+        assert_eq!(last, 120_000);
     }
 
     #[test]
