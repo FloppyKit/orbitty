@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "lint": "eslint src/routes/+page.svelte",
+    "lint": "eslint \"src/**/*.svelte\" \"src/**/*.ts\"",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test": "node --test qa/*.test.ts",
     "tauri": "tauri"

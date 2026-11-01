@@ -4,8 +4,8 @@ import tseslint from "typescript-eslint";
 
 export default [
   {
-    // qa and the Rust tree are not this rule set. The lint script names
-    // one path only; the rest of src is not on the lint path.
+    // qa and the Rust tree are not this rule set. The lint script
+    // names src svelte and ts; these dirs stay off the path.
     ignores: [
       "node_modules/**",
       "dist/**",
@@ -16,7 +16,7 @@ export default [
     ],
   },
   {
-    files: ["src/routes/+page.svelte"],
+    files: ["src/**/*.svelte"],
     plugins: { svelte },
     languageOptions: {
       parser: svelteParser,
@@ -25,5 +25,11 @@ export default [
       },
     },
     processor: "svelte/svelte",
+  },
+  {
+    files: ["src/**/*.ts"],
+    languageOptions: {
+      parser: tseslint.parser,
+    },
   },
 ];
