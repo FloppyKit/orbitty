@@ -26,11 +26,16 @@ const ids = ["a", "b", "c"];
 const edges: RailEdge[] = ["left", "right", "top", "bottom"];
 const dirs: HabitatDir[] = ["up", "down", "left", "right"];
 
-function axis(edge: RailEdge): { back: HabitatDir; forward: HabitatDir; inward: HabitatDir } {
-  if (edge === "right") return { back: "up", forward: "down", inward: "left" };
-  if (edge === "top") return { back: "left", forward: "right", inward: "down" };
-  if (edge === "bottom") return { back: "left", forward: "right", inward: "up" };
-  return { back: "up", forward: "down", inward: "right" };
+function axis(edge: RailEdge): {
+  back: HabitatDir;
+  forward: HabitatDir;
+  inward: HabitatDir;
+  outward: HabitatDir;
+} {
+  if (edge === "right") return { back: "up", forward: "down", inward: "left", outward: "right" };
+  if (edge === "top") return { back: "left", forward: "right", inward: "down", outward: "up" };
+  if (edge === "bottom") return { back: "left", forward: "right", inward: "up", outward: "down" };
+  return { back: "up", forward: "down", inward: "right", outward: "left" };
 }
 
 test("W1 open planet is centre", () => {
@@ -268,5 +273,71 @@ test("W13 keyboard reachability", () => {
     assert.notEqual(wheelArrow(oneOpen, "rhead-A", keys.forward, edge), "rraise-A");
     assert.equal(wheelArrow(oneOpen, "rhead-A", keys.inward, edge), "rraise-A");
     assert.equal(wheelArrow(noneOpen, "rhead-A", keys.inward, edge), null);
+    // W13g: axis-forward from Settings must be this edge, not only inward.
+    assert.equal(wheelArrow(noneOpen, "rsettings", keys.forward, edge), "rcol-todo");
+    assert.equal(wheelArrow(noneOpen, "rsettings", keys.inward, edge), "rcol-todo");
+  }
+});
+
+test("W13 settings forward edge", () => {
+  for (const edge of edges) {
+    const keys = axis(edge);
+    assert.equal(wheelArrow(noneOpen, "rsettings", keys.forward, edge), "rcol-todo");
+    assert.equal(wheelArrow(noneOpen, "rsettings", keys.inward, edge), "rcol-todo");
+    assert.notEqual(wheelArrow(noneOpen, "rsettings", keys.forward, edge), "rhead-A");
+  }
+});
+
+const midOpen: HabitatSection[] = [
+  { pid: "A", open: false, tileIds: ["a1"], snapCols: [], hasTodos: false },
+  {
+    pid: "B",
+    open: true,
+    tileIds: ["b1", "b2"],
+    snapCols: [["n1"]],
+    hasTodos: true,
+  },
+  { pid: "C", open: false, tileIds: ["c1"], snapCols: [], hasTodos: false },
+];
+
+test("W14 mid-wheel open planet stays on the arc", () => {
+  for (const edge of edges) {
+    const keys = axis(edge);
+    const stops = habitatStops(midOpen).map((s) => s.id);
+    const fromStars = reached(midOpen, edge, "rstars");
+    for (const id of stops) assert.equal(fromStars.has(id), true, `${edge} ${id}`);
+    for (const id of stops) {
+      assert.equal(reached(midOpen, edge, id).has("rstars"), true, `${edge} back ${id}`);
+    }
+    assert.equal(wheelArrow(midOpen, "rhead-A", keys.forward, edge), "rhead-B");
+    assert.equal(wheelArrow(midOpen, "rhead-B", keys.forward, edge), "rhead-C");
+    assert.notEqual(wheelArrow(midOpen, "rhead-B", keys.forward, edge), "rraise-B");
+    assert.equal(wheelArrow(midOpen, "rhead-B", keys.inward, edge), "rraise-B");
+    assert.equal(wheelArrow(midOpen, "rhead-C", keys.back, edge), "rhead-B");
+  }
+});
+
+const multiRow: HabitatSection[] = [
+  {
+    pid: "A",
+    open: true,
+    tileIds: ["t0", "t1", "t2", "t3", "t4", "t5"],
+    snapCols: [],
+    hasTodos: false,
+  },
+];
+
+test("W15 multi-row tile grid", () => {
+  for (const edge of edges) {
+    const keys = axis(edge);
+    assert.equal(wheelArrow(multiRow, "rtile-t0", keys.forward, edge), "rtile-t3");
+    assert.equal(wheelArrow(multiRow, "rtile-t3", keys.back, edge), "rtile-t0");
+    assert.equal(wheelArrow(multiRow, "rtile-t0", keys.inward, edge), "rtile-t1");
+    assert.equal(wheelArrow(multiRow, "rtile-t1", keys.outward, edge), "rtile-t0");
+    assert.equal(wheelArrow(multiRow, "rtile-t0", keys.outward, edge), "rhead-A");
+    assert.equal(wheelArrow(multiRow, "rtile-t5", keys.forward, edge), null);
+    const stops = habitatStops(multiRow).map((s) => s.id);
+    const fromStars = reached(multiRow, edge, "rstars");
+    for (const id of stops) assert.equal(fromStars.has(id), true, `${edge} ${id}`);
   }
 });

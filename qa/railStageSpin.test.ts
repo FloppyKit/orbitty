@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { parse } from "svelte/compiler";
 import { columnMode, columnPx } from "../src/lib/board/planetColumn.ts";
 import {
   SPIN_SETTLE_MS,
@@ -262,4 +264,154 @@ test("P12 fresh-profile first claim", () => {
   assert.equal(spinConfirm("rhead-p1"), "raise");
   assert.equal(spinConfirm("rstars"), "stars");
   assert.equal(items.some((it) => it.stop === "rnewproj"), true);
+});
+
+test("P3 even count keeps the positive half", () => {
+  // n = 4, d = n/2. `>` keeps +2; `>=` wraps to -2 (V10).
+  assert.equal(spinOffset(2, 0, 4), 2);
+  assert.notEqual(spinOffset(2, 0, 4), -2);
+});
+
+test("P6 step and settle bounds", () => {
+  assert.ok(SPIN_STEP_PX >= 48 && SPIN_STEP_PX <= 72, String(SPIN_STEP_PX));
+  assert.ok(SPIN_SETTLE_MS >= 120 && SPIN_SETTLE_MS <= 180, String(SPIN_SETTLE_MS));
+});
+
+test("P12 unmapped centre and settings confirm", () => {
+  assert.equal(spinConfirm("rhead-__unmapped__"), "centre");
+  assert.notEqual(spinConfirm("rhead-__unmapped__"), "raise");
+  assert.equal(spinConfirm("rsettings"), "settings");
+  assert.notEqual(spinConfirm("rsettings"), "stars");
+});
+
+type AstNode = {
+  type?: string;
+  name?: string;
+  start?: number;
+  end?: number;
+  operator?: string;
+  test?: AstNode;
+  consequent?: AstNode;
+  alternate?: AstNode | null;
+  fragment?: AstNode;
+  nodes?: AstNode[];
+  attributes?: AstNode[];
+  [key: string]: unknown;
+};
+
+function src(rel: string): string {
+  return readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
+}
+
+function childrenOf(node: AstNode): AstNode[] {
+  const out: AstNode[] = [];
+  for (const key of ["fragment", "nodes", "consequent", "alternate", "attributes"]) {
+    const v = node[key];
+    if (!v) continue;
+    if (Array.isArray(v)) out.push(...(v as AstNode[]));
+    else if (typeof v === "object") out.push(v as AstNode);
+  }
+  return out;
+}
+
+function walk(node: AstNode | null | undefined, fn: (node: AstNode) => void) {
+  if (!node || typeof node !== "object") return;
+  fn(node);
+  for (const child of childrenOf(node)) walk(child, fn);
+}
+
+function fragmentOf(file: string): AstNode {
+  const ast = parse(file, { modern: true }) as unknown as AstNode;
+  assert.equal(ast.fragment?.type, "Fragment");
+  return ast.fragment as AstNode;
+}
+
+const G4_TEST = 'railPlanet == null && planetColMode !== "hidden"';
+
+test("G4 railPlanet conjunction guards column and chrome", () => {
+  const file = src("src/lib/KanbanPage.svelte");
+  const root = fragmentOf(file);
+  const guarded = new Set<string>();
+  walk(root, (node) => {
+    if (node.type !== "IfBlock" || !node.test || !node.consequent) return;
+    const testSrc = file.slice(node.test.start ?? 0, node.test.end ?? 0);
+    if (node.test.type !== "LogicalExpression" || node.test.operator !== "&&") return;
+    if (testSrc !== G4_TEST) return;
+    walk(node.consequent, (inner) => {
+      if (inner.type === "Component" && (inner.name === "PlanetColumn" || inner.name === "BoardChrome")) {
+        guarded.add(inner.name as string);
+      }
+    });
+  });
+  assert.equal(guarded.has("PlanetColumn"), true);
+  assert.equal(guarded.has("BoardChrome"), true);
+});
+
+test("Done-chips guard is not a dead if", () => {
+  const file = src("src/lib/board/Chrome.svelte");
+  const root = fragmentOf(file);
+  let render = false;
+  let chips = false;
+  function walkIf(node: AstNode | null | undefined, ifs: string[]) {
+    if (!node || typeof node !== "object") return;
+    const next =
+      node.type === "IfBlock" && node.test
+        ? [...ifs, file.slice(node.test.start ?? 0, node.test.end ?? 0).trim()]
+        : ifs;
+    if (node.type === "RenderTag") {
+      const slice = file.slice(node.start ?? 0, node.end ?? 0);
+      if (slice.includes("doneActorChips")) {
+        render = true;
+        assert.equal(next.includes("false"), false, next.join(" | "));
+        assert.equal(next[next.length - 1], 'selected === "done"');
+      }
+    }
+    if (node.type === "Attribute" && node.name === "chips") {
+      const slice = file.slice(node.start ?? 0, node.end ?? 0);
+      if (slice.includes("doneActorChips")) {
+        chips = true;
+        assert.equal(next.includes("false"), false, next.join(" | "));
+        assert.equal(slice, 'chips={selected === "done" ? doneActorChips : undefined}');
+      }
+    }
+    for (const child of childrenOf(node)) walkIf(child, next);
+  }
+  walkIf(root, []);
+  assert.equal(render, true);
+  assert.equal(chips, true);
+});
+
+function rustFn(file: string, name: string): string {
+  const start = file.indexOf(name);
+  assert.ok(start >= 0, name);
+  const brace = file.indexOf("{", start);
+  let depth = 0;
+  for (let i = brace; i < file.length; i++) {
+    if (file[i] === "{") depth += 1;
+    else if (file[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return file.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unclosed ${name}`);
+}
+
+test("unknown-edge size uses the left arm", () => {
+  // 1440×875 cannot tell left from top (both 1040×760). 1000×700 can:
+  // left/unknown = (992, 700); top = (1000, 692). The `_` arm is that left formula.
+  const file = src("src-tauri/src/state/rail_geom.rs");
+  const body = rustFn(file, "pub fn rail_wheel_size");
+  const docAt = file.lastIndexOf("Unknown edges are left", file.indexOf("pub fn rail_wheel_size"));
+  assert.ok(docAt >= 0);
+  assert.match(
+    body,
+    /"top" \| "bottom" => \(vw\.min\(RAIL_SPIN_W\), \(vh - 8\.0\)\.max\(0\.0\)\.min\(RAIL_SPIN_H\)\)/,
+  );
+  assert.match(
+    body,
+    /_ => \(\(vw - 8\.0\)\.max\(0\.0\)\.min\(RAIL_SPIN_W\), vh\.min\(RAIL_SPIN_H\)\)/,
+  );
+  const armRe = /^\s*("[^"]+"(?:\s*\|\s*"[^"]+")*|_)\s*=>/gm;
+  const arms = [...body.matchAll(armRe)].map((m) => m[1]);
+  assert.deepEqual(arms, ['"top" | "bottom"', "_"]);
 });
