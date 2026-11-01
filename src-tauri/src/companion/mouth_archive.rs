@@ -39,6 +39,47 @@ impl TurnMeta {
     }
 }
 
+/// Grok CLI is spawned with no `--model`. Do not copy Settings `reply_model`.
+pub const GROK_CLI_MODEL: &str = "grok-cli-default";
+
+static ANSWERED: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+
+/// Record the lane and model that actually returned the reply.
+pub fn note_answered(lane: &str, model: &str) {
+    if let Ok(mut slot) = ANSWERED.lock() {
+        *slot = Some((lane.to_string(), model.to_string()));
+    }
+}
+
+pub fn answered_pending() -> bool {
+    ANSWERED.lock().map(|g| g.is_some()).unwrap_or(false)
+}
+
+pub fn take_answered() -> Option<(String, String)> {
+    ANSWERED.lock().ok().and_then(|mut slot| slot.take())
+}
+
+/// Archive label. `reply_model` is written only when the local lane answered.
+pub fn label_from_answer(lane: &str, model: &str, reply_model: &str) -> (String, String) {
+    let lane = lane.trim();
+    let model = model.trim();
+    let reply_model = reply_model.trim();
+    if lane == "local" {
+        let id = if model.is_empty() { reply_model } else { model };
+        return ("local".into(), id.to_string());
+    }
+    if lane == "grok" {
+        let id = if model.is_empty() || model == reply_model {
+            GROK_CLI_MODEL
+        } else {
+            model
+        };
+        return ("grok".into(), id.to_string());
+    }
+    let id = if model.is_empty() { "?" } else { model };
+    (lane.to_string(), id.to_string())
+}
+
 thread_local! {
     static META: std::cell::RefCell<TurnMeta> = std::cell::RefCell::new(TurnMeta::unknown());
 }

@@ -62,6 +62,78 @@ fn lines(root: &std::path::Path) -> Vec<ArchiveLine> {
 }
 
 #[test]
+fn archive_label_is_answering_lane() {
+    let local = "mlx-community/gemma-4-e4b-it-mlx";
+    let (lane, model) = label_from_answer("grok", GROK_CLI_MODEL, local);
+    assert_eq!(lane, "grok");
+    assert_eq!(model, GROK_CLI_MODEL);
+    assert_ne!(model, local);
+    // A grok answer must not keep the Settings local pick.
+    let (lane, model) = label_from_answer("grok", local, local);
+    assert_eq!(lane, "grok");
+    assert_ne!(model, local);
+    assert_eq!(model, GROK_CLI_MODEL);
+    let (lane, model) = label_from_answer("local", local, local);
+    assert_eq!(lane, "local");
+    assert_eq!(model, local);
+
+    let sb = Sandbox::on();
+    note_answered("grok", GROK_CLI_MODEL);
+    let (lane, model) = take_answered().expect("grok slot");
+    let (lane, model) = label_from_answer(&lane, &model, local);
+    let _g = TurnGuard::set(TurnMeta {
+        lane,
+        model,
+        session: Some("5a2426e0-047f-4974-a833-38ca74f4bc2c".into()),
+        src: "live".into(),
+    });
+    let mut st = CompanionState::default();
+    st.push_turn("them", "LABEL-GROK");
+    drop(_g);
+    let them = lines(&sb.root)
+        .into_iter()
+        .find(|r| r.text == "LABEL-GROK")
+        .expect("grok line");
+    assert_eq!(them.lane, "grok");
+    assert_eq!(them.model, GROK_CLI_MODEL);
+    assert_ne!(them.model, local);
+
+    note_answered("local", local);
+    let (lane, model) = take_answered().expect("local slot");
+    let (lane, model) = label_from_answer(&lane, &model, local);
+    let _g = TurnGuard::set(TurnMeta {
+        lane,
+        model,
+        session: None,
+        src: "live".into(),
+    });
+    st.push_turn("them", "LABEL-LOCAL");
+    drop(_g);
+    let them = lines(&sb.root)
+        .into_iter()
+        .find(|r| r.text == "LABEL-LOCAL")
+        .expect("local line");
+    assert_eq!(them.lane, "local");
+    assert_eq!(them.model, local);
+
+    let send = include_str!("../coordinator/send.rs");
+    let start = send
+        .find("pub(crate) async fn companion_send_inner(")
+        .expect("send");
+    let rest = &send[start..];
+    let end = rest
+        .find("\npub(crate) async fn companion_send_berd(")
+        .expect("berd");
+    let body = &rest[..end];
+    assert!(body.contains("pin_reply"), "reply archive must not use Settings pin");
+    assert!(body.contains("note_answered"));
+    let pin = send.find("fn pin_reply(").expect("pin_reply");
+    let pin_body = &send[pin..pin + 500];
+    assert!(pin_body.contains("take_answered"));
+    assert!(pin_body.contains("label_from_answer"));
+}
+
+#[test]
 fn ct_day_rolls_at_midnight() {
     // 2026-10-30 23:59:59 CDT and the next second.
     let before = chrono::DateTime::from_timestamp(1_793_422_799, 0).unwrap();

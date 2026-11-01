@@ -381,7 +381,8 @@ pub(crate) async fn companion_send_inner(
         let path = attach.as_ref().map(|a| a.path.clone()).unwrap_or_default();
         let reply = crate::mouth_hop::refuse_or_handoff(&app, &line, &path, &lane).await?;
         let reply = crate::companion::memory::finish_reply(&app, &reply);
-        let _pin = pin_turn(&app);
+        crate::mouth_archive::note_answered("handoff", "handoff");
+        let _pin = pin_reply(&app);
         if crate::state::update(&app, |st| {
             st.companion.last_bot_line = reply.clone();
             let you_already_saved = st
@@ -404,19 +405,46 @@ pub(crate) async fn companion_send_inner(
     // Plug map — unknown backend is an honest error,
     // never a silent Berd fallback.
     let reply = match backend.as_str() {
-        "goose" => companion_send_goose(&app, &prompt).await?,
+        "goose" => {
+            let text = companion_send_goose(&app, &prompt).await?;
+            crate::mouth_archive::note_answered("goose", "goose");
+            text
+        }
         // The grok lane runs through the router —
         // Free Mode skips paid Grok; a cooked lane hops Ollama →
         // OpenRouter free with the hop packet. Same bubble either way.
+        // send_with_hops records the lane that actually answered.
         "grok" => {
             crate::mouth_hop::send_with_hops(&app, &line, &prompt, &hop_ack, vision_path.as_deref())
                 .await?
         }
         "direct" => {
-            crate::direct_lane::send(&app, &line, &prompt, &hop_ack, vision_path.as_deref()).await?
+            let text =
+                crate::direct_lane::send(&app, &line, &prompt, &hop_ack, vision_path.as_deref())
+                    .await?;
+            if !crate::mouth_archive::answered_pending() {
+                let model = crate::state::load_state(&app)
+                    .map(|s| s.companion.direct_model)
+                    .unwrap_or_default();
+                let model = if model.trim().is_empty() {
+                    "direct".into()
+                } else {
+                    model
+                };
+                crate::mouth_archive::note_answered("direct", &model);
+            }
+            text
         }
-        "hermes" => companion_send_hermes(&app, &prompt).await?,
-        "berd" => companion_send_berd(&prompt).await?,
+        "hermes" => {
+            let text = companion_send_hermes(&app, &prompt).await?;
+            crate::mouth_archive::note_answered("hermes", "hermes");
+            text
+        }
+        "berd" => {
+            let text = companion_send_berd(&prompt).await?;
+            crate::mouth_archive::note_answered("berd", "berd");
+            text
+        }
         other => {
             return Err(crate::companion_backend::unknown_backend_message(
                 other,
@@ -434,7 +462,8 @@ pub(crate) async fn companion_send_inner(
     let reply = crate::companion::memory::finish_reply(&app, &reply);
 
     // You-row already persisted before the model wait. Reply only here.
-    let _pin = pin_turn(&app);
+    // Label from the lane that answered, not Settings reply_model.
+    let _pin = pin_reply(&app);
     if crate::state::update(&app, |st| {
         st.companion.last_bot_line = reply.clone();
         let you_already_saved = st
@@ -538,23 +567,44 @@ pub(crate) fn goose_args(
 }
 
 fn pin_turn(app: &tauri::AppHandle) -> crate::mouth_archive::TurnGuard {
-    let (lane, model) = crate::state::load_state(app)
-        .map(|s| {
-            let lane = if s.companion.reply_lane.trim().is_empty() {
-                "?".into()
-            } else {
-                s.companion.reply_lane
-            };
-            let model = if !s.companion.reply_model.trim().is_empty() {
-                s.companion.reply_model
-            } else if !s.companion.direct_model.trim().is_empty() {
-                s.companion.direct_model
-            } else {
-                "?".into()
-            };
-            (lane, model)
-        })
-        .unwrap_or_else(|_| ("?".into(), "?".into()));
+    pin_meta(app, None)
+}
+
+fn pin_reply(app: &tauri::AppHandle) -> crate::mouth_archive::TurnGuard {
+    let over = crate::mouth_archive::take_answered().map(|(lane, model)| {
+        let reply_model = crate::state::load_state(app)
+            .map(|s| s.companion.reply_model)
+            .unwrap_or_default();
+        crate::mouth_archive::label_from_answer(&lane, &model, &reply_model)
+    });
+    pin_meta(app, over)
+}
+
+fn pin_meta(
+    app: &tauri::AppHandle,
+    over: Option<(String, String)>,
+) -> crate::mouth_archive::TurnGuard {
+    let (lane, model) = if let Some(pair) = over {
+        pair
+    } else {
+        crate::state::load_state(app)
+            .map(|s| {
+                let lane = if s.companion.reply_lane.trim().is_empty() {
+                    "?".into()
+                } else {
+                    s.companion.reply_lane
+                };
+                let model = if !s.companion.reply_model.trim().is_empty() {
+                    s.companion.reply_model
+                } else if !s.companion.direct_model.trim().is_empty() {
+                    s.companion.direct_model
+                } else {
+                    "?".into()
+                };
+                (lane, model)
+            })
+            .unwrap_or_else(|_| ("?".into(), "?".into()))
+    };
     let plug = load_plug();
     let session = plug
         .grok_session_id

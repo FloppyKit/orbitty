@@ -402,10 +402,48 @@ pub(crate) fn run_free_lanes(
                 true,
                 &fields,
             );
+            let (arch_lane, model) = archive_label(&app, lane);
+            crate::mouth_archive::note_answered(&arch_lane, &model);
             Ok(reply)
         }
         // Direct never uses the Free Mode sentence (a compat key may be paid).
-        None => Ok(honest_down_line(!direct && skip_grok, &notes)),
+        None => {
+            crate::mouth_archive::note_answered("note", "?");
+            Ok(honest_down_line(!direct && skip_grok, &notes))
+        }
+    }
+}
+
+/// Archive lane + the model that lane used. Settings `reply_model` is
+/// the local pick only — grok and free lanes do not copy it.
+fn archive_label(app: &tauri::AppHandle, lane: &str) -> (String, String) {
+    match lane {
+        "lmstudio" | "ollama" | "local" => {
+            let want = reply_model(app);
+            let model = match crate::mouth_scan::pick_local(&want) {
+                Some(crate::mouth_scan::LocalTarget::LmStudio { model, .. }) => model,
+                Some(crate::mouth_scan::LocalTarget::Ollama { model, .. }) => model,
+                None if !want.trim().is_empty() => want,
+                None => crate::mouth_scan::PINNED_REPLY_ID.to_string(),
+            };
+            ("local".into(), model)
+        }
+        "openrouter" => (
+            "openrouter_free".into(),
+            super::local::OPENROUTER_FREE_MODEL.into(),
+        ),
+        "compat" => {
+            let model = crate::state::load_state(app)
+                .map(|s| s.companion.direct_model)
+                .unwrap_or_default();
+            let model = if model.trim().is_empty() {
+                "direct".into()
+            } else {
+                model
+            };
+            ("direct".into(), model)
+        }
+        other => (other.to_string(), other.to_string()),
     }
 }
 
@@ -501,7 +539,10 @@ pub async fn send_with_hops(
     };
     let vision = vision_path.map(str::to_string);
     match crate::coordinator::companion_send_grok(app, &grok_prompt, vision.clone()).await {
-        Ok(r) => Ok(r),
+        Ok(r) => {
+            crate::mouth_archive::note_answered("grok", crate::mouth_archive::GROK_CLI_MODEL);
+            Ok(r)
+        }
         Err(e) if lane_cooked(&e) => {
             let note = format!("grok: {}", e.chars().take(80).collect::<String>());
             let (a, r, p) = (app.clone(), raw_line.to_string(), packed);
