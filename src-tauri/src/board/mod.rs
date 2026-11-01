@@ -3,6 +3,7 @@
 mod root;
 #[cfg(unix)]
 pub(crate) use root::*;
+pub(crate) mod blockers;
 pub(crate) mod card_links;
 pub(crate) mod needed_rules;
 pub(crate) mod nextcard;
