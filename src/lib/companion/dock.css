@@ -671,3 +671,14 @@
   .talkic.sendnow {
     color: var(--accent);
   }
+
+  /* Expanded chat: attach, field, talk, and send stay on one line. */
+  .composer.line {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .composer.line .chiprow {
+    flex: 0 1 auto;
+    max-width: 40%;
+  }

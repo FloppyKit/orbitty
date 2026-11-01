@@ -548,44 +548,47 @@
     onmousedown={onChromeDown}
   >
 
-  <DockCheatHint {cheatSheetHint} {onCheatSheet} />
+  {#if !expanded}
+    <DockCheatHint {cheatSheetHint} {onCheatSheet} />
 
-  <div class="agentrow">
-    <DockAgentLeft
-      {hackOn}
-      {hackTitle}
-      bind:agentOpen
-      {agent}
-      {agents}
-      {sending}
-      {agentLabel}
-      {pickAgent}
-      {prompts}
-      {togglePrompts}
-      {nextCount}
-      {toggleNextCard}
-    />
-    <DockAgentRight
-      {speak}
-      {speakVolume}
-      bind:volOpen
-      {onSpeakClick}
-      {onSpeakRight}
-      {onVolInput}
-      {headShowing}
-      {viewBusy}
-      {toggleView}
-      {viewTitle}
-      {sprite}
-      {bustOk}
-      {expanded}
-      {toggleExpanded}
-      toggleSprite={onToggleSprite}
-      toggleCaptions={onToggleCaptions}
-    />
-  </div>
+    <div class="agentrow">
+      <DockAgentLeft
+        {hackOn}
+        {hackTitle}
+        bind:agentOpen
+        {agent}
+        {agents}
+        {sending}
+        {agentLabel}
+        {pickAgent}
+        {prompts}
+        {togglePrompts}
+        {nextCount}
+        {toggleNextCard}
+      />
+      <DockAgentRight
+        {speak}
+        {speakVolume}
+        bind:volOpen
+        {onSpeakClick}
+        {onSpeakRight}
+        {onVolInput}
+        {headShowing}
+        {viewBusy}
+        {toggleView}
+        {viewTitle}
+        {sprite}
+        {bustOk}
+        {expanded}
+        {toggleExpanded}
+        toggleSprite={onToggleSprite}
+        toggleCaptions={onToggleCaptions}
+      />
+    </div>
+  {/if}
 
   <DockMouth
+    variant={expanded ? "line" : "dock"}
     {attach}
     {onDropAttach}
     {onPickAttach}

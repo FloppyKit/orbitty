@@ -22,6 +22,7 @@
   import { eventElement } from "./dragPane";
   import WindowTitleRow from "./WindowTitleRow.svelte";
   import { chromeMode, navPlatform, navUa } from "./windowChrome";
+  import { expandKey } from "./companion/expandKey";
   import { planetCss } from "./planetColor";
   import type { Action } from "./companion/launcher";
 
@@ -259,6 +260,11 @@
   // Hosted+expanded Escape collapses the overlay only. CaptionPane
   // owns ccOpen Escape. Hosted with no overlay: dismissHost.
   function onPaneKey(e: KeyboardEvent) {
+    if (expandKey(e, { composing: e.isComposing }) === "toggle") {
+      e.preventDefault();
+      toggleExpanded();
+      return;
+    }
     if (e.key !== "Escape") return;
     // Lock law: a focused field owns Esc first —
     // its own handler (if any) already ran at target; blur it here and
@@ -1087,12 +1093,37 @@
       <WindowTitleRow title="Orbitty" mode="title" label="companion" />
     </div>
   {/if}
+  {#snippet collapseToDock()}
+    <button
+      type="button"
+      class="collapse-dock"
+      data-no-drag
+      aria-label="Collapse to dock"
+      title="Collapse to dock"
+      onmousedown={(e) => e.stopPropagation()}
+      onclick={toggleExpanded}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <line x1="18" y1="6" x2="7.5" y2="16.5" />
+        <polyline points="15.5 16.5 7.5 16.5 7.5 8.5" />
+      </svg>
+    </button>
+  {/snippet}
   {#if expanded}
     <WindowTitleRow
       title="Orbitty"
       mode={chromeMode(navUa(), navPlatform())}
       label="companion"
       closeLabel="Hide Orbitty"
+      {...{ chips: collapseToDock }}
       onClose={() => invoke("hide_window", { label: "companion" }).catch(() => {})}
     />
   {/if}

@@ -588,3 +588,53 @@
   .claim-toast button:hover {
     background: rgba(255, 255, 255, 0.2);
   }
+
+  /* Expanded chat fills the window. Hosted boards stay mounted and hidden. */
+  .companion.chrome.hosting {
+    background: var(--bg-fill, var(--bg));
+  }
+
+  .companion.chrome .hostwell {
+    display: none;
+  }
+
+  .companion.chrome .wellwrap {
+    background: var(--bg-fill, var(--bg));
+  }
+
+  .companion.chrome .ghostdock {
+    margin: 0;
+    background: transparent;
+    border-color: transparent;
+    border-radius: 0;
+  }
+
+  .companion.chrome .wtr-chips {
+    justify-content: flex-end;
+  }
+
+  .collapse-dock {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    margin-right: 2px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .collapse-dock:hover {
+    color: var(--accent);
+  }
+
+  .collapse-dock svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }

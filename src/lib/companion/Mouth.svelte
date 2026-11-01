@@ -17,6 +17,7 @@
     talkStart,
     sendLine,
     fmtSize,
+    variant = "dock",
   }: {
     attach: { path: string; name: string; size: number } | null;
     onDropAttach: () => void;
@@ -35,12 +36,14 @@
     talkStart: () => void;
     sendLine: () => void;
     fmtSize: (n: number) => string;
+    variant?: "line" | "dock";
   } = $props();
 
 </script>
 
 <form
     class="composer"
+    class:line={variant === "line"}
     onsubmit={(e) => {
       e.preventDefault();
       sendLine();
@@ -77,16 +80,18 @@
         </span>
       </div>
     {/if}
-    <button
-      type="button"
-      class="thinbtn"
-      onmousedown={(e) => e.stopPropagation()}
-      onpointerdown={(e) => e.stopPropagation()}
-      onclick={() => onThin?.()}
-      disabled={sending}
-      aria-label="Thin — label this chat"
-      title="Label this chat thin (⌘⌥T). Mouth keeps going."
-    >thin</button>
+    {#if variant !== "line"}
+      <button
+        type="button"
+        class="thinbtn"
+        onmousedown={(e) => e.stopPropagation()}
+        onpointerdown={(e) => e.stopPropagation()}
+        onclick={() => onThin?.()}
+        disabled={sending}
+        aria-label="Thin — label this chat"
+        title="Label this chat thin (⌘⌥T). Mouth keeps going."
+      >thin</button>
+    {/if}
     <div
       class="fieldwrap"
       class:talking
