@@ -166,10 +166,31 @@ fn is_bundled_sibling(path: &Path) -> bool {
             .is_some_and(|n| n == "MacOS")
 }
 
+/// After a detached `server start`, poll status this long before the one
+/// boot sample. Not a child exit code. `.setup` does not wait on it.
+pub(crate) const START_READY_MS: u64 = 2_000;
+
+/// Readiness poll. Ok, or the bound elapsed: either way the caller then
+/// takes the single health sample. The child exit code is not read here.
+fn wait_status_ok(bin: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(START_READY_MS);
+    loop {
+        if core::server_status(bin).is_ok() {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 /// End-user boot. `herdr-core server start` once, detached, only when
 /// locate found the bundled Contents/MacOS sibling and status is not ok.
 /// `~/.local/bin/herdr-core` and an `ORBITTY_HC` override are never started
 /// or stopped. The hot path (`ensure_server`) does not call this.
+/// After a successful spawn, this does not return until status is ok or
+/// `START_READY_MS` has passed, so the boot thread's one sample is not early.
 pub(crate) fn boot_server() {
     if !core_on() {
         return;
@@ -201,6 +222,7 @@ pub(crate) fn boot_server() {
         let mut child = child;
         let _ = child.wait();
     });
+    wait_status_ok(&bin);
 }
 
 pub(crate) fn alive(name: &str) -> Option<bool> {

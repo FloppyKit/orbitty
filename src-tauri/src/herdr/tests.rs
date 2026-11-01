@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::MutexGuard;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::client;
 use super::core;
@@ -903,19 +903,22 @@ fn grok_trust_on_all_three_doors() {
     assert!(habitat.contains("grok_permission_args"), "both herdr doors take the grok extra");
 }
 
-fn write_boot_script(path: &Path) {
+fn write_boot_script_body(path: &Path, body: &str) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();
     }
-    fs::write(
-        path,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HC_LOG\"\nif [ \"$1\" = server ] && [ \"$2\" = status ]; then\n  if [ \"$HC_UP\" = 1 ]; then\n    printf '%s\\n' '{\"version\":\"0.1.14\"}'\n    exit 0\n  fi\n  printf '%s\\n' '{\"error\":{\"kind\":\"unavailable\",\"message\":\"down\"}}' >&2\n  exit 1\nfi\nexit 0\n",
-    )
-    .unwrap();
+    fs::write(path, body).unwrap();
     let mut perms = fs::metadata(path).unwrap().permissions();
     use std::os::unix::fs::PermissionsExt;
     perms.set_mode(0o755);
     fs::set_permissions(path, perms).unwrap();
+}
+
+fn write_boot_script(path: &Path) {
+    write_boot_script_body(
+        path,
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HC_LOG\"\nif [ \"$1\" = server ] && [ \"$2\" = start ]; then\n  : > \"$HC_LOG.ready\"\n  exit 0\nfi\nif [ \"$1\" = server ] && [ \"$2\" = status ]; then\n  if [ \"$HC_UP\" = 1 ] || [ -f \"$HC_LOG.ready\" ]; then\n    printf '%s\\n' '{\"version\":\"0.1.14\"}'\n    exit 0\n  fi\n  printf '%s\\n' '{\"error\":{\"kind\":\"unavailable\",\"message\":\"down\"}}' >&2\n  exit 1\nfi\nexit 0\n",
+    );
 }
 
 fn arm_boot(path: &Path, log: &Path, up: bool) {
@@ -1054,9 +1057,107 @@ fn boot_server_noop_when_status_ok() {
     write_boot_script(&bin);
     arm_boot(&bin, &log, true);
     client::boot_server();
-    let text = fs::read_to_string(&log).unwrap_or_default();
+    // Start is a detached spawn. Read the log the way the bundled-start
+    // test does, or a start-when-status-ok mutant still looks clean.
+    let text = wait_log_contains(&log, "server start");
     assert!(text.contains("server status"), "{text}");
     assert!(!text.contains("server start"), "{text}");
+    let src = include_str!("client.rs");
+    let boot = between(src, "pub(crate) fn boot_server", "pub(crate) fn alive");
+    let early = boot.find("is_ok()").expect("status ok return");
+    let spawn = boot.find("[\"server\", \"start\"]").expect("start");
+    assert!(early < spawn, "is_ok return must stay before start");
+}
+
+#[test]
+fn boot_server_waits_until_status_ok_then_one_up_sample() {
+    let _g = gate();
+    let dir = scratch("boot-wait");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    let bin = dir.join("Nightly.app/Contents/MacOS/herdr-core");
+    write_boot_script_body(
+        &bin,
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HC_LOG\"\n\
+if [ \"$1\" = server ] && [ \"$2\" = start ]; then\n  sleep 0.4\n  : > \"$HC_LOG.ready\"\n  exit 0\nfi\n\
+if [ \"$1\" = server ] && [ \"$2\" = status ]; then\n  \
+if [ -f \"$HC_LOG.ready\" ]; then\n    printf '%s\\n' 'status-ok' >> \"$HC_LOG\"\n    \
+printf '%s\\n' '{\"version\":\"0.1.14\"}'\n    exit 0\n  fi\n  \
+printf '%s\\n' 'status-down' >> \"$HC_LOG\"\n  \
+printf '%s\\n' '{\"error\":{\"kind\":\"unavailable\",\"message\":\"down\"}}' >&2\n  exit 1\nfi\n\
+printf 'x'\nexit 0\n",
+    );
+    arm_boot(&bin, &log, false);
+    health::reset();
+    let started = Instant::now();
+    client::boot_server();
+    let elapsed = started.elapsed();
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    let start_at = text.find("server start").expect(&text);
+    let ok_at = text.find("status-ok").unwrap_or_else(|| panic!("returned before status was ok:\n{text}"));
+    assert!(start_at < ok_at, "status ok before start:\n{text}");
+    assert!(
+        elapsed >= Duration::from_millis(300),
+        "boot_server returned before the delayed ready file: {elapsed:?}\n{text}"
+    );
+    assert!(health::events().is_empty(), "wait took a health sample: {:?}", health::events());
+    health::set_clock_ms(Some(5_000));
+    health::boot_check(None);
+    assert_eq!(health::source(), Source::Herdr);
+    assert!(!health::is_down());
+    assert_eq!(health::events(), vec!["herdr"]);
+    let after = fs::read_to_string(&log).unwrap_or_default();
+    let ok_lines = after.lines().filter(|l| *l == "status-ok").count();
+    health::boot_check(None);
+    let again = fs::read_to_string(&log).unwrap_or_default();
+    assert_eq!(
+        again.lines().filter(|l| *l == "status-ok").count(),
+        ok_lines,
+        "second boot_check sampled again:\n{again}"
+    );
+    assert_eq!(health::events(), vec!["herdr"]);
+}
+
+#[test]
+fn boot_server_bound_expiry_one_fallback_sample() {
+    let _g = gate();
+    let dir = scratch("boot-bound");
+    let _c = Clean(dir.clone());
+    let log = dir.join("hc.log");
+    let bin = dir.join("Nightly.app/Contents/MacOS/herdr-core");
+    write_boot_script_body(
+        &bin,
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HC_LOG\"\n\
+if [ \"$1\" = server ] && [ \"$2\" = status ]; then\n  \
+printf '%s\\n' '{\"error\":{\"kind\":\"unavailable\",\"message\":\"down\"}}' >&2\n  exit 1\nfi\n\
+printf 'x'\nexit 0\n",
+    );
+    arm_boot(&bin, &log, false);
+    health::reset();
+    health::set_clock_ms(Some(8_000));
+    let started = Instant::now();
+    client::boot_server();
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed >= Duration::from_millis(client::START_READY_MS),
+        "bound not waited: {elapsed:?}"
+    );
+    assert!(health::events().is_empty(), "bound wait sampled: {:?}", health::events());
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    assert_eq!(
+        text.lines().filter(|l| l.contains("server start")).count(),
+        1,
+        "{text}"
+    );
+    health::boot_check(None);
+    assert_eq!(health::source(), Source::Fallback);
+    assert!(health::is_down());
+    let notes = health::take_unlogged();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].source, "fallback");
+    assert_eq!(notes[0].kind, "status");
+    health::boot_check(None);
+    assert!(health::take_unlogged().is_empty(), "second boot_check sampled");
 }
 
 #[test]

@@ -30,7 +30,7 @@ Ship the `herdr-core` binary only, with its Apache-2.0 `LICENSE` and `NOTICE`. R
 
 At launch, off the main thread, Orbitty takes one herdr-core health sample and writes one `herdr-health` event, so status is known before the first peek. A cold start still treats the first healthy sample as up. The 30 second recheck is unchanged.
 
-When `herdr_core` is on and locate found the bundled sibling (`Contents/MacOS/herdr-core`), and server status is not ok, Orbitty runs `herdr-core server start` once, detached. Peek, status, and seat launch do not start a server. If locate found `~/.local/bin/herdr-core` or `ORBITTY_HC`, Orbitty does not start or stop anything. If that start fails, one `herdr-health` fallback event is written and seats use Orbitty's own launcher.
+When `herdr_core` is on and locate found the bundled sibling (`Contents/MacOS/herdr-core`), and server status is not ok, Orbitty runs `herdr-core server start` once, detached. The same background thread then polls `server status` until it is ok, or for 2 seconds, and only then takes the one health sample. Those polls are not health samples, and the start process's exit code is not read. Setup does not wait. If the 2 seconds pass with status still not ok, that one sample is a fallback. Peek, status, and seat launch do not start a server. If locate found `~/.local/bin/herdr-core` or `ORBITTY_HC`, Orbitty does not start or stop anything. If that start fails to spawn, one `herdr-health` fallback event is written and seats use Orbitty's own launcher.
 
 When the flag is on and no herdr-core binary is found, herdr status and the peek bubble say: Agent terminals are off: herdr-core isn't installed. Orbitty will use its own launcher.
 

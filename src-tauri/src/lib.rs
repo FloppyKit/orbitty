@@ -992,6 +992,7 @@ pub fn run() {
             control::start(app.handle());
             crate::flags::auto_sweep(app.handle());
             // One herdr sample, and one bundled server start when status is not ok.
+            // boot_server returns only after status is ok or its short bound.
             // Off the main thread: setup does not wait.
             std::thread::spawn({
                 let app = app.handle().clone();
