@@ -1,7 +1,40 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import BoardNeeded from "./Needed.svelte";
   import StartDrop from "./StartDrop.svelte";
   import type { CardLink, KanbanCard } from "../persist";
+  import {
+    blockedLabel,
+    openBlockerIds,
+    setEdges,
+    waitingTitle,
+    type EdgeMap,
+  } from "./blockers";
+
+  let edges = $state<EdgeMap>({});
+
+  onMount(() => {
+    let dead = false;
+    const apply = (next: EdgeMap | null | undefined) => {
+      if (dead) return;
+      const map = next && typeof next === "object" ? next : {};
+      edges = map;
+      setEdges(map);
+    };
+    const pull = () => {
+      invoke<EdgeMap>("board_blockers").then(apply).catch(() => apply({}));
+    };
+    pull();
+    const stops: Array<() => void> = [];
+    listen<EdgeMap>("board:blockers", (ev) => apply(ev.payload)).then((un) => stops.push(un));
+    listen("state:changed", () => pull()).then((un) => stops.push(un));
+    return () => {
+      dead = true;
+      for (const un of stops) un();
+    };
+  });
 
   function linkChipText(link: CardLink): string {
     const label = (link.label ?? "").trim();
@@ -116,6 +149,12 @@
   {/if}
   {#if age}
     <span class="k-age" title="Last touched">{age}</span>
+  {/if}
+  {#if card.status !== "done"}
+    {@const open = openBlockerIds(edges, kanbanCards, card.id)}
+    {#if open.length}
+      <span class="b-blocked" title={waitingTitle(edges, kanbanCards, card.id)}>{blockedLabel(open.length)}</span>
+    {/if}
   {/if}
   {#if card.links?.[0]}
     <button

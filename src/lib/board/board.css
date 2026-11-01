@@ -709,6 +709,17 @@
     display: none;
   }
 
+  .b-blocked {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    line-height: 1.6;
+    color: var(--dim);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    padding: 0 0.4rem;
+    white-space: nowrap;
+  }
+
   .b-empty {
     margin: 2px;
     padding: 10px;

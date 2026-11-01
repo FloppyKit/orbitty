@@ -2,6 +2,9 @@
 
 import type { CardStatus as Status, KanbanCard, PersistedState } from "../persist";
 import type { ColumnMode } from "./planetColumn";
+// Node loads this module from qa and requires the .ts specifier.
+// @ts-expect-error bundler tsconfig does not set allowImportingTsExtensions
+import { getEdges, isBlocked } from "./blockers.ts";
 
 type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
 
@@ -316,6 +319,7 @@ export function moveCard(scope: Scope_moveCard, card: KanbanCard, target: Status
     scope.completeCard(card);
     return;
   }
+  if (target === "doing" && isBlocked(getEdges(), scope.kanbanCards, card)) return;
   const now = Date.now() / 1000;
   // Paint the column this frame. Doing-fire / walker attach run after
   // the save returns — awaiting them here is the todo→doing hitch.

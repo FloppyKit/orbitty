@@ -828,6 +828,7 @@ pub fn run() {
             open_accessibility_settings,
             prompt_accessibility,
             load_state,
+            board::blockers::board_blockers,
             save_window_state,
             set_peer_chrome,
             event_log::log_event,
