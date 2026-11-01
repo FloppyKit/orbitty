@@ -8,6 +8,7 @@ import {
   launcherItems,
   launcherKey,
   noteRecent,
+  pickIndex,
   rankItems,
   type LaunchCtx,
   type LaunchRow,
@@ -378,6 +379,85 @@ test("D11 launcher styles use theme vars only", () => {
   assert.equal(/rgb\(/.test(style), false, style);
   assert.match(style, /var\(--accent\)/);
   assert.match(style, /var\(--focus-ring\)/);
+});
+
+test("one_word_prefix_preselects_command", () => {
+  const items = launcherItems(ctx({ query: "boa" }));
+  const picked = pickIndex("boa", items);
+  assert.equal(items[0]?.kind, "ask");
+  assert.equal(picked, 1);
+  assert.equal(items[picked]?.title, "Open Board");
+  assert.equal(items[picked]?.kind, "command");
+  const up = launcherKey(
+    { query: "boa", selected: picked, count: items.length, visibleStart: 0, stash: null },
+    { key: "ArrowUp" },
+    items.map((row) => row.title),
+  );
+  assert.equal(up.state.selected, 0);
+  assert.equal(up.state.query, "boa");
+
+  const armed = launcherItems(
+    ctx({ query: "boa", armed: { id: "n1", title: "Bring milk" } }),
+  );
+  assert.equal(armed[0]?.kind, "answer");
+  assert.equal(pickIndex("boa", armed), 0);
+
+  assert.equal(pickIndex("yes", launcherItems(ctx({ query: "yes" }))), 0);
+  assert.equal(pickIndex("ok", launcherItems(ctx({ query: "ok" }))), 0);
+  assert.equal(pickIndex("bd", launcherItems(ctx({ query: "bd" }))), 0);
+});
+
+test("two_words_keep_ask_first", () => {
+  for (const query of ["what is on the board today", "open board", "?boa", "? what"]) {
+    const items = launcherItems(ctx({ query }));
+    assert.equal(items[0]?.kind, "ask", query);
+    assert.equal(pickIndex(query, items), 0, query);
+  }
+});
+
+test("esc_with_selection_only_collapses", () => {
+  const state = {
+    query: "hello boa",
+    selected: 2,
+    count: 6,
+    visibleStart: 1,
+    stash: "kept",
+  };
+  const result = launcherKey(state, { key: "Escape", hasSelection: true }, []);
+  assert.equal(result.effect, "collapse-selection");
+  assert.equal(result.state.query, "hello boa");
+  assert.equal(result.state.selected, 2);
+  assert.equal(result.state.visibleStart, 1);
+  assert.equal(result.state.stash, "kept");
+  assert.equal(result.runIndex, undefined);
+});
+
+test("esc_ladder_unchanged_without_selection", () => {
+  const base = {
+    query: "boa",
+    selected: 0,
+    count: 8,
+    visibleStart: 0,
+    stash: null,
+  };
+  const moved = launcherKey(
+    { ...base, selected: 3 },
+    { key: "Escape", hasSelection: false },
+    [],
+  );
+  assert.equal(moved.effect, "none");
+  assert.equal(moved.state.selected, 0);
+  assert.equal(moved.state.query, "boa");
+  assert.equal(moved.state.stash, null);
+  const cleared = launcherKey(moved.state, { key: "Escape" }, []);
+  assert.equal(cleared.state.query, "");
+  assert.equal(cleared.state.stash, "boa");
+  assert.equal(cleared.effect, "none");
+  const blurred = launcherKey(cleared.state, { key: "Escape" }, []);
+  assert.equal(blurred.effect, "blur");
+  const restored = launcherKey(cleared.state, { key: "z", meta: true }, []);
+  assert.equal(restored.state.query, "boa");
+  assert.equal(restored.state.stash, null);
 });
 
 test("D12 global shortcuts stay byte-identical", () => {

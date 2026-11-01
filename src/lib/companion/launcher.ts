@@ -54,6 +54,8 @@ export type KeyInput = {
   alt?: boolean;
   ctrl?: boolean;
   composing?: boolean;
+  /** Field has a non-empty selection. Esc collapses that and stops. */
+  hasSelection?: boolean;
 };
 
 export type KeyState = {
@@ -64,7 +66,14 @@ export type KeyState = {
   stash: string | null;
 };
 
-export type KeyEffect = "run" | "newline" | "complete" | "blur" | "ignore" | "none";
+export type KeyEffect =
+  | "run"
+  | "newline"
+  | "complete"
+  | "blur"
+  | "ignore"
+  | "collapse-selection"
+  | "none";
 
 export type KeyResult = {
   state: KeyState;
@@ -389,6 +398,27 @@ export function rankItems(
   return matched.map((item) => item.row);
 }
 
+/**
+ * Which row Enter / Send should run for a fresh query.
+ * Ask stays row 0. One word with no spaces preselects the first command
+ * that matches by exact word or word-start (tier 0–1), so "boa" is Open
+ * Board and Ask is one ArrowUp away. Two or more words, a leading "?",
+ * a slash, an armed answer row, or a subsequence-only match stay on row 0.
+ */
+export function pickIndex(query: string, items: readonly LaunchRow[]): number {
+  const raw = query.trim();
+  if (!raw || raw.startsWith("?") || raw.startsWith("/") || /\s/.test(raw)) return 0;
+  if (items[0]?.kind === "answer") return 0;
+  const q = raw.toLowerCase();
+  for (let i = 0; i < items.length; i++) {
+    const row = items[i];
+    if (!row || row.kind !== "command") continue;
+    const scored = scoreTitle(q, row.title);
+    if (scored && scored.tier <= 1) return i;
+  }
+  return 0;
+}
+
 export function launcherItems(ctx: LaunchCtx, recents: readonly string[] = []): LaunchRow[] {
   const rows = catalogue(ctx);
   const raw = ctx.query.trim();
@@ -471,6 +501,7 @@ export function launcherKey(state: KeyState, input: KeyInput, titles: readonly s
     };
   }
   if (key === "Escape") {
+    if (input.hasSelection) return { state, effect: "collapse-selection" };
     if (state.selected !== 0) {
       return { state: { ...state, selected: 0, visibleStart: 0 }, effect: "none" };
     }
@@ -483,4 +514,31 @@ export function launcherKey(state: KeyState, input: KeyInput, titles: readonly s
     return { state, effect: "blur" };
   }
   return { state, effect: "none" };
+}
+
+/** Border-box height and the sprite-on grow extra for one field measure.
+ *  Collapsed (docked, not hosted) never caps, sprite on or off: capping
+ *  is what hid the draft after the window left the grow path. Expanded
+ *  and hosted keep the 6-line cap. `sprite` is part of the key so a flip
+ *  recomputes; it does not shrink the box. The extra stays the grown
+ *  lines so a sprite-off hug still re-fires when the draft gets taller. */
+export function refitComposer(input: {
+  needed: number;
+  oneLineH: number;
+  lineH: number;
+  expanded: boolean;
+  hostedOff: boolean;
+  sprite: boolean;
+  maxExtraLines?: number;
+}): { height: number; composerExtra: number; scroll: boolean } {
+  const maxExtra = input.maxExtraLines ?? 5;
+  const collapsed = !input.expanded && input.hostedOff;
+  const max = input.oneLineH > 0 ? input.oneLineH + maxExtra * input.lineH : input.needed;
+  const scroll = !collapsed && input.needed > max + 0.5;
+  return {
+    height: scroll ? max : input.needed,
+    composerExtra:
+      collapsed && input.oneLineH > 0 ? Math.max(0, Math.round(input.needed - input.oneLineH)) : 0,
+    scroll,
+  };
 }
