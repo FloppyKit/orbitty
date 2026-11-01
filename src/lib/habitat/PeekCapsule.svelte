@@ -55,6 +55,21 @@
     stop();
   }
 
+  async function openTerminal() {
+    if (!card) {
+      status = "Nothing to open for this card.";
+      return;
+    }
+    try {
+      const v = await invoke<{ ok?: boolean; reason?: string }>("herdr_jump", { card });
+      if (v && v.ok === false) {
+        status = v.reason || "Couldn't open the terminal.";
+      }
+    } catch (e) {
+      status = typeof e === "string" && e.trim() ? e : "Couldn't open the terminal.";
+    }
+  }
+
   onMount(() => {
     let un: (() => void) | undefined;
     void listen<Capsule>("herdr-peek", (ev) => {
@@ -83,6 +98,9 @@
         <button type="button" class="peek-btn" onclick={closePeek}>close</button>
       {:else}
         <button type="button" class="peek-btn" onclick={openPeek}>peek</button>
+      {/if}
+      {#if status !== "unknown"}
+        <button type="button" class="peek-btn" onclick={openTerminal}>Open terminal</button>
       {/if}
       <button type="button" class="peek-btn" onclick={() => (shown = false)}>hide</button>
     </div>
