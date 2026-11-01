@@ -324,8 +324,8 @@ fn open_prepared(
             }
         }
     }
-    let dir = context_dir(app)?;
-    let path = write_command(&dir, card, body)?;
+    let dir = context_dir(app).map_err(|_| OPEN_FAIL.to_string())?;
+    let path = write_command(&dir, card, body).map_err(|_| OPEN_FAIL.to_string())?;
     let app_name = crate::coordinator::resolve_agent_terminal(
         setting,
         crate::coordinator::ghostty_installed(),
