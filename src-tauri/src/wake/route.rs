@@ -151,12 +151,18 @@ impl EventView {
             str_field(&body, "cardId"),
         ]);
         let key = first_nonempty(&[str_field(v, "key"), str_field(&body, "key")]);
-        let summary = first_nonempty(&[
-            str_field(v, "summary"),
-            str_field(&body, "summary"),
-            str_field(&body, "title"),
-            e_type.clone(),
-        ]);
+        // A board move carries from/to, not a title. Name the card
+        // (id here; the worker fills the board title) instead of the e-type.
+        let summary = if let Some(mv) = move_summary(v, &body, &card) {
+            mv
+        } else {
+            first_nonempty(&[
+                str_field(v, "summary"),
+                str_field(&body, "summary"),
+                str_field(&body, "title"),
+                e_type.clone(),
+            ])
+        };
         let id = first_nonempty(&[
             str_field(v, "id"),
             store::tag(v, "trace"),
@@ -174,6 +180,57 @@ impl EventView {
             source: source.into(),
         }
     }
+
+    /// Stable-shaped line: no `seq`. `line_off` keeps a missing id unique.
+    pub fn from_seqless(v: &Value, seq: u64, line_off: u64) -> Option<Self> {
+        let has_id = v
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty());
+        let has_kind = v.get("kind").and_then(Value::as_u64).is_some();
+        if !has_id && !has_kind {
+            return None;
+        }
+        let mut ev = Self::from_fields(v, seq, "events");
+        if !has_id {
+            ev.id = format!("legacy-{line_off}");
+        }
+        Some(ev)
+    }
+}
+
+fn move_summary(v: &Value, body: &Value, card: &str) -> Option<String> {
+    let from = first_nonempty(&[str_field(body, "from"), str_field(v, "from")]);
+    let to = first_nonempty(&[str_field(body, "to"), str_field(v, "to")]);
+    if from.is_empty() && to.is_empty() {
+        return None;
+    }
+    let name = if card.is_empty() {
+        "card".to_string()
+    } else {
+        card.to_string()
+    };
+    Some(format!("{name}: {from} -> {to}"))
+}
+
+/// Replace a `cardId: from -> to` summary with the board title when one exists.
+pub fn stamp_board_title(dir: &std::path::Path, ev: &mut EventView) {
+    if ev.e_type != "board-move" || ev.card.is_empty() {
+        return;
+    }
+    let head = format!("{}: ", ev.card);
+    let Some(rest) = ev.summary.strip_prefix(&head) else {
+        return;
+    };
+    if !rest.contains(" -> ") {
+        return;
+    }
+    let title = store::card_title(dir, &ev.card);
+    let title = title.trim();
+    if title.is_empty() {
+        return;
+    }
+    ev.summary = clip(&format!("{title}: {rest}"), 200);
 }
 
 fn str_field(v: &Value, name: &str) -> String {

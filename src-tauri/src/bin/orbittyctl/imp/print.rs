@@ -540,6 +540,11 @@ pub(crate) fn print_human(tool: &str, data: &Value) {
             let at = data["at"].as_str().unwrap_or("null");
             let unacked = data["unacked"].as_u64().unwrap_or(0);
             println!("active={active} at={at} unacked={unacked}");
+            if data["seq_ok"].as_bool() == Some(false) {
+                if let Some(w) = data["seq_warn"].as_str().filter(|s| !s.is_empty()) {
+                    println!("{w}");
+                }
+            }
         }
         "wake.subscribe" => {
             println!(

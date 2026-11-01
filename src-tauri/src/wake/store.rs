@@ -141,6 +141,62 @@ pub fn load_cursor(app_dir: &Path) -> u64 {
         .unwrap_or(0)
 }
 
+#[derive(Serialize, Deserialize, Default)]
+struct LegacyMark {
+    v: u8,
+    off: u64,
+    #[serde(default)]
+    ids: Vec<String>,
+}
+
+/// Byte offset and event ids for seq-less lines. Not events.jsonl, not state.json.
+pub fn load_legacy(app_dir: &Path) -> (u64, Vec<String>) {
+    let path = wake_dir(app_dir).join("legacy.json");
+    let Ok(raw) = fs::read(&path) else {
+        return (0, Vec::new());
+    };
+    serde_json::from_slice::<LegacyMark>(&raw)
+        .map(|m| (m.off, m.ids))
+        .unwrap_or((0, Vec::new()))
+}
+
+pub fn save_legacy(app_dir: &Path, off: u64, ids: &[String]) -> Result<(), String> {
+    ensure_tree(app_dir)?;
+    let file = LegacyMark {
+        v: 1,
+        off,
+        ids: ids.to_vec(),
+    };
+    let bytes = serde_json::to_vec(&file).map_err(|e| format!("legacy: {e}"))?;
+    write_atomic(&wake_dir(app_dir).join("legacy.json"), &bytes)
+}
+
+/// Read-only title for a card id. Missing file or id is empty. Never writes.
+pub fn card_title(app_dir: &Path, card_id: &str) -> String {
+    if card_id.is_empty() {
+        return String::new();
+    }
+    let Ok(raw) = fs::read(app_dir.join("state.json")) else {
+        return String::new();
+    };
+    let Ok(v) = serde_json::from_slice::<Value>(&raw) else {
+        return String::new();
+    };
+    let key = format!("{}Cards", ["kan", "ban"].concat());
+    v.get(key)
+        .and_then(Value::as_array)
+        .and_then(|cards| {
+            cards.iter().find_map(|c| {
+                if c.get("id").and_then(Value::as_str) == Some(card_id) {
+                    c.get("title").and_then(Value::as_str).map(str::to_string)
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or_default()
+}
+
 pub fn save_cursor(app_dir: &Path, seq: u64) -> Result<(), String> {
     ensure_tree(app_dir)?;
     let file = CursorFile { v: 1, seq };

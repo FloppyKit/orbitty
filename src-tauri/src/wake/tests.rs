@@ -513,6 +513,7 @@ fn ack_fold_and_emit_do_not_hide_later_move() {
     emit_sub.trigger.source = "emit".into();
     put_sub(&dir, emit_sub).unwrap();
     let tip = store::log_tip(&dir);
+    write_flag(&dir, "event_seq", true);
     dispatch(
         &dir,
         "wake.emit",
@@ -735,5 +736,218 @@ fn flag_off_relay_only() {
     assert!(!log.contains("send"), "{log}");
     assert!(switch_events(&dir).is_empty());
     crate::herdr::client::reset_overrides();
+    let _ = fs::remove_dir_all(&dir);
+}
+
+fn append_raw(dir: &Path, line: &str) {
+    let mut f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("events.jsonl"))
+        .unwrap();
+    writeln!(f, "{line}").unwrap();
+}
+
+fn seqless_move(id: &str, card: &str, from: &str, to: &str) -> String {
+    format!(
+        r#"{{"id":"{id}","pubkey":"","created_at":1,"kind":421,"tags":[["t","orbitty"],["d","{card}"],["project","planet"]],"content":"{{\"cardId\":\"{card}\",\"from\":\"{from}\",\"to\":\"{to}\"}}","sig":""}}"#
+    )
+}
+
+fn seq_move(seq: u64, id: &str, card: &str, from: &str, to: &str) -> String {
+    format!(
+        r#"{{"seq":{seq},"id":"{id}","pubkey":"","created_at":1,"kind":421,"tags":[["t","orbitty"],["d","{card}"],["project","planet"]],"content":"{{\"cardId\":\"{card}\",\"from\":\"{from}\",\"to\":\"{to}\"}}","sig":""}}"#
+    )
+}
+
+#[test]
+fn wake_refuses_sub_when_event_seq_off() {
+    let dir = scratch_dir("seq-off-sub");
+    arm(&dir, true, false);
+    let err = dispatch(
+        &dir,
+        "wake.subscribe",
+        &json!({"seat":"primary","e_types":["board-move"]}),
+        "ctl:1",
+    )
+    .unwrap_err();
+    assert_eq!(err, SEQ_NEED);
+    assert!(!err.contains('\n'), "{err}");
+    for tool in [
+        "wake.unsubscribe",
+        "wake.ack",
+        "wake.alarm",
+        "wake.emit",
+    ] {
+        let err = dispatch(
+            &dir,
+            tool,
+            &json!({"seat":"primary","source":"x","at":"+1m","upto_seq":1,"id":"s"}),
+            "ctl:1",
+        )
+        .unwrap_err();
+        assert_eq!(err, SEQ_NEED, "{tool}");
+    }
+    assert!(!files_exist(&dir), "wake file written");
+    for tool in ["wake.list", "wake.inbox", "wake.status", "wake.resume"] {
+        dispatch(&dir, tool, &json!({"seat":"primary"}), "ctl:1")
+            .unwrap_or_else(|e| panic!("{tool} {e}"));
+    }
+    assert!(!files_exist(&dir), "read verb wrote a wake file");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn wake_status_reports_seq_off() {
+    let dir = scratch_dir("seq-off-status");
+    arm(&dir, true, false);
+    let st = dispatch(&dir, "wake.status", &json!({"seat":"primary"}), "ctl:1").unwrap();
+    assert_eq!(st["seq_ok"], false);
+    assert_eq!(st["seq_warn"], SEQ_NEED);
+    write_flag(&dir, "event_seq", true);
+    let on = dispatch(&dir, "wake.status", &json!({"seat":"primary"}), "ctl:1").unwrap();
+    assert_eq!(on["seq_ok"], true);
+    assert!(on.get("seq_warn").is_none());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn seqless_line_routes_once() {
+    let dir = scratch_dir("seqless-once");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    append_raw(&dir, &seqless_move("stable-1", "c1", "todo", "doing"));
+    run_drain(&dir, &clock(1_700_000_000)).unwrap();
+    let seat = SeatId::parse("primary").unwrap();
+    let lines = store::read_inbox(&dir, &seat);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["event_id"], "stable-1");
+    assert_eq!(lines[0]["seq"].as_u64(), Some(store::log_tip(&dir)));
+    run_drain(&dir, &clock(1_700_000_100)).unwrap();
+    assert_eq!(store::read_inbox(&dir, &seat).len(), 1);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn seqless_line_not_rerouted_after_restart() {
+    let dir = scratch_dir("seqless-restart");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    append_raw(&dir, &seqless_move("stable-2", "c1", "todo", "doing"));
+    run_drain(&dir, &clock(1_700_000_000)).unwrap();
+    let seat = SeatId::parse("primary").unwrap();
+    assert_eq!(store::read_inbox(&dir, &seat).len(), 1);
+    let mut state = store::load_state(&dir);
+    state.seen.clear();
+    state.logical.clear();
+    store::save_state(&dir, &state).unwrap();
+    run_drain(&dir, &clock(1_700_000_200)).unwrap();
+    assert_eq!(store::read_inbox(&dir, &seat).len(), 1);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn seqless_same_id_seq_line_does_not_double() {
+    let dir = scratch_dir("seqless-id");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    append_raw(&dir, &seqless_move("same-id", "c1", "todo", "doing"));
+    run_drain(&dir, &clock(1_700_000_000)).unwrap();
+    append_raw(&dir, &seq_move(4, "same-id", "c1", "doing", "done"));
+    let mut state = store::load_state(&dir);
+    state.seen.clear();
+    store::save_state(&dir, &state).unwrap();
+    run_drain(&dir, &clock(1_700_000_300)).unwrap();
+    let seat = SeatId::parse("primary").unwrap();
+    assert_eq!(
+        store::read_inbox(&dir, &seat).len(),
+        1,
+        "same id routed twice"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn seqless_then_seq_line_both_route_in_order() {
+    let dir = scratch_dir("seqless-order");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    append_raw(&dir, &seqless_move("stable-3", "c1", "todo", "doing"));
+    append_log(&dir, &[7]);
+    run_drain(&dir, &clock(1_700_000_000)).unwrap();
+    let seat = SeatId::parse("primary").unwrap();
+    let lines = store::read_inbox(&dir, &seat);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert_eq!(lines[0]["event_id"], "stable-3");
+    assert_eq!(lines[1]["event_id"], "e7");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn events_jsonl_bytes_unchanged_by_worker() {
+    let dir = scratch_dir("seqless-bytes");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    append_raw(&dir, &seqless_move("stable-4", "c1", "todo", "doing"));
+    append_log(&dir, &[1]);
+    let before = fs::read(dir.join("events.jsonl")).unwrap();
+    run_drain(&dir, &clock(1_700_000_000)).unwrap();
+    let after = fs::read(dir.join("events.jsonl")).unwrap();
+    // Existing wake audit lines (kind 31200) are appended. The input
+    // bytes are not rewritten and the seq-less line gains no seq field.
+    assert!(
+        after.starts_with(&before),
+        "worker rewrote events.jsonl"
+    );
+    let first = after.split(|b| *b == b'\n').next().unwrap_or(&[]);
+    let line: Value = serde_json::from_slice(first).unwrap();
+    assert!(line.get("seq").is_none(), "seq injected into a seq-less line");
+    assert_eq!(line["id"], "stable-4");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn no_state_json_field_added() {
+    let dir = scratch_dir("seqless-state");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    let state = br#"{"themeId":"dark","kanbanCards":[{"id":"c1","title":"Keep"}]}"#;
+    fs::write(dir.join("state.json"), state).unwrap();
+    append_raw(&dir, &seqless_move("stable-5", "c1", "todo", "doing"));
+    let before = fs::read(dir.join("state.json")).unwrap();
+    run_drain(&dir, &clock(1_700_000_000)).unwrap();
+    assert_eq!(fs::read(dir.join("state.json")).unwrap(), before);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn board_move_summary_has_title() {
+    let dir = scratch_dir("move-title");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    fs::write(
+        dir.join("state.json"),
+        br#"{"kanbanCards":[{"id":"c9","title":"TEST 28 wake title"}]}"#,
+    )
+    .unwrap();
+    append_raw(&dir, &seq_move(3, "e-title", "c9", "todo", "doing"));
+    run_drain(&dir, &clock(1_700_000_000)).unwrap();
+    assert_eq!(
+        inbox_summaries(&dir, "primary"),
+        vec!["TEST 28 wake title: todo -> doing".to_string()]
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn board_move_summary_falls_back_to_card_id() {
+    let dir = scratch_dir("move-fallback");
+    arm(&dir, true, false);
+    put_sub(&dir, sub("s", "primary", 0, 20, "board-move")).unwrap();
+    append_raw(&dir, &seqless_move("stable-f", "c-missing", "doing", "todo"));
+    run_drain(&dir, &clock(1_700_000_000)).unwrap();
+    let sums = inbox_summaries(&dir, "primary");
+    assert_eq!(sums, vec!["c-missing: doing -> todo".to_string()]);
+    assert!(sums.iter().all(|s| s != "board-move"));
     let _ = fs::remove_dir_all(&dir);
 }

@@ -76,6 +76,21 @@ fn refuse_off(tool: &str) -> String {
     crate::flags::refusal(tool, "wake_core")
 }
 
+/// Shown by every wake write verb and by `wake.status` when seq is off.
+pub const SEQ_NEED: &str = "wake_core needs event_seq on: orbittyctl flags set event_seq on";
+
+fn event_seq_on(dir: &Path) -> bool {
+    crate::flags::on_in_dir(dir, "event_seq")
+}
+
+fn ensure_seq(dir: &Path) -> Result<(), String> {
+    if event_seq_on(dir) {
+        Ok(())
+    } else {
+        Err(SEQ_NEED.into())
+    }
+}
+
 pub fn boot(app: &tauri::AppHandle) {
     if !crate::flags::on(app, "wake_core") {
         worker::stop();
@@ -108,9 +123,21 @@ pub fn call(
     dispatch(&dir, tool, args, caller_raw)
 }
 
+const WRITE_TOOLS: &[&str] = &[
+    "wake.subscribe",
+    "wake.unsubscribe",
+    "wake.ack",
+    "wake.alarm",
+    "wake.emit",
+];
+
 pub fn dispatch(dir: &Path, tool: &str, args: &Value, caller_raw: &str) -> Result<Value, String> {
     if !wake_on(dir) {
         return Err(refuse_off(tool));
+    }
+    // Read verbs still answer. Writes refuse; they do not flip the flag.
+    if WRITE_TOOLS.contains(&tool) {
+        ensure_seq(dir)?;
     }
     let caller = Caller::parse(caller_raw);
     match tool {
@@ -243,11 +270,17 @@ pub fn status_json(dir: &Path, seat: &SeatId, clock: &Clock) -> Value {
         .as_deref()
         .and_then(alarm::unix_of)
         .is_some_and(|t| t <= clock.unix);
-    json!({
+    let seq_ok = event_seq_on(dir);
+    let mut out = json!({
         "active": unacked > 0 || due,
         "at": at,
         "unacked": unacked,
-    })
+        "seq_ok": seq_ok,
+    });
+    if !seq_ok {
+        out["seq_warn"] = json!(SEQ_NEED);
+    }
+    out
 }
 
 fn subscribe(dir: &Path, args: &Value, caller: &Caller) -> Result<Value, String> {

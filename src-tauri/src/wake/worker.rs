@@ -2,6 +2,7 @@
 //! The relay log is the fallback and the durable record. Append never waits
 //! on this loop: `notify` is `try_send` on a 1-slot channel.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
@@ -135,26 +136,23 @@ fn apply(dir: &Path, clock: &Clock, pull: BusPull, primary: bool) -> Result<Drai
             let Some(mapped) = crate::herdr::events::map_value(&raw) else {
                 continue;
             };
-            let Some(ev) = EventView::from_hc(&mapped) else {
+            let Some(mut ev) = EventView::from_hc(&mapped) else {
                 continue;
             };
+            route::stamp_board_title(dir, &mut ev);
             n += apply_event(dir, &ev, &subs, &perm, clock, &mut state, &bus)?;
         }
     }
 
     if pull.use_relay() {
-        let path = store::events_path(dir);
-        let (batch, _) = crate::relay::event_seq::since(&path, cursor, 500)
-            .map_err(|e| format!("since: {e}"))?;
-        for raw in batch {
-            let Some(ev) = EventView::from_log(&raw) else {
-                continue;
-            };
-            n += apply_event(dir, &ev, &subs, &perm, clock, &mut state, &bus)?;
-            cursor = cursor.max(ev.seq);
-        }
+        let pulled = route_relay(dir, cursor, &subs, &perm, clock, &mut state, &bus)?;
+        n += pulled.n;
+        cursor = pulled.cursor;
         // Cursor moves only after the batch is routed.
         store::save_cursor(dir, cursor)?;
+        if pulled.legacy_off > 0 || !pulled.legacy_ids.is_empty() {
+            store::save_legacy(dir, pulled.legacy_off, &pulled.legacy_ids)?;
+        }
     }
 
     for d in route::roll_noise(&subs, clock, &mut state) {
@@ -169,6 +167,165 @@ fn apply(dir: &Path, clock: &Clock, pull: BusPull, primary: bool) -> Result<Drai
         lines: n as usize,
         bus,
     })
+}
+
+struct RelayPull {
+    n: u32,
+    cursor: u64,
+    legacy_off: u64,
+    legacy_ids: Vec<String>,
+}
+
+const LEGACY_ID_CAP: usize = 4_000;
+const SEQLESS_CAP: usize = 500;
+
+fn id_seen(ids: &[String], id: &str) -> bool {
+    !id.is_empty() && ids.iter().any(|s| s == id)
+}
+
+fn remember_id(ids: &mut Vec<String>, id: &str) {
+    if id.is_empty() || ids.iter().any(|s| s == id) {
+        return;
+    }
+    ids.push(id.to_string());
+    if ids.len() > LEGACY_ID_CAP {
+        let drop_n = ids.len() - LEGACY_ID_CAP;
+        ids.drain(0..drop_n);
+    }
+}
+
+/// Real-seq lines still come from `since`. Seq-less lines (Stable writes)
+/// are walked in file order, stamped with `log_tip`, and remembered by id
+/// under wake/legacy.json. events.jsonl is only read.
+fn route_relay(
+    dir: &Path,
+    mut cursor: u64,
+    subs: &[route::Sub],
+    perm: &Perm,
+    clock: &Clock,
+    state: &mut route::RouteState,
+    bus: &str,
+) -> Result<RelayPull, String> {
+    let path = store::events_path(dir);
+    let (batch, _) =
+        crate::relay::event_seq::since(&path, cursor, 500).map_err(|e| format!("since: {e}"))?;
+    let allow: BTreeSet<u64> = batch
+        .iter()
+        .filter_map(|v| v.get("seq").and_then(Value::as_u64))
+        .collect();
+    let (mark, mut ids) = store::load_legacy(dir);
+    let raw = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(RelayPull {
+                n: 0,
+                cursor,
+                legacy_off: mark,
+                legacy_ids: ids,
+            });
+        }
+        Err(e) => return Err(format!("read {}: {e}", path.display())),
+    };
+    let tip = store::log_tip(dir);
+    let cap_off = if allow.is_empty() {
+        u64::MAX
+    } else {
+        last_allow_end(&raw, &allow).unwrap_or(u64::MAX)
+    };
+    let mut n = 0u32;
+    let mut off = mark;
+    let mut seqless_n = 0usize;
+    let mut i = 0usize;
+    while i < raw.len() {
+        let start = i;
+        let Some(rel) = raw[i..].iter().position(|b| *b == b'\n') else {
+            break;
+        };
+        let end = i + rel;
+        let next = end + 1;
+        i = next;
+        if cap_off != u64::MAX && (next as u64) > cap_off {
+            break;
+        }
+        let line = &raw[start..end];
+        if line.is_empty() {
+            off = next as u64;
+            continue;
+        }
+        let Ok(text) = std::str::from_utf8(line) else {
+            off = next as u64;
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<Value>(text) else {
+            off = next as u64;
+            continue;
+        };
+        if let Some(seq) = v.get("seq").and_then(Value::as_u64) {
+            if allow.contains(&seq) {
+                if let Some(mut ev) = EventView::from_log(&v) {
+                    route::stamp_board_title(dir, &mut ev);
+                    if !id_seen(&ids, &ev.id) {
+                        n += apply_event(dir, &ev, subs, perm, clock, state, bus)?;
+                    }
+                    cursor = cursor.max(ev.seq);
+                }
+            }
+            off = next as u64;
+            continue;
+        }
+        if (next as u64) <= mark {
+            off = next as u64;
+            continue;
+        }
+        if seqless_n >= SEQLESS_CAP {
+            break;
+        }
+        if let Some(mut ev) = EventView::from_seqless(&v, tip, start as u64) {
+            route::stamp_board_title(dir, &mut ev);
+            if !id_seen(&ids, &ev.id) {
+                n += apply_event(dir, &ev, subs, perm, clock, state, bus)?;
+                remember_id(&mut ids, &ev.id);
+            }
+            seqless_n += 1;
+        }
+        off = next as u64;
+    }
+    Ok(RelayPull {
+        n,
+        cursor,
+        legacy_off: off,
+        legacy_ids: ids,
+    })
+}
+
+fn last_allow_end(raw: &[u8], allow: &BTreeSet<u64>) -> Option<u64> {
+    let mut i = 0usize;
+    let mut found = None;
+    while i < raw.len() {
+        let start = i;
+        let Some(rel) = raw[i..].iter().position(|b| *b == b'\n') else {
+            break;
+        };
+        let end = i + rel;
+        let next = end + 1;
+        i = next;
+        let line = &raw[start..end];
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(text) = std::str::from_utf8(line) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<Value>(text) else {
+            continue;
+        };
+        if let Some(seq) = v.get("seq").and_then(Value::as_u64) {
+            if allow.contains(&seq) {
+                found = Some(next as u64);
+            }
+        }
+    }
+    found
 }
 
 fn apply_event(
