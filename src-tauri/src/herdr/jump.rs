@@ -236,8 +236,26 @@ pub(crate) fn terminal_argv(app_name: &str, script: &Path) -> Vec<String> {
     crate::coordinator::open_terminal_argv(app_name, script)
 }
 
+/// Args for `open`. Ghostty does not execute a `.command` file: `open -a
+/// Ghostty <script>` returns and the script never starts. A new instance
+/// runs it (`-e /bin/zsh <script>`). Other apps keep `-a <app> <script>`.
+pub(crate) fn open_argv(app_name: &str, script: &Path) -> Vec<String> {
+    if app_name == "Ghostty" {
+        vec![
+            "-na".into(),
+            "Ghostty.app".into(),
+            "--args".into(),
+            "-e".into(),
+            "/bin/zsh".into(),
+            script.display().to_string(),
+        ]
+    } else {
+        terminal_argv(app_name, script)
+    }
+}
+
 fn reveal(app_name: &str, script: &Path) -> bool {
-    let argv = terminal_argv(app_name, script);
+    let argv = open_argv(app_name, script);
     let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
     #[cfg(test)]
     {

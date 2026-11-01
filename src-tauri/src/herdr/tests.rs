@@ -1464,6 +1464,31 @@ fn jump_script_quotes_every_value() {
 }
 
 #[test]
+fn jump_ghostty_open_runs_the_script() {
+    let script = PathBuf::from("/tmp/orbitty jump.command");
+    let argv = jump::open_argv("Ghostty", &script);
+    assert_eq!(
+        argv,
+        vec![
+            "-na".to_string(),
+            "Ghostty.app".into(),
+            "--args".into(),
+            "-e".into(),
+            "/bin/zsh".into(),
+            script.display().to_string(),
+        ]
+    );
+    assert_eq!(
+        jump::open_argv("Terminal", &script),
+        vec![
+            "-a".to_string(),
+            "Terminal".into(),
+            script.display().to_string(),
+        ]
+    );
+}
+
+#[test]
 fn jump_script_observe_flag_follows_mode() {
     let watch = jump::script_text("/opt/bin/hc", "t1", jump::Mode::Observe);
     let full = jump::script_text("/opt/bin/hc", "t1", jump::Mode::Full);
