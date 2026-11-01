@@ -198,6 +198,11 @@ impl CursorPermUndo {
 /// - An untracked one is union-merged: the user's allow/deny stay (a user
 ///   deny is never dropped), ours are appended; what we added is recorded
 ///   in `.cursor/orbitty-managed.json` so the next preset can take it back.
+/// - Never writes a top-level `"version"` key. cursor-agent 2026.10.22
+///   rejects it on a project cli.json (`Unrecognized key: "version"`).
+///   An untracked file that already has the sidecar loses an app-written
+///   `"version": 1` on the next install. A user file with no sidecar
+///   keeps its own version key.
 /// - In a git repo, `**/.cursor/cli.json` goes in the exclude git reads
 ///   (`rev-parse --git-path info/exclude`); never `git add`.
 /// Cleanup: delete `.cursor/cli.json` + `.cursor/orbitty-managed.json`.
@@ -229,7 +234,7 @@ pub(crate) fn install_cursor_permissions_with_home(
             Ok(_) => return Err(format!("{} is not a JSON object; left untouched", path.display())),
             Err(_) => return Err(format!("{} is not valid JSON; left untouched", path.display())),
         },
-        None => serde_json::json!({ "version": 1 }),
+        None => serde_json::json!({}),
     };
     let managed: serde_json::Value = prev_side
         .as_deref()
@@ -241,8 +246,15 @@ pub(crate) fn install_cursor_permissions_with_home(
     let file_perm = root.get("permissions").cloned().unwrap_or_else(|| serde_json::json!({}));
     let (allow, added_allow) = union_list(&str_list(&file_perm["allow"]), &str_list(&managed["allow"]), &ours_allow);
     let (deny, added_deny) = union_list(&str_list(&file_perm["deny"]), &str_list(&managed["deny"]), &ours_deny);
-    if root.get("version").is_none() {
-        root["version"] = serde_json::json!(1);
+    // Next install of an untracked app-managed file: drop the version key
+    // we used to write. A tracked file already returned. No sidecar means
+    // this file is still the user's — leave their version alone.
+    if prev_side.is_some() {
+        if root.get("version").and_then(|v| v.as_i64()) == Some(1) {
+            if let Some(obj) = root.as_object_mut() {
+                obj.remove("version");
+            }
+        }
     }
     let mut perm = if file_perm.is_object() { file_perm } else { serde_json::json!({}) };
     perm["allow"] = serde_json::json!(allow);

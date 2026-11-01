@@ -569,3 +569,203 @@ include_str!("launch_tests.rs")
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    fn sample_go(yaml: &str) -> GoLaunch {
+        GoLaunch {
+            parsed: crate::plans::ParsedGo {
+                path: PathBuf::from("/tmp/go.md"),
+                raw: yaml.to_string(),
+                yaml: yaml.to_string(),
+                header: crate::plans::GoHeader::default(),
+                body: String::new(),
+                legacy: false,
+            },
+            run: crate::plans::ResolvedRun {
+                runner: "cursor".into(),
+                harness: "cursor".into(),
+                model: String::new(),
+                tools: vec![],
+                push_allowed: false,
+                fallback: None,
+                source: "test".into(),
+                fell_back: false,
+                fallback_why: None,
+            },
+            route: "doing",
+            card_id: "c-test".into(),
+            project_id: "p-test".into(),
+        }
+    }
+
+    fn note_for(path: &Path, base: &str) -> String {
+        let sha8: String = base.chars().take(8).collect();
+        format!(
+            "GO worktree {} missing or not at base {sha8}; not launching.",
+            path.display()
+        )
+    }
+
+    #[test]
+    fn go_launch_uses_header_worktree() {
+        let base = tmp("gol");
+        let main = base.join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        repo_with_commit(&main);
+        let wt = base.join("wt");
+        // Fixture only. Product code never creates a worktree.
+        git(&main, &["worktree", "add", "-q", "-b", "wt", wt.to_str().unwrap()]);
+        let head = git(&wt, &["rev-parse", "HEAD"]);
+        let head = head.trim();
+        let yaml = format!("id: GO-TEST\nbase: {head}\nworktree: {}\n", wt.display());
+        let got = sample_go(&yaml).header_worktree().unwrap().expect("worktree");
+        assert_eq!(got, wt);
+        assert_eq!(launch_workspace(Some(&got), "/planet/root"), wt.display().to_string());
+        assert_ne!(launch_workspace(Some(&got), "/planet/root"), "/planet/root");
+        install_cursor_permissions_with_home(&got, "read-only", None).unwrap();
+        assert!(project_cli_path(&got).is_file(), "cli.json lands in the worktree");
+        assert!(
+            !main.join(".cursor").join("cli.json").exists(),
+            "cli.json must not land in the repo root"
+        );
+        let src = include_str!("launch_agent.rs");
+        assert!(src.contains("let workspace = launch_workspace(header_wt.as_deref(), &planet)"));
+        assert_eq!(src.matches(", header_wt.as_deref())").count(), 5);
+        assert!(src.contains(".current_dir(&workspace)"));
+        let product = concat!(
+            include_str!("launch_agent.rs"),
+            include_str!("paths.rs"),
+            include_str!("cursor_perm.rs"),
+            include_str!("../habitat/herdr.rs"),
+        );
+        for banned in ["worktree add", "worktree remove", "worktree prune"] {
+            assert!(!product.contains(banned), "{banned} in product code");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn go_launch_refuses_missing_worktree() {
+        let hold = tmp("hold");
+        let missing = hold.join("no-such-worktree");
+        let base = "0123456789abcdef0123456789abcdef01234567";
+        let yaml = format!("id: GO-TEST\nbase: {base}\nworktree: {}\n", missing.display());
+        let err = sample_go(&yaml).header_worktree().unwrap_err();
+        assert_eq!(err, note_for(&missing, base));
+        assert!(!missing.exists(), "refusing must not create the worktree");
+
+        let plain = tmp("notgit");
+        let yaml = format!("id: GO-TEST\nbase: {base}\nworktree: {}\n", plain.display());
+        assert_eq!(sample_go(&yaml).header_worktree().unwrap_err(), note_for(&plain, base));
+        assert!(!plain.join(".git").exists());
+
+        let root = tmp("wrong");
+        let main = root.join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        repo_with_commit(&main);
+        let wt = root.join("wt");
+        git(&main, &["worktree", "add", "-q", "-b", "wt", wt.to_str().unwrap()]);
+        let head = git(&wt, &["rev-parse", "HEAD"]);
+        let head = head.trim().to_string();
+        let sub = wt.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let ex = git(&wt, &["rev-parse", "--git-path", "info/exclude"]);
+        let ex = ex.trim();
+        let ex_path = if Path::new(ex).is_absolute() {
+            PathBuf::from(ex)
+        } else {
+            wt.join(ex)
+        };
+        std::fs::write(&ex_path, "sub\n").unwrap();
+        let yaml = format!("id: GO-TEST\nbase: {head}\nworktree: {}\n", sub.display());
+        assert_eq!(
+            sample_go(&yaml).header_worktree().unwrap_err(),
+            note_for(&sub, &head),
+            "a folder inside the worktree is not the worktree"
+        );
+        let yaml = format!("id: GO-TEST\nbase: {base}\nworktree: {}\n", wt.display());
+        assert_eq!(sample_go(&yaml).header_worktree().unwrap_err(), note_for(&wt, base));
+        std::fs::write(wt.join("dirty"), b"x\n").unwrap();
+        let yaml = format!("id: GO-TEST\nbase: {head}\nworktree: {}\n", wt.display());
+        let err = sample_go(&yaml).header_worktree().unwrap_err();
+        assert_eq!(err, note_for(&wt, &head));
+
+        let src = include_str!("launch_agent.rs");
+        assert!(src.contains("\"reason\": \"worktree\""), "go-launch reason");
+        let body = &src[src.find("pub fn launch_agent(").unwrap()..];
+        let check = body.find("header_worktree()").expect("resolve");
+        let call = body.find("refuse_worktree(").expect("event");
+        let ret = body.find("return Err(note)").expect("no launch");
+        assert!(check < call && call < ret);
+        for door in [
+            "write_agent_query(",
+            "crate::herdr::branch(",
+            "open_agent_terminal(",
+            "Command::new(\"hermes\")",
+            "task::start(",
+        ] {
+            let pos = body.find(door).unwrap_or_else(|| panic!("missing {door}"));
+            assert!(ret < pos, "{door} must follow the worktree refusal");
+        }
+        let _ = std::fs::remove_dir_all(&hold);
+        let _ = std::fs::remove_dir_all(&plain);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn go_launch_without_worktree_header_unchanged() {
+        let g = sample_go("id: GO-X\nbase: abcdef0123456789abcdef0123456789abcdef01\nworkspace: /tmp/planet-root\n");
+        assert!(g.header_worktree().unwrap().is_none());
+        assert!(sample_go("id: GO-X\nworktree:\n").header_worktree().unwrap().is_none());
+        assert!(sample_go("id: GO-X\nworktree: \"\"\n").header_worktree().unwrap().is_none());
+        assert_eq!(launch_workspace(None, "/planet/root"), "/planet/root");
+        let src = include_str!("launch_agent.rs");
+        assert!(src.contains("let planet = crate::herdr::planet_cwd("));
+        assert!(src.contains("let workspace = launch_workspace(header_wt.as_deref(), &planet)"));
+    }
+
+    #[test]
+    fn cli_json_no_version_key() {
+        let base = tmp("nover");
+        install_cursor_permissions_with_home(&base, "read-only", None).unwrap();
+        let read = |p: &Path| -> serde_json::Value {
+            serde_json::from_str(&std::fs::read_to_string(project_cli_path(p)).unwrap()).unwrap()
+        };
+        let v = read(&base);
+        assert!(v.get("version").is_none(), "{v}");
+        assert!(arr(&v, "allow").contains(&"Shell(find)".to_string()));
+        install_cursor_permissions_with_home(&base, "workspace-write", None).unwrap();
+        assert!(read(&base).get("version").is_none());
+
+        let mut stamped = read(&base);
+        stamped["version"] = serde_json::json!(1);
+        stamped["editor"] = serde_json::json!({ "vimMode": true });
+        std::fs::write(project_cli_path(&base), serde_json::to_string_pretty(&stamped).unwrap()).unwrap();
+        assert!(base.join(".cursor/orbitty-managed.json").is_file());
+        install_cursor_permissions_with_home(&base, "read-only", None).unwrap();
+        let v = read(&base);
+        assert!(v.get("version").is_none(), "app-managed version:1 is removed: {v}");
+        assert_eq!(v["editor"]["vimMode"], true);
+
+        let other = tmp("ver2");
+        install_cursor_permissions_with_home(&other, "read-only", None).unwrap();
+        let mut stamped = read(&other);
+        stamped["version"] = serde_json::json!(2);
+        std::fs::write(project_cli_path(&other), serde_json::to_string_pretty(&stamped).unwrap()).unwrap();
+        install_cursor_permissions_with_home(&other, "read-only", None).unwrap();
+        assert_eq!(read(&other)["version"], 2, "only an app-written version 1 is removed");
+
+        let user = tmp("userver");
+        std::fs::create_dir_all(user.join(".cursor")).unwrap();
+        std::fs::write(
+            project_cli_path(&user),
+            "{\"version\":1,\"permissions\":{\"allow\":[\"Shell(npm)\"],\"deny\":[]}}\n",
+        )
+        .unwrap();
+        install_cursor_permissions_with_home(&user, "read-only", None).unwrap();
+        let v = read(&user);
+        assert_eq!(v["version"], 1, "a user file with no sidecar keeps version");
+        assert!(arr(&v, "allow").contains(&"Shell(npm)".to_string()));
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&other);
+        let _ = std::fs::remove_dir_all(&user);
+    }
+
