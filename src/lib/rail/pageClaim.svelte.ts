@@ -1,6 +1,6 @@
 // Moved function bodies. scope fields are the lets each function already closed over.
 
-import type { ActionShortcut, AgentRun, AgentShortcut, CardTombstone, Claim, CompanionSlice, DrawerSlice, KanbanCard, PersistedState, PointsEntry, Project, SkySlice, StarsSlice, Tag, TitleOverride, TodoTree, WindowInfo, WindowTags } from "../persist";
+import type { ActionShortcut, AgentRun, AgentShortcut, CardStatus, CardTombstone, Claim, CompanionSlice, DrawerSlice, KanbanCard, PersistedState, PointsEntry, Project, SkySlice, StarsSlice, Tag, TitleOverride, TodoTree, WindowInfo, WindowTags } from "../persist";
 import type { BoardCol } from "./habitat";
 import type { CoachStory } from "./coach";
 import { isTabClaim, tabRow } from "./tabbityRows";
@@ -23,7 +23,46 @@ interface PackInfo {
   role: string;
 }
 
-type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+
+type HabitatBoardCard = { id: string; status: string; windowId: string | null };
+
+type HabitatTree = {
+  cardId: string;
+  x: number;
+  y: number;
+  plantedAt: number;
+  dueAt: number | null;
+  status: CardStatus;
+};
+
+type HabitatEntry = {
+  id: string;
+  appName: string;
+  title: string;
+  bundleId: string | null;
+  minimized: boolean;
+  iconBase64: string | null;
+  age: string;
+  asleep: boolean;
+  spritePackId: string;
+  charSeed: number;
+  charLook: unknown;
+  spriteScale: number;
+  cardStatus: string;
+  cardKind: string;
+  neededState: string;
+  agentSeed: string;
+};
+
+type HabitatPlanet = {
+  projectId: string;
+  name: string;
+  collapsed: boolean;
+  boardCards: HabitatBoardCard[];
+  todoTrees: HabitatTree[];
+  entries: HabitatEntry[];
+};
 
 type Scope_titleFor = {
   titleOverrides: TitleOverride[];
@@ -53,54 +92,54 @@ type Scope_ctxProject = {
 };
 
 type Scope_ctxAssign = {
-  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxWindow: () => WindowInfo | undefined;
   ctxMenu: { x: number; y: number; windowId: string } | null;
-  claim: (...args: any[]) => any;
+  claim: (windowId: string, projectId: string) => unknown;
 };
 
 type Scope_ctxCreateAndClaim = {
-  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxWindow: () => WindowInfo | undefined;
   newProjectName: string;
-  createProject: (...args: any[]) => Project;
+  createProject: (name: string) => Project;
   ctxMenu: { x: number; y: number; windowId: string } | null;
-  claim: (...args: any[]) => any;
+  claim: (windowId: string, projectId: string) => unknown;
 };
 
 type Scope_ctxRename = {
-  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxWindow: () => WindowInfo | undefined;
   ctxMenu: { x: number; y: number; windowId: string } | null;
-  startRename: (...args: any[]) => any;
+  startRename: (w: WindowInfo) => unknown;
 };
 
 type Scope_ctxMinimize = {
-  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxWindow: () => WindowInfo | undefined;
   ctxMenu: { x: number; y: number; windowId: string } | null;
-  stow: (...args: any[]) => Promise<any>;
+  stow: (w: WindowInfo) => Promise<unknown>;
 };
 
 type Scope_ctxRestore = {
-  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxWindow: () => WindowInfo | undefined;
   ctxMenu: { x: number; y: number; windowId: string } | null;
-  restore: (...args: any[]) => Promise<any>;
+  restore: (w: WindowInfo) => Promise<unknown>;
 };
 
 type Scope_ctxCloseWindow = {
-  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxWindow: () => WindowInfo | undefined;
   ctxMenu: { x: number; y: number; windowId: string } | null;
   invoke: Invoke;
-  tick: (...args: any[]) => Promise<any>;
+  tick: () => Promise<unknown>;
 };
 
 type Scope_ctxUnclaim = {
-  ctxWindow: (...args: any[]) => WindowInfo | undefined;
+  ctxWindow: () => WindowInfo | undefined;
   ctxMenu: { x: number; y: number; windowId: string } | null;
-  unclaim: (...args: any[]) => any;
+  unclaim: (windowId: string) => unknown;
 };
 
 type Scope_commitRename = {
   renameValue: string;
   titleOverrides: TitleOverride[];
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
   renamingId: string | null;
 };
 
@@ -111,10 +150,10 @@ type Scope_setWorkspaceRoot = {
 
 type Scope_persist = {
   stateLoaded: boolean;
-  windowDragHot: (...args: any[]) => boolean;
+  windowDragHot: () => boolean;
   persistDeferred: boolean;
   pendingDisk: { kanbanCards: KanbanCard[]; pointsLedger: PointsEntry[]; agentRuns: AgentRun[]; cardTombstones: CardTombstone[] } | null;
-  absorbPendingCards: (...args: any[]) => any;
+  absorbPendingCards: () => unknown;
   themeChosen: boolean;
   themeId: string;
   windowOpacity: number;
@@ -151,11 +190,11 @@ type Scope_persist = {
   skyState: SkySlice;
   drawersState: Record<string, DrawerSlice>;
   invoke: Invoke;
-  syncHabitat: (...args: any[]) => Promise<any>;
+  syncHabitat: () => Promise<unknown>;
 };
 
 type Scope_sleeperRowFor = {
-  claimStableKey: (...args: any[]) => string | null;
+  claimStableKey: (c: Claim) => string | null;
 };
 
 type Scope_boardCardsFor = {
@@ -166,7 +205,7 @@ type Scope_boardCardsFor = {
 type Scope_habitatEntryFor = {
   liveClaims: Claim[];
   kanbanCards: KanbanCard[];
-  ageClass: (...args: any[]) => "fresh" | "fade" | "park" | "gone";
+  ageClass: (windowId: string) => "fresh" | "fade" | "park" | "gone";
 };
 
 type Scope_runIsSeated = {};
@@ -174,13 +213,13 @@ type Scope_runIsSeated = {};
 type Scope_goToken = {};
 
 type Scope_goNeededOnPlanet = {
-  goToken: (...args: any[]) => string | null;
+  goToken: (title: string) => string | null;
   kanbanCards: KanbanCard[];
 };
 
 type Scope_agentRowsFor = {
   agentRuns: AgentRun[];
-  runIsSeated: (...args: any[]) => boolean;
+  runIsSeated: (r: AgentRun) => boolean;
   kanbanCards: KanbanCard[];
 };
 
@@ -191,18 +230,18 @@ type Scope_locateAgent = {
 type Scope_agentEntriesFor = {
   agentRuns: AgentRun[];
   kanbanCards: KanbanCard[];
-  runIsSeated: (...args: any[]) => boolean;
+  runIsSeated: (r: AgentRun) => boolean;
   agentShortcuts: AgentShortcut[];
-  goNeededOnPlanet: (...args: any[]) => boolean;
+  goNeededOnPlanet: (card: KanbanCard | undefined, planetId: string) => boolean;
 };
 
 type Scope_habitatPlanetFor = {
-  isCollapsed: (...args: any[]) => boolean;
-  boardCardsFor: (...args: any[]) => any;
+  isCollapsed: (sectionId: string) => boolean;
+  boardCardsFor: (p: Project) => HabitatBoardCard[];
   todoTrees: TodoTree[];
   kanbanCards: KanbanCard[];
-  habitatEntryFor: (...args: any[]) => any;
-  agentEntriesFor: (...args: any[]) => any;
+  habitatEntryFor: (w: WindowInfo, p: Project) => HabitatEntry;
+  agentEntriesFor: (p: Project) => HabitatEntry[];
 };
 
 type Scope_habitatSnapshotPayload = {
@@ -210,7 +249,7 @@ type Scope_habitatSnapshotPayload = {
   marbleDrift: boolean;
   projects: Project[];
   treeGrowDays: number;
-  habitatPlanetFor: (...args: any[]) => { projectId: string; collapsed: boolean; boardCards: any; todoTrees: any; entries: { id: string; minimized: boolean; iconBase64: string | null; age: string; asleep: boolean; spritePackId: string; charSeed: number; charLook: unknown; spriteScale: number; cardStatus: string; cardKind: string; neededState: string; agentSeed: string }[] };
+  habitatPlanetFor: (p: Project, rows: WindowInfo[]) => HabitatPlanet;
 };
 
 type Scope_syncHabitat = {
@@ -218,22 +257,22 @@ type Scope_syncHabitat = {
   status: AxStatus | null;
   projects: Project[];
   liveClaims: Claim[];
-  occupancyOf: (...args: any[]) => string;
-  ageClass: (...args: any[]) => "fresh" | "fade" | "park" | "gone";
+  occupancyOf: (c: Claim) => string;
+  ageClass: (windowId: string) => "fresh" | "fade" | "park" | "gone";
   windows: WindowInfo[];
-  sleeperRowFor: (...args: any[]) => WindowInfo;
-  habitatPlanetFor: (...args: any[]) => { projectId: string; collapsed: boolean; boardCards: any; todoTrees: any; entries: { id: string; minimized: boolean; iconBase64: string | null; age: string; asleep: boolean; spritePackId: string; charSeed: number; charLook: unknown; spriteScale: number; cardStatus: string; cardKind: string; neededState: string; agentSeed: string }[] };
+  sleeperRowFor: (c: Claim) => WindowInfo;
+  habitatPlanetFor: (p: Project, rows: WindowInfo[]) => HabitatPlanet;
   packs: PackInfo[];
   spriteScale: number;
   marbleDrift: boolean;
   starterStory: CoachStory;
   lastHabitatSig: string;
   invoke: Invoke;
-  habitatSnapshotPayload: (...args: any[]) => any;
+  habitatSnapshotPayload: (planets: HabitatPlanet[]) => unknown;
 };
 
 type Scope_lastKnownRowFor = {
-  sleeperRowFor: (...args: any[]) => WindowInfo;
+  sleeperRowFor: (c: Claim) => WindowInfo;
 };
 
 type Scope_syncHabitatLastKnown = {
@@ -241,11 +280,11 @@ type Scope_syncHabitatLastKnown = {
   embedded: boolean;
   projects: Project[];
   liveClaims: Claim[];
-  occupancyOf: (...args: any[]) => string;
-  lastKnownRowFor: (...args: any[]) => WindowInfo;
-  habitatPlanetFor: (...args: any[]) => { projectId: string; collapsed: boolean; boardCards: any; todoTrees: any; entries: { id: string; minimized: boolean; iconBase64: string | null; age: string; asleep: boolean; spritePackId: string; charSeed: number; charLook: unknown; spriteScale: number; cardStatus: string; cardKind: string; neededState: string; agentSeed: string }[] };
+  occupancyOf: (c: Claim) => string;
+  lastKnownRowFor: (c: Claim) => WindowInfo;
+  habitatPlanetFor: (p: Project, rows: WindowInfo[]) => HabitatPlanet;
   invoke: Invoke;
-  habitatSnapshotPayload: (...args: any[]) => any;
+  habitatSnapshotPayload: (planets: HabitatPlanet[]) => unknown;
 };
 
 type Scope_flashRow = {
@@ -256,37 +295,37 @@ type Scope_locateRow = {
   liveClaims: Claim[];
   projects: Project[];
   invoke: Invoke;
-  flashRow: (...args: any[]) => any;
+  flashRow: (windowId: string) => unknown;
 };
 
 type Scope_stow = {
   invoke: Invoke;
-  tick: (...args: any[]) => Promise<any>;
+  tick: () => Promise<unknown>;
 };
 
 type Scope_restore = {
   invoke: Invoke;
-  touchClaim: (...args: any[]) => any;
-  tick: (...args: any[]) => Promise<any>;
+  touchClaim: (windowId: string, force?: boolean) => unknown;
+  tick: () => Promise<unknown>;
 };
 
 type Scope_wakeSleeper = {
   wakeNote: { kind: "ok" | "err"; text: string } | null;
   invoke: Invoke;
-  touchClaim: (...args: any[]) => any;
-  tick: (...args: any[]) => Promise<any>;
+  touchClaim: (windowId: string, force?: boolean) => unknown;
+  tick: () => Promise<unknown>;
 };
 
 type Scope_nudgeClaim = {
   nudgeFor: string | null;
-  claim: (...args: any[]) => any;
+  claim: (windowId: string, projectId: string) => unknown;
 };
 
 type Scope_nudgeCreate = {
   nudgeFor: string | null;
   nudgeNewName: string;
-  createProject: (...args: any[]) => Project;
-  claim: (...args: any[]) => any;
+  createProject: (name: string) => Project;
+  claim: (windowId: string, projectId: string) => unknown;
 };
 
 type Scope_clampSpriteScale = {};
@@ -301,24 +340,24 @@ type Scope_bringAllFront = {
 
 type Scope_onBannerMouseDown = {
   wordmarkDidDrag: boolean;
-  startPaneDrag: (...args: any[]) => void;
+  startPaneDrag: (e: MouseEvent | PointerEvent) => void;
 };
 
 type Scope_onWordmarkClick = {
   wordmarkDidDrag: boolean;
-  bringAllFront: (...args: any[]) => Promise<any>;
+  bringAllFront: () => Promise<unknown>;
 };
 
 type Scope_openKanbanFocus = {
-  openKanban: (...args: any[]) => Promise<any>;
-  emitTo: (...args: any[]) => any;
+  openKanban: () => Promise<unknown>;
+  emitTo: (target: string, event: string, payload?: unknown) => Promise<void>;
 };
 
 type Scope_launchHermes = {
   invoke: Invoke;
   hermesNote: { kind: "ok" | "err"; text: string } | null;
-  rowsFor: (...args: any[]) => WindowInfo[];
-  todosFor: (...args: any[]) => KanbanCard[];
+  rowsFor: (projectId: string) => WindowInfo[];
+  todosFor: (projectId: string) => KanbanCard[];
 };
 
 type Scope_toggleSoul = {
@@ -349,14 +388,14 @@ type Scope_createProject = {
 };
 
 type Scope_revealPlanet = {
-  sectionIds: (...args: any[]) => string[];
+  sectionIds: () => string[];
   collapsedSectionIds: string[];
 };
 
 type Scope_newCardId = {};
 
 type Scope_isClinicalOrMaster = {
-  tagsFor: (...args: any[]) => Tag[];
+  tagsFor: (windowId: string) => Tag[];
 };
 
 type Scope_titleIndexFor = {
@@ -368,7 +407,7 @@ type Scope_claimStableKey = {};
 type Scope_isHermesClass = {};
 
 type Scope_sleeperStamps = {
-  isHermesClass: (...args: any[]) => boolean;
+  isHermesClass: (w: WindowInfo) => boolean;
 };
 
 type Scope_rollCharSeed = {};
