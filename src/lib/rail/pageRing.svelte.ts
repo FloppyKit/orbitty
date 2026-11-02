@@ -2,17 +2,17 @@
 
 import type { KanbanCard, Project, WindowInfo, WindowTags } from "../persist";
 import type { MenuRing, RingStop } from "../menuKeys.svelte";
-import type { ArchArrowResult, ArchConfirmAction, ArchState, BoardFocus, Layer2Item } from "./stageArch";
-import type { BesidePick, KeyOwner } from "./stageFocus";
+import type { ArchArrowResult, ArchCard, ArchConfirmAction, ArchRow, ArchState, BoardFocus, Layer2Item } from "./stageArch";
+import type { BesidePick, KeyOwner, WalkTarget } from "./stageFocus";
 import type { HabitatConfirm, RailEdge } from "./habitat";
 import type { ArchFrontName, CentreCause } from "./railInput";
 import type { SpinConfirmAction, SpinItem, SpinStop } from "./stageLook";
 
-type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
 type Scope_archDo = {
   arch: ArchState;
-  applyBeside: (...args: any[]) => any;
+  applyBeside: (pick: BesidePick) => unknown;
   UNMAPPED_KEY: string;
 };
 
@@ -22,30 +22,30 @@ type Scope_planetCards = {
 
 type Scope_layer2For = {
   UNMAPPED_KEY: string;
-  mirrorItems: (...args: any[]) => Layer2Item[];
-  planetCards: (...args: any[]) => KanbanCard[];
-  rowsFor: (...args: any[]) => WindowInfo[];
-  titleFor: (...args: any[]) => string;
+  mirrorItems: (opts: { pid: string; cards: readonly ArchCard[]; rows: readonly ArchRow[]; }) => Layer2Item[];
+  planetCards: (pid: string) => KanbanCard[];
+  rowsFor: (projectId: string) => WindowInfo[];
+  titleFor: (w: WindowInfo) => string;
 };
 
 type Scope_focusMirrorBoard = {};
 
 type Scope_confirmLayer2Stop = {
-  layer2For: (...args: any[]) => Layer2Item[];
+  layer2For: (pid: string | null) => Layer2Item[];
   arch: ArchState;
-  armNeededMouth: (...args: any[]) => any;
-  enterBoard: (...args: any[]) => { state: ArchState; focus: BoardFocus } | null;
-  planetCards: (...args: any[]) => KanbanCard[];
-  archDo: (...args: any[]) => any;
-  walkInto: (...args: any[]) => any;
-  focusBoardLanding: (...args: any[]) => any;
-  focusMirrorBoard: (...args: any[]) => any;
-  archConfirm: (...args: any[]) => ArchConfirmAction;
-  rowsFor: (...args: any[]) => WindowInfo[];
-  wakeSleeper: (...args: any[]) => Promise<any>;
-  parkAfterRaise: (...args: any[]) => any;
-  restore: (...args: any[]) => Promise<any>;
-  focusRow: (...args: any[]) => Promise<any>;
+  armNeededMouth: (item: { kind?: string; id?: string; title?: string }) => unknown;
+  enterBoard: (s: ArchState, cards?: readonly { id: string; status?: string }[], unmappedKey?: string) => { state: ArchState; focus: BoardFocus } | null;
+  planetCards: (pid: string) => KanbanCard[];
+  archDo: (next: ArchState) => unknown;
+  walkInto: (target: WalkTarget) => unknown;
+  focusBoardLanding: (focus: BoardFocus) => unknown;
+  focusMirrorBoard: () => unknown;
+  archConfirm: (item: Layer2Item) => ArchConfirmAction;
+  rowsFor: (projectId: string) => WindowInfo[];
+  wakeSleeper: (w: WindowInfo) => Promise<unknown>;
+  parkAfterRaise: () => unknown;
+  restore: (w: WindowInfo) => Promise<unknown>;
+  focusRow: (w: WindowInfo) => Promise<unknown>;
 };
 
 type Scope_noteRailAct = {
@@ -55,35 +55,35 @@ type Scope_noteRailAct = {
 };
 
 type Scope_confirmHabitatStop = {
-  spinConfirm: (...args: any[]) => SpinConfirmAction | null;
-  openStageDest: (...args: any[]) => any;
+  spinConfirm: (stop: string) => SpinConfirmAction | null;
+  openStageDest: (label: "stars" | "settings") => unknown;
   creatingProject: boolean;
-  coachClaim: (...args: any[]) => Promise<any>;
-  coachSkip: (...args: any[]) => Promise<any>;
-  applyBeside: (...args: any[]) => any;
-  spinItems: (...args: any[]) => SpinItem[];
+  coachClaim: () => Promise<unknown>;
+  coachSkip: () => Promise<unknown>;
+  applyBeside: (pick: BesidePick) => unknown;
+  spinItems: (planetIds: readonly string[], unmappedKey: string) => SpinItem[];
   projects: Project[];
   UNMAPPED_KEY: string;
-  archDo: (...args: any[]) => any;
-  archEnter: (...args: any[]) => ArchState;
+  archDo: (next: ArchState) => unknown;
+  archEnter: (s: ArchState, item: SpinItem, layer2?: readonly Layer2Item[]) => ArchState;
   arch: ArchState;
-  layer2For: (...args: any[]) => Layer2Item[];
-  raisePlanetWindows: (...args: any[]) => Promise<any>;
-  habitatConfirm: (...args: any[]) => HabitatConfirm | null;
-  toggleBoardCol: (...args: any[]) => any;
-  ensureExpand: (...args: any[]) => any;
-  rowById: (...args: any[]) => WindowInfo | undefined;
-  wakeSleeper: (...args: any[]) => Promise<any>;
-  parkAfterRaise: (...args: any[]) => any;
-  focusRow: (...args: any[]) => Promise<any>;
-  openKanbanFocus: (...args: any[]) => Promise<any>;
-  openPlanetTodos: (...args: any[]) => Promise<any>;
+  layer2For: (pid: string | null) => Layer2Item[];
+  raisePlanetWindows: (pid: string) => Promise<unknown>;
+  habitatConfirm: (id: string) => HabitatConfirm | null;
+  toggleBoardCol: (col: string) => unknown;
+  ensureExpand: (pid: string) => unknown;
+  rowById: (id: string) => WindowInfo | undefined;
+  wakeSleeper: (w: WindowInfo) => Promise<unknown>;
+  parkAfterRaise: () => unknown;
+  focusRow: (w: WindowInfo) => Promise<unknown>;
+  openKanbanFocus: (cardId: string) => Promise<unknown>;
+  openPlanetTodos: (pid: string) => Promise<unknown>;
 };
 
 type Scope_takeReselect = {
   reselectStop: string | null;
   menuRing: MenuRing;
-  focusMkey: (...args: any[]) => any;
+  focusMkey: (id: string) => unknown;
 };
 
 type Scope_syncInspectorRing = {
@@ -93,73 +93,73 @@ type Scope_syncInspectorRing = {
   keyOwner: KeyOwner;
   arch: ArchState;
   UNMAPPED_KEY: string;
-  visibleRows: (...args: any[]) => WindowInfo[];
+  visibleRows: (rows: WindowInfo[]) => WindowInfo[];
   unmapped: WindowInfo[];
-  outwardDir: (...args: any[]) => "left" | "right" | "up" | "down";
+  outwardDir: (edge: string) => "left" | "right" | "up" | "down";
   railEdge: RailEdge;
-  walkOut: (...args: any[]) => any;
-  wakeSleeper: (...args: any[]) => Promise<any>;
-  locateRow: (...args: any[]) => Promise<any>;
-  focusMkey: (...args: any[]) => any;
-  spinItems: (...args: any[]) => SpinItem[];
+  walkOut: () => unknown;
+  wakeSleeper: (w: WindowInfo) => Promise<unknown>;
+  locateRow: (w: WindowInfo) => Promise<unknown>;
+  focusMkey: (id: string) => unknown;
+  spinItems: (planetIds: readonly string[], unmappedKey: string) => SpinItem[];
   projects: Project[];
-  coachIsDue: (...args: any[]) => boolean;
+  coachIsDue: () => boolean;
   spinCenter: number;
-  layer2For: (...args: any[]) => Layer2Item[];
-  archFocusPid: (...args: any[]) => string | null;
-  archArrow: (...args: any[]) => ArchArrowResult | null;
-  planetCards: (...args: any[]) => KanbanCard[];
-  armNeededMouth: (...args: any[]) => any;
-  archDo: (...args: any[]) => any;
-  walkInto: (...args: any[]) => any;
-  focusBoardLanding: (...args: any[]) => any;
-  applyBeside: (...args: any[]) => any;
-  pickFromKind: (...args: any[]) => BesidePick;
-  confirmLayer2Stop: (...args: any[]) => any;
-  spinStops: (...args: any[]) => SpinStop[];
-  confirmHabitatStop: (...args: any[]) => any;
-  takeReselect: (...args: any[]) => any;
+  layer2For: (pid: string | null) => Layer2Item[];
+  archFocusPid: (s: ArchState, centred: SpinItem | null | undefined) => string | null;
+  archArrow: (s: ArchState, items: readonly SpinItem[], centre: number, dir: string, edge?: string, layer2?: readonly Layer2Item[], activeId?: string | null, due?: boolean, cards?: readonly { id: string; status?: string }[]) => ArchArrowResult | null;
+  planetCards: (pid: string) => KanbanCard[];
+  armNeededMouth: (item: { kind?: string; id?: string; title?: string }) => unknown;
+  archDo: (next: ArchState) => unknown;
+  walkInto: (target: WalkTarget) => unknown;
+  focusBoardLanding: (focus: BoardFocus) => unknown;
+  applyBeside: (pick: BesidePick) => unknown;
+  pickFromKind: (kind: string | null | undefined) => BesidePick;
+  confirmLayer2Stop: (id: string) => unknown;
+  spinStops: (items: readonly SpinItem[], due?: boolean) => SpinStop[];
+  confirmHabitatStop: (id: string) => unknown;
+  takeReselect: () => unknown;
 };
 
 type Scope_confirmRingTab = {
   creatingProject: boolean;
   sheetSlot: string;
-  onSheetPlanetClick: (...args: any[]) => any;
+  onSheetPlanetClick: (id: string) => unknown;
 };
 
 type Scope_onRailEscape = {
   claimPickerFor: string | null;
   creatingProject: boolean;
   keyOwner: KeyOwner;
-  walkOut: (...args: any[]) => any;
+  walkOut: () => unknown;
   stageEmbed: null | "settings" | "stars";
-  closeStageEmbed: (...args: any[]) => any;
+  closeStageEmbed: () => unknown;
   embedded: boolean;
   arch: ArchState;
-  layer2For: (...args: any[]) => Layer2Item[];
-  depthOutStop: (...args: any[]) => string | null;
+  layer2For: (pid: string | null) => Layer2Item[];
+  depthOutStop: (pid: string | null) => string | null;
   reselectStop: string | null;
   centreCause: CentreCause;
-  depthOut: (...args: any[]) => { front: ArchFrontName; hide: boolean };
-  archDo: (...args: any[]) => any;
+  depthOut: (front: ArchFrontName) => { front: ArchFrontName; hide: boolean };
+  archDo: (next: ArchState) => unknown;
   menuRing: MenuRing;
-  coachSkip: (...args: any[]) => Promise<any>;
-  previewStop: (...args: any[]) => boolean;
-  openSectionId: (...args: any[]) => string | null;
+  coachSkip: () => Promise<unknown>;
+  previewStop: (id: string | null) => boolean;
+  openSectionId: () => string | null;
   stageRevealed: boolean;
-  parkStage: (...args: any[]) => Promise<any>;
+  parkStage: () => Promise<unknown>;
 };
 
 type Scope_reclaimRailRing = {
   detachMenuKeys: (() => void) | undefined;
   menuRing: MenuRing;
-  onRailEscape: (...args: any[]) => boolean;
+  onRailEscape: () => boolean;
 };
 
 type Scope_toggleTag = {
   liveWindowTags: WindowTags[];
   windowTags: WindowTags[];
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
 };
 
 export function archDo(scope: Scope_archDo, next: ArchState) {
