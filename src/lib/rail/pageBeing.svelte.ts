@@ -8,55 +8,55 @@ interface BittyKind {
   palettes: string[];
 }
 
-type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
 type Scope_claim = {
-  nowEpoch: (...args: any[]) => number;
+  nowEpoch: () => number;
   windows: WindowInfo[];
   liveClaims: Claim[];
   claims: Claim[];
-  rollCharSeed: (...args: any[]) => number;
-  titleIndexFor: (...args: any[]) => number;
-  noteClaims: (...args: any[]) => any;
-  revealPlanet: (...args: any[]) => any;
+  rollCharSeed: () => number;
+  titleIndexFor: (w: WindowInfo) => number;
+  noteClaims: (next: Claim[]) => unknown;
+  revealPlanet: (projectId: string) => unknown;
   titleOverrides: TitleOverride[];
   kanbanCards: KanbanCard[];
-  isClinicalOrMaster: (...args: any[]) => boolean;
-  persist: (...args: any[]) => Promise<any>;
-  sleeperStamps: (...args: any[]) => Partial<Claim>;
+  isClinicalOrMaster: (windowId: string) => boolean;
+  persist: () => Promise<unknown>;
+  sleeperStamps: (w: WindowInfo, prev?: Claim) => Partial<Claim>;
 };
 
 type Scope_unclaim = {
   claims: Claim[];
   liveClaims: Claim[];
-  nowEpoch: (...args: any[]) => number;
+  nowEpoch: () => number;
   kanbanCards: KanbanCard[];
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_completeWindow = {
-  nowEpoch: (...args: any[]) => number;
-  isClinicalOrMaster: (...args: any[]) => boolean;
+  nowEpoch: () => number;
+  isClinicalOrMaster: (windowId: string) => boolean;
   titleOverrides: TitleOverride[];
   kanbanCards: KanbanCard[];
-  newCardId: (...args: any[]) => string;
-  persist: (...args: any[]) => Promise<any>;
+  newCardId: () => string;
+  persist: () => Promise<unknown>;
   invoke: Invoke;
-  tick: (...args: any[]) => Promise<any>;
-  pointsToday: (...args: any[]) => number;
+  tick: () => Promise<unknown>;
+  pointsToday: () => number;
   DAILY_CAP: number;
   pointsLedger: PointsEntry[];
-  todayKey: (...args: any[]) => string;
+  todayKey: () => string;
 };
 
 type Scope_completeTodo = {
-  nowEpoch: (...args: any[]) => number;
+  nowEpoch: () => number;
   pointsLedger: PointsEntry[];
-  pointsToday: (...args: any[]) => number;
+  pointsToday: () => number;
   DAILY_CAP: number;
   kanbanCards: KanbanCard[];
-  todayKey: (...args: any[]) => string;
-  persist: (...args: any[]) => Promise<any>;
+  todayKey: () => string;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_circleComplete = {
@@ -69,14 +69,14 @@ type Scope_logEvent = {
 
 type Scope_addTodoTo = {
   newTodoTitle: string;
-  nowEpoch: (...args: any[]) => number;
-  newCardId: (...args: any[]) => string;
+  nowEpoch: () => number;
+  newCardId: () => string;
   kanbanCards: KanbanCard[];
   addingTodoFor: string | null;
-  revealPlanet: (...args: any[]) => any;
-  persist: (...args: any[]) => Promise<any>;
-  logEvent: (...args: any[]) => any;
-  openKanbanFocus: (...args: any[]) => Promise<any>;
+  revealPlanet: (projectId: string) => unknown;
+  persist: () => Promise<unknown>;
+  logEvent: (eType: string, content: Record<string, unknown>, projectId?: string) => unknown;
+  openKanbanFocus: (cardId: string) => Promise<unknown>;
 };
 
 type Scope_occupancyOf = {};
@@ -84,7 +84,7 @@ type Scope_occupancyOf = {};
 type Scope_setSpritePack = {
   claims: Claim[];
   liveClaims: Claim[];
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_beingClaim = {
@@ -108,19 +108,19 @@ type Scope_commitBeingLook = {
   editorLook: CharLook | null;
   claims: Claim[];
   liveClaims: Claim[];
-  persist: (...args: any[]) => Promise<any>;
-  refreshBeingPreview: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
+  refreshBeingPreview: () => Promise<unknown>;
 };
 
 type Scope_openBeingEditor = {
   liveClaims: Claim[];
   bittyKinds: BittyKind[];
   invoke: Invoke;
-  rollCharSeed: (...args: any[]) => number;
+  rollCharSeed: () => number;
   claims: Claim[];
   beingEditorFor: string | null;
   editorLook: CharLook | null;
-  commitBeingLook: (...args: any[]) => Promise<any>;
+  commitBeingLook: (seed?: number) => Promise<unknown>;
 };
 
 type Scope_closeBeingEditor = {
@@ -140,80 +140,80 @@ type Scope_beingPaletteIndex = {
 type Scope_cycleKind = {
   editorLook: CharLook | null;
   bittyKinds: BittyKind[];
-  beingKindIndex: (...args: any[]) => number;
-  beingPaletteIndex: (...args: any[]) => number;
-  commitBeingLook: (...args: any[]) => Promise<any>;
+  beingKindIndex: () => number;
+  beingPaletteIndex: () => number;
+  commitBeingLook: (seed?: number) => Promise<unknown>;
 };
 
 type Scope_cyclePalette = {
   editorLook: CharLook | null;
   bittyKinds: BittyKind[];
-  beingKindIndex: (...args: any[]) => number;
-  beingPaletteIndex: (...args: any[]) => number;
-  commitBeingLook: (...args: any[]) => Promise<any>;
+  beingKindIndex: () => number;
+  beingPaletteIndex: () => number;
+  commitBeingLook: (seed?: number) => Promise<unknown>;
 };
 
 type Scope_kindLabel = {
   bittyKinds: BittyKind[];
-  beingKindIndex: (...args: any[]) => number;
+  beingKindIndex: () => number;
 };
 
 type Scope_paletteLabel = {
   bittyKinds: BittyKind[];
-  beingKindIndex: (...args: any[]) => number;
-  beingPaletteIndex: (...args: any[]) => number;
+  beingKindIndex: () => number;
+  beingPaletteIndex: () => number;
 };
 
 type Scope_rerollBeing = {
-  rollCharSeed: (...args: any[]) => number;
+  rollCharSeed: () => number;
   editorLook: CharLook | null;
   invoke: Invoke;
-  commitBeingLook: (...args: any[]) => Promise<any>;
+  commitBeingLook: (seed?: number) => Promise<unknown>;
 };
 
 type Scope_beingScale = {
-  beingClaim: (...args: any[]) => Claim | undefined;
+  beingClaim: () => Claim | undefined;
   spriteScale: number;
 };
 
 type Scope_onBeingScaleInput = {
   beingEditorFor: string | null;
-  clampSpriteScale: (...args: any[]) => any;
+  clampSpriteScale: (n: number) => number;
   claims: Claim[];
   liveClaims: Claim[];
   lastHabitatSig: string;
-  syncHabitat: (...args: any[]) => Promise<any>;
+  syncHabitat: () => Promise<unknown>;
 };
 
 type Scope_onBeingScaleCommit = {
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_resetBeingScale = {
   beingEditorFor: string | null;
   claims: Claim[];
   liveClaims: Claim[];
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_beingMoveHome = {
   beingEditorFor: string | null;
-  claim: (...args: any[]) => any;
+  claim: (windowId: string, projectId: string) => unknown;
 };
 
 type Scope_beingUnclaim = {
   beingEditorFor: string | null;
-  unclaim: (...args: any[]) => any;
-  closeBeingEditor: (...args: any[]) => any;
+  unclaim: (windowId: string) => unknown;
+  closeBeingEditor: () => unknown;
 };
 
 type Scope_createProjectOnly = {
   newProjectName: string;
-  createProject: (...args: any[]) => Project;
+  createProject: (name: string) => Project;
   creatingProject: boolean;
   embedded: boolean;
   sheetSlot: string;
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
   invoke: Invoke;
 };
 
@@ -228,7 +228,7 @@ type Scope_removeProject = {
   rmErrorFor: { id: string; msg: string } | null;
   projects: Project[];
   sheetSlot: string;
-  syncHabitat: (...args: any[]) => Promise<any>;
+  syncHabitat: () => Promise<unknown>;
 };
 
 export function claim(scope: Scope_claim, windowId: string, projectId: string) {
