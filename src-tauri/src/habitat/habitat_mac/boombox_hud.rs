@@ -18,8 +18,8 @@ use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
 use super::audio;
 use super::{
-    lock, ns_color, ns_string, set_fill, world_entry, CGSize, DecorKind, Habitat, NSPoint,
-    NSRect, Planet, EXPANDED_RADIUS, VIEW_PADDING,
+    ns_color, ns_string, set_fill, world_entry, CGSize, DecorKind, Habitat, NSPoint, NSRect,
+    Planet, EXPANDED_RADIUS, VIEW_PADDING,
 };
 
 // geometry

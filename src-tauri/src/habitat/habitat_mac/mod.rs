@@ -12,13 +12,9 @@ use core_foundation::base::TCFType;
 use core_foundation::string::CFString;
 use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::ffi::c_void;
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 mod audio;
 mod tick;
@@ -71,24 +67,18 @@ mod worlds_io;
 mod api;
 
 pub(crate) use geom::{
-    disc_to_view, locked_projection, locked_projection_str,
-    radius_y, view_to_disc, walker_fit, CGSize, NSPoint, NSRect, Projection,
+    locked_projection, locked_projection_str, radius_y, view_to_disc, walker_fit, CGSize, NSPoint,
+    NSRect, Projection,
 };
-pub(crate) use world::{
-    default_boombox_volume, migrate_world, DecorItem, DecorPoint, WorldState, WorldsFile,
-};
+pub(crate) use world::{DecorItem, DecorPoint, WorldState};
 pub(crate) use pose::{
-    droid_glance, hash_str, pose_for, pose_name, sleeper_target, station_anchor, station_target,
-    sticky_pose, walkoff_target, yard_clamp, yard_contains, yard_dwell_ms, yard_pick,
-    yard_pick_sailing, yard_seed, yard_step, Pose, HOME_HIDE_X, HOME_OFF, SLEEPER_EAST,
-    SLEEPER_NORTH, SLEEPER_SOUTH, SLEEPER_WEST, STATION_BOARD, STATION_COMSTACK, STATION_FIELD,
-    STATION_HOUSE, STATION_RIM, STATION_SUNDIAL, YARD_ARRIVE, YARD_DWELL_MAX_MS, YARD_DWELL_MIN_MS,
-    YARD_EAST, YARD_INSET,
-    YARD_NORTH, YARD_SAIL, YARD_SOUTH, YARD_WEST,
+    hash_str, sleeper_target, station_anchor, station_target, walkoff_target, yard_clamp,
+    yard_contains, yard_dwell_ms, yard_pick, yard_pick_sailing, yard_seed, Pose, HOME_HIDE_X,
+    STATION_BOARD, STATION_COMSTACK, STATION_FIELD, STATION_HOUSE, STATION_SUNDIAL, YARD_ARRIVE,
+    YARD_EAST, YARD_NORTH, YARD_SAIL, YARD_SOUTH, YARD_WEST,
 };
 pub(crate) use ball::{
     ball_arc_heads, ball_hop_secs, ball_pos, pack_still_aspect, walker_head_view, BallState,
-    BALL_ARC_HEADS_MAX, BALL_ARC_HEADS_MIN,
 };
 pub(crate) use view_class::{menu_target, world_view_class};
 
@@ -102,12 +92,12 @@ pub(crate) use roam::RoamState;
 pub(crate) use decor::{DecorKind, DecorRef};
 pub(crate) use colors::{card_color, color_for};
 pub(crate) use art::{
-    base64_decode, bitmap_rep_from_bytes, ensure_pack_loaded, ensure_town_art, fallback_pack_index,
-    load_pack_frames, ns_image_from_bytes, slice_rep_frames, unload_dead_packs,
+    bitmap_rep_from_bytes, ensure_pack_loaded, ensure_town_art, load_pack_frames,
+    ns_image_from_bytes, slice_rep_frames, unload_dead_packs,
 };
 pub use art::{char_preview, reload_pack_frames};
 pub(crate) use layout::{building_cap, layout_beings, layout_decor, make_being, plant_cap};
-pub(crate) use spawn::{default_state, ring_claimed, spawn_ring};
+pub(crate) use spawn::default_state;
 pub(crate) use panels::{effective_radius, make_panel, panel_frame, panel_set_frame, primary_screen_id, screens, visible_frames};
 
 
@@ -299,7 +289,6 @@ struct PendingClick {
 }
 
 
-
 /// xorshift64 for roam pauses (no rand crate on the tree); global so the
 /// anim loop can draw numbers while planets are mutably borrowed.
 pub(crate) use types::{Being, Habitat, PackFrames, Planet};
@@ -372,9 +361,6 @@ unsafe fn fill_oval(rect: NSRect) {
 // screens
 
 
-
-
-
 // spawn ring (GO-ORBITTY-PLANET-SPAWN)
 // SpawnRing / spawn_ring / default_state → spawn.rs
 // screens / panel_frame / make_panel / panel_set_frame → panels.rs
@@ -385,8 +371,6 @@ pub(crate) fn now_epoch() -> f64 {
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
 }
-
-
 
 
 // world view + menu target class → view_class.rs
