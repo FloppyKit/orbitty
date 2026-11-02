@@ -423,6 +423,7 @@ test("preview card is 2x and stays inside the beside panel", () => {
   assert.ok(box.cardW >= 300);
   assert.ok(box.thumbH >= 160);
   assert.ok(box.icon >= 96);
+  assert.equal(outer.w - box.cardW - 2 * box.pad, 55);
   const css = readFileSync(new URL("../src/lib/rail/rail-arch.css", import.meta.url), "utf8");
   const card = css.slice(css.indexOf(".l2-window-card {"), css.indexOf(".l2-needed-card"));
   assert.match(card, /max-width:\s*var\(--pv-card,\s*600px\)/);
@@ -431,9 +432,11 @@ test("preview card is 2x and stays inside the beside panel", () => {
   assert.match(card, /font:\s*600 var\(--pv-font,\s*36px\)/);
   assert.match(css, /\.l2-thumb \{[\s\S]*?max-height:\s*var\(--pv-thumb,\s*320px\)/);
   assert.match(css, /\.l2-card-icon,[\s\S]*?\.l2-app-icon \{[\s\S]*?width:\s*var\(--pv-icon,\s*192px\);[\s\S]*?height:\s*var\(--pv-icon,\s*192px\);/);
-  assert.match(css, /\.arch-slot \.l2-app-icon \{[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px;/);
-  assert.match(css, /\.l2-slot \{[\s\S]*?width:\s*148px;[\s\S]*?height:\s*64px;/);
-  assert.match(css, /\.l2-hit \{[\s\S]*?width:\s*148px;\s*height:\s*64px;/);
+  assert.match(css, /\.rail\.stage-shell \.arch-slot \.l2-app-icon \{\s*width:\s*44px;\s*height:\s*44px;/);
+  assert.match(css, /\.rail\.stage-shell \.l2-slot \{\s*width:\s*148px;\s*height:\s*64px;/);
+  assert.match(css, /\.rail\.stage-shell \.l2-hit \{\s*width:\s*148px;\s*height:\s*64px;/);
+  assert.match(css, /(^|\n)\s*\.rail\.stage-shell \.l2-expanded:has\(> \.l2-window-card\),/);
+  assert.match(css, /\.rail\.stage-shell \.l2-window-card \.l2-card-copy \{\s*text-shadow:\s*0 1px 2px rgb\(0 0 0 \/ 0\.8\);/);
 });
 
 test("preview card is min(2x, fit) beside the rail", () => {
