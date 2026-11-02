@@ -407,7 +407,7 @@ test("wheelZone is the front layer anywhere inside the frame", () => {
   assert.equal(wheelZone(frame, archPt, "layer2", true), "none");
 });
 
-test("preview card is 1.5x and stays inside the beside panel", () => {
+test("preview card is 2x and stays inside the beside panel", () => {
   const expanded = mirrorLayout("left", ARCH_FRAME.w, ARCH_FRAME.h).expanded;
   const box = previewCardScale(expanded);
   const outer = previewCardOuter(box);
