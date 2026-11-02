@@ -255,7 +255,8 @@ pub(crate) fn drag_tick() {
                     layout_decor(planet);
                     let view = planet.view as *mut Object;
                     let _: () = msg_send![view, setNeedsDisplay: true];
-                    drop(planet);
+                    // `&mut Planet` — dropping the reference ends the borrow and does not free the planet.
+                    let _ = planet;
                     if let Some(w) = h.worlds.get_mut(&pid) {
                         w.plants = snap.0;
                         w.mushrooms = snap.1;
