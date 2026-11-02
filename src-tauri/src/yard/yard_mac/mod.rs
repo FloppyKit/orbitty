@@ -782,10 +782,10 @@ fn hop() {
     let mut stop_after = false;
     // Assigned before any read on the path that continues; the early return
     // inside the lock never reads these.
-    let mut cats_out: bool;
+    let cats_out: bool;
     // Double-click verdict from the hop's release catch — the AX restore
     // runs after the lock drops, never under it.
-    let mut focus_after: Option<String>;
+    let focus_after: Option<String>;
     {
         let mut y = lock();
         if !y.on {

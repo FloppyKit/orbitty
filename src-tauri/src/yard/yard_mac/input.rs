@@ -84,7 +84,7 @@ unsafe fn mouse_up_inner(this: &Object, event: *mut Object) {
     let clicks: usize = msg_send![event, clickCount];
     let view_ptr = this as *const Object as usize;
     // Assigned before the restore below; every early return skips that read.
-    let mut focus: Option<String>;
+    let focus: Option<String>;
     {
         let mut y = lock();
         let Some(mut press) = y.press.take() else {

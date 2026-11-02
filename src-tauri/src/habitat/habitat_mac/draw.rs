@@ -19,7 +19,7 @@ pub(crate) use draw_world::{COMSTACK_W, SUNDIAL_W};
 use draw_world::{DecorDraw, DrawData, WalkerDraw};
 use super::{
     ball_pos, boombox_hud, card_color, droid, droid_pack, ensure_town_art, lock, now_epoch,
-    pack_still_aspect, panic_msg, station_anchor, walker_hidden, DecorKind, Habitat, NSPoint, NSRect,
+    pack_still_aspect, panic_msg, station_anchor, walker_hidden, DecorKind, Habitat, NSRect,
     Pose, Projection, CAPTION_TTL, LOCATE_TTL, PLANET_LOCATE_TTL,
 };
 
