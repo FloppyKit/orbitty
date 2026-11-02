@@ -68,17 +68,6 @@ type Scope_focusBoardLanding = {
   menuRing: MenuRing;
 };
 
-type Scope_goInFromPointer = {
-  arch: ArchState;
-  planetCards: (...args: any[]) => KanbanCard[];
-  enterBoard: (...args: any[]) => { state: ArchState; focus: BoardFocus } | null;
-  archDo: (...args: any[]) => any;
-  walkInto: (...args: any[]) => any;
-  focusBoardLanding: (...args: any[]) => any;
-  menuRing: MenuRing;
-  confirmHabitatStop: (...args: any[]) => any;
-};
-
 type Scope_takeMouseButton = {
   mouseButtonAt: number;
   inputIntent: (...args: any[]) => InputIntent;
@@ -335,21 +324,6 @@ export function focusBoardLanding(scope: Scope_focusBoardLanding, focus: BoardFo
     );
     (el ?? panel).focus();
   });
-}
-
-export function goInFromPointer(scope: Scope_goInFromPointer) {
-  if (scope.arch.front === "board") return;
-  if (scope.arch.front === "layer2") {
-    const cards = scope.arch.pid ? scope.planetCards(scope.arch.pid) : [];
-    const land = scope.enterBoard(scope.arch, cards);
-    if (!land) return;
-    scope.archDo(land.state);
-    scope.walkInto("board");
-    scope.focusBoardLanding(land.focus);
-    return;
-  }
-  const id = scope.menuRing.activeId;
-  if (id) scope.confirmHabitatStop(id);
 }
 
 export function takeMouseButton(scope: Scope_takeMouseButton, button: number): boolean {
