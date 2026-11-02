@@ -146,12 +146,35 @@ unsafe fn ns_string(s: &str) -> *mut Object {
     raw
 }
 
-/// Icons are fetched once per app per session; only successes are cached so a
-/// late-loading icon still appears on a later poll.
+/// Successful icons stay for the session. A failed lookup is a miss for
+/// `ICON_MISS_RETRY`, then `warm_icon` may try that key again.
+const ICON_MISS_RETRY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
 fn icon_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
     static CACHE: OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
         OnceLock::new();
     CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn icon_misses() -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>
+{
+    static MISSES: OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    > = OnceLock::new();
+    MISSES.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// A recorded miss blocks a new background job until `retry` has elapsed.
+/// `None` means this key has no miss cached, so a job may start.
+fn icon_miss_blocks_spawn(
+    miss_at: Option<std::time::Instant>,
+    now: std::time::Instant,
+    retry: std::time::Duration,
+) -> bool {
+    match miss_at {
+        Some(at) => now.saturating_duration_since(at) < retry,
+        None => false,
+    }
 }
 
 fn icon_flight() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
@@ -169,7 +192,8 @@ fn cached_icon(app: *mut Object, cache_key: &str) -> Option<String> {
     }
     // WK custom-scheme IPC (`list_windows`) runs on the main thread.
     // `NSRunningApplication.icon` can block in getattrlist. A miss returns
-    // None and warms the cache off this thread. The next poll paints it.
+    // None and warms the cache off this thread. A success paints on a later
+    // poll; a failed lookup stays a miss until `ICON_MISS_RETRY` elapses.
     let is_main: bool = unsafe { msg_send![class!(NSThread), isMainThread] };
     if is_main {
         warm_icon(cache_key.to_string());
@@ -193,6 +217,18 @@ fn warm_icon(cache_key: String) {
         if cache.contains_key(&cache_key) {
             return;
         }
+    }
+    {
+        let misses = icon_misses().lock().unwrap_or_else(|e| e.into_inner());
+        if icon_miss_blocks_spawn(
+            misses.get(&cache_key).copied(),
+            std::time::Instant::now(),
+            ICON_MISS_RETRY,
+        ) {
+            return;
+        }
+    }
+    {
         let mut flight = icon_flight().lock().unwrap_or_else(|e| e.into_inner());
         if !flight.insert(cache_key.clone()) {
             return;
@@ -205,6 +241,15 @@ fn warm_icon(cache_key: String) {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(cache_key.clone(), png);
+            icon_misses()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&cache_key);
+        } else {
+            icon_misses()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(cache_key.clone(), std::time::Instant::now());
         }
         icon_flight()
             .lock()
@@ -452,4 +497,57 @@ pub(crate) unsafe fn mark_frontmost(list: &mut [WindowInfo]) {
         CFRelease(focused_app);
     }
     CFRelease(system);
+}
+
+#[cfg(test)]
+mod icon_miss_tests {
+    use super::{icon_miss_blocks_spawn, ICON_MISS_RETRY};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn icon_miss_cached_no_respawn() {
+        let retry = Duration::from_secs(5 * 60);
+        let t0 = Instant::now();
+        assert!(icon_miss_blocks_spawn(Some(t0), t0, retry));
+        assert!(icon_miss_blocks_spawn(
+            Some(t0),
+            t0 + Duration::from_millis(800),
+            retry,
+        ));
+        assert!(icon_miss_blocks_spawn(
+            Some(t0),
+            t0 + retry - Duration::from_millis(1),
+            retry,
+        ));
+        let src = include_str!("windows_mac_ax.rs");
+        let start = src.find("fn warm_icon").expect("warm_icon");
+        let rest = &src[start..];
+        let end = rest.find("\nunsafe fn icon_png_for_key").expect("lookup");
+        let body = &rest[..end];
+        assert!(body.contains("icon_miss_blocks_spawn"));
+        assert!(body.contains("icon_misses()"));
+        assert!(body.contains(".insert(cache_key.clone(), std::time::Instant::now())"));
+        assert!(body.contains(".remove(&cache_key)"));
+    }
+
+    #[test]
+    fn icon_miss_retries_after_window() {
+        let retry = ICON_MISS_RETRY;
+        let t0 = Instant::now();
+        assert!(!icon_miss_blocks_spawn(None, t0, retry));
+        assert!(!icon_miss_blocks_spawn(Some(t0), t0 + retry, retry));
+        assert!(!icon_miss_blocks_spawn(
+            Some(t0),
+            t0 + retry + Duration::from_secs(1),
+            retry,
+        ));
+        assert_eq!(ICON_MISS_RETRY, Duration::from_secs(5 * 60));
+        let src = include_str!("windows_mac_ax.rs");
+        let start = src.find("fn icon_png_for_key").expect("lookup");
+        let rest = &src[start..];
+        let end = rest.find("\n/// Draw the app's icon").expect("draw");
+        let body = &rest[..end];
+        assert!(body.contains("ns_to_string(bundle).as_deref() == Some(cache_key)"));
+        assert!(body.contains("got == pid"));
+    }
 }
