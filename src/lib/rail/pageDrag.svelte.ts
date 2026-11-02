@@ -12,7 +12,7 @@ interface AxStatus {
   isAdhoc: boolean;
 }
 
-type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
 type Scope_onDragStart = {
   dragWindowId: string | null;
@@ -26,9 +26,9 @@ type Scope_onDragEnd = {
   pendingDisk: { kanbanCards: KanbanCard[]; pointsLedger: PointsEntry[]; agentRuns: AgentRun[]; cardTombstones: CardTombstone[] } | null;
   persistDeferred: boolean;
   dragStartedAt: number;
-  windowDragHot: (...args: any[]) => boolean;
-  absorbPendingCards: (...args: any[]) => any;
-  persist: (...args: any[]) => Promise<any>;
+  windowDragHot: () => boolean;
+  absorbPendingCards: () => unknown;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_isWindowDrag = {
@@ -36,12 +36,12 @@ type Scope_isWindowDrag = {
 };
 
 type Scope_onSectionDragEnter = {
-  isWindowDrag: (...args: any[]) => boolean;
+  isWindowDrag: (e: DragEvent) => boolean;
   dropTarget: string | null;
 };
 
 type Scope_onSectionDragOver = {
-  isWindowDrag: (...args: any[]) => boolean;
+  isWindowDrag: (e: DragEvent) => boolean;
   dropTarget: string | null;
 };
 
@@ -51,45 +51,45 @@ type Scope_onSectionDragLeave = {
 
 type Scope_onSectionDrop = {
   dragWindowId: string | null;
-  claim: (...args: any[]) => any;
-  unclaim: (...args: any[]) => any;
+  claim: (windowId: string, projectId: string) => unknown;
+  unclaim: (windowId: string) => unknown;
   dropTarget: string | null;
 };
 
 type Scope_tick = {
-  windowDragHot: (...args: any[]) => boolean;
+  windowDragHot: () => boolean;
   invoke: Invoke;
-  noteAx: (...args: any[]) => any;
+  noteAx: (s: AxStatus) => unknown;
   dragWindowId: string | null;
   windows: WindowInfo[];
   refreshedAt: string;
   windowsPolled: boolean;
   embedded: boolean;
-  rematchClaims: (...args: any[]) => any;
-  healOrphanWindowCards: (...args: any[]) => boolean;
-  persist: (...args: any[]) => Promise<any>;
+  rematchClaims: () => unknown;
+  healOrphanWindowCards: () => boolean;
+  persist: () => Promise<unknown>;
   liveClaims: Claim[];
-  touchClaim: (...args: any[]) => any;
-  checkNudge: (...args: any[]) => any;
-  syncHabitat: (...args: any[]) => Promise<any>;
+  touchClaim: (windowId: string, force?: boolean) => unknown;
+  checkNudge: () => unknown;
+  syncHabitat: () => Promise<unknown>;
 };
 
 type Scope_rematchClaims = {
   stateLoaded: boolean;
   windows: WindowInfo[];
   liveClaims: Claim[];
-  titleIndexFor: (...args: any[]) => number;
-  isHermesClass: (...args: any[]) => boolean;
-  claimStableKey: (...args: any[]) => string | null;
-  rewriteWindowId: (...args: any[]) => any;
-  persist: (...args: any[]) => Promise<any>;
+  titleIndexFor: (w: WindowInfo) => number;
+  isHermesClass: (w: WindowInfo) => boolean;
+  claimStableKey: (c: Claim) => string | null;
+  rewriteWindowId: (oldId: string, w: WindowInfo) => unknown;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_rewriteWindowId = {
-  nowEpoch: (...args: any[]) => number;
+  nowEpoch: () => number;
   claims: Claim[];
-  titleIndexFor: (...args: any[]) => number;
-  isHermesClass: (...args: any[]) => boolean;
+  titleIndexFor: (w: WindowInfo) => number;
+  isHermesClass: (w: WindowInfo) => boolean;
   kanbanCards: KanbanCard[];
   windowTags: WindowTags[];
   titleOverrides: TitleOverride[];
@@ -102,9 +102,9 @@ type Scope_healOrphanWindowCards = {
   liveClaims: Claim[];
   windows: WindowInfo[];
   projects: Project[];
-  claim: (...args: any[]) => any;
+  claim: (windowId: string, projectId: string) => unknown;
   windowsPolled: boolean;
-  nowEpoch: (...args: any[]) => number;
+  nowEpoch: () => number;
 };
 
 type Scope_checkNudge = {
@@ -113,7 +113,7 @@ type Scope_checkNudge = {
   nudgePrimed: boolean;
   prevMinimized: Set<string>;
   nudgeSuppressed: string[];
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
   nudgeFor: string | null;
   liveClaims: Claim[];
   nudgeNewName: string;
@@ -125,7 +125,7 @@ type Scope_openSettings = {
 
 type Scope_retry = {
   invoke: Invoke;
-  tick: (...args: any[]) => Promise<any>;
+  tick: () => Promise<unknown>;
 };
 
 type Scope_copyPath = {
