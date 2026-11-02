@@ -12,11 +12,18 @@
 //! `companion-reply` events since the last stamp. A slide past the 40-cap
 //! does not freeze the count on the list index.
 
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+// THIN stamp helpers below are compiled for tests, debug, and `dev-thin`
+// only. A plain release build keeps the stub `stamp` and does not need them.
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
+use serde::{Deserialize, Serialize};
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
+use serde_json::{json, Value};
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
+use sha2::{Digest, Sha256};
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 use std::process::{Command, Stdio};
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The one THIN build predicate. The release gate (`companion_thin`) and the
@@ -229,6 +236,7 @@ pub struct ThinConfig {
     pub output_dir: PathBuf,
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct ThinFile {
@@ -240,6 +248,7 @@ struct ThinFile {
     output_dir: Option<String>,
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 pub fn resolve_config(home: &Path, manifest_dir: &Path) -> ThinConfig {
     let file = read_thin_file(home);
     let script = nonblank(file.script.as_deref())
@@ -269,6 +278,7 @@ pub fn resolve_config(home: &Path, manifest_dir: &Path) -> ThinConfig {
     }
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn read_thin_file(home: &Path) -> ThinFile {
     let p = home.join(".config/orbitty/thin.json");
     let Ok(raw) = std::fs::read_to_string(p) else {
@@ -277,10 +287,12 @@ fn read_thin_file(home: &Path) -> ThinFile {
     serde_json::from_str(&raw).unwrap_or_default()
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn nonblank(raw: Option<&str>) -> Option<&str> {
     raw.map(str::trim).filter(|s| !s.is_empty())
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn expand_home(home: &Path, raw: &str) -> PathBuf {
     if raw == "~" {
         return home.to_path_buf();
@@ -293,12 +305,14 @@ fn expand_home(home: &Path, raw: &str) -> PathBuf {
 }
 
 /// Chars of the live thread, and a tokens estimate (chars/4, round up).
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 pub fn context_size(texts: &[String]) -> (u64, u64) {
     let chars: u64 = texts.iter().map(|t| t.chars().count() as u64).sum();
     let tokens = chars.saturating_add(3) / 4;
     (chars, tokens)
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub(crate) struct Meter {
     #[serde(default)]
@@ -316,6 +330,7 @@ pub(crate) struct Meter {
     window: Vec<String>,
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Observation {
     pub session_id: String,
@@ -327,6 +342,7 @@ pub struct Observation {
 
 /// `new_events` is companion-send + companion-reply lines after `prev.lines_seen`.
 /// `lines_seen` is the log length after this read (the new cursor).
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 pub(crate) fn reconcile(
     prev: &Meter,
     session_id: &str,
@@ -374,6 +390,7 @@ pub(crate) fn reconcile(
     (meter, obs)
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn window_added(prev: &[String], next: &[String]) -> u64 {
     if next.is_empty() {
         return 0;
@@ -389,6 +406,7 @@ fn window_added(prev: &[String], next: &[String]) -> u64 {
     (next.len() - overlap) as u64
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 pub fn fingerprint(role: &str, text: &str) -> String {
     let mut h = Sha256::new();
     h.update(role.as_bytes());
@@ -403,6 +421,7 @@ pub fn fingerprint(role: &str, text: &str) -> String {
 
 /// Count mouth turns in `events.jsonl` strictly after `lines_seen`.
 /// Returns (new turn events, total lines).
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 pub fn count_turn_events(text: &str, lines_seen: usize) -> (u64, usize) {
     let all: Vec<&str> = text.lines().collect();
     if lines_seen >= all.len() {
@@ -417,6 +436,7 @@ pub fn count_turn_events(text: &str, lines_seen: usize) -> (u64, usize) {
     (n, all.len())
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn line_is_turn(line: &str) -> bool {
     if !line.contains("companion-send") && !line.contains("companion-reply") {
         return false;
@@ -448,6 +468,7 @@ impl StampError {
         self.user_line.clone()
     }
 
+    #[cfg(any(test, debug_assertions, feature = "dev-thin"))]
     fn missing_script() -> Self {
         Self {
             user_line: "THIN stamped (scanner missing). Start a new job when ready.".into(),
@@ -614,10 +635,12 @@ fn read_session_id() -> String {
     }
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn meter_path(output_dir: &Path) -> PathBuf {
     output_dir.join("meter.json")
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn load_meter(output_dir: &Path) -> Meter {
     let Ok(raw) = std::fs::read_to_string(meter_path(output_dir)) else {
         return Meter::default();
@@ -625,6 +648,7 @@ fn load_meter(output_dir: &Path) -> Meter {
     serde_json::from_str(&raw).unwrap_or_default()
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn save_meter(output_dir: &Path, meter: &Meter) {
     let Ok(body) = serde_json::to_string_pretty(meter) else {
         return;
@@ -636,6 +660,7 @@ fn save_meter(output_dir: &Path, meter: &Meter) {
     }
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -643,6 +668,7 @@ fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-thin"))]
 fn stamp_ts(now: u64) -> String {
     chrono::DateTime::<chrono::Utc>::from_timestamp(now as i64, 0)
         .map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())
