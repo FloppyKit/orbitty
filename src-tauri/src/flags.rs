@@ -588,6 +588,8 @@ fn ax_safe_support_id() -> String {
 }
 
 #[cfg(all(target_os = "macos", not(test)))]
+// objc 0.2 macros probe `cfg(feature = "cargo-clippy")`. Not a flag default.
+#[allow(unexpected_cfgs)]
 fn macos_bundle_id() -> Option<String> {
     use objc::runtime::Object;
     use objc::{class, msg_send, sel, sel_impl};

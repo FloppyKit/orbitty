@@ -100,6 +100,8 @@ fn start_poll() {
 }
 
 #[cfg(target_os = "macos")]
+// objc 0.2 macros probe `cfg(feature = "cargo-clippy")`.
+#[allow(unexpected_cfgs)]
 fn click_outside(app: &tauri::AppHandle, label: &str) -> bool {
     use objc::runtime::Object;
     use objc::{class, msg_send, sel, sel_impl};

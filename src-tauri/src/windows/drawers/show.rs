@@ -1,3 +1,7 @@
+// objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
+// rustc flags; harmless upstream noise.
+#![allow(unexpected_cfgs)]
+
 use crate::state;
 use tauri::{Emitter, Manager};
 
