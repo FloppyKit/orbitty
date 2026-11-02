@@ -9,22 +9,22 @@ type Scope_todayKey = {};
 
 type Scope_ageClass = {
   claims: Claim[];
-  nowEpoch: (...args: any[]) => number;
+  nowEpoch: () => number;
   GONE_AFTER_S: number;
   PARK_AFTER_S: number;
   FADE_AFTER_S: number;
 };
 
 type Scope_pointsToday = {
-  todayKey: (...args: any[]) => string;
+  todayKey: () => string;
   pointsLedger: PointsEntry[];
 };
 
 type Scope_touchClaim = {
-  nowEpoch: (...args: any[]) => number;
+  nowEpoch: () => number;
   claims: Claim[];
   lastTouchPersist: number;
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_windowDragHot = {
@@ -47,12 +47,12 @@ type Scope_todosFor = {
 type Scope_rowsFor = {
   windows: WindowInfo[];
   liveClaims: Claim[];
-  claimStableKey: (...args: any[]) => string | null;
+  claimStableKey: (c: Claim) => string | null;
 };
 
 type Scope_visibleRows = {
   tagFilter: string | null;
-  hasTag: (...args: any[]) => boolean;
+  hasTag: (windowId: string, tagId: string) => boolean;
 };
 
 type Scope_hasTag = {
@@ -70,8 +70,8 @@ type Scope_isCollapsed = {
 
 type Scope_toggleCollapse = {
   collapsedSectionIds: string[];
-  isCollapsed: (...args: any[]) => boolean;
-  persist: (...args: any[]) => Promise<any>;
+  isCollapsed: (sectionId: string) => boolean;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_sectionIds = {
@@ -80,8 +80,8 @@ type Scope_sectionIds = {
 };
 
 type Scope_openSectionId = {
-  sectionIds: (...args: any[]) => string[];
-  isCollapsed: (...args: any[]) => boolean;
+  sectionIds: () => string[];
+  isCollapsed: (sectionId: string) => boolean;
 };
 
 export function nowEpoch(scope: Scope_nowEpoch): number {
