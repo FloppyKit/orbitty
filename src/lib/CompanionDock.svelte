@@ -31,6 +31,7 @@
     type LaunchRow,
     type Usage,
   } from "./companion/launcher";
+  import type { ScriptCommand } from "./companion/scriptCmds";
 
   // Chrome labels only. The option value stays
   // the stem id so set_companion_agent and the on-disk allowlist are
@@ -263,9 +264,20 @@
   let composing = $state(false);
   let queryFromKey = false;
 
+  // Script commands (part b). The rows come from the Rust header scan,
+  // which never executes anything; a script runs only on an explicit
+  // pick (plus the confirm row when needsConfirmation is set).
+  let scripts = $state<ScriptCommand[]>([]);
+  let scriptsLoading = false;
+  let scriptsLoadedAt = 0;
+  let pendingConfirm = $state<{ id: string; title: string } | null>(null);
+  let argMode = $state<{ id: string; prefix: string } | null>(null);
+  let scriptNote = $state<string | null>(null);
+  let scriptNoteTimer: ReturnType<typeof setTimeout> | undefined;
+
   const items = $derived.by((): LaunchRow[] => {
     if (expanded) return [];
-    return launcherItems(
+    const rows = launcherItems(
       {
         query: draft,
         armed: neededId ? { id: neededId, title: neededHint ?? "Needed" } : null,
@@ -283,9 +295,22 @@
         nextCount,
         smallestTodo: smallest,
         planetsHidden,
+        scripts,
       },
       usage,
     );
+    const pending = pendingConfirm;
+    if (!pending) return rows;
+    // needsConfirmation: one explicit "Run <title>?" row before the run.
+    const confirm: LaunchRow = {
+      id: `confirm:${pending.id}`,
+      title: `Run ${pending.title}?`,
+      subtitle: "Return runs it",
+      glyph: "?",
+      kind: "command",
+      run: { t: "script", id: pending.id, title: pending.title, confirmed: true },
+    };
+    return [confirm, ...rows];
   });
 
   // The rest of the top match's title, painted faintly after the caret.
@@ -332,9 +357,112 @@
     !expanded && items.length > 0 ? `companion-launcher-opt-${selected}` : "",
   );
 
+  // One line of script output is the toast; fullOutput keeps the block.
+  function lastLine(text: string): string {
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return lines[lines.length - 1] ?? "";
+  }
+
+  function showScriptNote(text: string) {
+    scriptNote = text;
+    if (scriptNoteTimer) clearTimeout(scriptNoteTimer);
+    scriptNoteTimer = setTimeout(() => {
+      scriptNote = null;
+      scriptNoteTimer = undefined;
+    }, 6000);
+  }
+
+  async function loadScripts() {
+    if (scriptsLoading) return;
+    if (Date.now() - scriptsLoadedAt < 500) return;
+    scriptsLoading = true;
+    try {
+      scripts = await invoke<ScriptCommand[]>("list_script_commands");
+      scriptsLoadedAt = Date.now();
+    } catch (e) {
+      showScriptNote(`Scripts: ${e}`);
+    } finally {
+      scriptsLoading = false;
+    }
+  }
+
+  async function runScript(script: ScriptCommand, arg: string | null) {
+    let res: {
+      code: number;
+      stdout: string;
+      stderr: string;
+      timedOut: boolean;
+      truncated: boolean;
+    };
+    try {
+      res = await invoke("run_script_command", { id: script.id, args: arg });
+    } catch (e) {
+      showScriptNote(`Script failed: ${e}`);
+      return;
+    }
+    if (res.timedOut) {
+      showScriptNote("Script failed: timed out (30 s)");
+      return;
+    }
+    if (res.code !== 0) {
+      const why =
+        lastLine(res.stderr) || lastLine(res.stdout) || `exit ${res.code}`;
+      showScriptNote(`Script failed: ${why}`);
+      return;
+    }
+    if (script.mode === "silent") return;
+    const out = script.mode === "fullOutput" ? res.stdout.trim() : lastLine(res.stdout);
+    if (out) showScriptNote(res.truncated ? `${out}\n… (capped at 64 KiB)` : out);
+  }
+
+  async function pickScript(row: { id: string; title: string }, confirmed: boolean, arg: string | null) {
+    const script = scripts.find((item) => item.id === row.id);
+    if (!script) return;
+    if (script.needsConfirmation && !confirmed) {
+      pendingConfirm = { id: script.id, title: script.title };
+      return;
+    }
+    pendingConfirm = null;
+    if (script.argument1 && arg === null) {
+      // Argument mode: "<title>: " prefix, Return runs with $1, Esc leaves.
+      argMode = { id: script.id, prefix: `${script.title}: ` };
+      queryFromKey = true;
+      draft = argMode.prefix;
+      selected = 0;
+      visibleStart = 0;
+      requestAnimationFrame(() => fieldEl?.focus());
+      return;
+    }
+    argMode = null;
+    await runScript(script, arg);
+  }
+
   async function runIndex(index: number, viaArrow: boolean) {
     const row = items[index];
     if (!row) return;
+    if (row.run.t === "script") {
+      const shouldClear = clearAfterRun({
+        kind: row.run.t,
+        query: draft,
+        title: row.title,
+        byArrow: false,
+      });
+      await pickScript(row.run, !!row.run.confirmed, row.run.args ?? null);
+      if (shouldClear && !argMode && !pendingConfirm) {
+        queryFromKey = true;
+        draft = "";
+      }
+      byArrow = false;
+      selected = 0;
+      visibleStart = 0;
+      return;
+    }
+    // Any other row leaves the script ladder behind.
+    argMode = null;
+    pendingConfirm = null;
     const shouldClear = clearAfterRun({
       kind: row.run.t,
       query: draft,
@@ -359,6 +487,42 @@
       if (e.shiftKey) return;
       e.preventDefault();
       sendLine();
+      return;
+    }
+    // Argument mode: Esc is one ladder step (leaves the mode), Return
+    // runs the picked script with the typed text as $1.
+    if (argMode) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        argMode = null;
+        if (scriptNoteTimer) clearTimeout(scriptNoteTimer);
+        scriptNote = null;
+        queryFromKey = true;
+        draft = "";
+        selected = 0;
+        visibleStart = 0;
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        e.stopPropagation();
+        const mode = argMode;
+        const text = draft.slice(mode.prefix.length).trim();
+        argMode = null;
+        const script = scripts.find((item) => item.id === mode.id);
+        queryFromKey = true;
+        draft = "";
+        selected = 0;
+        visibleStart = 0;
+        if (script) void runScript(script, text ? text : null);
+        return;
+      }
+    }
+    if (pendingConfirm && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      pendingConfirm = null;
       return;
     }
     const undo = (e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z") && stash !== null;
@@ -588,6 +752,7 @@
     const unBegin = await listen("pane-drag-begin", () => freezeDragHover());
     const unEnd = await listen("pane-drag-end", () => unfreezeDragHover());
     measureField();
+    void loadScripts();
     // Tile open/close widens the window → rewrap → re-grow without
     // waiting for the next keystroke. RO fires only on real size
     // deltas, so the grow writes above do not loop it.
@@ -599,6 +764,7 @@
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
       window.removeEventListener("resize", growField);
+      if (scriptNoteTimer) clearTimeout(scriptNoteTimer);
       unBegin();
       unEnd();
     };
@@ -610,6 +776,8 @@
 <div
     class="ghostdock"
     onpointermove={trackPtr}
+    onfocusin={() => void loadScripts()}
+    onpointerdown={() => void loadScripts()}
     class:dragging={dockDragging}
     class:hover-armed={hoverArmed}
     onmousedown={onChromeDown}
@@ -678,6 +846,11 @@
     onSubmit={() => void runIndex(selected, byArrow)}
     {fmtSize}
   />
+  {#if !expanded && scriptNote}
+    <!-- Script output: one compact/inline line, or the capped
+         fullOutput block. Theme vars only; read-only status. -->
+    <div class="scriptnote" role="status">{scriptNote}</div>
+  {/if}
   {#if !expanded}
     <DockLauncher
       rows={items}
@@ -689,3 +862,23 @@
     />
   {/if}
 </div>
+
+<style>
+  /* Script result line. Theme vars only: dim text, no panel, no light
+     object on a dark theme. fullOutput scrolls instead of eating the dock
+     (the list height is reserved, the 420px window already has the room). */
+  .scriptnote {
+    flex: none;
+    margin: 0 12px 6px;
+    max-height: 92px;
+    overflow-y: auto;
+    color: var(--dim);
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 11.5px;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+    cursor: auto;
+  }
+</style>

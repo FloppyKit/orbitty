@@ -1,6 +1,7 @@
 // Pure launcher: catalogue, rank, keys, clear-after-run.
 // No DOM, no invoke. The dock paints rows and CompanionPage runs actions.
 // Planet dots are passed in (planetCss lives with the caller).
+import type { ScriptCommand } from "./scriptCmds";
 
 export const VISIBLE_ROWS = 5;
 export const MAX_ROWS = 50;
@@ -12,7 +13,15 @@ export type Action =
   | { t: "answer"; id: string }
   | { t: "invoke"; cmd: string; args?: Record<string, unknown> }
   | { t: "host"; mode: "launchpad" | "stars" | "inspector" }
-  | { t: "page"; fn: string; args?: Record<string, unknown> };
+  | { t: "page"; fn: string; args?: Record<string, unknown> }
+  | {
+      t: "script";
+      id: string;
+      title: string;
+      args?: string;
+      /** The confirm row was already taken. */
+      confirmed?: boolean;
+    };
 
 export type LaunchRow = {
   id: string;
@@ -45,6 +54,8 @@ export type LaunchCtx = {
   nextCount: number;
   smallestTodo: TodoRef | null;
   planetsHidden: boolean;
+  /** Raycast-format rows from ~/.config/orbitty/scripts/ (part b). */
+  scripts?: ScriptCommand[];
 };
 
 export type KeyInput = {
@@ -328,6 +339,19 @@ export function catalogue(ctx: LaunchCtx): LaunchRow[] {
       run: { t: "page", fn: "talkStart" },
     }),
   );
+
+  // Script commands last in catalogue order. An empty or missing folder
+  // simply adds no rows (rollback = revert).
+  for (const script of ctx.scripts ?? []) {
+    const row = command({
+      id: `script:${script.id}`,
+      title: script.title,
+      subtitle: script.subtitle,
+      run: { t: "script", id: script.id, title: script.title },
+    });
+    if (script.icon) row.glyph = script.icon;
+    push(row);
+  }
 
   return rows;
 }
