@@ -52,6 +52,8 @@ pub(crate) use companion::mouth_route;
 pub(crate) use companion::mouth_scan;
 pub(crate) use companion::mouth_sidecar;
 pub(crate) use companion::mouth_tools;
+#[cfg(unix)]
+pub(crate) use companion::script_cmds;
 pub(crate) use companion::talk;
 mod coordinator;
 mod rail;
@@ -938,6 +940,10 @@ pub fn run() {
             companion::model_setup::model_setup_lmstudio,
             mouth_scan::mouth_scan,
             mouth_scan::pull_mouth_model,
+            #[cfg(unix)]
+            script_cmds::list_script_commands,
+            #[cfg(unix)]
+            script_cmds::run_script_command,
             mouth_ack::set_companion_conductor,
             mouth_ack::set_companion_conductor_model,
             talk::talk_start,

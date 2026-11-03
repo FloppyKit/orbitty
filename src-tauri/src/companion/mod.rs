@@ -27,4 +27,6 @@ pub(crate) mod mouth_scan;
 pub(crate) mod mouth_sidecar;
 pub(crate) mod mouth_tools;
 pub(crate) mod policy_guard;
+#[cfg(unix)]
+pub(crate) mod script_cmds;
 pub(crate) mod talk;
