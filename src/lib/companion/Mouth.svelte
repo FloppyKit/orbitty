@@ -8,6 +8,9 @@
     draft = $bindable(""),
     fieldEl = $bindable(null),
     onFieldKeydown,
+    ghost = "",
+    onCaret,
+    onComposing,
     neededHint = null,
     listOpen = false,
     activeDescendant = "",
@@ -28,6 +31,12 @@
     draft?: string;
     fieldEl?: HTMLTextAreaElement | null;
     onFieldKeydown: (e: KeyboardEvent) => void;
+    /** Faint rest of the top match. Dock variant only, aria-hidden. */
+    ghost?: string;
+    /** Caret moved / text changed: the dock re-decides the ghost. */
+    onCaret?: () => void;
+    /** IME open/closed: no ghost while composing. */
+    onComposing?: (on: boolean) => void;
     neededHint?: string | null;
     listOpen?: boolean;
     activeDescendant?: string;
@@ -123,6 +132,12 @@
         onmousedown={(e) => e.stopPropagation()}
         onpointerdown={(e) => e.stopPropagation()}
         onkeydown={onFieldKeydown}
+        oninput={onCaret}
+        onkeyup={onCaret}
+        onselect={onCaret}
+        onclick={onCaret}
+        oncompositionstart={() => onComposing?.(true)}
+        oncompositionend={() => onComposing?.(false)}
         placeholder={neededHint
           ? `answer: ${neededHint}  ·  Rule: … to remember`
           : "type…  ·  todo: buy milk -fkt"}
@@ -135,6 +150,13 @@
         autocomplete="off"
         spellcheck="false"
       ></textarea>
+      {#if variant !== "line" && ghost}
+        <!-- Ghost: the rest of the top match, faintly, right after the
+             text. aria-hidden and click-through; Return never takes it. -->
+        <span class="fieldghost" aria-hidden="true">
+          <span class="fieldghost-typed">{draft}</span><span class="fieldghost-rest">{ghost}</span>
+        </span>
+      {/if}
       <span class="talkslot">
         {#if talking}
           <button

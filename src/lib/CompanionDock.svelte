@@ -21,13 +21,15 @@
   import DockLauncher from "./companion/Launcher.svelte";
   import {
     clearAfterRun,
+    ghostSuffix,
     launcherItems,
     launcherKey,
-    noteRecent,
+    noteUse,
     pickIndex,
     refitComposer,
     type Action,
     type LaunchRow,
+    type Usage,
   } from "./companion/launcher";
 
   // Chrome labels only. The option value stays
@@ -254,7 +256,11 @@
   let visibleStart = $state(0);
   let stash = $state<string | null>(null);
   let byArrow = $state(false);
-  let recents = $state<string[]>([]);
+  // Memory-only use counts (count + last used) rank the list; they never
+  // reach state.json. Ghost needs the caret and the IME flag.
+  let usage = $state<Usage>({});
+  let caretAtEnd = $state(true);
+  let composing = $state(false);
   let queryFromKey = false;
 
   const items = $derived.by((): LaunchRow[] => {
@@ -278,9 +284,32 @@
         smallestTodo: smallest,
         planetsHidden,
       },
-      recents,
+      usage,
     );
   });
+
+  // The rest of the top match's title, painted faintly after the caret.
+  // Ask/Answer rows never ghost; Return never takes it.
+  const ghostTop = $derived(
+    !expanded && ghostSuffix(draft, items, caretAtEnd, composing)
+      ? (items.find((row) => row.kind === "command")?.title ?? "")
+      : "",
+  );
+  const ghost = $derived(
+    ghostTop && ghostTop.toLowerCase().startsWith(draft.toLowerCase())
+      ? ghostTop.slice(draft.length)
+      : "",
+  );
+
+  function syncCaret() {
+    const el = fieldEl;
+    caretAtEnd =
+      !el || (el.selectionStart === el.selectionEnd && el.selectionEnd === draft.length);
+  }
+
+  function onComposing(on: boolean) {
+    composing = on;
+  }
 
   $effect(() => {
     draft;
@@ -314,7 +343,7 @@
     });
     const ok = await runAction(row.run);
     if (!ok) return;
-    recents = noteRecent(recents, row.id);
+    usage = noteUse(usage, row.id);
     if (row.run.t !== "send" && row.run.t !== "answer" && shouldClear) {
       queryFromKey = true;
       draft = "";
@@ -334,6 +363,8 @@
     }
     const undo = (e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z") && stash !== null;
     const field = e.currentTarget instanceof HTMLTextAreaElement ? e.currentTarget : fieldEl;
+    composing = e.isComposing;
+    syncCaret();
     const result = launcherKey(
       { query: draft, selected, count: items.length, visibleStart, stash },
       {
@@ -344,6 +375,8 @@
         ctrl: e.ctrlKey,
         composing: e.isComposing,
         hasSelection: !!field && field.selectionStart !== field.selectionEnd,
+        ghost,
+        ghostTitle: ghostTop,
       },
       items.map((row) => row.title),
     );
@@ -394,7 +427,7 @@
       e.key === "ArrowDown" ||
       e.key === "Tab" ||
       undo ||
-      ((e.metaKey || e.ctrlKey) && /^[1-5]$/.test(e.key))
+      ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key))
     ) {
       e.preventDefault();
       if (e.key === "Escape") e.stopPropagation();
@@ -631,6 +664,9 @@
     bind:draft
     bind:fieldEl
     {onFieldKeydown}
+    {ghost}
+    onCaret={syncCaret}
+    {onComposing}
     {neededHint}
     listOpen={!expanded}
     activeDescendant={activeId}

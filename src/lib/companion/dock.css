@@ -584,6 +584,39 @@
     padding-right: 32px;
   }
 
+  /* Ghost: the rest of the top match, faintly, right after the caret.
+     Sits 1px inside the field box so its text box matches the textarea's
+     content box (same padding, same wrap); the typed part is painted
+     transparent so the real caret and text still show through. Themes
+     only — no new colour. Click-through, aria-hidden. */
+  .fieldghost {
+    position: absolute;
+    inset: 1px;
+    padding: 7px 10px 7px 28px;
+    box-sizing: border-box;
+    z-index: 1;
+    pointer-events: none;
+    overflow: hidden;
+    font: inherit;
+    font-size: 0.82rem;
+    line-height: normal;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    color: var(--dim);
+  }
+
+  .fieldghost-typed {
+    color: transparent;
+  }
+
+  .fieldghost-rest {
+    color: var(--dim);
+  }
+
+  .fieldwrap.talking .fieldghost {
+    padding-right: 56px;
+  }
+
   .fieldplus {
     position: absolute;
     left: 6px;

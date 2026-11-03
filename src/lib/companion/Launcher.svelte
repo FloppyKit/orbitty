@@ -68,6 +68,9 @@
         <span class="launcher-dot" aria-hidden="true" style:background={row.dot}></span>
       {/if}
       <span class="launcher-title">{row.title}</span>
+      {#if i >= visibleStart && i - visibleStart < 9}
+        <span class="launcher-key" aria-hidden="true">⌘{i - visibleStart + 1}</span>
+      {/if}
       {#if row.subtitle}
         <span class="launcher-sub">{row.subtitle}</span>
       {/if}
@@ -137,5 +140,17 @@
     margin-left: auto;
     color: var(--dim);
     font-size: 12px;
+  }
+
+  .launcher-key {
+    flex: none;
+    margin-left: auto;
+    color: var(--dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .launcher-key + .launcher-sub {
+    margin-left: 6px;
   }
 </style>

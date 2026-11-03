@@ -56,7 +56,25 @@ export type KeyInput = {
   composing?: boolean;
   /** Field has a non-empty selection. Esc collapses that and stops. */
   hasSelection?: boolean;
+  /** Rest of the top match's title, from ghostSuffix. Tab fills it in. */
+  ghost?: string;
+  /** Full title the ghost came from, so Tab lands on the catalogue case. */
+  ghostTitle?: string;
 };
+
+/** One memory-only use record per command id. Count + last use lift a row
+ *  inside its own tier; never above a tighter tier. No state field. */
+export type UseRecord = { count: number; usedAt: number };
+export type Usage = Readonly<Record<string, UseRecord>>;
+
+/** Match tiers, tightest first. Typo sits below plain subsequence. */
+export const TIER = {
+  exact: 0,
+  wordStart: 1,
+  initials: 2,
+  subsequence: 3,
+  typo: 4,
+} as const;
 
 export type KeyState = {
   query: string;
@@ -327,21 +345,100 @@ function isSubsequence(query: string, title: string): boolean {
   return false;
 }
 
-/** Higher score = tighter word-start. Exact word is its own tier. */
+/** First letter of every word, in order: "Open Board" -> "ob". */
+function initialsOf(title: string): string {
+  return wordsOf(title)
+    .map((word) => word[0] ?? "")
+    .join("");
+}
+
+/** One typo: a wrong letter, a dropped letter, an extra letter, or a
+ *  swapped pair. Nothing else counts, so no second-guessing. */
+function oneTypo(query: string, word: string): boolean {
+  if (query === word) return false;
+  if (Math.abs(query.length - word.length) > 1) return false;
+  if (query.length === word.length) {
+    const diff: number[] = [];
+    for (let i = 0; i < query.length; i += 1) {
+      if (query[i] !== word[i]) diff.push(i);
+    }
+    if (diff.length === 1) return true;
+    if (diff.length !== 2) return false;
+    const [a, b] = diff as [number, number];
+    return b === a + 1 && query[a] === word[b] && query[b] === word[a];
+  }
+  const short = query.length < word.length ? query : word;
+  const long = query.length < word.length ? word : query;
+  let i = 0;
+  let j = 0;
+  let skipped = 0;
+  while (i < short.length && j < long.length) {
+    if (short[i] === long[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    skipped += 1;
+    if (skipped > 1) return false;
+    j += 1;
+  }
+  if (j < long.length) skipped += 1; // the extra letter sat at the end
+  return skipped === 1 && short.length - i === 0;
+}
+
+/** Higher score = tighter word-start (or tighter initials). Exact word is
+ *  its own tier. Typo matching needs 4+ letters so short words stay quiet. */
 function scoreTitle(query: string, title: string): { tier: number; score: number } | null {
   const words = wordsOf(title);
+  if (words.includes(query)) return { tier: TIER.exact, score: 1000 };
   let best = 0;
-  let exact = false;
   for (const word of words) {
     if (!word.startsWith(query)) continue;
-    if (word === query) exact = true;
     const score = Math.round((query.length * 1000) / word.length);
     if (score > best) best = score;
   }
-  if (exact) return { tier: 0, score: 1000 };
-  if (best > 0) return { tier: 1, score: best };
-  if (isSubsequence(query, title.toLowerCase())) return { tier: 2, score: 0 };
+  if (best > 0) return { tier: TIER.wordStart, score: best };
+  const initials = initialsOf(title);
+  if (query.length >= 2 && initials.startsWith(query)) {
+    return {
+      tier: TIER.initials,
+      score: Math.round((query.length * 1000) / initials.length),
+    };
+  }
+  if (isSubsequence(query, title.toLowerCase())) {
+    return { tier: TIER.subsequence, score: 0 };
+  }
+  if (query.length >= 4) {
+    for (const word of words) {
+      if (oneTypo(query, word)) {
+        return {
+          tier: TIER.typo,
+          score: Math.round((query.length * 1000) / word.length),
+        };
+      }
+    }
+  }
   return null;
+}
+
+/** An array of ids (fixed suggestion order) or a use map (frequency + recency). */
+type RankOrder = readonly string[] | Usage;
+
+function isUsage(order: RankOrder): order is Usage {
+  return !Array.isArray(order);
+}
+
+/** Suggested-then-run order for an empty query: most used, newest first. */
+function recentIds(order: RankOrder): string[] {
+  if (!isUsage(order)) return [...(order as readonly string[])];
+  return Object.entries(order as Usage)
+    .sort((a, b) => b[1].count - a[1].count || b[1].usedAt - a[1].usedAt)
+    .map(([id]) => id);
+}
+
+function useOf(order: RankOrder, id: string): UseRecord | null {
+  if (!isUsage(order)) return null;
+  return (order as Usage)[id] ?? null;
 }
 
 function suggestionRows(rows: LaunchRow[], recents: readonly string[]): LaunchRow[] {
@@ -365,29 +462,52 @@ function suggestionRows(rows: LaunchRow[], recents: readonly string[]): LaunchRo
 }
 
 /**
- * Empty query → Suggestions in fixed order (a recent id may lead).
+ * Empty query → Suggestions in fixed order (a recent / most-used id may lead).
  * A leading "/" hides nothing here (Ask is added by launcherItems) and
  * keeps only the best match tier, so "/st" is Stars and "/cl" is Claim.
- * Otherwise every match, best tier and tightest word first, catalogue order on ties.
+ * Otherwise every match, best tier first, then use count / recency inside the
+ * tier, then tightest word, catalogue order last.
  */
 export function rankItems(
   query: string,
   rows: LaunchRow[],
-  recents: readonly string[] = [],
+  order: RankOrder = [],
 ): LaunchRow[] {
   const raw = query.trim();
   const slash = raw.startsWith("/");
   const q = (slash ? raw.slice(1) : raw).trim().toLowerCase();
-  if (!q) return suggestionRows(rows, recents);
+  if (!q) return suggestionRows(rows, recentIds(order));
 
-  const matched: { row: LaunchRow; index: number; tier: number; score: number }[] = [];
+  const matched: {
+    row: LaunchRow;
+    index: number;
+    tier: number;
+    score: number;
+    count: number;
+    usedAt: number;
+  }[] = [];
   rows.forEach((row, index) => {
     if (row.kind === "ask") return;
     const scored = scoreTitle(q, row.title);
     if (!scored) return;
-    matched.push({ row, index, tier: scored.tier, score: scored.score });
+    const used = useOf(order, row.id);
+    matched.push({
+      row,
+      index,
+      tier: scored.tier,
+      score: scored.score,
+      count: used?.count ?? 0,
+      usedAt: used?.usedAt ?? 0,
+    });
   });
-  matched.sort((a, b) => a.tier - b.tier || b.score - a.score || a.index - b.index);
+  matched.sort(
+    (a, b) =>
+      a.tier - b.tier ||
+      b.count - a.count ||
+      b.usedAt - a.usedAt ||
+      b.score - a.score ||
+      a.index - b.index,
+  );
   if (matched.length === 0) return [];
   if (slash) {
     const best = matched[0];
@@ -414,16 +534,19 @@ export function pickIndex(query: string, items: readonly LaunchRow[]): number {
     const row = items[i];
     if (!row || row.kind !== "command") continue;
     const scored = scoreTitle(q, row.title);
-    if (scored && scored.tier <= 1) return i;
+    if (scored && scored.tier <= TIER.wordStart) return i;
   }
   return 0;
 }
 
-export function launcherItems(ctx: LaunchCtx, recents: readonly string[] = []): LaunchRow[] {
+export function launcherItems(
+  ctx: LaunchCtx,
+  order: RankOrder = [],
+): LaunchRow[] {
   const rows = catalogue(ctx);
   const raw = ctx.query.trim();
   const slash = raw.startsWith("/");
-  const ranked = rankItems(ctx.query, rows, recents).filter((row) => row.kind !== "answer");
+  const ranked = rankItems(ctx.query, rows, order).filter((row) => row.kind !== "answer");
   const head: LaunchRow[] = [];
   if (!slash && ctx.armed) head.push(answerRow(ctx.armed));
   else if (!slash && raw) head.push(askRow(ctx.query));
@@ -433,6 +556,56 @@ export function launcherItems(ctx: LaunchCtx, recents: readonly string[] = []): 
 export function noteRecent(ids: readonly string[], id: string): string[] {
   if (!id || id === "ask" || id.startsWith("answer:")) return [...ids];
   return [id, ...ids.filter((item) => item !== id)].slice(0, 8);
+}
+
+/** Count one real run of a command row. Memory only, like the recents it
+ *  replaces: nothing lands in state.json. The map stays small. */
+export function noteUse(usage: Usage, id: string, at = Date.now()): Usage {
+  if (!id || id === "ask" || id.startsWith("answer:")) return usage;
+  const prev = usage[id];
+  const next: Record<string, UseRecord> = {
+    ...usage,
+    [id]: { count: (prev?.count ?? 0) + 1, usedAt: at },
+  };
+  const ids = Object.keys(next);
+  if (ids.length <= 40) return next;
+  const keep = ids
+    .sort(
+      (a, b) =>
+        (next[b]?.count ?? 0) - (next[a]?.count ?? 0) ||
+        (next[b]?.usedAt ?? 0) - (next[a]?.usedAt ?? 0),
+    )
+    .slice(0, 40);
+  const trimmed: Record<string, UseRecord> = {};
+  for (const key of keep) {
+    const record = next[key];
+    if (record) trimmed[key] = record;
+  }
+  return trimmed;
+}
+
+/**
+ * The rest of the top match's title, faintly, right after the caret.
+ * Empty when: no query, a leading "/" (that query means "best tier only"),
+ * the caret is not at the end, an IME composition is open, the query is not
+ * a case-insensitive prefix of the title, or the only rows are Ask/Answer.
+ * Never changes what Return runs; Tab is the only key that takes it.
+ */
+export function ghostSuffix(
+  query: string,
+  items: readonly LaunchRow[],
+  caretAtEnd = true,
+  composing = false,
+): string {
+  if (!caretAtEnd || composing) return "";
+  if (!query.trim()) return "";
+  if (query.startsWith("/")) return "";
+  const row = items.find((item) => item.kind === "command");
+  if (!row) return "";
+  const title = row.title;
+  if (title.length <= query.length) return "";
+  if (!title.toLowerCase().startsWith(query.toLowerCase())) return "";
+  return title.slice(query.length);
 }
 
 /**
@@ -451,7 +624,7 @@ export function clearAfterRun(input: {
   if (raw.startsWith("/")) return true;
   const q = raw.toLowerCase();
   const scored = scoreTitle(q, input.title);
-  if (input.byArrow && (!scored || scored.tier >= 2)) return false;
+  if (input.byArrow && (!scored || scored.tier >= TIER.subsequence)) return false;
   return true;
 }
 
@@ -480,12 +653,21 @@ export function launcherKey(state: KeyState, input: KeyInput, titles: readonly s
     const visibleStart = clampStart(selected, state.count, state.visibleStart);
     return { state: { ...state, selected, visibleStart }, effect: "none" };
   }
-  if (meta && !input.alt && /^[1-5]$/.test(key)) {
+  if (meta && !input.alt && /^[1-9]$/.test(key)) {
     const index = state.visibleStart + Number(key) - 1;
     if (index < 0 || index >= state.count) return { state, effect: "ignore" };
     return { state, effect: "run", runIndex: index };
   }
   if (key === "Tab" && state.count > 0 && !input.shift) {
+    const ghost = input.ghost ?? "";
+    if (ghost) {
+      const filled = input.ghostTitle || state.query + ghost;
+      return {
+        state: { ...state, query: filled, selected: 0, visibleStart: 0, stash: null },
+        effect: "complete",
+        complete: filled,
+      };
+    }
     const title = titles[state.selected] ?? "";
     if (!title) return { state, effect: "ignore" };
     return {
