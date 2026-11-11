@@ -539,15 +539,12 @@
     min-height: 0;
   }
 
-  /* Compact chat stays content-sized above the dock. A flex:1 row
-     shrinks to nothing in a short window and the reply paints under
-     the agent tile. Expanded chat still fills via .chrome. */
-  .companion:not(.chrome) {
-    justify-content: flex-end;
-  }
+  /* Compact chat stays content-sized above the dock. Do not pack it
+     to the bottom: a short window then clips the user's line. The hug
+     grows the window upward so both bubbles fit. */
   .companion:not(.chrome) .dockchat {
     flex: 0 0 auto;
-    align-items: flex-end;
+    align-items: flex-start;
     position: relative;
     z-index: 2;
     width: 100%;

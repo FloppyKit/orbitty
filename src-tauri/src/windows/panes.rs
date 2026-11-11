@@ -584,7 +584,9 @@ pub(crate) fn hug_companion(app: &tauri::AppHandle, hug_height: Option<f64>) {
     };
     let existing = hug_stash().lock().ok().and_then(|s| *s);
     let tall = existing.unwrap_or(live);
-    let h = h.clamp(120.0, tall.h);
+    // Content may be taller than the stashed idle rect. Grow upward
+    // so the user's line is not clipped. Unhug still restores `tall`.
+    let h = h.clamp(120.0, tall.h.max(h).min(1400.0));
     if let Ok(mut slot) = hug_height_slot().lock() {
         *slot = Some(h);
     }

@@ -61,8 +61,8 @@ fn orbitty_is_frontmost() -> bool {
     true
 }
 
-/// Shown companion stays floating (level 4) — always on top of the desk
-/// and planet discs. Hide → NSNormalWindowLevel (0).
+/// Shown companion stays at normal level so other windows can cover it.
+/// Hide is the same level. Summon still orders it front.
 fn set_front_level(app: &tauri::AppHandle, shown: bool) {
     let handle = app.clone();
     #[cfg(target_os = "macos")]
@@ -86,7 +86,8 @@ fn apply_front_level(handle: &tauri::AppHandle, shown: bool) {
     if raw.is_null() {
         return;
     }
-    let want: i64 = if shown { 4 } else { 0 };
+    let want: i64 = 0;
+    let _ = shown;
     unsafe {
         let nsw = raw as *mut Object;
         let cur: i64 = msg_send![nsw, level];
@@ -144,7 +145,7 @@ pub(crate) fn raise_now(app: &tauri::AppHandle) {
                     }
                 }
             }
-            let _: () = msg_send![nsw, setLevel: 4i64];
+            let _: () = msg_send![nsw, setLevel: 0i64];
             let _: () = msg_send![nsw, orderFrontRegardless];
             let _: () = msg_send![nsw, orderWindow: 1i64 relativeTo: 0i64];
             let _: () = msg_send![nsw, makeKeyAndOrderFront: std::ptr::null_mut::<Object>()];
@@ -196,7 +197,7 @@ fn lift_z(app: &tauri::AppHandle) {
         }
         unsafe {
             let nsw = raw as *mut Object;
-            let _: () = msg_send![nsw, setLevel: 4i64];
+            let _: () = msg_send![nsw, setLevel: 0i64];
             let _: () = msg_send![nsw, orderFrontRegardless];
         }
     });

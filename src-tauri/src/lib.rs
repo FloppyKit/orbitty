@@ -1062,6 +1062,21 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{
                     Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
                 };
+                // ⌘Space summons the companion. Spotlight's own binding
+                // is turned off at install time so the two do not fight.
+                let spot = Shortcut::new(Some(Modifiers::SUPER), Code::Space);
+                let spot_handle = app.handle().clone();
+                if let Err(err) = app.global_shortcut().on_shortcut(spot, move |_app, _shortcut, event| {
+                    if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    let _ = panes::show_companion(&spot_handle);
+                    companion_clear::raise_now(&spot_handle);
+                    let _ = spot_handle.emit_to("companion", "orbitty:companion-summon", ());
+                }) {
+                    eprintln!("orbitty: cmd+space companion summon not registered: {err}");
+                }
+
                 let summon = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyO);
                 let handle = app.handle().clone();
                 app.global_shortcut()

@@ -206,8 +206,7 @@ export function catalogue(ctx: LaunchCtx): LaunchRow[] {
   const invoke = (id: string, title: string, cmd: string, args?: Record<string, unknown>, extra?: { subtitle?: string; dot?: string }) =>
     push(command({ id, title, subtitle: extra?.subtitle, dot: extra?.dot, run: { t: "invoke", cmd, args } }));
 
-  invoke("open-board", "Open Board", "dest_show", { dest: "launchpad" });
-  if (!ctx.hostBusy) push(hostRow("board-here", "Board in this window", "launchpad"));
+  if (!ctx.hostBusy) push(hostRow("open-board", "Open Board", "launchpad"));
   if (ctx.smallestTodo) {
     push(
       command({
