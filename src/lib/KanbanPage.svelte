@@ -52,6 +52,7 @@
   import { todayKey as todayKeyBody, startOfToday as startOfTodayBody, isDueToday as isDueTodayBody, pointsToday as pointsTodayBody, listOf as listOfBody, actorSide as actorSideBody, inDoneFilter as inDoneFilterBody, livePlanetId as livePlanetIdBody, inScope as inScopeBody } from "./board/pageScope.svelte";
   import { startGrab as startGrabBody, grabArrow as grabArrowBody, dropGrab as dropGrabBody, persistColumnOrder as persistColumnOrderBody, ungrab as ungrabBody } from "./board/pageGrab.svelte";
   import { sideCount as sideCountBody, projectName as projectNameBody, winFor as winForBody, doneChip as doneChipBody, notesSnippet as notesSnippetBody, subProgress as subProgressBody, agentName as agentNameBody, runState as runStateBody, runIsLive as runIsLiveBody, isWriting as isWritingBody, planetIsLive as planetIsLiveBody, hasAgent as hasAgentBody, goToken as goTokenBody, neededForTodo as neededForTodoBody, isDoingRow as isDoingRowBody, ageLabel as ageLabelBody, dueInfo as dueInfoBody, showProj as showProjBody, osThemeId as osThemeIdBody, loadState as loadStateBody } from "./board/pageChips.svelte";
+  import DockCardPop from "./companion/DockCardPop.svelte";
   import { logEvent as logEventBody, mutate as mutateBody, errText as errTextBody, showLinkToast as showLinkToastBody, openCardLink as openCardLinkBody, openUrl as openUrlBody, addCardLink as addCardLinkBody, removeCardLink as removeCardLinkBody, completeCard as completeCardBody, toggleCard as toggleCardBody, moveCard as moveCardBody, openDetail as openDetailBody, toggleDoing as toggleDoingBody, skipNeededCard as skipNeededCardBody, laterNeededCard as laterNeededCardBody, onSplitDown as onSplitDownBody, columnWidthNow as columnWidthNowBody, mailMinPx as mailMinPxBody, togglePlanetCol as togglePlanetColBody, previewMinPx as previewMinPxBody, clampPreview as clampPreviewBody, onEastSplitDown as onEastSplitDownBody, resetPreviewWidth as resetPreviewWidthBody } from "./board/pageMutate.svelte";
   import { drawerStops as drawerStopsBody, saveTitle as saveTitleBody, undoThisTask as undoThisTaskBody, saveNotes as saveNotesBody, setPlanet as setPlanetBody, setAgent as setAgentBody, newCardId as newCardIdBody, childrenOf as childrenOfBody, remainingKids as remainingKidsBody, toggleOpenSubtasks as toggleOpenSubtasksBody, wouldCycle as wouldCycleBody, linkableTodos as linkableTodosBody, mintTodo as mintTodoBody, attachChild as attachChildBody, detachChild as detachChildBody, setDue as setDueBody, dateInputValue as dateInputValueBody, cardHasTag as cardHasTagBody, addTagToCard as addTagToCardBody, toggleCardTag as toggleCardTagBody, toggleSubtask as toggleSubtaskBody, deleteTodo as deleteTodoBody, setRating as setRatingBody, deleteSubtask as deleteSubtaskBody } from "./board/pageFields.svelte";
   import { onCardDragStart as onCardDragStartBody, onCardDragEnd as onCardDragEndBody, isCardDrag as isCardDragBody, onColDragOver as onColDragOverBody, onColDragLeave as onColDragLeaveBody, onColDrop as onColDropBody, onCardPointerDown as onCardPointerDownBody, onPtrMove as onPtrMoveBody, onPtrUp as onPtrUpBody, onPtrCancel as onPtrCancelBody, ptrEnd as ptrEndBody, onPtrKey as onPtrKeyBody, overStartStrip as overStartStripBody, colAtPoint as colAtPointBody, rowAtPoint as rowAtPointBody, onCardClick as onCardClickBody, refreshWindows as refreshWindowsBody, focusCard as focusCardBody, launchHermes as launchHermesBody } from "./board/pagePointer.svelte";
@@ -499,7 +500,13 @@
   // Overlay Launchpad is its own window — the embedded onNeededFocus
   // prop is not this path. Native raise makes companion key; the
   // companion webview then lands the caret. Do not fire on boot.
+  let dockCard = $state<KanbanCard | null>(null);
+
   function armNeededMouth(id: string | null, title: string | null) {
+    if (embedded && id) {
+      dockCard = kanbanCards.find((card) => card.id === id) ?? dockCard;
+    }
+    if (!id) dockCard = null;
     onNeededFocus?.(id, title);
     emitTo("companion", "orbitty:needed-focus", { id, title }).catch(() => {});
     if (id) {
@@ -1003,6 +1010,14 @@
   }
 
   function onCardClick(card: KanbanCard) {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
+    if (embedded) {
+      dockCard = card;
+      return;
+    }
     return onCardClickBody({openDetail, get suppressClick() { return suppressClick; }, set suppressClick(v) { suppressClick = v; }}, card);
   }
 
@@ -1189,6 +1204,9 @@
 {/snippet}
 
 <main class="kanban" class:embedded bind:this={kanbanEl}>
+  {#if embedded && dockCard}
+    <DockCardPop card={dockCard} onClose={() => (dockCard = null)} />
+  {/if}
   {#if linkToast}
     <div class="k-toast" role="status">{linkToast}</div>
   {/if}

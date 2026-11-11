@@ -110,15 +110,15 @@
     min-width: 0;
     width: auto;
   }
-  .companion.hosting:not(.chrome) .kanban.embedded .k-east {
-    flex: 1 1 0 !important;
-    width: auto !important;
-    max-width: none;
+  .companion.hosting:not(.chrome) .kanban.embedded .k-east,
+  .companion.hosting:not(.chrome) .kanban.embedded .mail-east-split {
+    display: none;
   }
   .companion.hosting:not(.chrome) .kanban.embedded .mail-needed {
     flex: 0 0 auto !important;
     height: auto !important;
-    max-height: 40px;
+    max-height: 72px;
+    overflow: auto;
   }
   .companion.hosting:not(.chrome) .kanban.embedded .mail-todo {
     flex: 1 1 auto;
