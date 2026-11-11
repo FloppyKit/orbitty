@@ -73,12 +73,56 @@
     flex-direction: row;
   }
 
-  /* Compact host: the board is a tile above the bubbles, same gap as
-     the bubbles sit above the dock. It must not shrink onto them. */
+  /* Compact host: a short board tile above the bubbles. Five todo
+     cards, not the full window. Same 6px gap as the bubbles above the dock. */
   .companion.hosting:not(.chrome) .wellwrap {
     flex: 0 0 auto;
-    min-height: 320px;
+    height: 268px;
+    min-height: 0;
+    max-height: 268px;
     margin-bottom: 6px;
+    overflow: hidden;
+  }
+  .companion.hosting:not(.chrome) .hostwell {
+    min-height: 0;
+    height: 100%;
+    padding: 0;
+    gap: 0;
+  }
+  .companion.hosting:not(.chrome) .wellhead {
+    display: none;
+  }
+  .companion.hosting:not(.chrome) .wellpane {
+    margin-left: 0;
+    height: 100%;
+  }
+  .companion.hosting:not(.chrome) .kanban.embedded .k-body {
+    padding: 0;
+    min-height: 0;
+  }
+  .companion.hosting:not(.chrome) .kanban.embedded .planet-col {
+    flex: 0 0 25% !important;
+    width: 25% !important;
+    max-width: 25%;
+  }
+  .companion.hosting:not(.chrome) .kanban.embedded .k-main {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+  }
+  .companion.hosting:not(.chrome) .kanban.embedded .k-east {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    max-width: none;
+  }
+  .companion.hosting:not(.chrome) .kanban.embedded .mail-needed {
+    flex: 0 0 auto !important;
+    height: auto !important;
+    max-height: 40px;
+  }
+  .companion.hosting:not(.chrome) .kanban.embedded .mail-todo {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   /* The hosted well — left ~2/3 embedded
@@ -88,8 +132,7 @@
   .hostwell {
     position: relative;
     flex: 1;
-    /* Five todo cards (about 36px) plus the column head and banner. */
-    min-height: 320px;
+    min-height: 120px;
     min-width: 0;
     display: flex;
     flex-direction: row;

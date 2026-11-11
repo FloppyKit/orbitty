@@ -105,13 +105,12 @@ export function reportHug(scope: Scope_reportHug) {
 }
 
 function launchpadStackHeight(main: HTMLElement | null): number {
-  const well = main?.querySelector(".wellwrap") as HTMLElement | null;
   const chat = main?.querySelector(".dockchat") as HTMLElement | null;
   const dock = main?.querySelector(".ghostdock") as HTMLElement | null;
-  const wellH = Math.max(well?.offsetHeight ?? 0, 320);
   const chatH = chat?.offsetHeight ?? 0;
   const dockH = dock?.offsetHeight ?? 0;
-  return Math.round(wellH + 6 + chatH + 6 + dockH + 16);
+  // Fixed board tile (268) plus the same 6px gaps as the bubbles.
+  return Math.round(268 + 6 + chatH + 6 + dockH + 16);
 }
 
 export function reportHostHug(scope: Scope_reportHostHug) {

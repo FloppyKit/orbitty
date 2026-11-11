@@ -904,11 +904,11 @@ pub fn set_companion_host(app: tauri::AppHandle, mode: String) -> Result<(), Str
         let live_h = crate::drawers::live_points_rect(&w)
             .map(|r| r.h)
             .unwrap_or(cur.h);
-        // Launchpad opens as a tile over the dock. The live bar is too
-        // short to show about five todos, so enter at that floor. Stars
-        // and inspector still enter at the live height.
+        // Launchpad opens as a short tile over the dock, not the
+        // previous full-screen frame. Stars and inspector still enter
+        // at the live height.
         let enter_h = if mode == "launchpad" {
-            live_h.max(580.0).clamp(360.0, grown.h)
+            520.0_f64.min(grown.h)
         } else {
             live_h.clamp(360.0, grown.h)
         };
