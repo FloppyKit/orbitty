@@ -122,7 +122,27 @@
   let bodyEl: HTMLDivElement | null = $state(null);
   let kanbanEl: HTMLElement | null = $state(null);
   // Session-only. "auto" collapses under COLUMN_AUTO_MIN_PX; a click wins.
-  let planetColPref = $state<"auto" | "open" | "icons" | "hidden">("auto");
+  const DOCK_LIST = "orbitty.dockBoard.list";
+  const DOCK_COL = "orbitty.dockBoard.col";
+  function readDockList(): string {
+    if (!embedded) return "inbox";
+    try {
+      return localStorage.getItem(DOCK_LIST) || "inbox";
+    } catch {
+      return "inbox";
+    }
+  }
+  function readDockCol(): "open" | "icons" {
+    if (!embedded) return "open";
+    try {
+      return localStorage.getItem(DOCK_COL) === "icons" ? "icons" : "open";
+    } catch {
+      return "open";
+    }
+  }
+  let planetColPref = $state<"auto" | "open" | "icons" | "hidden">(
+    embedded ? readDockCol() : "auto",
+  );
   let boardPx = $state(900);
   const planetColMode = $derived(columnMode(boardPx, planetColPref));
   let addingTodo = $state(false);
@@ -143,13 +163,20 @@
   // Shared so the Needed composer stays one toggle.
   let addingNeeded = $state(false);
 
-  // Sidebar selection: a smart filter, Inbox, or a project id. Session-only.
-  let selected = $state("inbox");
+  // Sidebar selection: a smart filter, Inbox, or a project id. Session-only
+  // on the full board. The dock tile remembers the last list and column.
+  let selected = $state(embedded ? readDockList() : "inbox");
   // Rail embed: the wheel owns the planet. No raise, no focus-project apply.
   $effect(() => {
     if (railPlanet == null) return;
     if (selected !== railPlanet) selected = railPlanet;
     if (planetColPref !== "hidden") planetColPref = "hidden";
+  });
+  $effect(() => {
+    if (!embedded) return;
+    selected;
+    planetColPref;
+    rememberDockBoard();
   });
   /** BOARD-MARK: apply after loadState / pane show (projects may be empty on first emit). */
   let pendingFocusProject = $state<string | null>(null);
@@ -672,8 +699,31 @@
     return osThemeIdBody({});
   }
 
+  function dockListOk(id: string): boolean {
+    return id === "inbox" || id === "today" || id === "done" || projects.some((p) => p.id === id);
+  }
+  function restoreDockBoard() {
+    if (!embedded) return;
+    const id = readDockList();
+    if (dockListOk(id)) selected = id;
+    planetColPref = readDockCol();
+  }
+  function rememberDockBoard() {
+    if (!embedded) return;
+    try {
+      localStorage.setItem(DOCK_LIST, selected);
+      if (planetColPref === "open" || planetColPref === "icons") {
+        localStorage.setItem(DOCK_COL, planetColPref);
+      }
+    } catch {
+      /* private mode: the session still works */
+    }
+  }
+
   async function loadState() {
-    return loadStateBody({KNOWN_THEMES, get agentRuns() { return agentRuns; }, set agentRuns(v) { agentRuns = v; }, get agentShortcuts() { return agentShortcuts; }, set agentShortcuts(v) { agentShortcuts = v; }, applyPendingFocus, clampSharedSplit, clampWindowOpacity, get collapsedSectionIds() { return collapsedSectionIds; }, set collapsedSectionIds(v) { collapsedSectionIds = v; }, get hackProjectId() { return hackProjectId; }, set hackProjectId(v) { hackProjectId = v; }, invoke, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, get migratingCardTrackers() { return migratingCardTrackers; }, set migratingCardTrackers(v) { migratingCardTrackers = v; }, mutate, get neededSplit() { return neededSplit; }, set neededSplit(v) { neededSplit = v; }, get openSubtaskIds() { return openSubtaskIds; }, set openSubtaskIds(v) { openSubtaskIds = v; }, osThemeId, get pointsLedger() { return pointsLedger; }, set pointsLedger(v) { pointsLedger = v; }, get previewWidth() { return previewWidth; }, set previewWidth(v) { previewWidth = v; }, get projects() { return projects; }, set projects(v) { projects = v; }, get tags() { return tags; }, set tags(v) { tags = v; }, get themeId() { return themeId; }, set themeId(v) { themeId = v; }, get titleOverrides() { return titleOverrides; }, set titleOverrides(v) { titleOverrides = v; }, get windowOpacity() { return windowOpacity; }, set windowOpacity(v) { windowOpacity = v; }});
+    const result = await loadStateBody({KNOWN_THEMES, get agentRuns() { return agentRuns; }, set agentRuns(v) { agentRuns = v; }, get agentShortcuts() { return agentShortcuts; }, set agentShortcuts(v) { agentShortcuts = v; }, applyPendingFocus, clampSharedSplit, clampWindowOpacity, get collapsedSectionIds() { return collapsedSectionIds; }, set collapsedSectionIds(v) { collapsedSectionIds = v; }, get hackProjectId() { return hackProjectId; }, set hackProjectId(v) { hackProjectId = v; }, invoke, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, get migratingCardTrackers() { return migratingCardTrackers; }, set migratingCardTrackers(v) { migratingCardTrackers = v; }, mutate, get neededSplit() { return neededSplit; }, set neededSplit(v) { neededSplit = v; }, get openSubtaskIds() { return openSubtaskIds; }, set openSubtaskIds(v) { openSubtaskIds = v; }, osThemeId, get pointsLedger() { return pointsLedger; }, set pointsLedger(v) { pointsLedger = v; }, get previewWidth() { return previewWidth; }, set previewWidth(v) { previewWidth = v; }, get projects() { return projects; }, set projects(v) { projects = v; }, get tags() { return tags; }, set tags(v) { tags = v; }, get themeId() { return themeId; }, set themeId(v) { themeId = v; }, get titleOverrides() { return titleOverrides; }, set titleOverrides(v) { titleOverrides = v; }, get windowOpacity() { return windowOpacity; }, set windowOpacity(v) { windowOpacity = v; }});
+    restoreDockBoard();
+    return result;
   }
 
   // A window-linked card shows the rail's rename when one exists; the card's
