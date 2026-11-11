@@ -80,7 +80,8 @@
   .hostwell {
     position: relative;
     flex: 1;
-    min-height: 120px;
+    /* Five todo cards (about 36px) plus the column head and banner. */
+    min-height: 320px;
     min-width: 0;
     display: flex;
     flex-direction: row;
@@ -538,12 +539,19 @@
     min-height: 0;
   }
 
-  /* Sprite-on keeps the tall window. The chat row absorbs the leftover
-     so the chips, field, and list stay on the bottom. Sprite-off stays
-     content-sized so the hug can shrink to the title plus the dock. */
-  .companion:not(.spriteoff) .dockchat {
-    flex: 1;
-    align-items: stretch;
+  /* Compact chat stays content-sized above the dock. A flex:1 row
+     shrinks to nothing in a short window and the reply paints under
+     the agent tile. Expanded chat still fills via .chrome. */
+  .companion:not(.chrome) {
+    justify-content: flex-end;
+  }
+  .companion:not(.chrome) .dockchat {
+    flex: 0 0 auto;
+    align-items: flex-end;
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    margin-bottom: 6px;
   }
 
   .companion .dockchat > .stage {

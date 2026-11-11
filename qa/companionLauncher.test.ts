@@ -301,12 +301,12 @@ function src(rel: string): string {
   return readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
 }
 
-test("D1 docked order is title, chat, then the dock", () => {
+test("D1 docked order is chat, then the dock, with no title strip", () => {
   const page = src("src/lib/CompanionPage.svelte");
-  const titleAt = page.indexOf('mode="title"');
   const chatAt = page.indexOf('class="dockchat"');
   const dockAt = page.indexOf("<CompanionDock");
-  assert.ok(titleAt > 0 && titleAt < chatAt && chatAt < dockAt);
+  assert.equal(page.includes('mode="title"'), false);
+  assert.ok(chatAt > 0 && chatAt < dockAt);
   const spiritInChat = page.indexOf("<CompSpirit", chatAt);
   assert.ok(spiritInChat > chatAt && spiritInChat < dockAt);
   assert.match(page, /\{#if expanded && sprite\}[\s\S]*\bcorner\b/);
@@ -366,7 +366,7 @@ test("D10 list height is reserved inside the measured dock", () => {
   assert.doesNotMatch(style, /\.launcher\s*\{[^}]*height:\s*auto/);
   const dock = src("src/lib/CompanionDock.svelte");
   assert.ok(dock.indexOf('class="ghostdock"') < dock.indexOf("<DockLauncher"));
-  assert.match(src("src/lib/CompanionPage.svelte"), /class="docktitle starstrip"/);
+  assert.doesNotMatch(src("src/lib/CompanionPage.svelte"), /class="docktitle starstrip"/);
   const hug = src("src/lib/companion/pageHug.svelte.ts");
   assert.match(hug, /querySelector\("\.ghostdock"\)/);
   assert.match(hug, /\.starstrip/);

@@ -109,9 +109,11 @@ export function reportHostHug(scope: Scope_reportHostHug) {
   scope.hugTimer = setTimeout(() => {
     scope.hugTimer = undefined;
     if (scope.hosted === "off" || scope.expanded || scope.tilePre || scope.tileEnter || scope.swapPrev) return;
-    if (Math.abs(scope.HOST_COMFORT_H - scope.lastHostHug) < 4) return;
-    scope.lastHostHug = scope.HOST_COMFORT_H;
-    scope.invoke("set_companion_host_hug", { height: scope.HOST_COMFORT_H }).catch(() => {});
+    // Launchpad is a five-todo tile over the dock, not the tall STARS hug.
+    const want = scope.hosted === "launchpad" ? 580 : scope.HOST_COMFORT_H;
+    if (Math.abs(want - scope.lastHostHug) < 4) return;
+    scope.lastHostHug = want;
+    scope.invoke("set_companion_host_hug", { height: want }).catch(() => {});
   }, 80);
 }
 

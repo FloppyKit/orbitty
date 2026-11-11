@@ -1087,12 +1087,6 @@
   class:chrome={expanded}
   bind:this={mainEl}
 >
-  {#if !expanded}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="docktitle starstrip" onmousedown={onDockMouseDown}>
-      <WindowTitleRow title="Orbitty" mode="title" label="companion" />
-    </div>
-  {/if}
   {#snippet collapseToDock()}
     <button
       type="button"
