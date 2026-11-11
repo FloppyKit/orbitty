@@ -344,7 +344,7 @@
   let lastHostHug = 0;
   let hugTimer: ReturnType<typeof setTimeout> | undefined;
   function reportHostHug() {
-    return reportHostHugBody({HOST_COMFORT_H, get expanded() { return expanded; }, set expanded(v) { expanded = v; }, get hosted() { return hosted; }, set hosted(v) { hosted = v; }, get hugTimer() { return hugTimer; }, set hugTimer(v) { hugTimer = v; }, invoke, get lastHostHug() { return lastHostHug; }, set lastHostHug(v) { lastHostHug = v; }, get swapPrev() { return swapPrev; }, set swapPrev(v) { swapPrev = v; }, get tileEnter() { return tileEnter; }, set tileEnter(v) { tileEnter = v; }, get tilePre() { return tilePre; }, set tilePre(v) { tilePre = v; }});
+    return reportHostHugBody({HOST_COMFORT_H, get expanded() { return expanded; }, set expanded(v) { expanded = v; }, get hosted() { return hosted; }, set hosted(v) { hosted = v; }, get hugTimer() { return hugTimer; }, set hugTimer(v) { hugTimer = v; }, invoke, get lastHostHug() { return lastHostHug; }, set lastHostHug(v) { lastHostHug = v; }, get mainEl() { return mainEl; }, set mainEl(v) { mainEl = v; }, get swapPrev() { return swapPrev; }, set swapPrev(v) { swapPrev = v; }, get tileEnter() { return tileEnter; }, set tileEnter(v) { tileEnter = v; }, get tilePre() { return tilePre; }, set tilePre(v) { tilePre = v; }});
   }
 
   // Sprite-ON collapsed grows the WINDOW down
@@ -777,8 +777,11 @@
       cheatSheetHint,
     ];
     void watching;
-    if (expanded || hosted !== "off") return;
-    tick().then(() => reportHug());
+    if (expanded) return;
+    tick().then(() => {
+      if (hosted !== "off") reportHostHug();
+      else reportHug();
+    });
   });
 
   // hug to the STARS ruler on dest change. Do

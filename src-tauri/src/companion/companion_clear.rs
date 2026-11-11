@@ -35,6 +35,40 @@ pub(crate) fn hidden(app: &tauri::AppHandle) {
     set_front_level(app, false);
 }
 
+/// True when the companion window is visible and the key window.
+/// ⌘Space uses this: front hides, anything else summons.
+pub fn is_front(app: &tauri::AppHandle) -> bool {
+    let slot = std::sync::Arc::new(AtomicBool::new(false));
+    let write = slot.clone();
+    let handle = app.clone();
+    #[cfg(target_os = "macos")]
+    crate::main_thread_sync(move || {
+        use objc::runtime::Object;
+        use objc::{msg_send, sel, sel_impl};
+        let Some(w) = handle.get_webview_window("companion") else {
+            return;
+        };
+        if !w.is_visible().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
+            return;
+        }
+        let Ok(raw) = w.ns_window() else {
+            return;
+        };
+        if raw.is_null() {
+            return;
+        }
+        unsafe {
+            let nsw = raw as *mut Object;
+            let key: bool = msg_send![nsw, isKeyWindow];
+            let vis: bool = msg_send![nsw, isVisible];
+            write.store(key && vis, Ordering::SeqCst);
+        }
+    });
+    #[cfg(not(target_os = "macos"))]
+    let _ = (handle, write);
+    slot.load(Ordering::SeqCst)
+}
+
 /// Workspace frontmost pid. raise_now uses this to skip a redundant
 /// activate; planet restack uses it to skip a lift when another app is
 /// front. Shown z-order is always floating — not this test.

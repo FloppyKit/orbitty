@@ -26,6 +26,7 @@ type Scope_reportHostHug = {
   hugTimer: ReturnType<typeof setTimeout> | undefined;
   HOST_COMFORT_H: number;
   lastHostHug: number;
+  mainEl: HTMLElement | null;
   invoke: Invoke;
 };
 
@@ -103,14 +104,28 @@ export function reportHug(scope: Scope_reportHug) {
   if (h) scope.invoke("set_companion_sprite", { enabled: false, hugHeight: h }).catch(() => {});
 }
 
+function launchpadStackHeight(main: HTMLElement | null): number {
+  const well = main?.querySelector(".wellwrap") as HTMLElement | null;
+  const chat = main?.querySelector(".dockchat") as HTMLElement | null;
+  const dock = main?.querySelector(".ghostdock") as HTMLElement | null;
+  const wellH = Math.max(well?.offsetHeight ?? 0, 320);
+  const chatH = chat?.offsetHeight ?? 0;
+  const dockH = dock?.offsetHeight ?? 0;
+  return Math.round(wellH + 6 + chatH + 6 + dockH + 16);
+}
+
 export function reportHostHug(scope: Scope_reportHostHug) {
   if (scope.hosted === "off" || scope.expanded || scope.tilePre || scope.tileEnter || scope.swapPrev) return;
   if (scope.hugTimer) clearTimeout(scope.hugTimer);
   scope.hugTimer = setTimeout(() => {
     scope.hugTimer = undefined;
     if (scope.hosted === "off" || scope.expanded || scope.tilePre || scope.tileEnter || scope.swapPrev) return;
-    // Launchpad is a five-todo tile over the dock, not the tall STARS hug.
-    const want = scope.hosted === "launchpad" ? 580 : scope.HOST_COMFORT_H;
+    // Launchpad is the board tile, the bubbles, and the dock, with the
+    // same 6px gap the bubbles already keep above the dock.
+    const want =
+      scope.hosted === "launchpad"
+        ? launchpadStackHeight(scope.mainEl)
+        : scope.HOST_COMFORT_H;
     if (Math.abs(want - scope.lastHostHug) < 4) return;
     scope.lastHostHug = want;
     scope.invoke("set_companion_host_hug", { height: want }).catch(() => {});

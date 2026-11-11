@@ -1070,6 +1070,10 @@ pub fn run() {
                     if event.state() != ShortcutState::Pressed {
                         return;
                     }
+                    if companion_clear::is_front(&spot_handle) {
+                        let _ = panes::hide_window(spot_handle.clone(), "companion".to_string());
+                        return;
+                    }
                     let _ = panes::show_companion(&spot_handle);
                     companion_clear::raise_now(&spot_handle);
                     let _ = spot_handle.emit_to("companion", "orbitty:companion-summon", ());
