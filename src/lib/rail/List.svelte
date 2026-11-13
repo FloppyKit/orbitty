@@ -784,29 +784,6 @@
       {:else if rail.windows.length === 0 && rail.projects.length === 0 && !freshWheel}
         <p class="empty">No windows found.</p>
       {:else}
-        {#if rail.nudgeWindow}
-          <div class="nudge">
-            <span class="nudge-text">
-              <b>{rail.nudgeWindow.appName}</b>
-              {rail.nudgeWindow.title || "window"} minimized — no home, no sprite. Claim
-              one?
-            </span>
-            <div class="nudge-actions">
-              {#each rail.projects as p (p.id)}
-                <button class="mini" onclick={() => rail.nudgeClaim(p.id)}>{p.name}</button>
-              {/each}
-              <span class="newproj">
-                <input
-                  bind:value={rail.nudgeNewName}
-                  placeholder="New project…"
-                  onkeydown={(e) => e.key === "Enter" && rail.nudgeCreate()}
-                />
-                <button class="mini" onclick={rail.nudgeCreate}>Claim</button>
-              </span>
-              <button class="mini ghost" onclick={() => (rail.nudgeFor = null)}>Later</button>
-            </div>
-          </div>
-        {/if}
         {#if rail.projects.length === 0}
           <p class="proj-hint">
             No projects yet — use the <b>+ Project</b> item on the arch, then drag

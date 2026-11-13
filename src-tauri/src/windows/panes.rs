@@ -72,6 +72,9 @@ pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(
         // window (like Settings) so ⌘⇧Y works with Settings closed. Plain
         // pane, not a drawer — a confirm never docks on the rail.
         "yard-warn" => Some(("", 400.0, 330.0, None)),
+        // Claim prompt: own small pane beside the rail, not a rail card
+        // and not a docked drawer. Title stays empty, same as yard-warn.
+        "claim-prompt" => Some(("", 320.0, 200.0, None)),
         // own small card window, not dock chrome.
         "next-card" => Some(("", 360.0, 420.0, Some((280.0, 220.0)))),
         "cheatsheet" => Some(("", 360.0, 420.0, Some((280.0, 240.0)))),
@@ -166,6 +169,7 @@ pub(crate) fn ensure_window(
             || label == "sky"
             || label == "companion"
             || label == "yard-warn"
+            || label == "claim-prompt"
             || label == "next-card"
             || label == "cheatsheet")
     {
@@ -190,8 +194,8 @@ pub(crate) fn ensure_window(
     // file, misses, and the pinned overlay paints a click-eating 404. The
     // shared pane's mode is persisted before show (show_shared_pane) and
     // the cold webview reconciles it via load_state on mount.
-    let builder = tauri::WebviewWindowBuilder::from_config(app, &config)
-        .map_err(|e| e.to_string())?;
+    let builder =
+        tauri::WebviewWindowBuilder::from_config(app, &config).map_err(|e| e.to_string())?;
     // Belt-and-braces for any future bad URL or asset miss: on an app URL
     // the nav guard refuses query-bearing navigations (the `?mode=` 404)
     // and a non-2xx document is logged — but a rejected nav or a bad
@@ -257,9 +261,7 @@ pub(crate) fn ensure_window(
         let ctx = crate::window_chrome::lights_ctx(&surgery_app);
         crate::window_chrome::apply_lights(&surgery, &surgery_label, ctx);
     });
-    if cfg!(target_os = "macos")
-        && matches!(label, "kanban" | "stars" | "companion")
-    {
+    if cfg!(target_os = "macos") && matches!(label, "kanban" | "stars" | "companion") {
         let rw = w.clone();
         let rl = label.to_string();
         w.on_window_event(move |event| {
@@ -364,6 +366,70 @@ pub(crate) fn restore_if_minimized(w: &tauri::WebviewWindow) -> bool {
     true
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaimPromptArm {
+    id: String,
+    app_name: String,
+    title: String,
+}
+
+static CLAIM_PROMPT_ARM: std::sync::Mutex<Option<ClaimPromptArm>> = std::sync::Mutex::new(None);
+
+/// What the claim-prompt pane should name. Memory only — not state.json.
+#[tauri::command]
+pub fn claim_prompt_peek() -> Option<ClaimPromptArm> {
+    CLAIM_PROMPT_ARM.lock().ok().and_then(|slot| slot.clone())
+}
+
+/// Show the claim prompt beside the rail. Not a drawer: no leash, no dock slot.
+#[tauri::command]
+pub fn show_claim_prompt(
+    app: tauri::AppHandle,
+    id: String,
+    app_name: String,
+    title: String,
+) -> Result<(), String> {
+    if let Ok(mut slot) = CLAIM_PROMPT_ARM.lock() {
+        *slot = Some(ClaimPromptArm {
+            id,
+            app_name,
+            title,
+        });
+    }
+    let w = ensure_window(&app, "claim-prompt")?;
+    let _ = restore_if_minimized(&w);
+    let pvfs = crate::drawers::points_frames(&crate::drawers::screen_visible_frames());
+    let size = pane_spec("claim-prompt")
+        .map(|(_, width, height, _)| (width, height))
+        .unwrap_or((320.0, 200.0));
+    if let Some(rail) = crate::drawers::rail_points_rect(&app) {
+        if let Some(r) = crate::drawers::place_beside_rail_display(&rail, size, &pvfs, None) {
+            // The helper's rect, applied in points. Not place_logical_rect:
+            // that floor is the drawer idle size and would stretch this pane.
+            crate::drawers::appkit_place_points(&w, &r);
+        }
+    }
+    w.show().map_err(|e| e.to_string())?;
+    w.set_focus().map_err(|e| e.to_string())?;
+    crate::drawers::appkit_order_front(&app, &w);
+    let _ = w.set_ignore_cursor_events(false);
+    emit_pane_vis(&app, "claim-prompt", true);
+    Ok(())
+}
+
+/// Hide the claim prompt and drop the in-memory arm. Missing window is fine.
+#[tauri::command]
+pub fn hide_claim_prompt(app: tauri::AppHandle) -> Result<(), String> {
+    if let Ok(mut slot) = CLAIM_PROMPT_ARM.lock() {
+        *slot = None;
+    }
+    if app.get_webview_window("claim-prompt").is_none() {
+        return Ok(());
+    }
+    hide_window(app, "claim-prompt".to_string())
+}
+
 pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     // The three chrome drawers show through the
     // leash (docked slot / plucked bounds). `sky` and the rail stay plain.
@@ -441,9 +507,8 @@ pub(crate) fn show_shared_pane(app: &tauri::AppHandle, mode: &str) -> Result<(),
 /// Launchpad/STARS well. The idle rect stash is memory-only — never a
 /// persisted hostBounds/hitchedTo key — so a quit while hosted cannot
 /// turn the host frame into the new idle size.
-static HOST_STASH: std::sync::OnceLock<
-    std::sync::Mutex<Option<crate::state::CompanionBounds>>,
-> = std::sync::OnceLock::new();
+static HOST_STASH: std::sync::OnceLock<std::sync::Mutex<Option<crate::state::CompanionBounds>>> =
+    std::sync::OnceLock::new();
 
 fn host_stash() -> &'static std::sync::Mutex<Option<crate::state::CompanionBounds>> {
     HOST_STASH.get_or_init(|| std::sync::Mutex::new(None))
@@ -457,11 +522,9 @@ fn host_stash() -> &'static std::sync::Mutex<Option<crate::state::CompanionBound
 /// hugged reopens sprite-off from the tall rect and the page re-hugs.
 /// HUG_HEIGHT is the last JS-measured bar height, reused by the native
 /// re-hug on dismiss-host.
-static HUG_STASH: std::sync::OnceLock<
-    std::sync::Mutex<Option<crate::state::CompanionBounds>>,
-> = std::sync::OnceLock::new();
-static HUG_HEIGHT: std::sync::OnceLock<std::sync::Mutex<Option<f64>>> =
+static HUG_STASH: std::sync::OnceLock<std::sync::Mutex<Option<crate::state::CompanionBounds>>> =
     std::sync::OnceLock::new();
+static HUG_HEIGHT: std::sync::OnceLock<std::sync::Mutex<Option<f64>>> = std::sync::OnceLock::new();
 
 fn hug_stash() -> &'static std::sync::Mutex<Option<crate::state::CompanionBounds>> {
     HUG_STASH.get_or_init(|| std::sync::Mutex::new(None))
@@ -658,8 +721,7 @@ pub(crate) fn unhug_before_persist(app: &tauri::AppHandle) {
 /// removes exactly what was added, so a user edge-resize mid-type
 /// survives. Session-only — expand / host / sprite-off / hide / close
 /// shed the extra first, so the persisted idle place never includes it.
-static COMPOSER_GROW: std::sync::OnceLock<std::sync::Mutex<f64>> =
-    std::sync::OnceLock::new();
+static COMPOSER_GROW: std::sync::OnceLock<std::sync::Mutex<f64>> = std::sync::OnceLock::new();
 
 fn composer_grow_slot() -> &'static std::sync::Mutex<f64> {
     COMPOSER_GROW.get_or_init(|| std::sync::Mutex::new(0.0))

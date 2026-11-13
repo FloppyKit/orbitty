@@ -26,11 +26,11 @@ test("glass Claim chip appears on a new minimize of an unclaimed window", () => 
   assert.equal(fn.includes("flatMap"), false);
 });
 
-test("glass Claim one nudge sits below the overlay strip", () => {
+test("glass claim prompt is not a rail card under the strip", () => {
   const stage = src("src/lib/rail/rail-stage.css");
-  assert.match(stage, /\.rail\.stage-shell \.nudge \{[\s\S]*?margin-top:\s*28px/);
   const list = src("src/lib/rail/List.svelte");
-  assert.match(list, /Claim\s+one\?/);
+  assert.equal(list.includes('class="nudge"'), false);
+  assert.equal(stage.includes(".nudge"), false);
   assert.equal(list.includes("data-tauri-drag-region"), false);
   assert.equal(stage.includes("data-tauri-drag-region"), false);
 });

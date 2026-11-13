@@ -8,6 +8,7 @@
   import SettingsPage from "$lib/SettingsPage.svelte";
   import SkyPage from "$lib/SkyPage.svelte";
   import YardWarnPage from "$lib/YardWarnPage.svelte";
+  import ClaimPromptPage from "$lib/ClaimPromptPage.svelte";
   import NextCard from "$lib/NextCard.svelte";
   import CheatSheet from "$lib/CheatSheet.svelte";
   import RailPage from "$lib/RailPage.svelte";
@@ -47,6 +48,8 @@
   const isSkyWindow = $derived(windowLabel === "sky");
   // The Herding Cats confirm — own small window.
   const isYardWarnWindow = $derived(windowLabel === "yard-warn");
+  // Minimized unclaimed window — own small pane, not a rail card.
+  const isClaimPromptWindow = $derived(windowLabel === "claim-prompt");
   const isNextCardWindow = $derived(windowLabel === "next-card");
   const isCheatSheetWindow = $derived(windowLabel === "cheatsheet");
   const isRailWindow = $derived(windowLabel === "main");
@@ -60,6 +63,7 @@
       isSettingsWindow ||
       isSkyWindow ||
       isYardWarnWindow ||
+      isClaimPromptWindow ||
       isNextCardWindow ||
       isCheatSheetWindow,
   );
@@ -76,6 +80,7 @@
       isCompanionWindow ||
       isSettingsWindow ||
       isYardWarnWindow ||
+      isClaimPromptWindow ||
       isNextCardWindow ||
       isCheatSheetWindow,
   );
@@ -85,6 +90,7 @@
     initialLabel === "companion" ||
     initialLabel === "settings" ||
     initialLabel === "yard-warn" ||
+    initialLabel === "claim-prompt" ||
     initialLabel === "next-card" ||
     initialLabel === "cheatsheet"
   ) {
@@ -124,6 +130,8 @@
   <SkyPage />
 {:else if isYardWarnWindow}
   <YardWarnPage />
+{:else if isClaimPromptWindow}
+  <ClaimPromptPage />
 {:else if isNextCardWindow}
   <NextCard />
 {:else if isCheatSheetWindow}

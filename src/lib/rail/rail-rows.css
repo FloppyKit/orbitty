@@ -432,39 +432,6 @@
     margin-left: 0;
   }
 
-  /* Claim-first nudge: shown once per unmapped minimized window. */
-  .nudge {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin: 2px 2px 8px;
-    padding: 8px 10px;
-    background: var(--panel-fill, var(--panel));
-    border: 1px solid var(--accent);
-    border-radius: 8px;
-  }
-
-  .nudge-text {
-    font-size: 0.74rem;
-    line-height: 1.5;
-    color: var(--ink);
-  }
-
-  .nudge-text b {
-    color: var(--accent);
-  }
-
-  .nudge-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .nudge-actions .newproj {
-    margin-left: 0;
-  }
-
   .menu-label {
     flex-basis: 100%;
     margin-top: 2px;

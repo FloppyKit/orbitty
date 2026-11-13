@@ -3,9 +3,9 @@
 use super::super::WindowInfo;
 use super::{
     ax_app_ref, ax_bool, ax_copy, ax_names, ax_size, ax_string, ax_window_id,
-    AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef, AX_SUCCESS, CFArrayGetCount,
+    AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef, CFArrayGetCount,
     CFArrayGetValueAtIndex, CFGetTypeID, CFRelease, CFStringGetTypeID, CFURLGetString,
-    CFURLGetTypeID, CGSize, NSPoint, NSRect,
+    CFURLGetTypeID, CGSize, NSPoint, NSRect, AX_SUCCESS,
 };
 use core_foundation::base::TCFType;
 use core_foundation::string::CFString;
@@ -352,6 +352,20 @@ unsafe fn running_apps() -> Vec<RunningApp> {
 }
 // enumeration (port of WindowCatalog)
 
+/// Keep-or-drop for one catalog window. Pure: no AX.
+/// Minimized stays even when either side is under 40.
+/// A non-minimized window under 40 is dropped.
+/// Unreadable size stays. Exactly 40 stays (the cut is `< 40`).
+pub(crate) fn keep_catalog_window(size: Option<(f64, f64)>, minimized: bool) -> bool {
+    let Some((width, height)) = size else {
+        return true;
+    };
+    if minimized {
+        return true;
+    }
+    width >= 40.0 && height >= 40.0
+}
+
 pub(crate) unsafe fn enumerate() -> Vec<WindowInfo> {
     let mut result = Vec::new();
     for app in running_apps() {
@@ -366,17 +380,19 @@ pub(crate) unsafe fn enumerate() -> Vec<WindowInfo> {
                 if ax_win.is_null() {
                     continue;
                 }
-                // Real AX windows only; drop tiny utility elements when size is readable.
+                // Real AX windows only. Size is read before minimized, but the
+                // drop waits until both are known: a minimized window stays even
+                // when a side is under 40. A non-minimized window under 40 still
+                // drops. Unreadable size stays.
                 if ax_string(ax_win, ax_names().role).as_deref() != Some("AXWindow") {
                     continue;
                 }
-                if let Some(size) = ax_size(ax_win, ax_names().size) {
-                    if size.width < 40.0 || size.height < 40.0 {
-                        continue;
-                    }
+                let size = ax_size(ax_win, ax_names().size).map(|s| (s.width, s.height));
+                let minimized = ax_bool(ax_win, ax_names().minimized).unwrap_or(false);
+                if !keep_catalog_window(size, minimized) {
+                    continue;
                 }
                 let title = ax_string(ax_win, ax_names().title).unwrap_or_default();
-                let minimized = ax_bool(ax_win, ax_names().minimized).unwrap_or(false);
                 // Sleeper wake stamp: the document this window has open, when
                 // the app exposes one and the file still exists.
                 let document_path = ax_document_path(ax_win);
@@ -452,4 +468,31 @@ pub(crate) unsafe fn mark_frontmost(list: &mut [WindowInfo]) {
         CFRelease(focused_app);
     }
     CFRelease(system);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keep_catalog_window;
+
+    #[test]
+    fn minimized_under_40_stays() {
+        assert!(keep_catalog_window(Some((10.0, 10.0)), true));
+        assert!(keep_catalog_window(Some((0.0, 80.0)), true));
+        assert!(keep_catalog_window(Some((80.0, 39.0)), true));
+    }
+
+    #[test]
+    fn non_minimized_under_40_drops() {
+        assert!(!keep_catalog_window(Some((39.0, 100.0)), false));
+        assert!(!keep_catalog_window(Some((100.0, 39.9)), false));
+        assert!(!keep_catalog_window(Some((0.0, 0.0)), false));
+    }
+
+    #[test]
+    fn unreadable_size_stays_and_forty_stays() {
+        assert!(keep_catalog_window(None, false));
+        assert!(keep_catalog_window(None, true));
+        assert!(keep_catalog_window(Some((40.0, 40.0)), false));
+        assert!(keep_catalog_window(Some((80.0, 80.0)), false));
+    }
 }

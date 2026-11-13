@@ -1465,7 +1465,7 @@
   let prevMinimized = new Set<string>();
 
   function checkNudge() {
-    return checkNudgeBody({get liveClaims() { return liveClaims; }, set liveClaims(v) { liveClaims = v; }, get nudgeFor() { return nudgeFor; }, set nudgeFor(v) { nudgeFor = v; }, get nudgeNewName() { return nudgeNewName; }, set nudgeNewName(v) { nudgeNewName = v; }, get nudgePrimed() { return nudgePrimed; }, set nudgePrimed(v) { nudgePrimed = v; }, get nudgeSuppressed() { return nudgeSuppressed; }, set nudgeSuppressed(v) { nudgeSuppressed = v; }, persist, get prevMinimized() { return prevMinimized; }, set prevMinimized(v) { prevMinimized = v; }, get stateLoaded() { return stateLoaded; }, set stateLoaded(v) { stateLoaded = v; }, get windows() { return windows; }, set windows(v) { windows = v; }});
+    return checkNudgeBody({get liveClaims() { return liveClaims; }, set liveClaims(v) { liveClaims = v; }, get nudgeFor() { return nudgeFor; }, set nudgeFor(v) { nudgeFor = v; }, get nudgeNewName() { return nudgeNewName; }, set nudgeNewName(v) { nudgeNewName = v; }, get nudgePrimed() { return nudgePrimed; }, set nudgePrimed(v) { nudgePrimed = v; }, get nudgeSuppressed() { return nudgeSuppressed; }, set nudgeSuppressed(v) { nudgeSuppressed = v; }, persist, get prevMinimized() { return prevMinimized; }, set prevMinimized(v) { prevMinimized = v; }, get stateLoaded() { return stateLoaded; }, set stateLoaded(v) { stateLoaded = v; }, get windows() { return windows; }, set windows(v) { windows = v; }, claim, createProject});
   }
 
   // Rail drag lives on the banner (onBannerMouseDown). Overlay's native

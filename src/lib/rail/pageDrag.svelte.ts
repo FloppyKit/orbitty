@@ -1,6 +1,9 @@
 // Moved function bodies. scope fields are the lets each function already closed over.
 
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { AgentRun, CardTombstone, Claim, KanbanCard, PointsEntry, Project, TitleOverride, WindowInfo, WindowTags } from "../persist";
+import { nudgeClaim, nudgeCreate } from "./pageClaim.svelte.ts";
 import { nudgePick } from "./nudgeTrigger";
 import { isTabClaim, rematchPick, setTabLive } from "./tabbityRows";
 
@@ -117,7 +120,67 @@ type Scope_checkNudge = {
   nudgeFor: string | null;
   liveClaims: Claim[];
   nudgeNewName: string;
+  claim: (windowId: string, projectId: string) => void;
+  createProject: (name: string) => Project;
 };
+
+let claimPromptScope: Scope_checkNudge | null = null;
+let claimPromptOpenFor: string | null = null;
+let claimPromptListening = false;
+
+function dismissClaimPrompt(scope: Scope_checkNudge | null) {
+  claimPromptOpenFor = null;
+  if (scope) scope.nudgeFor = null;
+  void invoke("hide_claim_prompt").catch(() => {});
+}
+
+function ensureClaimPromptActs() {
+  if (claimPromptListening) return;
+  claimPromptListening = true;
+  void listen<{
+    kind?: string;
+    windowId?: string;
+    projectId?: string;
+    name?: string;
+  }>("claim-prompt:act", (e) => {
+    const scope = claimPromptScope;
+    if (!scope || !e.payload.windowId) return;
+    scope.nudgeFor = e.payload.windowId;
+    if (e.payload.kind === "create") {
+      scope.nudgeNewName = e.payload.name ?? "";
+      nudgeCreate(scope);
+    } else if (e.payload.projectId) {
+      nudgeClaim(scope, e.payload.projectId);
+    }
+    dismissClaimPrompt(scope);
+  }).catch(() => {
+    claimPromptListening = false;
+  });
+  void listen("claim-prompt:later", () => {
+    dismissClaimPrompt(claimPromptScope);
+  }).catch(() => {
+    claimPromptListening = false;
+  });
+}
+
+function syncClaimPrompt(scope: Scope_checkNudge) {
+  const id = scope.nudgeFor;
+  if (id === claimPromptOpenFor) return;
+  const prev = claimPromptOpenFor;
+  claimPromptOpenFor = id;
+  if (!id) {
+    void invoke("hide_claim_prompt").catch(() => {});
+    return;
+  }
+  const w = scope.windows.find((x) => x.id === id);
+  void invoke("show_claim_prompt", {
+    id,
+    appName: w?.appName ?? "App",
+    title: w?.title ?? "",
+  }).catch(() => {
+    if (claimPromptOpenFor === id) claimPromptOpenFor = prev;
+  });
+}
 
 type Scope_openSettings = {
   invoke: Invoke;
@@ -346,6 +409,8 @@ export function healOrphanWindowCards(scope: Scope_healOrphanWindowCards): boole
 }
 
 export function checkNudge(scope: Scope_checkNudge) {
+  claimPromptScope = scope;
+  ensureClaimPromptActs();
   if (!scope.stateLoaded) return;
   const minimizedNow = new Set(
     scope.windows.filter((w) => w.isMinimized).map((w) => w.id),
@@ -376,6 +441,7 @@ export function checkNudge(scope: Scope_checkNudge) {
     }
   }
   scope.prevMinimized = minimizedNow;
+  syncClaimPrompt(scope);
 }
 
 export async function openSettings(scope: Scope_openSettings) {
