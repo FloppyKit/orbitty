@@ -2,7 +2,7 @@
   // Claim prompt. Own window (label claim-prompt), beside the rail.
   // One line, one planet menu, a new-planet field, Claim, Later.
   import { invoke } from "@tauri-apps/api/core";
-  import { emit, listen } from "@tauri-apps/api/event";
+  import { emitTo, listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import { startPaneDrag } from "./dragPane";
   import type { PersistedState, Project } from "./persist";
@@ -29,7 +29,9 @@
   let actSent = false;
 
   const line = $derived(
-    arm ? `${arm.appName} — ${arm.title || "window"}` : "No window",
+    arm
+      ? `Put ${arm.appName} — ${arm.title || "window"} on a planet.`
+      : "Put this window on a planet.",
   );
 
   $effect(() => {
@@ -68,7 +70,7 @@
         return arm?.id ?? null;
       },
       set nudgeFor(v: string | null) {
-        if (v == null && !actSent) void emit("claim-prompt:later");
+        if (v == null && !actSent) void emitTo("main", "claim-prompt:later");
         actSent = false;
       },
       get nudgeNewName() {
@@ -84,13 +86,13 @@
       claim(windowId: string, projectId: string) {
         actSent = true;
         if (projectId === "__new__" && pendingName) {
-          void emit("claim-prompt:act", {
+          void emitTo("main", "claim-prompt:act", {
             kind: "create",
             windowId,
             name: pendingName,
           });
         } else {
-          void emit("claim-prompt:act", { kind: "claim", windowId, projectId });
+          void emitTo("main", "claim-prompt:act", { kind: "claim", windowId, projectId });
         }
         pendingName = null;
       },
@@ -160,9 +162,7 @@
     margin: 0;
     cursor: grab;
     user-select: none;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
   }
 
   .field {

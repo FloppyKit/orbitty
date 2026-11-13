@@ -21,6 +21,10 @@ test("claim prompt is a pane, not a rail card", () => {
   assert.match(panes, /fn show_claim_prompt/);
 
   const ui = src("src/lib/ClaimPromptPage.svelte");
+  assert.match(ui, /Put \$\{arm.appName\}/);
+  assert.match(ui, /on a planet/);
+  assert.match(ui, /emitTo\("main", "claim-prompt:act"/);
+  assert.match(ui, /emitTo\("main", "claim-prompt:later"/);
   assert.match(ui, /nudgeClaim/);
   assert.match(ui, /nudgeCreate/);
   assert.match(ui, /<select/);

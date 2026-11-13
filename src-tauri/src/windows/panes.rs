@@ -411,6 +411,7 @@ pub fn show_claim_prompt(
         }
     }
     w.show().map_err(|e| e.to_string())?;
+    let _ = w.set_always_on_top(true);
     w.set_focus().map_err(|e| e.to_string())?;
     crate::drawers::appkit_order_front(&app, &w);
     let _ = w.set_ignore_cursor_events(false);
@@ -424,7 +425,9 @@ pub fn hide_claim_prompt(app: tauri::AppHandle) -> Result<(), String> {
     if let Ok(mut slot) = CLAIM_PROMPT_ARM.lock() {
         *slot = None;
     }
-    if app.get_webview_window("claim-prompt").is_none() {
+    if let Some(w) = app.get_webview_window("claim-prompt") {
+        let _ = w.set_always_on_top(false);
+    } else {
         return Ok(());
     }
     hide_window(app, "claim-prompt".to_string())
