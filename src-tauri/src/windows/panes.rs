@@ -368,7 +368,7 @@ pub(crate) fn restore_if_minimized(w: &tauri::WebviewWindow) -> bool {
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ClaimPromptArm {
+pub struct ClaimPromptArm {
     id: String,
     app_name: String,
     title: String,
