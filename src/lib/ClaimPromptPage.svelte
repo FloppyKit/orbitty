@@ -100,14 +100,25 @@
   }
 
   function onClaim() {
-    const scope = promptScope();
-    if (newName.trim()) nudgeCreate(scope);
-    else if (planetId) nudgeClaim(scope, planetId);
+    const id = arm?.id;
+    if (!id) return;
+    if (newName.trim()) {
+      void invoke("claim_prompt_act", {
+        kind: "create",
+        windowId: id,
+        name: newName.trim(),
+      });
+    } else if (planetId) {
+      void invoke("claim_prompt_act", {
+        kind: "claim",
+        windowId: id,
+        projectId: planetId,
+      });
+    }
   }
 
   function onLater() {
-    actSent = false;
-    promptScope().nudgeFor = null;
+    void invoke("claim_prompt_later");
   }
 
   onMount(() => {

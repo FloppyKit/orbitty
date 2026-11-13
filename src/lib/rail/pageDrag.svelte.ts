@@ -145,6 +145,15 @@ function ensureClaimPromptActs() {
   }>("claim-prompt:act", (e) => {
     const scope = claimPromptScope;
     if (!scope || !e.payload.windowId) return;
+    const w = scope.windows.find((x) => x.id === e.payload.windowId);
+    scope.nudgeSuppressed = [
+      ...new Set([
+        ...scope.nudgeSuppressed,
+        e.payload.windowId,
+        ...(w?.stableKey ? [w.stableKey] : []),
+      ]),
+    ];
+    void scope.persist();
     scope.nudgeFor = e.payload.windowId;
     if (e.payload.kind === "create") {
       scope.nudgeNewName = e.payload.name ?? "";
@@ -157,7 +166,19 @@ function ensureClaimPromptActs() {
     claimPromptListening = false;
   });
   void listen("claim-prompt:later", () => {
-    dismissClaimPrompt(claimPromptScope);
+    const scope = claimPromptScope;
+    if (scope?.nudgeFor) {
+      const w = scope.windows.find((x) => x.id === scope.nudgeFor);
+      scope.nudgeSuppressed = [
+        ...new Set([
+          ...scope.nudgeSuppressed,
+          scope.nudgeFor,
+          ...(w?.stableKey ? [w.stableKey] : []),
+        ]),
+      ];
+      void scope.persist();
+    }
+    dismissClaimPrompt(scope);
   }).catch(() => {
     claimPromptListening = false;
   });
@@ -432,12 +453,8 @@ export function checkNudge(scope: Scope_checkNudge) {
       scope.nudgeSuppressed,
     );
     if (candidate) {
-      scope.nudgeSuppressed = [
-        ...new Set([...scope.nudgeSuppressed, candidate.id, candidate.stableKey]),
-      ];
       scope.nudgeFor = candidate.id;
       scope.nudgeNewName = "";
-      scope.persist();
     }
   }
   scope.prevMinimized = minimizedNow;

@@ -23,8 +23,9 @@ test("claim prompt is a pane, not a rail card", () => {
   const ui = src("src/lib/ClaimPromptPage.svelte");
   assert.match(ui, /Put \$\{arm.appName\}/);
   assert.match(ui, /on a planet/);
-  assert.match(ui, /emitTo\("main", "claim-prompt:act"/);
-  assert.match(ui, /emitTo\("main", "claim-prompt:later"/);
+  assert.match(ui, /claim_prompt_act/);
+  assert.match(ui, /claim_prompt_later/);
+  assert.match(src("src-tauri/capabilities/default.json"), /claim-prompt/);
   assert.match(ui, /nudgeClaim/);
   assert.match(ui, /nudgeCreate/);
   assert.match(ui, /<select/);

@@ -157,7 +157,7 @@ pub(crate) fn ensure_window(
     };
     // Dest chips close in one click while Launchpad/STARS hold key-window
     // — without this, the first click only activates companion.
-    config.accept_first_mouse = label == "companion";
+    config.accept_first_mouse = label == "companion" || label == "claim-prompt";
     // Board and Stars on macOS stay titled Overlay windows so the
     // native traffic lights can sit on the title row. Every other pane
     // stays borderless: the Overlay strip plus the in-SPA banner was
@@ -416,6 +416,36 @@ pub fn show_claim_prompt(
     crate::drawers::appkit_order_front(&app, &w);
     let _ = w.set_ignore_cursor_events(false);
     emit_pane_vis(&app, "claim-prompt", true);
+    Ok(())
+}
+
+/// Later. The rail hears this and clears the prompt. The window also hides here,
+/// so the click does not depend on the popup talking to the rail itself.
+#[tauri::command]
+pub fn claim_prompt_later(app: tauri::AppHandle) -> Result<(), String> {
+    let _ = app.emit_to("main", "claim-prompt:later", ());
+    hide_claim_prompt(app)
+}
+
+/// Claim or new planet. The rail does the claim when it hears this.
+#[tauri::command]
+pub fn claim_prompt_act(
+    app: tauri::AppHandle,
+    kind: String,
+    window_id: String,
+    project_id: Option<String>,
+    name: Option<String>,
+) -> Result<(), String> {
+    let _ = app.emit_to(
+        "main",
+        "claim-prompt:act",
+        serde_json::json!({
+            "kind": kind,
+            "windowId": window_id,
+            "projectId": project_id,
+            "name": name,
+        }),
+    );
     Ok(())
 }
 

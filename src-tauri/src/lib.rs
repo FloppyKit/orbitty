@@ -861,6 +861,8 @@ pub fn run() {
             panes::show_claim_prompt,
             panes::hide_claim_prompt,
             panes::claim_prompt_peek,
+            panes::claim_prompt_later,
+            panes::claim_prompt_act,
             panes::arm_companion_mouth,
             panes::set_companion_host,
             panes::set_companion_composer_grow,
