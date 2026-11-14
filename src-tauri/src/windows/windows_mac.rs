@@ -528,7 +528,18 @@ pub fn install_frontmost_tracker() {
                     if safe {
                         let (tx, rx) = std::sync::mpsc::channel();
                         let _ = crate::main_thread_sync(move || {
-                            let _ = tx.send(read_workspace_front());
+                            let front = read_workspace_front();
+                            if let Some(front) = front.as_ref() {
+                                if !is_self_app(
+                                    front.bundle.as_deref(),
+                                    front.name.as_deref(),
+                                    front.pid,
+                                    std::process::id() as i32,
+                                ) {
+                                    super::minimize_watch::bind_front(front.pid);
+                                }
+                            }
+                            let _ = tx.send(front);
                         });
                         if let Some(front) = rx.recv().unwrap_or(None) {
                             if !is_self_app(

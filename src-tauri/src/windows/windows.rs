@@ -44,6 +44,8 @@ pub struct AccessibilityStatus {
 }
 
 #[cfg(target_os = "macos")]
+mod minimize_watch;
+#[cfg(target_os = "macos")]
 #[path = "windows_mac.rs"]
 mod platform;
 
@@ -56,6 +58,11 @@ pub use platform::{
     install_rail_mouse_buttons, list_windows, open_accessibility_settings, prompt_accessibility,
     sync_rail_mouse_keys,
 };
+
+#[cfg(target_os = "macos")]
+pub use minimize_watch::start as start_minimize_watch;
+#[cfg(not(target_os = "macos"))]
+pub fn start_minimize_watch(_app: tauri::AppHandle) {}
 
 /// `tab:` ids never reach AX. Asleep tabs reopen; live tabs focus.
 pub fn focus_window(id: &str) -> Result<(), String> {

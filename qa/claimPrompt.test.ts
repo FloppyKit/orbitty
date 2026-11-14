@@ -26,6 +26,9 @@ test("claim prompt is a pane, not a rail card", () => {
   assert.match(ui, /claim_prompt_act/);
   assert.match(ui, /claim_prompt_later/);
   assert.match(src("src-tauri/capabilities/default.json"), /claim-prompt/);
+  assert.match(src("src/lib/rail/pageDrag.svelte.ts"), /orbitty:window-minimized/);
+  assert.match(src("src-tauri/src/windows/minimize_watch.rs"), /AXWindowMiniaturized/);
+  assert.match(src("src/lib/rail/nudgeTrigger.ts"), /export function armOnShrink/);
   assert.match(ui, /nudgeClaim/);
   assert.match(ui, /nudgeCreate/);
   assert.match(ui, /<select/);

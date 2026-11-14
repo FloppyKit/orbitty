@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AgentRun, CardTombstone, Claim, KanbanCard, PointsEntry, Project, TitleOverride, WindowInfo, WindowTags } from "../persist";
 import { nudgeClaim, nudgeCreate } from "./pageClaim.svelte.ts";
-import { nudgePick } from "./nudgeTrigger";
+import { armOnShrink, nudgePick } from "./nudgeTrigger";
 import { isTabClaim, rematchPick, setTabLive } from "./tabbityRows";
 
 interface AxStatus {
@@ -127,6 +127,7 @@ type Scope_checkNudge = {
 let claimPromptScope: Scope_checkNudge | null = null;
 let claimPromptOpenFor: string | null = null;
 let claimPromptListening = false;
+let claimPromptWarmed = false;
 
 function dismissClaimPrompt(scope: Scope_checkNudge | null) {
   claimPromptOpenFor = null;
@@ -165,6 +166,26 @@ function ensureClaimPromptActs() {
   }).catch(() => {
     claimPromptListening = false;
   });
+  void listen<{ id?: string }>("orbitty:window-minimized", (e) => {
+    const id = e.payload.id;
+    const scope = claimPromptScope;
+    if (!id || !scope) return;
+    const w = scope.windows.find((x) => x.id === id);
+    const next = armOnShrink(
+      id,
+      scope.nudgeFor,
+      new Set(scope.liveClaims.map((c) => c.windowId)),
+      scope.nudgeSuppressed,
+      w?.stableKey ?? null,
+    );
+    if (!next || next === scope.nudgeFor) return;
+    scope.windows = scope.windows.map((x) =>
+      x.id === id ? { ...x, isMinimized: true } : x,
+    );
+    scope.nudgeFor = next;
+    scope.nudgeNewName = "";
+    syncClaimPrompt(scope);
+  }).catch(() => {});
   void listen("claim-prompt:later", () => {
     const scope = claimPromptScope;
     if (scope?.nudgeFor) {
@@ -432,6 +453,10 @@ export function healOrphanWindowCards(scope: Scope_healOrphanWindowCards): boole
 export function checkNudge(scope: Scope_checkNudge) {
   claimPromptScope = scope;
   ensureClaimPromptActs();
+  if (!claimPromptWarmed) {
+    claimPromptWarmed = true;
+    void invoke("prewarm_claim_prompt").catch(() => {});
+  }
   if (!scope.stateLoaded) return;
   const minimizedNow = new Set(
     scope.windows.filter((w) => w.isMinimized).map((w) => w.id),

@@ -376,6 +376,14 @@ pub struct ClaimPromptArm {
 
 static CLAIM_PROMPT_ARM: std::sync::Mutex<Option<ClaimPromptArm>> = std::sync::Mutex::new(None);
 
+/// Create the prompt hidden so the first shrink does not wait on a new window.
+#[tauri::command]
+pub fn prewarm_claim_prompt(app: tauri::AppHandle) -> Result<(), String> {
+    let w = ensure_window(&app, "claim-prompt")?;
+    let _ = w.hide();
+    Ok(())
+}
+
 /// What the claim-prompt pane should name. Memory only — not state.json.
 #[tauri::command]
 pub fn claim_prompt_peek() -> Option<ClaimPromptArm> {

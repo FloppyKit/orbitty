@@ -863,6 +863,7 @@ pub fn run() {
             panes::claim_prompt_peek,
             panes::claim_prompt_later,
             panes::claim_prompt_act,
+            panes::prewarm_claim_prompt,
             panes::arm_companion_mouth,
             panes::set_companion_host,
             panes::set_companion_composer_grow,
@@ -990,6 +991,7 @@ pub fn run() {
             crate::relay::history::boot_checkpoint(app.handle());
             #[cfg(target_os = "macos")]
             crate::windows::install_rail_mouse_buttons(app.handle().clone());
+            crate::windows::start_minimize_watch(app.handle().clone());
             // one-time 0–4 → 1–5 checkin shift
             // (scaleV flag — never twice), before any window reads state.
             state::migrate_stars_scale(app.handle());
