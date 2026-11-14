@@ -72,6 +72,13 @@
     ringActive = false,
     onRingExit,
     outwardDir = "left" as RingDir,
+    columnsOnly = false,
+    sharedCards,
+    sharedProjects,
+    onColumnCard,
+    onColumnToggle,
+    onColumnDone,
+    hostMutate,
   }: {
     embedded?: boolean;
     onClose?: () => void;
@@ -85,6 +92,15 @@
     ringActive?: boolean;
     onRingExit?: () => void;
     outwardDir?: RingDir;
+    // Level-1 rail column. Default off so Lists, Launchpad, and the
+    // level-2 board keep the preview column and their own load.
+    columnsOnly?: boolean;
+    sharedCards?: KanbanCard[];
+    sharedProjects?: Project[];
+    onColumnCard?: (card: { id: string }) => void;
+    onColumnToggle?: (card: KanbanCard, event: MouseEvent) => void;
+    onColumnDone?: (card: KanbanCard) => void;
+    hostMutate?: (fn: (s: PersistedState) => void, origin?: string) => unknown;
   } = $props();
 
   type Status = "todo" | "doing" | "done";
@@ -104,9 +120,9 @@
   // white-on-white first paint. loadState overrides with the saved id.
   let themeId = $state(osThemeId());
   let windowOpacity = $state(1.0);
-  let projects = $state<Project[]>([]);
+  let projects = $state<Project[]>(sharedProjects ?? []);
   let tags = $state<Tag[]>([]);
-  let kanbanCards = $state<KanbanCard[]>([]);
+  let kanbanCards = $state<KanbanCard[]>(sharedCards ?? []);
   let pointsLedger = $state<PointsEntry[]>([]);
   let windows = $state<WindowInfo[]>([]);
   let titleOverrides = $state<TitleOverride[]>([]);
@@ -165,12 +181,18 @@
 
   // Sidebar selection: a smart filter, Inbox, or a project id. Session-only
   // on the full board. The dock tile remembers the last list and column.
-  let selected = $state(embedded ? readDockList() : "inbox");
+  let selected = $state(railPlanet ?? (embedded ? readDockList() : "inbox"));
   // Rail embed: the wheel owns the planet. No raise, no focus-project apply.
   $effect(() => {
     if (railPlanet == null) return;
     if (selected !== railPlanet) selected = railPlanet;
     if (planetColPref !== "hidden") planetColPref = "hidden";
+  });
+  // Level-1 columns paint the rail's cards. They do not load_state.
+  $effect(() => {
+    if (!columnsOnly) return;
+    if (sharedCards) kanbanCards = sharedCards;
+    if (sharedProjects) projects = sharedProjects;
   });
   $effect(() => {
     if (!embedded) return;
@@ -227,6 +249,7 @@
   });
 
   $effect(() => {
+    if (columnsOnly) return;
     const drawer = detailId
       ? kanbanCards.find((c) => c.id === detailId)
       : undefined;
@@ -521,6 +544,7 @@
   });
 
   $effect(() => {
+    if (columnsOnly) return;
     if (neededSelectedId) detailId = neededSelectedId;
   });
 
@@ -530,6 +554,10 @@
   let dockCard = $state<KanbanCard | null>(null);
 
   function armNeededMouth(id: string | null, title: string | null) {
+    if (columnsOnly) {
+      if (id) onColumnCard?.({ id });
+      return;
+    }
     if (embedded && id) {
       dockCard = kanbanCards.find((card) => card.id === id) ?? dockCard;
     }
@@ -542,6 +570,7 @@
   }
 
   $effect(() => {
+    if (columnsOnly) return;
     const pile = [...viewCols.doing, ...viewCols.todo, ...neededRows];
     if (detailId && pile.some((c) => c.id === detailId)) return;
     if (
@@ -647,6 +676,7 @@
   let seenNeededDoing = new Set<string>();
   let neededDoingSortReady = false;
   $effect(() => {
+    if (columnsOnly) return;
     if (grabbedId) return;
     const doing = kanbanCards.filter(isDoingRow);
     const withNeed = doing.filter((c) => neededForTodo(c));
@@ -748,6 +778,7 @@
   // the other slices; this window only ever touches kanbanCards / pointsLedger
   // / claims (unclaim on window-card complete or Doing→Todo drag).
   async function mutate(fn: (s: PersistedState) => void, origin?: string) {
+    if (columnsOnly) return hostMutate?.(fn, origin);
     return mutateBody({errText, invoke, loadState, showLinkToast}, fn, origin);
   }
 
@@ -796,16 +827,35 @@
   // same complete door as the checkbox. Todo/Doing keep the window claim
   // (town: todo = board, doing = field). Unclaim is Unclaim, not a column.
   function moveCard(card: KanbanCard, target: Status) {
+    if (columnsOnly) {
+      if (card.status === target) return;
+      if (target === "done") {
+        onColumnDone?.(card);
+        return;
+      }
+      onColumnToggle?.(card, new MouseEvent("click"));
+      return;
+    }
     return moveCardBody({completeCard, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, logEvent, mutate}, card, target);
   }
 
   // detail drawer mutations (all additive on the card)
 
   function openDetail(card: KanbanCard) {
+    if (columnsOnly) {
+      onColumnCard?.(card);
+      return;
+    }
     return openDetailBody({armNeededMouth, get detailId() { return detailId; }, set detailId(v) { detailId = v; }, get neededSelectedId() { return neededSelectedId; }, set neededSelectedId(v) { neededSelectedId = v; }, get newTagName() { return newTagName; }, set newTagName(v) { newTagName = v; }, get planetDdOpen() { return planetDdOpen; }, set planetDdOpen(v) { planetDdOpen = v; }, get previewEdit() { return previewEdit; }, set previewEdit(v) { previewEdit = v; }}, card);
   }
 
   async function toggleDoing(card: KanbanCard, e: MouseEvent) {
+    if (columnsOnly) {
+      e.preventDefault();
+      e.stopPropagation();
+      onColumnToggle?.(card, e);
+      return;
+    }
     return toggleDoingBody({invoke, loadState, moveCard}, card, e);
   }
 
@@ -857,6 +907,7 @@
   }
 
   $effect(() => {
+    if (columnsOnly) return;
     const el = bodyEl;
     if (!el) return;
     const ro = new ResizeObserver(() => {
@@ -867,6 +918,7 @@
   });
 
   $effect(() => {
+    if (columnsOnly) return;
     const el = kanbanEl;
     if (!el || typeof ResizeObserver === "undefined") return;
     const measure = () => {
@@ -1064,6 +1116,11 @@
       suppressClick = false;
       return;
     }
+    if (columnsOnly) {
+      detailId = card.id;
+      onColumnCard?.(card);
+      return;
+    }
     if (embedded) {
       dockCard = card;
       return;
@@ -1086,6 +1143,7 @@
   }
 
   $effect(() => {
+    if (columnsOnly) return;
     if (!themeId) return;
     document.documentElement.dataset.theme = themeId;
     applyHostTokens(themeId);
@@ -1098,6 +1156,7 @@
   // Reads themeId too so a theme flip re-derives the rgba fills (the theme
   // effect above runs first and sets the tokens).
   $effect(() => {
+    if (columnsOnly) return;
     if (!themeId) return;
     applyWindowOpacity(windowOpacity);
   });
@@ -1144,6 +1203,7 @@
   }
 
   onMount(async () => {
+    if (columnsOnly) return;
     if (!embedded) invoke("ensure_glass").catch(() => {});
     unlisten = await listen("state:changed", loadState);
     unlistenFocus = await listen<string>("orbitty:focus-card", (e) => {
@@ -1253,7 +1313,7 @@
   </div>
 {/snippet}
 
-<main class="kanban" class:embedded bind:this={kanbanEl}>
+<main class="kanban" class:embedded class:columns-only={columnsOnly} bind:this={kanbanEl}>
   {#if embedded && dockCard}
     <DockCardPop card={dockCard} onClose={() => (dockCard = null)} />
   {/if}
@@ -1358,6 +1418,7 @@
       chipsInTitle={railPlanet == null && planetColMode !== "hidden"}
     />
 
+    {#if !columnsOnly}
     <BoardPreview
       bind:newTagName
       bind:planetDdOpen
@@ -1405,6 +1466,7 @@
       {undoThisTask}
       {winFor}
     />
+    {/if}
   </div>
 </main>
 

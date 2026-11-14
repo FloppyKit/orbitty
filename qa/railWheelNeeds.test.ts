@@ -357,7 +357,7 @@ test("railWheelNeeds_level1_column_reuses_board_without_preview", () => {
   assert.ok(previewAt >= 0);
   const gate = kanban.lastIndexOf("columnsOnly", previewAt);
   assert.ok(gate >= 0);
-  assert.match(kanban.slice(gate, previewAt), /!columnsOnly/);
+  assert.match(kanban.slice(Math.max(0, gate - 1), previewAt), /!columnsOnly/);
   const l2 = list.indexOf("railPlanet={boardPlanet}");
   assert.ok(l2 >= 0);
   const l2Tag = list.lastIndexOf("<KanbanPage", l2);

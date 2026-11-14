@@ -945,21 +945,18 @@
                 {@const pid = item.pid}
                 {@const abbrev = rail.planetAbbrevs(pid)}
                 {#if abbrev.rows.length > 0}
-                  <ul class="arch-abbrevs">
-                    {#each abbrev.rows as row (row.id)}
-                      <li>
-                        <button
-                          type="button"
-                          class="arch-abbrev"
-                          class:is-open={abbrevPick?.id === row.id && abbrevPick?.pid === pid}
-                          onclick={() => openAbbrev(pid, row.id)}
-                        >{row.title || "Untitled"}</button>
-                      </li>
-                    {/each}
-                    {#if abbrev.more > 0}
-                      <li class="arch-abbrev-more">+{abbrev.more}</li>
-                    {/if}
-                  </ul>
+                  <div class="arch-board-col" onwheel={(e) => e.stopPropagation()}>
+                    <KanbanPage
+                      columnsOnly
+                      railPlanet={pid}
+                      sharedCards={rail.planetCards(pid)}
+                      sharedProjects={rail.projects}
+                      onColumnCard={(card) => openAbbrev(pid, card.id)}
+                      onColumnToggle={(card, e) => rail.toggleDoing(card, e)}
+                      onColumnDone={(card) => rail.completeTodo(card)}
+                      hostMutate={rail.mutate}
+                    />
+                  </div>
                 {/if}
               {/if}
               {#if item.kind === "add" && rail.creatingProject && !archHidden(i)}

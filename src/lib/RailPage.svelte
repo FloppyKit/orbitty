@@ -2116,6 +2116,7 @@
     isCollapsed,
     get kanbanCards() { return kanbanCards; },
     set kanbanCards(v) { kanbanCards = v; },
+    mutate,
     kindLabel,
     get lane() { return lane; },
     set lane(v) { lane = v; },
