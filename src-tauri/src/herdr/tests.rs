@@ -1587,7 +1587,7 @@ fn live_row(pid: i32, ppid: i32, path: &str, args: &[&str]) -> jump::LiveProc {
 #[test]
 fn jump_focuses_an_open_attach_before_a_new_window() {
     let ghostty = "/Applications/Ghostty.app/Contents/MacOS/ghostty";
-    let hc = "/Users/dude/.local/bin/herdr-core";
+    let hc = "/opt/bin/hc";
     let procs = vec![
         live_row(1, 0, "/sbin/launchd", &[]),
         live_row(8, 1, ghostty, &["ghostty"]),
