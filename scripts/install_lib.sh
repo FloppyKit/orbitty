@@ -2,13 +2,18 @@
 # Shared helpers for the Orbitty install scripts.
 # Functions only: sourcing this file has no side effects.
 
-# Remove the build-tree Orbitty.app. Refuses unless the resolved path is
-# inside <repo_root> and is exactly
+# Remove the build-tree Orbitty.app at the logical path
 # <repo_root>/src-tauri/target/release/bundle/macos/Orbitty.app.
-# A missing bundle is a no-op (returns 0). Never deletes anything else.
+# Intermediate directories on that suffix may be symlinks. A symlink at
+# Orbitty.app itself is refused and nothing is deleted. A missing bundle
+# is a no-op (returns 0). Never deletes anything else.
 clean_build_bundle() {
   local root=${1:-}
-  local root_phys suffix bundle resolved
+  local root_phys suffix bundle resolved logical accept
+  # pwd -L must stay the path we asked for. A caller's chase_links would
+  # resolve an intermediate symlink and look like a path outside the repo.
+  setopt local_options no_chase_links
+  accept=0
   if [[ -z $root || ! -d $root ]]; then
     print -r -- "clean_build_bundle: repo root is not a directory: ${root:-<empty>}" >&2
     return 1
@@ -32,22 +37,35 @@ clean_build_bundle() {
     print -r -- "clean_build_bundle: refused (not a directory): $bundle" >&2
     return 1
   fi
+  # Final component is a real directory and the logical path is exactly
+  # the suffix. Intermediate symlinks are allowed. A symlink at
+  # Orbitty.app itself is not this path, so it falls through to the refuse.
+  if [[ ! -L $bundle ]]; then
+    logical=$(cd -- "$bundle" && pwd -L) || {
+      print -r -- "clean_build_bundle: cannot resolve $bundle" >&2
+      return 1
+    }
+    if [[ $logical == "${root_phys}${suffix}" ]]; then
+      accept=1
+    fi
+  fi
+  if (( accept )); then
+    rm -rf -- "$bundle"
+    return
+  fi
   resolved=$(cd -- "$bundle" && pwd -P) || {
     print -r -- "clean_build_bundle: cannot resolve $bundle" >&2
     return 1
   }
-  if [[ $resolved != ${root_phys}${suffix} ]]; then
-    case $resolved in
-      ${root_phys}/*)
-        print -r -- "clean_build_bundle: refused path with wrong suffix: $resolved" >&2
-        ;;
-      *)
-        print -r -- "clean_build_bundle: refused path outside repo: $resolved" >&2
-        ;;
-    esac
-    return 1
-  fi
-  rm -rf -- "$bundle"
+  case $resolved in
+    ${root_phys}/*)
+      print -r -- "clean_build_bundle: refused path with wrong suffix: $resolved" >&2
+      ;;
+    *)
+      print -r -- "clean_build_bundle: refused path outside repo: $resolved" >&2
+      ;;
+  esac
+  return 1
 }
 
 # Warn when ~/.local/bin/orbittyctl exists and is not the bundled binary.
