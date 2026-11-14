@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AgentRun, CardTombstone, Claim, KanbanCard, PointsEntry, Project, TitleOverride, WindowInfo, WindowTags } from "../persist";
-import { nudgeClaim, nudgeCreate } from "./pageClaim.svelte.ts";
+import { nudgeClaim, nudgeCreate } from "./pageClaim.svelte";
 import { armOnShrink, nudgePick } from "./nudgeTrigger";
 import { isTabClaim, rematchPick, setTabLive } from "./tabbityRows";
 

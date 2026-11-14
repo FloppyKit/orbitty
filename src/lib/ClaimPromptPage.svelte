@@ -6,7 +6,7 @@
   import { onMount } from "svelte";
   import { startPaneDrag } from "./dragPane";
   import type { PersistedState, Project } from "./persist";
-  import { nudgeClaim, nudgeCreate } from "./rail/pageClaim.svelte.ts";
+  import { nudgeClaim, nudgeCreate } from "./rail/pageClaim.svelte";
   import { applyHostTokens, applyWindowOpacity } from "../themes/apply";
 
   const THEME_IDS = new Set(["systemLight", "systemDark", "terminal"]);
@@ -94,7 +94,7 @@
         } else {
           void emitTo("main", "claim-prompt:act", { kind: "claim", windowId, projectId });
         }
-        pendingName = null;
+        pendingName = "";
       },
     };
   }
