@@ -22,6 +22,7 @@
   let followBottom = true;
   let watchedBody: HTMLPreElement | null = null;
   let pinning = false;
+  let downStreak = 0;
 
   function stop() {
     if (timer) clearInterval(timer);
@@ -55,22 +56,25 @@
   }
 
   async function refresh() {
-    if (!card || !preview) return;
+    if (!shown || !card) return;
+    void invoke("reclamp_peek_capsule").catch(() => {});
     try {
       const v = await invoke<Capsule>("herdr_peek", { card, lines: 40 });
       status = v.status || "unknown";
       termState = v.state || "";
-      text = status === "unknown" ? "" : v.text || "";
+      if (preview) text = status === "unknown" ? "" : v.text || "";
+      noteSeat(status, v.up);
     } catch {
       status = "unknown";
-      text = "";
+      if (preview) text = "";
+      noteSeat("unknown", false);
     }
-    await stickToBottom();
+    if (preview) await stickToBottom();
   }
 
   function arm() {
     stop();
-    if (preview) timer = setInterval(() => void refresh(), 2000);
+    if (shown) timer = setInterval(() => void refresh(), 2000);
   }
 
   function openPeek() {
@@ -80,12 +84,39 @@
     void refresh();
   }
 
+  function hideCapsule() {
+    shown = false;
+    preview = false;
+    text = "";
+    followBottom = true;
+    watchedBody = null;
+    downStreak = 0;
+    stop();
+    void invoke("hide_peek_capsule").catch(() => {});
+  }
+
+  function noteSeat(status: string, up: boolean) {
+    if (status === "none") {
+      void hideCapsule();
+      return;
+    }
+    if (status === "blocked") {
+      downStreak = 0;
+      return;
+    }
+    if (up === false || status === "unknown") {
+      downStreak += 1;
+      if (downStreak >= 2) void hideCapsule();
+      return;
+    }
+    downStreak = 0;
+  }
+
   function closePeek() {
     preview = false;
     text = "";
     followBottom = true;
     watchedBody = null;
-    stop();
   }
 
   async function openTerminal() {
@@ -103,24 +134,45 @@
     }
   }
 
+  function applyCapsule(v: Capsule) {
+    card = v.card || "";
+    status = v.status || "unknown";
+    termState = v.state || "";
+    text = "";
+    preview = false;
+    followBottom = true;
+    watchedBody = null;
+    downStreak = 0;
+    shown = true;
+    arm();
+  }
+
   onMount(() => {
-    let un: (() => void) | undefined;
+    let unlistenPeek: (() => void) | undefined;
+    let unlistenVis: (() => void) | undefined;
     void listen<Capsule>("herdr-peek", (ev) => {
-      card = ev.payload.card || "";
-      status = ev.payload.status || "unknown";
-      termState = ev.payload.state || "";
-      text = "";
-      preview = false;
-      followBottom = true;
-      watchedBody = null;
-      shown = true;
-      stop();
+      applyCapsule(ev.payload);
     }).then((fn) => {
-      un = fn;
+      unlistenPeek = fn;
     });
+    void listen<{ label?: string; visible?: boolean }>("orbitty:pane-vis", (ev) => {
+      if (ev.payload.label !== "peek-capsule" || ev.payload.visible !== false) return;
+      shown = false;
+      preview = false;
+      stop();
+      downStreak = 0;
+    }).then((fn) => {
+      unlistenVis = fn;
+    });
+    void invoke<Capsule | null>("peek_capsule_arm")
+      .then((arm) => {
+        if (arm && arm.card) applyCapsule(arm);
+      })
+      .catch(() => {});
     return () => {
       stop();
-      un?.();
+      unlistenPeek?.();
+      unlistenVis?.();
     };
   });
 </script>
@@ -137,7 +189,7 @@
       {#if status !== "unknown"}
         <button type="button" class="peek-btn" onclick={openTerminal}>Open terminal</button>
       {/if}
-      <button type="button" class="peek-btn" onclick={() => (shown = false)}>hide</button>
+      <button type="button" class="peek-btn" onclick={hideCapsule}>hide</button>
     </div>
     {#if preview}
       <pre class="body" tabindex="-1">{text}</pre>
@@ -147,11 +199,9 @@
 
 <style>
   .peek {
-    position: fixed;
-    right: 12px;
-    bottom: 12px;
-    z-index: 40;
-    max-width: min(420px, calc(100vw - 24px));
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
     background: var(--panel, #12201a);
     color: var(--ink, #c8f0d0);
     border: 1px solid var(--edge, #1a2a20);
