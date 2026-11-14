@@ -2,16 +2,16 @@
 
 import type { Claim, KanbanCard, Project, WindowInfo } from "../persist";
 import type { MenuRing } from "../menuKeys.svelte";
-import type { ArchLayout, ArchState, BoardFocus, Layer2Item } from "./stageArch";
+import type { ArchFrame, ArchFront, ArchLayout, ArchState, BoardFocus, Layer2Item } from "./stageArch";
 import type { ClaimSnap, EdgeHoverEvent, EdgeHoverState } from "./stagePlace";
-import type { BoardCol, RailEdge, StagePrefs } from "./habitat";
-import type { InputIntent } from "./railInput";
+import type { BoardCol, HabitatRow, RailEdge, StagePrefs } from "./habitat";
+import type { DismissInput, InputIntent, IntentInput } from "./railInput";
 
-type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
 type Scope_overPainted = {
-  archPainted: (...args: any[]) => boolean;
-  archLayout: (...args: any[]) => ArchLayout;
+  archPainted: (layout: ArchLayout, point: { x: number; y: number }, opts: { front: ArchFront; pid: string | null; revealed: boolean; slop?: number; embed?: "settings" | "stars" | null; edge?: string; frame?: ArchFrame; }) => boolean;
+  archLayout: (edge: string, frameW: number, frameH: number) => ArchLayout;
   railEdge: RailEdge;
   arch: ArchState;
   stageRevealed: boolean;
@@ -23,22 +23,22 @@ type Scope_armEdgeTimer = {
   edgeHoverState: EdgeHoverState;
   EDGE_HIDE_MS: number;
   EDGE_GRACE_MS: number;
-  applyEdge: (...args: any[]) => any;
+  applyEdge: (ev: EdgeHoverEvent, now?: number) => unknown;
 };
 
 type Scope_applyEdge = {
-  edgeHover: (...args: any[]) => { state: EdgeHoverState; act: "reveal" | "park" | null };
+  edgeHover: (s: EdgeHoverState, ev: EdgeHoverEvent, now: number) => { state: EdgeHoverState; act: "reveal" | "park" | null };
   edgeHoverState: EdgeHoverState;
-  showStage: (...args: any[]) => Promise<any>;
-  maybeAutoHide: (...args: any[]) => any;
-  armEdgeTimer: (...args: any[]) => any;
+  showStage: () => Promise<unknown>;
+  maybeAutoHide: () => unknown;
+  armEdgeTimer: () => unknown;
 };
 
 type Scope_noteClaims = {
   lastClaimsSeen: ClaimSnap[] | null;
-  claimLanded: (...args: any[]) => { windowId: string; projectId: string } | null;
+  claimLanded: (prev: readonly ClaimSnap[] | null, next: readonly ClaimSnap[]) => { windowId: string; projectId: string } | null;
   windows: WindowInfo[];
-  titleFor: (...args: any[]) => string;
+  titleFor: (w: WindowInfo) => string;
   claimFlash: { pid: string; title: string; until: number } | null;
   CLAIM_FLASH_MS: number;
   claimFlashTimer: ReturnType<typeof setTimeout> | null;
@@ -48,10 +48,10 @@ type Scope_noteClaims = {
 type Scope_onStagePointerMove = {
   embedded: boolean;
   edgePointerSeed: boolean;
-  overPainted: (...args: any[]) => boolean;
+  overPainted: (e: PointerEvent) => boolean;
   pointerInside: boolean;
   stageRevealed: boolean;
-  applyEdge: (...args: any[]) => any;
+  applyEdge: (ev: EdgeHoverEvent, now?: number) => unknown;
 };
 
 type Scope_noteWheelSpin = {
@@ -68,21 +68,10 @@ type Scope_focusBoardLanding = {
   menuRing: MenuRing;
 };
 
-type Scope_goInFromPointer = {
-  arch: ArchState;
-  planetCards: (...args: any[]) => KanbanCard[];
-  enterBoard: (...args: any[]) => { state: ArchState; focus: BoardFocus } | null;
-  archDo: (...args: any[]) => any;
-  walkInto: (...args: any[]) => any;
-  focusBoardLanding: (...args: any[]) => any;
-  menuRing: MenuRing;
-  confirmHabitatStop: (...args: any[]) => any;
-};
-
 type Scope_takeMouseButton = {
   mouseButtonAt: number;
-  inputIntent: (...args: any[]) => InputIntent;
-  onRailEscape: (...args: any[]) => boolean;
+  inputIntent: (ev: IntentInput) => InputIntent;
+  onRailEscape: () => boolean;
   confirmActive: () => boolean;
   textFieldFocused: () => boolean;
 };
@@ -92,53 +81,53 @@ type Scope_onStagePointerDown = {
   stageRevealed: boolean;
   pointerDownAt: { x: number; y: number } | null;
   pointerInside: boolean;
-  nearHit: (...args: any[]) => boolean;
-  overPainted: (...args: any[]) => boolean;
+  nearHit: (e: { clientX: number; clientY: number; target: EventTarget | null }) => boolean;
+  overPainted: (e: PointerEvent) => boolean;
 };
 
 type Scope_onStagePointerUp = {
   embedded: boolean;
   stageRevealed: boolean;
-  takeMouseButton: (...args: any[]) => boolean;
+  takeMouseButton: (button: number) => boolean;
   pointerDownAt: { x: number; y: number } | null;
-  nearHit: (...args: any[]) => boolean;
-  wheelAnimating: (...args: any[]) => boolean;
-  spinClickTarget: (...args: any[]) => "landing" | "item";
+  nearHit: (e: { clientX: number; clientY: number; target: EventTarget | null }) => boolean;
+  wheelAnimating: () => boolean;
+  spinClickTarget: (animating: boolean, onHit: boolean) => "landing" | "item";
   menuRing: MenuRing;
   arch: ArchState;
-  confirmLayer2Stop: (...args: any[]) => any;
-  confirmHabitatStop: (...args: any[]) => any;
-  emptyDismiss: (...args: any[]) => boolean;
-  onRailEscape: (...args: any[]) => boolean;
+  confirmLayer2Stop: (id: string) => unknown;
+  confirmHabitatStop: (id: string) => unknown;
+  emptyDismiss: (input: DismissInput) => boolean;
+  onRailEscape: () => boolean;
 };
 
 type Scope_onStageAux = {
   embedded: boolean;
   stageRevealed: boolean;
-  takeMouseButton: (...args: any[]) => boolean;
+  takeMouseButton: (button: number) => boolean;
 };
 
 type Scope_onStageMouseLeave = {
   embedded: boolean;
   edgePointerSeed: boolean;
-  edgeLeaveSide: (...args: any[]) => "edge" | "away";
+  edgeLeaveSide: (edge: string, clientX: number, clientY: number, w: number, h: number) => "edge" | "away";
   railEdge: RailEdge;
   pointerInside: boolean;
-  applyEdge: (...args: any[]) => any;
+  applyEdge: (ev: EdgeHoverEvent, now?: number) => unknown;
 };
 
 type Scope_onWinBlur = {
-  stageFocus: (...args: any[]) => any;
+  stageFocus: (inside: boolean) => unknown;
 };
 
 type Scope_onExpandedFieldEscape = {
   embedded: boolean;
   arch: ArchState;
-  layer2For: (...args: any[]) => Layer2Item[];
+  layer2For: (pid: string | null) => Layer2Item[];
 };
 
 type Scope_applyStagePrefs = {
-  stagePrefs: (...args: any[]) => StagePrefs;
+  stagePrefs: (raw: { railEdge?: unknown; railAutoHideOnBlur?: unknown; autohideRowChrome?: unknown; } | null | undefined) => StagePrefs;
   autohideRowChrome: boolean;
   railEdge: RailEdge;
   railAutoHideOnBlur: boolean;
@@ -155,17 +144,17 @@ type Scope_raisePlanet = {
 
 type Scope_onSheetPlanetClick = {
   sheetSlot: string;
-  raisePlanet: (...args: any[]) => any;
+  raisePlanet: (id: string) => unknown;
 };
 
 type Scope_onSheetPlanetDblClick = {
-  isCollapsed: (...args: any[]) => boolean;
-  emitTo: (...args: any[]) => any;
+  isCollapsed: (sectionId: string) => boolean;
+  emitTo: (target: string, event: string, payload?: unknown) => Promise<void>;
 };
 
 type Scope_sheetClaim = {
   claimPickerFor: string | null;
-  claim: (...args: any[]) => any;
+  claim: (windowId: string, projectId: string) => unknown;
 };
 
 type Scope_sheetFocus = {
@@ -174,33 +163,33 @@ type Scope_sheetFocus = {
 
 type Scope_toggleBoardCol = {
   railBoardCols: BoardCol[];
-  toggleCol: (...args: any[]) => BoardCol[];
-  persist: (...args: any[]) => Promise<any>;
+  toggleCol: (cols: readonly string[], col: string) => BoardCol[];
+  persist: () => Promise<unknown>;
 };
 
 type Scope_focusRow = {
   invoke: Invoke;
-  touchClaim: (...args: any[]) => any;
-  tick: (...args: any[]) => Promise<any>;
+  touchClaim: (windowId: string, force?: boolean) => unknown;
+  tick: () => Promise<unknown>;
 };
 
 type Scope_raisePlanetWindows = {
-  raisePlan: (...args: any[]) => { restore: string[]; focus: string[] };
-  rowsFor: (...args: any[]) => WindowInfo[];
+  raisePlan: (rows: readonly HabitatRow[], cap?: number) => { restore: string[]; focus: string[] };
+  rowsFor: (projectId: string) => WindowInfo[];
   invoke: Invoke;
-  raisePlanet: (...args: any[]) => any;
-  tick: (...args: any[]) => Promise<any>;
-  parkAfterRaise: (...args: any[]) => any;
+  raisePlanet: (id: string) => unknown;
+  tick: () => Promise<unknown>;
+  parkAfterRaise: () => unknown;
 };
 
 type Scope_openPlanetTodos = {
-  openKanban: (...args: any[]) => Promise<any>;
-  emitTo: (...args: any[]) => any;
+  openKanban: () => Promise<unknown>;
+  emitTo: (target: string, event: string, payload?: unknown) => Promise<void>;
 };
 
 type Scope_rowById = {
   projects: Project[];
-  rowsFor: (...args: any[]) => WindowInfo[];
+  rowsFor: (projectId: string) => WindowInfo[];
   windows: WindowInfo[];
 };
 
@@ -335,21 +324,6 @@ export function focusBoardLanding(scope: Scope_focusBoardLanding, focus: BoardFo
     );
     (el ?? panel).focus();
   });
-}
-
-export function goInFromPointer(scope: Scope_goInFromPointer) {
-  if (scope.arch.front === "board") return;
-  if (scope.arch.front === "layer2") {
-    const cards = scope.arch.pid ? scope.planetCards(scope.arch.pid) : [];
-    const land = scope.enterBoard(scope.arch, cards);
-    if (!land) return;
-    scope.archDo(land.state);
-    scope.walkInto("board");
-    scope.focusBoardLanding(land.focus);
-    return;
-  }
-  const id = scope.menuRing.activeId;
-  if (id) scope.confirmHabitatStop(id);
 }
 
 export function takeMouseButton(scope: Scope_takeMouseButton, button: number): boolean {

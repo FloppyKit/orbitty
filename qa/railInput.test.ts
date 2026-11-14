@@ -759,6 +759,86 @@ test("N2 rail backgrounds are dark panel tints", () => {
   assert.deepEqual(lightBackgrounds(css), []);
 });
 
+test("W7 onWheel passes the stage rect to wheelZone", () => {
+  const at = list.indexOf("const onWheel = (e: WheelEvent)");
+  assert.ok(at > 0);
+  const body = list.slice(at, list.indexOf("e.preventDefault()", at));
+  assert.match(body, /wheelZone\(\{ w: rect\.width, h: rect\.height \}, \{ x: relX, y: relY \}, front, unmapped\)/);
+  assert.doesNotMatch(body, /\b260\b/);
+});
+
+test("W8 unmapped follows the layer-2 planet", () => {
+  const at = list.indexOf("const onWheel = (e: WheelEvent)");
+  const body = list.slice(at, list.indexOf("e.preventDefault()", at));
+  assert.match(body, /const unmapped = front === "layer2" && rail\.arch\?\.pid === rail\.UNMAPPED_KEY/);
+  assert.doesNotMatch(body, /const unmapped = false/);
+});
+
+test("B3b confirmActive calls the menu ring", () => {
+  const at = page.indexOf("function confirmActive()");
+  assert.ok(at > 0);
+  const body = page.slice(at, page.indexOf("function textFieldFocused", at));
+  assert.match(body, /return menuRing\.confirmActive\(\)/);
+});
+
+test("B7 mouse listener drops when embedded or parked", () => {
+  const at = page.indexOf('listen<number>("rail:mouse-button"');
+  assert.ok(at > 0);
+  const body = page.slice(at, page.indexOf("unlistenState", at));
+  assert.match(body, /button == null \|\| embedded \|\| !stageRevealed/);
+});
+
+test("goInFromPointer stays deleted", () => {
+  const pointer = readFileSync(new URL("../src/lib/rail/pagePointer.svelte.ts", import.meta.url), "utf8");
+  assert.equal(pointer.includes("function goInFromPointer"), false);
+});
+
+test("B11 setup installs the rail mouse buttons", () => {
+  const lib = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const at = lib.indexOf(".setup(|app|");
+  assert.ok(at > 0);
+  const setup = lib.slice(at, lib.indexOf(".build(context)", at));
+  assert.match(setup, /install_rail_mouse_buttons\(/);
+  const exitAt = lib.indexOf("RunEvent::ExitRequested");
+  assert.ok(exitAt > 0);
+  const exitBody = lib.slice(exitAt, exitAt + 500);
+  assert.match(exitBody, /sync_rail_mouse_keys\(false\)/);
+});
+
+test("mouse monitor mask is other-mouse down and up and invoke keeps buttons 3 and 4", () => {
+  const mac = readFileSync(new URL("../src-tauri/src/windows/windows_mac.rs", import.meta.url), "utf8");
+  const installAt = mac.indexOf("pub fn install_rail_mouse_buttons");
+  assert.ok(installAt > 0);
+  const install = mac.slice(installAt, mac.indexOf("const RAIL_MOUSE_KEY_BACK", installAt));
+  assert.match(install, /\(1u64 << 25\) \| \(1u64 << 26\)/);
+  const invokeAt = mac.indexOf("fn rail_mouse_invoke");
+  const invoke = mac.slice(invokeAt, installAt);
+  assert.match(invoke, /button != 3 && button != 4/);
+  assert.match(mac, /const RAIL_MOUSE_MOD_SHIFT: u64 = 1 << 17;/);
+  assert.match(mac, /const RAIL_MOUSE_MOD_CTRL: u64 = 1 << 18;/);
+  assert.match(mac, /const RAIL_MOUSE_MOD_OPT: u64 = 1 << 19;/);
+  assert.match(mac, /const RAIL_MOUSE_MOD_CMD: u64 = 1 << 20;/);
+  const keyAt = mac.indexOf("fn rail_mouse_key_invoke");
+  const key = mac.slice(keyAt, mac.indexOf("pub fn sync_rail_mouse_keys", keyAt));
+  assert.match(key, /RAIL_MOUSE_MOD_CMD/);
+  assert.match(key, /RAIL_MOUSE_MOD_SHIFT/);
+  assert.match(key, /RAIL_MOUSE_MOD_OPT/);
+  assert.match(key, /RAIL_MOUSE_MOD_CTRL/);
+  assert.match(key, /RAIL_MOUSE_KEYS_LIVE\.load/);
+  const syncAt = mac.indexOf("pub fn sync_rail_mouse_keys");
+  const sync = mac.slice(syncAt, mac.indexOf("#[cfg(test)]", syncAt));
+  assert.match(sync, /removeMonitor:/);
+  assert.match(sync, /addLocalMonitorForEventsMatchingMask: \(1u64 << 10\)/);
+  assert.doesNotMatch(sync, /1u64 << 10\)\s*\|/);
+});
+
+test("stage reveal syncs rail mouse keys with the revealed flag", () => {
+  const stage = readFileSync(new URL("../src-tauri/src/windows/drawers/stage.rs", import.meta.url), "utf8");
+  assert.match(stage, /sync_rail_mouse_keys\(revealed\)/);
+  assert.doesNotMatch(stage, /sync_rail_mouse_keys\(false\)/);
+  assert.doesNotMatch(stage, /sync_rail_mouse_keys\(true\)/);
+});
+
 test("R6b inward on a non-board layer-2 item does not require a second press to focus", () => {
   const items: SpinItem[] = spinItems(["a"], "__unmapped__");
   const layer2 = [{ kind: "board" as const, stop: "rl2-board", title: "Board" }];

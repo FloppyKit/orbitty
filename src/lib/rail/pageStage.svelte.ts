@@ -3,7 +3,7 @@
 import type { Claim } from "../persist";
 import type { MenuRing } from "../menuKeys.svelte";
 import type { ArchState } from "./stageArch";
-import type { Beside, BesideFront, BesidePick, KeyOwner, WalkTarget } from "./stageFocus";
+import type { Beside, BesideFront, BesidePick, KeyEvent, KeyOwner, WalkTarget } from "./stageFocus";
 import type { StageRole } from "./habitat";
 import type { CoachStory } from "./coach";
 
@@ -15,28 +15,28 @@ interface AxStatus {
   isAdhoc: boolean;
 }
 
-type Invoke = <T = unknown>(cmd: string, args?: any) => Promise<T>;
+type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
 type Scope_stageRole = {
-  stageRoles: (...args: any[]) => { id: string; role: StageRole }[];
-  sectionIds: (...args: any[]) => string[];
-  openSectionId: (...args: any[]) => string | null;
+  stageRoles: (ids: readonly string[], openId: string | null) => { id: string; role: StageRole }[];
+  sectionIds: () => string[];
+  openSectionId: () => string | null;
 };
 
 type Scope_ensureExpand = {
-  sectionIds: (...args: any[]) => string[];
-  applyPlanetOpen: (...args: any[]) => string | null;
-  openSectionId: (...args: any[]) => string | null;
+  sectionIds: () => string[];
+  applyPlanetOpen: (openId: string | null, planetIds: readonly string[], clicked: string) => string | null;
+  openSectionId: () => string | null;
   collapsedSectionIds: string[];
-  persist: (...args: any[]) => Promise<any>;
-  showStage: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
+  showStage: () => Promise<unknown>;
 };
 
 type Scope_collapsePlanet = {
-  sectionIds: (...args: any[]) => string[];
-  isCollapsed: (...args: any[]) => boolean;
+  sectionIds: () => string[];
+  isCollapsed: (sectionId: string) => boolean;
   collapsedSectionIds: string[];
-  persist: (...args: any[]) => Promise<any>;
+  persist: () => Promise<unknown>;
 };
 
 type Scope_currentBeside = {
@@ -51,7 +51,7 @@ type Scope_hideBesidePopouts = {
 
 type Scope_clearArchToFront = {
   arch: ArchState;
-  archBack: (...args: any[]) => ArchState;
+  archBack: (s: ArchState) => ArchState;
 };
 
 type Scope_ownerStop = {
@@ -62,61 +62,61 @@ type Scope_focusMkey = {};
 
 type Scope_releaseKeysToRail = {
   keyOwner: KeyOwner;
-  keyOwnerNext: (...args: any[]) => KeyOwner;
-  reclaimRailRing: (...args: any[]) => any;
+  keyOwnerNext: (owner: KeyOwner, event: KeyEvent) => KeyOwner;
+  reclaimRailRing: () => unknown;
 };
 
 type Osd = {
-  applyBeside: (...args: any[]) => any;
+  applyBeside: (pick: BesidePick) => unknown;
 };
 
 type Pos = {
   keyOwner: KeyOwner;
-  walkOut: (...args: any[]) => any;
+  walkOut: () => unknown;
   stageEmbed: null | "settings" | "stars";
   invoke: Invoke;
 };
 
 type Abs = {
-  currentBeside: (...args: any[]) => Beside;
-  besideNext: (...args: any[]) => Beside;
-  hideBesidePopouts: (...args: any[]) => any;
-  releaseKeysToRail: (...args: any[]) => any;
-  besideFront: (...args: any[]) => BesideFront;
-  clearArchToFront: (...args: any[]) => any;
+  currentBeside: () => Beside;
+  besideNext: (open: Beside, pick: BesidePick) => Beside;
+  hideBesidePopouts: () => unknown;
+  releaseKeysToRail: () => unknown;
+  besideFront: (pick: BesidePick) => BesideFront;
+  clearArchToFront: () => unknown;
   stageEmbed: null | "settings" | "stars";
 };
 
 type Scope_walkInto = {
-  applyBeside: (...args: any[]) => any;
+  applyBeside: (pick: BesidePick) => unknown;
   reselectStop: string | null;
   keyOwner: KeyOwner;
-  keyOwnerNext: (...args: any[]) => KeyOwner;
+  keyOwnerNext: (owner: KeyOwner, event: KeyEvent) => KeyOwner;
 };
 
 type Scope_walkOut = {
   keyOwner: KeyOwner;
   arch: ArchState;
   reselectStop: string | null;
-  ownerStop: (...args: any[]) => string | null;
-  keyOwnerNext: (...args: any[]) => KeyOwner;
-  archDo: (...args: any[]) => any;
-  reclaimRailRing: (...args: any[]) => any;
+  ownerStop: (owner: KeyOwner) => string | null;
+  keyOwnerNext: (owner: KeyOwner, event: KeyEvent) => KeyOwner;
+  archDo: (next: ArchState) => unknown;
+  reclaimRailRing: () => unknown;
 };
 
 type Scope_closeStageEmbed = {
   stageEmbed: null | "settings" | "stars";
   keyOwner: KeyOwner;
-  keyOwnerNext: (...args: any[]) => KeyOwner;
+  keyOwnerNext: (owner: KeyOwner, event: KeyEvent) => KeyOwner;
   reselectStop: string | null;
-  reclaimRailRing: (...args: any[]) => any;
+  reclaimRailRing: () => unknown;
   menuRing: MenuRing;
-  focusMkey: (...args: any[]) => any;
+  focusMkey: (id: string) => unknown;
 };
 
 type Scope_popOutSettings = {
   keyOwner: KeyOwner;
-  walkOut: (...args: any[]) => any;
+  walkOut: () => unknown;
   stageEmbed: null | "settings" | "stars";
   invoke: Invoke;
 };
@@ -126,7 +126,7 @@ type Scope_popOutBoard = {
 };
 
 type Scope_coachIsDue = {
-  coachDue: (...args: any[]) => boolean;
+  coachDue: (input: { trusted: boolean; stateLoaded: boolean; claimsCount: number; story: CoachStory; embedded: boolean; }) => boolean;
   status: AxStatus | null;
   stateLoaded: boolean;
   claims: Claim[];
@@ -138,13 +138,13 @@ type Scope_maybeRevealCoach = {
   bootParkDone: boolean;
   coachRevealed: boolean;
   embedded: boolean;
-  coachIsDue: (...args: any[]) => boolean;
-  showStage: (...args: any[]) => Promise<any>;
+  coachIsDue: () => boolean;
+  showStage: () => Promise<unknown>;
 };
 
 type Scope_noteAx = {
   status: AxStatus | null;
-  maybeRevealCoach: (...args: any[]) => any;
+  maybeRevealCoach: () => unknown;
 };
 
 type Scope_coachClaim = {
@@ -173,19 +173,19 @@ type Scope_parkStage = {
 type Scope_scheduleGraceRecheck = {
   graceRecheck: ReturnType<typeof setTimeout> | null;
   revealGraceUntil: number;
-  maybeAutoHide: (...args: any[]) => any;
+  maybeAutoHide: () => unknown;
 };
 
 type Scope_maybeAutoHide = {
   embedded: boolean;
   stageRevealed: boolean;
   revealGraceUntil: number;
-  scheduleGraceRecheck: (...args: any[]) => any;
-  autoHideWanted: (...args: any[]) => boolean;
+  scheduleGraceRecheck: () => unknown;
+  autoHideWanted: (opts: { railAutoHideOnBlur: boolean; focusInside: boolean; pointerInside: boolean; }) => boolean;
   railAutoHideOnBlur: boolean;
   focusInside: boolean;
   pointerInside: boolean;
-  parkStage: (...args: any[]) => Promise<any>;
+  parkStage: () => Promise<unknown>;
   coachIsDue?: () => boolean;
 };
 
@@ -194,14 +194,14 @@ type Scope_parkAfterRaise = {
 };
 
 type Scope_armNeededMouth = {
-  neededAct: (...args: any[]) => { kind: "mouth"; id: string; title: string } | null;
+  neededAct: (item: { kind?: string; id?: string; title?: string; }) => { kind: "mouth"; id: string; title: string } | null;
   invoke: Invoke;
 };
 
 type Scope_stageFocus = {
   embedded: boolean;
   focusInside: boolean;
-  maybeAutoHide: (...args: any[]) => any;
+  maybeAutoHide: () => unknown;
 };
 
 type Scope_previewStop = {};
