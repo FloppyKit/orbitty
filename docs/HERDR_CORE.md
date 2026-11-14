@@ -18,7 +18,7 @@ The hot path never runs `hc server start`. A launchd job owns the core.
 
 A blocked seat is live. Peek reports that status, state live, source herdr, and up, with the screen text. hc may return status as a string or as an object whose `state` is that word; both use the same list (idle, working, done, blocked, error). The screen read is `hc read --lines 0`. History above the screen (`--lines` greater than 0) stalls while the seat waits on a permission prompt, past the 2 second read bound, so a history read that times out is retried once as the screen. The bound is not raised. If the screen read still fails, peek keeps the seat's status with an empty body and does not mark herdr down. One unreadable screen is not a down herdr.
 
-Clicking a droid opens that capsule instead of focusing the pane. The focus function is still in the tree for 05c-b.
+Clicking a droid opens that capsule instead of focusing the pane. The focus function is still in the tree for 05c-b. The capsule is its own peek-capsule pane beside the walker in the habitat, so it stays put when the rail hides, and it closes when the seat ends.
 
 ## Supervisor template
 
