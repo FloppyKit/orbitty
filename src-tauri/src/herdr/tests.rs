@@ -1523,7 +1523,26 @@ fn jump_script_quotes_every_value() {
 fn jump_ghostty_open_runs_the_script() {
     let script = PathBuf::from("/tmp/orbitty jump.command");
     let argv = jump::open_argv("Ghostty", &script);
+    let script_arg = script.display().to_string();
+    // Ghostty 1.4 execs the one value after -e. The base split
+    // (-e, /bin/zsh, script) is a shell, and the script never owns the window.
     assert_eq!(
+        argv,
+        vec![
+            "-na".to_string(),
+            "Ghostty.app".into(),
+            "--args".into(),
+            "-e".into(),
+            script_arg.clone(),
+        ],
+        "{argv:?}"
+    );
+    assert_eq!(argv.len(), 5, "{argv:?}");
+    assert_eq!(argv[3], "-e");
+    assert_eq!(argv[4], script_arg);
+    assert!(argv[4].contains("orbitty jump.command"), "{argv:?}");
+    assert!(!argv.iter().any(|a| a == "/bin/zsh"), "{argv:?}");
+    assert_ne!(
         argv,
         vec![
             "-na".to_string(),
@@ -1534,6 +1553,15 @@ fn jump_ghostty_open_runs_the_script() {
             script.display().to_string(),
         ]
     );
+    assert_ne!(
+        &argv[..3],
+        ["-a".to_string(), "Ghostty".into(), script.display().to_string()].as_slice()
+    );
+}
+
+#[test]
+fn jump_terminal_app_open_still_uses_the_script() {
+    let script = PathBuf::from("/tmp/orbitty jump.command");
     assert_eq!(
         jump::open_argv("Terminal", &script),
         vec![
@@ -1542,6 +1570,118 @@ fn jump_ghostty_open_runs_the_script() {
             script.display().to_string(),
         ]
     );
+    let titled = jump::launch_argv("Terminal", &script, Some("t1q"));
+    assert_eq!(titled, jump::open_argv("Terminal", &script));
+    assert!(!titled.iter().any(|a| a.starts_with("--title=")), "{titled:?}");
+}
+
+fn live_row(pid: i32, ppid: i32, path: &str, args: &[&str]) -> jump::LiveProc {
+    jump::LiveProc {
+        pid,
+        ppid,
+        path: path.into(),
+        args: args.iter().map(|s| (*s).to_string()).collect(),
+    }
+}
+
+#[test]
+fn jump_focuses_an_open_attach_before_a_new_window() {
+    let ghostty = "/Applications/Ghostty.app/Contents/MacOS/ghostty";
+    let hc = "/Users/dude/.local/bin/herdr-core";
+    let procs = vec![
+        live_row(1, 0, "/sbin/launchd", &[]),
+        live_row(8, 1, ghostty, &["ghostty"]),
+        live_row(9, 8, "/usr/bin/login", &["login"]),
+        live_row(10, 9, "/bin/zsh", &["/bin/zsh", "/tmp/jump-c.command"]),
+        live_row(
+            11,
+            10,
+            hc,
+            &["herdr-core", "attach", "--observe", "t1q"],
+        ),
+        live_row(20, 8, hc, &["herdr-core", "attach", "--observe", "t9"]),
+    ];
+    assert_eq!(jump::attached_app_pid(&procs, "t1q"), Some(8));
+    assert_eq!(jump::attached_app_pid(&procs, "t9"), Some(8));
+    assert_eq!(jump::attached_app_pid(&procs, "t1"), None);
+    assert!(jump::argv_attaches(&procs[4].args, "t1q"));
+    assert!(!jump::argv_attaches(&procs[4].args, "t1"));
+    let full = ["herdr-core", "attach", "t1q"]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    assert!(jump::argv_attaches(&full, "t1q"));
+    let loose = vec![live_row(3, 1, hc, &["herdr-core", "attach", "t1q"])];
+    assert_eq!(jump::attached_app_pid(&loose, "t1q"), None);
+    let term = "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal";
+    let in_term = vec![
+        live_row(4, 1, term, &[]),
+        live_row(5, 4, hc, &["herdr-core", "attach", "--observe", "t1q"]),
+    ];
+    assert_eq!(jump::attached_app_pid(&in_term, "t1q"), Some(4));
+    let script_row = vec![
+        live_row(8, 1, ghostty, &["ghostty"]),
+        live_row(
+            10,
+            8,
+            "/bin/zsh",
+            &["/bin/zsh", "/tmp/orbitty jump.command"],
+        ),
+    ];
+    assert_eq!(
+        jump::app_running_script(&script_row, Path::new("/tmp/orbitty jump.command")),
+        Some(8)
+    );
+    let script = PathBuf::from("/tmp/orbitty jump.command");
+    let titled = jump::launch_argv("Ghostty", &script, Some("t1q"));
+    assert_eq!(
+        titled,
+        vec![
+            "-na".to_string(),
+            "Ghostty.app".into(),
+            "--args".into(),
+            "--title=t1q".into(),
+            "-e".into(),
+            script.display().to_string(),
+        ]
+    );
+    let machine = jump::launch_argv("Ghostty", &script, Some("machine/t7"));
+    assert!(machine.iter().any(|a| a == "--title=machine/t7"), "{machine:?}");
+    let messy = jump::launch_argv("Ghostty", &script, Some("t1;rm"));
+    assert!(!messy.iter().any(|a| a.starts_with("--title=")), "{messy:?}");
+    assert_eq!(messy.last().map(String::as_str), Some(script.display().to_string()).as_deref());
+    let src = include_str!("jump.rs");
+    assert!(src.contains("focus_attached"));
+    assert!(src.contains("raise_attached"));
+    assert!(src.contains("attached_app_pid"));
+}
+
+#[test]
+fn jump_parse_procargs_reads_argc_strings() {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&4i32.to_ne_bytes());
+    buf.extend_from_slice(b"/usr/bin/herdr-core\0");
+    while buf.len() % 8 != 0 {
+        buf.push(0);
+    }
+    for s in ["herdr-core", "attach", "--observe", "t1q"] {
+        buf.extend_from_slice(s.as_bytes());
+        buf.push(0);
+    }
+    assert_eq!(
+        jump::parse_procargs2(&buf),
+        vec!["herdr-core", "attach", "--observe", "t1q"]
+    );
+    assert!(jump::parse_procargs2(&[]).is_empty());
+}
+
+#[test]
+fn jump_live_procs_include_this_test() {
+    let me = std::process::id() as i32;
+    let procs = jump::live_procs();
+    let mine = procs.iter().find(|p| p.pid == me).expect("this process");
+    assert!(mine.ppid > 0, "{mine:?}");
+    assert!(!mine.path.is_empty(), "{mine:?}");
 }
 
 #[test]
