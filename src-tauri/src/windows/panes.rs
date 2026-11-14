@@ -75,6 +75,9 @@ pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(
         // Claim prompt: own small pane beside the rail, not a rail card
         // and not a docked drawer. Title stays empty, same as yard-warn.
         "claim-prompt" => Some(("", 320.0, 200.0, None)),
+        // Peek capsule: own pane beside the walker, not a rail card
+        // and not a docked drawer. Chrome row plus the 240px body.
+        "peek-capsule" => Some(("", 420.0, 320.0, None)),
         // own small card window, not dock chrome.
         "next-card" => Some(("", 360.0, 420.0, Some((280.0, 220.0)))),
         "cheatsheet" => Some(("", 360.0, 420.0, Some((280.0, 240.0)))),
@@ -157,7 +160,8 @@ pub(crate) fn ensure_window(
     };
     // Dest chips close in one click while Launchpad/STARS hold key-window
     // — without this, the first click only activates companion.
-    config.accept_first_mouse = label == "companion" || label == "claim-prompt";
+    config.accept_first_mouse =
+        label == "companion" || label == "claim-prompt" || label == "peek-capsule";
     // Board and Stars on macOS stay titled Overlay windows so the
     // native traffic lights can sit on the title row. Every other pane
     // stays borderless: the Overlay strip plus the in-SPA banner was
@@ -170,6 +174,7 @@ pub(crate) fn ensure_window(
             || label == "companion"
             || label == "yard-warn"
             || label == "claim-prompt"
+            || label == "peek-capsule"
             || label == "next-card"
             || label == "cheatsheet")
     {
@@ -303,6 +308,10 @@ pub(crate) fn wire_pane_events(
             }
             if crate::state::DRAWER_LABELS.contains(&pane_label.as_str()) {
                 crate::drawers::persist_shown_place(&handle, &pane_label);
+            }
+            if pane_label == "peek-capsule" {
+                let _ = keeper.set_always_on_top(false);
+                clear_peek_arm();
             }
             let _ = keeper.hide();
             clear_miniaturized_after_hide(&keeper);
@@ -469,6 +478,120 @@ pub fn hide_claim_prompt(app: tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
     hide_window(app, "claim-prompt".to_string())
+}
+
+struct PeekArm {
+    view: crate::herdr::peek::View,
+    /// Walker id from the click, with or without the `agent:` prefix.
+    /// `view.card` is the peek target and is not always that id.
+    entry_id: String,
+}
+
+static PEEK_CAPSULE_ARM: std::sync::Mutex<Option<PeekArm>> = std::sync::Mutex::new(None);
+
+fn clear_peek_arm() {
+    if let Ok(mut slot) = PEEK_CAPSULE_ARM.lock() {
+        *slot = None;
+    }
+}
+
+fn peek_capsule_size() -> (f64, f64) {
+    pane_spec("peek-capsule")
+        .map(|(_, width, height, _)| (width, height))
+        .unwrap_or((420.0, 320.0))
+}
+
+fn peek_capsule_place(entry_id: &str, size: (f64, f64)) -> Option<crate::state::CompanionBounds> {
+    let frames = crate::drawers::points_frames(&crate::drawers::screen_visible_frames());
+    if let Some(walker) = crate::herdr::walker_points(entry_id) {
+        return Some(crate::drawers::place_beside_walker(&walker, size, &frames));
+    }
+    frames
+        .first()
+        .copied()
+        .map(|vf| crate::drawers::centered_on_frame(vf, size, 0.0))
+}
+
+/// Show the single peek capsule beside the walker. Not a drawer: no leash
+/// and not the drawer size floor. The arm is memory only — not state.json.
+pub fn show_peek_capsule(
+    app: &tauri::AppHandle,
+    view: &crate::herdr::peek::View,
+    entry_id: &str,
+) -> Result<(), String> {
+    if let Ok(mut slot) = PEEK_CAPSULE_ARM.lock() {
+        *slot = Some(PeekArm {
+            view: view.clone(),
+            entry_id: entry_id.to_string(),
+        });
+    }
+    let w = ensure_window(app, "peek-capsule")?;
+    let _ = restore_if_minimized(&w);
+    if let Some(r) = peek_capsule_place(entry_id, peek_capsule_size()) {
+        crate::drawers::appkit_place_points(&w, &r);
+    }
+    w.show().map_err(|e| e.to_string())?;
+    let _ = w.set_always_on_top(true);
+    w.set_focus().map_err(|e| e.to_string())?;
+    crate::drawers::appkit_order_front(app, &w);
+    let _ = w.set_ignore_cursor_events(false);
+    emit_pane_vis(app, "peek-capsule", true);
+    Ok(())
+}
+
+/// Hide the peek capsule and drop the in-memory arm. Missing window is fine.
+#[tauri::command]
+pub fn hide_peek_capsule(app: tauri::AppHandle) -> Result<(), String> {
+    clear_peek_arm();
+    let Some(w) = app.get_webview_window("peek-capsule") else {
+        return Ok(());
+    };
+    let _ = w.set_always_on_top(false);
+    hide_window(app, "peek-capsule".to_string())
+}
+
+/// What the peek pane should show if it missed the herdr-peek event.
+#[tauri::command]
+pub fn peek_capsule_arm() -> Option<crate::herdr::peek::View> {
+    PEEK_CAPSULE_ARM
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|arm| arm.view.clone()))
+}
+
+/// If a display change left the live pane fully off every visible frame, place it again.
+#[tauri::command]
+pub fn reclamp_peek_capsule(app: tauri::AppHandle) -> Result<(), String> {
+    let Some(w) = app.get_webview_window("peek-capsule") else {
+        return Ok(());
+    };
+    if !w.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
+    let Some(live) = crate::drawers::live_points_rect(&w) else {
+        return Ok(());
+    };
+    let frames = crate::drawers::points_frames(&crate::drawers::screen_visible_frames());
+    if !crate::drawers::rect_fully_off_all(&live, &frames) {
+        return Ok(());
+    }
+    let entry_id = PEEK_CAPSULE_ARM
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|arm| arm.entry_id.clone()))
+        .unwrap_or_default();
+    if let Some(r) = peek_capsule_place(&entry_id, peek_capsule_size()) {
+        crate::drawers::appkit_place_points(&w, &r);
+    }
+    Ok(())
+}
+
+/// Create the capsule hidden so the first walker click does not wait on a new webview.
+#[tauri::command]
+pub fn prewarm_peek_capsule(app: tauri::AppHandle) -> Result<(), String> {
+    let w = ensure_window(&app, "peek-capsule")?;
+    let _ = w.hide();
+    Ok(())
 }
 
 pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), String> {

@@ -212,6 +212,7 @@ fn display_link_stop() {
 // (short) tick turn, and cursor_tick yields to it (see tick).
 
 pub fn start(app: AppHandle) {
+    crate::herdr::set_walker_points_lookup(super::walker_screen::walker_screen_points);
     let cell = app_handle_cell();
     if let Ok(st) = crate::state::load_state(&app) {
         lock().planets_hidden = st.companion.planets_hidden;

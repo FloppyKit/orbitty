@@ -33,6 +33,7 @@ mod droid;
 mod droid_pack;
 mod todo_tree;
 mod walk_around;
+mod walker_screen;
 mod planet_idle;
 mod geom;
 mod world;

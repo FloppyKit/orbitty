@@ -50,6 +50,8 @@
   const isYardWarnWindow = $derived(windowLabel === "yard-warn");
   // Minimized unclaimed window — own small pane, not a rail card.
   const isClaimPromptWindow = $derived(windowLabel === "claim-prompt");
+  // Peek capsule: own pane beside the walker, not a rail card.
+  const isPeekCapsuleWindow = $derived(windowLabel === "peek-capsule");
   const isNextCardWindow = $derived(windowLabel === "next-card");
   const isCheatSheetWindow = $derived(windowLabel === "cheatsheet");
   const isRailWindow = $derived(windowLabel === "main");
@@ -64,6 +66,7 @@
       isSkyWindow ||
       isYardWarnWindow ||
       isClaimPromptWindow ||
+      isPeekCapsuleWindow ||
       isNextCardWindow ||
       isCheatSheetWindow,
   );
@@ -81,6 +84,7 @@
       isSettingsWindow ||
       isYardWarnWindow ||
       isClaimPromptWindow ||
+      isPeekCapsuleWindow ||
       isNextCardWindow ||
       isCheatSheetWindow,
   );
@@ -91,6 +95,7 @@
     initialLabel === "settings" ||
     initialLabel === "yard-warn" ||
     initialLabel === "claim-prompt" ||
+    initialLabel === "peek-capsule" ||
     initialLabel === "next-card" ||
     initialLabel === "cheatsheet"
   ) {
@@ -136,9 +141,10 @@
   <NextCard />
 {:else if isCheatSheetWindow}
   <CheatSheet />
+{:else if isPeekCapsuleWindow}
+  <PeekCapsule />
 {:else}
   <RailPage />
-  <PeekCapsule />
 {/if}
 <LinkPreviewPopover />
 

@@ -23,7 +23,26 @@ pub(crate) use client::available;
 pub(crate) use client::core_on;
 pub(crate) use client::locate;
 
+use std::sync::Mutex;
+
 use tauri::{AppHandle, Emitter};
+
+type WalkerPointsFn = fn(&str) -> Option<crate::state::CompanionBounds>;
+
+// habitat_mac stays a private module. It registers the walker lookup at
+// habitat start so present() can place the pane without a new habitat export.
+static WALKER_POINTS: Mutex<Option<WalkerPointsFn>> = Mutex::new(None);
+
+pub(crate) fn set_walker_points_lookup(f: WalkerPointsFn) {
+    if let Ok(mut slot) = WALKER_POINTS.lock() {
+        *slot = Some(f);
+    }
+}
+
+pub(crate) fn walker_points(entry_id: &str) -> Option<crate::state::CompanionBounds> {
+    let f = WALKER_POINTS.lock().ok().and_then(|slot| *slot)?;
+    f(entry_id)
+}
 
 fn runs_for(app: &AppHandle) -> Vec<crate::state::AgentRun> {
     crate::state::load_state(app)
@@ -36,7 +55,9 @@ pub fn present(app: &AppHandle, entry_id: &str) {
     flush_health(app);
     let runs = runs_for(app);
     let v = peek::view(&runs, entry_id, peek::DEFAULT_LINES, false);
-    let _ = app.emit("herdr-peek", &v);
+    if crate::panes::show_peek_capsule(app, &v, entry_id).is_ok() {
+        let _ = app.emit_to("peek-capsule", "herdr-peek", &v);
+    }
 }
 
 pub fn status_for(app: &AppHandle) -> serde_json::Value {
