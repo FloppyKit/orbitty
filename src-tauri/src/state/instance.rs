@@ -142,6 +142,8 @@ pub fn guard(identifier: &str) {
 /// The running bundle's own id (the installed plist), not the compiled
 /// identifier, which Stable and Nightly share.
 #[cfg(all(not(test), target_os = "macos"))]
+// objc 0.2 macros probe `cfg(feature = "cargo-clippy")`.
+#[allow(unexpected_cfgs)]
 fn bundle_id() -> Option<String> {
     use objc::runtime::Object;
     use objc::{class, msg_send, sel, sel_impl};
@@ -169,6 +171,8 @@ fn bundle_id() -> Option<String> {
 
 /// Runs before Tauri creates NSApplication; the process exits right after.
 #[cfg(all(not(test), target_os = "macos"))]
+// objc 0.2 macros probe `cfg(feature = "cargo-clippy")`.
+#[allow(unexpected_cfgs)]
 fn alert(title: &str, text: &str) {
     use objc::runtime::{Object, YES};
     use objc::{class, msg_send, sel, sel_impl};

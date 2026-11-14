@@ -10,15 +10,13 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use super::audio;
 use super::input::{
-    contains_interactive, hit_being, hit_decor, hit_outpost_plot, over_disc, planet_for_view,
-    BOOMBOX_CLICK_SLOP,
+    hit_being, hit_decor, hit_outpost_plot, over_disc, planet_for_view,
 };
 use super::{
     app_handle, boombox_hud, building_cap, default_state, layout_beings, layout_decor, lock,
-    max_radius, now_epoch, ns_string, panel_set_frame, panic_msg, plant_cap, primary_screen_id,
-    radius_y, set_caption, view_to_disc, world_entry, DecorItem,
-    draw::hit_board_open, DecorKind, DecorPoint, DecorRef, Drag, Habitat, NSPoint, NSRect,
-    PendingClick, Placement, Planet, MIN_RADIUS, VIEW_PADDING,
+    max_radius, now_epoch, panel_set_frame, panic_msg, plant_cap, primary_screen_id, set_caption,
+    view_to_disc, world_entry, DecorItem, draw::hit_board_open, DecorKind, DecorPoint, Drag,
+    NSPoint, NSRect, PendingClick, MIN_RADIUS, VIEW_PADDING,
 };
 
 pub(crate) extern "C" fn mouse_down(this: &Object, _cmd: Sel, event: *mut Object) {

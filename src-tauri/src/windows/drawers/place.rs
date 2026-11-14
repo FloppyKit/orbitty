@@ -1,3 +1,7 @@
+// objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
+// rustc flags; harmless upstream noise.
+#![allow(unexpected_cfgs)]
+
 use crate::state;
 use tauri::Manager;
 
@@ -312,7 +316,7 @@ fn rect_overlaps_occupied(
 /// Auto-center leftover from the old 36px cascade. Unused by place_chrome
 /// now — overlapping / center is a legal user place.
 #[allow(dead_code)]
-fn rect_is_center_pile(app: &tauri::AppHandle, b: &state::CompanionBounds) -> bool {
+fn rect_is_center_pile(_app: &tauri::AppHandle, b: &state::CompanionBounds) -> bool {
     let pvfs = points_frames(&screen_visible_frames());
     let Some(vf) = pvfs.first().copied() else {
         return false;

@@ -6,10 +6,7 @@
 
 use objc::runtime::{Object, Sel};
 use objc::{class, msg_send, sel, sel_impl};
-use serde::Serialize;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::time::Instant;
-use tauri::Emitter;
 
 /// popUpContextMenu runs a nested loop. Arm the
 /// companion poll quiet so setLevel hops cannot beach-ball the menu.
@@ -31,15 +28,11 @@ pub(crate) unsafe fn pop_context_menu(menu: *mut Object, event: *mut Object, vie
     let _: () = msg_send![class!(NSMenu), popUpContextMenu: menu withEvent: event forView: view];
 }
 
-use super::audio;
 use super::{
-    app_handle, boombox_hud, building_cap, default_state, layout_beings, layout_decor, lock,
-    max_radius, menu_target, now_epoch, ns_string, panel_set_frame, panic_msg, plant_cap,
-    primary_screen_id, radius_y, sender_project_id, set_caption, view_to_disc, walker_hidden,
-    world_entry, DecorItem,
-    draw::{hit_board_column, COMSTACK_W, SUNDIAL_W},
-    DecorKind, DecorPoint, DecorRef, Drag, Habitat, NSPoint, NSRect, PendingClick, Placement,
-    Planet, STATION_COMSTACK, STATION_SUNDIAL, MIN_RADIUS, VIEW_PADDING,
+    boombox_hud, lock, ns_string, panic_msg, radius_y, walker_hidden,
+    draw::{COMSTACK_W, SUNDIAL_W},
+    DecorKind, DecorRef, Habitat, NSPoint, NSRect, Planet, STATION_COMSTACK, STATION_SUNDIAL,
+    VIEW_PADDING,
 };
 
 /// press-release on the boombox

@@ -1,10 +1,12 @@
 #!/bin/zsh
 # GO-ORBITTY-LOCAL-GATE: one local gate both install scripts run.
 #   cargo test --lib
+#   rustc warning ceilings (lib test from that run; plain release lib from cargo check)
 #   npm run check vs scripts/gate_baseline.json
 #   node --test qa/*.test.ts (any failure fails the gate)
 #   no new /Users or .buzz literals under src-tauri/src and src
 # --quick runs only the literal scan.
+# --rust-warn-fixture FILE checks one saved cargo log and exits.
 #   (case-insensitive: /users/, ~/.BUZZ and a bare "/Users" count too)
 # Exit 0 ok, 1 a check failed, 2 a tool or input is missing.
 # Never installs and never uses the network. --quick and --compare-errors write nothing; the full gate's cargo test writes src-tauri/target and npm run check may write .svelte-kit.
@@ -22,12 +24,27 @@ baseline="$root/scripts/gate_baseline.json"
 
 quick=0
 compare=""
+warn_fixture=""
+
+# GO-ORBITTY-CODE-HYGIENE-32c. Plain `cargo check --release --lib` and
+# `cargo test --lib`. A missing "generated N warnings" line counts as 0.
+# Any higher count fails.
+RUST_WARN_LIB_MAX=121
+RUST_WARN_LIB_TEST_MAX=38
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quick)
       quick=1
       shift
+      ;;
+    --rust-warn-fixture)
+      if [[ $# -lt 2 ]]; then
+        echo "rust warn ceiling: --rust-warn-fixture needs a file" >&2
+        exit 2
+      fi
+      warn_fixture="$2"
+      shift 2
       ;;
     --compare-errors)
       if [[ $# -lt 2 ]]; then
@@ -265,17 +282,81 @@ run_literal_scan() {
   fi
 }
 
+# kind is "lib", "lib test", or empty (both). Missing summary line counts as 0.
+rust_warn_ceiling_file() {
+  local f="$1" kind="${2:-}"
+  if [[ ! -f "$f" ]]; then
+    echo "rust warn ceiling: missing $f" >&2
+    return 2
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "rust warn ceiling: missing python3" >&2
+    return 2
+  fi
+  python3 - "$f" "$kind" "$RUST_WARN_LIB_MAX" "$RUST_WARN_LIB_TEST_MAX" <<'PY'
+import re, sys
+path, only, lib_max, test_max = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+text = open(path, encoding="utf-8", errors="replace").read()
+pat = re.compile(r"^warning: `([^`]+)` \(([^)]+)\) generated (\d+) warnings?", re.M)
+found = {}
+for m in pat.finditer(text):
+    pkg, kind, n = m.group(1), m.group(2), int(m.group(3))
+    if pkg == "orbitty":
+        found[kind] = n
+if only == "":
+    checks = (("lib", lib_max), ("lib test", test_max))
+elif only in ("lib", "lib test"):
+    checks = ((only, lib_max if only == "lib" else test_max),)
+else:
+    print(f"rust warn ceiling: bad kind {only}", file=sys.stderr)
+    sys.exit(2)
+fail = False
+for kind, ceiling in checks:
+    n = found.get(kind, 0)
+    if n > ceiling:
+        print(f"rust warn ceiling: FAIL ({kind} {n} > {ceiling})")
+        fail = True
+    else:
+        print(f"rust warn ceiling: ok ({kind} {n} <= {ceiling})")
+sys.exit(1 if fail else 0)
+PY
+}
+
 run_cargo() {
   if ! command -v cargo >/dev/null 2>&1; then
     echo "cargo test --lib: missing cargo" >&2
     exit 2
   fi
   unset CARGO_TARGET_DIR
-  if ! cargo test --manifest-path src-tauri/Cargo.toml --lib; then
+  local tmp rc=0
+  tmp=$(mktemp)
+  cargo test --manifest-path src-tauri/Cargo.toml --lib >"$tmp" 2>&1 || rc=$?
+  cat "$tmp"
+  if (( rc != 0 )); then
+    rm -f "$tmp"
     echo "cargo test --lib: FAIL"
     exit 1
   fi
   echo "cargo test --lib: ok"
+  if ! rust_warn_ceiling_file "$tmp" "lib test"; then
+    rm -f "$tmp"
+    exit 1
+  fi
+  rm -f "$tmp"
+  local rtmp rc2=0
+  rtmp=$(mktemp)
+  cargo check --release --manifest-path src-tauri/Cargo.toml --lib >"$rtmp" 2>&1 || rc2=$?
+  cat "$rtmp"
+  if (( rc2 != 0 )); then
+    rm -f "$rtmp"
+    echo "cargo check --release --lib: FAIL"
+    exit 1
+  fi
+  if ! rust_warn_ceiling_file "$rtmp" "lib"; then
+    rm -f "$rtmp"
+    exit 1
+  fi
+  rm -f "$rtmp"
 }
 
 run_npm_check() {
@@ -327,6 +408,11 @@ run_qa() {
 
 if [[ -n "$compare" ]]; then
   run_compare "$compare"
+fi
+
+if [[ -n "$warn_fixture" ]]; then
+  rust_warn_ceiling_file "$warn_fixture" ""
+  exit 0
 fi
 
 if (( ! quick )); then

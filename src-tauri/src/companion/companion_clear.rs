@@ -5,6 +5,10 @@
 //! only — never setFrame / activate / makeKey on a hit-mousedown (that
 //! yank is the dock "running away").
 
+// objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
+// rustc flags; harmless upstream noise.
+#![allow(unexpected_cfgs)]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 

@@ -605,6 +605,8 @@ fn companion_min_size(w: &tauri::WebviewWindow, hugged: bool) {
 /// After a hug/unhug resize under a stationary cursor, AppKit/WKWebView
 /// often stop delivering clicks until the mouse moves. Flip ignore-cursor
 /// and re-assert mouse-on so the next press lands without a nudge.
+// objc 0.2 macros probe `cfg(feature = "cargo-clippy")`.
+#[allow(unexpected_cfgs)]
 fn refresh_companion_mouse(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("companion") {
         let _ = w.set_ignore_cursor_events(true);

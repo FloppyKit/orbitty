@@ -6,9 +6,8 @@
 #![allow(unexpected_cfgs)]
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use super::audio;
 use super::ball::BallState;
 use super::decor::DecorRef;
 use super::drift::{ClusterState, MarbleOrbit};
@@ -18,7 +17,7 @@ use super::pose::Pose;
 use super::roam::RoamState;
 use super::todo_tree;
 use super::world::{DecorItem, DecorPoint, WorldState};
-use super::{Drag, PendingClick, Placement, NSPoint, NSRect, Projection};
+use super::{Drag, PendingClick, Placement, NSRect, Projection};
 use crate::habitat::HabitatEntry;
 
 pub(crate) struct Being {

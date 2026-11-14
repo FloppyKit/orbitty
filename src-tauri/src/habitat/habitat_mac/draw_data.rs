@@ -4,9 +4,7 @@
 use objc::runtime::Object;
 use objc::{msg_send, sel, sel_impl};
 
-use super::super::{
-    boombox_hud, DecorKind, NSPoint, NSRect, Projection,
-};
+use super::super::{boombox_hud, DecorKind, NSRect, Projection};
 
 // the punched igloo (brand/town/igloo.png,
 // flipped so the door faces east). IGLOO_DOOR is the door-base point as

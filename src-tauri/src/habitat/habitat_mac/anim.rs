@@ -4,16 +4,9 @@
 
 #![allow(unexpected_cfgs)]
 
-use objc::runtime::Object;
-use objc::{msg_send, sel, sel_impl};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use super::{
-    droid_pack, emit_board_checkin, emit_walked_off, house_spawn, hash_str, layout_beings, lock,
-    pack_still_aspect, sleeper_target, station_target, walkoff_target, yard_clamp, yard_contains,
-    yard_dwell_ms, yard_pick, yard_pick_sailing, yard_seed, Drag, Pose, RoamState, CAPTION_TTL,
-    HOME_HIDE_X, LOCATE_TTL, PLANET_LOCATE_TTL, YARD_ARRIVE, YARD_SAIL,
-};
+use super::{lock, pack_still_aspect, Drag};
 
 pub(crate) fn anim_tick() {
     let mut h = lock();

@@ -70,7 +70,6 @@ mod habitat;
 mod herdr;
 mod wake;
 pub(crate) use habitat::droid_inspect;
-pub(crate) use habitat::herdr as herdr_launch;
 pub(crate) use habitat::packs;
 mod state;
 mod windows;
@@ -108,6 +107,8 @@ fn tray_image(dark_bar: bool) -> tauri::image::Image<'static> {
 }
 
 /// Light menu bar → AppleInterfaceStyle is unset. Dark → "Dark".
+// objc 0.2 macros probe `cfg(feature = "cargo-clippy")`.
+#[allow(unexpected_cfgs)]
 fn menu_bar_is_dark() -> bool {
     #[cfg(target_os = "macos")]
     unsafe {
@@ -583,8 +584,9 @@ fn task_has_before(app: tauri::AppHandle, card_id: String) -> bool {
 /// main thread deadlocks). A panic inside `f` is swallowed — a native
 /// hiccup must never take down the caller.
 #[cfg(target_os = "macos")]
+// objc 0.2 macros probe `cfg(feature = "cargo-clippy")`.
+#[allow(unexpected_cfgs)]
 pub(crate) fn main_thread_sync<F: FnOnce() + Send>(f: F) {
-    use objc::runtime::Object;
     use objc::{class, msg_send, sel, sel_impl};
     use std::ffi::c_void;
     let is_main: bool = unsafe { msg_send![class!(NSThread), isMainThread] };
@@ -621,6 +623,8 @@ pub(crate) fn main_thread_sync<F: FnOnce() + Send>(f: F) {
 /// companion poll uses this so a nested NSMenu run loop cannot beach-ball
 /// behind a `dispatch_sync` from a worker.
 #[cfg(target_os = "macos")]
+// objc 0.2 macros probe `cfg(feature = "cargo-clippy")`.
+#[allow(unexpected_cfgs)]
 pub(crate) fn main_thread_async<F: FnOnce() + Send + 'static>(f: F) {
     use objc::{class, msg_send, sel, sel_impl};
     use std::ffi::c_void;

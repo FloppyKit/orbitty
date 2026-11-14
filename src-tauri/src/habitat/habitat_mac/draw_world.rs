@@ -311,7 +311,8 @@ pub(crate) unsafe fn draw_world(this: &Object, d: &DrawData) {
 
     for w in &d.walkers {
         let frame = &w.frame;
-        let mut sprite_rect = *frame;
+        // Both arms below overwrite this before the badge reads it.
+        let sprite_rect: NSRect;
         if w.pack_frame != 0 {
             let img = w.pack_frame as *mut Object;
             let size: CGSize = msg_send![img, size];

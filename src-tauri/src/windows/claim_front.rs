@@ -2,6 +2,10 @@
 //! Writes through `board::save_with_events` so Rail/Inspector need not be open.
 //! No minimize nag. Dock menu is Orbitty-only (applicationDockMenu).
 
+// objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
+// rustc flags; harmless upstream noise.
+#![allow(unexpected_cfgs)]
+
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

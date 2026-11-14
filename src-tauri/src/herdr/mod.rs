@@ -15,19 +15,13 @@ pub(crate) mod tui;
 mod tests;
 
 pub use crate::habitat::herdr::Branch;
-pub use crate::habitat::herdr::INSTALL_HINT;
 pub use crate::habitat::herdr::branch;
 pub(crate) use crate::habitat::herdr::agent_alive;
-pub(crate) use crate::habitat::herdr::herdr_cmd;
 pub(crate) use crate::habitat::herdr::planet_cwd;
-pub(crate) use crate::habitat::herdr::run_json;
 
-pub(crate) use client::alive;
 pub(crate) use client::available;
 pub(crate) use client::core_on;
-pub(crate) use client::ensure_server;
 pub(crate) use client::locate;
-pub(crate) use client::status_value;
 
 use tauri::{AppHandle, Emitter};
 

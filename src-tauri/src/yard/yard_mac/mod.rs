@@ -774,10 +774,12 @@ fn spawn_worker() {
 fn hop() {
     HOP_PENDING.store(false, Ordering::SeqCst);
     let mut stop_after = false;
-    let mut cats_out = false;
+    // Assigned before any read on the path that continues; the early return
+    // inside the lock never reads these.
+    let cats_out: bool;
     // Double-click verdict from the hop's release catch — the AX restore
     // runs after the lock drops, never under it.
-    let mut focus_after: Option<String> = None;
+    let focus_after: Option<String>;
     {
         let mut y = lock();
         if !y.on {

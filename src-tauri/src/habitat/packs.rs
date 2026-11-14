@@ -570,6 +570,8 @@ fn pick_path(
 }
 
 #[cfg(target_os = "macos")]
+// objc 0.2 macros probe `cfg(feature = "cargo-clippy")`.
+#[allow(unexpected_cfgs)]
 unsafe fn pick_path_panel(title: &str, directories: bool, exts: &[String]) -> Option<PathBuf> {
     use core_foundation::base::TCFType;
     use objc::runtime::Object;
