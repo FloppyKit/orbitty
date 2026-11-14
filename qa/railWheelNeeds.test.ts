@@ -1,8 +1,28 @@
 import assert from "node:assert/strict";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { planetAbbrevs, type HabitatCard } from "../src/lib/rail/habitat.ts";
-import { mirrorItems, mirrorStart, type ArchCard, type ArchRow } from "../src/lib/rail/stageArch.ts";
+import { emptyDismiss } from "../src/lib/rail/railInput.ts";
+import {
+  archLayout,
+  archPainted,
+  mirrorItems,
+  mirrorStart,
+  stageStackLayout,
+  type ArchCard,
+  type ArchRow,
+} from "../src/lib/rail/stageArch.ts";
+
+const COOK_BASE = "3bb4b0c5c1a326a8706297a9953d3e7689ab3e9b";
+
+function diffNames(): string {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const run = (args: string) =>
+    execSync(`git diff --name-only ${args}`, { cwd: root, encoding: "utf8" });
+  return run(`${COOK_BASE} HEAD`) + run(COOK_BASE) + run("--cached");
+}
 
 function card(partial: HabitatCard): HabitatCard {
   return partial;
@@ -25,6 +45,18 @@ function balanced(src: string, at: number, open: string, close: string): string 
     }
   }
   return src.slice(at);
+}
+
+/** From `function name` through the next export. Brace matching stops inside parameter types. */
+function srcFn(src: string, name: string): string {
+  const at = src.indexOf(`function ${name}`);
+  assert.ok(at >= 0, name);
+  const nextFn = src.indexOf("\nexport function ", at + 1);
+  const nextExport = src.indexOf("\nexport ", at + 1);
+  let end = src.length;
+  if (nextFn > at) end = Math.min(end, nextFn);
+  if (nextExport > at) end = Math.min(end, nextExport);
+  return src.slice(at, end);
 }
 
 function fnBody(src: string, name: string): string {
@@ -211,14 +243,35 @@ test("railWheelNeeds level-1 abbrevs stay outside the planet hit and preview tod
   assert.equal(each.includes("ul.arch-abbrevs"), false);
   assert.equal(each.includes("BoardSnapshot"), false);
   assert.equal(each.includes("BoardPreview"), false);
-  assert.equal(each.includes("{#if i === center}"), false);
-  const ifAt = each.indexOf('item.kind === "planet" && item.pid && !archHidden');
-  const columnAt = each.search(/<KanbanPage|<BoardColumns/);
-  assert.ok(ifAt >= 0 && columnAt > ifAt);
-  const prelude = each.slice(ifAt, columnAt);
-  assert.match(prelude, /archHidden\(i\)/);
-  assert.match(prelude, /front === "arch"/);
-  assert.doesNotMatch(prelude, /i === center/);
+  assert.equal(each.includes("<KanbanPage"), false);
+  assert.equal(each.includes("<BoardColumns"), false);
+  assert.equal(each.includes("arch-board-col"), false);
+  assert.equal(each.includes("columnsOnly"), false);
+  const needsAt = list.indexOf("data-stage-needs");
+  assert.ok(needsAt >= 0, "level-1 needs panel");
+  assert.ok(needsAt < eachAt || needsAt >= eachAt + each.length);
+  const needsEnd = list.indexOf("{#if !rail.embedded}", needsAt);
+  assert.ok(needsEnd > needsAt);
+  const needs = list.slice(Math.max(0, needsAt - 200), needsEnd);
+  assert.match(needs, /class="stage-settings"/);
+  assert.match(needs, /settingsBox\(\)/);
+  assert.match(needs, /<KanbanPage/);
+  assert.match(needs, /\bcolumnsOnly\b/);
+  assert.match(needs, /openAbbrev/);
+  assert.doesNotMatch(needs, /BoardPreview|BoardSnapshot|class="arch-abbrevs"|ul\.arch-abbrevs/);
+  const guardAt = list.indexOf("const level1NeedsPid");
+  assert.ok(guardAt >= 0);
+  const guardEnd = list.indexOf("\n  const abbrevLive", guardAt);
+  assert.ok(guardEnd > guardAt);
+  const guard = list.slice(guardAt, guardEnd);
+  assert.match(guard, /items\[center\]/);
+  assert.match(guard, /kind === "planet"/);
+  assert.match(guard, /planetAbbrevs/);
+  assert.match(guard, /rows\.length/);
+  assert.match(guard, /front !== "arch"/);
+  assert.match(guard, /stageEmbed === "settings"/);
+  assert.match(guard, /stageEmbed === "stars"/);
+  assert.equal([...(list.matchAll(/columnsOnly/g))].length, 1);
   const hits = buttons(list, "arch-hit");
   assert.equal(hits.length, 2);
   for (const hit of hits) {
@@ -228,7 +281,6 @@ test("railWheelNeeds level-1 abbrevs stay outside the planet hit and preview tod
     assert.equal(hit.includes("openAbbrev"), false);
   }
   assert.match(each, /onclick=\{\(\) => onTileClick\(item, i\)\}/);
-  assert.match(each, /openAbbrev/);
   assert.doesNotMatch(each, /openDetail/);
   assert.doesNotMatch(each, /load_state|loadState/);
   const click = fnBody(list, "onTileClick");
@@ -369,9 +421,17 @@ test("railWheelNeeds_level1_column_reuses_board_without_preview", () => {
   const eachAt = list.indexOf("{#each items as item, i (item.stop)}");
   assert.ok(eachAt >= 0);
   const each = balanced(list, eachAt, "{#each", "{/each}");
-  assert.match(each, /columnsOnly/);
-  assert.match(each, /<KanbanPage|<BoardColumns/);
+  assert.equal(each.includes("columnsOnly"), false);
+  assert.equal(each.includes("<KanbanPage"), false);
+  assert.equal(each.includes("arch-board-col"), false);
   assert.doesNotMatch(each, /BoardPreview|BoardSnapshot|class="arch-abbrevs"/);
+  const needsAt = list.indexOf("data-stage-needs");
+  assert.ok(needsAt >= 0);
+  const needsEnd = list.indexOf("{#if !rail.embedded}", needsAt);
+  const needs = list.slice(needsAt, needsEnd);
+  assert.match(needs, /columnsOnly/);
+  assert.match(needs, /<KanbanPage/);
+  assert.doesNotMatch(needs, /BoardPreview|BoardSnapshot/);
   const mountAt = kanban.indexOf("onMount(async () => {");
   const listenAt = kanban.indexOf('listen("state:changed", loadState)', mountAt);
   assert.ok(mountAt >= 0 && listenAt > mountAt);
@@ -428,4 +488,116 @@ test("onTileClick_opens_habitat_and_enters_level2", () => {
   assert.doesNotMatch(confirm, /rl2-scene|kind === "scene"/);
   assert.equal(list.includes("rl2-scene"), false);
   assert.equal(list.includes('kind === "scene"'), false);
+});
+
+test("railWheelNeeds_level1_column_opens_like_settings_for_centered_planet", () => {
+  const kanban = readFileSync(new URL("../src/lib/KanbanPage.svelte", import.meta.url), "utf8");
+  const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
+  const lists = readFileSync(new URL("../src/routes/+page.svelte", import.meta.url), "utf8");
+  const well = readFileSync(new URL("../src/lib/companion/Well.svelte", import.meta.url), "utf8");
+  assert.match(kanban, /columnsOnly\s*=\s*false/);
+  const previewAt = kanban.indexOf("<BoardPreview");
+  assert.ok(previewAt >= 0);
+  const gate = kanban.lastIndexOf("columnsOnly", previewAt);
+  assert.ok(gate >= 0);
+  assert.match(kanban.slice(Math.max(0, gate - 1), previewAt), /!columnsOnly/);
+  const l2 = list.indexOf("railPlanet={boardPlanet}");
+  assert.ok(l2 >= 0);
+  const l2Tag = list.lastIndexOf("<KanbanPage", l2);
+  const l2End = list.indexOf("/>", l2);
+  assert.ok(l2Tag >= 0 && l2End > l2Tag);
+  const l2Mount = list.slice(l2Tag, l2End);
+  assert.match(l2Mount, /embedded/);
+  assert.doesNotMatch(l2Mount, /columnsOnly/);
+  const needsAt = list.indexOf("data-stage-needs");
+  assert.ok(needsAt >= 0);
+  const host = list.slice(Math.max(0, needsAt - 180), needsAt + 120);
+  assert.match(host, /class="stage-settings"/);
+  assert.match(host, /settingsBox\(\)/);
+  const guardAt = list.indexOf("const level1NeedsPid");
+  assert.ok(guardAt >= 0);
+  const guard = list.slice(guardAt, list.indexOf("\n  const abbrevLive", guardAt));
+  assert.match(guard, /items\[center\]/);
+  assert.match(guard, /stageEmbed === "settings"/);
+  assert.match(guard, /stageEmbed === "stars"/);
+  assert.equal(lists.includes("columnsOnly"), false);
+  assert.equal(well.includes("columnsOnly"), false);
+  const diff = diffNames();
+  assert.equal(diff.includes("src/routes/+page.svelte"), false);
+  assert.equal(diff.includes("src/lib/companion/Well.svelte"), false);
+});
+
+test("level1_card_click_does_not_park_the_rail", () => {
+  const place = readFileSync(new URL("../src/lib/rail/stagePlace.ts", import.meta.url), "utf8");
+  const pointer = readFileSync(new URL("../src/lib/rail/pagePointer.svelte.ts", import.meta.url), "utf8");
+  const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
+  const input = readFileSync(new URL("../src/lib/rail/railInput.ts", import.meta.url), "utf8");
+  const painted = srcFn(place, "archPainted");
+  assert.match(painted, /opts\.needsPanel[\s\S]{0,160}layout\.board/);
+  const frame = { w: 1040, h: 760 };
+  const lay = archLayout("left", frame.w, frame.h);
+  const settings = stageStackLayout("left", frame.w, frame.h, 0, 0).settings;
+  const mid = { x: settings.x + settings.w / 2, y: settings.y + settings.h / 2 };
+  assert.equal(archPainted(lay, mid, { front: "arch", pid: "p", revealed: true }), false);
+  assert.equal(
+    archPainted(lay, mid, { front: "arch", pid: "p", revealed: true, needsPanel: true }),
+    true,
+  );
+  assert.equal(
+    archPainted(lay, mid, { front: "arch", pid: null, revealed: true, embed: "settings" }),
+    true,
+  );
+  const near = srcFn(pointer, "nearHit");
+  const up = srcFn(pointer, "onStagePointerUp");
+  const over = srcFn(pointer, "overPainted");
+  for (const src of [near, up]) {
+    assert.match(src, /\.stage-settings/);
+    assert.match(src, /\.b-card/);
+    assert.match(src, /\.l1-abbrev-preview/);
+  }
+  assert.match(over, /needsPanel:\s*scope\.level1NeedsOpen/);
+  assert.match(list, /level1NeedsOpen = level1NeedsPid != null/);
+  const dismiss = fnBody(input, "emptyDismiss");
+  assert.match(dismiss, /phase !== "pointerup"/);
+  assert.match(dismiss, /dragPx/);
+  assert.match(dismiss, /overHit/);
+  assert.match(dismiss, /overPanel/);
+  assert.match(dismiss, /animating/);
+  const empty = { dragPx: 0, overHit: false, overPanel: false, animating: false };
+  assert.equal(emptyDismiss({ phase: "pointerdown", ...empty }), false);
+  assert.equal(emptyDismiss({ phase: "pointerup", ...empty }), true);
+  assert.equal(emptyDismiss({ phase: "pointerup", ...empty, dragPx: 4 }), false);
+  assert.equal(emptyDismiss({ phase: "pointerup", ...empty, overHit: true }), false);
+  assert.equal(emptyDismiss({ phase: "pointerup", ...empty, overPanel: true }), false);
+  assert.equal(emptyDismiss({ phase: "pointerup", ...empty, animating: true }), false);
+});
+
+test("l1_preview_has_exit_and_esc_closes_it_first", () => {
+  const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
+  const ring = readFileSync(new URL("../src/lib/rail/pageRing.svelte.ts", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
+  const at = list.indexOf('class="l1-abbrev-preview"');
+  const end = list.indexOf("l1-todo-preview-end", at);
+  assert.ok(at >= 0 && end > at);
+  const preview = list.slice(at, end);
+  assert.match(preview, /aria-label="Close preview"/);
+  assert.match(preview, /abbrevPick\s*=\s*null/);
+  assert.match(preview, />×</);
+  const esc = fnBody(ring, "onRailEscape");
+  const clearAt = esc.search(/abbrevPick\s*=\s*null/);
+  assert.ok(clearAt >= 0);
+  const embedAt = esc.indexOf("closeStageEmbed");
+  const depthAt = esc.search(/depthOut\(/);
+  const parkAt = esc.indexOf("parkStage(");
+  assert.ok(embedAt > clearAt && depthAt > clearAt && parkAt > clearAt);
+  const cond = esc.slice(esc.lastIndexOf("if (", clearAt), clearAt);
+  assert.match(cond, /front === "arch"/);
+  assert.match(cond, /abbrevPick/);
+  assert.match(cond, /!scope\.stageEmbed/);
+  const branch = esc.slice(clearAt, embedAt);
+  assert.match(branch, /return true/);
+  assert.doesNotMatch(branch, /front\s*:/);
+  assert.doesNotMatch(branch, /archBack|parkStage|depthOut/);
+  const wrap = fnBody(page, "onRailEscape");
+  assert.match(wrap, /abbrevPick/);
 });
