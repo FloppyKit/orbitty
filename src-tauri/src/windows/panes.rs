@@ -75,9 +75,11 @@ pub(crate) fn pane_spec(label: &str) -> Option<(&'static str, f64, f64, Option<(
         // Claim prompt: own small pane beside the rail, not a rail card
         // and not a docked drawer. Title stays empty, same as yard-warn.
         "claim-prompt" => Some(("", 320.0, 200.0, None)),
-        // Peek capsule: own pane beside the walker, not a rail card
-        // and not a docked drawer. Chrome row plus the 240px body.
-        "peek-capsule" => Some(("", 420.0, 320.0, None)),
+        // Pills row beside the walker. One row, not the old 420×320 body.
+        "peek-capsule" => Some(("", 400.0, 44.0, None)),
+        // Terminal preview: drag strip plus the 240px body. Min keeps a
+        // readable pane; the user can resize. Not a drawer.
+        "peek-preview" => Some(("", 420.0, 280.0, Some((280.0, 160.0)))),
         // own small card window, not dock chrome.
         "next-card" => Some(("", 360.0, 420.0, Some((280.0, 220.0)))),
         "cheatsheet" => Some(("", 360.0, 420.0, Some((280.0, 240.0)))),
@@ -158,10 +160,16 @@ pub(crate) fn ensure_window(
         drag_drop_enabled: label == "companion",
         ..Default::default()
     };
+    // The pills row hugs its content. It is not a resizable window.
+    if label == "peek-capsule" {
+        config.resizable = false;
+    }
     // Dest chips close in one click while Launchpad/STARS hold key-window
     // — without this, the first click only activates companion.
-    config.accept_first_mouse =
-        label == "companion" || label == "claim-prompt" || label == "peek-capsule";
+    config.accept_first_mouse = label == "companion"
+        || label == "claim-prompt"
+        || label == "peek-capsule"
+        || label == "peek-preview";
     // Board and Stars on macOS stay titled Overlay windows so the
     // native traffic lights can sit on the title row. Every other pane
     // stays borderless: the Overlay strip plus the in-SPA banner was
@@ -175,6 +183,7 @@ pub(crate) fn ensure_window(
             || label == "yard-warn"
             || label == "claim-prompt"
             || label == "peek-capsule"
+            || label == "peek-preview"
             || label == "next-card"
             || label == "cheatsheet")
     {
@@ -291,6 +300,17 @@ pub(crate) fn wire_pane_events(
     let handle = app.clone();
     let pane_label = window.label().to_string();
     window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Resized(_) = &event {
+            // In-memory size for this show. A later reclamp uses it instead
+            // of putting the default back over a user resize.
+            if pane_label == "peek-preview" && keeper.is_visible().unwrap_or(false) {
+                if let Some(live) = crate::drawers::live_points_rect(&keeper) {
+                    if live.w >= 160.0 && live.h >= 100.0 {
+                        remember_preview_size(live.w, live.h);
+                    }
+                }
+            }
+        }
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
             if pane_label == "companion" {
@@ -309,13 +329,23 @@ pub(crate) fn wire_pane_events(
             if crate::state::DRAWER_LABELS.contains(&pane_label.as_str()) {
                 crate::drawers::persist_shown_place(&handle, &pane_label);
             }
+            let restore_pills = pane_label == "peek-preview";
             if pane_label == "peek-capsule" {
                 let _ = keeper.set_always_on_top(false);
                 clear_peek_arm();
+                clear_preview_size();
+                hide_labeled(&handle, "peek-preview");
+                sync_peek_monitors(false);
+            }
+            if restore_pills {
+                let _ = keeper.set_always_on_top(false);
             }
             let _ = keeper.hide();
             clear_miniaturized_after_hide(&keeper);
             emit_pane_vis(&handle, &pane_label, false);
+            if restore_pills {
+                let _ = show_pills_from_arm(&handle);
+            }
             if is_companion {
                 crate::talk::stop_if_any();
                 companion_pin(&handle, &keeper, false);
@@ -480,11 +510,121 @@ pub fn hide_claim_prompt(app: tauri::AppHandle) -> Result<(), String> {
     hide_window(app, "claim-prompt".to_string())
 }
 
+#[derive(Clone)]
 struct PeekArm {
     view: crate::herdr::peek::View,
     /// Walker id from the click, with or without the `agent:` prefix.
     /// `view.card` is the peek target and is not always that id.
     entry_id: String,
+}
+
+/// User resize during this show. Cleared on the next walker click and on a
+/// full hide. Not state.json.
+static PEEK_PREVIEW_SIZE: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+
+static PEEK_MONITOR_SYNC: std::sync::Mutex<Option<fn(bool)>> = std::sync::Mutex::new(None);
+
+pub(crate) fn set_peek_monitor_sync(f: fn(bool)) {
+    if let Ok(mut slot) = PEEK_MONITOR_SYNC.lock() {
+        *slot = Some(f);
+    }
+}
+
+fn sync_peek_monitors(on: bool) {
+    let Some(f) = PEEK_MONITOR_SYNC.lock().ok().and_then(|slot| *slot) else {
+        return;
+    };
+    crate::main_thread_sync(move || f(on));
+}
+
+fn remember_preview_size(w: f64, h: f64) {
+    if let Ok(mut slot) = PEEK_PREVIEW_SIZE.lock() {
+        *slot = Some((w, h));
+    }
+}
+
+fn remembered_preview_size() -> Option<(f64, f64)> {
+    PEEK_PREVIEW_SIZE.lock().ok().and_then(|slot| *slot)
+}
+
+fn clear_preview_size() {
+    if let Ok(mut slot) = PEEK_PREVIEW_SIZE.lock() {
+        *slot = None;
+    }
+}
+
+fn peek_preview_default_size() -> (f64, f64) {
+    pane_spec("peek-preview")
+        .map(|(_, width, height, _)| (width, height))
+        .unwrap_or((420.0, 280.0))
+}
+
+fn hide_labeled(app: &tauri::AppHandle, label: &str) {
+    if app.get_webview_window(label).is_none() {
+        return;
+    }
+    let _ = hide_window(app.clone(), label.to_string());
+}
+
+fn peek_label_visible(app: &tauri::AppHandle, label: &str) -> bool {
+    app.get_webview_window(label)
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false)
+}
+
+/// What one Esc or click-away does. Preview folds back to the pills.
+/// A second step hides the pills.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PeekLayer {
+    None,
+    Pills,
+    Preview,
+}
+
+pub(crate) fn peek_layer_after_dismiss(layer: PeekLayer) -> PeekLayer {
+    match layer {
+        PeekLayer::Preview => PeekLayer::Pills,
+        PeekLayer::Pills => PeekLayer::None,
+        PeekLayer::None => PeekLayer::None,
+    }
+}
+
+/// A click on the pills, the preview, or a walker is not click-away.
+pub(crate) fn peek_click_is_away(on_pills: bool, on_preview: bool, on_walker: bool) -> bool {
+    !on_pills && !on_preview && !on_walker
+}
+
+fn current_peek_layer(app: &tauri::AppHandle) -> PeekLayer {
+    if peek_label_visible(app, "peek-preview") {
+        PeekLayer::Preview
+    } else if peek_label_visible(app, "peek-capsule") {
+        PeekLayer::Pills
+    } else {
+        PeekLayer::None
+    }
+}
+
+fn show_pills_from_arm(app: &tauri::AppHandle) -> Result<(), String> {
+    let arm = PEEK_CAPSULE_ARM.lock().ok().and_then(|slot| slot.clone());
+    let Some(arm) = arm else {
+        sync_peek_monitors(false);
+        return Ok(());
+    };
+    let w = ensure_window(app, "peek-capsule")?;
+    let _ = restore_if_minimized(&w);
+    let _ = w.set_resizable(false);
+    if let Some(r) = peek_capsule_place(&arm.entry_id, peek_capsule_size()) {
+        crate::drawers::appkit_place_points(&w, &r);
+    }
+    w.show().map_err(|e| e.to_string())?;
+    let _ = w.set_always_on_top(true);
+    w.set_focus().map_err(|e| e.to_string())?;
+    crate::drawers::appkit_order_front(app, &w);
+    let _ = w.set_ignore_cursor_events(false);
+    emit_pane_vis(app, "peek-capsule", true);
+    let _ = app.emit_to("peek-capsule", "herdr-peek", &arm.view);
+    sync_peek_monitors(true);
+    Ok(())
 }
 
 static PEEK_CAPSULE_ARM: std::sync::Mutex<Option<PeekArm>> = std::sync::Mutex::new(None);
@@ -498,7 +638,7 @@ fn clear_peek_arm() {
 fn peek_capsule_size() -> (f64, f64) {
     pane_spec("peek-capsule")
         .map(|(_, width, height, _)| (width, height))
-        .unwrap_or((420.0, 320.0))
+        .unwrap_or((400.0, 44.0))
 }
 
 fn peek_capsule_place(entry_id: &str, size: (f64, f64)) -> Option<crate::state::CompanionBounds> {
@@ -519,6 +659,9 @@ pub fn show_peek_capsule(
     view: &crate::herdr::peek::View,
     entry_id: &str,
 ) -> Result<(), String> {
+    // A new walker click is pills only. The next preview may place the default.
+    hide_labeled(app, "peek-preview");
+    clear_preview_size();
     if let Ok(mut slot) = PEEK_CAPSULE_ARM.lock() {
         *slot = Some(PeekArm {
             view: view.clone(),
@@ -527,6 +670,7 @@ pub fn show_peek_capsule(
     }
     let w = ensure_window(app, "peek-capsule")?;
     let _ = restore_if_minimized(&w);
+    let _ = w.set_resizable(false);
     if let Some(r) = peek_capsule_place(entry_id, peek_capsule_size()) {
         crate::drawers::appkit_place_points(&w, &r);
     }
@@ -536,18 +680,20 @@ pub fn show_peek_capsule(
     crate::drawers::appkit_order_front(app, &w);
     let _ = w.set_ignore_cursor_events(false);
     emit_pane_vis(app, "peek-capsule", true);
+    sync_peek_monitors(true);
     Ok(())
 }
 
-/// Hide the peek capsule and drop the in-memory arm. Missing window is fine.
+/// Hide the pills and the preview and drop the in-memory arm.
+/// Does not bring the pills back. Missing windows are fine.
 #[tauri::command]
 pub fn hide_peek_capsule(app: tauri::AppHandle) -> Result<(), String> {
     clear_peek_arm();
-    let Some(w) = app.get_webview_window("peek-capsule") else {
-        return Ok(());
-    };
-    let _ = w.set_always_on_top(false);
-    hide_window(app, "peek-capsule".to_string())
+    clear_preview_size();
+    hide_labeled(&app, "peek-preview");
+    hide_labeled(&app, "peek-capsule");
+    sync_peek_monitors(false);
+    Ok(())
 }
 
 /// What the peek pane should show if it missed the herdr-peek event.
@@ -590,8 +736,102 @@ pub fn reclamp_peek_capsule(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn prewarm_peek_capsule(app: tauri::AppHandle) -> Result<(), String> {
     let w = ensure_window(&app, "peek-capsule")?;
+    let _ = w.set_resizable(false);
     let _ = w.hide();
     Ok(())
+}
+
+/// Peek pill: fold the pills away and open the preview beside the walker.
+#[tauri::command]
+pub fn show_peek_preview(app: tauri::AppHandle) -> Result<(), String> {
+    let arm = PEEK_CAPSULE_ARM.lock().ok().and_then(|slot| slot.clone());
+    let Some(arm) = arm else {
+        return Err("peek capsule is not open".into());
+    };
+    let w = ensure_window(&app, "peek-preview")?;
+    let _ = restore_if_minimized(&w);
+    let _ = w.set_resizable(true);
+    let size = remembered_preview_size().unwrap_or_else(peek_preview_default_size);
+    if let Some(r) = peek_capsule_place(&arm.entry_id, size) {
+        crate::drawers::appkit_place_points(&w, &r);
+    }
+    // Fold: hide the pills row, then show the preview. The arm stays so a
+    // close can bring the pills back. Never leave both on screen.
+    hide_labeled(&app, "peek-capsule");
+    if let Err(e) = w.show() {
+        let _ = show_pills_from_arm(&app);
+        return Err(e.to_string());
+    }
+    let _ = w.set_always_on_top(true);
+    w.set_focus().map_err(|e| e.to_string())?;
+    crate::drawers::appkit_order_front(&app, &w);
+    let _ = w.set_ignore_cursor_events(false);
+    emit_pane_vis(&app, "peek-preview", true);
+    let _ = app.emit_to("peek-preview", "herdr-peek", &arm.view);
+    sync_peek_monitors(true);
+    Ok(())
+}
+
+/// Hide the preview. `restore` defaults true: the pills come back.
+/// `restore: false` is seat-end and the pills Hide control.
+#[tauri::command]
+pub fn hide_peek_preview(app: tauri::AppHandle, restore: Option<bool>) -> Result<(), String> {
+    hide_labeled(&app, "peek-preview");
+    if restore.unwrap_or(true) {
+        return show_pills_from_arm(&app);
+    }
+    if !peek_label_visible(&app, "peek-capsule") {
+        sync_peek_monitors(false);
+    }
+    Ok(())
+}
+
+/// If a display change left the preview fully off every visible frame,
+/// place it again at the in-memory size. A pane still on a frame is left
+/// alone so a user resize is not stomped back to the default.
+#[tauri::command]
+pub fn reclamp_peek_preview(app: tauri::AppHandle) -> Result<(), String> {
+    let Some(w) = app.get_webview_window("peek-preview") else {
+        return Ok(());
+    };
+    if !w.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
+    let Some(live) = crate::drawers::live_points_rect(&w) else {
+        return Ok(());
+    };
+    let frames = crate::drawers::points_frames(&crate::drawers::screen_visible_frames());
+    if !crate::drawers::rect_fully_off_all(&live, &frames) {
+        return Ok(());
+    }
+    let entry_id = PEEK_CAPSULE_ARM
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|arm| arm.entry_id.clone()))
+        .unwrap_or_default();
+    let size = remembered_preview_size().unwrap_or((live.w, live.h));
+    if let Some(r) = peek_capsule_place(&entry_id, size) {
+        crate::drawers::appkit_place_points(&w, &r);
+    }
+    Ok(())
+}
+
+/// Create the preview hidden so the first peek click does not wait on a new webview.
+#[tauri::command]
+pub fn prewarm_peek_preview(app: tauri::AppHandle) -> Result<(), String> {
+    let w = ensure_window(&app, "peek-preview")?;
+    let _ = w.set_resizable(true);
+    let _ = w.hide();
+    Ok(())
+}
+
+/// Esc or empty-glass click-away. One step: preview back to pills, then pills away.
+pub(crate) fn peek_dismiss_one_step(app: &tauri::AppHandle) -> Result<(), String> {
+    match peek_layer_after_dismiss(current_peek_layer(app)) {
+        PeekLayer::Pills => hide_peek_preview(app.clone(), Some(true)),
+        PeekLayer::None => hide_peek_capsule(app.clone()),
+        PeekLayer::Preview => Ok(()),
+    }
 }
 
 pub(crate) fn show_labeled(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
@@ -1392,5 +1632,47 @@ mod board_focus_wiring_pins {
             block.contains("panes::take_board_focus,"),
             "take_board_focus missing from generate_handler"
         );
+    }
+}
+
+#[cfg(test)]
+mod peek_pills_tests {
+    use super::{pane_spec, peek_click_is_away, peek_layer_after_dismiss, PeekLayer};
+
+    #[test]
+    fn peek_capsule_pane_spec_is_one_row() {
+        let (_, w, h, min) = pane_spec("peek-capsule").expect("pills spec");
+        assert!(h <= 48.0, "pills height {h}");
+        assert!(h >= 24.0);
+        assert!(w >= 200.0 && w <= 520.0);
+        assert!(min.is_none());
+    }
+
+    #[test]
+    fn peek_preview_pane_spec_is_separate() {
+        let (_, w, h, min) = pane_spec("peek-preview").expect("preview spec");
+        assert!((w - 420.0).abs() < 1.0);
+        assert!((h - 280.0).abs() < 1.0);
+        let (mw, mh) = min.expect("min size");
+        assert!((mw - 280.0).abs() < 1.0);
+        assert!((mh - 160.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn dismiss_restores_pills_then_hides_them() {
+        assert_eq!(
+            peek_layer_after_dismiss(PeekLayer::Preview),
+            PeekLayer::Pills
+        );
+        assert_eq!(peek_layer_after_dismiss(PeekLayer::Pills), PeekLayer::None);
+        assert_eq!(peek_layer_after_dismiss(PeekLayer::None), PeekLayer::None);
+    }
+
+    #[test]
+    fn walker_pills_and_preview_clicks_are_not_away() {
+        assert!(!peek_click_is_away(true, false, false));
+        assert!(!peek_click_is_away(false, true, false));
+        assert!(!peek_click_is_away(false, false, true));
+        assert!(peek_click_is_away(false, false, false));
     }
 }

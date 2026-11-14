@@ -213,6 +213,7 @@ fn display_link_stop() {
 
 pub fn start(app: AppHandle) {
     crate::herdr::set_walker_points_lookup(super::walker_screen::walker_screen_points);
+    crate::panes::set_peek_monitor_sync(super::peek_dismiss::set_installed);
     let cell = app_handle_cell();
     if let Ok(st) = crate::state::load_state(&app) {
         lock().planets_hidden = st.companion.planets_hidden;

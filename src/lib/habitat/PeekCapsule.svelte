@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
 
   type Capsule = {
     card: string;
@@ -16,43 +16,12 @@
   let card = $state("");
   let status = $state("unknown");
   let termState = $state("");
-  let text = $state("");
-  let preview = $state(false);
   let timer: ReturnType<typeof setInterval> | undefined;
-  let followBottom = true;
-  let watchedBody: HTMLPreElement | null = null;
-  let pinning = false;
   let downStreak = 0;
 
   function stop() {
     if (timer) clearInterval(timer);
     timer = undefined;
-  }
-
-  function nearBottom(el: HTMLElement): boolean {
-    return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
-  }
-
-  function watchBody(el: HTMLPreElement) {
-    if (watchedBody === el) return;
-    watchedBody = el;
-    el.addEventListener("scroll", () => {
-      if (pinning) return;
-      followBottom = nearBottom(el);
-    });
-  }
-
-  async function stickToBottom() {
-    const follow = followBottom;
-    await tick();
-    const found = document.querySelector("pre.body");
-    if (!(found instanceof HTMLPreElement)) return;
-    watchBody(found);
-    if (!follow) return;
-    pinning = true;
-    found.scrollTop = found.scrollHeight;
-    pinning = false;
-    followBottom = true;
   }
 
   async function refresh() {
@@ -62,14 +31,11 @@
       const v = await invoke<Capsule>("herdr_peek", { card, lines: 40 });
       status = v.status || "unknown";
       termState = v.state || "";
-      if (preview) text = status === "unknown" ? "" : v.text || "";
       noteSeat(status, v.up);
     } catch {
       status = "unknown";
-      if (preview) text = "";
       noteSeat("unknown", false);
     }
-    if (preview) await stickToBottom();
   }
 
   function arm() {
@@ -78,20 +44,14 @@
   }
 
   function openPeek() {
-    followBottom = true;
-    preview = true;
-    arm();
-    void refresh();
+    void invoke("show_peek_preview").catch(() => {});
   }
 
   function hideCapsule() {
     shown = false;
-    preview = false;
-    text = "";
-    followBottom = true;
-    watchedBody = null;
     downStreak = 0;
     stop();
+    void invoke("hide_peek_preview", { restore: false }).catch(() => {});
     void invoke("hide_peek_capsule").catch(() => {});
   }
 
@@ -110,13 +70,6 @@
       return;
     }
     downStreak = 0;
-  }
-
-  function closePeek() {
-    preview = false;
-    text = "";
-    followBottom = true;
-    watchedBody = null;
   }
 
   async function openTerminal() {
@@ -138,10 +91,6 @@
     card = v.card || "";
     status = v.status || "unknown";
     termState = v.state || "";
-    text = "";
-    preview = false;
-    followBottom = true;
-    watchedBody = null;
     downStreak = 0;
     shown = true;
     arm();
@@ -158,7 +107,6 @@
     void listen<{ label?: string; visible?: boolean }>("orbitty:pane-vis", (ev) => {
       if (ev.payload.label !== "peek-capsule" || ev.payload.visible !== false) return;
       shown = false;
-      preview = false;
       stop();
       downStreak = 0;
     }).then((fn) => {
@@ -181,19 +129,12 @@
   <div class="peek" role="status">
     <div class="row">
       <span class="status">{status}{termState ? ` · ${termState}` : ""}</span>
-      {#if preview}
-        <button type="button" class="peek-btn" onclick={closePeek}>close</button>
-      {:else}
-        <button type="button" class="peek-btn" onclick={openPeek}>peek</button>
-      {/if}
+      <button type="button" class="peek-btn" onclick={openPeek}>peek</button>
       {#if status !== "unknown"}
         <button type="button" class="peek-btn" onclick={openTerminal}>Open terminal</button>
       {/if}
       <button type="button" class="peek-btn" onclick={hideCapsule}>hide</button>
     </div>
-    {#if preview}
-      <pre class="body" tabindex="-1">{text}</pre>
-    {/if}
   </div>
 {/if}
 
@@ -206,29 +147,30 @@
     color: var(--ink, #c8f0d0);
     border: 1px solid var(--edge, #1a2a20);
     border-radius: 8px;
-    padding: 8px 10px;
+    padding: 4px 8px;
     font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    overflow: hidden;
   }
   .row {
     display: flex;
     gap: 8px;
     align-items: center;
+    flex-wrap: nowrap;
+    white-space: nowrap;
   }
   .status {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .peek-btn {
+    flex: none;
     background: transparent;
     color: var(--ink, #c8f0d0);
     border: 1px solid var(--edge, #1a2a20);
     border-radius: 4px;
     padding: 2px 8px;
-  }
-  .body {
-    margin: 8px 0 0;
-    max-height: 240px;
-    overflow: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
   }
 </style>

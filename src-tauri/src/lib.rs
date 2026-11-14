@@ -873,6 +873,10 @@ pub fn run() {
             panes::hide_peek_capsule,
             panes::peek_capsule_arm,
             panes::reclamp_peek_capsule,
+            panes::prewarm_peek_preview,
+            panes::show_peek_preview,
+            panes::hide_peek_preview,
+            panes::reclamp_peek_preview,
             panes::arm_companion_mouth,
             panes::set_companion_host,
             panes::set_companion_composer_grow,
@@ -1035,6 +1039,7 @@ pub fn run() {
 
             habitat::start(app.handle().clone());
             let _ = panes::prewarm_peek_capsule(app.handle().clone());
+            let _ = panes::prewarm_peek_preview(app.handle().clone());
             coordinator::heal_stuck_hack(app.handle());
 
             // Companion z-order poll (10Hz): shown pane stays floating.

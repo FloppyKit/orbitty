@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-const file = readFileSync(new URL("../src/lib/habitat/PeekCapsule.svelte", import.meta.url), "utf8");
+const file = readFileSync(new URL("../src/lib/habitat/PeekPreview.svelte", import.meta.url), "utf8");
 
 function scriptOf(src: string): string {
   const at = src.lastIndexOf("</script>");

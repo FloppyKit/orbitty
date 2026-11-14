@@ -13,6 +13,7 @@
   import CheatSheet from "$lib/CheatSheet.svelte";
   import RailPage from "$lib/RailPage.svelte";
   import PeekCapsule from "$lib/habitat/PeekCapsule.svelte";
+  import PeekPreview from "$lib/habitat/PeekPreview.svelte";
   import LinkPreviewPopover from "$lib/LinkPreviewPopover.svelte";
 
   // The same SPA bundle serves the separate Kanban/Companion/STARS/Sky
@@ -50,8 +51,10 @@
   const isYardWarnWindow = $derived(windowLabel === "yard-warn");
   // Minimized unclaimed window — own small pane, not a rail card.
   const isClaimPromptWindow = $derived(windowLabel === "claim-prompt");
-  // Peek capsule: own pane beside the walker, not a rail card.
+  // Peek pills: own pane beside the walker, not a rail card.
   const isPeekCapsuleWindow = $derived(windowLabel === "peek-capsule");
+  // Terminal preview: own pane, opened only from the peek pill.
+  const isPeekPreviewWindow = $derived(windowLabel === "peek-preview");
   const isNextCardWindow = $derived(windowLabel === "next-card");
   const isCheatSheetWindow = $derived(windowLabel === "cheatsheet");
   const isRailWindow = $derived(windowLabel === "main");
@@ -67,6 +70,7 @@
       isYardWarnWindow ||
       isClaimPromptWindow ||
       isPeekCapsuleWindow ||
+      isPeekPreviewWindow ||
       isNextCardWindow ||
       isCheatSheetWindow,
   );
@@ -85,6 +89,7 @@
       isYardWarnWindow ||
       isClaimPromptWindow ||
       isPeekCapsuleWindow ||
+      isPeekPreviewWindow ||
       isNextCardWindow ||
       isCheatSheetWindow,
   );
@@ -96,6 +101,7 @@
     initialLabel === "yard-warn" ||
     initialLabel === "claim-prompt" ||
     initialLabel === "peek-capsule" ||
+    initialLabel === "peek-preview" ||
     initialLabel === "next-card" ||
     initialLabel === "cheatsheet"
   ) {
@@ -143,6 +149,8 @@
   <CheatSheet />
 {:else if isPeekCapsuleWindow}
   <PeekCapsule />
+{:else if isPeekPreviewWindow}
+  <PeekPreview />
 {:else}
   <RailPage />
 {/if}

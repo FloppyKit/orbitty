@@ -29,6 +29,7 @@ mod decor_art;
 mod draw;
 mod boombox_hud;
 mod boombox_monitors;
+mod peek_dismiss;
 mod droid;
 mod droid_pack;
 mod todo_tree;
