@@ -3,10 +3,14 @@
 //! A repeated constant returns the same pointer. A title, path, or caption
 //! is released when the holder drops. No per-call `mem::forget`.
 
+// objc 0.2 macros expand to a `cfg(feature = "cargo-clippy")` probe that newer
+// rustc flags; harmless upstream noise.
+#![allow(unexpected_cfgs)]
+
 use core_foundation::base::TCFType;
 use core_foundation::string::CFString;
 use objc::runtime::Object;
-use objc::{msg_send, sel, sel_impl};
+use objc::{sel, sel_impl};
 use std::collections::HashMap;
 use std::sync::Mutex;
 

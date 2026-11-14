@@ -6,8 +6,6 @@ mod imp {
     // newer rustc flags; harmless upstream noise.
     #![allow(unexpected_cfgs)]
 
-    use core_foundation::base::TCFType;
-    use core_foundation::string::CFString;
     use objc::runtime::{Class, Object};
     use objc::{class, msg_send, sel, sel_impl};
 

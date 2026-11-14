@@ -5,8 +5,6 @@
 // rustc flags; harmless upstream noise (same allowance as habitat_mac).
 #![allow(unexpected_cfgs)]
 
-use core_foundation::base::TCFType;
-use core_foundation::string::CFString;
 use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Sel};
 use objc::{class, msg_send, sel, sel_impl};

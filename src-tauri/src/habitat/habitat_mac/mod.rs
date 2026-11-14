@@ -8,8 +8,6 @@
 #![allow(unexpected_cfgs)]
 
 use super::{HabitatEntry, HabitatPlanet, HabitatSnapshot};
-use core_foundation::base::TCFType;
-use core_foundation::string::CFString;
 use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
 use std::sync::{Mutex, OnceLock};
