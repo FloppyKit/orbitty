@@ -207,12 +207,15 @@ test("railWheelNeeds level-1 abbrevs stay outside the planet hit and preview tod
   const eachAt = list.indexOf("{#each items as item, i (item.stop)}");
   assert.ok(eachAt >= 0);
   const each = balanced(list, eachAt, "{#each", "{/each}");
-  assert.ok(each.includes('class="arch-abbrevs"'));
+  assert.equal(each.includes('class="arch-abbrevs"'), false);
+  assert.equal(each.includes("ul.arch-abbrevs"), false);
+  assert.equal(each.includes("BoardSnapshot"), false);
+  assert.equal(each.includes("BoardPreview"), false);
   assert.equal(each.includes("{#if i === center}"), false);
   const ifAt = each.indexOf('item.kind === "planet" && item.pid && !archHidden');
-  const ulAt = each.indexOf('class="arch-abbrevs"');
-  assert.ok(ifAt >= 0 && ulAt > ifAt);
-  const prelude = each.slice(ifAt, ulAt);
+  const columnAt = each.search(/<KanbanPage|<BoardColumns/);
+  assert.ok(ifAt >= 0 && columnAt > ifAt);
+  const prelude = each.slice(ifAt, columnAt);
   assert.match(prelude, /archHidden\(i\)/);
   assert.match(prelude, /front === "arch"/);
   assert.doesNotMatch(prelude, /i === center/);
@@ -220,14 +223,14 @@ test("railWheelNeeds level-1 abbrevs stay outside the planet hit and preview tod
   assert.equal(hits.length, 2);
   for (const hit of hits) {
     assert.equal(hit.includes("arch-abbrev"), false);
+    assert.equal(hit.includes("KanbanPage"), false);
+    assert.equal(hit.includes("BoardColumns"), false);
     assert.equal(hit.includes("openAbbrev"), false);
   }
   assert.match(each, /onclick=\{\(\) => onTileClick\(item, i\)\}/);
-  const abbrevAt = each.indexOf('class="arch-abbrev"');
-  const abbrevBtn = each.slice(abbrevAt, abbrevAt + 320);
-  assert.match(abbrevBtn, /openAbbrev/);
-  assert.doesNotMatch(abbrevBtn, /toggleDoing|completeTodo|archEnter|onTileClick/);
-  assert.match(each, /\+\{abbrev\.more\}/);
+  assert.match(each, /openAbbrev/);
+  assert.doesNotMatch(each, /openDetail/);
+  assert.doesNotMatch(each, /load_state|loadState/);
   const click = fnBody(list, "onTileClick");
   assert.match(click, /archEnter/);
   assert.doesNotMatch(click, /openAbbrev|abbrevPick|toggleDoing|completeTodo|planetAbbrevs/);
@@ -342,4 +345,87 @@ test("railWheelNeeds level-2 habitat then board then needed then windows", () =>
   assert.equal(place.includes("rl2-scene"), false);
   assert.equal(place.includes('kind === "scene"'), false);
   assert.match(place, /stop: "rl2-habitat"/);
+});
+
+test("railWheelNeeds_level1_column_reuses_board_without_preview", () => {
+  const kanban = readFileSync(new URL("../src/lib/KanbanPage.svelte", import.meta.url), "utf8");
+  const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
+  const lists = readFileSync(new URL("../src/routes/+page.svelte", import.meta.url), "utf8");
+  const well = readFileSync(new URL("../src/lib/companion/Well.svelte", import.meta.url), "utf8");
+  assert.match(kanban, /columnsOnly\s*=\s*false/);
+  const previewAt = kanban.indexOf("<BoardPreview");
+  assert.ok(previewAt >= 0);
+  const gate = kanban.lastIndexOf("columnsOnly", previewAt);
+  assert.ok(gate >= 0);
+  assert.match(kanban.slice(gate, previewAt), /!columnsOnly/);
+  const l2 = list.indexOf("railPlanet={boardPlanet}");
+  assert.ok(l2 >= 0);
+  const l2Tag = list.lastIndexOf("<KanbanPage", l2);
+  const l2End = list.indexOf("/>", l2);
+  assert.ok(l2Tag >= 0 && l2End > l2Tag);
+  const l2Mount = list.slice(l2Tag, l2End);
+  assert.match(l2Mount, /embedded/);
+  assert.doesNotMatch(l2Mount, /columnsOnly/);
+  const eachAt = list.indexOf("{#each items as item, i (item.stop)}");
+  assert.ok(eachAt >= 0);
+  const each = balanced(list, eachAt, "{#each", "{/each}");
+  assert.match(each, /columnsOnly/);
+  assert.match(each, /<KanbanPage|<BoardColumns/);
+  assert.doesNotMatch(each, /BoardPreview|BoardSnapshot|class="arch-abbrevs"/);
+  const mountAt = kanban.indexOf("onMount(async () => {");
+  const listenAt = kanban.indexOf('listen("state:changed", loadState)', mountAt);
+  assert.ok(mountAt >= 0 && listenAt > mountAt);
+  assert.match(kanban.slice(mountAt, listenAt), /if \(columnsOnly\) return/);
+  assert.equal(lists.includes("columnsOnly"), false);
+  assert.equal(well.includes("columnsOnly"), false);
+});
+
+function fnBodyNamed(src: string, signature: string): string {
+  const at = src.indexOf(signature);
+  assert.ok(at >= 0, signature);
+  const open = src.indexOf("{", at);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return src.slice(at, i + 1);
+    }
+  }
+  return "";
+}
+
+test("onTileClick_opens_habitat_and_enters_level2", () => {
+  const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
+  const ring = readFileSync(new URL("../src/lib/rail/pageRing.svelte.ts", import.meta.url), "utf8");
+  const pointer = readFileSync(new URL("../src/lib/rail/pagePointer.svelte.ts", import.meta.url), "utf8");
+  const click = fnBody(list, "onTileClick");
+  const planetAt = click.indexOf('item.kind === "planet"');
+  const unmappedAt = click.indexOf('item.kind === "unmapped"');
+  assert.ok(planetAt >= 0 && unmappedAt > planetAt);
+  const planet = click.slice(planetAt, unmappedAt);
+  assert.match(planet, /archEnter/);
+  assert.match(planet, /raisePlanet/);
+  assert.doesNotMatch(planet, /openAbbrev/);
+  const open = fnBodyNamed(pointer, "export function raisePlanet(");
+  assert.match(open, /set_planets_hidden/);
+  assert.match(open, /habitat:expand/);
+  assert.match(open, /bring_planet_front/);
+  assert.match(open, /locate_planet/);
+  assert.doesNotMatch(open, /bring_all_front/);
+  assert.match(list, /item\.kind === "habitat" && archState\.pid\) rail\.raisePlanet\(archState\.pid\)/);
+  assert.match(list, /archState\.pid && rail\.raisePlanet\(archState\.pid\)/);
+  const confirm = fnBody(ring, "confirmLayer2Stop");
+  assert.match(confirm, /kind === "habitat"/);
+  assert.match(confirm, /raisePlanet/);
+  assert.match(confirm, /kind === "needed"/);
+  assert.match(confirm, /armNeededMouth/);
+  assert.match(confirm, /kind === "board"/);
+  assert.match(confirm, /enterBoard/);
+  assert.match(confirm, /wakeSleeper/);
+  assert.match(confirm, /focusRow/);
+  assert.doesNotMatch(confirm, /rl2-scene|kind === "scene"/);
+  assert.equal(list.includes("rl2-scene"), false);
+  assert.equal(list.includes('kind === "scene"'), false);
 });
