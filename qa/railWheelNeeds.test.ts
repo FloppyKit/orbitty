@@ -8,6 +8,25 @@ function card(partial: HabitatCard): HabitatCard {
   return partial;
 }
 
+function balanced(src: string, at: number, open: string, close: string): string {
+  let depth = 0;
+  let i = at;
+  while (i < src.length) {
+    const nextOpen = src.indexOf(open, i);
+    const nextClose = src.indexOf(close, i);
+    if (nextClose < 0) return src.slice(at);
+    if (nextOpen >= 0 && nextOpen < nextClose) {
+      depth++;
+      i = nextOpen + open.length;
+    } else {
+      depth--;
+      i = nextClose + close.length;
+      if (depth === 0) return src.slice(at, i);
+    }
+  }
+  return src.slice(at);
+}
+
 function fnBody(src: string, name: string): string {
   const at = src.indexOf(`function ${name}`);
   assert.ok(at >= 0, name);
@@ -186,9 +205,8 @@ test("railWheelNeeds level-1 abbrevs stay outside the planet hit and preview tod
   const list = readFileSync(new URL("../src/lib/rail/List.svelte", import.meta.url), "utf8");
   const page = readFileSync(new URL("../src/lib/RailPage.svelte", import.meta.url), "utf8");
   const eachAt = list.indexOf("{#each items as item, i (item.stop)}");
-  const eachEnd = list.indexOf("{/each}", eachAt);
-  assert.ok(eachAt >= 0 && eachEnd > eachAt);
-  const each = list.slice(eachAt, eachEnd);
+  assert.ok(eachAt >= 0);
+  const each = balanced(list, eachAt, "{#each", "{/each}");
   assert.ok(each.includes('class="arch-abbrevs"'));
   assert.equal(each.includes("{#if i === center}"), false);
   const ifAt = each.indexOf('item.kind === "planet" && item.pid && !archHidden');

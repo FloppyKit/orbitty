@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Project, WindowInfo } from "../persist";
+  import type { KanbanCard, Project, WindowInfo } from "../persist";
   import {
     COACH_CLAIM_LABEL,
     COACH_CLAIM_STOP,
@@ -109,6 +109,19 @@
   }
   const centred2 = $derived(layer2[archState?.center2 ?? 0] ?? null);
   let thumb = $state<{ state: string; jpeg?: string | null; forId: string } | null>(null);
+  let abbrevPick = $state<{ pid: string; id: string } | null>(null);
+  const abbrevLive = $derived.by(() => {
+    const pick = abbrevPick;
+    if (!pick || archState.front !== "arch") return null;
+    const card = ((rail.planetCards(pick.pid) ?? []) as KanbanCard[]).find((c) => c.id === pick.id);
+    if (!card) return null;
+    if (card.kind === "needed") {
+      if (card.neededState !== "open" && card.neededState !== "later") return null;
+      return { branch: "needed" as const, card };
+    }
+    if (card.status !== "todo" && card.status !== "doing") return null;
+    return { branch: "todo" as const, card };
+  });
   const thumbForCard = $derived(
     thumb && centred2 && thumb.forId === centred2.id ? thumb : null,
   );
@@ -475,6 +488,11 @@
       rail.applyBeside("settings");
       rail.openStageDest("settings");
     } else if (action === "newProject") rail.creatingProject = true;
+  }
+
+  function openAbbrev(pid: string | undefined, id: string | undefined) {
+    if (!pid || !id) return;
+    abbrevPick = { pid, id };
   }
 
   function selectLayer(item: Layer2Item) {
@@ -923,6 +941,27 @@
                   >{#if item.kind === "planet" && item.pid}<span class="arch-dot" style={`background:${rail.planetCss(item.pid)}`}></span>{:else}<span class="arch-dot"></span>{/if}{itemLabel(item)}</span>
                 </span>
               </button>
+              {#if item.kind === "planet" && item.pid && !archHidden(i) && archState.front === "arch"}
+                {@const pid = item.pid}
+                {@const abbrev = rail.planetAbbrevs(pid)}
+                {#if abbrev.rows.length > 0}
+                  <ul class="arch-abbrevs">
+                    {#each abbrev.rows as row (row.id)}
+                      <li>
+                        <button
+                          type="button"
+                          class="arch-abbrev"
+                          class:is-open={abbrevPick?.id === row.id && abbrevPick?.pid === pid}
+                          onclick={() => openAbbrev(pid, row.id)}
+                        >{row.title || "Untitled"}</button>
+                      </li>
+                    {/each}
+                    {#if abbrev.more > 0}
+                      <li class="arch-abbrev-more">+{abbrev.more}</li>
+                    {/if}
+                  </ul>
+                {/if}
+              {/if}
               {#if item.kind === "add" && rail.creatingProject && !archHidden(i)}
                 <span class="newproj spin-newproj">
                   <input
@@ -940,6 +979,30 @@
           {/each}
         </ul>
         </div>
+        {#if abbrevLive}
+          <div class="l1-abbrev-preview" style={rectStyle(mirror.expanded)}>
+            {#if abbrevLive.branch === "needed"}
+              {@const card = abbrevLive.card}
+              <div class="l1-needed-preview">
+                <span class="l1-abbrev-title">{card.title || "Needed"}</span>
+                {#if card.neededWhy}<span class="l1-abbrev-why">{card.neededWhy}</span>{/if}
+              </div>
+              <!-- l1-needed-preview-end -->
+            {:else}
+              {@const card = abbrevLive.card}
+              <div class="l1-todo-preview">
+                <span class="l1-abbrev-title">{card.title || "Todo"}</span>
+                {#if card.status === "doing"}
+                  <button type="button" class="mini" onclick={(e) => rail.toggleDoing(card, e)}>Park</button>
+                {:else}
+                  <button type="button" class="mini" onclick={(e) => rail.toggleDoing(card, e)}>Start</button>
+                {/if}
+                <button type="button" class="mini" onclick={() => rail.completeTodo(card)}>Mark done</button>
+              </div>
+              <!-- l1-todo-preview-end -->
+            {/if}
+          </div>
+        {/if}
         {#if archState.pid}
           <div
             class="layer2-ring"

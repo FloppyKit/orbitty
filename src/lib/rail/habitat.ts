@@ -139,6 +139,23 @@ export function boardSnapshot<T extends HabitatCard>(
   return out;
 }
 
+/** Level-1 titles for one planet. Same open-work filters as boardSnapshot:
+ *  open Neededs, then later Neededs, then doing, then todo. Done cards and
+ *  answered or skipped Neededs are omitted. The cap is across the whole list. */
+export function planetAbbrevs<T extends HabitatCard>(
+  cards: readonly T[],
+  pid: string,
+  cap = 3,
+): { rows: T[]; more: number } {
+  const all = [
+    ...neededFor(cards, pid),
+    ...statusFor(cards, pid, "doing"),
+    ...statusFor(cards, pid, "todo"),
+  ];
+  const n = Math.max(0, cap);
+  return { rows: all.slice(0, n), more: Math.max(0, all.length - n) };
+}
+
 /** Open todos for the Todos control. Same filter as RailPage.todosFor. */
 export function planetCount(cards: readonly HabitatCard[], pid: string): number {
   return cards.filter(

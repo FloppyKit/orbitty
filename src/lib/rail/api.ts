@@ -17,6 +17,11 @@ export interface RailHabitatApi {
   openPlanetTodos: (pid: string) => Promise<void>;
   focusRow: (w: WindowInfo) => Promise<void>;
   planetCount: (pid: string) => number;
+  planetAbbrevs: (pid: string) => {
+    rows: { id: string; title?: string; kind?: string | null; status?: string | null }[];
+    more: number;
+  };
+  toggleDoing: (card: KanbanCard, event: MouseEvent) => unknown;
 }
 
 /** View-only arch. Nothing here is written to disk. */

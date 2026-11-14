@@ -70,6 +70,7 @@
     autoHideWanted,
     habitatConfirm,
     normalizeCols,
+    planetAbbrevs,
     planetCount,
     raisePlan,
     stageCollapsedIds,
@@ -80,6 +81,7 @@
     type RailEdge,
     type StageRole,
   } from "./rail/habitat";
+  import { errText as errTextBody, moveCard as moveCardBody, mutate as mutateBody, toggleDoing as toggleDoingBody } from "./board/pageMutate.svelte";
   import type {
     ActionShortcut,
     AgentRun,
@@ -1233,6 +1235,45 @@
     return logEventBody({invoke}, eType, content, projectId);
   }
 
+  async function reloadKanban() {
+    const s = await invoke<PersistedState>("load_state");
+    kanbanCards = s.kanbanCards ?? [];
+    pointsLedger = s.pointsLedger ?? [];
+    agentRuns = s.agentRuns ?? [];
+  }
+
+  function mutate(fn: (s: PersistedState) => void, origin?: string) {
+    return mutateBody(
+      {
+        invoke,
+        loadState: reloadKanban,
+        errText: (e: unknown) => errTextBody({}, e),
+        showLinkToast: () => {},
+      },
+      fn,
+      origin,
+    );
+  }
+
+  function moveCard(card: KanbanCard, target: KanbanCard["status"]) {
+    return moveCardBody(
+      {
+        completeCard: (c: KanbanCard) => completeTodo(c),
+        get kanbanCards() { return kanbanCards; },
+        set kanbanCards(v: KanbanCard[]) { kanbanCards = v; },
+        logEvent,
+        mutate,
+      },
+      card,
+      target,
+    );
+  }
+
+  function toggleDoing(card: KanbanCard, e: MouseEvent) {
+    if (card.kind === "needed") return;
+    return toggleDoingBody({ invoke, loadState: reloadKanban, moveCard }, card, e);
+  }
+
   // "+ To-do" under a project section: a loose todo card on that project.
   // Creating one opens Lists focused on the new card.
   function addTodoTo(projectId: string) {
@@ -2034,6 +2075,7 @@
     closeBeingEditor,
     commitRename,
     completeTodo,
+    toggleDoing,
     completeWindow,
     get completingIds() { return completingIds; },
     set completingIds(v) { completingIds = v; },
@@ -2183,6 +2225,7 @@
     focusRow,
     toggleBoardCol,
     planetCount: (pid: string) => planetCount(kanbanCards, pid),
+    planetAbbrevs: (pid: string) => planetAbbrevs(kanbanCards, pid),
     get railBoardCols() {
       return railBoardCols;
     },
