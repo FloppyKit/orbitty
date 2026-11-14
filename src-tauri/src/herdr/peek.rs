@@ -228,34 +228,37 @@ pub fn cap_preview(text: &str) -> String {
     let mut hidden: u32 = 0;
     let content_cap = MAX_LINES.saturating_sub(1);
     if lines.len() > content_cap {
-        hidden += (lines.len() - content_cap) as u32;
-        lines.truncate(content_cap);
+        hidden = (lines.len() - content_cap) as u32;
+        let drop_n = lines.len() - content_cap;
+        lines.drain(..drop_n);
     }
-    loop {
-        let marker = marker_line(hidden);
+    while !lines.is_empty() {
         let body = lines.join("\n");
-        let extra = if hidden > 0 { 1 + marker.len() } else { 0 };
-        if body.len() + extra <= MAX_BYTES || lines.is_empty() {
+        let size = if hidden == 0 {
+            body.len()
+        } else {
+            marker_line(hidden).len() + 1 + body.len()
+        };
+        if size <= MAX_BYTES {
             break;
         }
-        lines.pop();
-        hidden += 1;
+        lines.remove(0);
+        hidden = hidden.saturating_add(1);
     }
     let mut body = lines.join("\n");
     if hidden > 0 {
-        if !body.is_empty() {
-            body.push('\n');
+        let marker = marker_line(hidden);
+        if body.is_empty() {
+            body = marker;
+        } else {
+            body.insert_str(0, &format!("{marker}\n"));
         }
-        body.push_str(&marker_line(hidden));
-    }
-    if body.len() > MAX_BYTES {
-        body.truncate(MAX_BYTES);
     }
     body
 }
 
 fn marker_line(hidden: u32) -> String {
-    format!("… {hidden} lines hidden")
+    format!("… {hidden} lines hidden above")
 }
 
 /// Snapshot + one events sample + reads across `duration_ms` at a 2s step.

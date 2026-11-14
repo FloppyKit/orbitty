@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
 
   type Capsule = {
     card: string;
@@ -19,10 +19,39 @@
   let text = $state("");
   let preview = $state(false);
   let timer: ReturnType<typeof setInterval> | undefined;
+  let followBottom = true;
+  let watchedBody: HTMLPreElement | null = null;
+  let pinning = false;
 
   function stop() {
     if (timer) clearInterval(timer);
     timer = undefined;
+  }
+
+  function nearBottom(el: HTMLElement): boolean {
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
+  }
+
+  function watchBody(el: HTMLPreElement) {
+    if (watchedBody === el) return;
+    watchedBody = el;
+    el.addEventListener("scroll", () => {
+      if (pinning) return;
+      followBottom = nearBottom(el);
+    });
+  }
+
+  async function stickToBottom() {
+    const follow = followBottom;
+    await tick();
+    const found = document.querySelector("pre.body");
+    if (!(found instanceof HTMLPreElement)) return;
+    watchBody(found);
+    if (!follow) return;
+    pinning = true;
+    found.scrollTop = found.scrollHeight;
+    pinning = false;
+    followBottom = true;
   }
 
   async function refresh() {
@@ -36,6 +65,7 @@
       status = "unknown";
       text = "";
     }
+    await stickToBottom();
   }
 
   function arm() {
@@ -44,6 +74,7 @@
   }
 
   function openPeek() {
+    followBottom = true;
     preview = true;
     arm();
     void refresh();
@@ -52,6 +83,8 @@
   function closePeek() {
     preview = false;
     text = "";
+    followBottom = true;
+    watchedBody = null;
     stop();
   }
 
@@ -78,6 +111,8 @@
       termState = ev.payload.state || "";
       text = "";
       preview = false;
+      followBottom = true;
+      watchedBody = null;
       shown = true;
       stop();
     }).then((fn) => {

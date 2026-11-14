@@ -301,7 +301,63 @@ fn peek_caps_lines() {
     let short = (0..250).map(|i| format!("n{i}")).collect::<Vec<_>>().join("\n");
     let capped = peek::cap_preview(&short);
     assert_eq!(capped.lines().count(), 200);
-    assert!(capped.contains("… 51 lines hidden"), "{capped}");
+    assert!(capped.contains("… 51 lines hidden above"), "{capped}");
+}
+
+#[test]
+fn peek_caps_keeps_tail() {
+    let short = (0..250).map(|i| format!("n{i}")).collect::<Vec<_>>().join("\n");
+    let capped = peek::cap_preview(&short);
+    let lines: Vec<&str> = capped.lines().collect();
+    assert_eq!(lines.len(), 200, "{capped}");
+    assert_eq!(lines[0], "… 51 lines hidden above");
+    assert_eq!(lines[1], "n51");
+    assert_eq!(*lines.last().unwrap(), "n249");
+}
+
+#[test]
+fn peek_tail_marker_first_line() {
+    // 201 lines: the marker counts, so two lines drop, not one.
+    let over = (0..201).map(|i| format!("n{i}")).collect::<Vec<_>>().join("\n");
+    let capped = peek::cap_preview(&over);
+    let lines: Vec<&str> = capped.lines().collect();
+    assert_eq!(lines.len(), 200, "{capped}");
+    assert_eq!(lines[0], "… 2 lines hidden above");
+    assert_eq!(lines[1], "n2");
+    assert_eq!(*lines.last().unwrap(), "n200");
+    assert!(!lines.last().unwrap().contains("hidden"), "{capped}");
+}
+
+#[test]
+fn peek_tail_byte_cap_keeps_last_line() {
+    let fat = "x".repeat(400);
+    let mut lines = vec![fat; 60];
+    lines.push("TAIL-KEEP".into());
+    let raw = lines.join("\n");
+    assert!(raw.len() > 16 * 1024, "{}", raw.len());
+    let capped = peek::cap_preview(&raw);
+    assert!(capped.len() <= 16 * 1024, "{}", capped.len());
+    let out: Vec<&str> = capped.lines().collect();
+    assert!(out.len() <= 200, "{}", out.len());
+    assert!(out.iter().all(|l| l.chars().count() <= 400));
+    assert_eq!(*out.last().unwrap(), "TAIL-KEEP");
+    assert!(out[0].starts_with("… "), "{capped}");
+    assert!(out[0].ends_with("lines hidden above"), "{capped}");
+}
+
+#[test]
+fn peek_short_text_unchanged() {
+    let fit = (0..199).map(|i| format!("s{i}")).collect::<Vec<_>>().join("\n");
+    assert_eq!(peek::cap_preview(&fit), fit);
+    let capped = peek::cap_preview(&format!("{fit}\ns199"));
+    let lines: Vec<&str> = capped.lines().collect();
+    assert_eq!(lines.len(), 200, "{capped}");
+    assert_eq!(lines[0], "… 1 lines hidden above");
+    assert_eq!(lines[1], "s1");
+    assert_eq!(*lines.last().unwrap(), "s199");
+    assert_eq!(peek::cap_preview("hello\nworld"), "hello\nworld");
+    assert_eq!(peek::cap_preview(&"b".repeat(401)), "b".repeat(400));
+    assert_eq!(peek::cap_preview(""), "");
 }
 
 #[test]
