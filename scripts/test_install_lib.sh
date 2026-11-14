@@ -93,6 +93,43 @@ else
   fi
 fi
 
+# src-tauri/target points outside the repo. The real Orbitty.app lives
+# on that far side. Only the bundle is removed.
+mk
+root=$REPLY
+mk
+far=$REPLY
+root_phys=$(cd -- "$root" && pwd -P)
+far_phys=$(cd -- "$far" && pwd -P)
+mkdir -p "$far/release/bundle/macos/Orbitty.app/Contents"
+mkdir -p "$far/release/bundle/macos/Other.app"
+print -r -- marker > "$far/release/bundle/macos/Orbitty.app/Contents/marker"
+print -r -- sibling > "$far/release/bundle/macos/sibling"
+print -r -- keep > "$far/release/bundle/macos/Other.app/keep"
+print -r -- tree > "$far/tree-keep"
+mkdir -p "$root/src-tauri"
+ln -s "$far" "$root/src-tauri/target"
+if [[ $far_phys == "$root_phys" || $far_phys == "$root_phys"/* ]]; then
+  bad "clean_accepts_symlinked_target_dir"
+elif clean_build_bundle "$root"; then
+  if [[ ! -e $far/release/bundle/macos/Orbitty.app \
+        && ! -e $root/src-tauri/target/release/bundle/macos/Orbitty.app \
+        && -f $far/release/bundle/macos/sibling \
+        && $(<"$far/release/bundle/macos/sibling") == sibling \
+        && -f $far/release/bundle/macos/Other.app/keep \
+        && $(<"$far/release/bundle/macos/Other.app/keep") == keep \
+        && -f $far/tree-keep && $(<"$far/tree-keep") == tree \
+        && -L $root/src-tauri/target \
+        && $(readlink "$root/src-tauri/target") == "$far" \
+        && -d $far/release/bundle/macos ]]; then
+    pass "clean_accepts_symlinked_target_dir"
+  else
+    bad "clean_accepts_symlinked_target_dir"
+  fi
+else
+  bad "clean_accepts_symlinked_target_dir"
+fi
+
 # --- warn_stale_path_ctl ---
 
 mk
