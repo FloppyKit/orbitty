@@ -1,3 +1,4 @@
+mod ns_hold;
 mod attach;
 pub(crate) use attach::attach_md;
 pub(crate) use attach::attach_send;

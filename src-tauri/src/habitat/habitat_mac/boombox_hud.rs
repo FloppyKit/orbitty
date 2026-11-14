@@ -336,9 +336,9 @@ pub(crate) unsafe fn draw(hud: &HudDraw) {
         xRadius: r.pill.size.height / 2.0
         yRadius: r.pill.size.height / 2.0];
     let _: () = msg_send![pill, fill];
-    let text = ns_string("new track");
+    let text = ns_string("new track").as_ptr();
     let font: *mut Object = msg_send![class!(NSFont), systemFontOfSize: 11.0f64];
-    let keys = [ns_string("NSFont"), ns_string("NSColor")];
+    let keys = [ns_string("NSFont").as_ptr(), ns_string("NSColor").as_ptr()];
     let vals = [font, white];
     let attrs: *mut Object = msg_send![class!(NSDictionary),
         dictionaryWithObjects: vals.as_ptr()

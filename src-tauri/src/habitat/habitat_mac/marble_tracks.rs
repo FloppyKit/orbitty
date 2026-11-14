@@ -217,11 +217,15 @@ pub(crate) fn assign_tracks(
             let panel = planet.panel as *mut Object;
             unsafe {
                 let frame: NSRect = msg_send![panel, frame];
-                let _: () = msg_send![panel,
-                    setFrameOrigin: NSPoint {
-                        x: pos.x - frame.size.width / 2.0,
-                        y: pos.y - frame.size.height / 2.0,
-                    }];
+                let origin = NSPoint {
+                    x: pos.x - frame.size.width / 2.0,
+                    y: pos.y - frame.size.height / 2.0,
+                };
+                let same = (origin.x - frame.origin.x).abs() < 0.5
+                    && (origin.y - frame.origin.y).abs() < 0.5;
+                if !same {
+                    let _: () = msg_send![panel, setFrameOrigin: origin];
+                }
             }
             // Z-law: boolean front/back vs THIS marble's own host only.
             // sin θ with an equator deadband so the bit never chatters.

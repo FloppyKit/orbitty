@@ -12,24 +12,61 @@ use super::{
     max_radius, ns_string, EXPANDED_RADIUS, MARBLE_RADIUS, MIN_RADIUS, NSRect,
 };
 
-pub(crate) unsafe fn screens() -> Vec<(String, NSRect)> {
+struct ScreenSnap {
+    frames: Vec<(String, NSRect)>,
+    visible: Vec<(String, NSRect)>,
+}
+
+fn snap_slot() -> &'static std::sync::Mutex<Option<ScreenSnap>> {
+    static SNAP: std::sync::OnceLock<std::sync::Mutex<Option<ScreenSnap>>> = std::sync::OnceLock::new();
+    SNAP.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn display_dirty() -> &'static std::sync::atomic::AtomicBool {
+    static DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+    &DIRTY
+}
+
+fn watch_displays() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGDisplayRegisterReconfigurationCallback(
+                cb: extern "C" fn(u32, u32, *mut std::ffi::c_void),
+                user: *mut std::ffi::c_void,
+            ) -> i32;
+        }
+        extern "C" fn on_display(_id: u32, _flags: u32, _user: *mut std::ffi::c_void) {
+            display_dirty().store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        unsafe {
+            let _ = CGDisplayRegisterReconfigurationCallback(on_display, std::ptr::null_mut());
+        }
+    });
+}
+
+unsafe fn load_snap() -> ScreenSnap {
     let arr: *mut Object = msg_send![class!(NSScreen), screens];
     if arr.is_null() {
-        return Vec::new();
+        return ScreenSnap { frames: Vec::new(), visible: Vec::new() };
     }
     let count: usize = msg_send![arr, count];
-    let mut out = Vec::with_capacity(count);
+    let mut frames = Vec::with_capacity(count);
+    let mut visible = Vec::with_capacity(count);
+    let key = ns_string("NSScreenNumber");
     for i in 0..count {
         let s: *mut Object = msg_send![arr, objectAtIndex: i];
         if s.is_null() {
             continue;
         }
         let frame: NSRect = msg_send![s, frame];
+        let vis: NSRect = msg_send![s, visibleFrame];
         let desc: *mut Object = msg_send![s, deviceDescription];
         let num: *mut Object = if desc.is_null() {
             std::ptr::null_mut()
         } else {
-            msg_send![desc, objectForKey: ns_string("NSScreenNumber")]
+            msg_send![desc, objectForKey: key.as_ptr()]
         };
         let id = if num.is_null() {
             format!("screen-{:x}", s as usize)
@@ -37,42 +74,41 @@ pub(crate) unsafe fn screens() -> Vec<(String, NSRect)> {
             let n: u32 = msg_send![num, unsignedIntValue];
             n.to_string()
         };
-        out.push((id, frame));
+        visible.push((id.clone(), vis));
+        frames.push((id, frame));
     }
-    out
+    ScreenSnap { frames, visible }
+}
+
+unsafe fn snap() -> ScreenSnap {
+    watch_displays();
+    let mut slot = snap_slot().lock().unwrap_or_else(|e| e.into_inner());
+    if !display_dirty().load(std::sync::atomic::Ordering::Relaxed) {
+        if let Some(have) = slot.as_ref() {
+            return ScreenSnap {
+                frames: have.frames.clone(),
+                visible: have.visible.clone(),
+            };
+        }
+    }
+    let loaded = load_snap();
+    display_dirty().store(false, std::sync::atomic::Ordering::Relaxed);
+    *slot = Some(ScreenSnap {
+        frames: loaded.frames.clone(),
+        visible: loaded.visible.clone(),
+    });
+    loaded
+}
+
+pub(crate) unsafe fn screens() -> Vec<(String, NSRect)> {
+    snap().frames
 }
 
 /// visibleFrame excludes the menu bar / Dock — drift clamps to it so a
 /// marble never wanders under OS chrome. (`screens()` keeps returning the
 /// full frame; persisted coords round-trip through that.)
 pub(crate) unsafe fn visible_frames() -> Vec<(String, NSRect)> {
-    let arr: *mut Object = msg_send![class!(NSScreen), screens];
-    if arr.is_null() {
-        return Vec::new();
-    }
-    let count: usize = msg_send![arr, count];
-    let mut out = Vec::with_capacity(count);
-    for i in 0..count {
-        let s: *mut Object = msg_send![arr, objectAtIndex: i];
-        if s.is_null() {
-            continue;
-        }
-        let frame: NSRect = msg_send![s, visibleFrame];
-        let desc: *mut Object = msg_send![s, deviceDescription];
-        let num: *mut Object = if desc.is_null() {
-            std::ptr::null_mut()
-        } else {
-            msg_send![desc, objectForKey: ns_string("NSScreenNumber")]
-        };
-        let id = if num.is_null() {
-            format!("screen-{:x}", s as usize)
-        } else {
-            let n: u32 = msg_send![num, unsignedIntValue];
-            n.to_string()
-        };
-        out.push((id, frame));
-    }
-    out
+    snap().visible
 }
 
 pub(crate) fn primary_screen_id() -> Option<String> {

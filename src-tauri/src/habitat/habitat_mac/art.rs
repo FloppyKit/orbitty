@@ -376,7 +376,7 @@ fn char_preview_grid(look: crate::chars::CharLook, px: u32) -> Result<String, St
                 samplesPerPixel: 4isize
                 hasAlpha: true
                 isPlanar: false
-                colorSpaceName: ns_string("NSCalibratedRGBColorSpace")
+                colorSpaceName: ns_string("NSCalibratedRGBColorSpace").as_ptr()
                 bytesPerRow: (width * 4) as isize
                 bitsPerPixel: 32isize];
             if rep.is_null() {

@@ -63,7 +63,7 @@ pub(crate) unsafe fn walker_context_menu(this: &Object, event: *mut Object, entr
         return;
     };
     let menu: *mut Object = msg_send![class!(NSMenu), alloc];
-    let menu: *mut Object = msg_send![menu, initWithTitle: ns_string("")];
+    let menu: *mut Object = msg_send![menu, initWithTitle: ns_string("").as_ptr()];
     if menu.is_null() {
         return;
     }
@@ -87,7 +87,7 @@ pub(crate) unsafe fn walker_context_menu(this: &Object, event: *mut Object, entr
     if labels.len() > 1 {
         add_separator(menu);
         let sub: *mut Object = msg_send![class!(NSMenu), alloc];
-        let sub: *mut Object = msg_send![sub, initWithTitle: ns_string("")];
+        let sub: *mut Object = msg_send![sub, initWithTitle: ns_string("").as_ptr()];
         if !sub.is_null() {
             for (pid, pname) in &names {
                 add_menu_item(
@@ -102,9 +102,9 @@ pub(crate) unsafe fn walker_context_menu(this: &Object, event: *mut Object, entr
             }
             let item: *mut Object = msg_send![class!(NSMenuItem), alloc];
             let item: *mut Object = msg_send![item,
-                initWithTitle: ns_string(labels[1])
+                initWithTitle: ns_string(labels[1]).as_ptr()
                 action: Sel::from_ptr(std::ptr::null())
-                keyEquivalent: ns_string("")];
+                keyEquivalent: ns_string("").as_ptr()];
             if !item.is_null() {
                 let _: () = msg_send![item, setSubmenu: sub];
                 let _: () = msg_send![menu, addItem: item];

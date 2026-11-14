@@ -138,13 +138,7 @@ fn base64_encode(data: &[u8]) -> String {
     out
 }
 
-/// Toll-free-bridged NSString, intentionally leaked (used as a constant).
-unsafe fn ns_string(s: &str) -> *mut Object {
-    let cf = CFString::new(s);
-    let raw = cf.as_concrete_TypeRef() as *mut Object;
-    std::mem::forget(cf);
-    raw
-}
+use crate::ns_hold::ns_string;
 
 /// Icons are fetched once per app per session; only successes are cached so a
 /// late-loading icon still appears on a later poll.
@@ -258,7 +252,7 @@ unsafe fn app_icon_png_base64(app: *mut Object) -> Option<String> {
         samplesPerPixel: 4usize
         hasAlpha: true
         isPlanar: false
-        colorSpaceName: ns_string("NSCalibratedRGBColorSpace")
+        colorSpaceName: ns_string("NSCalibratedRGBColorSpace").as_ptr()
         bytesPerRow: 0usize
         bitsPerPixel: 0usize
     ];

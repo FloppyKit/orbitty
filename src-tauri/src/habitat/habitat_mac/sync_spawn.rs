@@ -225,7 +225,7 @@ pub(crate) fn materialize(
         let _: () = msg_send![view, release]; // panel owns it now
         // Borderless panels never draw a title, but the name shows up
         // in window lists / screen-recording prompts.
-        let _: () = msg_send![panel, setTitle: ns_string(&format!("Orbitty — {name}"))];
+        let _: () = msg_send![panel, setTitle: ns_string(&format!("Orbitty — {name}")).as_ptr()];
         // The panel is born 10×10. setContentView fits the view to that
         // rect, and the marble is drawn at the view center — so a view
         // left at 10×10 clips the disc to nothing. Width+height sizable

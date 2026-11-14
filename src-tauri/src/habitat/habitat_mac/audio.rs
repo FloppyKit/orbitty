@@ -124,7 +124,7 @@ pub(crate) fn start_audio(planet: &mut Planet, music: &str, volume: f32) -> bool
     stop_audio(planet);
     planet.audio_volume = volume;
     unsafe {
-        let url: *mut Object = msg_send![class!(NSURL), fileURLWithPath: ns_string(music)];
+        let url: *mut Object = msg_send![class!(NSURL), fileURLWithPath: ns_string(music).as_ptr()];
         if url.is_null() {
             return false;
         }
@@ -325,7 +325,7 @@ unsafe fn run_open_panel() -> Option<String> {
     let _: () = msg_send![panel, setCanChooseFiles: true];
     let _: () = msg_send![panel, setCanChooseDirectories: false];
     let _: () = msg_send![panel, setAllowsMultipleSelection: false];
-    let _: () = msg_send![panel, setTitle: ns_string("Boombox music")];
+    let _: () = msg_send![panel, setTitle: ns_string("Boombox music").as_ptr()];
 
     let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
     let old_policy: i64 = msg_send![app, activationPolicy];

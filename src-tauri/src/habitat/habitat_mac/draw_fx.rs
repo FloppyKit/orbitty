@@ -159,7 +159,7 @@ pub(crate) unsafe fn draw_center_flash(center: NSPoint, r: f64, text: &str, fade
     let probe = 48.0;
     let probe_font: *mut Object = msg_send![class!(NSFont), boldSystemFontOfSize: probe];
     let white: *mut Object = msg_send![class!(NSColor), whiteColor];
-    let probe_keys = [ns_string("NSFont"), ns_string("NSColor")];
+    let probe_keys = [ns_string("NSFont").as_ptr(), ns_string("NSColor").as_ptr()];
     let probe_vals = [probe_font, white];
     let probe_attrs: *mut Object = msg_send![class!(NSDictionary),
         dictionaryWithObjects: probe_vals.as_ptr()
@@ -168,7 +168,7 @@ pub(crate) unsafe fn draw_center_flash(center: NSPoint, r: f64, text: &str, fade
     if probe_attrs.is_null() {
         return;
     }
-    let probe_size: CGSize = msg_send![ns_text, sizeWithAttributes: probe_attrs];
+    let probe_size: CGSize = msg_send![ns_text.as_ptr(), sizeWithAttributes: probe_attrs];
     let font_size = if probe_size.width > 1.0 {
         (probe * max_w / probe_size.width).clamp(16.0, r * 0.80)
     } else {
@@ -184,7 +184,7 @@ pub(crate) unsafe fn draw_center_flash(center: NSPoint, r: f64, text: &str, fade
     let shadow_color: *mut Object =
         msg_send![black, colorWithAlphaComponent: 0.8f64 * fade];
     let _: () = msg_send![shadow, setShadowColor: shadow_color];
-    let keys = [ns_string("NSFont"), ns_string("NSColor"), ns_string("NSShadow")];
+    let keys = [ns_string("NSFont").as_ptr(), ns_string("NSColor").as_ptr(), ns_string("NSShadow").as_ptr()];
     let vals = [font, ink, shadow];
     let attrs: *mut Object = msg_send![class!(NSDictionary),
         dictionaryWithObjects: vals.as_ptr()
@@ -193,8 +193,8 @@ pub(crate) unsafe fn draw_center_flash(center: NSPoint, r: f64, text: &str, fade
     if attrs.is_null() {
         return;
     }
-    let size: CGSize = msg_send![ns_text, sizeWithAttributes: attrs];
-    let _: () = msg_send![ns_text,
+    let size: CGSize = msg_send![ns_text.as_ptr(), sizeWithAttributes: attrs];
+    let _: () = msg_send![ns_text.as_ptr(),
         drawAtPoint: NSPoint {
             x: center.x - size.width / 2.0,
             y: center.y - size.height / 2.0,
@@ -216,7 +216,7 @@ pub(crate) unsafe fn draw_under_label(center: NSPoint, r: f64, text: &str) {
     let black: *mut Object = msg_send![class!(NSColor), blackColor];
     let shadow_color: *mut Object = msg_send![black, colorWithAlphaComponent: 0.6f64];
     let _: () = msg_send![shadow, setShadowColor: shadow_color];
-    let keys = [ns_string("NSFont"), ns_string("NSColor"), ns_string("NSShadow")];
+    let keys = [ns_string("NSFont").as_ptr(), ns_string("NSColor").as_ptr(), ns_string("NSShadow").as_ptr()];
     let vals = [font, white, shadow];
     let attrs: *mut Object = msg_send![class!(NSDictionary),
         dictionaryWithObjects: vals.as_ptr()
@@ -225,8 +225,8 @@ pub(crate) unsafe fn draw_under_label(center: NSPoint, r: f64, text: &str) {
     if attrs.is_null() {
         return;
     }
-    let size: CGSize = msg_send![ns_text, sizeWithAttributes: attrs];
-    let _: () = msg_send![ns_text,
+    let size: CGSize = msg_send![ns_text.as_ptr(), sizeWithAttributes: attrs];
+    let _: () = msg_send![ns_text.as_ptr(),
         drawAtPoint: NSPoint {
             x: center.x - size.width / 2.0,
             y: center.y + r + 4.0,
@@ -271,7 +271,7 @@ pub(crate) unsafe fn draw_caption(center: NSPoint, r: f64, text: &str) {
     let ns_text = ns_string(text);
     let font: *mut Object = msg_send![class!(NSFont), systemFontOfSize: 11.0f64];
     let white: *mut Object = msg_send![class!(NSColor), whiteColor];
-    let keys = [ns_string("NSFont"), ns_string("NSColor")];
+    let keys = [ns_string("NSFont").as_ptr(), ns_string("NSColor").as_ptr()];
     let vals = [font, white];
     let attrs: *mut Object = msg_send![class!(NSDictionary),
         dictionaryWithObjects: vals.as_ptr()
@@ -280,7 +280,7 @@ pub(crate) unsafe fn draw_caption(center: NSPoint, r: f64, text: &str) {
     if attrs.is_null() {
         return;
     }
-    let size: CGSize = msg_send![ns_text, sizeWithAttributes: attrs];
+    let size: CGSize = msg_send![ns_text.as_ptr(), sizeWithAttributes: attrs];
     let pad_x = 8.0;
     let pad_y = 4.0;
     let pill_w = size.width + pad_x * 2.0;
@@ -299,7 +299,7 @@ pub(crate) unsafe fn draw_caption(center: NSPoint, r: f64, text: &str) {
         xRadius: pill_h / 2.0
         yRadius: pill_h / 2.0];
     let _: () = msg_send![path, fill];
-    let _: () = msg_send![ns_text,
+    let _: () = msg_send![ns_text.as_ptr(),
         drawAtPoint: NSPoint {
             x: pill.origin.x + pad_x,
             y: pill.origin.y + pad_y,

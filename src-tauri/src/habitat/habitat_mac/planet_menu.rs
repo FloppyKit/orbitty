@@ -73,7 +73,7 @@ pub(crate) unsafe fn planet_context_menu(
         return;
     };
     let menu: *mut Object = msg_send![class!(NSMenu), alloc];
-    let menu: *mut Object = msg_send![menu, initWithTitle: ns_string("")];
+    let menu: *mut Object = msg_send![menu, initWithTitle: ns_string("").as_ptr()];
     if menu.is_null() {
         return;
     }

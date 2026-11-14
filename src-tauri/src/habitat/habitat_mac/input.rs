@@ -186,14 +186,14 @@ pub(crate) unsafe fn add_menu_item(
 ) {
     let item: *mut Object = msg_send![class!(NSMenuItem), alloc];
     let item: *mut Object = msg_send![item,
-        initWithTitle: ns_string(title)
+        initWithTitle: ns_string(title).as_ptr()
         action: action
-        keyEquivalent: ns_string("")];
+        keyEquivalent: ns_string("").as_ptr()];
     if item.is_null() {
         return;
     }
     let _: () = msg_send![item, setTarget: target as *mut Object];
-    let _: () = msg_send![item, setRepresentedObject: ns_string(project_id)];
+    let _: () = msg_send![item, setRepresentedObject: ns_string(project_id).as_ptr()];
     if let Some(on) = state {
         let _: () = msg_send![item, setState: if on { 1isize } else { 0isize }];
     }

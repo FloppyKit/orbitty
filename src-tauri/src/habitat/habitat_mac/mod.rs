@@ -341,13 +341,7 @@ pub(crate) fn app_handle() -> Option<&'static AppHandle> {
 
 // small objc helpers
 
-/// Toll-free-bridged NSString, intentionally leaked (used as a constant).
-pub(crate) unsafe fn ns_string(s: &str) -> *mut Object {
-    let cf = CFString::new(s);
-    let raw = cf.as_concrete_TypeRef() as *mut Object;
-    std::mem::forget(cf);
-    raw
-}
+pub(crate) use crate::ns_hold::ns_string;
 
 unsafe fn ns_color(r: f64, g: f64, b: f64, a: f64) -> *mut Object {
     msg_send![class!(NSColor), colorWithCalibratedRed: r green: g blue: b alpha: a]

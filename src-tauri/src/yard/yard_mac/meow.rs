@@ -91,7 +91,7 @@ pub(crate) fn tick(m: &mut Meow, cats_out: bool) {
         let Some(path_str) = path.to_str() else {
             return;
         };
-        let url: *mut Object = msg_send![class!(NSURL), fileURLWithPath: ns_string(path_str)];
+        let url: *mut Object = msg_send![class!(NSURL), fileURLWithPath: ns_string(path_str).as_ptr()];
         if url.is_null() {
             return;
         }

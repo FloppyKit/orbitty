@@ -137,7 +137,7 @@ unsafe fn bake_frame(grid: &[&str; H], body: (f64, f64, f64), glance: u8) -> *mu
         samplesPerPixel: 4isize
         hasAlpha: true
         isPlanar: false
-        colorSpaceName: ns_string("NSCalibratedRGBColorSpace")
+        colorSpaceName: ns_string("NSCalibratedRGBColorSpace").as_ptr()
         bytesPerRow: (W * 4) as isize
         bitsPerPixel: 32isize];
     if rep.is_null() {

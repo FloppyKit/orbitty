@@ -208,13 +208,7 @@ static HOP_PENDING: AtomicBool = AtomicBool::new(false);
 
 // small objc helpers
 
-/// Toll-free-bridged NSString, intentionally leaked (used as a constant).
-unsafe fn ns_string(s: &str) -> *mut Object {
-    let cf = CFString::new(s);
-    let raw = cf.as_concrete_TypeRef() as *mut Object;
-    std::mem::forget(cf);
-    raw
-}
+use crate::ns_hold::ns_string;
 
 fn rand_unit() -> f64 {
     static RNG: OnceLock<Mutex<u64>> = OnceLock::new();
@@ -272,7 +266,7 @@ unsafe fn screens() -> Vec<(String, NSRect)> {
         let num: *mut Object = if desc.is_null() {
             std::ptr::null_mut()
         } else {
-            msg_send![desc, objectForKey: ns_string("NSScreenNumber")]
+            msg_send![desc, objectForKey: ns_string("NSScreenNumber").as_ptr()]
         };
         let id = if num.is_null() {
             format!("screen-{:x}", s as usize)
@@ -1026,14 +1020,14 @@ unsafe fn add_menu_item(
 ) {
     let item: *mut Object = msg_send![class!(NSMenuItem), alloc];
     let item: *mut Object = msg_send![item,
-        initWithTitle: ns_string(title)
+        initWithTitle: ns_string(title).as_ptr()
         action: action
-        keyEquivalent: ns_string("")];
+        keyEquivalent: ns_string("").as_ptr()];
     if item.is_null() {
         return;
     }
     let _: () = msg_send![item, setTarget: target as *mut Object];
-    let _: () = msg_send![item, setRepresentedObject: ns_string(represented)];
+    let _: () = msg_send![item, setRepresentedObject: ns_string(represented).as_ptr()];
     if !enabled {
         let _: () = msg_send![item, setEnabled: false];
     }
@@ -1076,7 +1070,7 @@ unsafe fn cat_menu(this: &Object, event: *mut Object, window_id: &str) {
         return;
     };
     let menu: *mut Object = msg_send![class!(NSMenu), alloc];
-    let menu: *mut Object = msg_send![menu, initWithTitle: ns_string("")];
+    let menu: *mut Object = msg_send![menu, initWithTitle: ns_string("").as_ptr()];
     if menu.is_null() {
         return;
     }
@@ -1091,9 +1085,9 @@ unsafe fn cat_menu(this: &Object, event: *mut Object, window_id: &str) {
     }
     let item: *mut Object = msg_send![class!(NSMenuItem), alloc];
     let item: *mut Object = msg_send![item,
-        initWithTitle: ns_string(&head)
+        initWithTitle: ns_string(&head).as_ptr()
         action: Sel::from_ptr(std::ptr::null())
-        keyEquivalent: ns_string("")];
+        keyEquivalent: ns_string("").as_ptr()];
     if !item.is_null() {
         let _: () = msg_send![item, setEnabled: false];
         let _: () = msg_send![menu, addItem: item];
@@ -1101,7 +1095,7 @@ unsafe fn cat_menu(this: &Object, event: *mut Object, window_id: &str) {
     }
     if !projects.is_empty() {
         let sub: *mut Object = msg_send![class!(NSMenu), alloc];
-        let sub: *mut Object = msg_send![sub, initWithTitle: ns_string("")];
+        let sub: *mut Object = msg_send![sub, initWithTitle: ns_string("").as_ptr()];
         if !sub.is_null() {
             for p in &projects {
                 add_menu_item(
@@ -1115,9 +1109,9 @@ unsafe fn cat_menu(this: &Object, event: *mut Object, window_id: &str) {
             }
             let item: *mut Object = msg_send![class!(NSMenuItem), alloc];
             let item: *mut Object = msg_send![item,
-                initWithTitle: ns_string("Assign to planet")
+                initWithTitle: ns_string("Assign to planet").as_ptr()
                 action: Sel::from_ptr(std::ptr::null())
-                keyEquivalent: ns_string("")];
+                keyEquivalent: ns_string("").as_ptr()];
             if !item.is_null() {
                 let _: () = msg_send![item, setSubmenu: sub];
                 let _: () = msg_send![menu, addItem: item];

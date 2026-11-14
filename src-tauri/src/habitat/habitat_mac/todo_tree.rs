@@ -96,7 +96,7 @@ unsafe fn draw_nearest(img: *mut Object, dest: NSRect) {
         // NSImageInterpolationNone — keep the 8-frame pixel sheet crisp.
         let _: () = msg_send![ctx, setImageInterpolation: 1usize];
     }
-    let key = ns_string("NSImageHintInterpolation");
+    let key = ns_string("NSImageHintInterpolation").as_ptr();
     let val: *mut Object = msg_send![class!(NSNumber), numberWithInteger: 1isize];
     let hints: *mut Object = msg_send![class!(NSDictionary), dictionaryWithObject: val forKey: key];
     let zero = NSRect::default();

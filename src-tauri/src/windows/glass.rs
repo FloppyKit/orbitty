@@ -11,13 +11,7 @@ mod imp {
     use objc::runtime::{Class, Object};
     use objc::{class, msg_send, sel, sel_impl};
 
-    /// Toll-free-bridged NSString, intentionally leaked (used as a constant).
-    unsafe fn ns_string(s: &str) -> *mut Object {
-        let cf = CFString::new(s);
-        let raw = cf.as_concrete_TypeRef() as *mut Object;
-        std::mem::forget(cf);
-        raw
-    }
+    use crate::ns_hold::ns_string;
 
     /// AppKit view surgery — main thread only (callers guarantee it).
     pub fn ensure_transparent(window: &tauri::WebviewWindow) {
@@ -137,7 +131,7 @@ mod imp {
             let is_webview: bool = msg_send![view, isKindOfClass: wk];
             if is_webview {
                 let no: *mut Object = msg_send![class!(NSNumber), numberWithBool: false];
-                let _: () = msg_send![view, setValue: no forKey: ns_string("drawsBackground")];
+                let _: () = msg_send![view, setValue: no forKey: ns_string("drawsBackground").as_ptr()];
                 let responds: bool =
                     msg_send![view, respondsToSelector: sel!(setUnderPageBackgroundColor:)];
                 if responds {
@@ -386,7 +380,7 @@ mod imp {
             if defs.is_null() {
                 return None;
             }
-            let key = ns_string("AppleActionOnDoubleClick");
+            let key = ns_string("AppleActionOnDoubleClick").as_ptr();
             let val: *mut Object = msg_send![defs, stringForKey: key];
             if val.is_null() {
                 return None;

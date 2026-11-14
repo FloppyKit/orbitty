@@ -265,7 +265,7 @@ pub(crate) unsafe fn draw_cat_chip(cat: &Cat, text: &str) {
     let ns_text = ns_string(text);
     let font: *mut Object = msg_send![class!(NSFont), systemFontOfSize: 11.0f64];
     let white: *mut Object = msg_send![class!(NSColor), whiteColor];
-    let keys = [ns_string("NSFont"), ns_string("NSColor")];
+    let keys = [ns_string("NSFont").as_ptr(), ns_string("NSColor").as_ptr()];
     let vals = [font, white];
     let attrs: *mut Object = msg_send![class!(NSDictionary),
         dictionaryWithObjects: vals.as_ptr()
@@ -274,7 +274,7 @@ pub(crate) unsafe fn draw_cat_chip(cat: &Cat, text: &str) {
     if attrs.is_null() {
         return;
     }
-    let size: super::CGSize = msg_send![ns_text, sizeWithAttributes: attrs];
+    let size: super::CGSize = msg_send![ns_text.as_ptr(), sizeWithAttributes: attrs];
     let pad_x = 8.0;
     let pad_y = 4.0;
     let pill_w = size.width + pad_x * 2.0;
@@ -298,7 +298,7 @@ pub(crate) unsafe fn draw_cat_chip(cat: &Cat, text: &str) {
         xRadius: pill_h / 2.0
         yRadius: pill_h / 2.0];
     let _: () = msg_send![path, fill];
-    let _: () = msg_send![ns_text,
+    let _: () = msg_send![ns_text.as_ptr(),
         drawAtPoint: NSPoint {
             x: pill.origin.x + pad_x,
             y: pill.origin.y + pad_y,
