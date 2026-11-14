@@ -1151,6 +1151,10 @@
     background: transparent;
   }
 
+  .rail.stage-shell .stage-settings[data-stage-needs] .l1-abbrev-close {
+    align-self: flex-end;
+  }
+
   .rail.stage-shell .stage-settings[data-stage-needs] .kanban.columns-only {
     height: 100%;
     max-height: none;

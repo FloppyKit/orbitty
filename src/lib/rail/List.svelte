@@ -109,7 +109,6 @@
   }
   const centred2 = $derived(layer2[archState?.center2 ?? 0] ?? null);
   let thumb = $state<{ state: string; jpeg?: string | null; forId: string } | null>(null);
-  let abbrevPick = $state<{ pid: string; id: string } | null>(null);
   const level1NeedsPid = $derived.by(() => {
     if (archState.front !== "arch") return null;
     if (rail.stageEmbed === "settings" || rail.stageEmbed === "stars") return null;
@@ -122,7 +121,7 @@
     return null;
   });
   const abbrevLive = $derived.by(() => {
-    const pick = abbrevPick;
+    const pick = rail.abbrevPick as { pid: string; id: string } | null;
     if (!pick || archState.front !== "arch") return null;
     if (pick.pid !== level1NeedsPid) return null;
     const card = ((rail.planetCards(pick.pid) ?? []) as KanbanCard[]).find((c) => c.id === pick.id);
@@ -136,9 +135,9 @@
   });
 
   $effect(() => {
-    const pick = abbrevPick;
+    const pick = rail.abbrevPick as { pid: string; id: string } | null;
     const pid = level1NeedsPid;
-    if (pick && pick.pid !== pid) abbrevPick = null;
+    if (pick && pick.pid !== pid) rail.abbrevPick = null;
     rail.level1NeedsOpen = level1NeedsPid != null;
   });
 
@@ -513,7 +512,7 @@
 
   function openAbbrev(pid: string | undefined, id: string | undefined) {
     if (!pid || !id) return;
-    abbrevPick = { pid, id };
+    rail.abbrevPick = { pid, id };
   }
 
   function selectLayer(item: Layer2Item) {
@@ -1143,6 +1142,7 @@
           <div class="stage-settings" data-stage-needs style={settingsBox()} onwheel={(e) => e.stopPropagation()}>
             {#if abbrevLive}
               <div class="l1-abbrev-preview">
+                <button type="button" class="mini ghost l1-abbrev-close" aria-label="Close preview" onclick={() => (rail.abbrevPick = null)}>×</button>
                 {#if abbrevLive.branch === "needed"}
                   {@const card = abbrevLive.card}
                   <div class="l1-needed-preview">

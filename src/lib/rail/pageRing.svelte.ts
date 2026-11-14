@@ -134,6 +134,7 @@ type Scope_onRailEscape = {
   keyOwner: KeyOwner;
   walkOut: () => unknown;
   stageEmbed: null | "settings" | "stars";
+  abbrevPick: { pid: string; id: string } | null;
   closeStageEmbed: () => unknown;
   embedded: boolean;
   arch: ArchState;
@@ -477,6 +478,15 @@ export function onRailEscape(scope: Scope_onRailEscape): boolean {
   }
   if (scope.keyOwner === "unmapped") {
     scope.walkOut();
+    return true;
+  }
+  if (
+    !scope.embedded &&
+    scope.arch.front === "arch" &&
+    !scope.stageEmbed &&
+    scope.abbrevPick
+  ) {
+    scope.abbrevPick = null;
     return true;
   }
   if (scope.stageEmbed) {

@@ -245,6 +245,7 @@
   let arch = $state<ArchState>({ ...ARCH_IDLE });
   let stageEmbed = $state<null | "settings" | "stars">(null);
   let level1NeedsOpen = $state(false);
+  let abbrevPick = $state<{ pid: string; id: string } | null>(null);
   let keyOwner = $state<KeyOwner>("rail");
   let reselectStop: string | null = null;
   /** Wheel-centre changes from a spin may open the beside panel. A depth-out must not. */
@@ -882,7 +883,7 @@
   let detachMenuKeys: (() => void) | undefined;
 
   function onRailEscape() {
-    return onRailEscapeBody({get arch() { return arch; }, set arch(v) { arch = v; }, archDo, get centreCause() { return centreCause; }, set centreCause(v) { centreCause = v; }, get claimPickerFor() { return claimPickerFor; }, set claimPickerFor(v) { claimPickerFor = v; }, closeStageEmbed, coachSkip, get creatingProject() { return creatingProject; }, set creatingProject(v) { creatingProject = v; }, depthOut, depthOutStop, get embedded() { return embedded; }, get keyOwner() { return keyOwner; }, set keyOwner(v) { keyOwner = v; }, layer2For, menuRing, openSectionId, parkStage, previewStop, get reselectStop() { return reselectStop; }, set reselectStop(v) { reselectStop = v; }, get stageEmbed() { return stageEmbed; }, set stageEmbed(v) { stageEmbed = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }, walkOut});
+    return onRailEscapeBody({get abbrevPick() { return abbrevPick; }, set abbrevPick(v: { pid: string; id: string } | null) { abbrevPick = v; }, get arch() { return arch; }, set arch(v) { arch = v; }, archDo, get centreCause() { return centreCause; }, set centreCause(v) { centreCause = v; }, get claimPickerFor() { return claimPickerFor; }, set claimPickerFor(v) { claimPickerFor = v; }, closeStageEmbed, coachSkip, get creatingProject() { return creatingProject; }, set creatingProject(v) { creatingProject = v; }, depthOut, depthOutStop, get embedded() { return embedded; }, get keyOwner() { return keyOwner; }, set keyOwner(v) { keyOwner = v; }, layer2For, menuRing, openSectionId, parkStage, previewStop, get reselectStop() { return reselectStop; }, set reselectStop(v) { reselectStop = v; }, get stageEmbed() { return stageEmbed; }, set stageEmbed(v) { stageEmbed = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }, walkOut});
   }
 
   function reclaimRailRing() {
@@ -2040,6 +2041,8 @@
     get stageEmbed() { return stageEmbed; },
     get level1NeedsOpen() { return level1NeedsOpen; },
     set level1NeedsOpen(v: boolean) { level1NeedsOpen = v; },
+    get abbrevPick() { return abbrevPick; },
+    set abbrevPick(v: { pid: string; id: string } | null) { abbrevPick = v; },
     closeStageEmbed,
     applyBeside,
     get keyOwner() { return keyOwner; },
