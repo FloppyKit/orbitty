@@ -110,9 +110,21 @@
   const centred2 = $derived(layer2[archState?.center2 ?? 0] ?? null);
   let thumb = $state<{ state: string; jpeg?: string | null; forId: string } | null>(null);
   let abbrevPick = $state<{ pid: string; id: string } | null>(null);
+  const level1NeedsPid = $derived.by(() => {
+    if (archState.front !== "arch") return null;
+    if (rail.stageEmbed === "settings" || rail.stageEmbed === "stars") return null;
+    const item = items[center];
+    if (item?.kind === "planet" && item.pid) {
+      const abbrev = rail.planetAbbrevs(item.pid);
+      if (abbrev.rows.length === 0) return null;
+      return item.pid;
+    }
+    return null;
+  });
   const abbrevLive = $derived.by(() => {
     const pick = abbrevPick;
     if (!pick || archState.front !== "arch") return null;
+    if (pick.pid !== level1NeedsPid) return null;
     const card = ((rail.planetCards(pick.pid) ?? []) as KanbanCard[]).find((c) => c.id === pick.id);
     if (!card) return null;
     if (card.kind === "needed") {
@@ -122,6 +134,14 @@
     if (card.status !== "todo" && card.status !== "doing") return null;
     return { branch: "todo" as const, card };
   });
+
+  $effect(() => {
+    const pick = abbrevPick;
+    const pid = level1NeedsPid;
+    if (pick && pick.pid !== pid) abbrevPick = null;
+    rail.level1NeedsOpen = level1NeedsPid != null;
+  });
+
   const thumbForCard = $derived(
     thumb && centred2 && thumb.forId === centred2.id ? thumb : null,
   );
@@ -942,24 +962,6 @@
                   >{#if item.kind === "planet" && item.pid}<span class="arch-dot" style={`background:${rail.planetCss(item.pid)}`}></span>{:else}<span class="arch-dot"></span>{/if}{itemLabel(item)}</span>
                 </span>
               </button>
-              {#if item.kind === "planet" && item.pid && !archHidden(i) && archState.front === "arch"}
-                {@const pid = item.pid}
-                {@const abbrev = rail.planetAbbrevs(pid)}
-                {#if abbrev.rows.length > 0}
-                  <div class="arch-board-col" onwheel={(e) => e.stopPropagation()}>
-                    <KanbanPage
-                      columnsOnly
-                      railPlanet={pid}
-                      sharedCards={rail.planetCards(pid)}
-                      sharedProjects={rail.projects}
-                      onColumnCard={(card) => openAbbrev(pid, card.id)}
-                      onColumnToggle={(card, e) => rail.toggleDoing(card, e)}
-                      onColumnDone={(card) => rail.completeTodo(card)}
-                      hostMutate={rail.mutate}
-                    />
-                  </div>
-                {/if}
-              {/if}
               {#if item.kind === "add" && rail.creatingProject && !archHidden(i)}
                 <span class="newproj spin-newproj">
                   <input
@@ -977,30 +979,6 @@
           {/each}
         </ul>
         </div>
-        {#if abbrevLive}
-          <div class="l1-abbrev-preview" style={rectStyle(mirror.expanded)}>
-            {#if abbrevLive.branch === "needed"}
-              {@const card = abbrevLive.card}
-              <div class="l1-needed-preview">
-                <span class="l1-abbrev-title">{card.title || "Needed"}</span>
-                {#if card.neededWhy}<span class="l1-abbrev-why">{card.neededWhy}</span>{/if}
-              </div>
-              <!-- l1-needed-preview-end -->
-            {:else}
-              {@const card = abbrevLive.card}
-              <div class="l1-todo-preview">
-                <span class="l1-abbrev-title">{card.title || "Todo"}</span>
-                {#if card.status === "doing"}
-                  <button type="button" class="mini" onclick={(e) => rail.toggleDoing(card, e)}>Park</button>
-                {:else}
-                  <button type="button" class="mini" onclick={(e) => rail.toggleDoing(card, e)}>Start</button>
-                {/if}
-                <button type="button" class="mini" onclick={() => rail.completeTodo(card)}>Mark done</button>
-              </div>
-              <!-- l1-todo-preview-end -->
-            {/if}
-          </div>
-        {/if}
         {#if archState.pid}
           <div
             class="layer2-ring"
@@ -1160,6 +1138,46 @@
               onClose={() => rail.closeStageEmbed()}
             />
             <button type="button" class="mini l2-pop" onclick={() => rail.popOutStars()}>Pop out</button>
+          </div>
+        {:else if level1NeedsPid}
+          <div class="stage-settings" data-stage-needs style={settingsBox()} onwheel={(e) => e.stopPropagation()}>
+            {#if abbrevLive}
+              <div class="l1-abbrev-preview">
+                {#if abbrevLive.branch === "needed"}
+                  {@const card = abbrevLive.card}
+                  <div class="l1-needed-preview">
+                    <span class="l1-abbrev-title">{card.title || "Needed"}</span>
+                    {#if card.neededWhy}<span class="l1-abbrev-why">{card.neededWhy}</span>{/if}
+                  </div>
+                  <!-- l1-needed-preview-end -->
+                {:else}
+                  {@const card = abbrevLive.card}
+                  <div class="l1-todo-preview">
+                    <span class="l1-abbrev-title">{card.title || "Todo"}</span>
+                    {#if card.status === "doing"}
+                      <button type="button" class="mini" onclick={(e) => rail.toggleDoing(card, e)}>Park</button>
+                    {:else}
+                      <button type="button" class="mini" onclick={(e) => rail.toggleDoing(card, e)}>Start</button>
+                    {/if}
+                    <button type="button" class="mini" onclick={() => rail.completeTodo(card)}>Mark done</button>
+                  </div>
+                  <!-- l1-todo-preview-end -->
+                {/if}
+              </div>
+            {:else}
+              <div class="l1-needs-col">
+                <KanbanPage
+                  columnsOnly
+                  railPlanet={level1NeedsPid}
+                  sharedCards={rail.planetCards(level1NeedsPid)}
+                  sharedProjects={rail.projects}
+                  onColumnCard={(card) => openAbbrev(level1NeedsPid, card.id)}
+                  onColumnToggle={(card, e) => rail.toggleDoing(card, e)}
+                  onColumnDone={(card) => rail.completeTodo(card)}
+                  hostMutate={rail.mutate}
+                />
+              </div>
+            {/if}
           </div>
         {/if}
         </div>

@@ -504,6 +504,7 @@ export function archPainted(
     revealed: boolean;
     slop?: number;
     embed?: "settings" | "stars" | null;
+    needsPanel?: boolean;
     edge?: string;
     frame?: ArchFrame;
   },
@@ -517,7 +518,7 @@ export function archPainted(
     const mirror = mirrorLayout(opts.edge, opts.frame.w, opts.frame.h);
     zones.push(mirror.expanded, mirror.back);
   }
-  if (opts.embed === "settings" || opts.embed === "stars") zones.push(layout.board);
+  if (opts.embed === "settings" || opts.embed === "stars" || opts.needsPanel) zones.push(layout.board);
   // Revealed is the stage flag the caller already has. Hysteresis, not this
   // test, decides whether a miss parks the drawer.
   void opts.revealed;

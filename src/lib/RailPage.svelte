@@ -244,6 +244,7 @@
   let reduceMotion = $state(false);
   let arch = $state<ArchState>({ ...ARCH_IDLE });
   let stageEmbed = $state<null | "settings" | "stars">(null);
+  let level1NeedsOpen = $state(false);
   let keyOwner = $state<KeyOwner>("rail");
   let reselectStop: string | null = null;
   /** Wheel-centre changes from a spin may open the beside panel. A depth-out must not. */
@@ -589,7 +590,7 @@
   }
 
   function overPainted(e: PointerEvent) {
-    return overPaintedBody({get arch() { return arch; }, set arch(v) { arch = v; }, archLayout, archPainted, get railEdge() { return railEdge; }, set railEdge(v) { railEdge = v; }, get stageEmbed() { return stageEmbed; }, set stageEmbed(v) { stageEmbed = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }}, e);
+    return overPaintedBody({get arch() { return arch; }, set arch(v) { arch = v; }, archLayout, archPainted, get level1NeedsOpen() { return level1NeedsOpen; }, get railEdge() { return railEdge; }, set railEdge(v) { railEdge = v; }, get stageEmbed() { return stageEmbed; }, set stageEmbed(v) { stageEmbed = v; }, get stageRevealed() { return stageRevealed; }, set stageRevealed(v) { stageRevealed = v; }}, e);
   }
 
   let edgeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2037,6 +2038,8 @@
     UNMAPPED_KEY,
     get arch() { return arch; },
     get stageEmbed() { return stageEmbed; },
+    get level1NeedsOpen() { return level1NeedsOpen; },
+    set level1NeedsOpen(v: boolean) { level1NeedsOpen = v; },
     closeStageEmbed,
     applyBeside,
     get keyOwner() { return keyOwner; },

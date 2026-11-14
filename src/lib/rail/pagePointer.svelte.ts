@@ -10,12 +10,13 @@ import type { DismissInput, InputIntent, IntentInput } from "./railInput";
 type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
 type Scope_overPainted = {
-  archPainted: (layout: ArchLayout, point: { x: number; y: number }, opts: { front: ArchFront; pid: string | null; revealed: boolean; slop?: number; embed?: "settings" | "stars" | null; edge?: string; frame?: ArchFrame; }) => boolean;
+  archPainted: (layout: ArchLayout, point: { x: number; y: number }, opts: { front: ArchFront; pid: string | null; revealed: boolean; slop?: number; embed?: "settings" | "stars" | null; needsPanel?: boolean; edge?: string; frame?: ArchFrame; }) => boolean;
   archLayout: (edge: string, frameW: number, frameH: number) => ArchLayout;
   railEdge: RailEdge;
   arch: ArchState;
   stageRevealed: boolean;
   stageEmbed: null | "settings" | "stars";
+  level1NeedsOpen: boolean;
 };
 
 type Scope_armEdgeTimer = {
@@ -208,6 +209,7 @@ export function overPainted(scope: Scope_overPainted, e: PointerEvent): boolean 
       pid: scope.arch.pid,
       revealed: scope.stageRevealed,
       embed: scope.stageEmbed,
+      needsPanel: scope.level1NeedsOpen,
       edge: scope.railEdge,
       frame: { w: rect.width, h: rect.height },
     },
@@ -282,7 +284,7 @@ export function nearHit(scope: Scope_nearHit, e: { clientX: number; clientY: num
   if (t instanceof Element) {
     if (
       t.closest(
-        ".arch-hit, .arch-name, .arch-dot, .l2-hit, .l2-expanded, .l2-window-card, .l2-board, .l2-needed-card, .stage-settings, .chrome, .arch-back, button, a, input, textarea, select",
+        ".arch-hit, .arch-name, .arch-dot, .l2-hit, .l2-expanded, .l2-window-card, .l2-board, .l2-needed-card, .stage-settings, .b-card, .l1-abbrev-preview, .chrome, .arch-back, button, a, input, textarea, select",
       )
     ) {
       return true;
@@ -369,7 +371,8 @@ export function onStagePointerUp(scope: Scope_onStagePointerUp, e: PointerEvent)
   const panelTarget = e.target;
   const overPanel =
     panelTarget instanceof Element &&
-    !!panelTarget.closest(".stage-settings, .l2-expanded, .l2-board, .chrome");
+    (!!panelTarget.closest(".stage-settings, .l2-expanded, .l2-board, .chrome") ||
+      !!panelTarget.closest(".b-card, .l1-abbrev-preview"));
   const dismiss = scope.emptyDismiss({
     phase: "pointerup",
     dragPx: drag,
