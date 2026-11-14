@@ -703,6 +703,94 @@ pub(crate) fn centered_on_frame(vf: VisibleFrame, size: (f64, f64), cascade: f64
     r
 }
 
+fn peek_inside(b: &state::CompanionBounds, vf: &VisibleFrame) -> bool {
+    b.x >= vf.x - 0.5
+        && b.y >= vf.y - 0.5
+        && b.x + b.w <= vf.x + vf.w + 0.5
+        && b.y + b.h <= vf.y + vf.h + 0.5
+}
+
+fn walker_host_frame(
+    walker: &state::CompanionBounds,
+    frames: &[VisibleFrame],
+) -> Option<VisibleFrame> {
+    frames
+        .iter()
+        .copied()
+        .find(|vf| rect_mostly_on(walker, vf))
+        .or_else(|| frames.iter().copied().find(|vf| !rect_fully_off(walker, vf)))
+        .or_else(|| frames.first().copied())
+}
+
+/// Shift so every pixel of the pane sits in `vf`. Size stays put.
+/// Not the drawer 24px-handle law, which can leave the buttons over the Dock.
+fn clamp_entire_pane(mut b: state::CompanionBounds, vf: &VisibleFrame) -> state::CompanionBounds {
+    if b.w < vf.w {
+        if b.x < vf.x {
+            b.x = vf.x;
+        } else if b.x + b.w > vf.x + vf.w {
+            b.x = vf.x + vf.w - b.w;
+        }
+    } else {
+        b.x = vf.x;
+    }
+    if b.h < vf.h {
+        if b.y < vf.y {
+            b.y = vf.y;
+        } else if b.y + b.h > vf.y + vf.h {
+            b.y = vf.y + vf.h - b.h;
+        }
+    } else {
+        b.y = vf.y;
+    }
+    b
+}
+
+/// Park a pane beside a walker. Right, then left, then below, then above,
+/// with an 8px gap. The whole pane is clamped into the walker's visibleFrame.
+/// Walker bounds, size, and frames only — the rail is not an anchor.
+pub(crate) fn place_beside_walker(
+    walker: &state::CompanionBounds,
+    size: (f64, f64),
+    frames: &[VisibleFrame],
+) -> state::CompanionBounds {
+    let gap = 8.0;
+    let (w, h) = size;
+    let right = state::CompanionBounds {
+        x: walker.x + walker.w + gap,
+        y: walker.y,
+        w,
+        h,
+    };
+    let left = state::CompanionBounds {
+        x: walker.x - gap - w,
+        y: walker.y,
+        w,
+        h,
+    };
+    let below = state::CompanionBounds {
+        x: walker.x,
+        y: walker.y + walker.h + gap,
+        w,
+        h,
+    };
+    let above = state::CompanionBounds {
+        x: walker.x,
+        y: walker.y - gap - h,
+        w,
+        h,
+    };
+    let Some(vf) = walker_host_frame(walker, frames) else {
+        return right;
+    };
+    for cand in [&right, &left, &below, &above] {
+        if peek_inside(cand, &vf) {
+            return *cand;
+        }
+    }
+    clamp_entire_pane(right, &vf)
+}
+
 /// Stage-originated settings/stars: park on the rail's display, inboard of
 /// the rail. `stale` is a last-place on any screen and is ignored — a
 /// saved frame on another display must not win this open.

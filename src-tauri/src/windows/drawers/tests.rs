@@ -94,3 +94,83 @@
         assert_eq!(stage_parked_size("top", 100.0, 200.0), (360.0, 420.0));
         assert_eq!(stage_parked_size("nope", 1440.0, 875.0), (360.0, 779.0));
     }
+
+    fn fully_inside(b: &state::CompanionBounds, vf: &VisibleFrame) -> bool {
+        b.x >= vf.x - 0.01
+            && b.y >= vf.y - 0.01
+            && b.x + b.w <= vf.x + vf.w + 0.01
+            && b.y + b.h <= vf.y + vf.h + 0.01
+    }
+
+    #[test]
+    fn place_beside_walker_prefers_right_when_it_fits() {
+        let frame = VisibleFrame {
+            x: 0.0,
+            y: 0.0,
+            w: 1000.0,
+            h: 800.0,
+        };
+        let walker = rect(400.0, 240.0, 40.0, 48.0);
+        let placed = place_beside_walker(&walker, (420.0, 320.0), &[frame]);
+        assert_eq!(placed.w, 420.0);
+        assert_eq!(placed.h, 320.0);
+        assert!((placed.x - (walker.x + walker.w) - 8.0).abs() < 1e-9);
+        assert!((placed.y - walker.y).abs() < 1e-9);
+        assert!(fully_inside(&placed, &frame));
+    }
+
+    #[test]
+    fn place_beside_walker_uses_left_when_right_does_not_fit() {
+        let frame = VisibleFrame {
+            x: 0.0,
+            y: 0.0,
+            w: 1000.0,
+            h: 800.0,
+        };
+        let walker = rect(920.0, 200.0, 40.0, 48.0);
+        let placed = place_beside_walker(&walker, (420.0, 320.0), &[frame]);
+        assert_eq!(placed.w, 420.0);
+        assert_eq!(placed.h, 320.0);
+        assert!(placed.x + placed.w <= walker.x + 0.01);
+        assert!((walker.x - (placed.x + placed.w) - 8.0).abs() < 1e-9);
+        assert!(fully_inside(&placed, &frame));
+    }
+
+    #[test]
+    fn place_beside_walker_clamps_entire_pane_into_visible_frame() {
+        // visibleFrame already stops above the Dock. A beside-proposal that
+        // crosses that edge must shift so every pixel of the 420×320 pane
+        // stays inside — not a 24px handle left hanging over the Dock.
+        let frame = VisibleFrame {
+            x: 0.0,
+            y: 0.0,
+            w: 500.0,
+            h: 400.0,
+        };
+        let walker = rect(250.0, 200.0, 40.0, 40.0);
+        let proposed_bottom = walker.y + 320.0;
+        assert!(proposed_bottom > frame.y + frame.h);
+        let placed = place_beside_walker(&walker, (420.0, 320.0), &[frame]);
+        assert_eq!(placed.w, 420.0);
+        assert_eq!(placed.h, 320.0);
+        assert!(fully_inside(&placed, &frame));
+        assert!(placed.y + placed.h <= frame.y + frame.h + 0.01);
+        assert!(placed.x + placed.w <= frame.x + frame.w + 0.01);
+    }
+
+    #[test]
+    fn place_beside_walker_does_not_use_rail_rect() {
+        let frame = VisibleFrame {
+            x: 0.0,
+            y: 0.0,
+            w: 1000.0,
+            h: 800.0,
+        };
+        let walker = rect(300.0, 200.0, 40.0, 40.0);
+        // Walker bounds, pane size, visible frames. No rail argument.
+        let placed = place_beside_walker(&walker, (420.0, 320.0), &[frame]);
+        assert_eq!(placed.w, 420.0);
+        assert_eq!(placed.h, 320.0);
+        assert!(placed.x > walker.x);
+        assert!(fully_inside(&placed, &frame));
+    }
