@@ -174,3 +174,25 @@
         assert!(placed.x > walker.x);
         assert!(fully_inside(&placed, &frame));
     }
+
+    #[test]
+    fn place_beside_walker_accepts_compact_pills_size() {
+        let frame = VisibleFrame {
+            x: 0.0,
+            y: 0.0,
+            w: 1000.0,
+            h: 800.0,
+        };
+        // Middle of the frame, not parked on an edge.
+        let walker = rect(470.0, 370.0, 40.0, 48.0);
+        let size = (360.0, 40.0);
+        assert!(size.1 <= 48.0);
+        let placed = place_beside_walker(&walker, size, &[frame]);
+        assert_eq!(placed.w, 360.0);
+        assert_eq!(placed.h, 40.0);
+        assert!((placed.w, placed.h) != (420.0, 320.0));
+        assert!((placed.x - (walker.x + walker.w) - 8.0).abs() < 1e-9);
+        assert!((placed.y - walker.y).abs() < 1e-9);
+        assert!(placed.x > walker.x);
+        assert!(fully_inside(&placed, &frame));
+    }
