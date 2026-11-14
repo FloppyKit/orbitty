@@ -140,6 +140,9 @@ type Scope_sheetRowsFor = {
 
 type Scope_raisePlanet = {
   invoke: Invoke;
+  emitTo: (target: string, event: string, payload?: unknown) => Promise<void>;
+  planetsHidden: boolean;
+  isCollapsed: (id: string) => boolean;
 };
 
 type Scope_onSheetPlanetClick = {
@@ -439,9 +442,34 @@ export function sheetRowsFor(scope: Scope_sheetRowsFor, projectId: string): Wind
   );
 }
 
-export function raisePlanet(scope: Scope_raisePlanet, id: string) {
-  scope.invoke("bring_planet_front", { id }).catch(() => {});
-  scope.invoke("locate_planet", { id }).catch(() => {});
+export async function raisePlanet(scope: Scope_raisePlanet, id: string) {
+  // bring_planet_front is a no-op while the set is hidden, and locate only
+  // glows a marble. Unhide, then expand this disc, then raise and locate it.
+  if (scope.planetsHidden) {
+    scope.planetsHidden = false;
+    try {
+      await scope.invoke("set_planets_hidden", { hidden: false });
+    } catch {
+      scope.planetsHidden = true;
+    }
+  }
+  if (scope.isCollapsed(id)) {
+    try {
+      await scope.emitTo("main", "habitat:expand", id);
+    } catch {
+      /* expand is what opens a marble; raise still runs */
+    }
+  }
+  try {
+    await scope.invoke("bring_planet_front", { id });
+  } catch {
+    /* one disc; do not raise the rest */
+  }
+  try {
+    await scope.invoke("locate_planet", { id });
+  } catch {
+    /* glow is the locate */
+  }
 }
 
 export function onSheetPlanetClick(scope: Scope_onSheetPlanetClick, id: string) {

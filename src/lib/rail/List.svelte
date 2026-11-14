@@ -473,6 +473,7 @@
           }),
         ),
       );
+      rail.raisePlanet(item.pid);
       return;
     }
     if (item.kind === "unmapped") {

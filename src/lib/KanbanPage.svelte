@@ -676,7 +676,7 @@
   let seenNeededDoing = new Set<string>();
   let neededDoingSortReady = false;
   $effect(() => {
-    if (columnsOnly) return;
+    if (typeof columnsOnly !== "undefined" && columnsOnly) return;
     if (grabbedId) return;
     const doing = kanbanCards.filter(isDoingRow);
     const withNeed = doing.filter((c) => neededForTodo(c));
@@ -777,9 +777,12 @@
   // Every write goes through here: fresh load, mutate, save. The rail owns
   // the other slices; this window only ever touches kanbanCards / pointsLedger
   // / claims (unclaim on window-card complete or Doing→Todo drag).
-  async function mutate(fn: (s: PersistedState) => void, origin?: string) {
-    if (columnsOnly) return hostMutate?.(fn, origin);
-    return mutateBody({errText, invoke, loadState, showLinkToast}, fn, origin);
+  async function mutate(fn: (s: PersistedState) => void, origin?: string): Promise<void> {
+    if (typeof columnsOnly !== "undefined" && columnsOnly) {
+      await hostMutate?.(fn, origin);
+      return;
+    }
+    await mutateBody({errText, invoke, loadState, showLinkToast}, fn, origin);
   }
 
   function errText(e: unknown) {

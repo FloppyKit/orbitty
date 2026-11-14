@@ -703,7 +703,13 @@
   let sheetSlot = $state<string>("unclaimed");
 
   function raisePlanet(id: string) {
-    return raisePlanetBody({invoke}, id);
+    return raisePlanetBody({
+      invoke,
+      emitTo,
+      get planetsHidden() { return !!companionState.planetsHidden; },
+      set planetsHidden(v: boolean) { companionState = { ...companionState, planetsHidden: v }; },
+      isCollapsed,
+    }, id);
   }
 
   function onSheetPlanetClick(id: string) {

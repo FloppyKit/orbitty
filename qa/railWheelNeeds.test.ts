@@ -408,7 +408,7 @@ test("onTileClick_opens_habitat_and_enters_level2", () => {
   assert.match(planet, /archEnter/);
   assert.match(planet, /raisePlanet/);
   assert.doesNotMatch(planet, /openAbbrev/);
-  const open = fnBodyNamed(pointer, "export function raisePlanet(");
+  const open = fnBodyNamed(pointer, "function raisePlanet(");
   assert.match(open, /set_planets_hidden/);
   assert.match(open, /habitat:expand/);
   assert.match(open, /bring_planet_front/);
