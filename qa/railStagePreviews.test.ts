@@ -68,7 +68,11 @@ test("P1 preview model is a board tile plus window tiles, not todo rows", () => 
   const kinds = model.slots.map((it) => it.kind);
   assert.equal(kinds.includes("doing"), false);
   assert.equal(kinds.includes("todo"), false);
-  assert.equal(kinds[0], "board");
+  assert.equal((kinds as string[]).includes("scene"), false);
+  assert.equal(model.habitat.kind, "habitat");
+  assert.equal(model.habitat.stop, "rl2-habitat");
+  assert.equal(kinds[0], "habitat");
+  assert.equal(kinds[1], "board");
   assert.equal(
     kinds.filter((k) => k === "window").length,
     rows.length,
@@ -88,14 +92,14 @@ test("P2 Needed stays when open needed cards exist", () => {
   );
 });
 
-test("P3 empty windows are board and Needed only; overflow is a count", () => {
+test("P3 empty windows are habitat, board, and Needed; overflow is a count", () => {
   const { cards } = sample();
   const empty = stagePreviewModel({ pid, cards, rows: [] });
   assert.equal(empty.windows.length, 0);
   assert.equal(empty.overflow, 0);
   assert.deepEqual(
     empty.slots.map((it) => it.kind),
-    ["board", "needed", "needed"],
+    ["habitat", "board", "needed", "needed"],
   );
   const many: ArchRow[] = Array.from({ length: 12 }, (_, i) => ({ id: `w${i}`, title: `W${i}` }));
   const capped = stagePreviewModel({ pid, cards: [], rows: many });

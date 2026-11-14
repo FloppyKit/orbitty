@@ -1048,6 +1048,7 @@
                       onclick={() => {
                         selectLayer(item);
                         if (item.kind === "needed") rail.armNeededMouth(item);
+                        if (item.kind === "habitat" && archState.pid) rail.raisePlanet(archState.pid);
                       }}
                     >
                       <span class="arch-vis">
@@ -1062,6 +1063,8 @@
                           {/if}
                         {:else if item.kind === "needed"}
                           <span class="arch-glyph l2-bang" aria-hidden="true">!</span>
+                        {:else if item.kind === "habitat"}
+                          <span class="arch-glyph" aria-hidden="true">{@render planetGlyph()}</span>
                         {:else}
                           <span class="arch-glyph" aria-hidden="true">{@render boardGlyph()}</span>
                         {/if}
@@ -1118,6 +1121,14 @@
                           <span class="l2-thumb-need">Screen Recording needed for previews</span>
                         {/if}
                       </span>
+                    </button>
+                  {:else if centred2.kind === "habitat"}
+                    <button
+                      type="button"
+                      class="l2-habitat-card"
+                      onclick={() => archState.pid && rail.raisePlanet(archState.pid)}
+                    >
+                      <span class="l2-card-title">{archState.pid ? planetName(archState.pid) : "Habitat"}</span>
                     </button>
                   {:else if centred2.kind === "needed"}
                     <div class="l2-needed-card">

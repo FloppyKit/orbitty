@@ -30,19 +30,26 @@ export function stagePreviewModel(opts: {
   const windowRows = opts.rows.slice(0, cap);
   const overflow = Math.max(0, opts.rows.length - windowRows.length);
   const windows = windowRows.map(windowItem);
+  const habitat: Layer2Item = {
+    kind: "habitat",
+    stop: "rl2-habitat",
+    title: "Habitat",
+  };
   const board: Layer2Item = {
     kind: "board",
     preview: true,
     stop: "rl2-board",
     title: "Board",
   };
+  // Deferred: GO 42b saved window layout (needs a state.json field).
   return {
+    habitat,
     board,
     windows,
     needed,
     overflow,
     popOut: { stop: "rl2-pop", label: "Pop out" },
-    slots: [board, ...needed, ...windows],
+    slots: [habitat, board, ...needed, ...windows],
   };
 }
 
@@ -147,7 +154,7 @@ export interface MirrorLayout {
   back: ZoneRect;
 }
 
-/** Board, then Needed, then every claimed window (asleep included). No cap, no doing/todo rows. */
+/** Habitat, then Board, then Needed, then every claimed window (asleep included). No cap, no doing/todo rows. */
 export function mirrorItems(opts: {
   pid: string;
   cards: readonly ArchCard[];
@@ -167,8 +174,10 @@ export function mirrorItems(opts: {
   });
 }
 
-/** Layer 2 opens centred on Board. */
+/** Layer 2 opens centred on the habitat slot. Lists with no habitat slot still centre Board. */
 export function mirrorStart(items: readonly Layer2Item[]): number {
+  const habitat = items.findIndex((it) => it.kind === "habitat");
+  if (habitat >= 0) return habitat;
   const i = items.findIndex((it) => it.kind === "board");
   return i >= 0 ? i : 0;
 }

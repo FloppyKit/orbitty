@@ -779,7 +779,7 @@
   }
 
   function confirmLayer2Stop(id: string) {
-    return confirmLayer2StopBody({get arch() { return arch; }, set arch(v) { arch = v; }, archConfirm, archDo, armNeededMouth, enterBoard, focusBoardLanding, focusMirrorBoard, focusRow, layer2For, parkAfterRaise, planetCards, restore, rowsFor, wakeSleeper, walkInto}, id);
+    return confirmLayer2StopBody({get arch() { return arch; }, set arch(v) { arch = v; }, archConfirm, archDo, armNeededMouth, enterBoard, focusBoardLanding, focusMirrorBoard, focusRow, layer2For, parkAfterRaise, planetCards, raisePlanet, restore, rowsFor, wakeSleeper, walkInto}, id);
   }
 
   let lastNoteAct = 0;

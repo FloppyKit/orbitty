@@ -46,6 +46,7 @@ type Scope_confirmLayer2Stop = {
   parkAfterRaise: () => unknown;
   restore: (w: WindowInfo) => Promise<unknown>;
   focusRow: (w: WindowInfo) => Promise<unknown>;
+  raisePlanet: (id: string) => unknown;
 };
 
 type Scope_noteRailAct = {
@@ -219,6 +220,10 @@ export function focusMirrorBoard(scope: Scope_focusMirrorBoard) {
 export function confirmLayer2Stop(scope: Scope_confirmLayer2Stop, id: string) {
   const item = scope.layer2For(scope.arch.pid).find((it) => it.stop === id);
   if (!item || !scope.arch.pid) return;
+  if (item.kind === "habitat") {
+    scope.raisePlanet(scope.arch.pid);
+    return;
+  }
   if (item.kind === "needed") {
     scope.armNeededMouth(item);
     return;

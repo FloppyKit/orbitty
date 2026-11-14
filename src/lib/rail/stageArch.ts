@@ -88,7 +88,7 @@ export interface ArchRow {
   isFrontmost?: boolean;
 }
 
-export type Layer2Kind = "board" | "needed" | "window" | "doing" | "todo" | "more";
+export type Layer2Kind = "habitat" | "board" | "needed" | "window" | "doing" | "todo" | "more";
 
 export interface Layer2Item {
   kind: Layer2Kind;
@@ -738,13 +738,14 @@ export interface PlaceRect {
 }
 
 export interface StagePreviewModel {
+  habitat: Layer2Item;
   board: Layer2Item;
   windows: Layer2Item[];
   needed: Layer2Item[];
   /** Claimed windows past PREVIEW_WINDOW_CAP. Not tiles and not fake window ids. */
   overflow: number;
   popOut: { stop: string; label: string };
-  /** Stage Manager order: one board tile, Needed, window tiles. No doing/todo. */
+  /** Habitat, then the board tile, then Needed, then window tiles. No doing/todo. */
   slots: Layer2Item[];
 }
 

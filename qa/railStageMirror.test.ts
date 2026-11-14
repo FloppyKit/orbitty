@@ -75,7 +75,7 @@ function distToPath(p: { x: number; y: number }, pts: { x: number; y: number }[]
 
 const edges = ["left", "right", "top", "bottom"] as const;
 
-test("M1 mirrorItems is board, needed, then every window including asleep", () => {
+test("M1 mirrorItems is habitat, board, needed, then every window including asleep", () => {
   const pid = "p";
   const cards: ArchCard[] = [
     card({ id: "n-open", projectId: pid, kind: "needed", neededState: "open", createdAt: 2, title: "Ask", neededWhy: "because" }),
@@ -90,8 +90,11 @@ test("M1 mirrorItems is board, needed, then every window including asleep", () =
     sleeping: i % 3 === 0,
   }));
   const items = mirrorItems({ pid, cards, rows });
-  assert.equal(items[0].kind, "board");
-  assert.equal(items[0].stop, "rl2-board");
+  assert.equal(items[0].kind, "habitat");
+  assert.equal(items[0].stop, "rl2-habitat");
+  assert.equal(items[1].kind, "board");
+  assert.equal(items[1].stop, "rl2-board");
+  assert.equal(items.some((it) => it.stop === "rl2-scene"), false);
   const needed = items.filter((it) => it.kind === "needed");
   assert.deepEqual(needed.map((n) => n.id), ["n-later", "n-open"]);
   assert.equal(needed[1].why, "because");
@@ -101,6 +104,7 @@ test("M1 mirrorItems is board, needed, then every window including asleep", () =
   assert.equal(windows[0].sleeping, true);
   assert.equal(items.some((it) => it.kind === "doing" || it.kind === "todo"), false);
   assert.equal(mirrorStart(items), 0);
+  assert.equal(items[mirrorStart(items)].kind, "habitat");
 });
 
 test("M2 layer-2 slots sit on ring 1 and on the orbit", () => {
