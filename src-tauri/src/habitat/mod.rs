@@ -67,6 +67,10 @@ pub struct HabitatEntry {
     /// window walkers.
     #[serde(default)]
     pub agent_seed: String,
+    /// Door word for an AGENT walker ("working" | "waiting_on_you" | "idle" | "failed" | "done");
+    /// "" = flag off or no seat. Snapshot in only; never saved.
+    #[serde(default)]
+    pub outcome: String,
 }
 
 fn default_age() -> String {

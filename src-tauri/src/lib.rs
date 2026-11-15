@@ -196,6 +196,13 @@ fn herdr_jump(app: tauri::AppHandle, card: String, observe: Option<bool>) -> ser
     crate::herdr::jump_for(&app, &card, observe)
 }
 
+#[tauri::command]
+async fn seat_outcomes(app: tauri::AppHandle) -> serde_json::Value {
+    tauri::async_runtime::spawn_blocking(move || crate::agents::outcome::all(&app))
+        .await
+        .unwrap_or(serde_json::Value::Null)
+}
+
 /// Dest-menu find: glow that planet ~1.4s (marble saturn ring / expanded
 /// rim + center name). Glow only — `bring_planet_front` is a separate raise.
 #[tauri::command]
@@ -834,6 +841,7 @@ pub fn run() {
             herdr_status,
             herdr_peek,
             herdr_jump,
+            seat_outcomes,
             locate_planet,
             project_rm,
             sync_habitat,

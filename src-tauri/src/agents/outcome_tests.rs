@@ -430,3 +430,34 @@ fn caption_flag_on_skips_second_peek() {
     assert!(entry.contains("capsule_legacy"));
     assert!(entry.contains("capsule_outcomes"));
 }
+
+#[test]
+fn seat_outcomes_command_is_async() {
+    let src = include_str!("../lib.rs");
+    assert!(
+        src.contains("async fn seat_outcomes"),
+        "seat_outcomes must be an async command"
+    );
+    let body = fn_body(src, "async fn seat_outcomes");
+    assert!(body.contains("spawn_blocking"), "{body}");
+    assert!(body.contains("outcome::all"), "{body}");
+    let rest = src
+        .split_once("generate_handler![")
+        .expect("generate_handler")
+        .1;
+    let list = rest.split_once("])").expect("handler end").0;
+    assert_eq!(list.matches("seat_outcomes").count(), 1, "{list}");
+}
+
+#[test]
+fn habitat_never_calls_door() {
+    let files = [
+        include_str!("../habitat/mod.rs"),
+        include_str!("../habitat/habitat_mac/pose.rs"),
+    ];
+    for src in files {
+        for needle in ["outcome::all", "seat_outcomes", "peek::view", "herdr::"] {
+            assert!(!src.contains(needle), "{needle}");
+        }
+    }
+}

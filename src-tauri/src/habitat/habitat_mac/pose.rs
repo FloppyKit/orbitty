@@ -95,6 +95,18 @@ pub(crate) enum Pose {
 /// working droid never reports a planet Needed, so it keeps the disc.
 pub(crate) fn pose_for(entry: &HabitatEntry) -> Pose {
     let droid = !entry.agent_seed.is_empty();
+    if droid && !entry.outcome.is_empty() {
+        // A saved done row still owns the exit. Any other door word
+        // picks the seat pose and never starts a walk-off on its own.
+        if entry.card_status == "done" {
+            return Pose::WalkOff;
+        }
+        match entry.outcome.as_str() {
+            "waiting_on_you" | "failed" => return Pose::Sit,
+            "working" => return Pose::Work,
+            _ => {}
+        }
+    }
     if droid {
         // sit blocked and needs-you; work
         // while writing; walk off when the run is done. NES walkers
@@ -130,6 +142,14 @@ pub(crate) fn pose_for(entry: &HabitatEntry) -> Pose {
 pub(crate) fn droid_glance(entry: &HabitatEntry) -> u8 {
     if entry.agent_seed.is_empty() {
         return 0;
+    }
+    if !entry.outcome.is_empty() && entry.card_status != "done" {
+        match entry.outcome.as_str() {
+            "waiting_on_you" => return 2,
+            "failed" => return 1,
+            "working" | "idle" | "done" => return 0,
+            _ => {}
+        }
     }
     match entry.needed_state.as_str() {
         "blocked" => 1,
@@ -299,4 +319,8 @@ pub(crate) fn walkoff_target(entry_id: &str, x: f64, _y: f64) -> (f64, f64) {
     let ty = if (h >> 16) & 1 == 0 { -0.12 } else { 0.12 };
     (HOME_OFF.0.min(x), ty)
 }
+
+#[cfg(test)]
+#[path = "pose_tests.rs"]
+mod pose_tests;
 
