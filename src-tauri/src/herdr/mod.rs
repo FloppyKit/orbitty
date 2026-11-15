@@ -131,3 +131,136 @@ fn spend_of(app: &AppHandle) -> String {
         String::new()
     }
 }
+
+#[cfg(test)]
+mod seat_outcome_fill {
+    /// `present` / `peek_for` need a live app handle and `present` only
+    /// emits after the pill window shows, so this checks the source: the
+    /// `v.outcome` assignment sits inside `flags::on(app, "seat_outcomes")`.
+    fn fn_body(src: &str, name: &str) -> String {
+        let start = src.find(name).unwrap_or_else(|| panic!("missing {name}"));
+        let bytes = src[start..].as_bytes();
+        let mut i = 0;
+        while i < bytes.len() && bytes[i] != b'{' {
+            i += 1;
+        }
+        assert!(i < bytes.len(), "no brace for {name}");
+        let mut depth = 0;
+        let mut in_str = false;
+        let mut escape = false;
+        let begin = i;
+        while i < bytes.len() {
+            let c = bytes[i];
+            if in_str {
+                if escape {
+                    escape = false;
+                } else if c == b'\\' {
+                    escape = true;
+                } else if c == b'"' {
+                    in_str = false;
+                }
+                i += 1;
+                continue;
+            }
+            match c {
+                b'"' => in_str = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return src[start + begin..=start + i].to_string();
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        panic!("unclosed {name}");
+    }
+
+    fn brace_end(src: &str, open: usize) -> usize {
+        let bytes = src.as_bytes();
+        let mut i = open;
+        let mut depth = 0;
+        let mut in_str = false;
+        let mut escape = false;
+        while i < bytes.len() {
+            let c = bytes[i];
+            if in_str {
+                if escape {
+                    escape = false;
+                } else if c == b'\\' {
+                    escape = true;
+                } else if c == b'"' {
+                    in_str = false;
+                }
+                i += 1;
+                continue;
+            }
+            match c {
+                b'"' => in_str = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return i;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        panic!("unclosed brace at {open}");
+    }
+
+    fn assert_outcome_only_inside_flag(src: &str, sig: &str) {
+        let body = fn_body(src, sig);
+        assert!(
+            !body.contains("assert_outcome_only_inside_flag"),
+            "{sig} slice ran past the function into this test"
+        );
+        let guard = "if crate::flags::on(app, \"seat_outcomes\")";
+        let at = body.find(guard).unwrap_or_else(|| {
+            panic!("{sig} assigns v.outcome with no seat_outcomes flag guard\n{body}")
+        });
+        let after = at + guard.len();
+        let rel = body[after..].find('{').unwrap_or_else(|| {
+            panic!("{sig} seat_outcomes guard has no block\n{body}")
+        });
+        let open = after + rel;
+        let close = brace_end(&body, open);
+        let inside = &body[open..=close];
+        assert!(
+            inside.contains("v.outcome ="),
+            "{sig} flag guard does not assign v.outcome\n{inside}"
+        );
+        assert!(
+            inside.contains("phrase_of"),
+            "{sig} flag guard does not fill the phrase\n{inside}"
+        );
+        assert!(
+            !body[..open].contains("v.outcome"),
+            "{sig} touches v.outcome before the seat_outcomes guard\n{body}"
+        );
+        assert!(
+            !body[close + 1..].contains("v.outcome"),
+            "{sig} touches v.outcome after the seat_outcomes guard\n{body}"
+        );
+    }
+
+    #[test]
+    fn present_sets_outcome_only_under_seat_outcomes() {
+        let src = include_str!("mod.rs");
+        let body = fn_body(src, "pub fn present(");
+        assert!(body.contains("show_peek_capsule"), "{body}");
+        assert_outcome_only_inside_flag(src, "pub fn present(");
+    }
+
+    #[test]
+    fn peek_for_sets_outcome_only_under_seat_outcomes() {
+        let src = include_str!("mod.rs");
+        let body = fn_body(src, "pub fn peek_for(");
+        assert!(body.contains("serde_json::to_value"), "{body}");
+        assert_outcome_only_inside_flag(src, "pub fn peek_for(");
+    }
+}
