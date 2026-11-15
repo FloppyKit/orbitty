@@ -54,7 +54,12 @@ pub fn present(app: &AppHandle, entry_id: &str) {
     let _ = crate::flags::on(app, "herdr_core");
     flush_health(app);
     let runs = runs_for(app);
-    let v = peek::view(&runs, entry_id, peek::DEFAULT_LINES, false);
+    let mut v = peek::view(&runs, entry_id, peek::DEFAULT_LINES, false);
+    if crate::flags::on(app, "seat_outcomes") {
+        if let Some(o) = crate::agents::outcome::for_view(app, &v) {
+            v.outcome = crate::agents::outcome::phrase_of(&o);
+        }
+    }
     if crate::panes::show_peek_capsule(app, &v, entry_id).is_ok() {
         let _ = app.emit_to("peek-capsule", "herdr-peek", &v);
     }
@@ -70,7 +75,12 @@ pub fn peek_for(app: &AppHandle, card: &str, lines: u32) -> serde_json::Value {
     let _ = crate::flags::on(app, "herdr_core");
     flush_health(app);
     let runs = runs_for(app);
-    let v = peek::view(&runs, card, lines, true);
+    let mut v = peek::view(&runs, card, lines, true);
+    if crate::flags::on(app, "seat_outcomes") {
+        if let Some(o) = crate::agents::outcome::for_view(app, &v) {
+            v.outcome = crate::agents::outcome::phrase_of(&o);
+        }
+    }
     serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
 }
 
@@ -80,7 +90,7 @@ pub fn jump_for(app: &AppHandle, card: &str, observe: Option<bool>) -> serde_jso
     v
 }
 
-fn flush_health(app: &AppHandle) {
+pub(crate) fn flush_health(app: &AppHandle) {
     for ev in health::take_unlogged() {
         crate::event_log::append_best(
             app,

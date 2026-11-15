@@ -562,6 +562,34 @@ pub(crate) fn print_human(tool: &str, data: &Value) {
         "wake.ack" | "wake.unsubscribe" | "wake.emit" => {
             println!("{}", serde_json::to_string(data).unwrap_or_else(|_| "ok".into()));
         }
+        "seat.outcomes" => {
+            if data.get("enabled").and_then(Value::as_bool) != Some(true) {
+                println!("off");
+                return;
+            }
+            let Some(seats) = data.get("seats").and_then(Value::as_array) else {
+                return;
+            };
+            for seat in seats {
+                let raw = seat.get("seat").and_then(Value::as_str).unwrap_or("");
+                let card = raw.strip_prefix("agent:").unwrap_or(raw);
+                let state = seat.get("state").and_then(Value::as_str).unwrap_or("");
+                let words = match state {
+                    "working" => "working",
+                    "waiting_on_you" => "waiting on you",
+                    "idle" => "idle",
+                    "failed" => "failed",
+                    "done" => "done",
+                    other => other,
+                };
+                let line = seat.get("line").and_then(Value::as_str).unwrap_or("");
+                if line.is_empty() {
+                    println!("{card} {words}");
+                } else {
+                    println!("{card} {words} · {line}");
+                }
+            }
+        }
         "herdr.status" => {
             if let Some(line) = data["line"].as_str().filter(|s| !s.is_empty()) {
                 println!("{line}");

@@ -1,7 +1,7 @@
 //! Read-only status capsule and terminal preview.
 //! Refresh is the caller's timer (2s while open). This module only reads.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::client;
 use super::core;
@@ -14,7 +14,7 @@ const MAX_LINE_CHARS: usize = 400;
 const MAX_BYTES: usize = 16 * 1024;
 pub(crate) const DEFAULT_LINES: u32 = 40;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct View {
     pub card: String,
     pub status: String,
@@ -22,6 +22,9 @@ pub struct View {
     pub text: String,
     pub source: String,
     pub up: bool,
+    /// Plain words when seat_outcomes is on. Empty keeps the old JSON.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub outcome: String,
 }
 
 /// Which backend a peek reads, and the id it passes. A run row wins over
@@ -82,6 +85,7 @@ fn core_view(target: &str, lines: u32, body: bool) -> View {
                 text: String::new(),
                 source: Source::Herdr.as_str().into(),
                 up: true,
+                outcome: String::new(),
             };
         }
         Err(e) => {
@@ -112,6 +116,7 @@ fn core_view(target: &str, lines: u32, body: bool) -> View {
         text,
         source: Source::Herdr.as_str().into(),
         up: true,
+        outcome: String::new(),
     }
 }
 
@@ -135,6 +140,7 @@ fn tui_view(target: &str, body: bool) -> View {
         text,
         source: "tui".into(),
         up: true,
+        outcome: String::new(),
     }
 }
 
@@ -151,6 +157,7 @@ fn unknown(card: &str) -> View {
         text: String::new(),
         source: Source::Fallback.as_str().into(),
         up: false,
+        outcome: String::new(),
     }
 }
 

@@ -828,6 +828,7 @@ pub(crate) fn tool_call(o: &Opts) -> Result<(&'static str, Value), String> {
             let at = opt(&o.at).ok_or("wake alarm needs --at")?;
             Ok(("wake.alarm", json!({ "seat": seat, "at": at })))
         }
+        ["seat", "outcomes"] => Ok(("seat.outcomes", json!({}))),
         ["herdr", "status"] => Ok(("herdr.status", json!({}))),
         ["herdr", "peek", card] => {
             let mut a = json!({ "card": card });

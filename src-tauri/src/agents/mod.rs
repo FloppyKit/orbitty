@@ -10,6 +10,7 @@ pub(crate) mod agent_runs;
 pub(crate) mod agent_stop;
 #[cfg(unix)]
 pub(crate) mod control;
+pub(crate) mod outcome;
 pub(crate) mod direct_lane;
 #[cfg(unix)]
 pub(crate) mod doing_fire;

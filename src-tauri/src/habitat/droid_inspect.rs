@@ -10,6 +10,52 @@ pub fn card_id_from_entry(entry_id: &str) -> Option<&str> {
 }
 
 pub fn capsule(app: &AppHandle, entry_id: &str) -> String {
+    if crate::flags::on(app, "seat_outcomes") {
+        return capsule_outcomes(app, entry_id);
+    }
+    capsule_legacy(app, entry_id)
+}
+
+fn capsule_outcomes(app: &AppHandle, entry_id: &str) -> String {
+    let Some(cid) = card_id_from_entry(entry_id) else {
+        return "agent".into();
+    };
+    let Ok(st) = crate::state::load_state(app) else {
+        return format!("{cid} · agent");
+    };
+    let run = st.agent_runs.iter().find(|r| r.card_id == cid);
+    let run_state = run.map(|r| r.state.as_str()).unwrap_or("");
+    let spend = if st.spend_usd > 0.0 {
+        format!(" · ${:.2}", st.spend_usd)
+    } else {
+        String::new()
+    };
+    let tool = if let Some(h) = run
+        .and_then(|r| r.herdr.as_ref())
+        .filter(|h| h.backend == "core")
+    {
+        tool_line(h).unwrap_or_default()
+    } else if crate::herdr::core_on() {
+        String::new()
+    } else if let Some(bin) = crate::herdr::tui::locate() {
+        let target = run
+            .and_then(|r| r.herdr.as_ref())
+            .map(|h| h.agent_name.as_str())
+            .unwrap_or(cid);
+        crate::herdr::tui::agent_read(&bin, target)
+            .ok()
+            .and_then(|text| pick_line(&text))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    format!(
+        "{}{spend}",
+        crate::agents::outcome::saved_phrase(run_state, &tool)
+    )
+}
+
+fn capsule_legacy(app: &AppHandle, entry_id: &str) -> String {
     let Some(cid) = card_id_from_entry(entry_id) else {
         return "agent".into();
     };

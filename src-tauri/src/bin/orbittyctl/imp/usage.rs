@@ -138,6 +138,7 @@ commands:
   flags list
   flags set <id> on|off
   flags auto on|off                 stop or resume auto-on after Verify
+  seat outcomes                     one line per seat: card, plain state, short line
   herdr status                      hc health: up/source and version
   herdr peek <card> [--limit N]     read-only terminal preview
   herdr jump <card> [--observe | --full]   open that seat's terminal (watch-only unless --full)

@@ -368,6 +368,7 @@ const READ_TOOLS: &[&str] = &[
     "companion.links",
     "herdr.status",
     "herdr.peek",
+    "seat.outcomes",
     "wake.list",
     "wake.inbox",
     "wake.status",
@@ -1411,6 +1412,7 @@ fn run_tool(
         // flags.set is write-class. The mouth child is not a separate caller
         // identity (claim_origin_from always yields Agent), so the fence is
         // this ACL plus policy_paths on the flag files. No new identity.
+        "seat.outcomes" => Ok(crate::agents::outcome::all(app)),
         "herdr.status" => Ok(to_data(crate::herdr::status_for(app))),
         "herdr.peek" => {
             let card = arg_opt(args, "card")
@@ -1700,6 +1702,15 @@ mod tests {
         let src = include_str!("control.rs");
         assert!(src.contains("\"kanban.link_dep\" =>"));
         assert!(src.contains("\"kanban.unlink_dep\" =>"));
+    }
+
+    #[test]
+    fn seat_outcomes_is_read_class() {
+        assert!(READ_TOOLS.contains(&"seat.outcomes"));
+        assert!(allowed(&Acl::Read, "seat.outcomes"));
+        assert!(allowed(&Acl::Companion, "seat.outcomes"));
+        let src = include_str!("control.rs");
+        assert!(src.contains("\"seat.outcomes\" =>"));
     }
 
     #[test]

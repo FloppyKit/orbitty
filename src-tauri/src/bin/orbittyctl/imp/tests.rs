@@ -439,3 +439,11 @@
         assert!(tool_call(&parse(&argv(&["herdr", "jump"])).unwrap()).is_err());
         assert!(USAGE.contains("herdr jump <card> [--observe | --full]"));
     }
+
+    #[test]
+    fn seat_outcomes_parses() {
+        let (tool, args) = tool_call(&parse(&argv(&["seat", "outcomes"])).unwrap()).unwrap();
+        assert_eq!(tool, "seat.outcomes");
+        assert_eq!(args, serde_json::json!({}));
+        assert!(USAGE.contains("seat outcomes"));
+    }

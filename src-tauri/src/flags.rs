@@ -154,6 +154,15 @@ pub const FLAGS: &[FlagDef] = &[
         remove_after: "2026-12-31",
         auto_on_verify: true,
     },
+    FlagDef {
+        id: "seat_outcomes",
+        default: false,
+        what: "plain words for one agent seat",
+        go: "GO-ORBITTY-SEAT-OUTCOMES-CORE",
+        added: "2026-11-14",
+        remove_after: "2027-01-13",
+        auto_on_verify: true,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]

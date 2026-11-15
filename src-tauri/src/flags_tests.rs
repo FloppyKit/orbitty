@@ -469,3 +469,11 @@ fn plist_tip_is_sha8() {
     assert_eq!(tip_sha8_from_plist(text).as_deref(), Some("8e017a86"));
     assert!(tip_sha8_from_plist("<key>Other</key>").is_none());
 }
+
+#[test]
+fn seat_outcomes_flag_row() {
+    let def = def_by_id("seat_outcomes").unwrap();
+    assert!(!def.default);
+    assert!(def.auto_on_verify);
+    assert_eq!(def.go, "GO-ORBITTY-SEAT-OUTCOMES-CORE");
+}
