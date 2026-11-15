@@ -64,6 +64,26 @@ test("open_terminal_error_still_shows", () => {
   assert.ok(clears >= 3, String(clears));
 });
 
+test("none_with_said_keeps_pill_empty_said_hides", () => {
+  const file = src("src/lib/habitat/PeekCapsule.svelte");
+  const scriptEnd = file.lastIndexOf("</script>");
+  const script = file.slice(0, scriptEnd);
+  const note = sliceFn(script, "function noteSeat", "async function openTerminal");
+  const noneAt = note.indexOf('if (status === "none")');
+  assert.ok(noneAt >= 0);
+  const blockedAt = note.indexOf('status === "blocked"', noneAt);
+  assert.ok(blockedAt > noneAt);
+  const noneBranch = note.slice(noneAt, blockedAt);
+  const keepAt = noneBranch.indexOf("if (said) return;");
+  const hideAt = noneBranch.indexOf("hideCapsule()");
+  assert.ok(keepAt >= 0, "flag on + outcome (said) keeps the pill");
+  assert.ok(hideAt > keepAt, "flag off / empty said still hides");
+  assert.equal(noneBranch.slice(keepAt, hideAt).includes("hideCapsule"), false);
+  const tpl = file.slice(scriptEnd);
+  assert.match(tpl, /\{#if status !== "unknown"\}/);
+  assert.match(tpl, /onclick=\{hideCapsule\}/);
+});
+
 test("rail_and_habitat_mac_untouched_names", () => {
   const files = [
     ...walk("src/lib/rail"),

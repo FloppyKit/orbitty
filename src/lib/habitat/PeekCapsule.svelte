@@ -61,6 +61,7 @@
 
   function noteSeat(status: string, up: boolean) {
     if (status === "none") {
+      if (said) return;
       void hideCapsule();
       return;
     }
