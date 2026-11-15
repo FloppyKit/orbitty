@@ -117,7 +117,50 @@ fn strip_prefixes(s: &str, prefixes: &[String]) -> String {
     out
 }
 
+fn is_box_drawing(c: char) -> bool {
+    ('\u{2500}'..='\u{257F}').contains(&c)
+}
+
+/// `n/m:` key hints, as in `1/5:select`.
+fn has_count_hint(s: &str) -> bool {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if !b[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i >= b.len() || b[i] != b'/' {
+            continue;
+        }
+        i += 1;
+        let start = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i > start && i < b.len() && b[i] == b':' {
+            return true;
+        }
+    }
+    false
+}
+
+/// A TUI footer or key-hint line is not a plain status line.
+fn is_tui_footer(s: &str) -> bool {
+    s.chars().any(is_box_drawing)
+        || s.contains("Ctrl+")
+        || s.contains("Tab:")
+        || s.contains("Esc:")
+        || has_count_hint(s)
+}
+
 pub(crate) fn clamp_line(s: &str) -> String {
+    if is_tui_footer(s) {
+        return String::new();
+    }
     let flat = s.replace(['\r', '\n', '\t'], " ");
     let prefixes = path_prefixes();
     let stripped = strip_prefixes(&flat, &prefixes);
@@ -311,6 +354,7 @@ fn last_line(text: &str) -> String {
                 && !l.starts_with('│')
                 && !l.starts_with('╰')
                 && !l.starts_with("Update:")
+                && !is_tui_footer(l)
         })
         .next_back()
         .map(|s| s.trim_start_matches(['❯', '•', '-', '*']).trim().to_string())

@@ -228,6 +228,66 @@ fn line_clamped_120_no_paths() {
     assert!(!cut.contains('\n'));
 }
 
+const TUI_FOOTER: &str = "1/5:select │ Tab:next option │ ←/→:scope │ e:edit pattern │ Ctrl+o:always-approve │ Ctrl+c:cancel │ Esc:scrollback";
+
+fn like_pick_line(s: &str) -> String {
+    let s = s.trim().trim_start_matches(['❯', '•', '-', '*']).trim();
+    if s.chars().count() > 48 {
+        format!("{}…", s.chars().take(47).collect::<String>())
+    } else {
+        s.to_string()
+    }
+}
+
+fn ctl_seat_line(card: &str, state: OutcomeState, raw: &str) -> String {
+    let line = clamp_line(raw);
+    let w = words(state);
+    if line.is_empty() {
+        format!("{card} {w}")
+    } else {
+        format!("{card} {w} · {line}")
+    }
+}
+
+#[test]
+fn tui_footer_is_not_the_short_line() {
+    let state = from_herdr("none", "finished", true, "done");
+    assert_eq!(state, OutcomeState::Done);
+    assert_eq!(words(state), "done");
+
+    let line = clamp_line(TUI_FOOTER);
+    assert_eq!(line, "", "{line}");
+    let phrase = phrase_of(&seat("agent:c-fixture", state, &line, 1));
+    assert_eq!(phrase, "done");
+    for bit in ["│", "Tab:", "Ctrl+", "Esc:", "1/5:", "scrollback", "always-approve"] {
+        assert!(!phrase.contains(bit), "{bit} in peek phrase {phrase}");
+    }
+
+    let peeked = clamp_line(&last_line(TUI_FOOTER));
+    let peek_phrase = phrase_of(&seat("agent:c-fixture", state, &peeked, 1));
+    assert_eq!(peek_phrase, "done");
+    assert!(!peek_phrase.contains("Esc:"), "{peek_phrase}");
+    assert!(!peek_phrase.contains("Ctrl+"), "{peek_phrase}");
+
+    let above = format!("shipped the door\n{TUI_FOOTER}");
+    assert_eq!(clamp_line(&last_line(&above)), "shipped the door");
+
+    let picked = like_pick_line(TUI_FOOTER);
+    assert!(picked.contains('│'), "{picked}");
+    assert_ne!(picked, TUI_FOOTER);
+    let printed = ctl_seat_line("c-fixture", state, &picked);
+    assert_eq!(printed, "c-fixture done");
+    for bit in ["│", "Tab:", "1/5:", "select", "scope", "Ctrl+", "Esc:"] {
+        assert!(!printed.contains(bit), "{bit} in ctl {printed}");
+    }
+    let printed_full = ctl_seat_line("c-fixture", state, TUI_FOOTER);
+    assert_eq!(printed_full, "c-fixture done");
+    assert!(!printed_full.contains(TUI_FOOTER), "{printed_full}");
+
+    assert_eq!(saved_phrase("done", TUI_FOOTER), "done");
+    assert_eq!(clamp_line("shipped the door"), "shipped the door");
+}
+
 #[test]
 fn merge_dedupes_newest_wins() {
     let older = seat("agent:a", OutcomeState::Working, "old", 1);
