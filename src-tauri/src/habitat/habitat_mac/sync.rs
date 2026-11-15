@@ -16,7 +16,7 @@ use super::sync_still;
 use super::sync_roster;
 use super::sync_spawn;
 use super::pose::{
-    droid_glance, pose_for, sticky_pose, Pose, HOME_HIDE_X,
+    door_word, droid_glance, pose_for, sticky_pose, Pose, HOME_HIDE_X,
 };
 use super::{
     color_for, effective_radius, emit_walked_off, ensure_pack_loaded,
@@ -269,6 +269,7 @@ pub(crate) fn do_sync(snapshot: &HabitatSnapshot) {
                     for (b, e) in planet.walkers.iter_mut().zip(walker_entries.iter()) {
                         let next = sticky_pose(b.pose, pose_for(e));
                         let glance = droid_glance(e);
+                        let word = door_word(e);
                         if next != b.pose {
                             pose_events.push((
                                 project_id.clone(),
@@ -281,6 +282,13 @@ pub(crate) fn do_sync(snapshot: &HabitatSnapshot) {
                         }
                         if glance != b.droid_glance {
                             b.droid_glance = glance;
+                            any_pose = true;
+                        }
+                        // A word that lands or lifts with the same
+                        // glance (door "working" vs a saved doing row)
+                        // still has to redraw, or the dot goes stale.
+                        if word != b.door_word {
+                            b.door_word = word;
                             any_pose = true;
                         }
                     }

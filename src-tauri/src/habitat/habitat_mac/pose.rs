@@ -158,6 +158,46 @@ pub(crate) fn droid_glance(entry: &HabitatEntry) -> u8 {
     }
 }
 
+/// 55c — did the seat door give this AGENT walker a word? `outcome` is
+/// filled only from a live door word (flag off -> no key -> ""), so "" is
+/// today's look. An unknown string is not a word, and a window walker is
+/// never a seat.
+pub(crate) fn door_word(entry: &HabitatEntry) -> bool {
+    if entry.agent_seed.is_empty() {
+        return false;
+    }
+    matches!(
+        entry.outcome.as_str(),
+        "working" | "waiting_on_you" | "idle" | "failed" | "done"
+    )
+}
+
+/// The status pip's color: the same three numbers as droid.rs antenna() —
+/// one status palette, two call sites (pip_palette_matches_antenna pins it).
+pub(crate) fn pip_rgb(glance: u8) -> (f64, f64, f64) {
+    match glance {
+        1 => (0.92, 0.22, 0.22), // blocked — red
+        2 => (0.90, 0.62, 0.24), // needs-you — ochre
+        _ => (0.95, 0.85, 0.35), // working — warm pip
+    }
+}
+
+/// The dot above a painted droid: Some(color) only when the kit drew the
+/// body AND the door gave a word (Matt 2026-11-15: no word, no dot, so the
+/// flag-off look stays today's pixel for pixel). Window walkers and the
+/// baked fallback droid carry their own signal, so they get None.
+pub(crate) fn status_pip(
+    painted_droid: bool,
+    glance: u8,
+    has_word: bool,
+) -> Option<(f64, f64, f64)> {
+    if painted_droid && has_word {
+        Some(pip_rgb(glance))
+    } else {
+        None
+    }
+}
+
 pub(crate) fn pose_name(p: Pose) -> &'static str {
     match p {
         Pose::Roam => "roam",

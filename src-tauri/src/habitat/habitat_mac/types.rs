@@ -58,6 +58,9 @@ pub(crate) struct Being {
     pub(crate) droid: Option<u64>,
     /// 0 working, 1 blocked, 2 needs-you.
     pub(crate) droid_glance: u8,
+    /// The seat door gave this agent walker a word; drives the status dot
+    /// above a painted droid (55c). Rebuilt every sync, never saved.
+    pub(crate) door_word: bool,
 }
 
 pub(crate) struct Planet {

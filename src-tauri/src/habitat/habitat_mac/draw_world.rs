@@ -372,6 +372,23 @@ pub(crate) unsafe fn draw_world(this: &Object, d: &DrawData) {
                 }
             }
         }
+        // 55c: a small status dot above a painted droid whose seat door
+        // gave a word — the same red / ochre / warm the old antenna used.
+        // Window walkers and the fallback droid get None from status_pip,
+        // so this is today's picture with the seat flag off.
+        if let Some((r, g, b)) =
+            super::super::pose::status_pip(w.painted_droid, w.droid_glance, w.door_word)
+        {
+            let d = (sprite_rect.size.width * 0.16).clamp(4.0, 8.0);
+            let dot = NSRect::new(
+                sprite_rect.mid_x() - d / 2.0,
+                sprite_rect.origin.y - d - 2.0,
+                d,
+                d,
+            );
+            set_fill(ns_color(r, g, b, w.dim));
+            fill_oval(dot);
+        }
         if w.icon != 0 {
             let bs = 14.0;
             let badge = NSRect::new(

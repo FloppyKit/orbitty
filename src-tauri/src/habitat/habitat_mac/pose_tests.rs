@@ -202,3 +202,64 @@ fn habitat_entry_outcome_defaults_empty() {
     let entry: HabitatEntry = serde_json::from_str(raw).unwrap();
     assert_eq!(entry.outcome, "");
 }
+
+// ---- 55c: the status dot above a painted droid ----------------------
+// A dot is the door's glance color, and only when the door gave a word.
+
+use super::{door_word, pip_rgb, status_pip};
+
+const WARM: (f64, f64, f64) = (0.95, 0.85, 0.35);
+const RED: (f64, f64, f64) = (0.92, 0.22, 0.22);
+const OCHRE: (f64, f64, f64) = (0.90, 0.62, 0.24);
+
+#[test]
+fn status_pip_table() {
+    // Painted droid with a door word: the dot is the door's glance color.
+    assert_eq!(status_pip(true, 0, true), Some(WARM));
+    assert_eq!(status_pip(true, 1, true), Some(RED));
+    assert_eq!(status_pip(true, 2, true), Some(OCHRE));
+    assert_eq!(status_pip(true, 3, true), Some(WARM));
+    assert_eq!(status_pip(true, 255, true), Some(WARM));
+    // No word, no dot (Matt 2026-11-15): the flag-off look stays today's.
+    for glance in [0u8, 1, 2, 3, 255] {
+        assert_eq!(status_pip(true, glance, false), None, "no word, glance {glance}");
+    }
+    // Window walkers and the baked fallback droid never get a dot.
+    for word in [false, true] {
+        for glance in [0u8, 1, 2, 3, 255] {
+            assert_eq!(status_pip(false, glance, word), None, "no kit, {word} {glance}");
+        }
+    }
+}
+
+#[test]
+fn door_word_table() {
+    for word in ["working", "waiting_on_you", "idle", "failed", "done"] {
+        assert!(door_word(&entry(true, "", "todo", "", word)), "{word}");
+    }
+    for word in ["", "zzz", "WORKING", " working", "laterish"] {
+        assert!(!door_word(&entry(true, "doing", "todo", "", word)), "{word:?}");
+    }
+    // A window walker is never a seat, whatever the row carries.
+    for word in ["working", "waiting_on_you", "idle", "failed", "done", ""] {
+        assert!(!door_word(&entry(false, "", "todo", "", word)), "window {word:?}");
+    }
+}
+
+#[test]
+fn pip_palette_matches_antenna() {
+    // One palette, two call sites: these numbers are droid.rs antenna()'s.
+    assert_eq!(pip_rgb(1), RED);
+    assert_eq!(pip_rgb(2), OCHRE);
+    for glance in [0u8, 3, 255] {
+        assert_eq!(pip_rgb(glance), WARM);
+    }
+    let droid = include_str!("droid.rs");
+    let at = droid.find("fn antenna(").expect("droid.rs antenna()");
+    let tail = &droid[at..];
+    let end = tail.find("\n}\n").map(|e| e + 3).unwrap_or(tail.len());
+    let antenna = &tail[..end];
+    for lit in ["(0.92, 0.22, 0.22)", "(0.90, 0.62, 0.24)", "(0.95, 0.85, 0.35)"] {
+        assert!(antenna.contains(lit), "antenna() lost {lit}");
+    }
+}

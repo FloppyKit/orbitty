@@ -7,7 +7,9 @@
 use super::art::{base64_decode, fallback_pack_index, ns_image_from_bytes};
 use super::draw;
 use super::geom::{disc_to_view, walker_fit};
-use super::pose::{droid_glance, hash_str, pose_for, sleeper_target, station_target, yard_pick};
+use super::pose::{
+    door_word, droid_glance, hash_str, pose_for, sleeper_target, station_target, yard_pick,
+};
 use super::roam::RoamState;
 use super::{
     house_spawn, Being, DecorKind, DecorRef, Habitat, HabitatEntry, NSPoint, NSRect, Planet, Pose,
@@ -319,6 +321,7 @@ pub(crate) fn make_being(h: &mut Habitat, entry: &HabitatEntry) -> Being {
         pose,
         droid,
         droid_glance: droid_glance(entry),
+        door_word: door_word(entry),
     }
 }
 

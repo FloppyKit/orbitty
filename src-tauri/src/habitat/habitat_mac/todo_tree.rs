@@ -487,6 +487,7 @@ mod tests {
             pose: Pose::Stand,
             droid: None,
             droid_glance: 0,
+            door_word: false,
         };
         Planet {
             panel: 0,

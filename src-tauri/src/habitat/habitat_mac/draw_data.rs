@@ -67,6 +67,12 @@ pub(crate) struct WalkerDraw {
     pub(crate) locate: bool,
     /// 0 working, 1 blocked, 2 needs-you.
     pub(crate) droid_glance: u8,
+    /// A painted kit frame drew this droid. False for window walkers and
+    /// for the baked fallback droid, which already shows its own antenna —
+    /// a dot there would double the signal (55c).
+    pub(crate) painted_droid: bool,
+    /// The seat door gave this agent walker a word. No word, no dot (55c).
+    pub(crate) door_word: bool,
 }
 
 pub(crate) struct DecorDraw {

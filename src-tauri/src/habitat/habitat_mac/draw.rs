@@ -145,6 +145,27 @@ fn draw_rect_guarded(this: &Object) {
                     // Done sleeper walks off instead: the walk-off narrates
                     // the eviction, so the still-sleeper law yields to it.
                     let sleeper_still = b.asleep && b.pose != Pose::WalkOff;
+                    // A painted kit frame wins over the baked fallback.
+                    // Hoisted out of the literal so the 55c status dot can
+                    // tell a painted droid from a window walker or a
+                    // fallback droid — still one kit lookup per frame.
+                    let painted = b
+                        .droid
+                        .map(|seed| {
+                            let dir = droid_pack::dir_for(
+                                b.pose,
+                                roam.map(|r| r.facing_dir).unwrap_or(0),
+                            );
+                            droid_pack::frame_ptr(
+                                &h,
+                                seed,
+                                dir,
+                                cycling && !sleeper_still,
+                                h.anim_frame,
+                                i,
+                            )
+                        })
+                        .unwrap_or(0);
                     Some(WalkerDraw {
                         frame: b.frame,
                         bob: b.bob,
@@ -162,18 +183,6 @@ fn draw_rect_guarded(this: &Object) {
                         // walk frames) — window walkers keep the bitty
                         // sheets / generated person below.
                         pack_frame: if let Some(seed) = b.droid {
-                            let dir = droid_pack::dir_for(
-                                b.pose,
-                                roam.map(|r| r.facing_dir).unwrap_or(0),
-                            );
-                            let painted = droid_pack::frame_ptr(
-                                &h,
-                                seed,
-                                dir,
-                                cycling && !sleeper_still,
-                                h.anim_frame,
-                                i,
-                            );
                             if painted != 0 {
                                 painted
                             } else {
@@ -214,6 +223,8 @@ fn draw_rect_guarded(this: &Object) {
                             Projection::Flat => 1.0,
                         },
                         droid_glance: b.droid_glance,
+                        painted_droid: b.droid.is_some() && painted != 0,
+                        door_word: b.door_word,
                     })
                 })
                 .collect::<Vec<_>>();
