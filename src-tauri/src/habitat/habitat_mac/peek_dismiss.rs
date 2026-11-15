@@ -90,10 +90,10 @@ fn peek_local_block() -> *const PeekLocalBlock {
     }) as *const PeekLocalBlock
 }
 
-fn hop_dismiss() {
-    super::audio::defer_main(|| {
+fn hop_dismiss(reason: &'static str) {
+    super::audio::defer_main(move || {
         if let Some(app) = super::app_handle() {
-            let _ = crate::panes::peek_dismiss_one_step(app);
+            let _ = crate::panes::peek_dismiss_one_step(app, reason);
         }
     });
 }
@@ -178,7 +178,7 @@ extern "C" fn peek_invoke(_block: *const PeekBlock, event: *mut Object) {
             _ => false,
         };
         if away {
-            hop_dismiss();
+            hop_dismiss(if ty == 10 { "esc" } else { "click-away" });
         }
     }));
 }
@@ -189,7 +189,8 @@ extern "C" fn peek_local_invoke(_block: *const PeekLocalBlock, event: *mut Objec
             return;
         }
         if local_should_dismiss(event) {
-            hop_dismiss();
+            let ty: u64 = msg_send![event, type];
+            hop_dismiss(if ty == 10 { "esc" } else { "click-away" });
         }
     }));
     event

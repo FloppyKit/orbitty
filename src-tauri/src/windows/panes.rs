@@ -331,6 +331,7 @@ pub(crate) fn wire_pane_events(
             }
             let restore_pills = pane_label == "peek-preview";
             if pane_label == "peek-capsule" {
+                log_peek_capsule_hide(&handle, Some("close"));
                 let _ = keeper.set_always_on_top(false);
                 clear_peek_arm();
                 clear_preview_size();
@@ -687,13 +688,64 @@ pub fn show_peek_capsule(
 /// Hide the pills and the preview and drop the in-memory arm.
 /// Does not bring the pills back. Missing windows are fine.
 #[tauri::command]
-pub fn hide_peek_capsule(app: tauri::AppHandle) -> Result<(), String> {
+pub fn hide_peek_capsule(app: tauri::AppHandle, reason: Option<String>) -> Result<(), String> {
+    log_peek_capsule_hide(&app, reason.as_deref());
     clear_peek_arm();
     clear_preview_size();
     hide_labeled(&app, "peek-preview");
     hide_labeled(&app, "peek-capsule");
     sync_peek_monitors(false);
     Ok(())
+}
+
+fn peek_arm_card() -> String {
+    PEEK_CAPSULE_ARM
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|arm| arm.view.card.clone()))
+        .unwrap_or_default()
+}
+
+fn clean_reason(reason: Option<&str>) -> &'static str {
+    match reason.unwrap_or("").trim() {
+        "user-hide" => "user-hide",
+        "none-status" => "none-status",
+        "down-streak" => "down-streak",
+        "esc" => "esc",
+        "click-away" => "click-away",
+        "close" => "close",
+        "fold-preview" => "fold-preview",
+        _ => "unspecified",
+    }
+}
+
+fn clean_card(card: &str) -> String {
+    let t = card.trim();
+    if t.is_empty() || t.len() > 64 {
+        return String::new();
+    }
+    if t.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        t.to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn log_peek_capsule_hide(app: &tauri::AppHandle, reason: Option<&str>) {
+    crate::event_log::append_best(
+        app,
+        "peek-capsule-hide",
+        None,
+        None,
+        Some("agent"),
+        true,
+        &serde_json::json!({
+            "reason": clean_reason(reason),
+            "card": clean_card(&peek_arm_card()),
+        }),
+    );
 }
 
 /// What the peek pane should show if it missed the herdr-peek event.
@@ -757,6 +809,7 @@ pub fn show_peek_preview(app: tauri::AppHandle) -> Result<(), String> {
     }
     // Fold: hide the pills row, then show the preview. The arm stays so a
     // close can bring the pills back. Never leave both on screen.
+    log_peek_capsule_hide(&app, Some("fold-preview"));
     hide_labeled(&app, "peek-capsule");
     if let Err(e) = w.show() {
         let _ = show_pills_from_arm(&app);
@@ -826,10 +879,10 @@ pub fn prewarm_peek_preview(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Esc or empty-glass click-away. One step: preview back to pills, then pills away.
-pub(crate) fn peek_dismiss_one_step(app: &tauri::AppHandle) -> Result<(), String> {
+pub(crate) fn peek_dismiss_one_step(app: &tauri::AppHandle, reason: &str) -> Result<(), String> {
     match peek_layer_after_dismiss(current_peek_layer(app)) {
         PeekLayer::Pills => hide_peek_preview(app.clone(), Some(true)),
-        PeekLayer::None => hide_peek_capsule(app.clone()),
+        PeekLayer::None => hide_peek_capsule(app.clone(), Some(reason.to_string())),
         PeekLayer::Preview => Ok(()),
     }
 }

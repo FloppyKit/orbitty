@@ -84,6 +84,32 @@ test("none_with_said_keeps_pill_empty_said_hides", () => {
   assert.match(tpl, /onclick=\{hideCapsule\}/);
 });
 
+test("preview_none_hide_does_not_see_the_capsule_event", () => {
+  const preview = src("src/lib/habitat/PeekPreview.svelte");
+  const capsule = src("src/lib/habitat/PeekCapsule.svelte");
+  const prevAt = preview.indexOf('listen<Capsule>("herdr-peek"');
+  assert.ok(prevAt >= 0);
+  const prevListen = preview.slice(prevAt, preview.indexOf(".then", prevAt));
+  assert.match(prevListen, /target:\s*"peek-preview"/);
+  const capAt = capsule.indexOf('listen<Capsule>("herdr-peek"');
+  assert.ok(capAt >= 0);
+  const capListen = capsule.slice(capAt, capsule.indexOf(".then", capAt));
+  assert.match(capListen, /target:\s*"peek-capsule"/);
+  const script = capsule.slice(0, capsule.lastIndexOf("</script>"));
+  const apply = sliceFn(script, "function applyCapsule", "onMount");
+  assert.match(apply, /if \(!said\) noteSeat\(status, v\.up\)/);
+  assert.match(apply, /if \(status === "none" && !said\) return/);
+  const note = sliceFn(script, "function noteSeat", "async function openTerminal");
+  assert.match(note, /hideReason = "none-status"/);
+  assert.match(note, /hideCapsule\(\)/);
+  assert.match(note, /hideReason = "down-streak"/);
+  const panes = src("src-tauri/src/windows/panes.rs");
+  assert.match(panes, /"peek-capsule-hide"/);
+  const dismiss = src("src-tauri/src/habitat/habitat_mac/peek_dismiss.rs");
+  assert.match(dismiss, /"esc"/);
+  assert.match(dismiss, /"click-away"/);
+});
+
 test("rail_and_habitat_mac_untouched_names", () => {
   const files = [
     ...walk("src/lib/rail"),

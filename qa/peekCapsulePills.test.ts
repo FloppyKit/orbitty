@@ -102,7 +102,7 @@ test("peekCapsulePills fold, scroll bar, and one-step dismiss", () => {
   assert.match(open, /invoke\("show_peek_preview"\)/);
 
   const hide = sliceFn(pillsScript, "function hideCapsule", "function noteSeat");
-  assert.match(hide, /invoke\("hide_peek_capsule"\)/);
+  assert.match(hide, /invoke\("hide_peek_capsule"/);
   assert.match(hide, /invoke\("hide_peek_preview", \{ restore: false \}\)/);
 
   const arm = sliceFn(pillsScript, "function arm", "function openPeek");

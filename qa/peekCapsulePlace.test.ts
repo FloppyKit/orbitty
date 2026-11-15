@@ -51,7 +51,7 @@ test("peekCapsulePlace seat end, hide, and timer", () => {
   const tpl = file.slice(scriptEnd);
 
   const hide = sliceFn(script, "function hideCapsule", "function noteSeat");
-  assert.match(hide, /invoke\("hide_peek_capsule"\)/);
+  assert.match(hide, /invoke\("hide_peek_capsule"/);
   assert.match(tpl, /onclick=\{hideCapsule\}/);
   assert.equal(tpl.includes("shown = false"), false);
 
