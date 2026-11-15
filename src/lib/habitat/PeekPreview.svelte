@@ -21,7 +21,6 @@
   let watchedBody: HTMLPreElement | null = null;
   let pinning = false;
   let downStreak = 0;
-  let hideReason = "";
 
   function stop() {
     if (timer) clearInterval(timer);
@@ -91,8 +90,6 @@
   }
 
   function hideBoth() {
-    const why = hideReason || "user-hide";
-    hideReason = "";
     shown = false;
     text = "";
     followBottom = true;
@@ -100,12 +97,11 @@
     downStreak = 0;
     stop();
     void invoke("hide_peek_preview", { restore: false }).catch(() => {});
-    void invoke("hide_peek_capsule", { reason: why }).catch(() => {});
+    void invoke("hide_peek_capsule").catch(() => {});
   }
 
   function noteSeat(status: string, up: boolean) {
     if (status === "none") {
-      hideReason = "none-status";
       void hideBoth();
       return;
     }
@@ -115,10 +111,7 @@
     }
     if (up === false || status === "unknown") {
       downStreak += 1;
-      if (downStreak >= 2) {
-        hideReason = "down-streak";
-        void hideBoth();
-      }
+      if (downStreak >= 2) void hideBoth();
       return;
     }
     downStreak = 0;

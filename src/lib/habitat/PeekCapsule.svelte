@@ -20,7 +20,6 @@
   let said = $state("");
   let timer: ReturnType<typeof setInterval> | undefined;
   let downStreak = 0;
-  let hideReason = "";
 
   function stop() {
     if (timer) clearInterval(timer);
@@ -53,19 +52,16 @@
   }
 
   function hideCapsule() {
-    const why = hideReason || "user-hide";
-    hideReason = "";
     shown = false;
     downStreak = 0;
     stop();
     void invoke("hide_peek_preview", { restore: false }).catch(() => {});
-    void invoke("hide_peek_capsule", { reason: why }).catch(() => {});
+    void invoke("hide_peek_capsule").catch(() => {});
   }
 
   function noteSeat(status: string, up: boolean) {
     if (status === "none") {
       if (said) return;
-      hideReason = "none-status";
       void hideCapsule();
       return;
     }
@@ -75,10 +71,7 @@
     }
     if (up === false || status === "unknown") {
       downStreak += 1;
-      if (downStreak >= 2) {
-        hideReason = "down-streak";
-        void hideCapsule();
-      }
+      if (downStreak >= 2) void hideCapsule();
       return;
     }
     downStreak = 0;

@@ -100,14 +100,11 @@ test("preview_none_hide_does_not_see_the_capsule_event", () => {
   assert.match(apply, /if \(!said\) noteSeat\(status, v\.up\)/);
   assert.match(apply, /if \(status === "none" && !said\) return/);
   const note = sliceFn(script, "function noteSeat", "async function openTerminal");
-  assert.match(note, /hideReason = "none-status"/);
   assert.match(note, /hideCapsule\(\)/);
-  assert.match(note, /hideReason = "down-streak"/);
-  const panes = src("src-tauri/src/windows/panes.rs");
-  assert.match(panes, /"peek-capsule-hide"/);
-  const dismiss = src("src-tauri/src/habitat/habitat_mac/peek_dismiss.rs");
-  assert.match(dismiss, /"esc"/);
-  assert.match(dismiss, /"click-away"/);
+  assert.match(capsule, /invoke\("hide_peek_capsule"\)/);
+  assert.match(preview, /invoke\("hide_peek_capsule"\)/);
+  assert.equal(capsule.includes("hideReason"), false);
+  assert.equal(preview.includes("hideReason"), false);
 });
 
 test("rail_and_habitat_mac_untouched_names", () => {
