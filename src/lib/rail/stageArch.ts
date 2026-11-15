@@ -88,7 +88,15 @@ export interface ArchRow {
   isFrontmost?: boolean;
 }
 
-export type Layer2Kind = "habitat" | "board" | "needed" | "window" | "doing" | "todo" | "more";
+export type Layer2Kind =
+  | "habitat"
+  | "scene"
+  | "board"
+  | "needed"
+  | "window"
+  | "doing"
+  | "todo"
+  | "more";
 
 export interface Layer2Item {
   kind: Layer2Kind;
@@ -104,6 +112,8 @@ export interface Layer2Item {
   /** Stage Manager board tile. Cards live in the embed, not as doing/todo rows. */
   preview?: boolean;
   why?: string;
+  /** Scene tile: this planet's scene is the open one ("in", not "out"). */
+  active?: boolean;
 }
 
 export type ArchConfirmAction = "board" | "wake" | "restore" | "focus";
@@ -739,13 +749,15 @@ export interface PlaceRect {
 
 export interface StagePreviewModel {
   habitat: Layer2Item;
+  /** One planet's scene tile (GO 42b). Absent with the flag off. */
+  scene: Layer2Item | null;
   board: Layer2Item;
   windows: Layer2Item[];
   needed: Layer2Item[];
   /** Claimed windows past PREVIEW_WINDOW_CAP. Not tiles and not fake window ids. */
   overflow: number;
   popOut: { stop: string; label: string };
-  /** Habitat, then the board tile, then Needed, then window tiles. No doing/todo. */
+  /** Habitat, then the scene tile (flag on), then board, Needed, windows. */
   slots: Layer2Item[];
 }
 

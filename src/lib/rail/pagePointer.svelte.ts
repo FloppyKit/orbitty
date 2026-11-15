@@ -1,10 +1,19 @@
 // Moved function bodies. scope fields are the lets each function already closed over.
 
-import type { Claim, KanbanCard, Project, WindowInfo } from "../persist";
+import type { Claim, KanbanCard, PersistedState, Project, WindowInfo } from "../persist";
 import type { MenuRing } from "../menuKeys.svelte";
 import type { ArchFrame, ArchFront, ArchLayout, ArchState, BoardFocus, Layer2Item } from "./stageArch";
 import type { ClaimSnap, EdgeHoverEvent, EdgeHoverState } from "./stagePlace";
-import type { BoardCol, HabitatRow, RailEdge, StagePrefs } from "./habitat";
+import type {
+  BoardCol,
+  HabitatRow,
+  RailEdge,
+  SceneSavedFrame,
+  SceneSession,
+  SceneWindowRow,
+  StagePrefs,
+} from "./habitat";
+import { sceneEnter, sceneLeave } from "./habitat";
 import type { DismissInput, InputIntent, IntentInput } from "./railInput";
 
 type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -550,4 +559,179 @@ export function rowById(scope: Scope_rowById, id: string): WindowInfo | undefine
     if (hit) return hit;
   }
   return scope.windows.find((w) => w.id === id);
+}
+
+// ---- Planet scenes (GO 42b) -----------------------------------------
+// The desk as it was before the first scene lives here in memory only: a
+// quit forgets it and every window stays where it is (42b Needs Matt 3).
+// The decision itself is pure — habitat.ts sceneEnter / sceneLeave.
+
+let sceneSession: SceneSession | null = null;
+
+/** The planet whose scene is open, or null. */
+export function scenePid(): string | null {
+  return sceneSession?.pid ?? null;
+}
+
+type SceneFrameRow = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  isMinimized: boolean;
+  onScreen: boolean;
+};
+
+type Scope_sceneRows = {
+  windows: WindowInfo[];
+  rowsFor: (pid: string) => WindowInfo[];
+  invoke: Invoke;
+  tick?: () => Promise<unknown>;
+};
+
+/** Every live window the scene may touch: its frame, its minimized flag, and
+ *  whether it is on this Space. A row the AX read lost keeps frame null and
+ *  is skipped by the plan instead of aborting the scene. */
+async function sceneRows(scope: Scope_sceneRows, pid: string): Promise<SceneWindowRow[]> {
+  const live = scope.windows.filter((w) => !w.sleeping && !w.id.startsWith("tab:"));
+  if (live.length === 0) return [];
+  const claimed = new Set(scope.rowsFor(pid).map((r) => r.id));
+  let frames: SceneFrameRow[] = [];
+  try {
+    frames = await scope.invoke<SceneFrameRow[]>("window_frames", { ids: live.map((w) => w.id) });
+  } catch {
+    // No frames, no scene: entering must never guess at a window's box.
+    return [];
+  }
+  const byId = new Map(frames.map((f) => [f.id, f]));
+  return live.map((w) => {
+    const f = byId.get(w.id);
+    return {
+      id: w.id,
+      stableKey: w.stableKey,
+      frame: f ? { x: f.x, y: f.y, w: f.w, h: f.h } : null,
+      minimized: f ? f.isMinimized : !!w.isMinimized,
+      claimed: claimed.has(w.id),
+      onScreen: f ? f.onScreen : false,
+      frontmost: !!w.isFrontmost,
+    };
+  });
+}
+
+/** The planet keeps the frames it was left in. Best effort: the desk restore
+ *  never depends on this write, so a failed save still restores cleanly. */
+async function sceneSave(
+  scope: Scope_sceneRows,
+  pid: string,
+  windows: SceneSavedFrame[],
+): Promise<void> {
+  if (windows.length === 0) return;
+  try {
+    const state = await scope.invoke<PersistedState>("load_state");
+    const map = state.planetScenes ?? {};
+    map[pid] = { savedAt: Date.now(), windows };
+    state.planetScenes = map;
+    // The read-modify-write keeps every other slice; merge_window_save
+    // carries the Rust-owned ones from disk.
+    await scope.invoke("save_state", { state, origin: "rail" });
+  } catch {
+    /* a scene is still a scene without a remembered layout */
+  }
+}
+
+type Scope_enterScene = Scope_sceneRows;
+
+export async function enterScene(scope: Scope_enterScene, pid: string): Promise<void> {
+  const rows = await sceneRows(scope, pid);
+  if (!rows.length) return;
+  // Switching planets: the planet being left keeps the layout it was left in.
+  const prev = sceneSession;
+  if (prev && prev.pid !== pid) {
+    const left = await sceneRows(scope, prev.pid);
+    await sceneSave(scope, prev.pid, sceneLeave(prev, left).save);
+  }
+  let saved: SceneSavedFrame[] = [];
+  try {
+    const state = await scope.invoke<PersistedState>("load_state");
+    saved = state.planetScenes?.[pid]?.windows ?? [];
+  } catch {
+    /* no saved layout: the claimed windows stay where they are */
+  }
+  const next = sceneEnter(sceneSession, pid, rows, saved);
+  sceneSession = next.session;
+  const plan = next.plan;
+  for (const id of plan.minimize) {
+    try {
+      await scope.invoke("minimize_window", { id });
+    } catch {
+      /* a window that refuses to stow simply stays up */
+    }
+  }
+  for (const id of plan.restore) {
+    try {
+      await scope.invoke("restore_window", { id });
+    } catch {
+      /* a closed window drops out; the rest still raise */
+    }
+  }
+  for (const f of plan.frames) {
+    try {
+      await scope.invoke("set_window_frame", { id: f.id, x: f.x, y: f.y, w: f.w, h: f.h });
+    } catch {
+      /* a window that refuses to move stays where it is */
+    }
+  }
+  for (let i = 0; i < plan.focus.length; i++) {
+    try {
+      await scope.invoke("focus_window", { id: plan.focus[i] });
+    } catch {
+      /* skip a window the OS will not raise */
+    }
+    if (i + 1 < plan.focus.length) await new Promise((r) => setTimeout(r, 40));
+  }
+  await scope.tick?.();
+}
+
+type Scope_leaveScene = Scope_sceneRows;
+
+export async function leaveScene(scope: Scope_leaveScene): Promise<void> {
+  const session = sceneSession;
+  if (!session) return;
+  const rows = await sceneRows(scope, session.pid);
+  const out = sceneLeave(session, rows);
+  await sceneSave(scope, session.pid, out.save);
+  sceneSession = null;
+  for (const id of out.plan.restore) {
+    try {
+      await scope.invoke("restore_window", { id });
+    } catch {
+      /* gone since the scene began */
+    }
+  }
+  for (const f of out.plan.frames) {
+    try {
+      await scope.invoke("set_window_frame", { id: f.id, x: f.x, y: f.y, w: f.w, h: f.h });
+    } catch {
+      /* a closed window is not a reason to abort the leave */
+    }
+  }
+  for (const id of out.plan.focus) {
+    try {
+      await scope.invoke("focus_window", { id });
+    } catch {
+      /* the pre-scene frontmost window may be gone */
+    }
+  }
+  await scope.tick?.();
+}
+
+/** One press on the scene tile: enter this planet's scene, or leave it. */
+export async function toggleScene(scope: Scope_enterScene, pid: string): Promise<string | null> {
+  if (sceneSession?.pid === pid) {
+    await leaveScene(scope);
+    return null;
+  }
+  await enterScene(scope, pid);
+  return scenePid();
 }

@@ -45,6 +45,12 @@ pub fn merge_window_save(disk: &PersistedState, incoming: &PersistedState) -> (P
     out.rail_edge = disk.rail_edge.clone();
     out.rail_auto_hide_on_blur = disk.rail_auto_hide_on_blur;
     out.starter_story = disk.starter_story.clone();
+    // Planet scenes (42b): only the rail's scene door writes this map, and a
+    // plain rail save omits the field. An omitted map keeps what is on disk
+    // so a claim / rename / Todo save can never wipe a saved layout.
+    if out.planet_scenes.is_none() {
+        out.planet_scenes = disk.planet_scenes.clone();
+    }
     if out.last_claim_project_id.is_none() {
         out.last_claim_project_id = disk.last_claim_project_id.clone();
     }
@@ -213,6 +219,13 @@ pub fn apply_writer_delta(live: &mut PersistedState, before: &PersistedState, af
         &mut live.rail_auto_hide_on_blur,
         &before.rail_auto_hide_on_blur,
         &after.rail_auto_hide_on_blur,
+    );
+    // Planet scenes (42b): only the rail's scene door writes the map, so a
+    // writer delta that did not change it leaves `live` alone.
+    take_changed(
+        &mut live.planet_scenes,
+        &before.planet_scenes,
+        &after.planet_scenes,
     );
     // Named so writer_delta_lists_cover_every_field stays green. A writer
     // that did not change the slice leaves `live` alone. Window saves do

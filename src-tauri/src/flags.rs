@@ -163,6 +163,16 @@ pub const FLAGS: &[FlagDef] = &[
         remove_after: "2027-01-13",
         auto_on_verify: true,
     },
+    FlagDef {
+        id: "planet_scenes",
+        default: false,
+        what: "one planet's windows alone, in their saved layout",
+        go: "GO-ORBITTY-PLANET-SCENES",
+        added: "2026-11-15",
+        remove_after: "2027-01-14",
+        // It minimizes and moves real windows, so it turns on by hand only.
+        auto_on_verify: false,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]

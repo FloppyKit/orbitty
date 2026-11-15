@@ -1,6 +1,6 @@
 //! Non-macOS stub — Orbitty ships Mac first (roadmap S-phase).
 
-use super::{AccessibilityStatus, WindowInfo};
+use super::{AccessibilityStatus, WindowFrame, WindowInfo};
 
 pub fn install_rail_mouse_buttons() {}
 
@@ -31,6 +31,20 @@ pub fn close_window(_id: &str) -> Result<(), String> {
 }
 
 pub fn locate_window(_id: &str) -> Result<(), String> {
+    Err("window corral is macOS-only for now".into())
+}
+
+pub fn window_frames(_ids: &[String]) -> Result<Vec<WindowFrame>, String> {
+    Ok(vec![])
+}
+
+pub fn set_window_frame(
+    _id: &str,
+    _x: f64,
+    _y: f64,
+    _w: f64,
+    _h: f64,
+) -> Result<(), String> {
     Err("window corral is macOS-only for now".into())
 }
 

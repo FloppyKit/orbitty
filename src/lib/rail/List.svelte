@@ -14,6 +14,8 @@
   import SettingsPage from "../SettingsPage.svelte";
   import StarsPage from "../StarsPage.svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { flagOn } from "../flags";
+  import { toggleScene } from "./pagePointer.svelte";
   import RailPlanetsSheet from "./PlanetsSheet.svelte";
   import type { RailApi } from "./api";
   import {
@@ -81,6 +83,10 @@
   let havePrevL2 = false;
   let frameW = $state(1040);
   let frameH = $state(760);
+  // GO 42b: the scene tile exists only while planet_scenes is on, and
+  // only the planet whose scene is open shows "in".
+  let sceneOn = $state(false);
+  let scenePid = $state<string | null>(null);
 
   const stageVars = `--stage-platter:rgba(${STAGE_PLATTER_RGBA[0]},${STAGE_PLATTER_RGBA[1]},${STAGE_PLATTER_RGBA[2]},${STAGE_PLATTER_RGBA[3]});--stage-ink:${STAGE_INK};--stage-ink-dim:${STAGE_INK_DIM}`;
 
@@ -99,6 +105,7 @@
       pid,
       cards: (rail.planetCards(pid) ?? []) as ArchCard[],
       rows: rowsAsArch(pid),
+      scene: sceneSlot(pid),
     });
   });
   const mirror = $derived(mirrorLayout(stageEdge(), frameW, frameH));
@@ -446,6 +453,36 @@
     return project?.name ?? "Planet";
   }
 
+  /** The scene tile's slice, or undefined so level 2 is byte-identical
+   *  with the flag off. F5: the tile names the planet and says in or out. */
+  function sceneSlot(pid: string | null | undefined) {
+    if (!sceneOn || !pid || pid === rail.UNMAPPED_KEY) return undefined;
+    return { title: planetName(pid), active: scenePid === pid };
+  }
+
+  // One page load asks the flag once; with it off nothing above changes.
+  $effect(() => {
+    let alive = true;
+    void flagOn("planet_scenes").then((on) => {
+      if (alive) sceneOn = on;
+    });
+    return () => {
+      alive = false;
+    };
+  });
+
+  function sceneScope() {
+    return {
+      windows: rail.windows as WindowInfo[],
+      rowsFor: (pid: string) => rail.rowsFor(pid) as WindowInfo[],
+      invoke,
+    };
+  }
+
+  async function toggleSceneNow(pid: string) {
+    scenePid = await toggleScene(sceneScope(), pid);
+  }
+
   function rowsAsArch(pid: string) {
     return (rail.rowsFor(pid) as WindowInfo[]).map((w) => ({
       id: w.id,
@@ -489,6 +526,7 @@
             pid: item.pid,
             cards: rail.planetCards(item.pid) as ArchCard[],
             rows: rowsAsArch(item.pid),
+            scene: sceneSlot(item.pid),
           }),
         ),
       );
@@ -696,6 +734,13 @@
       stroke-width="1.7"
       transform="rotate(-18 16 16)"
     />
+  </svg>
+{/snippet}
+
+{#snippet sceneGlyph()}
+  <svg class="line-icon" viewBox="0 0 32 32" aria-hidden="true">
+    <rect x="6" y="7" width="20" height="15" rx="2" fill="none" stroke="var(--planet, #8a8f98)" stroke-width="1.7" />
+    <path d="M6 12h20" fill="none" stroke="#8a8f98" stroke-width="1.5" />
   </svg>
 {/snippet}
 
@@ -1024,6 +1069,7 @@
                         selectLayer(item);
                         if (item.kind === "needed") rail.armNeededMouth(item);
                         if (item.kind === "habitat" && archState.pid) rail.raisePlanet(archState.pid);
+                        if (item.kind === "scene" && archState.pid) void toggleSceneNow(archState.pid);
                       }}
                     >
                       <span class="arch-vis">
@@ -1040,6 +1086,9 @@
                           <span class="arch-glyph l2-bang" aria-hidden="true">!</span>
                         {:else if item.kind === "habitat"}
                           <span class="arch-glyph" aria-hidden="true">{@render planetGlyph()}</span>
+                        {:else if item.kind === "scene"}
+                          <span class="arch-glyph" aria-hidden="true">{@render sceneGlyph()}</span>
+                          <span class="l2-badge">{item.active ? "in" : "out"}</span>
                         {:else}
                           <span class="arch-glyph" aria-hidden="true">{@render boardGlyph()}</span>
                         {/if}
@@ -1104,6 +1153,16 @@
                       onclick={() => archState.pid && rail.raisePlanet(archState.pid)}
                     >
                       <span class="l2-card-title">{archState.pid ? planetName(archState.pid) : "Habitat"}</span>
+                    </button>
+                  {:else if centred2.kind === "scene"}
+                    <button
+                      type="button"
+                      class="l2-habitat-card"
+                      data-scene-card={centred2.active ? "in" : "out"}
+                      onclick={() => archState.pid && toggleSceneNow(archState.pid)}
+                    >
+                      <span class="l2-card-title">{centred2.title || "Scene"}</span>
+                      <span class="l2-card-state">{centred2.active ? "in — every other window set aside" : "out — one planet's windows alone"}</span>
                     </button>
                   {:else if centred2.kind === "needed"}
                     <div class="l2-needed-card">

@@ -3,6 +3,7 @@
 //! unknown keys. No PHI. AX titles are never rewritten.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 
 mod rail_geom;
@@ -171,6 +172,30 @@ pub struct PersistedState {
     /// stamp. Old builds ignore the key. Empty stays off disk.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub card_tombstones: Vec<CardTombstone>,
+    /// Planet scenes (GO 42b): one saved window layout per project, written
+    /// by the rail's scene door only. Absent in an older save; a rail save
+    /// that omits the map keeps the disk copy (state/merge.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planet_scenes: Option<HashMap<String, PlanetScene>>,
+}
+
+/// One planet's saved scene layout (GO 42b). Frames are AX points,
+/// top-left origin — the same convention `windows/scene.rs` pins.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlanetScene {
+    pub saved_at: f64,
+    pub windows: Vec<PlanetSceneWindow>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlanetSceneWindow {
+    pub stable_key: String,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
 }
 
 /// One removed card. `last_touched_at` is the delete stamp (epoch seconds).
@@ -243,9 +268,39 @@ impl Default for PersistedState {
             rail_edge: rail_edge_default(),
             rail_auto_hide_on_blur: true,
             starter_story: StarterStory::default(),
+            planet_scenes: None,
         }
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+/// Planet scenes (GO 42b): the field is optional and rail-omitted.
+#[cfg(test)]
+mod planet_scene_tests {
+    use super::{merge_window_save, PersistedState};
+
+    #[test]
+    fn planet_scenes_optional_in_an_old_save() {
+        // An older save has no key at all: it loads, the map stays empty.
+        let old: PersistedState = serde_json::from_str(r#"{"themeId":""}"#).unwrap();
+        assert!(old.planet_scenes.is_none());
+
+        // Written only by the scene door: one planet, one window.
+        let raw =
+            r#"{"planetScenes":{"p1":{"savedAt":12.5,"windows":[{"stableKey":"com.apple.TextEdit|Untitled|1","x":40,"y":60,"w":800,"h":500}]}}}"#;
+        let saved: PersistedState = serde_json::from_str(raw).unwrap();
+        let scene = saved.planet_scenes.as_ref().unwrap().get("p1").unwrap();
+        assert_eq!(scene.saved_at, 12.5);
+        assert_eq!(scene.windows.len(), 1);
+        assert_eq!(scene.windows[0].stable_key, "com.apple.TextEdit|Untitled|1");
+        assert_eq!((scene.windows[0].x, scene.windows[0].h), (40.0, 500.0));
+
+        // A rail save omits the map. The save door must not wipe it.
+        let rail = PersistedState::default();
+        assert!(rail.planet_scenes.is_none());
+        let (merged, _) = merge_window_save(&saved, &rail);
+        assert_eq!(merged.planet_scenes, saved.planet_scenes);
+    }
+}

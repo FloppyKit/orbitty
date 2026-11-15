@@ -380,8 +380,7 @@ test("railWheelNeeds level-2 habitat then board then needed then windows", () =>
   assert.match(needed, />Open in board</);
   assert.match(needed, /armNeededMouth/);
   assert.match(needed, /openKanbanFocus/);
-  assert.equal(list.includes("rl2-scene"), false);
-  assert.equal(list.includes('kind === "scene"'), false);
+  assertSceneTileGated(list, place);
   assert.equal(list.includes("archLayer2Items"), false);
   assert.match(list, /mirrorItems\(/);
   const confirm = fnBody(ring, "confirmLayer2Stop");
@@ -394,8 +393,6 @@ test("railWheelNeeds level-2 habitat then board then needed then windows", () =>
   assert.match(confirm, /wakeSleeper/);
   assert.match(confirm, /focusRow/);
   assert.doesNotMatch(confirm, /rl2-scene|kind === "scene"/);
-  assert.equal(place.includes("rl2-scene"), false);
-  assert.equal(place.includes('kind === "scene"'), false);
   assert.match(place, /stop: "rl2-habitat"/);
 });
 
@@ -439,6 +436,25 @@ test("railWheelNeeds_level1_column_reuses_board_without_preview", () => {
   assert.equal(lists.includes("columnsOnly"), false);
   assert.equal(well.includes("columnsOnly"), false);
 });
+
+/** GO 42b (AMEND1): the scene tile may be named in List.svelte and in
+ *  stagePlace.ts, but only behind planet_scenes. This proves the gate instead
+ *  of the absence of the strings: one flag read, a slot that stays undefined
+ *  while the flag is off, and a scene item stagePlace only builds from that
+ *  slot. Flag off -> the level-2 list is today's. */
+function assertSceneTileGated(list: string, place: string): void {
+  assert.match(list, /flagOn\("planet_scenes"\)/);
+  assert.match(list, /let sceneOn = \$state\(false\)/);
+  const slot = fnBody(list, "sceneSlot");
+  assert.match(slot, /if \(!sceneOn \|\| !pid/);
+  assert.match(slot, /return undefined/);
+  // The slot is the only way a scene reaches level 2: the definition plus
+  // one gated call per mirrorItems.
+  const uses = list.split("sceneSlot(").length - 1;
+  assert.equal(uses, list.split("scene: sceneSlot(").length - 1 + 1);
+  assert.match(place, /const scene: Layer2Item \| null = opts\.scene/);
+  assert.match(place, /slots: scene\n\s*\? \[habitat, scene, board/);
+}
 
 function fnBodyNamed(src: string, signature: string): string {
   const at = src.indexOf(signature);
@@ -486,8 +502,7 @@ test("onTileClick_opens_habitat_and_enters_level2", () => {
   assert.match(confirm, /wakeSleeper/);
   assert.match(confirm, /focusRow/);
   assert.doesNotMatch(confirm, /rl2-scene|kind === "scene"/);
-  assert.equal(list.includes("rl2-scene"), false);
-  assert.equal(list.includes('kind === "scene"'), false);
+  assertSceneTileGated(list, readFileSync(new URL("../src/lib/rail/stagePlace.ts", import.meta.url), "utf8"));
 });
 
 test("railWheelNeeds_level1_column_opens_like_settings_for_centered_planet", () => {

@@ -169,6 +169,20 @@ fn locate_window(id: String) -> Result<(), String> {
     windows::locate_window(&id)
 }
 
+/// Planet scenes (GO 42b): live frames for these window ids — the desk as it
+/// is before a scene moves anything. Read only.
+#[tauri::command]
+fn window_frames(ids: Vec<String>) -> Result<Vec<windows::WindowFrame>, String> {
+    windows::window_frames(&ids)
+}
+
+/// Planet scenes (GO 42b): put one window back in its frame. AXPosition is a
+/// top-left-origin point; never AppKit's bottom-left (windows/scene.rs).
+#[tauri::command]
+fn set_window_frame(id: String, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    windows::set_window_frame(&id, x, y, w, h)
+}
+
 /// `habitat:locate` for a claimed window: stroke
 /// the walker's frame on its planet for ~500ms (glow only).
 #[tauri::command]
@@ -836,6 +850,8 @@ pub fn run() {
             tabbity_live,
             close_window,
             locate_window,
+            window_frames,
+            set_window_frame,
             locate_walker,
             inspect_droid,
             herdr_status,

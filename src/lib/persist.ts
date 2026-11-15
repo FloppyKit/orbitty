@@ -392,6 +392,21 @@ export interface DrawerSlice {
   bounds?: CompanionBounds | null;
 }
 
+/** One window's saved scene frame (GO 42b). AX points, top-left origin. */
+export interface PlanetSceneWindow {
+  stableKey: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** One planet's saved scene layout. Written by the rail's scene door only. */
+export interface PlanetScene {
+  savedAt: number;
+  windows: PlanetSceneWindow[];
+}
+
 export interface PersistedState {
   themeId: string;
   windowOpacity: number;
@@ -480,4 +495,7 @@ export interface PersistedState {
   sky: SkySlice;
   sharedPaneMode: SharedPaneMode;
   drawers: Record<string, DrawerSlice>;
+  /** Per-planet scene layouts (GO 42b). Absent in an older save; a save that
+   *  omits the map keeps the disk copy (state/merge.rs). */
+  planetScenes?: Record<string, PlanetScene>;
 }

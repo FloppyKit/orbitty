@@ -8,6 +8,8 @@ export function stagePreviewModel(opts: {
   cards: readonly ArchCard[];
   rows: readonly ArchRow[];
   maxWindows?: number;
+  /** GO 42b scene tile, only while the planet_scenes flag is on. */
+  scene?: { title: string; active: boolean };
 }): StagePreviewModel {
   const maxWindows = opts.maxWindows ?? PREVIEW_WINDOW_CAP;
   const pid = opts.pid;
@@ -41,15 +43,28 @@ export function stagePreviewModel(opts: {
     stop: "rl2-board",
     title: "Board",
   };
-  // Deferred: GO 42b saved window layout (needs a state.json field).
+  // GO 42b: one scene tile, right after the habitat tile. It names the
+  // planet and shows whether that scene is in or out; with the flag off
+  // the list is exactly today's.
+  const scene: Layer2Item | null = opts.scene
+    ? {
+        kind: "scene",
+        stop: "rl2-scene",
+        title: opts.scene.title,
+        active: opts.scene.active,
+      }
+    : null;
   return {
     habitat,
+    scene,
     board,
     windows,
     needed,
     overflow,
     popOut: { stop: "rl2-pop", label: "Pop out" },
-    slots: [habitat, board, ...needed, ...windows],
+    slots: scene
+      ? [habitat, scene, board, ...needed, ...windows]
+      : [habitat, board, ...needed, ...windows],
   };
 }
 
@@ -159,12 +174,14 @@ export function mirrorItems(opts: {
   pid: string;
   cards: readonly ArchCard[];
   rows: readonly ArchRow[];
+  scene?: { title: string; active: boolean };
 }): Layer2Item[] {
   const model = stagePreviewModel({
     pid: opts.pid,
     cards: opts.cards,
     rows: opts.rows,
     maxWindows: opts.rows.length,
+    scene: opts.scene,
   });
   return model.slots.map((it) => {
     if (it.kind !== "needed" || !it.id) return it;

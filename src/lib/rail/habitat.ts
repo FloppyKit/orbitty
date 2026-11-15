@@ -208,6 +208,166 @@ export function raisePlan(
   };
 }
 
+// ---- Planet scenes (GO 42b) -----------------------------------------
+// One planet's windows, alone on the desk, in their saved layout. The
+// plan is pure so the rail can be checked without a desktop: the rail
+// holds the session (the pre-scene snapshot) in memory, this file decides
+// what enter / switch / leave touch.
+
+export interface SceneRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** One live window, as the scene sees it. */
+export interface SceneWindowRow {
+  id: string;
+  /** Reboot-stable `bundle|title|n` — the saved layout matches on this. */
+  stableKey: string;
+  /** Live AX frame in top-left points; null when the read failed. */
+  frame: SceneRect | null;
+  minimized: boolean;
+  /** Claimed to the scene's planet. */
+  claimed: boolean;
+  /** On a visible Space. False = another Space, or a display that is gone. */
+  onScreen: boolean;
+  frontmost: boolean;
+}
+
+/** A frame as state.json keeps it. */
+export interface SceneSavedFrame extends SceneRect {
+  stableKey: string;
+}
+
+/** The pre-scene desk. Memory only: a quit forgets it (windows stay put). */
+export interface SceneSnapshotEntry extends SceneRect {
+  id: string;
+  stableKey: string;
+  minimized: boolean;
+  frontmost: boolean;
+}
+
+export type SceneSnapshot = SceneSnapshotEntry[];
+
+/** The open scene: which planet, and the desk as it was before any scene. */
+export interface SceneSession {
+  pid: string;
+  snapshot: SceneSnapshot;
+}
+
+export interface SceneFrameWrite extends SceneRect {
+  id: string;
+}
+
+export interface ScenePlan {
+  minimize: string[];
+  restore: string[];
+  frames: SceneFrameWrite[];
+  focus: string[];
+}
+
+/** A window already this close to its saved frame is not moved again. */
+export const SCENE_TOLERANCE = 2;
+
+function sceneNear(a: SceneRect, b: SceneRect, tol = SCENE_TOLERANCE): boolean {
+  return (
+    Math.abs(a.x - b.x) <= tol &&
+    Math.abs(a.y - b.y) <= tol &&
+    Math.abs(a.w - b.w) <= tol &&
+    Math.abs(a.h - b.h) <= tol
+  );
+}
+
+/** Frontmost last, so the raise order ends where the user was. */
+function sceneFocus(rows: readonly SceneWindowRow[]): string[] {
+  const front = rows.filter((r) => r.frontmost);
+  const rest = rows.filter((r) => !r.frontmost);
+  return [...rest, ...front].map((r) => r.id);
+}
+
+/** Enter this planet's scene, or switch into it from another planet's.
+ *
+ *  A switch KEEPS the session's original snapshot: leave must put the desk
+ *  back the way it was before the first scene, not the way the previous
+ *  planet left it. */
+export function sceneEnter(
+  session: SceneSession | null,
+  pid: string,
+  windows: readonly SceneWindowRow[],
+  saved: readonly SceneSavedFrame[] = [],
+): { session: SceneSession; plan: ScenePlan } {
+  const snapshot: SceneSnapshot = session
+    ? session.snapshot
+    : windows
+        .filter((w) => w.frame != null)
+        .map((w) => ({
+          id: w.id,
+          stableKey: w.stableKey,
+          x: w.frame!.x,
+          y: w.frame!.y,
+          w: w.frame!.w,
+          h: w.frame!.h,
+          minimized: w.minimized,
+          frontmost: w.frontmost,
+        }));
+  // Every window not claimed to this planet falls away to the Dock —
+  // except one on another Space or a gone display, which stays alone.
+  const minimize = windows
+    .filter((w) => w.frame != null && !w.claimed && !w.minimized && w.onScreen)
+    .map((w) => w.id);
+  // A claimed window the user had minimized comes back for the scene.
+  const restore = windows.filter((w) => w.claimed && w.minimized).map((w) => w.id);
+  const frames: SceneFrameWrite[] = [];
+  const raised: SceneWindowRow[] = [];
+  for (const w of windows) {
+    if (!w.claimed) continue;
+    raised.push(w);
+    if (w.frame == null) continue;
+    const was = saved.find((f) => f.stableKey === w.stableKey);
+    if (!was) continue;
+    if (sceneNear(w.frame, was)) continue;
+    frames.push({ id: w.id, x: was.x, y: was.y, w: was.w, h: was.h });
+  }
+  return {
+    session: { pid, snapshot },
+    plan: { minimize, restore, frames, focus: sceneFocus(raised) },
+  };
+}
+
+/** Leave the scene: every window the snapshot holds goes back to its frame
+ *  and minimized state. Windows opened during the scene stay where they
+ *  are; a window closed during it is skipped, never a reason to abort. */
+export function sceneLeave(
+  session: SceneSession,
+  windows: readonly SceneWindowRow[],
+): { plan: ScenePlan; save: SceneSavedFrame[] } {
+  const live = new Map(windows.map((w) => [w.id, w]));
+  const restore: string[] = [];
+  const frames: SceneFrameWrite[] = [];
+  for (const s of session.snapshot) {
+    const w = live.get(s.id);
+    if (!w) continue;
+    if (!s.minimized && w.minimized) restore.push(s.id);
+    if (w.frame != null && !sceneNear(w.frame, s)) {
+      frames.push({ id: s.id, x: s.x, y: s.y, w: s.w, h: s.h });
+    }
+  }
+  // What this planet keeps: the claimed frames as the user left them.
+  const save: SceneSavedFrame[] = windows
+    .filter((w) => w.claimed && w.frame != null)
+    .map((w) => ({
+      stableKey: w.stableKey,
+      x: w.frame!.x,
+      y: w.frame!.y,
+      w: w.frame!.w,
+      h: w.frame!.h,
+    }));
+  const back = session.snapshot.find((s) => s.frontmost && live.has(s.id));
+  return { plan: { minimize: [], restore, frames, focus: back ? [back.id] : [] }, save };
+}
+
 export function habitatStops(sections: readonly HabitatSection[]): HabitatStop[] {
   const stops: HabitatStop[] = [
     { id: "rstars", group: "front" },

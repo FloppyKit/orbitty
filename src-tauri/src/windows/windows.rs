@@ -31,6 +31,23 @@ pub struct WindowInfo {
     pub document_path: Option<String>,
 }
 
+/// One window's live box, in AX points (top-left origin, y grows down).
+/// The scene reads these to snapshot the desk before it moves anything and
+/// to learn which windows are on a visible Space.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowFrame {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub is_minimized: bool,
+    /// On a visible Space. False = another Space, or a display that has
+    /// gone, so a scene leaves the window alone (42b Needs Matt 4).
+    pub on_screen: bool,
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AccessibilityStatus {
@@ -98,4 +115,25 @@ pub fn locate_window(id: &str) -> Result<(), String> {
         return done;
     }
     platform::locate_window(id)
+}
+
+/// Planet scenes (GO 42b): live frames for these window ids. An id that no
+/// longer resolves is simply absent from the reply, so a scene skips it
+/// instead of failing. Read only — this never moves a window.
+pub fn window_frames(ids: &[String]) -> Result<Vec<WindowFrame>, String> {
+    let live: Vec<String> = ids
+        .iter()
+        .filter(|id| !id.starts_with("tab:"))
+        .cloned()
+        .collect();
+    platform::window_frames(&live)
+}
+
+/// Planet scenes (GO 42b): put one window back in a frame. AXPosition is a
+/// top-left-origin point; scene::Frame pins that, never AppKit's bottom-left.
+pub fn set_window_frame(id: &str, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    if id.starts_with("tab:") {
+        return Err("a tab has no window frame".into());
+    }
+    platform::set_window_frame(id, x, y, w, h)
 }

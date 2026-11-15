@@ -7,7 +7,7 @@
 // rustc flags; harmless upstream noise.
 #![allow(unexpected_cfgs)]
 
-use super::{AccessibilityStatus, WindowInfo};
+use super::{AccessibilityStatus, WindowFrame, WindowInfo};
 use core_foundation::base::TCFType;
 use core_foundation::boolean::CFBoolean;
 use core_foundation::dictionary::CFDictionary;
@@ -91,6 +91,7 @@ extern "C" {
     fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> AXError;
     fn AXValueGetTypeID() -> u64;
     fn AXValueGetValue(value: CFRef, the_type: i32, value_ptr: *mut c_void) -> bool;
+    fn AXValueCreate(the_type: i32, value_ptr: *const c_void) -> CFRef;
     // Private HIServices API, stable in practice and used by FOSS window tools
     // (AltTab etc.) to correlate an AX window with its CGWindowID.
     fn _AXUIElementGetWindow(element: AXUIElementRef, window_id: *mut u32) -> AXError;
@@ -764,6 +765,140 @@ pub fn deminiaturize_window(id: &str) -> Result<(), String> {
 /// Sprite click / rail Restore: deminiaturize + focus (Swift `restore(id:)`).
 pub fn restore_window(id: &str) -> Result<(), String> {
     focus_window(id)
+}
+
+/// The window numbers on the current Space, straight from CoreGraphics. A
+/// window on another Space — or on a display that has gone — is absent,
+/// which is exactly the set a scene must leave alone. None when the list
+/// cannot be read: the scene then treats every window as visible.
+unsafe fn on_screen_cg_ids() -> Option<std::collections::HashSet<u32>> {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFRef;
+    }
+    const ON_SCREEN_ONLY: u32 = 1 << 0;
+    const EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
+    let arr = CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP_ELEMENTS, 0);
+    if arr.is_null() {
+        return None;
+    }
+    let count = CFArrayGetCount(arr);
+    let key = CFString::new("kCGWindowNumber");
+    let mut out = std::collections::HashSet::new();
+    for i in 0..count {
+        let dict = CFArrayGetValueAtIndex(arr, i);
+        if dict.is_null() {
+            continue;
+        }
+        let raw = CFDictionaryGetValue(dict, key.as_concrete_TypeRef() as CFRef);
+        if raw.is_null() {
+            continue;
+        }
+        let mut num: i64 = 0;
+        if CFNumberGetValue(raw, K_CF_NUMBER_S_INT64_TYPE, &mut num as *mut _ as *mut c_void)
+            && num > 0
+            && num <= u32::MAX as i64
+        {
+            out.insert(num as u32);
+        }
+    }
+    CFRelease(arr);
+    Some(out)
+}
+
+/// Planet scenes (42b): live frames for these ids. Ids that no longer
+/// resolve drop out of the reply, never an Err for the whole read.
+pub fn window_frames(ids: &[String]) -> Result<Vec<WindowFrame>, String> {
+    if !unsafe { AXIsProcessTrusted() } {
+        return Err("accessibility not granted".into());
+    }
+    let on_screen = unsafe { on_screen_cg_ids() };
+    let mut out = Vec::new();
+    unsafe {
+        for id in ids {
+            let Ok((pid, rest)) = parse_id(id) else {
+                continue;
+            };
+            let Some(ax) = ax_app_ref(pid) else {
+                continue;
+            };
+            let target = find_window(ax.raw(), rest);
+            if target.is_null() {
+                continue;
+            }
+            let point = ax_point(target, ax_names().position);
+            let size = ax_size(target, ax_names().size);
+            let minimized = ax_bool(target, ax_names().minimized).unwrap_or(false);
+            let cg = ax_window_id(target);
+            CFRelease(target);
+            let (Some(point), Some(size)) = (point, size) else {
+                continue;
+            };
+            // No CG answer for this AX window, or no CG list at all: treat it
+            // as visible rather than silently skipping a window the user sees.
+            let visible = match (on_screen.as_ref(), cg) {
+                (Some(set), Some(cg)) => set.contains(&cg),
+                _ => true,
+            };
+            out.push(WindowFrame {
+                id: id.clone(),
+                x: point.x,
+                y: point.y,
+                w: size.width,
+                h: size.height,
+                is_minimized: minimized,
+                on_screen: visible,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Planet scenes (42b): write one window's box. Position then size, both as
+/// top-left-origin AXValues — the same convention the read returns.
+pub fn set_window_frame(id: &str, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    if !unsafe { AXIsProcessTrusted() } {
+        return Err("accessibility not granted".into());
+    }
+    let frame = super::super::scene::Frame::from_ax(x, y, w, h);
+    let (pid, rest) = parse_id(id)?;
+    unsafe {
+        let ax = match ax_app_ref(pid) {
+            Some(ax) => ax,
+            None => return Err("could not attach to app".into()),
+        };
+        let target = find_window(ax.raw(), rest);
+        if target.is_null() {
+            return Err("window no longer exists".into());
+        }
+        let ((px, py), (sw, sh)) = frame.to_ax();
+        let point = NSPoint { x: px, y: py };
+        let size = CGSize {
+            width: sw,
+            height: sh,
+        };
+        let pos = AXValueCreate(
+            K_AX_VALUE_TYPE_CG_POINT,
+            &point as *const _ as *const c_void,
+        );
+        let dims = AXValueCreate(K_AX_VALUE_TYPE_CG_SIZE, &size as *const _ as *const c_void);
+        let mut result = Ok(());
+        if pos.is_null() || dims.is_null() {
+            result = Err("could not build the frame".into());
+        } else if AXUIElementSetAttributeValue(target, ax_names().position, pos) != AX_SUCCESS {
+            result = Err("move refused by app".into());
+        } else if AXUIElementSetAttributeValue(target, ax_names().size, dims) != AX_SUCCESS {
+            result = Err("resize refused by app".into());
+        }
+        if !pos.is_null() {
+            CFRelease(pos);
+        }
+        if !dims.is_null() {
+            CFRelease(dims);
+        }
+        CFRelease(target);
+        result
+    }
 }
 
 /// Circle-complete: press the window's own AX close button (same door as the
