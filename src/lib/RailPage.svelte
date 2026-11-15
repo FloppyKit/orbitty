@@ -108,6 +108,7 @@
   import { archDo as archDoBody, planetCards as planetCardsBody, layer2For as layer2ForBody, focusMirrorBoard as focusMirrorBoardBody, confirmLayer2Stop as confirmLayer2StopBody, noteRailAct as noteRailActBody, confirmHabitatStop as confirmHabitatStopBody, takeReselect as takeReselectBody, syncInspectorRing as syncInspectorRingBody, confirmRingTab as confirmRingTabBody, onRailEscape as onRailEscapeBody, reclaimRailRing as reclaimRailRingBody, toggleTag as toggleTagBody } from "./rail/pageRing.svelte";
   import { titleFor as titleForBody, startRename as startRenameBody, openCtxMenu as openCtxMenuBody, ctxWindow as ctxWindowBody, ctxProject as ctxProjectBody, ctxAssign as ctxAssignBody, ctxCreateAndClaim as ctxCreateAndClaimBody, ctxRename as ctxRenameBody, ctxMinimize as ctxMinimizeBody, ctxRestore as ctxRestoreBody, ctxCloseWindow as ctxCloseWindowBody, ctxUnclaim as ctxUnclaimBody, commitRename as commitRenameBody, setWorkspaceRoot as setWorkspaceRootBody, persist as persistBody, sleeperRowFor as sleeperRowForBody, boardCardsFor as boardCardsForBody, habitatEntryFor as habitatEntryForBody, runIsSeated as runIsSeatedBody, goToken as goTokenBody, goNeededOnPlanet as goNeededOnPlanetBody, agentRowsFor as agentRowsForBody, locateAgent as locateAgentBody, agentEntriesFor as agentEntriesForBody, habitatPlanetFor as habitatPlanetForBody, habitatSnapshotPayload as habitatSnapshotPayloadBody, syncHabitat as syncHabitatBody, lastKnownRowFor as lastKnownRowForBody, syncHabitatLastKnown as syncHabitatLastKnownBody, flashRow as flashRowBody, locateRow as locateRowBody, stow as stowBody, restore as restoreBody, wakeSleeper as wakeSleeperBody, nudgeClaim as nudgeClaimBody, nudgeCreate as nudgeCreateBody, clampSpriteScale as clampSpriteScaleBody, openKanban as openKanbanBody, bringAllFront as bringAllFrontBody, onBannerMouseDown as onBannerMouseDownBody, onWordmarkClick as onWordmarkClickBody, openKanbanFocus as openKanbanFocusBody, launchHermes as launchHermesBody, toggleSoul as toggleSoulBody, saveSoul as saveSoulBody, openSoulEditor as openSoulEditorBody, createProject as createProjectBody, revealPlanet as revealPlanetBody, newCardId as newCardIdBody, isClinicalOrMaster as isClinicalOrMasterBody, titleIndexFor as titleIndexForBody, claimStableKey as claimStableKeyBody, isHermesClass as isHermesClassBody, sleeperStamps as sleeperStampsBody, rollCharSeed as rollCharSeedBody } from "./rail/pageClaim.svelte";
   import { claim as claimBody, unclaim as unclaimBody, completeWindow as completeWindowBody, completeTodo as completeTodoBody, circleComplete as circleCompleteBody, logEvent as logEventBody, addTodoTo as addTodoToBody, occupancyOf as occupancyOfBody, setSpritePack as setSpritePackBody, beingClaim as beingClaimBody, beingWindow as beingWindowBody, refreshBeingPreview as refreshBeingPreviewBody, commitBeingLook as commitBeingLookBody, openBeingEditor as openBeingEditorBody, closeBeingEditor as closeBeingEditorBody, beingKindIndex as beingKindIndexBody, beingPaletteIndex as beingPaletteIndexBody, cycleKind as cycleKindBody, cyclePalette as cyclePaletteBody, kindLabel as kindLabelBody, paletteLabel as paletteLabelBody, rerollBeing as rerollBeingBody, beingScale as beingScaleBody, onBeingScaleInput as onBeingScaleInputBody, onBeingScaleCommit as onBeingScaleCommitBody, resetBeingScale as resetBeingScaleBody, beingMoveHome as beingMoveHomeBody, beingUnclaim as beingUnclaimBody, createProjectOnly as createProjectOnlyBody, armRemove as armRemoveBody, removeProject as removeProjectBody } from "./rail/pageBeing.svelte";
+  import { startSeatPoll, type SeatStates } from "./rail/seatOutcomes";
   import { onDragStart as onDragStartBody, onDragEnd as onDragEndBody, isWindowDrag as isWindowDragBody, onSectionDragEnter as onSectionDragEnterBody, onSectionDragOver as onSectionDragOverBody, onSectionDragLeave as onSectionDragLeaveBody, onSectionDrop as onSectionDropBody, tick as tickBody, rematchClaims as rematchClaimsBody, rewriteWindowId as rewriteWindowIdBody, healOrphanWindowCards as healOrphanWindowCardsBody, checkNudge as checkNudgeBody, openSettings as openSettingsBody, retry as retryBody, copyPath as copyPathBody } from "./rail/pageDrag.svelte";
 
 
@@ -274,6 +275,8 @@
   // slice, mirrors it into the habitat snapshot, and evicts the done row
   // on habitat:walked-off.
   let agentRuns = $state<AgentRun[]>([]);
+  let seatStates = $state<SeatStates>(new Map());
+  let stopSeatPoll: (() => void) | undefined;
   let neededSplit = $state(0.28);
   let previewWidth = $state(280);
   let trackerSplit = $state(0.20);
@@ -1027,7 +1030,7 @@
   }
 
   function agentEntriesFor(p: Project) {
-    return agentEntriesForBody({get agentRuns() { return agentRuns; }, set agentRuns(v) { agentRuns = v; }, get agentShortcuts() { return agentShortcuts; }, set agentShortcuts(v) { agentShortcuts = v; }, goNeededOnPlanet, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, runIsSeated}, p);
+    return agentEntriesForBody({get agentRuns() { return agentRuns; }, set agentRuns(v) { agentRuns = v; }, get agentShortcuts() { return agentShortcuts; }, set agentShortcuts(v) { agentShortcuts = v; }, goNeededOnPlanet, get kanbanCards() { return kanbanCards; }, set kanbanCards(v) { kanbanCards = v; }, runIsSeated, get seatStates() { return seatStates; }}, p);
   }
 
   function habitatPlanetFor(p: Project, rows: WindowInfo[]) {
@@ -1673,6 +1676,19 @@
     }
     stateLoaded = true;
     if (!embedded) {
+      stopSeatPoll = startSeatPoll({
+        invoke: (cmd) => invoke(cmd),
+        hasSeats: () =>
+          agentRuns.some(
+            (r) =>
+              kanbanCards.some((k) => k.id === r.cardId) &&
+              (runIsSeated(r) || r.state === "done"),
+          ),
+        onChange: (s) => {
+          seatStates = s;
+          void syncHabitat();
+        },
+      });
       void parkStage().finally(() => {
         bootParkDone = true;
         maybeRevealCoach();
@@ -2005,6 +2021,7 @@
     timer = setInterval(tick, 800);
   });
   onDestroy(() => {
+    stopSeatPoll?.();
     if (edgeTimer) clearTimeout(edgeTimer);
     if (claimFlashTimer) clearTimeout(claimFlashTimer);
     motionMedia.removeEventListener("change", onMotionChange);

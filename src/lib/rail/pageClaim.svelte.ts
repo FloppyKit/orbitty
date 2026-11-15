@@ -4,6 +4,7 @@ import type { ActionShortcut, AgentRun, AgentShortcut, CardStatus, CardTombstone
 import type { BoardCol } from "./habitat";
 import type { CoachStory } from "./coach";
 import { isTabClaim, tabRow } from "./tabbityRows";
+import { stateFor, type SeatStates } from "./seatOutcomes";
 
 interface AxStatus {
   trusted: boolean;
@@ -53,6 +54,7 @@ type HabitatEntry = {
   cardKind: string;
   neededState: string;
   agentSeed: string;
+  outcome?: string;
 };
 
 type HabitatPlanet = {
@@ -233,6 +235,7 @@ type Scope_agentEntriesFor = {
   runIsSeated: (r: AgentRun) => boolean;
   agentShortcuts: AgentShortcut[];
   goNeededOnPlanet: (card: KanbanCard | undefined, planetId: string) => boolean;
+  seatStates?: SeatStates;
 };
 
 type Scope_habitatPlanetFor = {
@@ -733,7 +736,7 @@ export function agentEntriesFor(scope: Scope_agentEntriesFor, p: Project) {
       const card = scope.kanbanCards.find((k) => k.id === r.cardId);
       const agent = scope.agentShortcuts.find((a) => a.id === r.agentShortcutId);
       const needsYou = scope.goNeededOnPlanet(card, p.id);
-      return {
+      const entry = {
         id: `agent:${r.cardId}`,
         appName: agent?.name ?? "agent",
         title: card?.title ?? "",
@@ -754,6 +757,8 @@ export function agentEntriesFor(scope: Scope_agentEntriesFor, p: Project) {
           r.state === "blocked" ? "blocked" : needsYou ? "open" : "",
         agentSeed: `${r.planetId}:${r.cardId}`,
       };
+      const door = stateFor(scope.seatStates, r.cardId);
+      return door ? { ...entry, outcome: door } : entry;
     });
 }
 
@@ -849,6 +854,7 @@ export async function syncHabitat(scope: Scope_syncHabitat) {
         e.cardKind,
         e.neededState,
         e.agentSeed ?? "",
+        ...(e.outcome ? [e.outcome] : []),
       ]),
     ]),
     scope.packs.map((pk) => pk.id),

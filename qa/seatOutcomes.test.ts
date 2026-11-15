@@ -108,15 +108,19 @@ test("preview_none_hide_does_not_see_the_capsule_event", () => {
 });
 
 test("rail_and_habitat_mac_untouched_names", () => {
-  const files = [
-    ...walk("src/lib/rail"),
-    "src/lib/RailPage.svelte",
-    ...walk("src-tauri/src/habitat/habitat_mac"),
-  ];
-  assert.ok(files.length > 3);
-  for (const rel of files) {
+  const mac = walk("src-tauri/src/habitat/habitat_mac");
+  assert.ok(mac.length > 3);
+  for (const rel of mac) {
     const text = src(rel);
     assert.equal(text.includes("seat.outcomes"), false, rel);
+    assert.equal(text.includes("seat_outcomes"), false, rel);
     assert.equal(text.includes("seatOutcomes"), false, rel);
   }
+  const rail = [...walk("src/lib/rail"), "src/lib/RailPage.svelte"];
+  const namers = [];
+  for (const rel of rail) {
+    if (src(rel).includes("seat_outcomes")) namers.push(rel);
+  }
+  assert.deepEqual(namers, ["src/lib/rail/seatOutcomes.ts"]);
+  assert.match(src("src/lib/RailPage.svelte"), /from ["']\.\/rail\/seatOutcomes["']/);
 });
