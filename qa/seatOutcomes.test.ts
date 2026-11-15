@@ -1,0 +1,79 @@
+// Seat outcome words are display-only. Open terminal, hide, and auto-hide
+// keep reading the unchanged status field.
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+function src(rel: string): string {
+  return readFileSync(join(root, rel), "utf8");
+}
+
+function sliceFn(text: string, name: string, nextName: string): string {
+  const at = text.indexOf(name);
+  assert.ok(at >= 0, name);
+  const end = text.indexOf(nextName, at + name.length);
+  assert.ok(end > at, nextName);
+  return text.slice(at, end);
+}
+
+function walk(rel: string): string[] {
+  const abs = join(root, rel);
+  const out: string[] = [];
+  for (const name of readdirSync(abs)) {
+    const child = join(rel, name);
+    if (statSync(join(root, child)).isDirectory()) out.push(...walk(child));
+    else out.push(child);
+  }
+  return out;
+}
+
+test("peek_pill_reads_outcome_only_for_display", () => {
+  const file = src("src/lib/habitat/PeekCapsule.svelte");
+  const scriptEnd = file.lastIndexOf("</script>");
+  assert.ok(scriptEnd >= 0);
+  const script = file.slice(0, scriptEnd);
+  const tpl = file.slice(scriptEnd);
+  const apply = sliceFn(script, "function applyCapsule", "onMount");
+  const refresh = sliceFn(script, "async function refresh", "function arm");
+  assert.match(apply, /said = v\.outcome \|\| ""/);
+  assert.match(refresh, /said = v\.outcome \|\| ""/);
+  const spanAt = tpl.indexOf('class="status"');
+  assert.ok(spanAt >= 0);
+  const span = tpl.slice(spanAt, tpl.indexOf("</span>", spanAt));
+  assert.match(span, /\{#if said\}/);
+  assert.match(span, /\{said\}/);
+  assert.match(span, /\{status\}\{termState \? ` · \$\{termState\}` : ""\}/);
+  assert.match(script, /noteSeat\(status/);
+  assert.match(tpl, /\{#if status !== "unknown"\}/);
+  assert.equal(script.includes("status = v.outcome"), false);
+  assert.equal(script.includes("status = outcome"), false);
+});
+
+test("open_terminal_error_still_shows", () => {
+  const file = src("src/lib/habitat/PeekCapsule.svelte");
+  const script = file.slice(0, file.lastIndexOf("</script>"));
+  const fn = sliceFn(script, "async function openTerminal", "function applyCapsule");
+  assert.match(fn, /status = "Nothing to open for this card."/);
+  assert.match(fn, /status = v\.reason/);
+  assert.match(fn, /status = typeof e === "string"/);
+  const clears = fn.split('said = ""').length - 1;
+  assert.ok(clears >= 3, String(clears));
+});
+
+test("rail_and_habitat_mac_untouched_names", () => {
+  const files = [
+    ...walk("src/lib/rail"),
+    "src/lib/RailPage.svelte",
+    ...walk("src-tauri/src/habitat/habitat_mac"),
+  ];
+  assert.ok(files.length > 3);
+  for (const rel of files) {
+    const text = src(rel);
+    assert.equal(text.includes("seat.outcomes"), false, rel);
+    assert.equal(text.includes("seatOutcomes"), false, rel);
+  }
+});

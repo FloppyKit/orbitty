@@ -10,12 +10,14 @@
     text: string;
     source: string;
     up: boolean;
+    outcome?: string;
   };
 
   let shown = $state(false);
   let card = $state("");
   let status = $state("unknown");
   let termState = $state("");
+  let said = $state("");
   let timer: ReturnType<typeof setInterval> | undefined;
   let downStreak = 0;
 
@@ -31,9 +33,11 @@
       const v = await invoke<Capsule>("herdr_peek", { card, lines: 40 });
       status = v.status || "unknown";
       termState = v.state || "";
+      said = v.outcome || "";
       noteSeat(status, v.up);
     } catch {
       status = "unknown";
+      said = "";
       noteSeat("unknown", false);
     }
   }
@@ -75,15 +79,18 @@
   async function openTerminal() {
     if (!card) {
       status = "Nothing to open for this card.";
+      said = "";
       return;
     }
     try {
       const v = await invoke<{ ok?: boolean; reason?: string }>("herdr_jump", { card });
       if (v && v.ok === false) {
         status = v.reason || "Couldn't open the terminal.";
+        said = "";
       }
     } catch (e) {
       status = typeof e === "string" && e.trim() ? e : "Couldn't open the terminal.";
+      said = "";
     }
   }
 
@@ -91,6 +98,7 @@
     card = v.card || "";
     status = v.status || "unknown";
     termState = v.state || "";
+    said = v.outcome || "";
     downStreak = 0;
     shown = true;
     arm();
@@ -128,7 +136,7 @@
 {#if shown}
   <div class="peek" role="status">
     <div class="row">
-      <span class="status">{status}{termState ? ` · ${termState}` : ""}</span>
+      <span class="status">{#if said}{said}{:else}{status}{termState ? ` · ${termState}` : ""}{/if}</span>
       <button type="button" class="peek-btn" onclick={openPeek}>peek</button>
       {#if status !== "unknown"}
         <button type="button" class="peek-btn" onclick={openTerminal}>Open terminal</button>
