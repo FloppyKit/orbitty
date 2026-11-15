@@ -770,7 +770,7 @@ pub fn restore_window(id: &str) -> Result<(), String> {
 /// The window numbers on the current Space, straight from CoreGraphics. A
 /// window on another Space — or on a display that has gone — is absent,
 /// which is exactly the set a scene must leave alone. None when the list
-/// cannot be read: the scene then treats every window as visible.
+/// cannot be read: the scene then tells nobody apart and touches nothing.
 unsafe fn on_screen_cg_ids() -> Option<std::collections::HashSet<u32>> {
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
@@ -806,6 +806,21 @@ unsafe fn on_screen_cg_ids() -> Option<std::collections::HashSet<u32>> {
     Some(out)
 }
 
+/// Is this AX window on the Space the user is looking at? `on_screen` is the
+/// CG window-number set for the current Space; `cg` is the window's own CG
+/// number. When either is missing we cannot tell where the window is, and a
+/// scene leaves alone what it cannot place (42b Needs Matt 4: unknown is not
+/// on-screen).
+fn frame_on_screen(
+    on_screen: Option<&std::collections::HashSet<u32>>,
+    cg: Option<u32>,
+) -> bool {
+    match (on_screen, cg) {
+        (Some(set), Some(cg)) => set.contains(&cg),
+        _ => false,
+    }
+}
+
 /// Planet scenes (42b): live frames for these ids. Ids that no longer
 /// resolve drop out of the reply, never an Err for the whole read.
 pub fn window_frames(ids: &[String]) -> Result<Vec<WindowFrame>, String> {
@@ -834,12 +849,10 @@ pub fn window_frames(ids: &[String]) -> Result<Vec<WindowFrame>, String> {
             let (Some(point), Some(size)) = (point, size) else {
                 continue;
             };
-            // No CG answer for this AX window, or no CG list at all: treat it
-            // as visible rather than silently skipping a window the user sees.
-            let visible = match (on_screen.as_ref(), cg) {
-                (Some(set), Some(cg)) => set.contains(&cg),
-                _ => true,
-            };
+            // No CG answer for this AX window, or no CG list at all: the
+            // scene cannot place it, so it is not on this Space and is left
+            // alone. Guessing "visible" would move a window on another Space.
+            let visible = frame_on_screen(on_screen.as_ref(), cg);
             out.push(WindowFrame {
                 id: id.clone(),
                 x: point.x,
@@ -1659,3 +1672,23 @@ mod rail_mouse_key_tests {
 #[cfg(test)]
 #[path = "ax_safe_tests.rs"]
 mod ax_safe_tests;
+
+#[cfg(test)]
+mod scene_frame_tests {
+    use super::frame_on_screen;
+    use std::collections::HashSet;
+
+    #[test]
+    fn frame_unknown_space_is_not_on_screen() {
+        let set: HashSet<u32> = [7u32, 9].into_iter().collect();
+        // The two answers CG can give.
+        assert!(frame_on_screen(Some(&set), Some(7)));
+        assert!(!frame_on_screen(Some(&set), Some(11)));
+        // No CG id for this AX window: we cannot tell where it is, so the
+        // scene leaves it alone.
+        assert!(!frame_on_screen(Some(&set), None));
+        // No CG list at all: same answer.
+        assert!(!frame_on_screen(None, Some(7)));
+        assert!(!frame_on_screen(None, None));
+    }
+}

@@ -86,6 +86,31 @@ test("scene_other_space_left_alone", () => {
   );
 });
 
+test("scene_claimed_other_space_left_alone", () => {
+  // Needs Matt 4: a claimed window on another Space or a gone display is left
+  // alone — not moved, not raised, not pulled out of the Dock.
+  const far = win({
+    id: "far",
+    claimed: true,
+    onScreen: false,
+    frame: { x: 40, y: 60, w: 800, h: 500 },
+  });
+  const farMin = win({ id: "far-min", claimed: true, onScreen: false, minimized: true });
+  const near = win({ id: "near", claimed: true });
+  const { session, plan } = sceneEnter(null, "kansas", [far, farMin, near], [
+    { stableKey: "far|Window|1", x: 10, y: 20, w: 300, h: 200 },
+  ]);
+  assert.deepEqual(plan.frames, []);
+  assert.deepEqual(plan.focus, ["near"]);
+  assert.deepEqual(plan.restore, []);
+  assert.deepEqual(plan.minimize, []);
+  // Still in the snapshot: leave must not strand it.
+  assert.deepEqual(
+    session.snapshot.map((s) => s.id),
+    ["far", "far-min", "near"],
+  );
+});
+
 test("scene_switch_keeps_original_snapshot", () => {
   const first = [
     win({ id: "a", claimed: true, frame: { x: 10, y: 20, w: 300, h: 200 } }),
@@ -123,6 +148,46 @@ test("scene_leave_restores_snapshot_frames", () => {
   assert.deepEqual(save, [{ stableKey: "a|Window|1", x: 900, y: 30, w: 500, h: 700 }]);
   // Focus returns to the window that had it before the scene.
   assert.deepEqual(plan.focus, ["a"]);
+});
+
+test("scene_leave_reminimizes_what_was_minimized_before", () => {
+  // Leave restores minimized state, not just frames: a claimed window that
+  // was in the Dock before the scene goes back into the Dock.
+  const before = [
+    win({ id: "claimed-min", claimed: true, minimized: true, frame: { x: 40, y: 60, w: 800, h: 500 } }),
+    win({ id: "other" }),
+  ];
+  const { session } = sceneEnter(null, "kansas", before, [
+    { stableKey: "claimed-min|Window|1", x: 10, y: 20, w: 300, h: 200 },
+  ]);
+  assert.equal(session.snapshot[0].minimized, true);
+  // Inside the scene the window is up at its saved frame.
+  const inScene = [
+    win({ id: "claimed-min", claimed: true, frame: { x: 10, y: 20, w: 300, h: 200 } }),
+    win({ id: "other", minimized: true }),
+  ];
+  const { plan } = sceneLeave({ pid: "kansas", snapshot: session.snapshot }, inScene);
+  assert.deepEqual(plan.minimize, ["claimed-min"]);
+  assert.deepEqual(plan.restore, ["other"]);
+  const byId = new Map(plan.frames.map((f) => [f.id, f]));
+  assert.deepEqual(byId.get("claimed-min"), { id: "claimed-min", x: 40, y: 60, w: 800, h: 500 });
+  // A window that was up and stayed up is neither stowed nor restored.
+  assert.equal(plan.minimize.includes("other"), false);
+  assert.equal(plan.restore.includes("claimed-min"), false);
+});
+
+test("scene_leave_reminimize_needs_the_caller", () => {
+  // plan.minimize is only worth anything if leaveScene applies it, and after
+  // the frame writes so the Dock box is the pre-scene box.
+  const body = src("src/lib/rail/pagePointer.svelte.ts");
+  const at = body.indexOf("export async function leaveScene");
+  assert.ok(at >= 0);
+  const fn = body.slice(at, body.indexOf("\n}", at));
+  assert.match(fn, /plan\.minimize/);
+  const frameWrite = fn.indexOf('invoke("set_window_frame"');
+  const stow = fn.indexOf('invoke("minimize_window"');
+  assert.ok(frameWrite >= 0, "leave writes the pre-scene frames");
+  assert.ok(stow > frameWrite, "the re-minimize comes after the frame writes");
 });
 
 test("scene_leave_skips_closed_window", () => {

@@ -317,12 +317,17 @@ export function sceneEnter(
   const minimize = windows
     .filter((w) => w.frame != null && !w.claimed && !w.minimized && w.onScreen)
     .map((w) => w.id);
-  // A claimed window the user had minimized comes back for the scene.
-  const restore = windows.filter((w) => w.claimed && w.minimized).map((w) => w.id);
+  // A claimed window the user had minimized comes back for the scene — same
+  // rule: one we cannot place on this Space is left in the Dock.
+  const restore = windows
+    .filter((w) => w.claimed && w.minimized && w.onScreen)
+    .map((w) => w.id);
   const frames: SceneFrameWrite[] = [];
   const raised: SceneWindowRow[] = [];
   for (const w of windows) {
-    if (!w.claimed) continue;
+    // Not on this Space: no frame write, no raise, no restore. A scene never
+    // reaches across a Space or onto a display that is gone (Needs Matt 4).
+    if (!w.claimed || !w.onScreen) continue;
     raised.push(w);
     if (w.frame == null) continue;
     const was = saved.find((f) => f.stableKey === w.stableKey);
@@ -345,11 +350,15 @@ export function sceneLeave(
 ): { plan: ScenePlan; save: SceneSavedFrame[] } {
   const live = new Map(windows.map((w) => [w.id, w]));
   const restore: string[] = [];
+  const minimize: string[] = [];
   const frames: SceneFrameWrite[] = [];
   for (const s of session.snapshot) {
     const w = live.get(s.id);
     if (!w) continue;
     if (!s.minimized && w.minimized) restore.push(s.id);
+    // The other direction: it was in the Dock before the scene and the scene
+    // (or the user) brought it up. Leave puts it back in the Dock.
+    if (s.minimized && !w.minimized) minimize.push(s.id);
     if (w.frame != null && !sceneNear(w.frame, s)) {
       frames.push({ id: s.id, x: s.x, y: s.y, w: s.w, h: s.h });
     }
@@ -364,8 +373,10 @@ export function sceneLeave(
       w: w.frame!.w,
       h: w.frame!.h,
     }));
-  const back = session.snapshot.find((s) => s.frontmost && live.has(s.id));
-  return { plan: { minimize: [], restore, frames, focus: back ? [back.id] : [] }, save };
+  // Frontmost goes last, but only if it is still on the desk: a window the
+  // snapshot had in the Dock cannot take focus without coming back up.
+  const back = session.snapshot.find((s) => s.frontmost && !s.minimized && live.has(s.id));
+  return { plan: { minimize, restore, frames, focus: back ? [back.id] : [] }, save };
 }
 
 export function habitatStops(sections: readonly HabitatSection[]): HabitatStop[] {

@@ -716,6 +716,15 @@ export async function leaveScene(scope: Scope_leaveScene): Promise<void> {
       /* a closed window is not a reason to abort the leave */
     }
   }
+  // Frames first, then stow: a window that was in the Dock before the scene
+  // goes back into the Dock at its pre-scene box.
+  for (const id of out.plan.minimize) {
+    try {
+      await scope.invoke("minimize_window", { id });
+    } catch {
+      /* a window that refuses to stow stays where it is */
+    }
+  }
   for (const id of out.plan.focus) {
     try {
       await scope.invoke("focus_window", { id });
