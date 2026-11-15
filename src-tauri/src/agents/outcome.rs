@@ -78,6 +78,7 @@ pub(crate) fn from_go_stage(stage: &str, result_line: &str) -> OutcomeState {
     OutcomeState::Idle
 }
 
+#[allow(dead_code)] // the five words; phrase_from_state is the shared printer
 pub(crate) fn words(s: OutcomeState) -> &'static str {
     match s {
         OutcomeState::Working => "working",
@@ -88,85 +89,10 @@ pub(crate) fn words(s: OutcomeState) -> &'static str {
     }
 }
 
-/// Prefixes are built here so this file has no home-path literal.
-fn path_prefixes() -> [String; 3] {
-    [
-        format!("/{}s/", "User"),
-        format!("/{}/", "home"),
-        format!("{}{}", '~', '/'),
-    ]
-}
+#[path = "seat_phrase.rs"]
+mod seat_phrase;
 
-fn strip_prefixes(s: &str, prefixes: &[String]) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while !rest.is_empty() {
-        if let Some(n) = prefixes.iter().find_map(|p| {
-            rest.strip_prefix(p.as_str()).map(|tail| {
-                let extra = tail.find(|c: char| c.is_whitespace()).unwrap_or(tail.len());
-                p.len() + extra
-            })
-        }) {
-            rest = &rest[n..];
-            continue;
-        }
-        let ch = rest.chars().next().unwrap();
-        out.push(ch);
-        rest = &rest[ch.len_utf8()..];
-    }
-    out
-}
-
-fn is_box_drawing(c: char) -> bool {
-    ('\u{2500}'..='\u{257F}').contains(&c)
-}
-
-/// `n/m:` key hints, as in `1/5:select`.
-fn has_count_hint(s: &str) -> bool {
-    let b = s.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        if !b[i].is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-        while i < b.len() && b[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i >= b.len() || b[i] != b'/' {
-            continue;
-        }
-        i += 1;
-        let start = i;
-        while i < b.len() && b[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i > start && i < b.len() && b[i] == b':' {
-            return true;
-        }
-    }
-    false
-}
-
-/// A TUI footer or key-hint line is not a plain status line.
-fn is_tui_footer(s: &str) -> bool {
-    s.chars().any(is_box_drawing)
-        || s.contains("Ctrl+")
-        || s.contains("Tab:")
-        || s.contains("Esc:")
-        || has_count_hint(s)
-}
-
-pub(crate) fn clamp_line(s: &str) -> String {
-    if is_tui_footer(s) {
-        return String::new();
-    }
-    let flat = s.replace(['\r', '\n', '\t'], " ");
-    let prefixes = path_prefixes();
-    let stripped = strip_prefixes(&flat, &prefixes);
-    let one = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
-    one.chars().take(120).collect()
-}
+pub(crate) use seat_phrase::{clamp_line, phrase_from_state};
 
 pub(crate) fn merge(lists: Vec<Vec<SeatOutcome>>) -> Vec<SeatOutcome> {
     let mut out: Vec<SeatOutcome> = Vec::new();
@@ -184,23 +110,28 @@ pub(crate) fn merge(lists: Vec<Vec<SeatOutcome>>) -> Vec<SeatOutcome> {
     out
 }
 
-pub(crate) fn phrase_of(o: &SeatOutcome) -> String {
-    let w = words(o.state);
-    if o.line.is_empty() {
-        w.to_string()
-    } else {
-        format!("{w} · {}", o.line)
+fn state_key(s: OutcomeState) -> &'static str {
+    match s {
+        OutcomeState::Working => "working",
+        OutcomeState::WaitingOnYou => "waiting_on_you",
+        OutcomeState::Idle => "idle",
+        OutcomeState::Failed => "failed",
+        OutcomeState::Done => "done",
     }
+}
+
+pub(crate) fn phrase_of(o: &SeatOutcome) -> String {
+    phrase_from_state(state_key(o.state), &o.line)
 }
 
 pub(crate) fn saved_phrase(run_state: &str, line: &str) -> String {
     let state = from_herdr("unknown", "", false, run_state);
-    let line = clamp_line(line);
-    if line.is_empty() {
-        words(state).to_string()
-    } else {
-        format!("{} · {line}", words(state))
-    }
+    phrase_of(&SeatOutcome {
+        seat: String::new(),
+        state,
+        line: line.to_string(),
+        since: 0,
+    })
 }
 
 pub(crate) fn door_from(enabled: bool, source: &str, adapters: &[&dyn SeatAdapter]) -> Value {
@@ -354,7 +285,8 @@ fn last_line(text: &str) -> String {
                 && !l.starts_with('│')
                 && !l.starts_with('╰')
                 && !l.starts_with("Update:")
-                && !is_tui_footer(l)
+                && !seat_phrase::is_tui_footer(l)
+                && !seat_phrase::is_status_chrome(l)
         })
         .next_back()
         .map(|s| s.trim_start_matches(['❯', '•', '-', '*']).trim().to_string())

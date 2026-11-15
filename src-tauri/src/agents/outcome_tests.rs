@@ -240,13 +240,9 @@ fn like_pick_line(s: &str) -> String {
 }
 
 fn ctl_seat_line(card: &str, state: OutcomeState, raw: &str) -> String {
-    let line = clamp_line(raw);
-    let w = words(state);
-    if line.is_empty() {
-        format!("{card} {w}")
-    } else {
-        format!("{card} {w} · {line}")
-    }
+    let key = serde_json::to_value(state).unwrap();
+    let key = key.as_str().unwrap();
+    format!("{card} {}", phrase_from_state(key, raw))
 }
 
 #[test]
@@ -286,6 +282,47 @@ fn tui_footer_is_not_the_short_line() {
 
     assert_eq!(saved_phrase("done", TUI_FOOTER), "done");
     assert_eq!(clamp_line("shipped the door"), "shipped the door");
+}
+
+/// Status-bar chrome (spinner, timer, token count, bracket buttons) is not a sentence.
+const STATUS_BAR: &str = "◆ Running Read ` 10h10m 10h10m ⇣20.0k [↓][stop]";
+
+#[test]
+fn status_bar_is_not_the_short_line() {
+    let state = from_herdr("none", "finished", true, "done");
+    assert_eq!(state, OutcomeState::Done);
+    assert_eq!(clamp_line(STATUS_BAR), "", "{STATUS_BAR}");
+    assert_eq!(
+        phrase_of(&seat("agent:c-fixture", state, STATUS_BAR, 1)),
+        "done"
+    );
+    assert_eq!(saved_phrase("done", STATUS_BAR), "done");
+    assert_eq!(phrase_from_state("done", STATUS_BAR), "done");
+    assert_eq!(phrase_from_state("done", TUI_FOOTER), "done");
+    assert_eq!(
+        phrase_from_state("done", "shipped the door"),
+        "done · shipped the door"
+    );
+    assert_eq!(ctl_seat_line("c-fixture", state, STATUS_BAR), "c-fixture done");
+    assert_eq!(ctl_seat_line("c-fixture", state, TUI_FOOTER), "c-fixture done");
+    let picked = like_pick_line(STATUS_BAR);
+    assert_eq!(ctl_seat_line("c-fixture", state, &picked), "c-fixture done");
+    assert_eq!(clamp_line(&last_line(STATUS_BAR)), "");
+    let above = format!("shipped the door\n{STATUS_BAR}");
+    assert_eq!(clamp_line(&last_line(&above)), "shipped the door");
+    let full = format!("done · {STATUS_BAR}");
+    assert!(!phrase_of(&seat("agent:c-fixture", state, STATUS_BAR, 1)).contains('◆'), "{full}");
+    for bit in ["10h10m", "20.0k", "[stop]", "[↓]", "⇣", "`"] {
+        assert!(
+            !phrase_of(&seat("agent:c-fixture", state, STATUS_BAR, 1)).contains(bit),
+            "{bit}"
+        );
+    }
+    let src = include_str!("../bin/orbittyctl/imp/print.rs");
+    assert!(
+        src.contains("phrase_from_state"),
+        "seat outcomes must use the same phrase function"
+    );
 }
 
 #[test]

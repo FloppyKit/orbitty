@@ -2,6 +2,9 @@ use super::parse::Opts;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+#[path = "../../../agents/seat_phrase.rs"]
+mod seat_phrase;
+
 pub(crate) fn default_sock() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
     PathBuf::from(home).join("Library/Application Support/space.orbitty.mac/control.sock")
@@ -574,20 +577,8 @@ pub(crate) fn print_human(tool: &str, data: &Value) {
                 let raw = seat.get("seat").and_then(Value::as_str).unwrap_or("");
                 let card = raw.strip_prefix("agent:").unwrap_or(raw);
                 let state = seat.get("state").and_then(Value::as_str).unwrap_or("");
-                let words = match state {
-                    "working" => "working",
-                    "waiting_on_you" => "waiting on you",
-                    "idle" => "idle",
-                    "failed" => "failed",
-                    "done" => "done",
-                    other => other,
-                };
                 let line = seat.get("line").and_then(Value::as_str).unwrap_or("");
-                if line.is_empty() {
-                    println!("{card} {words}");
-                } else {
-                    println!("{card} {words} · {line}");
-                }
+                println!("{card} {}", seat_phrase::phrase_from_state(state, line));
             }
         }
         "herdr.status" => {
