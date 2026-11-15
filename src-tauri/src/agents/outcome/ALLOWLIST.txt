@@ -1,0 +1,11 @@
+src-tauri/src/habitat/README.md	1	Habitat docs name herdr once.
+src-tauri/src/habitat/droid_inspect.rs	20	Walker caption still reads the saved herdr row. Not this unit.
+src-tauri/src/habitat/habitat_mac/mouse_up.rs	4	Walker click still names herdr for the existing peek. Untouched.
+src-tauri/src/habitat/habitat_mac/tick.rs	1	One herdr mention in the mac tick. Untouched.
+src-tauri/src/habitat/herdr.rs	106	Habitat herdr module: herdr, goose, grok, and the Hermes launcher. Pinned so a new hit fails.
+src-tauri/src/habitat/mod.rs	1	One herdr mention. The outcome field adds none.
+src/lib/RailPage.svelte	28	Hermes launcher plus one herdr mention. The seat poll must not add a name.
+src/lib/rail/List.svelte	12	Hermes rows in the agents lane. No door-backed row UI in this unit.
+src/lib/rail/pageClaim.svelte.ts	19	Hermes launcher helpers and two herdr mentions on the run row.
+src/lib/rail/pageDrag.svelte.ts	9	Hermes class checks on drag. Untouched.
+src/lib/rail/rail-rows.css	4	Hermes row chrome. Untouched.
