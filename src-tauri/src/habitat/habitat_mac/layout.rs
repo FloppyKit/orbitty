@@ -8,7 +8,7 @@ use super::art::{base64_decode, fallback_pack_index, ns_image_from_bytes};
 use super::draw;
 use super::geom::{disc_to_view, walker_fit};
 use super::pose::{
-    door_word, droid_glance, hash_str, pose_for, sleeper_target, station_target, yard_pick,
+    door_word, droid_glance, hash_str, pose_for, pose_name, sleeper_target, station_target, yard_pick,
 };
 use super::roam::RoamState;
 use super::{
@@ -80,6 +80,27 @@ pub(crate) fn layout_decor(planet: &mut Planet) {
     }
 }
 
+/// FIX1 (Matt 2026-11-16): one launch line per walker, so a dogfood log says
+/// WHICH pose left a body on the front rim. A `sit` on a walker that no
+/// Needed names is the classification bug; a `roam` / `work` still standing
+/// there is the step bug. Printed once per new roam entry (a fresh launch),
+/// never per tick.
+fn log_launch_pose(id: &str, pose: Pose, asleep: bool, droid: bool, e: Option<&HabitatEntry>) {
+    let (needed, card, kind, outcome) = match e {
+        Some(e) => (
+            e.needed_state.as_str(),
+            e.card_status.as_str(),
+            e.card_kind.as_str(),
+            e.outcome.as_str(),
+        ),
+        None => ("", "", "", ""),
+    };
+    eprintln!(
+        "habitat: launch pose id={id} pose={} asleep={asleep} droid={droid} needed={needed:?} card={card:?} kind={kind:?} outcome={outcome:?}",
+        pose_name(pose)
+    );
+}
+
 pub(crate) fn layout_beings(planet: &mut Planet) {
     let side = (planet.radius + VIEW_PADDING) * 2.0;
     let center = NSPoint {
@@ -93,6 +114,7 @@ pub(crate) fn layout_beings(planet: &mut Planet) {
         let asleep = planet.walkers.get(i).map(|b| b.asleep).unwrap_or(false);
         // WORLD-PLACES: a fresh board-pose roam starts at the house.
         let house = house_spawn(planet, id);
+        let fresh_roam = !planet.roam.contains_key(id);
         planet.roam.entry(id.clone()).or_insert_with(|| {
             // Closed sleeper: park in the camp (north of igloo, west of
             // grass) — never seed on the green. Minimized is not asleep.
@@ -197,6 +219,11 @@ pub(crate) fn layout_beings(planet: &mut Planet) {
                 }
             }
         });
+        if fresh_roam {
+            let droid = planet.walkers.get(i).and_then(|b| b.droid).is_some();
+            let e = planet.walker_entries.iter().find(|x| &x.id == id);
+            log_launch_pose(id, pose, asleep, droid, e);
+        }
     }
     let live: std::collections::HashSet<String> = ids.iter().cloned().collect();
     planet.roam.retain(|k, _| live.contains(k));
