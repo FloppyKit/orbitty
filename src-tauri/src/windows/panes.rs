@@ -606,9 +606,12 @@ pub(crate) fn peek_dismiss_for_layer(layer: PeekLayer) -> PeekDismiss {
     match peek_layer_after_dismiss(layer) {
         // Preview -> Pills: the preview closes and the pills come back.
         PeekLayer::Pills => PeekDismiss::RestorePills,
-        // Pills -> None: the second step hides the pills.
-        PeekLayer::None => PeekDismiss::HidePills,
-        PeekLayer::Preview => PeekDismiss::Nothing,
+        // Pills -> None: the second step hides the pills. hide_peek_capsule is
+        // the only path that clears the arm, so only a real step may reach it.
+        PeekLayer::None if layer == PeekLayer::Pills => PeekDismiss::HidePills,
+        // Neither pane visible -> None: this dismiss landed in the fold gap
+        // (pills already hidden, preview not up yet). Not "hide the capsule".
+        _ => PeekDismiss::Nothing,
     }
 }
 
@@ -621,10 +624,15 @@ pub(crate) enum PeekGlobalEvent {
     Other,
 }
 
-pub(crate) fn peek_global_is_away(event: PeekGlobalEvent, _layer: PeekLayer) -> bool {
+pub(crate) fn peek_global_is_away(event: PeekGlobalEvent, layer: PeekLayer) -> bool {
     match event {
+        // Esc on another app still dismisses one step.
         PeekGlobalEvent::Escape => true,
-        PeekGlobalEvent::MouseDown { .. } => true,
+        // A mouse-down counts only after the preview is the visible layer. The
+        // click that opened peek, and anything in the fold gap, is not away.
+        PeekGlobalEvent::MouseDown { window_known } => {
+            !window_known && layer == PeekLayer::Preview
+        }
         PeekGlobalEvent::Other => false,
     }
 }
@@ -653,7 +661,8 @@ fn show_pills_from_arm(app: &tauri::AppHandle) -> Result<(), String> {
     }
     w.show().map_err(|e| e.to_string())?;
     let _ = w.set_always_on_top(true);
-    w.set_focus().map_err(|e| e.to_string())?;
+    // Focus is not success: order front. A focus error must not fail the
+    // restore and must not end with the arm cleared.
     crate::drawers::appkit_order_front(app, &w);
     let _ = w.set_ignore_cursor_events(false);
     emit_pane_vis(app, "peek-capsule", true);
@@ -711,7 +720,7 @@ pub fn show_peek_capsule(
     }
     w.show().map_err(|e| e.to_string())?;
     let _ = w.set_always_on_top(true);
-    w.set_focus().map_err(|e| e.to_string())?;
+    // Focus is not success: order front. A focus error must not fail the show.
     crate::drawers::appkit_order_front(app, &w);
     let _ = w.set_ignore_cursor_events(false);
     emit_pane_vis(app, "peek-capsule", true);
@@ -790,19 +799,19 @@ pub fn show_peek_preview(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(r) = peek_capsule_place(&arm.entry_id, size) {
         crate::drawers::appkit_place_points(&w, &r);
     }
-    // Fold: hide the pills row, then show the preview. The arm stays so a
-    // close can bring the pills back. Never leave both on screen.
-    hide_labeled(&app, "peek-capsule");
-    if let Err(e) = w.show() {
-        let _ = show_pills_from_arm(&app);
-        return Err(e.to_string());
-    }
+    // Fold: show the preview first, then hide the pills row, so a failed show
+    // is not a return with the pills already hidden. The arm stays so a close
+    // can bring the pills back. Never leave both on screen.
+    w.show().map_err(|e| e.to_string())?;
     let _ = w.set_always_on_top(true);
-    w.set_focus().map_err(|e| e.to_string())?;
     crate::drawers::appkit_order_front(&app, &w);
     let _ = w.set_ignore_cursor_events(false);
     emit_pane_vis(&app, "peek-preview", true);
     let _ = app.emit_to("peek-preview", "herdr-peek", &arm.view);
+    // The preview is up and ordered front, so the fold is safe now. Nothing
+    // past this point can fail: a focus error must not hide the preview and
+    // must not clear the arm. Peek does not take focus.
+    hide_labeled(&app, "peek-capsule");
     sync_peek_monitors(true);
     Ok(())
 }
