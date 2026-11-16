@@ -642,14 +642,20 @@ export function habitatEntryFor(scope: Scope_habitatEntryFor, w: WindowInfo, p: 
         .filter((k) => k.status === "done")
         .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0];
   const card = openCard ?? doneCard;
-  // A Needed (open/later) naming this window — or this project
-  // with no window — sits the walker. Needed wins over Doing.
+  // A Needed (open/later) that NAMES this window sits the walker.
+  // Needed wins over Doing. FIX1 (Matt 2026-11-16): it must name this
+  // window. The old "or this project with no window" clause sat EVERY
+  // claimed window on a disc that carried one planet-level Needed, so
+  // every walker froze on the front rim (kansas had two such cards). A
+  // planet-level Needed still shows on the board, and it still sits an
+  // agent run whose GO it names (agentEntriesFor → goNeededOnPlanet);
+  // it just never sits a window walker it does not name.
   const needed = scope.kanbanCards.find(
     (k) =>
       k.kind === "needed" &&
       (k.neededState === "open" || k.neededState === "later") &&
-      (k.windowId === w.id ||
-        (k.windowId == null && (k.projectId ?? "") === p.id)),
+      k.windowId === w.id &&
+      ((k.projectId ?? "") === p.id || !k.projectId),
   );
   return {
     id: w.id,
