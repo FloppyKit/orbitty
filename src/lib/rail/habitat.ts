@@ -689,14 +689,43 @@ export function revealWanted(hoverEdge: boolean, hotkey: boolean): boolean {
   return hoverEdge || hotkey;
 }
 
+// ---- FIX2: hold auto-hide across a scene toggle ----------------------
+// Entering or leaving a scene once focused a window, which activated its
+// app and blurred the rail; the park fired under a second and the rail
+// could not be clicked. The toggle no longer activates anything, and it
+// holds the park for a moment so the desk can settle (dogfood checks
+// three seconds). Module state, not state.json: a reload forgets it.
+export const SCENE_HOLD_MS = 3500;
+
+let sceneHoldUntil = 0;
+
+/** A scene toggle just ran: do not park until the hold runs out. */
+export function armSceneHold(now = Date.now(), ms = SCENE_HOLD_MS): void {
+  const until = now + Math.max(0, ms);
+  if (until > sceneHoldUntil) sceneHoldUntil = until;
+}
+
+/** True while a toggle's hold is still running. */
+export function sceneHoldActive(now = Date.now()): boolean {
+  return now < sceneHoldUntil;
+}
+
+/** Drop the hold (tests, and a plain reload). */
+export function clearSceneHold(): void {
+  sceneHoldUntil = 0;
+}
+
 /** Hide only when the auto-hide pref is on, focus has left, and the pointer
- *  is outside the strip and the edge hit-zone. */
+ *  is outside the strip and the edge hit-zone. A scene toggle's hold keeps
+ *  the rail up regardless of focus, so a click still lands. */
 export function autoHideWanted(opts: {
   railAutoHideOnBlur: boolean;
   focusInside: boolean;
   pointerInside: boolean;
+  now?: number;
 }): boolean {
   if (!opts.railAutoHideOnBlur) return false;
+  if (sceneHoldActive(opts.now)) return false;
   if (opts.focusInside || opts.pointerInside) return false;
   return true;
 }

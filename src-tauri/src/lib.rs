@@ -149,6 +149,14 @@ fn restore_window(id: String) -> Result<(), String> {
     windows::restore_window(&id)
 }
 
+/// Planet scenes (GO 42b FIX2): deminiaturize only, never activate. A scene
+/// toggle pulls claimed windows out of the Dock without handing focus to
+/// their app, so the rail is not blurred and does not auto-hide mid-toggle.
+#[tauri::command]
+fn deminiaturize_window(id: String) -> Result<(), String> {
+    windows::deminiaturize_window(&id)
+}
+
 #[tauri::command]
 fn tabbity_live() -> Vec<tabbity::TabLive> {
     tabbity::live_snapshot()
@@ -847,6 +855,7 @@ pub fn run() {
             focus_window,
             minimize_window,
             restore_window,
+            deminiaturize_window,
             tabbity_live,
             close_window,
             locate_window,

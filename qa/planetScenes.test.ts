@@ -9,18 +9,32 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  autoHideWanted,
   sceneEnter,
   sceneLeave,
   SCENE_TOLERANCE,
   type SceneSession,
   type SceneWindowRow,
 } from "../src/lib/rail/habitat.ts";
+// Namespace on purpose: a missing hold symbol then fails its own assertion
+// instead of taking the whole file down with a link error.
+import * as habitatScene from "../src/lib/rail/habitat.ts";
 import { mirrorItems, stagePreviewModel } from "../src/lib/rail/stagePlace.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function src(rel: string): string {
   return readFileSync(join(root, rel), "utf8");
+}
+
+/** One function body, from its `function name(` to the first column-0 `}`. */
+function fnText(rel: string, name: string): string {
+  const body = src(rel);
+  const at = body.indexOf(`function ${name}(`);
+  assert.ok(at >= 0, `${name} present`);
+  const end = body.indexOf("\n}", at);
+  assert.ok(end > at, `${name} has a body`);
+  return body.slice(at, end);
 }
 
 function win(partial: Partial<SceneWindowRow> & { id: string }): SceneWindowRow {
@@ -338,4 +352,95 @@ test("planetScenes_optional_in_state", () => {
     src("src-tauri/src/state/merge.rs"),
     /out\.planet_scenes = disk\.planet_scenes\.clone\(\)/,
   );
+});
+
+// ---- FIX2: a scene toggle must not hand focus to another app ----------
+// Entering or leaving a scene called restore_window, which is focus_window in
+// windows_mac.rs: focusing a window activates its app, the rail blurred, and
+// the auto-hide parked it under a second so it could not be clicked. The
+// toggle now unminimizes without activating and holds auto-hide across the
+// desk settle.
+
+test("scene_toggle_never_activates_another_app", () => {
+  const rel = "src/lib/rail/pagePointer.svelte.ts";
+  for (const name of ["enterScene", "leaveScene"]) {
+    const fn = fnText(rel, name);
+    // The raise order is still known; only its timing changed.
+    assert.match(fn, /plan\.focus/, `${name} still reads the raise order`);
+    // Unminimize with the command that does not activate.
+    assert.match(fn, /invoke\("deminiaturize_window"/, `${name} deminiaturizes`);
+    // Neither command may run inside the toggle: both activate the window.
+    assert.doesNotMatch(fn, /invoke\("restore_window"/, `${name} must not activate`);
+    assert.doesNotMatch(fn, /invoke\("focus_window"/, `${name} must not activate`);
+    // Held, not dropped.
+    assert.match(fn, /sceneDeferFocus\(/, `${name} defers the raise`);
+    // And the rail is held open across the activation the toggle used to cause.
+    assert.match(fn, /armSceneHold\(/, `${name} holds auto-hide`);
+  }
+});
+
+test("scene_deferred_raise_lands_when_the_pointer_leaves", () => {
+  const rel = "src/lib/rail/pagePointer.svelte.ts";
+  const leaveHook = fnText(rel, "onStageMouseLeave");
+  assert.match(
+    leaveHook,
+    /sceneFlushFocus/,
+    "the deferred raise flushes when the pointer leaves the rail",
+  );
+  // Sprite click and row raise keep restore_window + focus_window on purpose.
+  const raise = fnText(rel, "raisePlanetWindows");
+  assert.match(raise, /invoke\("restore_window"/);
+  assert.match(raise, /invoke\("focus_window"/);
+});
+
+test("scene_deminiaturize_command_is_registered", () => {
+  // The rail cannot call a function that is not a Tauri command: the Rust
+  // fn exists in windows_mac.rs, the wrapper and the handler entry are what
+  // make invoke("deminiaturize_window") resolve.
+  const lib = src("src-tauri/src/lib.rs");
+  assert.match(lib, /#\[tauri::command\]\s*\nfn deminiaturize_window\(id: String\)/);
+  const handler = lib.slice(lib.indexOf("generate_handler!["));
+  const list = handler.slice(0, handler.indexOf("])"));
+  assert.match(list, /deminiaturize_window/);
+  // The stub keeps the non-mac build compiling.
+  assert.match(src("src-tauri/src/windows/windows_stub.rs"), /fn deminiaturize_window/);
+});
+
+test("scene_toggle_holds_auto_hide_for_three_seconds", () => {
+  const hold = habitatScene as unknown as {
+    SCENE_HOLD_MS?: number;
+    armSceneHold?: (now?: number, ms?: number) => void;
+    clearSceneHold?: () => void;
+  };
+  const holdMs = hold.SCENE_HOLD_MS ?? 0;
+  assert.ok(holdMs >= 3000, "the dogfood check is three seconds");
+  assert.equal(typeof hold.armSceneHold, "function", "the toggle arms a hold");
+  assert.equal(typeof hold.clearSceneHold, "function");
+  const armSceneHold = hold.armSceneHold!;
+  const clearSceneHold = hold.clearSceneHold!;
+  const outside = { railAutoHideOnBlur: true, focusInside: false, pointerInside: false };
+  clearSceneHold();
+  // Without a toggle the rule is today's: outside focus and pointer hides.
+  assert.equal(autoHideWanted(outside), true);
+  const t0 = 1_000_000;
+  armSceneHold(t0);
+  assert.equal(autoHideWanted({ ...outside, now: t0 + 1 }), false);
+  assert.equal(autoHideWanted({ ...outside, now: t0 + 2999 }), false);
+  // The grace ends; the existing rules take over unchanged.
+  assert.equal(autoHideWanted({ ...outside, now: t0 + holdMs }), true);
+  // The pref still wins inside the grace, and focus still wins after it.
+  assert.equal(
+    autoHideWanted({ ...outside, railAutoHideOnBlur: false, now: t0 + 1 }),
+    false,
+  );
+  assert.equal(
+    autoHideWanted({ ...outside, railAutoHideOnBlur: false, now: t0 + holdMs }),
+    false,
+  );
+  assert.equal(
+    autoHideWanted({ ...outside, focusInside: true, now: t0 + holdMs }),
+    false,
+  );
+  clearSceneHold();
+  assert.equal(autoHideWanted(outside), true);
 });

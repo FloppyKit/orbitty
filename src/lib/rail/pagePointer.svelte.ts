@@ -13,7 +13,7 @@ import type {
   SceneWindowRow,
   StagePrefs,
 } from "./habitat";
-import { sceneEnter, sceneLeave } from "./habitat";
+import { armSceneHold, sceneEnter, sceneLeave } from "./habitat";
 import type { DismissInput, InputIntent, IntentInput } from "./railInput";
 
 type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -413,6 +413,8 @@ export function onStageMouseLeave(scope: Scope_onStageMouseLeave, e: MouseEvent)
   );
   if (side === "away") scope.pointerInside = false;
   scope.applyEdge({ kind: "leave", side });
+  // The rail has been used and left: now a raise cannot steal its click.
+  void sceneFlushFocus();
 }
 
 export function onWinBlur(scope: Scope_onWinBlur) {
@@ -568,6 +570,36 @@ export function rowById(scope: Scope_rowById, id: string): WindowInfo | undefine
 
 let sceneSession: SceneSession | null = null;
 
+// FIX2 (42b regression): a scene toggle used restore_window, which is
+// focus_window — focusing a window activates its app, the rail blurred and
+// the auto-hide parked it in under a second. The toggle now unminimizes with
+// deminiaturize_window (no activation) and keeps the raise here until the
+// pointer leaves the rail.
+let sceneDeferredRaise: { invoke: Invoke; ids: string[] } | null = null;
+
+/** Hold this raise until the pointer leaves the rail. One list: a second
+ *  toggle replaces the first, and one pointer-leave applies it once. */
+function sceneDeferFocus(invoke: Invoke, ids: readonly string[]): void {
+  const keep = ids.filter((id) => !!id);
+  sceneDeferredRaise = keep.length ? { invoke, ids: [...keep] } : null;
+}
+
+/** Pointer left the strip: a raise is safe now, the rail has had its click.
+ *  Fire and forget; a window gone since the toggle is skipped. */
+async function sceneFlushFocus(): Promise<void> {
+  const pending = sceneDeferredRaise;
+  sceneDeferredRaise = null;
+  if (!pending) return;
+  for (let i = 0; i < pending.ids.length; i++) {
+    try {
+      await pending.invoke("focus_window", { id: pending.ids[i] });
+    } catch {
+      /* the window closed while the pointer was still on the rail */
+    }
+    if (i + 1 < pending.ids.length) await new Promise((r) => setTimeout(r, 40));
+  }
+}
+
 /** The planet whose scene is open, or null. */
 export function scenePid(): string | null {
   return sceneSession?.pid ?? null;
@@ -670,9 +702,10 @@ export async function enterScene(scope: Scope_enterScene, pid: string): Promise<
   }
   for (const id of plan.restore) {
     try {
-      await scope.invoke("restore_window", { id });
+      // No activation: the rail keeps focus across the toggle (FIX2).
+      await scope.invoke("deminiaturize_window", { id });
     } catch {
-      /* a closed window drops out; the rest still raise */
+      /* a closed window drops out; the rest still rise */
     }
   }
   for (const f of plan.frames) {
@@ -682,14 +715,10 @@ export async function enterScene(scope: Scope_enterScene, pid: string): Promise<
       /* a window that refuses to move stays where it is */
     }
   }
-  for (let i = 0; i < plan.focus.length; i++) {
-    try {
-      await scope.invoke("focus_window", { id: plan.focus[i] });
-    } catch {
-      /* skip a window the OS will not raise */
-    }
-    if (i + 1 < plan.focus.length) await new Promise((r) => setTimeout(r, 40));
-  }
+  // Raising a claimed window activates its app and blurs the rail, so the
+  // raise waits for the pointer to leave; the hold keeps the rail clickable.
+  sceneDeferFocus(scope.invoke, plan.focus);
+  armSceneHold();
   await scope.tick?.();
 }
 
@@ -704,7 +733,8 @@ export async function leaveScene(scope: Scope_leaveScene): Promise<void> {
   sceneSession = null;
   for (const id of out.plan.restore) {
     try {
-      await scope.invoke("restore_window", { id });
+      // No activation: the rail keeps focus across the toggle (FIX2).
+      await scope.invoke("deminiaturize_window", { id });
     } catch {
       /* gone since the scene began */
     }
@@ -725,13 +755,9 @@ export async function leaveScene(scope: Scope_leaveScene): Promise<void> {
       /* a window that refuses to stow stays where it is */
     }
   }
-  for (const id of out.plan.focus) {
-    try {
-      await scope.invoke("focus_window", { id });
-    } catch {
-      /* the pre-scene frontmost window may be gone */
-    }
-  }
+  // The raise waits for the pointer to leave, exactly as on enter.
+  sceneDeferFocus(scope.invoke, out.plan.focus);
+  armSceneHold();
   await scope.tick?.();
 }
 

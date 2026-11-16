@@ -471,6 +471,23 @@
     };
   });
 
+  // flags.ts memoizes flagOn for the life of the page, so a flag turned on
+  // after this window opened would wait for a relaunch. The rail asks again,
+  // unmemoized, every time it is revealed: one extra read per reveal.
+  async function reReadSceneFlag() {
+    try {
+      const raw = await invoke<{ on?: unknown }>("flags_get", { id: "planet_scenes" });
+      if (raw && typeof raw.on === "boolean") sceneOn = raw.on;
+    } catch {
+      /* keep the last answer; the memoized read stays the default */
+    }
+  }
+
+  $effect(() => {
+    if (!rail.stageRevealed) return;
+    void reReadSceneFlag();
+  });
+
   function sceneScope() {
     return {
       windows: rail.windows as WindowInfo[],
