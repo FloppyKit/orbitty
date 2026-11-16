@@ -49,18 +49,22 @@ const FLAG_OFF: &[(bool, &str, &str, &str, Pose, u8)] = &[
     (false, "todo", "todo", "open", Pose::Sit, 0),
     (false, "todo", "todo", "later", Pose::Sit, 0),
     (false, "todo", "todo", "blocked", Pose::Stand, 0),
-    (false, "todo", "window", "", Pose::Roam, 0),
+    // FIX2: a claimed window ambles the grass pad, never the disc circle.
+    (false, "todo", "window", "", Pose::Work, 0),
     (false, "todo", "window", "open", Pose::Sit, 0),
     (false, "todo", "window", "later", Pose::Sit, 0),
-    (false, "todo", "window", "blocked", Pose::Roam, 0),
+    // FIX2: a blocked Needed never sits a window walker (unchanged) — the
+    // claim still ambles the grass pad instead of the disc circle.
+    (false, "todo", "window", "blocked", Pose::Work, 0),
     (false, "doing", "todo", "", Pose::Work, 0),
     (false, "doing", "todo", "open", Pose::Sit, 0),
     (false, "doing", "todo", "later", Pose::Sit, 0),
     (false, "doing", "todo", "blocked", Pose::Work, 0),
-    (false, "doing", "window", "", Pose::Roam, 0),
+    // FIX2: same for Doing — Work, not the ambient disc circle.
+    (false, "doing", "window", "", Pose::Work, 0),
     (false, "doing", "window", "open", Pose::Sit, 0),
     (false, "doing", "window", "later", Pose::Sit, 0),
-    (false, "doing", "window", "blocked", Pose::Roam, 0),
+    (false, "doing", "window", "blocked", Pose::Work, 0),
     (false, "done", "todo", "", Pose::WalkOff, 0),
     (false, "done", "todo", "open", Pose::Sit, 0),
     (false, "done", "todo", "later", Pose::Sit, 0),

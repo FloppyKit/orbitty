@@ -350,10 +350,34 @@ match pose {
 #[cfg(test)]
 mod grass_rim_tests {
     use super::*;
-    use crate::habitat::habitat_mac::pose::STATION_RIM;
+    use crate::habitat::habitat_mac::pose::{pose_for, STATION_RIM};
     use crate::habitat::habitat_mac::{
         station_target, yard_contains, Pose, RoamState, STATION_HOUSE,
     };
+    use crate::habitat::HabitatEntry;
+
+    /// A claimed window (no agent seed, no door word) in `status`.
+    fn window_claim(status: &str, id: &str) -> HabitatEntry {
+        HabitatEntry {
+            id: id.into(),
+            app_name: "app".into(),
+            title: "window".into(),
+            bundle_id: None,
+            minimized: false,
+            icon_base64: None,
+            age: "fresh".into(),
+            sprite_pack_id: String::new(),
+            char_seed: 0,
+            char_look: None,
+            sprite_scale: 0.0,
+            asleep: false,
+            card_status: status.into(),
+            card_kind: "window".into(),
+            needed_state: String::new(),
+            agent_seed: String::new(),
+            outcome: String::new(),
+        }
+    }
 
     /// One walker's roam cell, all flags at their fresh-claim values.
     fn roam_at(x: f64, y: f64, tx: f64, ty: f64) -> RoamState {
@@ -483,6 +507,45 @@ mod grass_rim_tests {
             settle(&mut r, Pose::Sit, id, 8.0, true);
             assert_eq!((r.x, r.y), (sx, sy), "{id} left the Sit station");
             assert!(on_rim(&r), "{id} not on the rim: ({}, {})", r.x, r.y);
+        }
+    }
+
+    /// FIX2 (Matt 2026-11-16): a claimed kind:"window" ticket (todo or
+    /// doing) is not a Needed and not board work — it ambles the grass
+    /// pad. Seeded out on the ambient disc circle it must walk onto the
+    /// pad and stay there, not roam the disc.
+    #[test]
+    fn window_claim_on_the_disc_walks_onto_the_grass() {
+        // Two disc points the ambient circle really reaches, both off the
+        // pad: north of it and east of it.
+        let disc = [(0.0, -0.62), (0.66, 0.12)];
+        for status in ["todo", "doing"] {
+            for id in IDS {
+                let pose = pose_for(&window_claim(status, id));
+                assert_eq!(pose, Pose::Work, "{status} window claim pose");
+                for (x, y) in disc {
+                    let mut r = roam_at(x, y, x, y);
+                    // Nobody else working: the ambient disc circle's case.
+                    settle(&mut r, pose, id, 8.0, false);
+                    assert!(
+                        yard_contains(r.x, r.y),
+                        "{status} {id} roamed off the grass from ({x}, {y}): ({}, {})",
+                        r.x,
+                        r.y
+                    );
+                }
+            }
+        }
+    }
+
+    /// A claimed window with a real Needed on it still sits the rim —
+    /// FIX2 must not drag a Needed onto the grass.
+    #[test]
+    fn window_claim_with_a_needed_keeps_sitting_the_rim() {
+        for id in IDS {
+            let mut e = window_claim("doing", id);
+            e.needed_state = "open".into();
+            assert_eq!(pose_for(&e), Pose::Sit, "{id} needed window pose");
         }
     }
 

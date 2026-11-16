@@ -126,11 +126,16 @@ pub(crate) fn pose_for(entry: &HabitatEntry) -> Pose {
         return Pose::Sit;
     }
     match entry.card_status.as_str() {
-        // Legacy kind:"window" tickets are not board work — bare claim /
-        // leftover window cards roam the grass. Board contact is only for
-        // a real kind:"todo" bind (Stand/Work) or Done.
-        "todo" if entry.card_kind == "window" => Pose::Roam,
-        "doing" if entry.card_kind == "window" => Pose::Roam,
+        // FIX2 (Matt 2026-11-16): a claimed kind:"window" ticket is not
+        // board work — it never touches the board (no Stand, no check-in).
+        // It is also NOT the ambient disc circle: Roam with the beach ball
+        // off is the whole disc, and a claimed window walker was free to
+        // roam it. Both columns amble the grass pad instead (Work), the
+        // same yard a Doing card gets. A Needed that names this window
+        // still wins above (Sit at the rim); a walker with no card at all
+        // is still Roam (the disc is the ambience).
+        "todo" if entry.card_kind == "window" => Pose::Work,
+        "doing" if entry.card_kind == "window" => Pose::Work,
         "todo" => Pose::Stand,
         "doing" => Pose::Work,
         "done" => Pose::WalkOff,
