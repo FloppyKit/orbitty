@@ -325,3 +325,156 @@ match pose {
     }
 }
 }
+
+#[cfg(test)]
+mod grass_rim_tests {
+    use super::*;
+    use crate::habitat::habitat_mac::pose::STATION_RIM;
+    use crate::habitat::habitat_mac::{
+        station_target, yard_contains, Pose, RoamState, STATION_HOUSE,
+    };
+
+    /// One walker's roam cell, all flags at their fresh-claim values.
+    fn roam_at(x: f64, y: f64, tx: f64, ty: f64) -> RoamState {
+        RoamState {
+            x,
+            y,
+            tx,
+            ty,
+            pause_end: None,
+            facing_left: false,
+            facing_dir: 0,
+            off_emitted: false,
+            via_board: false,
+            via_home: false,
+            via_checkin: false,
+            checkin_emit_at: None,
+            wander_seed: 0,
+        }
+    }
+
+    /// house_spawn: the doorstep, where a fresh claim walks in from.
+    fn house() -> (f64, f64) {
+        (STATION_HOUSE.0 + 0.12, STATION_HOUSE.1)
+    }
+
+    /// The front rim, as the Sit seed / snap leaves it (exact station).
+    fn rim(id: &str) -> (f64, f64) {
+        station_target(Pose::Sit, id)
+    }
+
+    /// The board's near lip is not what these pin, so any south point does.
+    fn lip() -> (f64, f64) {
+        (0.0, 0.30)
+    }
+
+    /// Ids that cover both rim offsets: inside the inset yard and past it.
+    const IDS: [&str; 4] = ["agent:c1", "agent:c2", "window:1", "window:2"];
+
+    /// Walk one pose for `secs` at the anim cadence, ball OFF, someone
+    /// else working (any_work_sit), the walker itself not a droid chore.
+    fn settle(r: &mut RoamState, pose: Pose, id: &str, secs: f64, any_work_sit: bool) {
+        let dt = 1.0 / 60.0;
+        for _ in 0..(secs / dt) as usize {
+            let mut moved = false;
+            let mut dirty = false;
+            let mut stepping = false;
+            step_pose(
+                r,
+                pose,
+                id,
+                0,
+                dt,
+                std::time::Instant::now(),
+                0.0,
+                house(),
+                lip(),
+                false,
+                any_work_sit,
+                true,
+                false,
+                true,
+                &mut moved,
+                &mut dirty,
+                &mut stepping,
+            );
+        }
+    }
+
+    /// Still inside the front-rim disc of STATION_RIM (max Sit offset 0.08)?
+    fn on_rim(r: &RoamState) -> bool {
+        (r.x - STATION_RIM.0).abs() <= 0.09 && (r.y - STATION_RIM.1).abs() <= 0.09
+    }
+
+    #[test]
+    fn work_from_the_house_reaches_the_grass() {
+        for id in IDS {
+            let (tx, ty) = station_target(Pose::Work, id);
+            let mut r = roam_at(house().0, house().1, tx, ty);
+            settle(&mut r, Pose::Work, id, 8.0, true);
+            assert!(yard_contains(r.x, r.y), "{id} not on the grass: ({}, {})", r.x, r.y);
+            assert!(!on_rim(&r), "{id} parked on the front rim: ({}, {})", r.x, r.y);
+        }
+    }
+
+    #[test]
+    fn work_seeded_on_the_rim_walks_onto_the_grass() {
+        for id in IDS {
+            let (sx, sy) = rim(id);
+            let mut r = roam_at(sx, sy, sx, sy);
+            settle(&mut r, Pose::Work, id, 8.0, true);
+            assert!(yard_contains(r.x, r.y), "{id} not on the grass: ({}, {})", r.x, r.y);
+            assert!(!on_rim(&r), "{id} still on the front rim: ({}, {})", r.x, r.y);
+        }
+    }
+
+    /// GO 57 design 4: the first snapshot may seed Sit, a later one may
+    /// say the walker is Doing. Keeping the roam entry must not freeze a
+    /// non-Needed walker on the rim.
+    #[test]
+    fn doing_walker_left_on_the_rim_walks_onto_the_grass() {
+        for id in IDS {
+            let (sx, sy) = rim(id);
+            let mut r = roam_at(sx, sy, sx, sy);
+            settle(&mut r, Pose::Roam, id, 8.0, true);
+            assert!(yard_contains(r.x, r.y), "{id} not on the grass: ({}, {})", r.x, r.y);
+            assert!(!on_rim(&r), "{id} stuck on the front rim: ({}, {})", r.x, r.y);
+        }
+    }
+
+    /// The ambience still parks where it stands — the rim is the only
+    /// leftover this walks home (no migrating every idle walker).
+    #[test]
+    fn doing_walker_parked_off_the_rim_stays_put() {
+        for id in IDS {
+            let mut r = roam_at(0.0, -0.90, 0.0, -0.90);
+            settle(&mut r, Pose::Roam, id, 4.0, true);
+            assert_eq!((r.x, r.y), (0.0, -0.90), "{id} moved off the disc north");
+        }
+    }
+
+    /// A real Needed sit is the station itself: it stays, exactly.
+    #[test]
+    fn needed_sit_stays_on_the_rim() {
+        for id in IDS {
+            let (sx, sy) = rim(id);
+            let mut r = roam_at(sx, sy, sx, sy);
+            settle(&mut r, Pose::Sit, id, 8.0, true);
+            assert_eq!((r.x, r.y), (sx, sy), "{id} left the Sit station");
+            assert!(on_rim(&r), "{id} not on the rim: ({}, {})", r.x, r.y);
+        }
+    }
+
+    /// A Todo walker left on the rim walks to the board lip (the third
+    /// non-sit pose): the rim is never a standing place it keeps.
+    #[test]
+    fn stand_left_on_the_rim_walks_to_the_board_lip() {
+        for id in IDS {
+            let (sx, sy) = rim(id);
+            let mut r = roam_at(sx, sy, sx, sy);
+            settle(&mut r, Pose::Stand, id, 8.0, true);
+            let d = ((r.x - lip().0).powi(2) + (r.y - lip().1).powi(2)).sqrt();
+            assert!(d < 0.03, "{id} not at the board lip: ({}, {})", r.x, r.y);
+        }
+    }
+}
