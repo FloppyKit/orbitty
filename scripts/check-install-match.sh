@@ -1,11 +1,14 @@
 #!/bin/zsh
-# Compare build-tree binaries to the installed app with signatures removed.
+# Compare the installed app to the bundle install-nightly.sh copies, with
+# signatures removed. Default source is that bundle, the SRC ditto'd into
+# Nightly; the raw cargo outputs in target/release are not the install source.
+# An explicit first argument still wins (a fixture dir, an .app, or raw release).
 # Copies first. Never strips the build tree or the installed bundle.
-# Usage: check-install-match.sh [build_dir] [installed.app | bin_dir]
+# Usage: check-install-match.sh [build_dir | build.app] [installed.app | bin_dir]
 set -euo pipefail
 
 names=(orbitty orbittyctl orbitty-mcp orbitty-relay)
-build=${1:-src-tauri/target/release}
+build=${1:-src-tauri/target/release/bundle/macos/Orbitty.app}
 dest=${2:-$HOME/Applications/Orbitty Nightly.app}
 
 bin_dir() {
