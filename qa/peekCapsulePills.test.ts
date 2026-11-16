@@ -147,11 +147,34 @@ test("peekCapsulePills fold, scroll bar, and one-step dismiss", () => {
 
   const panes = src("src-tauri/src/windows/panes.rs");
   const step = sliceFn(panes, "fn peek_dismiss_one_step", "fn show_labeled");
-  assert.match(step, /peek_layer_after_dismiss/);
+  assert.match(step, /peek_dismiss_for_layer/);
   assert.ok(step.indexOf("hide_peek_preview") < step.indexOf("hide_peek_capsule"));
+  // Neither pane visible is not "hide the capsule": no arm clear in that arm.
+  const nothingArm = step.slice(step.indexOf("PeekDismiss::Nothing"));
+  assert.ok(nothingArm.length > 0);
+  assert.equal(nothingArm.includes("hide_peek_capsule"), false);
   const law = sliceFn(panes, "fn peek_layer_after_dismiss", "fn peek_click_is_away");
   assert.match(law, /PeekLayer::Preview => PeekLayer::Pills/);
   assert.match(law, /PeekLayer::Pills => PeekLayer::None/);
+
+  // Fold stays, but only after the preview is actually shown: a failed show
+  // is not a return with the pills already hidden.
+  const showPeek = sliceFn(panes, "fn show_peek_preview", "fn hide_peek_preview");
+  const shownAt = showPeek.indexOf("w.show()");
+  const hidePillsAt = showPeek.indexOf('hide_labeled(&app, "peek-capsule")');
+  assert.ok(shownAt >= 0, "w.show() in show_peek_preview");
+  assert.ok(hidePillsAt > shownAt, "pills hidden only after the preview is shown");
+
+  // Focus is not success: a focus error must not fail the show or the restore.
+  assert.equal(showPeek.includes("set_focus"), false);
+  assert.equal(
+    sliceFn(panes, "fn show_pills_from_arm", "fn clear_peek_arm").includes("set_focus"),
+    false,
+  );
+  assert.equal(
+    sliceFn(panes, "fn show_peek_capsule", "fn hide_peek_capsule").includes("set_focus"),
+    false,
+  );
 
   const restore = sliceFn(panes, "fn hide_peek_preview", "fn reclamp_peek_preview");
   assert.match(restore, /show_pills_from_arm/);
@@ -172,4 +195,12 @@ test("peekCapsulePills fold, scroll bar, and one-step dismiss", () => {
   assert.match(dismiss, /peek_click_is_away/);
   assert.match(dismiss, /peek_dismiss_one_step/);
   assert.match(dismiss, /walker hit is not click-away/);
+
+  // Global left mouse-down is not unconditionally away: the opening click is
+  // not click-away. Esc still dismisses one step.
+  assert.equal(/1\s*=>\s*true/.test(dismiss), false);
+  assert.match(dismiss, /peek_global_is_away/);
+  const globalLaw = sliceFn(panes, "fn peek_global_is_away", "fn current_peek_layer");
+  assert.match(globalLaw, /PeekGlobalEvent::Escape => true/);
+  assert.match(globalLaw, /!window_known && layer == PeekLayer::Preview/);
 });

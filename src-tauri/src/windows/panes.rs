@@ -1672,7 +1672,28 @@ mod board_focus_wiring_pins {
 
 #[cfg(test)]
 mod peek_pills_tests {
-    use super::{pane_spec, peek_click_is_away, peek_layer_after_dismiss, PeekLayer};
+    use super::{
+        pane_spec, peek_click_is_away, peek_dismiss_for_layer, peek_global_is_away,
+        peek_layer_after_dismiss, PeekDismiss, PeekGlobalEvent, PeekLayer,
+    };
+
+    /// The arm is one process-wide slot, so the arm test takes a turn.
+    static ARM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn peek_arm_for_test() -> super::PeekArm {
+        super::PeekArm {
+            view: crate::herdr::peek::View {
+                card: "t1".into(),
+                status: "blocked".into(),
+                state: String::new(),
+                text: "peek text".into(),
+                source: "test".into(),
+                up: false,
+                outcome: String::new(),
+            },
+            entry_id: "agent:t1".into(),
+        }
+    }
 
     #[test]
     fn peek_capsule_pane_spec_is_one_row() {
@@ -1709,5 +1730,79 @@ mod peek_pills_tests {
         assert!(!peek_click_is_away(false, true, false));
         assert!(!peek_click_is_away(false, false, true));
         assert!(peek_click_is_away(false, false, false));
+    }
+
+    /// A dismiss that lands with neither pane visible is a no-op. It must not
+    /// hide the capsule, because hide_peek_capsule is the only path that
+    /// clears the arm: clearing it there leaves both panes hidden for good.
+    #[test]
+    fn dismiss_while_neither_visible_keeps_the_arm() {
+        let _serial = ARM_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        *super::PEEK_CAPSULE_ARM
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(peek_arm_for_test());
+
+        // Arm set, both panes not visible: this is the fold gap.
+        assert_eq!(peek_dismiss_for_layer(PeekLayer::None), PeekDismiss::Nothing);
+        assert!(
+            super::peek_capsule_arm().is_some(),
+            "a dismiss in the fold gap cleared the arm"
+        );
+
+        // Pills are the visible layer: the real second step hides them.
+        assert_eq!(peek_dismiss_for_layer(PeekLayer::Pills), PeekDismiss::HidePills);
+        assert!(
+            super::peek_capsule_arm().is_some(),
+            "deciding a dismiss cleared the arm"
+        );
+
+        // Preview is the visible layer: the pills come back and the arm stays.
+        assert_eq!(
+            peek_dismiss_for_layer(PeekLayer::Preview),
+            PeekDismiss::RestorePills
+        );
+        assert!(
+            super::peek_capsule_arm().is_some(),
+            "closing the preview cleared the arm"
+        );
+
+        super::clear_peek_arm();
+    }
+
+    /// Global left mouse-down is not unconditionally click-away. Esc still
+    /// dismisses one step; the click that opened peek does not.
+    #[test]
+    fn opening_click_is_not_click_away() {
+        // The opening click lands while the pills are still the visible layer.
+        assert!(!peek_global_is_away(
+            PeekGlobalEvent::MouseDown { window_known: false },
+            PeekLayer::Pills
+        ));
+        // Nothing visible at all: the gap between hide and show.
+        assert!(!peek_global_is_away(
+            PeekGlobalEvent::MouseDown { window_known: false },
+            PeekLayer::None
+        ));
+        // A mouse-down that names a window is our pane, a walker, or another
+        // app's window that the local monitor owns: not click-away.
+        assert!(!peek_global_is_away(
+            PeekGlobalEvent::MouseDown { window_known: true },
+            PeekLayer::Preview
+        ));
+        // Esc on another app still dismisses one step, at any layer.
+        assert!(peek_global_is_away(PeekGlobalEvent::Escape, PeekLayer::Pills));
+        assert!(peek_global_is_away(PeekGlobalEvent::Escape, PeekLayer::None));
+        // Once the preview is the visible layer, an unidentified global
+        // mouse-down is a click in another app: one step.
+        assert!(peek_global_is_away(
+            PeekGlobalEvent::MouseDown { window_known: false },
+            PeekLayer::Preview
+        ));
+        // A key that is not Esc is not away.
+        assert!(!peek_global_is_away(PeekGlobalEvent::Other, PeekLayer::Preview));
+        // The local monitor's pills / preview / walker exception stays.
+        assert!(!peek_click_is_away(true, false, false));
+        assert!(!peek_click_is_away(false, true, false));
+        assert!(!peek_click_is_away(false, false, true));
     }
 }
