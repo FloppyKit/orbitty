@@ -173,6 +173,16 @@ pub const FLAGS: &[FlagDef] = &[
         // It minimizes and moves real windows, so it turns on by hand only.
         auto_on_verify: false,
     },
+    FlagDef {
+        id: "net_guard",
+        default: false,
+        what: "permit door for an outbound host call",
+        go: "GO-ORBITTY-NET-GUARD",
+        added: "2026-11-16",
+        remove_after: "2027-01-15",
+        // No adapter is wired. Off denies every permit; on only opens the door.
+        auto_on_verify: false,
+    },
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]

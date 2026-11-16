@@ -75,6 +75,9 @@ mod state;
 mod windows;
 mod tabbity;
 mod flags;
+// GO-ORBITTY-NET-GUARD: the permit door. Public so `orbittyctl` can include
+// the same file by `#[path]` and so nothing here reads as dead code.
+pub mod net;
 mod ledger;
 mod shims;
 pub mod microtags;
