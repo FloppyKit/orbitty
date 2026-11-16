@@ -7,6 +7,7 @@
 use std::time::{Duration, Instant};
 
 use super::droid_pack;
+use super::pose::on_sit_station;
 use super::{
     emit_board_checkin, station_target, yard_clamp, yard_contains, yard_dwell_ms, yard_pick,
     yard_pick_sailing, yard_seed, Pose, RoamState, HOME_HIDE_X, YARD_ARRIVE, YARD_SAIL,
@@ -224,7 +225,27 @@ match pose {
         );
     }
     Pose::Roam => {
-        if any_work_sit {
+        // GO 57: a Needed spell leaves the body ON the front rim — the
+        // Sit seed and the Sit snap write the rim into x, y, tx and ty.
+        // Roam is not a sit, so a walker that should be on the grass
+        // walks back onto the pad instead of standing on the rim for
+        // good (the park below would otherwise freeze it there).
+        if on_sit_station(roam.x, roam.y, id) {
+            if roam.wander_seed == 0 {
+                roam.wander_seed = yard_seed(id);
+            }
+            let (tx, ty) = yard_pick(&mut roam.wander_seed);
+            roam.tx = tx;
+            roam.ty = ty;
+            roam.pause_end = None;
+        }
+        // Still on that walk onto the grass: finish the leg before
+        // parking. The target is a grass point and the body is not on
+        // it yet, so the park would strand it short of the pad (the
+        // yard's south edge is only 0.02 from the rim).
+        let onto_grass = yard_contains(roam.tx, roam.ty)
+            && ((roam.tx - roam.x).powi(2) + (roam.ty - roam.y).powi(2)).sqrt() >= 0.025;
+        if any_work_sit && !onto_grass {
             // Amble off while anyone works/sits: stand in
             // place — no re-park, no pause cycle.
             roam.tx = roam.x;

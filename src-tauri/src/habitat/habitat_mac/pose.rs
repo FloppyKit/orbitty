@@ -231,6 +231,17 @@ pub(crate) fn station_target(pose: Pose, entry_id: &str) -> (f64, f64) {
     (ax + a.cos() * r, ay + a.sin() * r)
 }
 
+/// Is this point EXACTLY the walker's own Sit station (the front rim)?
+/// The Sit seed and the Sit snap write that point into both the body and
+/// its target, from this one function, so an exact match can only be the
+/// leftover of a Needed spell (`station_target(Sit, ..)`). A grass point
+/// never matches: the wander picks are hashed off the walker's stream.
+/// GO 57: a walker that is not sitting must not stay parked there.
+pub(crate) fn on_sit_station(x: f64, y: f64, entry_id: &str) -> bool {
+    let (sx, sy) = station_target(Pose::Sit, entry_id);
+    (x - sx).abs() <= 1e-9 && (y - sy).abs() <= 1e-9
+}
+
 /// Stable point in the sleeper camp AABB (north of igloo, west of grass).
 /// Hashed so a stack of closed apps fans across the strip, never the green.
 pub(crate) fn sleeper_target(entry_id: &str) -> (f64, f64) {
