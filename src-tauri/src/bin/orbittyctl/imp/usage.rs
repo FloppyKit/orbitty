@@ -138,6 +138,11 @@ commands:
   flags list
   flags set <id> on|off
   flags auto on|off                 stop or resume auto-on after Verify
+  net status                        flag, allow count, kill set/not set (local files, no socket)
+  net allow-add -- HOST             add one exact host to net-allow.json
+  net allow-del -- HOST             remove that exact host
+  net kill on|off                   set or clear the kill file
+  net permit -- HOST                ask the door: allow or deny, with the reason
   seat outcomes                     one line per seat: card, plain state, short line
   herdr status                      hc health: up/source and version
   herdr peek <card> [--limit N]     read-only terminal preview
@@ -251,6 +256,14 @@ them). Omitted --date is today. log set leaves out a field to keep it;
 `--win1 \"\"` clears that line. log save trims the saved day and does not
 invent an empty one. journal append refuses a blank body. reflect write
 uses the local ledger template (no model call).
+
+net verbs are local: no control socket, no app needed. net-allow.json and
+the net-kill file sit beside the channel flag file in the app-data dir. An
+empty or missing net-allow.json denies every host. No wildcards: the host
+must be an exact entry (stored trimmed and lowercase). The kill file present
+denies every permit even with the flag on; removing it is the only clear.
+Flag net_guard is manual-only and ships off, and off denies every permit.
+Nothing is wired to the network yet — net permit only asks the door.
 
 needed answer --id n-… -- \"text\" applies an
 answer through the same needed-answer event path as the composer (the

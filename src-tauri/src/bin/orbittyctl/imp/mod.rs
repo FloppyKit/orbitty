@@ -5,6 +5,7 @@ use std::process::exit;
 
 mod call;
 mod ledger;
+mod net;
 mod parse;
 mod print;
 mod usage;
@@ -27,8 +28,9 @@ pub fn run() {
             exit(EXIT_OTHER);
         }
     };
-    if opts.words.first().map(String::as_str) == Some("ledger") {
-        match ledger::run(&opts) {
+    // `ledger` and `net` are local reads and writes: no control socket.
+    match opts.words.first().map(String::as_str) {
+        Some("ledger") => match ledger::run(&opts) {
             Ok(text) => {
                 print!("{text}");
                 exit(0);
@@ -37,7 +39,18 @@ pub fn run() {
                 eprintln!("{e}");
                 exit(EXIT_OTHER);
             }
-        }
+        },
+        Some("net") => match net::run(&opts) {
+            Ok(text) => {
+                print!("{text}");
+                exit(0);
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                exit(EXIT_OTHER);
+            }
+        },
+        _ => {}
     }
     let (tool, args) = match tool_call(&opts) {
         Ok(t) => t,
