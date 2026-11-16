@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::Manager;
 
 use super::NSPoint;
+use crate::panes::{PeekGlobalEvent, PeekLayer};
 
 /// NSEventMask: keyDown (1<<10) | leftMouseDown (1<<1).
 const PEEK_EVENT_MASK: u64 = 1026;
@@ -167,17 +168,30 @@ extern "C" fn peek_invoke(_block: *const PeekBlock, event: *mut Object) {
         if event.is_null() {
             return;
         }
-        // Global monitor: other apps. Esc or a click outside Orbitty.
+        // Global monitor: another app's key or click.
         let ty: u64 = msg_send![event, type];
-        let away = match ty {
+        let kind = match ty {
             10 => {
                 let key: u16 = msg_send![event, keyCode];
-                key == 53
+                if key == 53 {
+                    PeekGlobalEvent::Escape
+                } else {
+                    PeekGlobalEvent::Other
+                }
             }
-            1 => true,
-            _ => false,
+            1 => {
+                let win: *mut Object = msg_send![event, window];
+                PeekGlobalEvent::MouseDown {
+                    window_known: !win.is_null(),
+                }
+            }
+            _ => PeekGlobalEvent::Other,
         };
-        if away {
+        let layer = match super::app_handle() {
+            Some(app) => crate::panes::current_peek_layer(&app),
+            None => PeekLayer::None,
+        };
+        if crate::panes::peek_global_is_away(kind, layer) {
             hop_dismiss();
         }
     }));

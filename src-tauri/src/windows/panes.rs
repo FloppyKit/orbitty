@@ -594,7 +594,42 @@ pub(crate) fn peek_click_is_away(on_pills: bool, on_preview: bool, on_walker: bo
     !on_pills && !on_preview && !on_walker
 }
 
-fn current_peek_layer(app: &tauri::AppHandle) -> PeekLayer {
+/// One Esc or click-away, decided from the visible layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PeekDismiss {
+    RestorePills,
+    HidePills,
+    Nothing,
+}
+
+pub(crate) fn peek_dismiss_for_layer(layer: PeekLayer) -> PeekDismiss {
+    match peek_layer_after_dismiss(layer) {
+        // Preview -> Pills: the preview closes and the pills come back.
+        PeekLayer::Pills => PeekDismiss::RestorePills,
+        // Pills -> None: the second step hides the pills.
+        PeekLayer::None => PeekDismiss::HidePills,
+        PeekLayer::Preview => PeekDismiss::Nothing,
+    }
+}
+
+/// One event from the global monitor (another app's key or click).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PeekGlobalEvent {
+    Escape,
+    /// `window_known` is whether the event named a window.
+    MouseDown { window_known: bool },
+    Other,
+}
+
+pub(crate) fn peek_global_is_away(event: PeekGlobalEvent, _layer: PeekLayer) -> bool {
+    match event {
+        PeekGlobalEvent::Escape => true,
+        PeekGlobalEvent::MouseDown { .. } => true,
+        PeekGlobalEvent::Other => false,
+    }
+}
+
+pub(crate) fn current_peek_layer(app: &tauri::AppHandle) -> PeekLayer {
     if peek_label_visible(app, "peek-preview") {
         PeekLayer::Preview
     } else if peek_label_visible(app, "peek-capsule") {
@@ -827,10 +862,10 @@ pub fn prewarm_peek_preview(app: tauri::AppHandle) -> Result<(), String> {
 
 /// Esc or empty-glass click-away. One step: preview back to pills, then pills away.
 pub(crate) fn peek_dismiss_one_step(app: &tauri::AppHandle) -> Result<(), String> {
-    match peek_layer_after_dismiss(current_peek_layer(app)) {
-        PeekLayer::Pills => hide_peek_preview(app.clone(), Some(true)),
-        PeekLayer::None => hide_peek_capsule(app.clone()),
-        PeekLayer::Preview => Ok(()),
+    match peek_dismiss_for_layer(current_peek_layer(app)) {
+        PeekDismiss::RestorePills => hide_peek_preview(app.clone(), Some(true)),
+        PeekDismiss::HidePills => hide_peek_capsule(app.clone()),
+        PeekDismiss::Nothing => Ok(()),
     }
 }
 
